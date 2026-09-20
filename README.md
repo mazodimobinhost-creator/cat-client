@@ -1,95 +1,44 @@
 # Cat Client
 
-**A modern, clean & beautiful Android VPN / Proxy client**  
-Black • White • Deep Purple accents • Dark & Light mode
+**Development is happening here:**
 
-> کلاینت اندروید مدرن، ساده و زیبا با تم مشکی/سفید و اکسنت بنفش
+### → https://github.com/mazodimobinhost-creator/ArasClient
 
----
-
-## Vision
-
-Cat Client aims to be a polished, user-friendly client inspired by the best open-source projects in the community (ArasClient, WhiteVPN, v2rayNG, V2Box style UX).
-
-**Core goals:**
-- Beautiful UI (Jetpack Compose)
-- Full protocol support: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, ...
-- Subscription + single config import
-- Smart Connect (auto select lowest ping)
-- Country flag + real IP country detection
-- Connection globe animation (Iran → destination)
-- Real-time speed + ping in notification
-- Dark / Light theme + customizable purple accents
-- Persian + English
-- Clean IP / SNI scanner tools
-- Free configs section (external source, always updated)
-- No branding of other panels inside the app
+This repository is the original placeholder.  
+The real Cat Client codebase (rebranded from ArasClient + WhiteVPN ideas) lives in the ArasClient fork.
 
 ---
 
-## Important Reality Check
+## What was done
 
-Building a **fully working production VPN client** from zero is a large project (native cores, VpnService, routing, battery optimization, etc.).
+- Application ID changed to `com.cat.client`
+- APK output renamed to `CatClient_*.apk`
+- Project name → CatClient
+- Visible app name → **Cat Client**
+- README updated
 
-The recommended professional approach is:
+## Next steps for you
 
-1. **Fork a mature open-source client** as base:
-   - [ArasClient](https://github.com/ArasTey/ArasClient) (highly recommended — modern, fast, feature-rich)
-   - [WhiteVPN](https://github.com/WhiteDNS/WhiteVPN)
-   - [v2rayNG](https://github.com/2dust/v2rayNG)
+1. Clone the ArasClient fork:
+   ```bash
+   git clone https://github.com/mazodimobinhost-creator/ArasClient.git
+   cd ArasClient
+   ```
 
-2. Change branding to **Cat Client** (name, icon, colors, package name)
-3. Add the extra features you want on top of a working core
+2. Open in **Android Studio**
 
-This repository currently contains the project foundation and documentation.
+3. (Important) Refactor the package:
+   - Right click on `com.aras.client` package
+   - Refactor → Rename → `com.cat.client`
 
----
+4. Fix any remaining "ArasClient" strings if needed (search project)
 
-## Planned Features
-
-### Connection & Configs
-- [ ] Import single configs (VLESS / VMess / Trojan / SS / Hy2 ...)
-- [ ] Subscription links (auto update)
-- [ ] Smart Connect (ping all + connect fastest)
-- [ ] Real delay test + speed test
-- [ ] Share / Export configs
-
-### UI / UX
-- [x] Dark & Light mode
-- [ ] Custom purple accent color picker
-- [ ] Country flag next to server
-- [ ] Globe + connection line animation
-- [ ] Beautiful notification with upload/download speed + current server name
-- [ ] Persian / English language switch
-
-### Tools
-- [ ] Clean IP Scanner (with SNI / Spoof support)
-- [ ] Free configs section (fetched from external source, only healthy ones)
-- [ ] Subnet / custom IP list input for scanner
-
-### Panel Integration (optional)
-- User can paste Cloudflare API Token → deploy their own Worker panel → get private subscription
-- No third-party panel names shown inside the app
+5. Build the APK
 
 ---
 
-## App Icon Concept
+After the package rename works and the app builds, we can continue with:
+- Purple color theme
+- Icon (black/white cat + purple lightning)
+- Extra features from WhiteVPN
 
-Black & white cat + purple lightning bolt.
-
----
-
-## Development Status
-
-This repo is the **starting point**.  
-Real development should begin by forking one of the mature clients listed above and renaming it to Cat Client.
-
----
-
-## License
-
-GPL-3.0 (same as most community clients)
-
----
-
-Made with ♥ for the community
