@@ -8,11 +8,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedReader
-import java.net.HttpURLConnection
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.net.URL
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
