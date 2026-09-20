@@ -435,3 +435,20 @@
     <string name="notif_speed_up">↑ %1$s/s</string>
     <string name="ping_label">Ping</string>
     <string name="connected_to">Connected to</string>
+    <string name="cloud_title">Cloud Panels</string>
+    <string name="cloud_intro">Pick a panel to deploy on your Cloudflare account. Paste an API token once and Cat Client uploads the worker for you, or open the guide for server-based panels.</string>
+    <string name="cloud_token_hint">Cloudflare API Token</string>
+    <string name="cloud_token_help">Tap here to learn how to create a Cloudflare API token</string>
+    <string name="cloud_howto_title">How to create a Cloudflare API Token</string>
+    <string name="cloud_howto_body">1. Open dash.cloudflare.com → My Profile → API Tokens\n2. Tap <b>Create Token</b>\n3. Choose the <b>Edit Cloudflare Workers</b> template\n4. Leave Account Resources = All accounts\n5. Continue to summary → Create Token → copy the token\n6. Paste it here and tap Deploy on your chosen panel.</string>
+    <string name="cloud_deploy">Deploy on my Cloudflare</string>
+    <string name="cloud_open_guide">Install guide →</string>
+    <string name="cloud_deploying">Deploying %1$s …</string>
+    <string name="cloud_deployed">✓ Deployed!</string>
+    <string name="cloud_sub_label">Subscription link</string>
+    <string name="cloud_sub_copied">Subscription copied to clipboard. Cat Client will now open Subscriptions.</string>
+    <string name="cloud_add_sub">+ Add to subscriptions</string>
+    <string name="cloud_worker_url">Worker URL</string>
+    <string name="cloud_builtin_label">Built-in</string>
+    <string name="cloud_featured_label">Popular</string>
+    <string name="cloud_server_label">Server install</string>
