@@ -422,3 +422,15 @@
     <string name="accent_pink">صورتی</string>
     <string name="accent_green">سبز</string>
     <string name="accent_custom">سفارشی</string>
+    <string name="cf_panels_title">انتخاب پنل</string>
+    <string name="cf_panel_select">انتخاب</string>
+    <string name="cf_panel_deploying_panel">در حال نصب %1$s…</string>
+    <string name="cf_panel_worker_badge">Cloudflare Worker</string>
+    <string name="cf_panel_server_badge">نیاز به VPS</string>
+    <string name="cf_server_install_title">دستور نصب %1$s</string>
+    <string name="cf_server_install_guide">این پنل روی VPS اجرا می‌شود نه روی Cloudflare Workers. صفحه پروژه را از لینک پایین باز کنید و اسکریپت نصب را اجرا کنید:</string>
+    <string name="cf_server_open_github">باز کردن گیت‌هاب</string>
+    <string name="notif_speed_down">↓ %1$s/s</string>
+    <string name="notif_speed_up">↑ %1$s/s</string>
+    <string name="ping_label">پینگ</string>
+    <string name="connected_to">متصل به</string>

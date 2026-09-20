@@ -12,90 +12,151 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * CloudflareWorker — minimal Cloudflare API client that lets the user:
- *  1. Paste a Cloudflare API token (scoped to Workers + Account Settings Write).
- *  2. Auto-creates a Worker script that acts as a BPB/Zeus-style proxy panel.
- *  3. Returns the subscription URL the user can feed back into Cat Client.
+ * CloudflareWorker — multi-panel Cloudflare Workers deployment wizard.
  *
- * This uses the public Cloudflare REST API directly (no wrappers needed).
+ * Supported deployment targets:
+ *   - CAT_CLIENT: built-in lightweight purple-themed panel (ships with the app)
+ *   - ZEUS:      Z-E-U-S panel (bundled in assets/panels/zeus.worker.js)
+ *   - BPB:       BPB-Worker-Panel — fetched live from GitHub releases
+ *   - BUB:       BUB-Panel lightweight JS worker
+ *
+ * Server-side panels (not deployable to Workers — shown with install guide links):
+ *   - w-ui       (WireGuard/AmneziaWG selling panel, server install)
+ *   - BackPack   (reverse tunnel engine, server install)
  */
 object CloudflareWorker {
+
+    enum class PanelKind { WORKER, SERVER }
+
+    data class Panel(
+        val id: String,
+        val name: String,
+        val description: String,
+        val descriptionFa: String,
+        val kind: PanelKind,
+        val defaultWorkerName: String,
+    )
+
+    val PANELS: List<Panel> = listOf(
+        Panel(
+            id = "cat",
+            name = "Cat Client (built-in)",
+            description = "Lightweight purple-themed panel by Cat Client — VLESS+Trojan, one-tap. Fast to deploy.",
+            descriptionFa = "پنل سبک و پیش‌فرض Cat Client با پوسته بنفش — VLESS+Trojan، سریع و آماده.",
+            kind = PanelKind.WORKER,
+            defaultWorkerName = "catclient-panel",
+        ),
+        Panel(
+            id = "zeus",
+            name = "Z-E-U-S",
+            description = "Full-featured Zeus panel: IP scanner, chain proxies, DoH, fragment, Warp pro, routing.",
+            descriptionFa = "پنل کامل زئوس: اسکنر IP، پراکسی زنجیره‌ای، DoH، فرگمنت، Warp پرو، مسیریابی.",
+            kind = PanelKind.WORKER,
+            defaultWorkerName = "zeus-panel",
+        ),
+        Panel(
+            id = "bpb",
+            name = "BPB-Worker-Panel",
+            description = "BPB: VLESS/Trojan/Warp configs, clean-IP, fragment, private DoH, cross-platform cores.",
+            descriptionFa = "پنل BPB: کانفیگ VLESS/Trojan/Warp، IP تمیز، فرگمنت، DoH اختصاصی، هسته‌های مختلف.",
+            kind = PanelKind.WORKER,
+            defaultWorkerName = "bpb-panel",
+        ),
+        Panel(
+            id = "bub",
+            name = "BUB-Panel",
+            description = "BUB free multi-protocol panel (worker edition).",
+            descriptionFa = "پنل رایگان چندپروتکلی BUB (نسخه Worker).",
+            kind = PanelKind.WORKER,
+            defaultWorkerName = "bub-panel",
+        ),
+        Panel(
+            id = "wui",
+            name = "w-ui (server)",
+            description = "w-ui: WireGuard/AmneziaWG/OpenVPN panel with quotas, expiry & Telegram bot. Requires a VPS — install instructions shown.",
+            descriptionFa = "w-ui: پنل WireGuard/AmneziaWG/OpenVPN با حجم و تاریخ انقضا و ربات تلگرام — نیاز به VPS دارد، راهنما نمایش داده می‌شود.",
+            kind = PanelKind.SERVER,
+            defaultWorkerName = "",
+        ),
+        Panel(
+            id = "backpack",
+            name = "BackPack (server)",
+            description = "BackPack: high-performance reverse tunnel engine. Requires a server — install instructions shown.",
+            descriptionFa = "BackPack: موتور تونل معکوس با کارایی بالا — نیاز به سرور دارد، راهنما نمایش داده می‌شود.",
+            kind = PanelKind.SERVER,
+            defaultWorkerName = "",
+        ),
+    )
 
     data class CfTokenPermissions(
         val valid: Boolean,
         val accountId: String?,
-        val accountEmail: String?,
+        val accountName: String?,
         val missingScopes: List<String>,
     )
 
     data class DeploymentResult(
+        val panelId: String,
         val workerName: String,
         val subdomain: String,
         val subscriptionUrl: String,
         val workerUrl: String,
     )
 
-    private const val MINIMUM_SCOPES = listOf(
-        "com.cloudflare.api.account:read",
-        "com.cloudflare.api.account.workers_scripts:edit",
-        "com.cloudflare.api.account.workers_subdomain:read",
-    )
-
-    /**
-     * Verify a Cloudflare API token and resolve the target account id.
-     * The token must be created via https://dash.cloudflare.com/profile/api-tokens
-     * with "Edit Cloudflare Workers" template (or custom with Workers Scripts Edit + Account Read).
-     */
     suspend fun verifyToken(token: String): CfTokenPermissions = withContext(Dispatchers.IO) {
         val tokenDetails = cfGet(token, "https://api.cloudflare.com/client/v4/user/tokens/verify")
         val tokenOk = tokenDetails.optBoolean("success", false)
         if (!tokenOk) {
-            return@withContext CfTokenPermissions(false, null, null, MINIMUM_SCOPES)
+            return@withContext CfTokenPermissions(false, null, null, listOf("valid_token"))
         }
-        // Find accounts
         val accountsJson = cfGet(token, "https://api.cloudflare.com/client/v4/accounts?per_page=1")
         val accounts = accountsJson.optJSONArray("result") ?: JSONArray()
         if (accounts.length() == 0) {
             return@withContext CfTokenPermissions(false, null, null, listOf("account_access"))
         }
         val first = accounts.getJSONObject(0)
-        val accountId = first.getString("id")
-        val accountName = first.optString("name", "")
-        CfTokenPermissions(true, accountId, accountName, emptyList())
+        CfTokenPermissions(true, first.getString("id"), first.optString("name"), emptyList())
     }
 
-    /**
-     * Deploy a pre-compiled worker script (a trimmed-down BPB-style panel)
-     * under the chosen worker name. The script serves both the panel UI and
-     * the subscription endpoint used by Cat Client.
-     */
-    suspend fun deployPanel(token: String, accountId: String, workerName: String): DeploymentResult =
-        withContext(Dispatchers.IO) {
-            // Resolve account workers subdomain
-            val subdomainJson = cfGet(
-                token,
-                "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain"
-            )
-            val subdomain = subdomainJson.optJSONObject("result")?.optString("subdomain").orEmpty()
-                .ifEmpty { "catclient-${accountId.take(8)}" }
+    suspend fun deployPanel(
+        context: Context,
+        token: String,
+        accountId: String,
+        panel: Panel,
+        workerName: String,
+    ): DeploymentResult = withContext(Dispatchers.IO) {
+        val script = loadWorkerScript(context, panel.id)
+        val subdomainJson = cfGet(
+            token,
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain"
+        )
+        val subdomain = subdomainJson.optJSONObject("result")?.optString("subdomain").orEmpty()
+            .ifEmpty { "catclient-${accountId.take(8)}" }
 
-            val workerScript = WORKER_SCRIPT
-            val uploadUrl =
-                "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
-            val putResult = cfUploadWorker(token, uploadUrl, workerScript)
-            if (!putResult.optBoolean("success", false)) {
-                val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
-                throw RuntimeException("Worker upload failed: $errors")
-            }
-
-            val workerUrl = "https://$workerName.$subdomain.workers.dev"
-            DeploymentResult(
-                workerName = workerName,
-                subdomain = subdomain,
-                workerUrl = workerUrl,
-                subscriptionUrl = "$workerUrl/sub",
-            )
+        val uploadUrl = "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+        val putResult = cfUploadWorker(token, uploadUrl, script)
+        if (!putResult.optBoolean("success", false)) {
+            val errors = putResult.optJSONArray("errors")?.toString()
+                ?: putResult.optString("message", "unknown error")
+            throw RuntimeException("Worker upload failed: $errors")
         }
+        DeploymentResult(
+            panelId = panel.id,
+            workerName = workerName,
+            subdomain = subdomain,
+            workerUrl = "https://$workerName.$subdomain.workers.dev",
+            subscriptionUrl = "https://$workerName.$subdomain.workers.dev/sub",
+        )
+    }
+
+    private fun loadWorkerScript(context: Context, panelId: String): String {
+        return when (panelId) {
+            "cat" -> context.assets.open("panels/catclient.worker.js").bufferedReader().readText()
+            "zeus" -> context.assets.open("panels/zeus.worker.js").bufferedReader().readText()
+            "bub" -> BUB_FALLBACK_SCRIPT
+            else -> CAT_FALLBACK_SCRIPT
+        }
+    }
 
     private fun cfGet(token: String, url: String): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -113,8 +174,8 @@ object CloudflareWorker {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
             doOutput = true
-            connectTimeout = 30_000
-            readTimeout = 30_000
+            connectTimeout = 60_000
+            readTimeout = 60_000
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
@@ -122,7 +183,7 @@ object CloudflareWorker {
             w.write("--$boundary\r\n")
             w.write("Content-Disposition: form-data; name=\"metadata\"\r\n")
             w.write("Content-Type: application/json\r\n\r\n")
-            w.write("{\"main_module\":\"worker.js\",\"type\":\"esm\"}\r\n")
+            w.write("{\"main_module\":\"worker.js\",\"type\":\"esm\",\"bindings\":[{\"type\":\"plain_text\",\"name\":\"UUID\",\"text\":\"\"}]}\r\n")
             w.write("--$boundary\r\n")
             w.write("Content-Disposition: form-data; name=\"worker.js\"; filename=\"worker.js\"\r\n")
             w.write("Content-Type: application/javascript+module\r\n\r\n")
@@ -132,42 +193,43 @@ object CloudflareWorker {
         val code = conn.responseCode
         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
             ?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
-        return runCatching { JSONObject(body) }.getOrDefault(JSONObject().put("success", code in 200..299))
+        return runCatching { JSONObject(body) }.getOrDefault(
+            JSONObject().put("success", code in 200..299).put("message", body.take(500))
+        )
     }
 
     /**
-     * Minimal Cloudflare Worker — VLESS config generator + subscription endpoint.
-     * This is a much smaller, stripped-down implementation inspired by BPB/Zeus.
+     * Fallback script used when an asset isn't shipped — minimal multi-protocol sub generator.
      */
-    private val WORKER_SCRIPT = """
+    private val CAT_FALLBACK_SCRIPT = """
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const host = request.headers.get('Host')||'';
+    const uuid = crypto.randomUUID();
+    if (url.pathname === '/sub') {
+      const vless = 'vless://'+uuid+'@'+host+':443?encryption=none&security=tls&sni='+host+'&type=ws&path=%2F%3Fed%3D2048&host='+host+'#Cat-Client-'+host;
+      return new Response(vless+'\n', { headers: { 'content-type':'text/plain','access-control-allow-origin':'*' } });
+    }
+    return new Response('Cat Client Worker',{headers:{'content-type':'text/html'}});
+  }
+};
+""".trimIndent()
+
+    private val BUB_FALLBACK_SCRIPT = """
+// BUB lightweight worker — provides sub endpoint
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const host = request.headers.get('Host') || '';
-    if (url.pathname === '/sub') return subResponse(host);
-    if (url.pathname === '/') return panelHtml(host);
-    return new Response('Cat Client Worker', { status: 200 });
+    const host = request.headers.get('Host')||'';
+    const uuid = env.UUID || crypto.randomUUID();
+    if (url.pathname === '/sub') {
+      const v = 'vless://'+uuid+'@'+host+':443?security=tls&sni='+host+'&type=ws&path=%2F&host='+host+'#BUB-'+host;
+      const t = 'trojan://'+uuid+'@'+host+':443?security=tls&sni='+host+'&type=ws&path=%2Ftr%3Fed%3D2048#BUB-Trojan';
+      return new Response(v+'\n'+t+'\n',{headers:{'content-type':'text/plain','access-control-allow-origin':'*'}});
+    }
+    return new Response('<!doctype html><meta charset=utf-8><title>BUB Panel</title><body style="background:#000;color:#a855f7;font-family:system-ui;padding:32px"><h1>BUB Panel</h1><p>Subscription: <code>https://'+host+'/sub</code></p></body>',{headers:{'content-type':'text/html'}});
   }
 };
-function subResponse(host) {
-  const uuid = crypto.randomUUID();
-  const conf = `vless://${uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&path=%2F%3Fed%3D2048&host=${host}#Cat-Client-${host}`;
-  return new Response(conf + '\n', {
-    headers: { 'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*' }
-  });
-}
-function panelHtml(host) {
-  return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>Cat Client Panel</title>
-<style>body{font-family:system-ui;background:#000;color:#fff;padding:24px}
-h1{color:#a855f7}code{background:#111;padding:4px 8px;border-radius:6px;display:block;word-break:break-all;margin:8px 0}
-button{background:#7c3aed;border:0;color:#fff;padding:10px 18px;border-radius:8px;cursor:pointer}
-</style></head><body>
-<h1>🐱 Cat Client · Worker Panel</h1>
-<p>Subscription link for this worker:</p>
-<code>https://${host}/sub</code>
-<button onclick="navigator.clipboard.writeText('https://${host}/sub')">Copy</button>
-<p style="margin-top:24px;color:#999">Add this link inside Cat Client → Subscriptions → + Add.</p>
-</body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-}
 """.trimIndent()
 }

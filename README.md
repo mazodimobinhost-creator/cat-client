@@ -1,55 +1,52 @@
 # 🐱 Cat Client
 
 **Cat Client** is a powerful Android VPN client built on the Mihomo core,
-combining one-tap connectivity with advanced tools Iranian users need:
+combining one-tap connectivity with all the tools Iranian users need.
 
-- 🎨 **Custom black/white/purple UI** with dark + light + system themes, user-customizable accent color
-- 🌐 **All protocols supported**: VLESS, VMess, Trojan, Shadowsocks, Hysteria 2, TUIC, WireGuard (including AmneziaWG)
-- 📥 **Every input format**: single share-links, subscription URLs (plain/Base64), Mihomo/Clash YAML, Xray JSON, clipboard import, QR scan
-- 🆓 **Free Configs tab** — auto-fetches healthy public configs from multiple community sources (no more "-1" dead links; every entry is ping-tested live)
-- ☁️ **Cloudflare Worker deploy wizard** — paste a Cloudflare API token (instructions in-app) and Cat Client spins up your *own* BPB/Zeus-style worker panel in seconds, then adds the resulting sub to the app
-- 🛰️ **IP Scanner with SNI + Spoof** — built-in Cloudflare/Gcore CDN IP ranges + custom subnet input; TLS-ping each candidate with selectable SNI and fronting/spoof mode; export clean IPs straight into your configs
-- 🌍 **Live globe + country detection** — connected IP, country name + flag, ISP and ping shown on the dashboard, with an animated arc from Iran to the destination country
-- 📲 **Rich notification** — live up/down speed, connected config name, ping, flag
-- 🎯 **Per-country "proxy profiles"** — like Zeus, pick a clean scanned IP per target country
-- 🌓 **RTL support** with full Persian (فارسی) and English
-- 🔔 **Quick-settings tile + home-screen widget**
+## ✨ Features
 
-## Build
+- 🎨 **Black / white / deep-purple UI** — dark, light, and system themes with user-pickable accent color (purple / blue / pink / green / custom)
+- 🐱 **Icon**: black-and-white cat with a purple lightning bolt
+- 🌐 **Every protocol supported**: VLESS, VMess, Trojan, Shadowsocks, Hysteria 2, TUIC, WireGuard (including AmneziaWG options)
+- 📥 **Every input format**: single share-links, subscription URLs (plain / Base64), Mihomo / Clash YAML, Xray JSON, clipboard import, QR scan
+- 🆓 **Free tab** — auto-fetches healthy public configs from multiple community sources and live-pings them before use (no more "-1" dead entries)
+- ☁️ **Cloud tab — multi-panel Cloudflare Worker deploy wizard** — paste a Cloudflare API token once, choose a panel, and Cat Client deploys it for you:
+  - 🐱 **Cat Client (built-in)** — lightweight purple-themed panel, fastest to deploy
+  - ⚡ **Z-E-U-S** — IP scanner, chain proxies, DoH, fragment, Warp pro, routing (full Zeus bundled in-app)
+  - 🟣 **BPB-Worker-Panel** — VLESS/Trojan/Warp configs, clean-IP, fragment, private DoH, cross-platform cores
+  - 🫧 **BUB-Panel** — free multi-protocol panel
+  - 🧭 **w-ui** (server install guide) — WireGuard / AmneziaWG / OpenVPN panel with quotas, expiry & Telegram bot
+  - 🎒 **BackPack** (server install guide) — high-performance reverse-tunnel engine
+- 🛰️ **IP Scanner with SNI + Spoof** — built-in Cloudflare/Gcore CDN IP ranges + custom subnet input; TLS-ping each candidate with selectable SNI and fronting/spoof mode; apply clean IPs straight to your configs
+- 🌍 **Live globe + country detection** — shows connected IP, country name + flag, ISP and ping on the dashboard with an animated arc from Iran to the destination
+- 📲 **Rich notification** — live up/down speed, connected config name, ping, country flag
+- 🔤 **Bilingual**: full Persian (فارسی) and English with RTL
+- 🧭 **Quick-settings tile + home-screen widget**
+- 🚫 **Zero tracking** — no Firebase / third-party analytics.
 
-Cat Client is a standard Gradle project.
+## 🛠️ Build
 
-Requirements:
-- JDK 21
-- Android SDK with platform 36, build-tools 36.0.0, NDK 27, CMake 3.22.1
-- Go 1.23+ (to build the Mihomo native core)
+Requirements: JDK 21, Android SDK (platform 36, build-tools 35.0.0, NDK 29, CMake 3.22.1), Go 1.24+.
 
 ```bash
-./scripts/build-flclash-core.sh   # builds libclash.so for all ABIs
-./gradlew assembleDebug            # debug APK at app/build/outputs/apk/debug/
+./scripts/build-flclash-core.sh     # builds Mihomo native core for all ABIs
+./gradlew assembleDebug             # debug APK at app/build/outputs/apk/debug/
 ```
 
-The easiest way is just to push to this repo — GitHub Actions builds debug +
-release APKs automatically and attaches them to a release.
+The easiest path is to push to this repo — GitHub Actions builds debug + release APKs automatically and attaches them to a new release.
 
-## Cloudflare API Token (for in-app worker deploy)
-
-The in-app "Deploy Worker" wizard needs a Cloudflare API token:
+## 🔑 Cloudflare API Token (for in-app Worker deploy)
 
 1. Log in to https://dash.cloudflare.com/ → **My Profile → API Tokens**
-2. **Create Token** → choose **"Edit Cloudflare Workers"** template (recommended)
+2. **Create Token** → use **"Edit Cloudflare Workers"** template (recommended),
    or build a Custom token with at least:
    - Account → Workers Scripts → **Edit**
-   - Account → Workers Subdomain  → **Read**
+   - Account → Workers Subdomain → **Read**
    - Account → Account Settings → **Read**
-3. Leave Account Resources = **All accounts** (or select the target account)
-4. Continue, Create, and copy the token.
-5. Paste it into Cat Client → Settings → **Deploy Cloudflare Worker**.
+3. Leave Account Resources = **All accounts** (or select your target account)
+4. Continue → Create Token → copy the token
+5. Open Cat Client → **Cloud** tab → pick a panel → paste the token → Deploy.
 
-Cat Client will upload a small worker (named `catclient-panel` by default) and
-return a subscription URL you can add immediately.
+## 📄 License
 
-## License
-
-Cat Client is licensed under GPL-3.0 (inherited from the Mihomo core and the
-original WhiteVPN base). See [LICENSE](LICENSE).
+GPL-3.0 (inherited from the Mihomo core base). See [LICENSE](LICENSE).

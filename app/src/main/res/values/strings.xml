@@ -423,3 +423,15 @@
     <string name="accent_pink">Pink</string>
     <string name="accent_green">Green</string>
     <string name="accent_custom">Custom</string>
+    <string name="cf_panels_title">Choose a panel</string>
+    <string name="cf_panel_select">Select</string>
+    <string name="cf_panel_deploying_panel">Deploying %1$s…</string>
+    <string name="cf_panel_worker_badge">Cloudflare Worker</string>
+    <string name="cf_panel_server_badge">Needs VPS</string>
+    <string name="cf_server_install_title">Install instructions for %1$s</string>
+    <string name="cf_server_install_guide">This panel runs on a VPS, not on Cloudflare Workers. Open the project page below and follow the install script:</string>
+    <string name="cf_server_open_github">Open on GitHub</string>
+    <string name="notif_speed_down">↓ %1$s/s</string>
+    <string name="notif_speed_up">↑ %1$s/s</string>
+    <string name="ping_label">Ping</string>
+    <string name="connected_to">Connected to</string>
