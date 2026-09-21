@@ -78,8 +78,17 @@ jobs:
         run: |
           chmod +x gradlew
           # Surface Kotlin errors in ~3 min instead of after the ~10 min native core build.
+          set +e
           ./gradlew :app:compileDebugKotlin --console=plain 2>&1 | tee kotlin-precheck.log
           STATUS=${PIPESTATUS[0]}
+          # A restored Gradle cache can contain a truncated/corrupted artifact
+          # ("Archive is not a ZIP archive"); one refresh-dependencies retry clears it.
+          if [[ "$STATUS" != "0" ]] && grep -qE "not a ZIP archive|Could not (resolve|download)" kotlin-precheck.log; then
+            echo "=== corrupt cache artifact detected; retrying with --refresh-dependencies ==="
+            ./gradlew :app:compileDebugKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
+            STATUS=${PIPESTATUS[0]}
+          fi
+          set -e
           if [[ "$STATUS" != "0" ]]; then
             grep -nE "^e: " kotlin-precheck.log | head -n 40 || true
             exit "$STATUS"
@@ -162,9 +171,13 @@ jobs:
             echo '```'
             # The actually-actionable lines: compiler errors, failed task, root cause.
             grep -nE "^(e: |w: .*error|\* What went wrong|> Task .* FAILED|> A failure occurred|Caused by: |FAILURE: Build failed in)" "$LOG" | head -n 120
-            # Fallback context when no compiler error pattern matched (e.g. infra failure).
-            if ! grep -qE "^e: " "$LOG" 2>/dev/null; then
-              echo '--- no compiler errors found; last 80 lines ---'
+            # The "What went wrong" section names the failing task + dependency.
+            awk '/^\* What went wrong:/{f=1} f{print; if (/^Try:/) exit}' "$LOG" | head -n 30
+            # Context around archive/zip failures (corrupted cache artifacts).
+            grep -n -B6 -A4 "not a ZIP archive\|Could not resolve\|Could not download" "$LOG" | head -n 60
+            # Fallback context when no pattern matched at all (e.g. infra failure).
+            if ! grep -qE "^e: |not a ZIP archive|What went wrong" "$LOG" 2>/dev/null; then
+              echo '--- no known error patterns found; last 80 lines ---'
               tail -n 80 "$LOG"
             fi
             echo '```'
