@@ -519,7 +519,11 @@ function panelHtml(ctx) {
   const ipList = ips.length ? ips.join(', ') : '(not set — add CF_IPS to publish clean-IP variants)';
   const sniList = (env.SNI_LIST || '').toString();
   const rows = links
-    .map((l) => '<tr><td>' + esc(l.split('#').pop()) + '</td><td><code>' + esc(l) + '</code></td></tr>')
+    .map((l) => {
+      const rawName = l.split('#').pop();
+      const name = (() => { try { return decodeURIComponent(rawName); } catch (e) { return rawName; } })();
+      return '<tr><td>' + esc(name) + '</td><td><code>' + esc(l) + '</code></td></tr>';
+    })
     .join('\n');
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n' +
@@ -538,7 +542,7 @@ function panelHtml(ctx) {
     '<table>' +
     '<tr><th>UUID</th><td><code>' + esc(uuid) + '</code></td></tr>' +
     '<tr><th>SNI</th><td><code>' + esc(sni) + '</code></td></tr>' +
-    '<tr><th>SNI whitelist</th><td><code>' + esc([host, sni].concat(sniList ? sniList.split(',') : []).join(', ')) + '</code></td></tr>' +
+    '<tr><th>SNI whitelist</th><td><code>' + esc(Array.from(new Set([host, sni].concat(sniList ? sniList.split(',') : []))).join(', ')) + '</code></td></tr>' +
     '<tr><th>Port</th><td>' + port + '</td></tr>' +
     '<tr><th>VLESS path</th><td><code>' + esc(vlessPath) + '</code></td></tr>' +
     '<tr><th>Trojan path</th><td><code>' + esc(trojanPath) + '</code></td></tr>' +
