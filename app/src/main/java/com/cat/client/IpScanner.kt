@@ -133,7 +133,7 @@ object IpScanner {
                 // on all API levels we support, minSdk 26 >= 24).
                 if (sni.isNotBlank()) {
                     val params = getSSLParameters()
-                    params.serverNames = listOf(SNIHostName(sni, true))
+                    params.serverNames = listOf(SNIHostName(sni))
                     setSSLParameters(params)
                 }
                 startHandshake()
