@@ -66,12 +66,14 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.cat.client"
-    compileSdk = 37
+    // Pinned to 36: the API 37 platform ships as the minor-versioned package
+    // "android-37.0", which plain compileSdk=37 does not resolve on AGP 8.7.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.cat.client"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 

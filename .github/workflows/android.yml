@@ -41,9 +41,24 @@ jobs:
 
       - name: Install Android toolchain
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          set -x
+          yes | sdkmanager --licenses > sdk-licenses.log 2>&1 || true
+          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
+            echo "=== sdkmanager --list (installed) ===" >> sdk-install.log
+            sdkmanager --list_installed >> sdk-install.log 2>&1 || true
+            tail -n 40 sdk-install.log
+            exit 1
+          fi
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - name: Upload SDK toolchain log (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-toolchain-log
+          path: sdk-*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Cache FlClash core
         uses: actions/cache@v5
