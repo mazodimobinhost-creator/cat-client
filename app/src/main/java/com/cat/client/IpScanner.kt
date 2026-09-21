@@ -8,8 +8,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedReader
-import java.net.InetSocketAddress
-import java.net.Socket
+import javax.net.ssl.SNIHostname
+import javax.net.ssl.SSLParameters
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
@@ -125,12 +125,17 @@ object IpScanner {
         return runCatching {
             // SSLSocketFactory.createSocket(Socket, host, port, autoClose) is protected,
             // so create the TLS socket directly against ip:port and pin the SNI via
-            // setHostname() (used by the TLS Server Name Indication extension).
+            // SSLParameters.serverNames (TLS Server Name Indication extension).
             val ssl = (SSLSocketFactory.getDefault().createSocket(ip, port) as SSLSocket).apply {
                 soTimeout = timeoutMs
-                // setSNIHostname is the public Android API for pinning the TLS SNI
-                // to a name different from the connected IP (fronting/spoof mode).
-                if (sni.isNotBlank()) setSNIHostname(sni, true)
+                // Android's public SSLSocket API has no setHostname/setSNIHostname,
+                // so pin the SNI via SSLParameters (same pattern as OkHttp; works
+                // on all API levels we support, minSdk 26 >= 24).
+                if (sni.isNotBlank()) {
+                    val params = getSSLParameters()
+                    params.serverNames = listOf(SNIHostname(sni, true))
+                    setSSLParameters(params)
+                }
                 startHandshake()
             }
             val ms = (System.nanoTime() - start) / 1_000_000
