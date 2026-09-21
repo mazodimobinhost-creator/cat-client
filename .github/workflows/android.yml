@@ -74,6 +74,17 @@ jobs:
           keytool -genkeypair -v -keystore $RUNNER_TEMP/catclient.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
 
+      - name: Pre-check Kotlin compile (fail fast)
+        run: |
+          chmod +x gradlew
+          # Surface Kotlin errors in ~3 min instead of after the ~10 min native core build.
+          ./gradlew :app:compileDebugKotlin --console=plain 2>&1 | tee kotlin-precheck.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            grep -nE "^e: " kotlin-precheck.log | head -n 40 || true
+            exit "$STATUS"
+          fi
+
       - name: Build Mihomo core
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
@@ -131,7 +142,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: build-log-${{ github.sha }}
-          path: build-log.txt
+          path: |
+            build-log.txt
+            kotlin-precheck.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -141,13 +154,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LOG=""
-          for f in build-log.txt sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
+          for f in build-log.txt kotlin-precheck.log sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
           if [[ -z "$LOG" ]]; then exit 0; fi
           {
-            echo "Failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+            echo "Failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "Commit: ${GITHUB_SHA:0:7} (log source: ${LOG})"
             echo '```'
-            tail -n 150 "$LOG"
+            # The actually-actionable lines: compiler errors, failed task, root cause.
+            grep -nE "^(e: |w: .*error|\* What went wrong|> Task .* FAILED|> A failure occurred|Caused by: |FAILURE: Build failed in)" "$LOG" | head -n 120
+            # Fallback context when no compiler error pattern matched (e.g. infra failure).
+            if ! grep -qE "^e: " "$LOG" 2>/dev/null; then
+              echo '--- no compiler errors found; last 80 lines ---'
+              tail -n 80 "$LOG"
+            fi
             echo '```'
           } > ci-failure-body.md
           ISSUE="$(gh issue list --state open --search "in:title CI-LOG" --json number --jq '.[0].number // empty' || true)"
