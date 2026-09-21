@@ -17,6 +17,12 @@ The real Cat Client codebase (rebranded from ArasClient + WhiteVPN ideas) lives 
 - Visible app name → **Cat Client**
 - README updated
 
+## Cat Panel (Cloudflare Worker)
+
+A deployable starter is included in [`workers/cat-panel`](workers/cat-panel). It provides a protected configuration page, health check, and VLESS subscription generator using Cloudflare Secrets. See its README for deployment. It deliberately does not claim to be a VPN relay or provide unauthorized IP scanning.
+
+The Android application source is not present in this repository (this checkout is a placeholder), so an APK cannot honestly be released from this repository yet. The workflow validates the Worker; Android builds must be added after importing the ArasClient/WhiteVPN source and auditing its licenses and package names.
+
 ## Next steps for you
 
 1. Clone the ArasClient fork:
