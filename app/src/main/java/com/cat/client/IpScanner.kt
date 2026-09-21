@@ -128,7 +128,9 @@ object IpScanner {
             // setHostname() (used by the TLS Server Name Indication extension).
             val ssl = (SSLSocketFactory.getDefault().createSocket(ip, port) as SSLSocket).apply {
                 soTimeout = timeoutMs
-                if (sni.isNotBlank()) setHostname(sni)
+                // setSNIHostname is the public Android API for pinning the TLS SNI
+                // to a name different from the connected IP (fronting/spoof mode).
+                if (sni.isNotBlank()) setSNIHostname(sni, true)
                 startHandshake()
             }
             val ms = (System.nanoTime() - start) / 1_000_000
