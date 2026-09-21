@@ -381,7 +381,6 @@
     <string name="diagnostics_empty">گزارش عیب‌یابی Cat Client خالی است.</string>
     <string name="diagnostics_copied">گزارش عیب‌یابی کپی شد.</string>
     <string name="chevron_forward">‹</string>
-</resources>
 
     <!-- Cat Client feature strings (Persian) -->
     <string name="tab_free">رایگان</string>
@@ -451,3 +450,22 @@
     <string name="cloud_builtin_label">داخلی</string>
     <string name="cloud_featured_label">محبوب</string>
     <string name="cloud_server_label">نصب روی سرور</string>
+    <string name="cloud_section_catpanel">Cat Panel — ورکر داخلی کلادفلر</string>
+    <string name="cloud_catpanel_desc">پنل تک‌فایل: VLESS-WS + Trojan-WS + WARP، سفیدلیست SNI، واریانت‌های IP سفید کلادفلر و خروجی Mihomo/Clash. کد را کپی کنید و داخل هر Worker کلادفلر بچسبانید، یا از پایین با API دیپلوی کنید.</string>
+    <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
+    <string name="cloud_code_copied">کد Worker کپی شد — داخل Worker کلادفلر بچسبانید</string>
+    <string name="cloud_code_failed">خواندن کد Worker ممکن نشد</string>
+    <string name="cloud_worker_name_hint">نام Worker (حرف، عدد، -)</string>
+    <string name="cloud_token_required">اول توکن API کلادفلر را وارد کنید</string>
+    <string name="cloud_verifying">در حال بررسی توکن…</string>
+    <string name="cloud_token_invalid">توکن رد شد (کمبود: %1$s). از توکن «Edit Cloudflare Workers» استفاده کنید.</string>
+    <string name="cloud_deploy_failed">دیپلوی ناموفق بود: %1$s</string>
+    <string name="cloud_import_sub">وارد کردن سابسکریپشن</string>
+    <string name="cloud_open_panel">باز کردن پنل</string>
+    <string name="cloud_dashboard">داشبورد کلادفلر</string>
+    <string name="cloud_scope_worker">کلادفلر ورکر</string>
+    <string name="cloud_scope_server">سرور</string>
+    <string name="cloud_scope_tunnel">تونل</string>
+    <string name="cloud_section_catalog">پنل‌های دیگر (پیدا شده و بررسی شده)</string>
+    <string name="cloud_panel_open">باز کردن ↗</string>
+</resources>

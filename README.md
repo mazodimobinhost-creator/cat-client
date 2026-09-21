@@ -10,13 +10,8 @@ combining one-tap connectivity with all the tools Iranian users need.
 - 🌐 **Every protocol supported**: VLESS, VMess, Trojan, Shadowsocks, Hysteria 2, TUIC, WireGuard (including AmneziaWG options)
 - 📥 **Every input format**: single share-links, subscription URLs (plain / Base64), Mihomo / Clash YAML, Xray JSON, clipboard import, QR scan
 - 🆓 **Free tab** — auto-fetches healthy public configs from multiple community sources and live-pings them before use (no more "-1" dead entries)
-- ☁️ **Cloud tab — multi-panel Cloudflare Worker deploy wizard** — paste a Cloudflare API token once, choose a panel, and Cat Client deploys it for you:
-  - 🐱 **Cat Client (built-in)** — lightweight purple-themed panel, fastest to deploy
-  - ⚡ **Z-E-U-S** — IP scanner, chain proxies, DoH, fragment, Warp pro, routing (full Zeus bundled in-app)
-  - 🟣 **BPB-Worker-Panel** — VLESS/Trojan/Warp configs, clean-IP, fragment, private DoH, cross-platform cores
-  - 🫧 **BUB-Panel** — free multi-protocol panel
-  - 🧭 **w-ui** (server install guide) — WireGuard / AmneziaWG / OpenVPN panel with quotas, expiry & Telegram bot
-  - 🎒 **BackPack** (server install guide) — high-performance reverse-tunnel engine
+- ☁️ **Cloud tab — Cat Panel + researched panel catalog** — deploy the built-in panel with one API token, copy its single-file worker code for any Cloudflare account, or open install guides for 20+ researched panels (Z-E-U-S, BPB, Nova, Netra, Apex, Epeius, Marzban, 3x-ui, w-ui, Spider, Technamooz, SulgX, RVG, Luffy, Lunel, x4g, OpenVPN, wg-easy, BackPack …):
+  - 🐱 **Cat Panel (built-in)** — single-file Cloudflare Worker panel: VLESS-WS + Trojan-WS + WARP links, **SNI whitelist** (rejects unknown SNIs), **clean Cloudflare IP variants** (server=any CF edge IP, SNI stays the panel host), Mihomo/Clash YAML output, optional `REMOTE` wss relay for full-TCP mode, panel password. *Copy the code → paste into any Worker → open the panel → import the sub.*
 - 🛰️ **IP Scanner with SNI + Spoof** — built-in Cloudflare/Gcore CDN IP ranges + custom subnet input; TLS-ping each candidate with selectable SNI and fronting/spoof mode; apply clean IPs straight to your configs
 - 🌍 **Live globe + country detection** — shows connected IP, country name + flag, ISP and ping on the dashboard with an animated arc from Iran to the destination
 - 📲 **Rich notification** — live up/down speed, connected config name, ping, country flag
@@ -46,6 +41,51 @@ The easiest path is to push to this repo — GitHub Actions builds debug + relea
 3. Leave Account Resources = **All accounts** (or select your target account)
 4. Continue → Create Token → copy the token
 5. Open Cat Client → **Cloud** tab → pick a panel → paste the token → Deploy.
+
+## 🐱 Cat Panel (built-in Cloudflare Worker)
+
+`app/src/main/assets/panels/catclient.worker.js` is the whole panel — one file.
+
+**Two ways to run it**
+
+1. **No token, pure paste** — Cloudflare Dashboard → Workers & Pages → *Create
+   Worker* → paste the file (Cat Client → Cloud tab → *Copy Worker code*) →
+   Deploy. Open the worker URL: the panel shows your sub link, all configs,
+   clean-IP list and Mihomo/Clash YAML.
+2. **Through Cat Client** — Cloud tab → paste an API token → *Deploy on my
+   Cloudflare*. The app uploads the worker, then offers to import the
+   subscription.
+
+**SNI + clean Cloudflare IPs (ایپی سفید)**
+
+- Clients can point the *server* at any Cloudflare edge IP and keep the panel
+  hostname as the TLS SNI. The worker validates `X-Forwarded-Sni` against the
+  host + `SNI` + `SNI_LIST` and returns 403 for anything else.
+- Set `CF_IPS` (comma-separated) and `/sub` automatically includes a VLESS +
+  Trojan variant per IP. Cat Client's IP Scanner (SNI + Spoof) finds the
+  fastest ones for your ISP.
+
+**Worker environment variables (all optional)**
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `UUID` | derived from host (stable) | UUID in generated links |
+| `SNI` | worker host | SNI written into links |
+| `SNI_LIST` | — | extra accepted SNIs (comma list) |
+| `CF_IPS` | — | clean Cloudflare IPs published in `/sub` |
+| `PORT` | `443` | link port |
+| `VLESS_PATH` | `/ws?ed=2048` | VLESS WebSocket path |
+| `TROJAN_PATH` | `/trojan` | Trojan WebSocket path |
+| `TROJAN_PASS` | `UUID` | Trojan password |
+| `REMOTE` | — | `wss://` relay (BackPack tunnel / remote VLESS-WS) for full-TCP mode |
+| `PANEL_PASSWORD` | — | require `?p=<pass>` on the panel page |
+| `ENABLE_WARP` | `true` | omit the `warp://` link when `false` |
+| `USER_TOTAL` | 1 TiB | `subscription-userinfo` total |
+
+**Endpoints**: `/` (panel), `/sub`, `/sub64`, `/clash` (Mihomo YAML),
+`/health`, plus the VLESS/Trojan WebSocket paths.
+
+The worker is tested on Node: `node scripts/panels/cat-panel.test.mjs`.
 
 ## 📄 License
 

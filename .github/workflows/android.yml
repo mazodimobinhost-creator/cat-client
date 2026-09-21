@@ -2,7 +2,7 @@ name: Cat Client Android Build
 
 on:
   push:
-    branches: [arena/01a0bf96-cat-client, main]
+    branches: [main, 'arena/*']
   pull_request:
   release:
     types: [published]
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -28,9 +28,11 @@ jobs:
           java-version: '21'
           cache: gradle
 
+      # The core build script pins its exact toolchain with GOTOOLCHAIN
+      # (auto-downloaded by Go), so any recent Go bootstrap works here.
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.8'
+          go-version: 'stable'
           cache: false
 
       - uses: android-actions/setup-android@v4
@@ -39,7 +41,8 @@ jobs:
 
       - name: Install Android toolchain
         run: |
-          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - name: Cache FlClash core
@@ -107,14 +110,16 @@ jobs:
           retention-days: 7
 
       - name: Create GitHub Release and attach APKs
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0bf96-cat-client'
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(date +%Y%m%d%H%M)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG"
           git push origin "$TAG" || true
           gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk \
             --title "Cat Client $TAG" \
-            --notes "Automated Cat Client build. Download catclient-release APK and install on your Android device." \
+            --notes "Automated Cat Client build. Signed release APKs per ABI (install app-release-arm64-v8a.apk on 64-bit devices; app-release-universal.apk contains all ABIs). Debug APKs included for testing. Built from ${GITHUB_SHA}." \
             || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk --clobber

@@ -2,10 +2,10 @@
 
 ## Quick start
 
-The easiest way to get an APK is to push to the `arena/01a0bf96-cat-client`
-branch of this repo. GitHub Actions runs `.github/workflows/android.yml` on
-every push and uploads debug + release APKs as build artifacts / release
-attachments.
+The easiest way to get an APK is to push to `main` or any `arena/*` branch of
+this repo. GitHub Actions runs `.github/workflows/android.yml` on every push,
+builds debug + release APKs, uploads them as build artifacts, and attaches
+them to a new GitHub release.
 
 ## Local build (Linux / macOS / Windows)
 
@@ -55,6 +55,8 @@ EOF
 - `app/src/main/cpp/` — JNI bridge that loads libclash.so (the Mihomo core).
 - `SubConv/` — share-link parsing library.
 - `scripts/build-flclash-core.sh` — pinned Mihomo v1.19.30 + FlClash JNI build.
+- `scripts/panels/cat-panel.test.mjs` — Node test harness for the built-in
+  Cat Panel worker (no dependencies: `node scripts/panels/cat-panel.test.mjs`).
 
 ## Troubleshooting
 

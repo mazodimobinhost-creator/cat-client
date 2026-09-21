@@ -246,6 +246,7 @@ class MainActivity : Activity() {
     private lateinit var vpnTabContent: View
     private lateinit var subscriptionsTabContent: View
     private lateinit var advancedTabContent: View
+    private lateinit var cloudTabContent: View
     private var connectionCountryFlag: String = ""
     private var debugFrontingIp: String = ""
     private var connectionDetails: String = ""
@@ -349,6 +350,29 @@ class MainActivity : Activity() {
             val checkUpdatesAfterStartup = { if (savedInstanceState == null) checkForUpdates() }
             if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
         }
+        handleCatClientDeepLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleCatClientDeepLink(intent)
+    }
+
+    /**
+     * Deep link: catclient://add-sub?url=<subscription or share links>&name=<optional>
+     * Lets external panels (Cat Panel etc.) hand a subscription straight to the app.
+     */
+    private fun handleCatClientDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "catclient" || data.host != "add-sub") return
+        val source = data.queryParameter("url")?.trim().orEmpty()
+        if (source.isEmpty()) return
+        val name = data.queryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
+        mainHandler.post {
+            showAppTab(0)
+            showAddSubscriptionDialog(source, name)
+        }
     }
 
     private fun buildAppShell(): View {
@@ -370,10 +394,12 @@ class MainActivity : Activity() {
         vpnTabContent = buildDashboard()
         subscriptionsTabContent = buildSubscriptionsScreen().apply { visibility = View.GONE }
         advancedTabContent = buildAdvancedScreen().apply { visibility = View.GONE }
+        cloudTabContent = buildCloudScreen().apply { visibility = View.GONE }
         val content = FrameLayout(this).apply {
             addView(vpnTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(subscriptionsTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(advancedTabContent, FrameLayout.LayoutParams(-1, -1))
+            addView(cloudTabContent, FrameLayout.LayoutParams(-1, -1))
         }
         shell.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -399,10 +425,11 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // Reorder tabs: Settings, VPN (center/active), Subscription
+            // Reorder tabs: Settings, VPN (center/active), Subscription, Cloud
             addTab(newTab().setText(R.string.tab_settings).setIcon(R.drawable.ic_advanced_tab))
             addTab(newTab().setText(R.string.tab_vpn).setIcon(R.drawable.ic_vpn_tab), true)
             addTab(newTab().setText(R.string.tab_subscriptions).setIcon(R.drawable.ic_subscriptions_tab))
+            addTab(newTab().setText(R.string.tab_cloud).setIcon(R.drawable.ic_cloud_tab))
             post {
                 val tabStrip = getChildAt(0) as? ViewGroup ?: return@post
                 for (index in 0 until tabStrip.childCount) {
@@ -416,11 +443,12 @@ class MainActivity : Activity() {
             }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
-                    // Map new tab order: 0=Settings, 1=VPN, 2=Subscriptions
+                    // Map new tab order: 0=Settings, 1=VPN, 2=Subscriptions, 3=Cloud
                     val mappedPosition = when (tab.position) {
                         0 -> 2  // Settings -> position 2
                         1 -> 1  // VPN -> position 1
                         2 -> 0  // Subscriptions -> position 0
+                        3 -> 3  // Cloud -> position 3
                         else -> tab.position
                     }
                     showAppTab(mappedPosition)
@@ -536,6 +564,7 @@ class MainActivity : Activity() {
         vpnTabContent.visibility = if (position == 1) View.VISIBLE else View.GONE
         subscriptionsTabContent.visibility = if (position == 0) View.VISIBLE else View.GONE
         advancedTabContent.visibility = if (position == 2) View.VISIBLE else View.GONE
+        cloudTabContent.visibility = if (position == 3) View.VISIBLE else View.GONE
         if (position == 0) renderSubscriptions()
         if (position == 1) renderConnectionSelection()
         if (position == 2) renderAdvancedControls()
@@ -3205,6 +3234,355 @@ class MainActivity : Activity() {
         root.addView(scrollView, FrameLayout.LayoutParams(-1, -1))
         renderAdvancedControls()
         return root
+    }
+
+    /* ============================== Cloud tab ============================== */
+
+    private fun cloudActionButton(
+        @StringRes labelRes: Int,
+        @DrawableRes iconRes: Int,
+        accent: Boolean,
+        action: (View) -> Unit,
+    ): MaterialButton = MaterialButton(this).apply {
+        setText(labelRes)
+        setIconResource(iconRes)
+        iconTint = ColorStateList.valueOf(if (accent) TEAL else TEXT_SECONDARY)
+        iconSize = dp(18)
+        iconPadding = dp(8)
+        iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+        setAllCaps(false)
+        isSingleLine = true
+        ellipsize = TextUtils.TruncateAt.END
+        textSize = 14f
+        typeface = CatClientBodyBoldTypeface
+        minWidth = 0
+        minimumWidth = 0
+        minHeight = dp(48)
+        minimumHeight = dp(48)
+        insetTop = 0
+        insetBottom = 0
+        cornerRadius = dp(8)
+        setPaddingRelative(dp(12), 0, dp(12), 0)
+        backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
+        strokeWidth = dp(1)
+        strokeColor = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 150) else OUTLINE)
+        rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 26))
+        setTextColor(if (accent) TEAL else TEXT_PRIMARY)
+        setOnClickListener(action)
+    }
+
+    private fun cloudScopeLabel(scope: CloudflareWorker.PanelScope): String = when (scope) {
+        CloudflareWorker.PanelScope.CF_WORKER -> getString(R.string.cloud_scope_worker)
+        CloudflareWorker.PanelScope.SERVER -> getString(R.string.cloud_scope_server)
+        CloudflareWorker.PanelScope.TUNNEL -> getString(R.string.cloud_scope_tunnel)
+    }
+
+    private fun buildCloudScreen(): View {
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
+        val body = MaxWidthLinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            maxWidthPx = dp(520)
+            setPadding(dp(24), dp(20), dp(24), dp(40))
+        }
+
+        body.addView(
+            advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        val catPanelCard = advancedSettingsPanel()
+        catPanelCard.addView(
+            TextView(this).apply {
+                text = CloudflareWorker.PANELS.first { it.id == "cat-panel" }.let {
+                    if (appLanguagePreferenceStore.read() == AppLanguage.Persian) it.displayNameFa else it.displayName
+                }
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        catPanelCard.addView(
+            TextView(this).apply {
+                text = getString(R.string.cloud_catpanel_desc)
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                lineSpacingExtra = dp(3).toFloat()
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(0, dp(6), 0, dp(14))
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+
+        catPanelCard.addView(
+            cloudActionButton(R.string.cloud_copy_code, R.drawable.ic_cloud_tab, accent = true) {
+                val script = runCatching { CloudflareWorker.builtInWorkerScript(this) }
+                    .getOrNull()
+                if (script.isNullOrBlank()) {
+                    Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
+                    return@cloudActionButton
+                }
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", script))
+                Toast.makeText(this, R.string.cloud_code_copied, Toast.LENGTH_LONG).show()
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+
+        val workerNameInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            setText("catpanel")
+        }
+        val workerNameLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_worker_name_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(workerNameInput)
+        }
+        catPanelCard.addView(
+            workerNameLayout,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
+        val tokenInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val tokenLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_token_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
+            helperText = getString(R.string.cloud_token_help)
+            isHelperTextEnabled = true
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(tokenInput)
+        }
+        catPanelCard.addView(
+            tokenLayout,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
+        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = false) {
+            val token = tokenInput.text?.toString()?.trim().orEmpty()
+            if (token.isEmpty()) {
+                Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+                return@cloudActionButton
+            }
+            val workerName = workerNameInput.text?.toString()?.trim()
+                ?.lowercase(Locale.US)
+                ?.replace(Regex("[^a-z0-9-]"), "-")
+                ?.replace(Regex("-{2,}"), "-")
+                ?.trim('-')
+                ?.ifEmpty { "catpanel" } ?: "catpanel"
+            deployButton.isEnabled = false
+            activityScope.launch {
+                try {
+                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
+                    val permissions = CloudflareWorker.verifyToken(token)
+                    val accountId = permissions.accountId
+                    if (!permissions.valid || accountId == null) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@launch
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_deploying, workerName),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    val result = CloudflareWorker.deployBuiltIn(this@MainActivity, token, accountId, workerName)
+                    showCloudDeploymentDialog(result)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } finally {
+                    deployButton.isEnabled = true
+                }
+            }
+        }
+        catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // ---- panel catalog ----
+        body.addView(
+            advancedSectionLabel(getString(R.string.cloud_section_catalog)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
+        )
+        body.addView(
+            TextView(this).apply {
+                text = getString(R.string.cloud_intro)
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                lineSpacingExtra = dp(3).toFloat()
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(0, 0, 0, dp(10))
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+
+        val catalogCard = advancedSettingsPanel()
+        CloudflareWorker.PANELS.filter { it.id != "cat-panel" }.forEachIndexed { index, panel ->
+            val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+            }
+            val nameRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            nameRow.addView(
+                TextView(this).apply {
+                    text = if (isFarsi) panel.displayNameFa else panel.displayName
+                    textSize = 14.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_PRIMARY)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            nameRow.addView(
+                TextView(this).apply {
+                    text = cloudScopeLabel(panel.scope)
+                    textSize = 11f
+                    setTextColor(TEAL)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(999).toFloat()
+                        setColor(withAlpha(TEAL, 26))
+                        setStroke(dp(1), withAlpha(TEAL, 120))
+                    }
+                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+            )
+            row.addView(nameRow, LinearLayout.LayoutParams(-1, -2))
+            row.addView(
+                TextView(this).apply {
+                    text = if (isFarsi) panel.descriptionFa else panel.description
+                    textSize = 12.5f
+                    setTextColor(TEXT_SECONDARY)
+                    lineSpacingExtra = dp(2).toFloat()
+                    maxLines = 3
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    setPadding(0, dp(4), 0, 0)
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+            val openButton = MaterialButton(this).apply {
+                setText(R.string.cloud_panel_open)
+                setAllCaps(false)
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                isSingleLine = true
+                setPadding(dp(12), 0, dp(12), 0)
+                minWidth = 0
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(8)
+                minHeight = dp(38)
+                minimumHeight = dp(38)
+                backgroundTintList = ColorStateList.valueOf(SURFACE)
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(OUTLINE)
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setOnClickListener {
+                    runCatching {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(panel.url)))
+                    }.onFailure {
+                        Toast.makeText(this@MainActivity, panel.url, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            row.addView(
+                openButton,
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            )
+            catalogCard.addView(row, LinearLayout.LayoutParams(-1, -2))
+            if (index < CloudflareWorker.PANELS.size - 2) {
+                catalogCard.addView(
+                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
+                    LinearLayout.LayoutParams(-1, dp(1)).apply {
+                        marginStart = dp(12)
+                        marginEnd = dp(12)
+                    },
+                )
+            }
+        }
+        body.addView(catalogCard, LinearLayout.LayoutParams(-1, -2))
+
+        scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
+        return scroll
+    }
+
+    private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
+        val message = getString(R.string.cloud_worker_url) + ":\n" + result.workerUrl + "\n\n" +
+            getString(R.string.cloud_sub_label) + ":\n" + result.subscriptionUrl
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_deployed)
+            .setMessage(message)
+            .setPositiveButton(R.string.cloud_import_sub) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
+            }
+            .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.workerUrl)))
+                }
+            }
+            .setNeutralButton(R.string.cloud_dashboard) { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://dash.cloudflare.com/workers/services?search=${result.workerName}"),
+                        ),
+                    )
+                }
+            }
+            .setOnCancelListener {
+                runCatching {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-sub", result.subscriptionUrl))
+                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
+                    appTabs.getTabAt(2)?.select()
+                }
+            }
+            .show()
     }
 
     private fun showResetSettingsDialog() {

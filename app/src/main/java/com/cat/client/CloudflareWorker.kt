@@ -1,23 +1,28 @@
 package com.cat.client
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * PanelCatalog — catalog of supported self-hosted Cloudflare panels. The user
- * picks one from Settings → Deploy Cloudflare Worker. Each panel entry has
- * either a self-contained JS payload we upload directly via the Cloudflare
- * API, or a "guide" mode that opens the official panel repository/installer
- * so the user can complete deployment inside the Cloudflare dashboard.
+ * PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09.
+ *
+ * Two deployment styles:
+ *  - AUTO_UPLOAD_SCRIPT: Cat Client uploads a bundled JS module to the user's
+ *    Cloudflare account directly through the API (only for the built-in panel).
+ *  - GUIDE: the user opens the official repository / installer and completes the
+ *    deployment in the Cloudflare dashboard or on a VPS.
  */
 object CloudflareWorker {
+
+    const val REPO_URL = "https://github.com/mazodimobinhost-creator/cat-client"
+    const val WORKER_ASSET_PATH = "panels/catclient.worker.js"
 
     enum class DeployKind {
         /** We upload a JS module to Workers for this panel via API directly. */
@@ -26,79 +31,311 @@ object CloudflareWorker {
         GUIDE,
     }
 
+    enum class PanelScope(val labelEn: String, val labelFa: String) {
+        CF_WORKER("CF Worker", "کلادفلر ورکر"),
+        SERVER("Server / VPS", "سرور / VPS"),
+        TUNNEL("Tunnel", "تونل"),
+    }
+
     data class Panel(
         val id: String,
         val displayName: String,
         val displayNameFa: String,
+        val scope: PanelScope,
         val description: String,
         val descriptionFa: String,
-        val kind: DeployKind,
-        val defaultWorkerName: String,
-        val panelUrl: String,
+        val deployKind: DeployKind,
+        val url: String,
+        val defaultWorkerName: String = "",
     )
 
-    val PANELS = listOf(
+    val PANELS: List<Panel> = listOf(
         Panel(
-            id = "cat-minimal",
-            displayName = "Cat Client (Built-in)",
-            displayNameFa = "Cat Client (داخلی)",
-            description = "Minimal built-in panel — 1-tap deploy of a VLESS+WS+TLS subscription endpoint.",
-            descriptionFa = "پنل داخلی کم‌حجم — دیپلوی یک‌ضرب یک endpoint سابسکریپشن VLESS+WS+TLS.",
-            kind = DeployKind.AUTO_UPLOAD_SCRIPT,
-            defaultWorkerName = "catclient-panel",
-            panelUrl = "https://github.com/mazodimobinhost-creator/cat-client",
+            id = "cat-panel",
+            displayName = "Cat Panel (Built-in)",
+            displayNameFa = "Cat Panel (داخلی)",
+            scope = PanelScope.CF_WORKER,
+            description = "Single-file Cloudflare Worker panel: VLESS-WS + Trojan-WS + WARP, SNI whitelist, " +
+                "clean Cloudflare IP variants, Mihomo/Clash YAML, optional REMOTE full-TCP tunnel. " +
+                "Paste the code into any Worker — no other services needed.",
+            descriptionFa = "پنل تک‌فایل روی کلادفلر ورکر: VLESS-WS + Trojan-WS + WARP، سفیدلیست SNI، " +
+                "واریانت‌های IP سفید کلادفلر، خروجی Mihomo/Clash و تونل REMOTE اختیاری برای TCP کامل. " +
+                "کد را داخل هر Worker بچسبانید — سرویس دیگر لازم نیست.",
+            deployKind = DeployKind.AUTO_UPLOAD_SCRIPT,
+            url = REPO_URL,
+            defaultWorkerName = "catpanel",
         ),
         Panel(
             id = "zeus",
-            displayName = "Zeus Panel",
+            displayName = "Z-E-U-S",
             displayNameFa = "پنل Z-E-U-S",
-            description = "Feature-rich worker with chain proxy, clean-IP scanner, private DoH, Warp+ and full routing settings.",
-            descriptionFa = "پنل پیشرفتهٔ Worker با chain proxy، اسکنر IP تمیز، DoH اختصاصی، Warp Pro و تنظیمات کامل مسیریابی.",
-            kind = DeployKind.GUIDE,
+            scope = PanelScope.CF_WORKER,
+            description = "Feature-rich worker: chain proxy, clean-IP scanner, private DoH, fragment, Warp+ and full routing.",
+            descriptionFa = "پنل پیشرفتهٔ Worker با chain proxy، اسکنر IP تمیز، DoH اختصاصی، فرگمنت، Warp Pro و تنظیمات کامل مسیریابی.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/panel-zeus/Z-E-U-S",
             defaultWorkerName = "zeus-panel",
-            panelUrl = "https://github.com/panel-zeus/Z-E-U-S",
         ),
         Panel(
             id = "bpb",
             displayName = "BPB Worker Panel",
             displayNameFa = "پنل BPB",
+            scope = PanelScope.CF_WORKER,
             description = "VLESS/Trojan/Warp subs, fragment, clean-IP, full Mihomo/Sing-box/Clash/Xray output.",
             descriptionFa = "ساب VLESS/Trojan/Warp، فرگمنت، IP تمیز، خروجی کامل برای Mihomo/Sing-box/Clash/Xray.",
-            kind = DeployKind.GUIDE,
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/bia-pain-bache/BPB-Worker-Panel",
             defaultWorkerName = "bpb-panel",
-            panelUrl = "https://github.com/bia-pain-bache/BPB-Worker-Panel",
         ),
         Panel(
-            id = "bub",
-            displayName = "BUB Panel",
-            displayNameFa = "پنل BUB",
-            description = "Multi-protocol management panel (Warp/VLESS/Chain) with one-click setup.",
-            descriptionFa = "پنل مدیریتی چندپروتکلی (Warp/VLESS/Chain) با راه‌اندازی یک‌کلیک.",
-            kind = DeployKind.GUIDE,
-            defaultWorkerName = "bub-panel",
-            panelUrl = "https://github.com/hoabba3i-dev/BUB-Panel",
+            id = "nova",
+            displayName = "Nova Proxy",
+            displayNameFa = "نوا پراکسی",
+            scope = PanelScope.CF_WORKER,
+            description = "Free-tier Cloudflare Worker panel: VLESS/Trojan/Shadowsocks over WS/gRPC/XHTTP, multi-user, " +
+                "Nova Radar clean-IP scanner, WARP node for calls, backend mode.",
+            descriptionFa = "پنل Worker رایگان: VLESS/Trojan/Shadowsocks روی WS/gRPC/XHTTP، چندکاربره، اسکنر IP تمیز Nova Radar، نود WARP برای تماس و حالت backend.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/IRNova/Nova-Proxy",
+            defaultWorkerName = "nova-panel",
+        ),
+        Panel(
+            id = "netra",
+            displayName = "Netra Panel",
+            displayNameFa = "پنل نترا",
+            scope = PanelScope.CF_WORKER,
+            description = "Cloudflare Workers VLESS/Trojan panel with Warp/Warp Pro, fragment/noise, full web panel at /panel, " +
+                "Telegram installer bot.",
+            descriptionFa = "پنل VLESS/Trojan روی کلادفلر ورکر با Warp/Warp Pro، فرگمنت/noise، پنل وب کامل در /panel و بات نصب تلگرامی.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/hghheh224/netra-panel",
+            defaultWorkerName = "netra-panel",
+        ),
+        Panel(
+            id = "apex",
+            displayName = "Apex Panel",
+            displayNameFa = "پنل Apex",
+            scope = PanelScope.CF_WORKER,
+            description = "Cloudflare Workers + D1 multi-user VLESS/Trojan panel: per-user UUID/password, quotas, expiry, " +
+                "panel password + secure path.",
+            descriptionFa = "پنل چندکاربره VLESS/Trojan روی Workers + D1: UUID/پسورد اختصاصی، حجم، انقضا، رمز و مسیر امن برای پنل.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/netrair/Apex",
+            defaultWorkerName = "apex-panel",
+        ),
+        Panel(
+            id = "epeius",
+            displayName = "Epeius",
+            displayNameFa = "ایپیوس",
+            scope = PanelScope.CF_WORKER,
+            description = "Trojan-over-WebSocket proxy + subscription engine on Workers/Pages: Clash/Sing-box/Surge/Loon output, " +
+                "preferred clean-IP (PROXYIP) management, SOCKS5 outbound option.",
+            descriptionFa = "پراکسی Trojan-over-WS + موتور سابسکریپشن روی Workers/Pages: خروجی Clash/Sing-box/Surge/Loon، مدیریت IP تمیز (PROXYIP) و خروجی SOCKS5.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/cmliu/epeius",
+            defaultWorkerName = "epeius",
+        ),
+        Panel(
+            id = "blueknight",
+            displayName = "Blue-Knight Panel",
+            displayNameFa = "پنل Blue Knight",
+            scope = PanelScope.CF_WORKER,
+            description = "Proxy panel + encrypted-DNS gateway + client subscription server for Cloudflare's edge or any Node 22 host; " +
+                "WARP account registration and Amnezia (noise) profiles.",
+            descriptionFa = "پنل پراکسی + دروازهٔ DNS رمزنگاری‌شده + سرور سابسکریپشن برای لبهٔ کلادفلر یا هر هاست Node 22؛ ثبت حساب WARP و پروفایل Amnezia (noise).",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/BlueKnightNet/Blue-Knight-Panel",
+            defaultWorkerName = "blueknight",
+        ),
+        Panel(
+            id = "marzban",
+            displayName = "Marzban",
+            displayNameFa = "موزبن",
+            scope = PanelScope.SERVER,
+            description = "The standard Xray-core management panel: users, traffic, expiry, nodes, REST API, Docker install.",
+            descriptionFa = "پنل مدیریت استاندارد Xray: کاربر، حجم، انقضا، نودها، API و نصب Docker.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/Gozargah/Marzban",
+        ),
+        Panel(
+            id = "3x-ui",
+            displayName = "3x-ui",
+            displayNameFa = "پنل 3x-ui",
+            scope = PanelScope.SERVER,
+            description = "Advanced Xray web panel: multi-protocol, per-client traffic/IP limits, one-click SSL, Telegram bot, API.",
+            descriptionFa = "پنل وب پیشرفته Xray: چندپروتکل، محدودیت حجم/IP هر کلاینت، SSL یک‌کلیک، بات تلگرام و API.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/MHSanaei/3x-ui",
         ),
         Panel(
             id = "wui",
             displayName = "w-ui (WireGuard Panel)",
             displayNameFa = "w-ui (پنل WireGuard)",
+            scope = PanelScope.SERVER,
             description = "Server-side WireGuard/AmneziaWG/OpenVPN panel for selling access — quotas, expiry, devices, Telegram bot.",
             descriptionFa = "پنل سمت‌سرور WireGuard/AmneziaWG/OpenVPN برای فروش دسترسی — حجم، انقضا، دستگاه، بات تلگرام.",
-            kind = DeployKind.GUIDE,
-            defaultWorkerName = "",
-            panelUrl = "https://github.com/AbolfazlTafakori/w-ui",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/AbolfazlTafakori/w-ui",
+        ),
+        Panel(
+            id = "nova-server",
+            displayName = "Nova Server",
+            displayNameFa = "نوا سرور",
+            scope = PanelScope.SERVER,
+            description = "Self-hosted censorship-resistant proxy server: Xray + sing-box + Hysteria2 + AmneziaWG, multi-node fleet, " +
+                "Iran bridge tunnels, clean-IP refresh, Telegram mini-app.",
+            descriptionFa = "سرور خودمیزبان ضد سانسور: Xray + sing-box + Hysteria2 + AmneziaWG، ناوگان چندنودی، تونل‌های پل ایران، رفرش IP تمیز و مینی‌اپ تلگرام.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/IRNova/Nova-Server",
+        ),
+        Panel(
+            id = "spider",
+            displayName = "Spider Panel",
+            displayNameFa = "پنل اسپایدر",
+            scope = PanelScope.SERVER,
+            description = "VLESS Reality/WS/XHTTP + VMess/Trojan/SS panel with browser-side clean-IP scanner and a Cloudflare Worker " +
+                "manager that routes opt-in users through country proxy IPs.",
+            descriptionFa = "پنل VLESS Reality/WS/XHTTP + VMess/Trojan/SS با اسکنر IP تمیز سمت مرورگر و مدیر Worker کلادفلر برای مسیریابی کاربران از IP کشور دلخواه.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/amirh00sain/SpiderPanel",
+        ),
+        Panel(
+            id = "technamooz",
+            displayName = "Technamooz Panel",
+            displayNameFa = "پنل تکناموز",
+            scope = PanelScope.SERVER,
+            description = "FastAPI config-builder panel: per-ISP clean IPs, separate CDN domain for Host/SNI (SNI-based block bypass), " +
+                "XHTTP packet-up, token-bucket speed limiter, Telegram bot.",
+            descriptionFa = "پنل ساخت کانفیگ با FastAPI: IP تمیز هر اپراتور، دامنه CDN جدا برای Host/SNI (عبور از بلاک SNI)، XHTTP packet-up، محدودکننده سرعت و بات تلگرام.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/technamooz/Panel_Technamooz_VPN",
+        ),
+        Panel(
+            id = "sulgx",
+            displayName = "SulgX Panel",
+            displayNameFa = "پنل SulgX",
+            scope = PanelScope.SERVER,
+            description = "Single-file VLESS subscription panel: per-user bandwidth limits, clean-IP scanner, Clash/Sing-box links, " +
+                "XHTTP, DOH link, bilingual Telegram bot, traffic charts.",
+            descriptionFa = "پنل تک‌فایل سابسکریپشن VLESS: محدودیت حجم هر کاربر، اسکنر IP تمیز، لینک Clash/Sing-box، XHTTP، لینک DOH، بات تلگرام دوزبانه و نمودار ترافیک.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/rohitanandsharma3-hub/SulgX-Panel",
+        ),
+        Panel(
+            id = "rvg",
+            displayName = "RVG Gateway",
+            displayNameFa = "RVG Gateway",
+            scope = PanelScope.SERVER,
+            description = "Multi-protocol proxy gateway (FastAPI, Railway-ready): per-link quotas, live stats, QR codes, " +
+                "TLS fingerprint spoofing, Telegram bot, CF-worker domain suggestion.",
+            descriptionFa = "درگاه چندپروتکلی (FastAPI، آماده Railway): کتای هر لینک، آمار زنده، QR، جعل fingerprint TLS، بات تلگرام و پیشنهاد دامنه با Worker کلادفلر.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/Taymaz1391/RVG",
+        ),
+        Panel(
+            id = "luffy",
+            displayName = "Luffy Panel",
+            displayNameFa = "پنل لوفی",
+            scope = PanelScope.SERVER,
+            description = "Lightweight VLESS+Trojan panel (Render/Railway) that routes through Cloudflare clean IPs: multi-inbound, " +
+                "quotas, clean-IP management, /sub/ compatible with v2rayNG/Hiddify.",
+            descriptionFa = "پنل سبک VLESS+Trojan (رندر/ریل‌وی) که ترافیک را از IP سفید کلادفلر رد می‌کند: چند اینباند، کتای، مدیریت IP تمیز و /sub/ سازگار با v2rayNG و Hiddify.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/KiwwyQ/LuffyPanelFork",
+        ),
+        Panel(
+            id = "lunel",
+            displayName = "Lunel",
+            displayNameFa = "لنل",
+            scope = PanelScope.SERVER,
+            description = "Multi-protocol proxy platform: isolated proxy instances (VLESS WS/xHTTP, Trojan, Shadowsocks) managed from a " +
+                "web console with GitHub OAuth, live logs and reverse-proxied endpoints.",
+            descriptionFa = "پلتفرم پروکسی چندپروتکلی: اینستنس‌های جدا (VLESS WS/xHTTP، Trojan، Shadowsocks) با کنسول وب، لاگ زنده و endpoint معکوس.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/ArasTey/lunel",
+        ),
+        Panel(
+            id = "apex-railway",
+            displayName = "Apex Panel (Railway VPS)",
+            displayNameFa = "پنل Apex (ریل‌وی VPS)",
+            scope = PanelScope.SERVER,
+            description = "Multi-protocol multi-user panel for Railway: Vmess/Vless/Trojan/Shadowsocks/WireGuard/Hysteria/MTProto, " +
+                "traffic + expiry + IP limits, Persian UI.",
+            descriptionFa = "پنل چندپروتکلی چندکاربره روی ریل‌وی: Vmess/Vless/Trojan/Shadowsocks/WireGuard/Hysteria/MTProto با محدودیت حجم، انقضا و IP و رابط فارسی.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/mohammadtavaaakkooll-glitch/Apex-Panel-Railway-Vpn",
+        ),
+        Panel(
+            id = "x4g-marzban",
+            displayName = "x4g — Marzban on Railway",
+            displayNameFa = "x4g — موزبن روی ریل‌وی",
+            scope = PanelScope.SERVER,
+            description = "PasarGuard-style build: clones official Marzban at build time, Railway-compatible ($PORT), always-upstream. " +
+                "Marzban-Node for extra nodes and 3x-ui-multi with Tor country exits.",
+            descriptionFa = "سبک PasarGuard: کلون رسمی Marzban در لحظهٔ build، سازگار با Railway ($PORT) و همیشه به‌روز. Marzban-Node برای نود اضافه و 3x-ui-multi با خروجی تور کشورها.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/x4gKing/Marzban-Panel",
+        ),
+        Panel(
+            id = "vortex",
+            displayName = "Vortex Network Panel",
+            displayNameFa = "پنل Vortex",
+            scope = PanelScope.SERVER,
+            description = "Web UI for a sing-box policy-routing gateway: device management, force-direct/force-VPN rules, " +
+                "diagnostics, transactional changes, backups and rollback.",
+            descriptionFa = "رابط وب برای درگاه sing-box با policy-routing: مدیریت دستگاه، قوانین direct/VPN اجباری، تشخیص خرابی، تغییرات transactional، بکاپ و rollback.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/GariestGary/vortex-network-panel",
+        ),
+        Panel(
+            id = "openvpn",
+            displayName = "OpenVPN",
+            displayNameFa = "OpenVPN",
+            scope = PanelScope.SERVER,
+            description = "The classic open-source VPN server (OpenVPN + EasyRSA). Pair with w-ui or openvpn-panel for a web GUI.",
+            descriptionFa = "سرور VPN متن‌باز کلاسیک (OpenVPN + EasyRSA). برای رابط وب کنار w-ui یا openvpn-panel استفاده شود.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/OpenVPN/openvpn",
+        ),
+        Panel(
+            id = "wg-easy",
+            displayName = "wg-easy (WireGuard UI)",
+            displayNameFa = "wg-easy (رابط WireGuard)",
+            scope = PanelScope.SERVER,
+            description = "Docker-based WireGuard server with a clean web UI, per-client keys and config download.",
+            descriptionFa = "سرور WireGuard مبتنی Docker با رابط وب تمیز، کلید اختصاصی هر کلاینت و دانلود کانفیگ.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/wg-easy/wg-easy",
+        ),
+        Panel(
+            id = "vodiwalker",
+            displayName = "Vodiwalker",
+            displayNameFa = "ودی‌واکر",
+            scope = PanelScope.SERVER,
+            description = "Self-hosted VPN panel with per-user subscriptions (see official repo for current release).",
+            descriptionFa = "پنل خودمیزبان VPN با سابسکریپشن اختصاصی هر کاربر (نسخهٔ فعلی در ریپوی رسمی).",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/Vodiwalker",
         ),
         Panel(
             id = "backpack",
             displayName = "BackPack (Reverse Tunnel)",
             displayNameFa = "BackPack (تونل معکوس)",
-            description = "High-performance reverse-tunnel engine in Go for edge ⇄ origin server setups.",
-            descriptionFa = "موتور تونل معکوس پرسرعت Go برای ستاپ‌های edge ⇄ origin.",
-            kind = DeployKind.GUIDE,
-            defaultWorkerName = "",
-            panelUrl = "https://github.com/AminMGMT/BackPack",
+            scope = PanelScope.TUNNEL,
+            description = "High-performance Go reverse-tunnel engine for edge ⇄ origin — the recommended REMOTE backend for " +
+                "Cat Panel's full-TCP mode.",
+            descriptionFa = "موتور تونل معکوس پرسرعت Go برای edge ⇄ origin — backend پیشنهادی برای حالت REMOTE (TCP کامل) Cat Panel.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/AminMGMT/BackPack",
         ),
     )
+
+    fun byId(id: String): Panel? = PANELS.firstOrNull { it.id == id }
+
+    /** Bundled Cat Panel worker source (single file, paste-ready for the CF dashboard). */
+    fun builtInWorkerScript(context: Context): String = runCatching {
+        context.assets.open(WORKER_ASSET_PATH).bufferedReader().use { it.readText() }
+    }.getOrDefault(MINIMAL_WORKER_SCRIPT)
 
     data class CfTokenPermissions(
         val valid: Boolean,
@@ -127,32 +364,36 @@ object CloudflareWorker {
         CfTokenPermissions(true, first.getString("id"), first.optString("name", ""), emptyList())
     }
 
-    suspend fun deployBuiltIn(token: String, accountId: String, workerName: String): DeploymentResult =
-        withContext(Dispatchers.IO) {
-            val subdomainJson = cfGet(
-                token,
-                "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain"
-            )
-            val subdomain = subdomainJson.optJSONObject("result")?.optString("subdomain").orEmpty()
-                .ifEmpty { "catclient-${accountId.take(8)}" }
+    suspend fun deployBuiltIn(
+        context: Context,
+        token: String,
+        accountId: String,
+        workerName: String,
+    ): DeploymentResult = withContext(Dispatchers.IO) {
+        val subdomainJson = cfGet(
+            token,
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain"
+        )
+        val subdomain = subdomainJson.optJSONObject("result")?.optString("subdomain").orEmpty()
+            .ifEmpty { "catclient-${accountId.take(8)}" }
 
-            val script = BUILTIN_WORKER_SCRIPT
-            val uploadUrl =
-                "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
-            val putResult = cfUploadWorker(token, uploadUrl, script)
-            if (!putResult.optBoolean("success", false)) {
-                val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
-                throw RuntimeException("Worker upload failed: $errors")
-            }
-
-            val workerUrl = "https://$workerName.$subdomain.workers.dev"
-            DeploymentResult(
-                workerName = workerName,
-                subdomain = subdomain,
-                workerUrl = workerUrl,
-                subscriptionUrl = "$workerUrl/sub",
-            )
+        val script = builtInWorkerScript(context)
+        val uploadUrl =
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+        val putResult = cfUploadWorker(token, uploadUrl, script)
+        if (!putResult.optBoolean("success", false)) {
+            val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
+            throw RuntimeException("Worker upload failed: $errors")
         }
+
+        val workerUrl = "https://$workerName.$subdomain.workers.dev"
+        DeploymentResult(
+            workerName = workerName,
+            subdomain = subdomain,
+            workerUrl = workerUrl,
+            subscriptionUrl = "$workerUrl/sub",
+        )
+    }
 
     private fun cfGet(token: String, url: String): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -162,7 +403,12 @@ object CloudflareWorker {
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Content-Type", "application/json")
         }
-        return conn.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+        val code = conn.responseCode
+        val stream = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?: return JSONObject().put("success", false).put("message", "HTTP $code (empty)")
+        val body = stream.bufferedReader().use { it.readText() }
+        return runCatching { JSONObject(body) }
+            .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
     }
 
     private fun cfUploadWorker(token: String, url: String, script: String): JSONObject {
@@ -175,7 +421,8 @@ object CloudflareWorker {
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
-        OutputStreamWriter(conn.outputStream).use { w ->
+        conn.outputStream.use { out ->
+            val w = OutputStreamWriter(out, "UTF-8")
             w.write("--$boundary\r\n")
             w.write("Content-Disposition: form-data; name=\"metadata\"\r\n")
             w.write("Content-Type: application/json\r\n\r\n")
@@ -185,55 +432,28 @@ object CloudflareWorker {
             w.write("Content-Type: application/javascript+module\r\n\r\n")
             w.write(script)
             w.write("\r\n--$boundary--\r\n")
+            w.flush()
         }
         val code = conn.responseCode
         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-            ?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
         return runCatching { JSONObject(body) }.getOrDefault(JSONObject().put("success", code in 200..299))
     }
 
-    /**
-     * Minimal built-in VLESS+WS+TLS worker. UUID is regenerated per request.
-     * Provides /sub endpoint returning the share-link.
-     */
-    private val BUILTIN_WORKER_SCRIPT = """
+    /** Last-resort fallback so deployment never crashes if the asset is missing. */
+    private const val MINIMAL_WORKER_SCRIPT = """
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const host = request.headers.get('Host') || '';
-    const origin = request.headers.get('Origin') || '*';
-    const cors = { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': '*' };
-    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (url.pathname === '/sub') {
-      const uuid = crypto.randomUUID();
-      const conf = `vless://${uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&path=%2F%3Fed%3D2048&host=${host}&alpn=h2,http/1.1&fp=randomized#Cat-Client-${host}`;
-      return new Response(conf + '\n', { headers: { ...cors, 'content-type': 'text/plain; charset=utf-8' } });
+      const uuid = env.UUID || crypto.randomUUID();
+      const vless = `vless://\${uuid}@\${host}:443?encryption=none&security=tls&sni=\${host}&type=ws&path=%2Fws%3Fed%3D2048&host=\${host}#Cat-Client`;
+      return new Response(vless + '\\n', { headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'subscription-userinfo': 'upload=0; download=0; total=1099511627776' } });
     }
-    if (url.pathname.startsWith('/clash') || url.pathname.startsWith('/singbox') || url.pathname.startsWith('/mihomo')) {
-      return new Response('# Cat Client stub - install Zeus/BPB for full format support', { headers: { ...cors, 'content-type': 'text/plain' } });
-    }
-    return new Response(panelHtml(host, cors), { headers: { ...cors, 'content-type': 'text/html; charset=utf-8' } });
+    return new Response('Cat Panel (minimal fallback)', { status: 200 });
   }
 };
-function panelHtml(host) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🐱 Cat Client Panel</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,-apple-system,sans-serif;background:#000;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{max-width:480px;width:100%;background:linear-gradient(135deg,#0a0a0a,#1a0a2e);border:1px solid #2e1065;border-radius:20px;padding:32px;box-shadow:0 0 60px rgba(124,58,237,.3)}
-h1{font-size:28px;background:linear-gradient(90deg,#a855f7,#d946ef);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
-p{color:#a1a1aa;margin-bottom:20px;line-height:1.5}
-code{display:block;background:#18181b;border:1px solid #27272a;border-radius:10px;padding:12px;margin:12px 0;word-break:break-all;font-family:ui-monospace,monospace;font-size:13px;color:#c4b5fd}
-button{background:linear-gradient(90deg,#7c3aed,#a855f7);color:#fff;border:0;padding:12px 20px;border-radius:10px;font-weight:600;cursor:pointer;font-size:15px;width:100%}
-button:active{transform:scale(.98)}
-.links{margin-top:24px;display:grid;gap:8px}
-.links a{color:#c4b5fd;text-decoration:none;font-size:13px}</style>
-</head><body><div class="card"><h1>🐱 Cat Client</h1>
-<p>Your personal worker is online. Copy the subscription link and paste it into Cat Client → Subscriptions → Add.</p>
-<code id=sub>https://${host}/sub</code>
-<button onclick="navigator.clipboard.writeText(document.getElementById('sub').textContent).then(()=>this.textContent='✓ Copied')">📋 Copy Subscription</button>
-<div class=links><a href=https://github.com/panel-zeus/Z-E-U-S target=_blank>Install Zeus Panel instead</a>
-<a href=https://github.com/bia-pain-bache/BPB-Worker-Panel target=_blank>Install BPB Panel instead</a>
-<a href=https://github.com/hoabba3i-dev/BUB-Panel target=_blank>Install BUB Panel instead</a></div>
-</div></body></html>`;
-}
-""".trimIndent()
+"""
+
 }
