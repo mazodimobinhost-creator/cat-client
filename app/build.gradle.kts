@@ -66,7 +66,7 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.cat.client"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.cat.client"
