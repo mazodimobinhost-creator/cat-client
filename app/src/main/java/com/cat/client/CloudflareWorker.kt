@@ -18,7 +18,7 @@ import java.net.URL
  * API, or a "guide" mode that opens the official panel repository/installer
  * so the user can complete deployment inside the Cloudflare dashboard.
  */
-object PanelCatalog {
+object CloudflareWorker {
 
     enum class DeployKind {
         /** We upload a JS module to Workers for this panel via API directly. */
