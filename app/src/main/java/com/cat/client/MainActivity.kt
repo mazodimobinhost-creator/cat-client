@@ -3556,7 +3556,13 @@ class MainActivity : Activity() {
     }
 
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
-        val message = getString(R.string.cloud_worker_url) + ":\n" + result.workerUrl + "\n\n" +
+        val status = if (result.verifiedOnline) {
+            getString(R.string.cloud_verified_online)
+        } else {
+            getString(R.string.cloud_verify_pending)
+        }
+        val message = status + "\n\n" +
+            getString(R.string.cloud_worker_url) + ":\n" + result.workerUrl + "\n\n" +
             getString(R.string.cloud_sub_label) + ":\n" + result.subscriptionUrl
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.cloud_deployed)

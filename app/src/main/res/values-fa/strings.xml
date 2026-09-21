@@ -460,6 +460,8 @@
     <string name="cloud_verifying">در حال بررسی توکن…</string>
     <string name="cloud_token_invalid">توکن رد شد (کمبود: %1$s). از توکن «Edit Cloudflare Workers» استفاده کنید.</string>
     <string name="cloud_deploy_failed">دیپلوی ناموفق بود: %1$s</string>
+    <string name="cloud_verified_online">✓ پنل آنلاین است و تأیید شد.</string>
+    <string name="cloud_verify_pending">ورکر آپلود شد. پنل معمولاً در چند ثانیه بالا می‌آید — برای بررسی دکمهٔ «باز کردن پنل» را بزنید.</string>
     <string name="cloud_import_sub">وارد کردن سابسکریپشن</string>
     <string name="cloud_open_panel">باز کردن پنل</string>
     <string name="cloud_dashboard">داشبورد کلادفلر</string>

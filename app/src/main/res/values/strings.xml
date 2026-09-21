@@ -461,6 +461,8 @@
     <string name="cloud_verifying">Checking token…</string>
     <string name="cloud_token_invalid">Token rejected (missing: %1$s). Use an “Edit Cloudflare Workers” token.</string>
     <string name="cloud_deploy_failed">Deploy failed: %1$s</string>
+    <string name="cloud_verified_online">✓ Panel is online and verified.</string>
+    <string name="cloud_verify_pending">Worker uploaded. The panel usually goes live within a few seconds — use “Open panel” to check.</string>
     <string name="cloud_import_sub">Import subscription</string>
     <string name="cloud_open_panel">Open panel</string>
     <string name="cloud_dashboard">Cloudflare dashboard</string>

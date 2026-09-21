@@ -33,14 +33,29 @@ The easiest path is to push to this repo — GitHub Actions builds debug + relea
 ## 🔑 Cloudflare API Token (for in-app Worker deploy)
 
 1. Log in to https://dash.cloudflare.com/ → **My Profile → API Tokens**
-2. **Create Token** → use **"Edit Cloudflare Workers"** template (recommended),
-   or build a Custom token with at least:
-   - Account → Workers Scripts → **Edit**
-   - Account → Workers Subdomain → **Read**
-   - Account → Account Settings → **Read**
+2. **Create Token** → use **"Edit Cloudflare Workers"** template (fastest,
+   works out of the box), or build a Custom token with:
+   - Account → Workers Scripts → **Edit** *(uploads the worker)*
+   - Account → Workers Subdomain → **Edit** *(reads, and creates if missing, the `*.workers.dev` subdomain)*
+   - Account → Account Settings → **Read** *(lets the app find your account id)*
+   - Zone → Workers Routes → **Edit** *(harmless, part of the template — not needed for this deploy)*
 3. Leave Account Resources = **All accounts** (or select your target account)
 4. Continue → Create Token → copy the token
 5. Open Cat Client → **Cloud** tab → pick a panel → paste the token → Deploy.
+
+**What the app does with the token** (all verified against the official Cloudflare API docs):
+
+| Step | API call | Permission used |
+| --- | --- | --- |
+| 1. Validate token | `GET /user/tokens/verify` | none (any token) |
+| 2. Find your account | `GET /accounts?per_page=50` | Account Settings → Read |
+| 3. Get/create subdomain | `GET /accounts/{id}/workers/subdomain` → on miss `PUT` (creates `catclient-xxxx`) | Workers Subdomain → Read, then Edit |
+| 4. Upload the worker | `PUT /accounts/{id}/workers/scripts/{name}` (multipart: `metadata` + `worker.js`) | Workers Scripts → Edit |
+| 5. Smoke test | `GET https://{name}.{sub}.workers.dev/health` (5 tries, ~12 s) | — (public HTTPS) |
+
+The success dialog reports **"✓ Panel is online and verified"** only after
+step 5 passes; otherwise it tells you the upload succeeded and to tap
+*Open panel* after a few seconds.
 
 ## 🐱 Cat Panel (built-in Cloudflare Worker)
 

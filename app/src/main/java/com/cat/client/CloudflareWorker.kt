@@ -349,6 +349,7 @@ object CloudflareWorker {
         val subdomain: String,
         val subscriptionUrl: String,
         val workerUrl: String,
+        val verifiedOnline: Boolean,
     )
 
     suspend fun verifyToken(token: String): CfTokenPermissions = withContext(Dispatchers.IO) {
@@ -356,7 +357,11 @@ object CloudflareWorker {
         val tokenOk = tokenDetails.optBoolean("success", false)
         if (!tokenOk) return@withContext CfTokenPermissions(false, null, null,
             listOf("account:read", "workers:edit"))
-        val accountsJson = cfGet(token, "https://api.cloudflare.com/client/v4/accounts?per_page=10")
+        val accountsJson = cfGet(token, "https://api.cloudflare.com/client/v4/accounts?per_page=50")
+        if (!accountsJson.optBoolean("success", true) && accountsJson.optJSONArray("result") == null) {
+            // Token is valid but cannot list accounts (missing Account Settings: Read).
+            return@withContext CfTokenPermissions(false, null, null, listOf("account_settings:read"))
+        }
         val accounts = accountsJson.optJSONArray("result") ?: JSONArray()
         if (accounts.length() == 0) return@withContext CfTokenPermissions(false, null, null,
             listOf("account_access"))
@@ -370,13 +375,10 @@ object CloudflareWorker {
         accountId: String,
         workerName: String,
     ): DeploymentResult = withContext(Dispatchers.IO) {
-        val subdomainJson = cfGet(
-            token,
-            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain"
-        )
-        val subdomain = subdomainJson.optJSONObject("result")?.optString("subdomain").orEmpty()
-            .ifEmpty { "catclient-${accountId.take(8)}" }
+        // 1. Account workers.dev subdomain: read it, create it when missing.
+        val subdomain = resolveWorkersSubdomain(token, accountId)
 
+        // 2. Upload the worker module (multipart: metadata JSON + worker.js).
         val script = builtInWorkerScript(context)
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
@@ -386,13 +388,68 @@ object CloudflareWorker {
             throw RuntimeException("Worker upload failed: $errors")
         }
 
+        // 3. Smoke-test the live panel (workers.dev propagation takes a few seconds).
         val workerUrl = "https://$workerName.$subdomain.workers.dev"
+        val verifiedOnline = smokeTestPanel(workerUrl)
         DeploymentResult(
             workerName = workerName,
             subdomain = subdomain,
             workerUrl = workerUrl,
             subscriptionUrl = "$workerUrl/sub",
+            verifiedOnline = verifiedOnline,
         )
+    }
+
+    /** GET the account subdomain; create one when the account has none yet. */
+    private fun resolveWorkersSubdomain(token: String, accountId: String): String {
+        val getJson = cfGet(
+            token,
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain",
+        )
+        getJson.optJSONObject("result")?.optString("subdomain")?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        // Not found or no read permission: create the subdomain (needs Workers Subdomain: Edit).
+        val candidate = "catclient-" + randomSubdomainSuffix()
+        val putJson = cfPut(
+            token,
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain",
+            JSONObject().put("subdomain", candidate).toString(),
+        )
+        putJson.optJSONObject("result")?.optString("subdomain")?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        val message = putJson.optJSONArray("errors")?.toString()
+            ?: getJson.optJSONArray("errors")?.toString()
+            ?: "unknown"
+        throw RuntimeException(
+            "Could not read or create the workers.dev subdomain ($message). " +
+                "Use an API token with Account → Workers Subdomain → Read (or Edit).",
+        )
+    }
+
+    private fun randomSubdomainSuffix(length: Int = 8): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return (1..length).map { alphabet.random() }.joinToString("")
+    }
+
+    /** Poll the deployed panel's /health endpoint; true when it answers {"ok":true}. */
+    private fun smokeTestPanel(workerUrl: String, attempts: Int = 5, delayMs: Long = 2_500L): Boolean {
+        for (i in 0 until attempts) {
+            val ok = runCatching {
+                val conn = (URL("$workerUrl/health").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8_000
+                    readTimeout = 8_000
+                    setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                }
+                val code = conn.responseCode
+                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                code == 200 && body.contains("\"ok\":true")
+            }.getOrDefault(false)
+            if (ok) return true
+            if (i < attempts - 1) Thread.sleep(delayMs)
+        }
+        return false
     }
 
     private fun cfGet(token: String, url: String): JSONObject {
@@ -407,6 +464,23 @@ object CloudflareWorker {
         val stream = (if (code in 200..299) conn.inputStream else conn.errorStream)
             ?: return JSONObject().put("success", false).put("message", "HTTP $code (empty)")
         val body = stream.bufferedReader().use { it.readText() }
+        return runCatching { JSONObject(body) }
+            .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
+    }
+
+    private fun cfPut(token: String, url: String, jsonBody: String): JSONObject {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "PUT"
+            doOutput = true
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Content-Type", "application/json")
+        }
+        conn.outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
         return runCatching { JSONObject(body) }
             .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
     }
