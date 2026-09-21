@@ -49,6 +49,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -366,9 +367,9 @@ class MainActivity : Activity() {
     private fun handleCatClientDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "catclient" || data.host != "add-sub") return
-        val source = data.queryParameter("url")?.trim().orEmpty()
+        val source = data.getQueryParameter("url")?.trim().orEmpty()
         if (source.isEmpty()) return
-        val name = data.queryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
+        val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
         mainHandler.post {
             showAppTab(0)
             showAddSubscriptionDialog(source, name)
@@ -3312,7 +3313,7 @@ class MainActivity : Activity() {
                 text = getString(R.string.cloud_catpanel_desc)
                 textSize = 13f
                 setTextColor(TEXT_SECONDARY)
-                lineSpacingExtra = dp(3).toFloat()
+                setLineSpacing(dp(3).toFloat(), 1f)
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
                 setPadding(0, dp(6), 0, dp(14))
             },
@@ -3448,7 +3449,7 @@ class MainActivity : Activity() {
                 text = getString(R.string.cloud_intro)
                 textSize = 13f
                 setTextColor(TEXT_SECONDARY)
-                lineSpacingExtra = dp(3).toFloat()
+                setLineSpacing(dp(3).toFloat(), 1f)
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
                 setPadding(0, 0, 0, dp(10))
             },
@@ -3500,7 +3501,7 @@ class MainActivity : Activity() {
                     text = if (isFarsi) panel.descriptionFa else panel.description
                     textSize = 12.5f
                     setTextColor(TEXT_SECONDARY)
-                    lineSpacingExtra = dp(2).toFloat()
+                    setLineSpacing(dp(2).toFloat(), 1f)
                     maxLines = 3
                     ellipsize = TextUtils.TruncateAt.END
                     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -7429,7 +7430,7 @@ class MainActivity : Activity() {
     }
 
     private fun whiteDnsPopupMenu(anchor: View): PopupMenu =
-        PopupMenu(ContextThemeWrapper(this, R.style.CatClientPopupTheme), anchor)
+        PopupMenu(ContextThemeWrapper(this, R.style.WhiteDnsPopupTheme), anchor)
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)

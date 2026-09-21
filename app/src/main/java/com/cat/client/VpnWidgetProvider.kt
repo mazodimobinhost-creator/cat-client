@@ -114,13 +114,13 @@ class VpnWidgetProvider : AppWidgetProvider() {
                 setInt(R.id.widget_root, "setLayoutDirection", localized.resources.configuration.layoutDirection)
                 setTextViewText(R.id.widget_name, localized.getString(R.string.app_name))
                 setTextViewText(R.id.widget_status, if (proxy) "$mode · $status" else status)
-                setTextColor(R.id.widget_name, localized.getColor(R.color.catclient_on_surface))
-                setTextColor(R.id.widget_status, localized.getColor(R.color.catclient_on_surface_variant))
+                setTextColor(R.id.widget_name, localized.getColor(R.color.whitedns_on_surface))
+                setTextColor(R.id.widget_status, localized.getColor(R.color.whitedns_on_surface_variant))
                 setInt(R.id.widget_power, "setColorFilter", localized.getColor(
                     when (state) {
-                        VpnState.Started -> R.color.catclient_primary
-                        is VpnState.Error -> R.color.catclient_error
-                        else -> R.color.catclient_on_surface_variant
+                        VpnState.Started -> R.color.whitedns_primary
+                        is VpnState.Error -> R.color.whitedns_error
+                        else -> R.color.whitedns_on_surface_variant
                     },
                 ))
                 setBoolean(R.id.widget_power, "setEnabled", action != VpnWidgetAction.None)

@@ -123,15 +123,16 @@ object IpScanner {
     private fun tlsPing(ip: String, port: Int, sni: String, timeoutMs: Int): Long? {
         val start = System.nanoTime()
         return runCatching {
-            val sock = Socket()
-            sock.connect(InetSocketAddress(ip, port), timeoutMs)
-            sock.soTimeout = timeoutMs
-            val ssl = (SSLSocketFactory.getDefault().createSocket(sock, sni, port, true) as SSLSocket).apply {
+            // SSLSocketFactory.createSocket(Socket, host, port, autoClose) is protected,
+            // so create the TLS socket directly against ip:port and pin the SNI via
+            // setHostname() (used by the TLS Server Name Indication extension).
+            val ssl = (SSLSocketFactory.getDefault().createSocket(ip, port) as SSLSocket).apply {
+                soTimeout = timeoutMs
+                if (sni.isNotBlank()) setHostname(sni)
                 startHandshake()
             }
             val ms = (System.nanoTime() - start) / 1_000_000
             ssl.close()
-            sock.close()
             ms
         }.getOrNull()
     }

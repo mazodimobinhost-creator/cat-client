@@ -270,9 +270,9 @@ object CloudflareWorker {
             displayName = "x4g — Marzban on Railway",
             displayNameFa = "x4g — موزبن روی ریل‌وی",
             scope = PanelScope.SERVER,
-            description = "PasarGuard-style build: clones official Marzban at build time, Railway-compatible ($PORT), always-upstream. " +
+            description = "PasarGuard-style build: clones official Marzban at build time, Railway-compatible (\$PORT), always-upstream. " +
                 "Marzban-Node for extra nodes and 3x-ui-multi with Tor country exits.",
-            descriptionFa = "سبک PasarGuard: کلون رسمی Marzban در لحظهٔ build، سازگار با Railway ($PORT) و همیشه به‌روز. Marzban-Node برای نود اضافه و 3x-ui-multi با خروجی تور کشورها.",
+            descriptionFa = "سبک PasarGuard: کلون رسمی Marzban در لحظهٔ build، سازگار با Railway (\$PORT) و همیشه به‌روز. Marzban-Node برای نود اضافه و 3x-ui-multi با خروجی تور کشورها.",
             deployKind = DeployKind.GUIDE,
             url = "https://github.com/x4gKing/Marzban-Panel",
         ),
@@ -522,8 +522,8 @@ export default {
     const host = request.headers.get('Host') || '';
     if (url.pathname === '/sub') {
       const uuid = env.UUID || crypto.randomUUID();
-      const vless = `vless://\${uuid}@\${host}:443?encryption=none&security=tls&sni=\${host}&type=ws&path=%2Fws%3Fed%3D2048&host=\${host}#Cat-Client`;
-      return new Response(vless + '\\n', { headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'subscription-userinfo': 'upload=0; download=0; total=1099511627776' } });
+      const vless = `vless://${'$'}{uuid}@${'$'}{host}:443?encryption=none&security=tls&sni=${'$'}{host}&type=ws&path=%2Fws%3Fed%3D2048&host=${'$'}{host}#Cat-Client`;
+      return new Response(vless + '\n', { headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'subscription-userinfo': 'upload=0; download=0; total=1099511627776' } });
     }
     return new Response('Cat Panel (minimal fallback)', { status: 200 });
   }

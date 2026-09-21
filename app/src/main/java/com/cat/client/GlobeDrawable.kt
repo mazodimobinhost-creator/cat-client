@@ -23,7 +23,7 @@ import kotlin.math.sin
  * and a marker for the currently connected country, joined by an animated
  * arc + travelling dot (like an airplane / packet flying from IR -> dest).
  */
-class GlobeDrawable : Drawable, Animatable {
+class GlobeDrawable : Drawable(), Animatable {
 
     private val spherePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
