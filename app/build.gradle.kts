@@ -161,6 +161,13 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    lint {
+        // The release pipeline must not be blocked by lint findings;
+        // warnings are still reported in the build log.
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {

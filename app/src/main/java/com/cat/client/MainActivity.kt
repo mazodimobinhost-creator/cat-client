@@ -3385,11 +3385,14 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
 
-        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = false) {
+        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = false) { }
+        var cloudDeployInProgress = false
+        deployButton.setOnClickListener {
+            if (cloudDeployInProgress) return@setOnClickListener
             val token = tokenInput.text?.toString()?.trim().orEmpty()
             if (token.isEmpty()) {
                 Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
-                return@cloudActionButton
+                return@setOnClickListener
             }
             val workerName = workerNameInput.text?.toString()?.trim()
                 ?.lowercase(Locale.US)
@@ -3397,6 +3400,7 @@ class MainActivity : Activity() {
                 ?.replace(Regex("-{2,}"), "-")
                 ?.trim('-')
                 ?.ifEmpty { "catpanel" } ?: "catpanel"
+            cloudDeployInProgress = true
             deployButton.isEnabled = false
             activityScope.launch {
                 try {
@@ -3425,6 +3429,7 @@ class MainActivity : Activity() {
                         Toast.LENGTH_LONG,
                     ).show()
                 } finally {
+                    cloudDeployInProgress = false
                     deployButton.isEnabled = true
                 }
             }

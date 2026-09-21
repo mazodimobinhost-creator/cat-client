@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
@@ -66,7 +67,7 @@ jobs:
           path: |
             app/src/main/jniLibs
             app/src/main/cpp/includes
-          key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch', '.github/workflows/android.yml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch') }}
 
       - name: Generate debug keystore
         run: |
@@ -85,7 +86,17 @@ jobs:
           chmod +x gradlew
           set +e
           ./gradlew assembleDebug --stacktrace --console=plain 2>&1 | tee build-log.txt
-          exit ${PIPESTATUS[0]}
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== FAILURE DIAGNOSTICS ==="
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "JAVA_HOME=$JAVA_HOME"
+            java -version 2>&1 | head -n 1
+            ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+            ls "$ANDROID_HOME/ndk" 2>/dev/null || true
+            tail -n 80 build-log.txt
+          fi
+          exit "$STATUS"
 
       - name: Build release APK
         if: success()
