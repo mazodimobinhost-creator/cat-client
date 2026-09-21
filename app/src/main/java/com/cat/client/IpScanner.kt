@@ -8,7 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedReader
-import javax.net.ssl.SNIHostname
+import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLParameters
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -128,12 +128,12 @@ object IpScanner {
             // SSLParameters.serverNames (TLS Server Name Indication extension).
             val ssl = (SSLSocketFactory.getDefault().createSocket(ip, port) as SSLSocket).apply {
                 soTimeout = timeoutMs
-                // Android's public SSLSocket API has no setHostname/setSNIHostname,
+                // Android's public SSLSocket API has no setHostname/setSNIHostName,
                 // so pin the SNI via SSLParameters (same pattern as OkHttp; works
                 // on all API levels we support, minSdk 26 >= 24).
                 if (sni.isNotBlank()) {
                     val params = getSSLParameters()
-                    params.serverNames = listOf(SNIHostname(sni, true))
+                    params.serverNames = listOf(SNIHostName(sni, true))
                     setSSLParameters(params)
                 }
                 startHandshake()
