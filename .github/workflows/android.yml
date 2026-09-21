@@ -1,9 +1,9 @@
 name: Cat Client Android Build
 
 on:
-  pull_request:
   push:
     branches: [arena/01a0bf96-cat-client, main]
+  pull_request:
   release:
     types: [published]
   workflow_dispatch:
@@ -55,21 +55,32 @@ jobs:
           keytool -genkeypair -v -keystore $RUNNER_TEMP/catclient.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
 
+      - name: Build Mihomo core
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        run: chmod +x gradlew scripts/build-flclash-core.sh && ./scripts/build-flclash-core.sh
+
       - name: Build debug APK
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-        run: chmod +x gradlew && ./gradlew assembleDebug --stacktrace
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew assembleDebug --stacktrace --console=plain 2>&1 | tee build-log.txt
+          exit ${PIPESTATUS[0]}
 
-      - name: Build release APK (signed with debug key)
+      - name: Build release APK
+        if: success()
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
           CATCLIENT_RELEASE_STORE_FILE: ${{ runner.temp }}/catclient.jks
           CATCLIENT_RELEASE_STORE_PASSWORD: catclient
           CATCLIENT_RELEASE_KEY_ALIAS: catclient
           CATCLIENT_RELEASE_KEY_PASSWORD: catclient
-        run: chmod +x gradlew && ./gradlew assembleRelease --stacktrace
+        run: chmod +x gradlew && ./gradlew assembleRelease
 
       - name: Upload debug APKs
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: catclient-debug-${{ github.sha }}
@@ -78,6 +89,7 @@ jobs:
           retention-days: 90
 
       - name: Upload release APKs
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: catclient-release-${{ github.sha }}
@@ -85,8 +97,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload build log (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-log-${{ github.sha }}
+          path: build-log.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Create GitHub Release and attach APKs
-        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0bf96-cat-client'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0bf96-cat-client'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
