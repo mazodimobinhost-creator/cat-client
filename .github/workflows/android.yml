@@ -124,6 +124,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Report build failure (issue)
+        if: failure() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG=""
+          for f in build-log.txt sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
+          if [[ -z "$LOG" ]]; then exit 0; fi
+          {
+            echo "Failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+            echo "Commit: ${GITHUB_SHA:0:7} (log source: ${LOG})"
+            echo '```'
+            tail -n 150 "$LOG"
+            echo '```'
+          } > ci-failure-body.md
+          ISSUE="$(gh issue list --state open --search "in:title CI-LOG" --json number --jq '.[0].number // empty' || true)"
+          if [[ -n "$ISSUE" ]]; then
+            gh issue comment "$ISSUE" --body-file ci-failure-body.md || true
+          else
+            gh issue create --title "[CI-LOG] Android build failure ${GITHUB_SHA:0:7}" --body-file ci-failure-body.md || true
+          fi
+
       - name: Create GitHub Release and attach APKs
         if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
         env:
