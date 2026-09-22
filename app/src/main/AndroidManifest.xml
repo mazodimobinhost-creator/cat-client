@@ -72,6 +72,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="catclient" android:host="add-sub" />
             </intent-filter>
+            <!-- Cat Panel → app hand-off: catclient://scan?sni=<panel host>&ip=<clean ips> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="catclient" android:host="scan" />
+            </intent-filter>
         </activity>
 
         <receiver

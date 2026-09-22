@@ -4604,6 +4604,8 @@ class CatClientVpnService : VpnService() {
                 ConnectionDetailsPresenter.forProfile(
                     it,
                     showServer = activeProfileShowsServer,
+                    latencyMs = activeDelayMs,
+                    frontingIp = activeFrontingIp,
                     stringFor = { id -> getString(id) },
                 )
             }.orEmpty()

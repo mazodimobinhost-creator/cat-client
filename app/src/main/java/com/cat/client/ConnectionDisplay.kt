@@ -89,7 +89,7 @@ object ConnectionLocationPolicy {
         return countryFromText(Locale.getDefault(), *parts)
     }
 
-    private fun countryFromText(displayLocale: Locale, vararg parts: String): ConnectionCountry? {
+    fun countryFromText(displayLocale: Locale, vararg parts: String): ConnectionCountry? {
         val source = parts.joinToString(" ")
         extractRegionalFlagCode(source)?.let { code ->
             countryFromCode(code, displayLocale)?.let { return it }

@@ -22,6 +22,8 @@ data class MihomoProxy(
     val echEnabled: Boolean = false,
     val echCapable: Boolean = false,
     val amneziaNoise: AmneziaNoiseSettings? = null,
+    /** Raw YAML lines of this `proxies:` entry; lets the app rebuild a share link on demand. */
+    val rawYaml: String = "",
 )
 
 data class MihomoProxyGroup(
@@ -56,14 +58,16 @@ object MihomoConfigParser {
         var section: String? = null
         var current = mutableMapOf<String, String>()
         var nestedKey: String? = null
+        val rawLines = StringBuilder()
 
         fun flush() {
             when (section) {
-                "proxies" -> current.toProxy()?.let(proxies::add)
+                "proxies" -> current.toProxy(rawLines.toString())?.let(proxies::add)
                 "proxy-groups" -> current.toGroup()?.let(groups::add)
             }
             current = mutableMapOf()
             nestedKey = null
+            rawLines.setLength(0)
         }
 
         yaml.lineSequence().forEach { rawLine ->
@@ -87,11 +91,15 @@ object MihomoConfigParser {
 
             if (indent == 2 && content.startsWith("- ")) {
                 flush()
+                if (activeSection == "proxies") {
+                    rawLines.append("    ").append(content.removePrefix("- ").trim()).append('\n')
+                }
                 parseKeyValue(content.removePrefix("- ").trim())?.let { (key, value) ->
                     current[key] = decodeScalar(value)
                 }
                 return@forEach
             }
+            if (activeSection == "proxies" && indent >= 4) rawLines.append(line).append('\n')
 
             if (indent == 4) {
                 parseKeyValue(content)?.let { (key, value) ->
@@ -129,7 +137,7 @@ object MihomoConfigParser {
         )
     }
 
-    private fun MutableMap<String, String>.toProxy(): MihomoProxy? {
+    private fun MutableMap<String, String>.toProxy(rawYaml: String = ""): MihomoProxy? {
         val name = this["name"]?.takeIf(String::isNotBlank) ?: return null
         val type = this["type"]?.takeIf(String::isNotBlank) ?: return null
         val server = this["server"]?.takeIf(String::isNotBlank) ?: return null
@@ -148,6 +156,7 @@ object MihomoConfigParser {
                 minSize = this["amnezia-jmin"]?.toIntOrNull() ?: 0,
                 maxSize = this["amnezia-jmax"]?.toIntOrNull() ?: 0,
             ).takeIf(MihomoConnectionOptionsPolicy::isValidNoise),
+            rawYaml = rawYaml,
         )
     }
 
@@ -185,6 +194,7 @@ object MihomoConfigParser {
             echEnabled = echEnabled,
             echCapable = echCapable,
             amneziaNoise = amneziaNoise,
+            shareLink = MihomoShareLink.fromYamlBlock(rawYaml),
         )
     }
 

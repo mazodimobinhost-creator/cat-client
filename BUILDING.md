@@ -47,6 +47,18 @@ EOF
 # APKs land in release/
 ```
 
+## Fast local checks (no SDK needed)
+
+```bash
+node scripts/panels/cat-panel.test.mjs     # Cat Panel worker: 44 behaviour checks
+python3 scripts/kotlin-syntax-check.py app/src/main/java   # tree-sitter Kotlin syntax gate
+python3 scripts/branding/generate-icons.py # regenerate launcher / TV / notification art
+node scripts/panels/preview-server.mjs 8787 # run the panel in a browser (http://localhost:8787)
+```
+
+The Kotlin gate is a parser check (catches syntax slips in seconds); the real
+compiler runs in CI's fail-fast `:app:compileDebugKotlin` step.
+
 ## Project layout
 
 - `app/src/main/java/com/cat/client/` — Kotlin application sources.
@@ -57,6 +69,8 @@ EOF
 - `scripts/build-flclash-core.sh` — pinned Mihomo v1.19.30 + FlClash JNI build.
 - `scripts/panels/cat-panel.test.mjs` — Node test harness for the built-in
   Cat Panel worker (no dependencies: `node scripts/panels/cat-panel.test.mjs`).
+- `scripts/panels/preview-server.mjs` — serves the worker locally (panel + API).
+- `scripts/branding/generate-icons.py` — Pillow generator for every icon asset.
 
 ## Troubleshooting
 

@@ -64,3 +64,33 @@ services are listed for reference only.
 - **Trendify Nexus** — "Trendify Panel" is an SMM (social media marketing)
   panel, unrelated to VPNs.
 - **Open vpn** — covered by the OpenVPN entry.
+
+## Cat Panel v3 — what was adopted (2026-09-22)
+
+Cat Panel (the built-in worker in `app/src/main/assets/panels/catclient.worker.js`)
+was rebuilt as **v3.0.0 "purple night"**. Instead of shipping the other panels, the
+best ideas from the requested panels were folded into it:
+
+| Feature in Cat Panel v3 | Borrowed idea from | Notes |
+| --- | --- | --- |
+| Multi-format subscription (`/sub`, `/sub64`, `/clash`, `/singbox`, `/all`) | Blue-Knight Panel, Epeius, BPB | one link per client type; `/clash` also ships DNS + Iran-direct rules |
+| Encrypted DNS resolver `/dns-query` (RFC 8484 GET + POST) with upstream latency table | Blue-Knight Panel (encrypted-DNS tab) | upstream changeable via `DNS_UPSTREAM`; ready-made instructions for Cat Client, Chrome/Firefox, Intra/RethinkDNS and Mihomo |
+| In-panel clean-IP scanner (browser probes per IP) + `/api/ping` server probe | Z-E-U-S, BPB, Nova Radar, Technamooz | browser tests measure *your* ISP, not the CDN edge |
+| One-tap "build config from selected IPs" + `catclient://scan` deep link | Z-E-U-S scanner → app hand-off | pushes clean IPs into Cat Client's fronting list |
+| Offline QR codes (`/qr.svg`, self-contained encoder) | Blue-Knight Panel, v2box-style flows | no external CDN, no Google Charts — works even if every third-party host is blocked |
+| Persian + English UI, dark/light themes, sticky tab bar, FAQ accordions | Blue-Knight Panel (10 themes, mobile drawer) | two themes, RTL-first copy, purple/black/white palette |
+| SNI whitelist gate + clean-IP variants, `REMOTE` full-TCP relay, `warp://` | already in v2, kept | unchanged behaviour, more tests |
+| Panel → app deep links (`add-sub`, `scan`) | v2 (`add-sub`) | new `scan` host registered in `AndroidManifest.xml` |
+
+### App side (Cat Client v1.1.0)
+
+- New **Scanner tab** (`IpScanner` + fronting endpoints): built-in Cloudflare/Gcore/
+  Fastly ranges, custom CIDR input, TLS-ping with the panel SNI, "Use" per row and
+  "Apply the fastest IP" → writes `frontingIps` and reconnects live.
+- Palette re-authored to **violet / black / white** in `CatClientDesignTokens`
+  (`DashboardViews.kt`) — light theme is now pure white with Cat purple accents.
+- Branding assets regenerated (`scripts/branding/generate-icons.py`): the WhiteDNS
+  logo is replaced by the cat + bolt mark, adaptive icon foreground/background
+  reworked, TV banner redrawn.
+- The Cloud tab is now **"My Panel"**: deploy Cat Panel, jump to the scanner, then
+  drive everything from the panel page.

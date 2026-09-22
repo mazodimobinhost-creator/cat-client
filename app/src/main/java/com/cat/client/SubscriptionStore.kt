@@ -138,6 +138,7 @@ class SubscriptionStore(private val context: Context) {
                     validationHost = item.optString("validationHost"),
                     fingerprint = item.optString("fingerprint"),
                     outboundJson = outboundJson,
+                    shareLink = item.optString("shareLink").takeIf(String::isNotBlank),
                 ).takeIf {
                     it.tag.isNotBlank() &&
                         it.type.isNotBlank() &&
@@ -165,7 +166,8 @@ class SubscriptionStore(private val context: Context) {
                     .put("transport", profile.transport)
                     .put("validationHost", profile.validationHost)
                     .put("fingerprint", profile.fingerprint)
-                    .put("outboundJson", profile.outboundJson),
+                    .put("outboundJson", profile.outboundJson)
+                    .put("shareLink", profile.shareLink.orEmpty()),
             )
         }
         writeFile(
