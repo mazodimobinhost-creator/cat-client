@@ -112,14 +112,16 @@ click(document.querySelector('#subFormats .chip[data-fmt="/clash"]'));
 check('format chip switches url', (document.querySelector('#subUrlText')?.textContent || '').includes('/clash'));
 
 // --- BPB-style builder: pick ports + protocol, apply, url + table update ---
-click(document.querySelector('#cfgPorts .chip[data-port="2053"]'));
-click(document.querySelector('#cfgPorts .chip[data-port="80"]'));
+check('BPB default ports preselected (80,443,2053,8443,8080)', ['80', '443', '2053', '8443', '8080'].every((p) => document.querySelector('#cfgPorts .chip[data-port="' + p + '"]')?.classList.contains('active')));
+click(document.querySelector('#cfgPorts .chip[data-port="8443"]')); // off
+click(document.querySelector('#cfgPorts .chip[data-port="8080"]')); // off
+click(document.querySelector('#cfgPorts .chip[data-port="2083"]')); // on
 click(document.querySelector('#cfgProtos .chip[data-proto="trojan"]')); // turn trojan off
 document.querySelector('#cfgSni').value = 'cdn.example.ir';
 click(document.querySelector('#cfgApply'));
 await wait(20);
 const cfgUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
-check('apply embeds ports in the sub url', cfgUrl.includes('ports=443,2053,80'), cfgUrl);
+check('apply embeds ports in the sub url', cfgUrl.includes('ports=443,2053,2083,80'), cfgUrl);
 check('apply embeds protocol filter', cfgUrl.includes('proto=vless'), cfgUrl);
 check('apply embeds custom sni', cfgUrl.includes('sni=cdn.example.ir'), cfgUrl);
 const allText = document.querySelector('#cfgAllText')?.textContent || '';

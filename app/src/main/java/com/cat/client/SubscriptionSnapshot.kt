@@ -59,6 +59,8 @@ internal object SubscriptionSourceLoader {
         connection.readTimeout = 20_000
         connection.requestMethod = "GET"
         connection.setRequestProperty("Accept", "text/yaml,application/json,text/plain,*/*;q=0.1")
+        // Cat Panel keys extras (warp://) off this UA so plain v2ray-style clients get a clean list.
+        connection.setRequestProperty("User-Agent", "CatClient/${BuildConfig.VERSION_NAME} (+android)")
         try {
             if (connection.responseCode !in 200..299) {
                 throw IOException("Subscription Source returned HTTP ${connection.responseCode}")

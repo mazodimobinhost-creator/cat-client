@@ -49,7 +49,20 @@ async function subText(url, opts) {
   check('/sub returns 200', res.status === 200);
   check('/sub has vless link', body.includes('vless://'));
   check('/sub has trojan link', body.includes('trojan://'));
-  check('/sub has warp link', body.includes('warp://'));
+  check('/sub omits warp by default (v2rayNG/v2box reject unknown schemes)', !body.includes('warp://'));
+  const warped = await subText('/sub?warp=1');
+  check('/sub?warp=1 adds the warp link', warped.body.includes('warp://'));
+  const uaWarp = await subText('/sub', { headers: { 'User-Agent': 'CatClient/1.5.2 (+android)' } });
+  check('Cat Client UA gets warp automatically', uaWarp.body.includes('warp://'));
+  // BPB parity (verified against a working BPB sub from Iran, 2026-09)
+  const lines = body.trim().split('\n');
+  check('first config is plain HTTP :80 (no SNI to filter)', /^vless:\/\/[^@]+@[^:]+:80\?encryption=none&security=none/.test(lines[0]), lines[0]);
+  check('default ports follow BPB order 80,443,2053,8443,8080', ['80', '443', '2053', '8443', '8080'].every((p) => body.includes(':' + p + '?')));
+  check('TLS links use fp=chrome (universal), not randomized', body.includes('fp=chrome') && !body.includes('fp=randomized'));
+  check('IPv6 clean addresses are emitted like BPB', /@\[2606:4700:[0-9a-f:]+\]:80\?/.test(body));
+  check('remarks are BPB-style "N. VLESS - IPv4 : 80"', /#%F0%9F%90%B1%20\d+\.%20VLESS%20-%20(Domain|IPv4)%20%3A%2080/.test(body), lines[0]);
+  const noV6 = await subText('/sub?v6=0&ports=443&fp=ios');
+  check('?v6=0 drops IPv6 entries and ?fp= is honoured', !/@\[2606/.test(noV6.body) && noV6.body.includes('fp=ios'));
   check('/sub has sni param', body.includes('sni=catpanel-demo.workers.dev'));
   check('/sub has host param', body.includes('host=catpanel-demo.workers.dev'));
   check('/sub subscription-userinfo header', (res.headers.get('subscription-userinfo') || '').includes('total='));
@@ -337,7 +350,8 @@ async function subText(url, opts) {
   const j = JSON.parse(await (await req('/api/config.json', { headers: { cookie: cookieX }, env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
   check('/api/config.json is v5', j.version.startsWith('5.'), j.version);
   check('/api/config.json sub url carries uuid', j.subUrl === 'https://' + HOST + '/sub/' + j.uuid);
-  check('/api/config.json exposes config options', j.configOptions && Array.isArray(j.configOptions.ports) && j.configOptions.ports[0] === 443);
+  check('/api/config.json exposes config options', j.configOptions && Array.isArray(j.configOptions.ports) && j.configOptions.ports.join() === '80,443,2053,8443,8080');
+  check('/api/config.json exposes defaults for the builder', Array.isArray(j.defaultIpv6) && j.defaultIpv6.length >= 2 && Array.isArray(j.defaultPorts));
   check('/api/config.json exposes doh url', j.dohUrl === 'https://' + HOST + '/dns-query');
   check('/api/config.json flags locked panel', j.panelLocked === true);
   check('/api/config.json embeds scan targets', Array.isArray(j.scanTargets) && j.scanTargets.length > 10);

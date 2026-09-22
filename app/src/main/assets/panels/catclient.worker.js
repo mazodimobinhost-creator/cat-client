@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.2.0';
+const CAT_PANEL_VERSION = '5.3.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -768,10 +768,12 @@ const DEFAULT_SETTINGS = {
   },
   configs: {
     addresses: [],      // clean IPs / domains baked into every subscription
-    ports: [443],       // TLS ports: 443 2053 2083 2087 2096 8443 · plain: 80 8080 8880 2052 2082 2086 2095
+    ports: [],          // [] = DEFAULT_PORTS (80,443,2053,8443,8080 — BPB order). TLS: 443 2053 2083 2087 2096 8443 · plain: 80 8080 8880 2052 2082 2086 2095
     sni: '',            // '' = worker host
     protocols: ['vless', 'trojan'],
     includeHost: true,
+    includeIpv6: true,  // add Cloudflare IPv6 anycast entries (BPB does)
+    fingerprint: 'chrome',
   },
   scan: {
     ranges: [],
@@ -1347,6 +1349,11 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, counters) 
       }
     } catch (e) { /* client went away */ }
     try { await writer.close(); } catch (e) { /* ignore */ }
+    // Client is gone: tear the TCP leg down too instead of waiting for the
+    // remote to notice the half-close (keeps the worker from idling on dead sockets).
+    if (ws.readyState !== WS_OPEN) {
+      try { socket.close(); } catch (e) { /* ignore */ }
+    }
   })();
   const downstream = (async () => {
     const reader = socket.readable.getReader();
@@ -1614,7 +1621,20 @@ const DEFAULT_CLEAN_ADDRESSES = [
 ];
 const TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
 const PLAIN_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
+/**
+ * BPB default port set (verified against a working BPB sub from Iran):
+ * plain-HTTP 80 first — no TLS handshake means no SNI for DPI to match, which is
+ * why "VLESS - IPv4 : 80" is usually the first config that comes up — then TLS.
+ */
+const DEFAULT_PORTS = [80, 443, 2053, 8443, 8080];
 const MAX_SUB_ADDRESSES = 40;
+/** Hard cap on links per subscription — url-test groups with hundreds of nodes make every client sluggish. */
+const MAX_SUB_ENTRIES = 200;
+/**
+ * Cloudflare IPv6 anycast for dual-stack phones (BPB emits IPv6 entries too;
+ * many Iranian mobile carriers hand out v6 that is less policed than v4).
+ */
+const DEFAULT_CLEAN_IPV6 = ['2606:4700::6810:84e5', '2606:4700::6812:1a2e', '2606:4700:3030::ac43:b58a', '2606:4700:3032::6815:3ef9'];
 
 function panelHosts(host, env) {
   const ips = splitCsv(env.CF_IPS);
@@ -1644,10 +1664,11 @@ function configOptions(url, host, env, settings) {
   addresses = addresses.filter(validAddress).slice(0, MAX_SUB_ADDRESSES);
 
   const portSource = splitCsv(q.get('ports') || q.get('port'));
-  let ports = (portSource.length ? portSource : Array.isArray(cfg.ports) && cfg.ports.length ? cfg.ports : [Number(env.PORT || 443)])
+  const envPorts = splitCsv(env.PORTS || env.PORT);
+  let ports = (portSource.length ? portSource : Array.isArray(cfg.ports) && cfg.ports.length ? cfg.ports : envPorts.length ? envPorts : DEFAULT_PORTS)
     .map((p) => Number(p)).filter((p) => TLS_PORTS.includes(p) || PLAIN_PORTS.includes(p));
-  if (!ports.length) ports = [443];
-  ports = Array.from(new Set(ports)).slice(0, 6);
+  if (!ports.length) ports = DEFAULT_PORTS.slice();
+  ports = Array.from(new Set(ports)).slice(0, 8);
 
   const sniRaw = String(q.get('sni') || cfg.sni || env.SNI || '').trim().toLowerCase();
   const sni = sniRaw && validAddress(sniRaw) && !isIpLiteral(sniRaw) ? sniRaw : String(host).toLowerCase();
@@ -1657,7 +1678,10 @@ function configOptions(url, host, env, settings) {
     .filter((p) => p === 'vless' || p === 'trojan');
   const includeHost = q.has('host') ? q.get('host') !== '0' : cfg.includeHost !== false;
   const fragment = q.get('fragment') === '1';
-  return { addresses: addresses, ports: ports, sni: sni, protocols: protocols.length ? protocols : ['vless'], includeHost: includeHost, fragment: fragment };
+  const fpRaw = String(q.get('fp') || cfg.fingerprint || env.FINGERPRINT || 'chrome').toLowerCase();
+  const fingerprint = /^(chrome|firefox|safari|ios|android|edge|360|qq|random|randomized)$/.test(fpRaw) ? fpRaw : 'chrome';
+  const includeV6 = q.has('v6') ? q.get('v6') !== '0' : cfg.includeIpv6 !== false;
+  return { addresses: addresses, ports: ports, sni: sni, protocols: protocols.length ? protocols : ['vless'], includeHost: includeHost, fragment: fragment, fingerprint: fingerprint, includeIpv6: includeV6 };
 }
 
 function defaultConfigOptions(host, env) {
@@ -1670,17 +1694,28 @@ function linkParams(host, env, opts, port, kind) {
   const path = kind === 'vless' ? paths.vlessPath : paths.trojanPath;
   const common = '&type=ws&path=' + encodeURIComponent(path) + '&host=' + encodeURIComponent(String(host));
   if (!tls) return 'security=none' + common;
-  return 'security=tls&sni=' + encodeURIComponent(opts.sni) + '&fp=randomized&alpn=' + encodeURIComponent('http/1.1') + common;
+  // fp=chrome is understood by Xray, sing-box, mihomo and v2box alike; `randomized` is Xray-only.
+  return 'security=tls&sni=' + encodeURIComponent(opts.sni) + '&fp=' + encodeURIComponent(opts.fingerprint || 'chrome') + '&alpn=' + encodeURIComponent('http/1.1') + common;
 }
 
-function configName(kind, addr, port) {
+function addrKind(addr, host) {
+  const v = String(addr || '').replace(/^\[/, '').replace(/\]$/, '');
+  if (v.toLowerCase() === String(host || '').toLowerCase()) return 'Domain';
+  if (ipToLong(v) !== null) return 'IPv4';
+  if (v.includes(':')) return 'IPv6';
+  return 'CDN';
+}
+
+/** BPB-style remark: "🐱 3. VLESS - IPv4 : 80" (index added by buildConfigEntries). */
+function configName(kind, addr, port, index, host) {
   const label = kind === 'vless' ? 'VLESS' : 'Trojan';
-  return '🐱 ' + label + ' · ' + addr + (port === 443 ? '' : ':' + port);
+  const prefix = index ? index + '. ' : '';
+  return '🐱 ' + prefix + label + ' - ' + addrKind(addr, host) + ' : ' + port + (addrKind(addr, host) === 'Domain' ? '' : ' · ' + addr);
 }
 
 /** Build a VLESS-WS share link (used for the host itself and for clean IPs). */
 function vlessLink(host, env, uuid, addr, name, overrides = {}) {
-  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {});
+  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {});
   const port = Number(overrides.port || panelPaths(env).port);
   const hostHeader = overrides.hostHeader || String(host);
   const params = overrides.path
@@ -1691,7 +1726,7 @@ function vlessLink(host, env, uuid, addr, name, overrides = {}) {
 
 /** Build a Trojan-WS share link. */
 function trojanLink(host, env, uuid, addr, name, overrides = {}) {
-  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {});
+  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {});
   const port = Number(overrides.port || panelPaths(env).port);
   const hostHeader = overrides.hostHeader || String(host);
   const pass = String(env.TROJAN_PASS || uuid);
@@ -1702,19 +1737,40 @@ function trojanLink(host, env, uuid, addr, name, overrides = {}) {
 }
 
 /** Every (address × port × protocol) combination as structured entries. */
+/**
+ * BPB ordering: for every port (80 first) emit Domain → IPv4 → IPv6 → CDN
+ * domains, VLESS before Trojan. Clients that connect to "the first that works"
+ * hit the plain-HTTP clean-IP entries before anything SNI-dependent.
+ */
 function buildConfigEntries(host, env, uuid, opts) {
   const options = opts || defaultConfigOptions(host, env);
   const addresses = [];
-  if (options.includeHost) addresses.push(String(host));
-  options.addresses.forEach((a) => { if (a.toLowerCase() !== String(host).toLowerCase()) addresses.push(a); });
+  const seen = new Set();
+  const push = (a) => {
+    const key = String(a).toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    addresses.push(String(a).replace(/^\[/, '').replace(/\]$/, ''));
+  };
+  if (options.includeHost) push(String(host));
+  const v4 = options.addresses.filter((a) => ipToLong(a) !== null);
+  const names = options.addresses.filter((a) => ipToLong(a) === null && !isIpLiteral(a));
+  const v6 = options.addresses.filter((a) => isIpLiteral(a) && ipToLong(a) === null);
+  v4.forEach(push);
+  if (options.includeIpv6 !== false) (v6.length ? v6 : DEFAULT_CLEAN_IPV6).forEach(push);
+  names.forEach(push);
   const entries = [];
-  addresses.forEach((addr) => {
+  let index = 0;
+  options.protocols.forEach((kind) => {
     options.ports.forEach((port) => {
-      options.protocols.forEach((kind) => {
-        const name = configName(kind, addr, port);
+      addresses.forEach((addr) => {
+        if (entries.length >= MAX_SUB_ENTRIES) return;
+        index += 1;
+        const name = configName(kind, addr, port, index, host);
+        const overrides = { port: port, sni: options.sni, fingerprint: options.fingerprint };
         const link = kind === 'vless'
-          ? vlessLink(host, env, uuid, addr, name, { port: port, sni: options.sni })
-          : trojanLink(host, env, uuid, addr, name, { port: port, sni: options.sni });
+          ? vlessLink(host, env, uuid, addr, name, overrides)
+          : trojanLink(host, env, uuid, addr, name, overrides);
         entries.push({ name: name, kind: kind, addr: addr, port: port, tls: TLS_PORTS.includes(port), link: link });
       });
     });
@@ -1722,9 +1778,11 @@ function buildConfigEntries(host, env, uuid, opts) {
   return entries;
 }
 
-function buildSubLinks(host, env, uuid, opts) {
+function buildSubLinks(host, env, uuid, opts, includeWarp) {
   const links = buildConfigEntries(host, env, uuid, opts).map((e) => e.link);
-  if (String(env.ENABLE_WARP).toLowerCase() !== 'false') links.push('warp://#🐱 Cat WARP');
+  // `warp://` is a Cat Client extension; v2rayNG / v2box / Streisand reject unknown
+  // schemes and may drop the whole subscription, so it is opt-in (?warp=1).
+  if (includeWarp && String(env.ENABLE_WARP).toLowerCase() !== 'false') links.push('warp://#🐱 Cat WARP');
   return links;
 }
 
@@ -1739,7 +1797,7 @@ function buildClashYaml(host, env, uuid, opts) {
     proxyBlocks.push('  - name: ' + yamlQuote(name) + '\n' + block);
   };
   const tlsBlock = (port) => TLS_PORTS.includes(port)
-    ? '    tls: true\n    servername: ' + options.sni + '\n    client-fingerprint: chrome\n'
+    ? '    tls: true\n    servername: ' + options.sni + '\n    client-fingerprint: ' + (options.fingerprint === 'randomized' ? 'random' : (options.fingerprint || 'chrome')) + '\n'
     : '    tls: false\n';
   const wsBlock = (path) =>
     '    network: ws\n' +
@@ -1805,7 +1863,7 @@ function buildSingboxConfig(host, env, uuid, opts) {
   const tags = [];
   buildConfigEntries(host, env, uuid, options).forEach((e) => {
     const tls = e.tls
-      ? { enabled: true, server_name: options.sni, utls: { enabled: true, fingerprint: 'chrome' } }
+      ? { enabled: true, server_name: options.sni, alpn: ['http/1.1'], utls: { enabled: true, fingerprint: options.fingerprint === 'randomized' ? 'random' : (options.fingerprint || 'chrome') } }
       : { enabled: false };
     const transport = {
       type: 'ws',
@@ -2359,6 +2417,8 @@ function panelState(host, env, uuid, request, settings) {
     tlsPorts: TLS_PORTS,
     plainPorts: PLAIN_PORTS,
     defaultAddresses: DEFAULT_CLEAN_ADDRESSES,
+    defaultIpv6: DEFAULT_CLEAN_IPV6,
+    defaultPorts: DEFAULT_PORTS,
     proxyIps: proxyIpList(env, settings || null),
     sniList: Array.from(allowedSnis(host, env)),
     remote: !!env.REMOTE,
@@ -2547,7 +2607,11 @@ function configsTabHtml(state) {
     '<button class="chip' + (o.protocols.includes('vless') ? ' active' : '') + '" data-proto="vless">VLESS</button>' +
     '<button class="chip' + (o.protocols.includes('trojan') ? ' active' : '') + '" data-proto="trojan">Trojan</button>' +
     '<button class="chip' + (o.includeHost !== false ? ' active' : '') + '" data-flag="host" title="خود دامنهٔ ورکر هم به‌عنوان آدرس اضافه شود">+ خود ورکر</button>' +
-    '</div></label></div>' +
+    '<button class="chip' + (o.includeIpv6 !== false ? ' active' : '') + '" data-flag="v6" title="آی‌پی‌های IPv6 کلودفلر هم اضافه شود (مثل BPB)">+ IPv6</button>' +
+    '</div></label>' +
+    '<label class="field"><span>Fingerprint (uTLS)</span><select id="cfgFp">' +
+    ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random'].map((f) => '<option value="' + f + '"' + ((o.fingerprint || 'chrome') === f ? ' selected' : '') + '>' + f + (f === 'chrome' ? ' (پیش‌فرض — همهٔ کلاینت‌ها)' : f === 'ios' ? ' (BPB)' : '') + '</option>').join('') +
+    '</select></label></div>' +
     '<label class="field" style="margin-top:8px"><span>پورت‌ها — TLS (امن) / HTTP (وقتی TLS اختلال دارد)</span>' +
     '<div class="chips" id="cfgPorts">' + state.tlsPorts.map((p) => portChip(p, true)).join('') + state.plainPorts.map((p) => portChip(p, false)).join('') + '</div></label>' +
     '<div class="row" style="margin-top:12px">' +
@@ -2561,6 +2625,7 @@ function configsTabHtml(state) {
     '<div class="card"><h2><span class="dot"></span><span data-i18n="connectHowTitle">چرا وصل نمی‌شود؟ (همان روش BPB)</span></h2>' +
     '<p>تونل این پنل با VLESS و Trojan روی WebSocket تست شده و سالم است. اگر کانفیگ وصل نمی‌شود، تقریباً همیشه مشکل <b>مسیر رسیدن به کلودفلر</b> است، نه خود پنل:</p>' +
     '<p>• دامنهٔ <code>workers.dev</code> در ایران روی SNI فیلتر است؛ کانفیگی که آدرسش خودِ ورکر باشد از خیلی اپراتورها بالا نمی‌آید. کانفیگ‌های <b>آی‌پی تمیز</b> (آدرس = IP، SNI/Host = دامنهٔ ورکر) را امتحان کن — این دقیقاً روش BPB است.<br>' +
+    '• کانفیگ‌های <b>پورت 80 (بدون TLS)</b> اول لیست‌اند — همان «VLESS - IPv4 : 80» که در BPB زودتر از همه وصل می‌شود، چون اصلاً SNI روی خط نمی‌رود. اگر TLS اختلال دارد، همان‌ها را انتخاب کن.<br>' +
     '• در اپ، گزینهٔ <b>Fragment</b> را روشن کن (طول 100-200، تأخیر 1-1، بسته tlshello) تا SNI تکه‌تکه ارسال شود؛ Cat Client / MahsaNG / v2rayNG این را دارند.<br>' +
     '• اگر یک دامنهٔ شخصی روی کلودفلر داری، آن را به‌عنوان Custom Domain به ورکر وصل کن و در فیلد SNI بنویس — پایدارترین راه است.<br>' +
     '• آی‌پی‌های تازه را از تب «اسکنر» بگیر (روی رنج‌ها اسکن می‌کند) و با «گذاشتن داخل کانفیگ‌ها» همین‌جا اعمال کن؛ پورت ۴۴۳ + SNI دامنهٔ ورکر.</p>' +
@@ -2873,21 +2938,27 @@ function panelClientJs() {
     ' var protos=$$("#cfgProtos .chip.active[data-proto]").map(function(c){return c.getAttribute("data-proto")});if(!protos.length)protos=["vless"];',
     ' var host=$("#cfgProtos .chip[data-flag=host]").classList.contains("active");',
     ' var sni=($("#cfgSni").value||"").trim().toLowerCase()||S.host;',
-    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni};}',
-    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");return "?"+q.join("&");}',
+    ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
+    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,fingerprint:fp,includeIpv6:v6};}',
+    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
     ' var deep="catclient://add-sub?url="+encodeURIComponent(subUrlFor(""))+"&name="+encodeURIComponent(S.title||"Cat Panel");$("#cfgDeepLink").setAttribute("href",deep);var d2=$("#homeDeepLink");if(d2)d2.setAttribute("href",deep);}',
     'function linkParams(port,kind,sni){var tls=TLS_PORTS.indexOf(Number(port))>=0;var path=kind==="vless"?S.vlessPath:S.trojanPath;',
     ' var common="&type=ws&path="+encodeURIComponent(path)+"&host="+encodeURIComponent(S.host);',
-    ' return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp=randomized&alpn="+encodeURIComponent("http/1.1")+common):("security=none"+common);}',
+    ' return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp="+encodeURIComponent(OPT.fingerprint||"chrome")+"&alpn="+encodeURIComponent("http/1.1")+common):("security=none"+common);}',
+    'function isV4(a){return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(a)}function isV6(a){return a.indexOf(":")>=0}',
+    'function addrKind(a){if(a.toLowerCase()===S.host.toLowerCase())return "Domain";if(isV4(a))return "IPv4";if(isV6(a))return "IPv6";return "CDN";}',
+    'function fmtAddr(a){return isV6(a)?"["+a+"]":a}',
     'function vlessLink(addr,name,sni,port){port=port||OPT.ports[0]||443;return "vless://"+S.uuid+"@"+addr+":"+port+"?encryption=none&"+linkParams(port,"vless",sni)+"#"+encodeURIComponent(name);}',
     'function trojanLink(addr,name,sni,port){port=port||OPT.ports[0]||443;return "trojan://"+encodeURIComponent(S.trojanPass)+"@"+addr+":"+port+"?"+linkParams(port,"trojan",sni)+"#"+encodeURIComponent(name);}',
-    'function allLinks(){var out=[];var addrs=[];if(OPT.includeHost!==false)addrs.push(S.host);(OPT.addresses||[]).forEach(function(a){if(a.toLowerCase()!==S.host.toLowerCase())addrs.push(a)});',
-    ' addrs.forEach(function(h){OPT.ports.forEach(function(p){OPT.protocols.forEach(function(k){',
-    '  var name="🐱 "+(k==="vless"?"VLESS":"Trojan")+" · "+h+(Number(p)===443?"":":"+p);',
-    '  out.push({name:name,type:k==="vless"?"VLESS":"Trojan",addr:h,port:p,tls:TLS_PORTS.indexOf(Number(p))>=0,link:k==="vless"?vlessLink(h,name,OPT.sni,p):trojanLink(h,name,OPT.sni,p),ms:null});});});});',
+    'function allLinks(){var out=[];var addrs=[],seen={};function push(a){a=String(a).replace(/^\\[/,"").replace(/\\]$/,"");var k=a.toLowerCase();if(!a||seen[k])return;seen[k]=1;addrs.push(a);}',
+    ' if(OPT.includeHost!==false)push(S.host);var list=(OPT.addresses||[]);list.filter(isV4).forEach(push);',
+    ' var v6=list.filter(function(a){return !isV4(a)&&isV6(a)});if(OPT.includeIpv6!==false)(v6.length?v6:(S.defaultIpv6||[])).forEach(push);list.filter(function(a){return !isV4(a)&&!isV6(a)}).forEach(push);',
+    ' var idx=0;OPT.protocols.forEach(function(k){OPT.ports.forEach(function(p){addrs.forEach(function(h){idx++;var kind=addrKind(h);',
+    '  var name="🐱 "+idx+". "+(k==="vless"?"VLESS":"Trojan")+" - "+kind+" : "+p+(kind==="Domain"?"":" · "+h);',
+    '  out.push({name:name,type:k==="vless"?"VLESS":"Trojan",addr:h,port:p,tls:TLS_PORTS.indexOf(Number(p))>=0,link:k==="vless"?vlessLink(fmtAddr(h),name,OPT.sni,p):trojanLink(fmtAddr(h),name,OPT.sni,p),ms:null});});});});',
     ' if(S.warp)out.push({name:"🐱 Cat WARP",type:"WARP",addr:"—",port:"",tls:true,link:"warp://#Cat WARP",ms:null});',
     ' return out;}',
     'var CFG=allLinks();',
@@ -2922,7 +2993,7 @@ function panelClientJs() {
     'function applyOptions(){OPT=readOptions();cfgSavedInKv=false;CFG=allLinks();renderConfigs();refreshSubUrl();$("#cfgSaveState").textContent="";}',
     '$("#cfgApply").addEventListener("click",function(){applyOptions();toast(CFG.length+" کانفیگ ساخته شد — لینک ساب به‌روز شد");});',
     '$("#cfgSave").addEventListener("click",function(){applyOptions();var o=OPT;',
-    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,sni:o.sni===S.host?"":o.sni}})})',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni}})})',
     ' .then(function(r){return r.json()}).then(function(j){if(j.ok&&j.persisted){cfgSavedInKv=true;refreshSubUrl();$("#cfgSaveState").textContent="ذخیره شد — لینک کوتاه فعال است ✅";toast("در KV ذخیره شد");}',
     '  else{$("#cfgSaveState").textContent=j.ok?"KV وصل نیست — لینک با تنظیمات داخلش استفاده می‌شود":"خطا: "+j.error;}}).catch(function(){$("#cfgSaveState").textContent="خطا در ذخیره";});});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
@@ -3408,7 +3479,8 @@ async function handleUserSubscription(request, url, env, host, path) {
   if (format === 'all') {
     return jsonResponse(Object.assign({ ok: true, user: { name: user.name, token: user.token } }, buildAllConfigs(host, env, uuid, options)), 200, headers);
   }
-  const links = buildSubLinks(host, env, uuid, options).join('\n') + '\n';
+  const wantsWarp = url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
+  const links = buildSubLinks(host, env, uuid, options, wantsWarp).join('\n') + '\n';
   if (format !== 'raw' && format !== 'txt') {
     return new Response(b64encode(links), {
       headers: Object.assign({}, headers, { 'content-type': 'text/plain; charset=utf-8' }),
@@ -3513,7 +3585,8 @@ async function fetchHandler(request, env) {
       });
     }
     if (format === 'all') return jsonResponse(buildAllConfigs(host, env, subUuid, options), 200, headers);
-    const body = buildSubLinks(host, env, subUuid, options).join('\n') + '\n';
+    const wantsWarp = url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
+    const body = buildSubLinks(host, env, subUuid, options, wantsWarp).join('\n') + '\n';
     const wantsRaw = format === 'raw' || format === 'txt' || url.searchParams.get('raw') === '1';
     // Default is base64 (every client accepts it; some reject plain text).
     return new Response(wantsRaw ? body : b64encode(body), {

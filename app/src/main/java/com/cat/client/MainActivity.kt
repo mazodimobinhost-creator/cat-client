@@ -4404,15 +4404,21 @@ class MainActivity : Activity() {
             return
         }
         val top = results.sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs })).take(SCANNER_BUILD_LIMIT)
+        // BPB layout: plain-HTTP :80 first (no SNI on the wire), then TLS 443/2053.
+        val common = "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host)
+        val tlsParams = "security=tls&sni=" + Uri.encode(identity.host) + "&fp=chrome&alpn=" + Uri.encode("http/1.1")
+        var index = 0
         val links = buildList {
-            top.forEach { r ->
-                val label = "🐱 " + r.ip + " · " + r.pingMs + "ms"
-                add(
-                    "vless://" + identity.uuid + "@" + r.ip + ":443?encryption=none&security=tls&sni=" +
-                        Uri.encode(identity.host) + "&fp=chrome&alpn=" + Uri.encode("http/1.1") +
-                        "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host) +
-                        "#" + Uri.encode(label),
-                )
+            SCANNER_BUILD_PORTS.forEach { port ->
+                top.forEach { r ->
+                    index += 1
+                    val tls = port != 80
+                    val label = "🐱 " + index + ". VLESS - IPv4 : " + port + " · " + r.ip + " · " + r.pingMs + "ms"
+                    add(
+                        "vless://" + identity.uuid + "@" + r.ip + ":" + port + "?encryption=none&" +
+                            (if (tls) tlsParams else "security=none") + common + "#" + Uri.encode(label),
+                    )
+                }
             }
         }
         val name = getString(R.string.scanner_build_sub_name, identity.host.substringBefore('.'))
@@ -9046,6 +9052,7 @@ class MainActivity : Activity() {
         const val SCANNER_SNI_KEY = "scanner_sni"
         const val DEFAULT_SCANNER_SNI = "skk.moe"
         const val SCANNER_BUILD_LIMIT = 12
+        val SCANNER_BUILD_PORTS = listOf(80, 443, 2053)
         const val SCANNER_VISIBLE_RESULTS = 24
         const val SCANNER_LIVE_REFRESH_EVERY = 5
         const val SCANNER_CONCURRENCY = 24

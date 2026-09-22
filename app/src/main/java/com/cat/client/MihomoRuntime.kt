@@ -34,10 +34,11 @@ object MihomoRuntimeDefaults {
     const val CONTROLLER_HOST = "127.0.0.1"
     const val DNS_LISTEN_PORT = 1053
     const val DELAY_TEST_URL = "https://www.gstatic.com/generate_204"
+    // Cheapest probe first: a 204 with no body answers fastest through a fresh tunnel.
     val HEALTH_URLS = listOf(
-        "https://valid-isrgrootx1.letsencrypt.org/",
         "https://connectivitycheck.gstatic.com/generate_204",
         "https://cloudflare.com/cdn-cgi/trace",
+        "https://valid-isrgrootx1.letsencrypt.org/",
     )
     val HEALTH_URL = HEALTH_URLS.first()
     const val EGRESS_TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
