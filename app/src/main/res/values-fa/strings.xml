@@ -61,6 +61,9 @@
     <string name="subscription_builtin_detail">داخلی · %1$s</string>
     <string name="subscription_private_name">Cat Client اختصاصی</string>
     <string name="subscription_public_name">Cat Client عمومی</string>
+    <string name="subscription_usage_traffic">مصرف %1$s از %2$s (٪%3$d)</string>
+    <string name="subscription_usage_used_only">مصرف %1$s</string>
+    <string name="subscription_usage_expiry">%1$d روز باقی‌مانده</string>
     <string name="subscription_detail">%1$s · %2$s · %3$s</string>
     <string name="subscription_never_updated">هرگز</string>
     <string name="subscription_selected_badge">انتخاب‌شده</string>

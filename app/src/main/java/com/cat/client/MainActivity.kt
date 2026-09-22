@@ -717,6 +717,30 @@ class MainActivity : Activity() {
         return scroll
     }
 
+    /** Human-readable quota line for a subscription panel that reports usage. */
+    private fun subscriptionUsageLine(usage: SubscriptionUsage?): String {
+        if (usage == null) return ""
+        val parts = mutableListOf<String>()
+        if (usage.totalBytes > 0) {
+            parts += getString(
+                R.string.subscription_usage_traffic,
+                SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
+                SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
+                usage.usedPercent,
+            )
+        } else if (usage.usedBytes > 0) {
+            parts += getString(
+                R.string.subscription_usage_used_only,
+                SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
+            )
+        }
+        usage.expireEpochSeconds?.let { seconds ->
+            val days = ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0L)
+            parts += getString(R.string.subscription_usage_expiry, days)
+        }
+        return if (parts.isEmpty()) "" else "\n" + parts.joinToString(" · ")
+    }
+
     private fun renderSubscriptions() {
         if (!::subscriptionsList.isInitialized) return
         subscriptionsList.removeAllViews()
@@ -764,19 +788,21 @@ class MainActivity : Activity() {
                 },
             )
         }
+        val usageStore = SubscriptionUsageStore(this)
         userSubscriptionManager.list().forEach { item ->
             val updated = item.updatedAt.takeIf { it > 0 }?.let {
                 DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(it)
             } ?: getString(R.string.subscription_never_updated)
+            val detail = getString(
+                R.string.subscription_detail,
+                item.format.label,
+                connectionCountLabel(item.connectionCount),
+                updated,
+            )
             subscriptionsList.addView(
                 subscriptionCard(
                     title = item.name,
-                    detail = getString(
-                        R.string.subscription_detail,
-                        item.format.label,
-                        connectionCountLabel(item.connectionCount),
-                        updated,
-                    ),
+                    detail = detail + subscriptionUsageLine(usageStore.read(item.input)),
                     selected = selectedId == item.id,
                     error = localizedSubscriptionError(item.lastError),
                     onTestConnections = { openSubscriptionConnectionTesting(item.id) },

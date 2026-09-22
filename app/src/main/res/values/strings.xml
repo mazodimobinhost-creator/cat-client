@@ -60,6 +60,9 @@
     <string name="subscription_builtin_detail">Built-in · %1$s</string>
     <string name="subscription_private_name">Cat Client Private</string>
     <string name="subscription_public_name">Cat Client Public fallback</string>
+    <string name="subscription_usage_traffic">Used %1$s of %2$s (%3$d%%)</string>
+    <string name="subscription_usage_used_only">Used %1$s</string>
+    <string name="subscription_usage_expiry">%1$d days left</string>
     <string name="subscription_detail">%1$s · %2$s · %3$s</string>
     <string name="subscription_never_updated">Never</string>
     <string name="subscription_selected_badge">Selected</string>

@@ -38,13 +38,17 @@ internal sealed interface SubscriptionSource {
     data class Inline(val content: String) : SubscriptionSource
 }
 
+internal data class LoadedSubscription(val content: String, val usageHeader: String?)
+
 internal object SubscriptionSourceLoader {
-    suspend fun load(source: SubscriptionSource): String = when (source) {
-        is SubscriptionSource.Inline -> source.content
+    suspend fun load(source: SubscriptionSource): String = loadDetailed(source).content
+
+    suspend fun loadDetailed(source: SubscriptionSource): LoadedSubscription = when (source) {
+        is SubscriptionSource.Inline -> LoadedSubscription(source.content, null)
         is SubscriptionSource.RemoteHttps -> loadHttps(source.url)
     }
 
-    private suspend fun loadHttps(value: String): String = runInterruptible(Dispatchers.IO) {
+    private suspend fun loadHttps(value: String): LoadedSubscription = runInterruptible(Dispatchers.IO) {
         val uri = runCatching { URI(value) }
             .getOrElse { throw IOException("Subscription Source URL is invalid", it) }
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
@@ -65,7 +69,7 @@ internal object SubscriptionSourceLoader {
             if (bytes.size > UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) {
                 throw IOException("Subscription Source exceeds the maximum size")
             }
-            bytes.toString(Charsets.UTF_8)
+            LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
         } finally {
             connection.disconnect()
         }
