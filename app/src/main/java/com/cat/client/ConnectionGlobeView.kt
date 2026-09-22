@@ -72,7 +72,7 @@ class ConnectionGlobeView(context: Context) : View(context) {
             VpnState.Started -> palette.teal
             VpnState.Starting, VpnState.Stopping -> palette.amber
             is VpnState.Error, VpnState.DailyLimitReached -> palette.red
-            VpnState.Stopped -> palette.primary
+            VpnState.Stopped -> palette.teal
         }
 
         // Soft glass halo.
