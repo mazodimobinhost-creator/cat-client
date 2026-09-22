@@ -96,7 +96,7 @@ class AppUpdatePolicyTest {
             listOf(asset(apkName())),
             listOf(asset("SHA256SUMS")),
             listOf(asset(apkName()).put("state", "starter"), asset("SHA256SUMS")),
-            listOf(asset("WhiteVPN-V1.3.0-universal.apk"), asset("SHA256SUMS")),
+            listOf(asset("CatClient-V1.3.0-universal.apk"), asset("SHA256SUMS")),
             listOf(asset(apkName(ApkVariant.Arm64V8a)), asset("SHA256SUMS")),
         )) {
             val parsed = GitHubReleaseClient.parseRelease(releaseJson(assets).toString(), ApkVariant.Universal)
@@ -125,21 +125,21 @@ class AppUpdatePolicyTest {
     @Test
     fun rejectsUntrustedOrMismatchedReleaseAndAssetUrls() {
         for (url in listOf(
-            "http://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0",
+            "http://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0",
             "https://github.com/another/repo/releases/tag/v1.4.0",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.3.0",
-            "https://github.com.evil.test/WhiteDNS/WhiteVPN/releases/tag/v1.4.0",
-            "https://github.com:443/WhiteDNS/WhiteVPN/releases/tag/v1.4.0",
-            "https://user@github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0?download=1",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0#fragment",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.3.0",
+            "https://github.com.evil.test/WhiteDNS/CatClient/releases/tag/v1.4.0",
+            "https://github.com:443/WhiteDNS/CatClient/releases/tag/v1.4.0",
+            "https://user@github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0?download=1",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0#fragment",
         )) assertInvalidRelease(releaseJson().put("html_url", url))
         for (url in listOf(
-            "http://github.com/WhiteDNS/WhiteVPN/releases/download/v1.4.0/${apkName()}",
+            "http://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.4.0/${apkName()}",
             "https://github.com/another/repo/releases/download/v1.4.0/${apkName()}",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/download/v1.3.0/${apkName()}",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/download/v1.4.0/wrong.apk",
-            "https://github.com/WhiteDNS/WhiteVPN/releases/download/v1.4.0/${apkName()}?token=1",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.3.0/${apkName()}",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.4.0/wrong.apk",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.4.0/${apkName()}?token=1",
             "https://evil.test/${apkName()}",
         )) assertInvalidRelease(releaseJson(listOf(asset(apkName()).put("browser_download_url", url))))
     }
@@ -177,7 +177,7 @@ class AppUpdatePolicyTest {
     fun validatesArchiveIdentityVersionSignerAndVariantBeforeInstall() {
         val installed = AppApkMetadata("com.whitedns.vpn", "1.3.0", 10, setOf("ab".repeat(32)), ApkVariant.Universal)
         val candidate = installed.copy(versionName = "1.4.0", versionCode = 11)
-        val release = AppRelease("v1.4.0", "https://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0")
+        val release = AppRelease("v1.4.0", "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0")
         AppUpdatePolicy.validateApk(candidate, installed, release)
         for (invalid in listOf(
             candidate.copy(packageName = "other.app"),
@@ -196,18 +196,18 @@ class AppUpdatePolicyTest {
         assertThrows(IOException::class.java) { AppUpdatePolicy.validateApk(candidate, installed.copy(versionName = "1.5.0"), release) }
     }
 
-    private fun apkName(variant: ApkVariant = ApkVariant.Universal) = "WhiteVPN-V1.4.0-${variant.suffix}.apk"
+    private fun apkName(variant: ApkVariant = ApkVariant.Universal) = "CatClient-V1.4.0-${variant.suffix}.apk"
 
     private fun asset(name: String) = JSONObject()
         .put("id", 123)
         .put("name", name)
         .put("state", "uploaded")
         .put("size", 1_024)
-        .put("browser_download_url", "https://github.com/WhiteDNS/WhiteVPN/releases/download/v1.4.0/$name")
+        .put("browser_download_url", "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.4.0/$name")
 
     private fun releaseJson(assets: List<JSONObject> = listOf(asset(apkName()), asset("SHA256SUMS"))) = JSONObject()
         .put("tag_name", "v1.4.0")
-        .put("html_url", "https://github.com/WhiteDNS/WhiteVPN/releases/tag/v1.4.0")
+        .put("html_url", "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.4.0")
         .put("draft", false)
         .put("prerelease", false)
         .put("assets", JSONArray(assets))

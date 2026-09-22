@@ -4,8 +4,18 @@
 
 The easiest way to get an APK is to push to `main` or any `arena/*` branch of
 this repo. GitHub Actions runs `.github/workflows/android.yml` on every push,
-builds debug + release APKs, uploads them as build artifacts, and attaches
-them to a new GitHub release.
+builds debug + release APKs, verifies their signatures/manifest/ZIP alignment,
+renames the release files to the updater-compatible `CatClient-V<version>-*.apk`
+format, writes `SHA256SUMS`, uploads build artifacts, and attaches them to a
+versioned GitHub release.
+
+For upgrade-safe releases, configure these four repository Actions secrets:
+`CATCLIENT_RELEASE_KEYSTORE_B64`, `CATCLIENT_RELEASE_STORE_PASSWORD`,
+`CATCLIENT_RELEASE_KEY_ALIAS`, and `CATCLIENT_RELEASE_KEY_PASSWORD`. The
+keystore value is the base64 encoding of the long-lived Cat Client release
+keystore. Without them, public CI falls back to a per-run key so a fresh install
+still works, but Android will reject an update over an APK signed by another
+run; never clear app data until the panel UUID has been recovered.
 
 ## Local build (Linux / macOS / Windows)
 
