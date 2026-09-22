@@ -143,6 +143,7 @@ class MainActivity : Activity() {
     private lateinit var routingModePreferenceStore: RoutingModePreferenceStore
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
+    private lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
     private lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
     private lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
     private lateinit var lanSharingPreferenceStore: LanSharingPreferenceStore
@@ -204,6 +205,7 @@ class MainActivity : Activity() {
     private lateinit var dashboardChainText: TextView
     private lateinit var dashboardConnectionMetadataSection: View
     private lateinit var tlsIntegrityCheckbox: MaterialSwitch
+    private lateinit var tlsFragmentCheckbox: MaterialSwitch
     private lateinit var alwaysOnStatusText: TextView
     private lateinit var amneziaNoiseCheckbox: MaterialSwitch
     private lateinit var amneziaNoiseFields: LinearLayout
@@ -345,6 +347,7 @@ class MainActivity : Activity() {
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
+        dpiBypassPreferenceStore = DpiBypassPreferenceStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
         lanSharingPreferenceStore = LanSharingPreferenceStore(this)
@@ -2955,6 +2958,19 @@ class MainActivity : Activity() {
             ),
             LinearLayout.LayoutParams(-1, -2),
         )
+        tlsFragmentCheckbox = MaterialSwitch(this).apply {
+            isChecked = dpiBypassPreferenceStore.isEnabled()
+            contentDescription = getString(R.string.tls_fragment_title)
+            setOnClickListener { saveTlsFragmentEnabled(isChecked) }
+        }
+        tlsIntegrityPanel.addView(
+            advancedToggleRow(
+                title = getString(R.string.tls_fragment_title),
+                detail = getString(R.string.tls_fragment_description),
+                toggle = tlsFragmentCheckbox,
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         connectionSettings.addView(
             tlsIntegrityPanel,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
@@ -4133,12 +4149,49 @@ class MainActivity : Activity() {
         )
         scannerSubnetsInput = scannerInput(
             hint = getString(R.string.scanner_subnets_hint),
-            initial = "",
-        )
+            initial = scannerRangesPreference(),
+        ).apply {
+            // Range list: allow several lines so long CIDR lists stay readable.
+            setSingleLine(false)
+            maxLines = 4
+            isVerticalScrollBarEnabled = true
+        }
         controls.addView(
             scannerFieldLayout(getString(R.string.scanner_subnets_label), scannerSubnetsInput),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
+        val rangeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                TextView(this@MainActivity).apply {
+                    setText(R.string.scanner_ranges_note)
+                    textSize = 11.5f
+                    typeface = CatClientBodyTypeface
+                    setTextColor(TEXT_SECONDARY)
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                MaterialButton(this@MainActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    setText(R.string.scanner_ranges_reset)
+                    textSize = 11.5f
+                    typeface = CatClientBodyBoldTypeface
+                    isAllCaps = false
+                    cornerRadius = dp(10)
+                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 160))
+                    setTextColor(TEXT_PRIMARY)
+                    insetTop = 0
+                    insetBottom = 0
+                    setOnClickListener {
+                        scannerSubnetsInput.setText(IpScanner.defaultRangesText())
+                        saveScannerRanges(IpScanner.defaultRangesText())
+                    }
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+            )
+        }
+        controls.addView(rangeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -4386,11 +4439,29 @@ class MainActivity : Activity() {
             .apply()
     }
 
+    private fun scannerRangesPreference(): String {
+        val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString(SCANNER_RANGES_KEY, null)
+        return saved ?: IpScanner.defaultRangesText()
+    }
+
+    private fun saveScannerRanges(value: String) {
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(SCANNER_RANGES_KEY, value)
+            .apply()
+    }
+
     private fun startIpScanner() {
         if (scannerRunning) return
         val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
         saveScannerSni(sni)
         val customSubnets = scannerSubnetsInput.text?.toString()?.trim().orEmpty()
+        saveScannerRanges(customSubnets)
+        val parsedRanges = IpScanner.parseRangeList(customSubnets)
+        if (customSubnets.isNotBlank() && parsedRanges.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_ranges_invalid, Toast.LENGTH_LONG).show()
+            return
+        }
         scannerRunning = true
         scannerStartButton.isEnabled = false
         scannerStopButton.isEnabled = true
@@ -4404,6 +4475,8 @@ class MainActivity : Activity() {
             customSubnets = customSubnets,
             includeBuiltin = true,
             includeIranLibrary = true,
+            perRange = SCANNER_PER_RANGE,
+            randomSample = true,
             concurrency = SCANNER_CONCURRENCY,
             connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
             tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
@@ -8175,6 +8248,18 @@ class MainActivity : Activity() {
         reconnectForConnectionOptionChange()
     }
 
+    private fun saveTlsFragmentEnabled(enabled: Boolean) {
+        if (dpiBypassPreferenceStore.isEnabled() == enabled) return
+        dpiBypassPreferenceStore.saveEnabled(enabled)
+        DiagnosticLogger.info(this, "activity.tlsFragment.saved", "enabled=$enabled")
+        Toast.makeText(
+            this,
+            if (enabled) R.string.tls_fragment_enabled_toast else R.string.tls_fragment_disabled_toast,
+            Toast.LENGTH_SHORT,
+        ).show()
+        reconnectForConnectionOptionChange()
+    }
+
     private fun saveLanSharingEnabled(enabled: Boolean) {
         if (lanSharingPreferenceStore.read().enabled == enabled) return
         lanSharingPreferenceStore.saveEnabled(enabled)
@@ -8956,6 +9041,8 @@ class MainActivity : Activity() {
 
         /* IP scanner */
         const val SCANNER_PREFERENCES = "cat_client_scanner"
+        const val SCANNER_RANGES_KEY = "ranges"
+        const val SCANNER_PER_RANGE = IpScanner.DEFAULT_PER_RANGE
         const val SCANNER_SNI_KEY = "scanner_sni"
         const val DEFAULT_SCANNER_SNI = "skk.moe"
         const val SCANNER_BUILD_LIMIT = 12

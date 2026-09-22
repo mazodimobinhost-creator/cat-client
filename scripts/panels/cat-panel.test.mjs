@@ -291,6 +291,27 @@ async function subText(url, opts) {
   const custom = T.sampleSubnet('104.16.0.0/13', 4);
   check('sampleSubnet spreads addresses', custom.length === 4 && custom[0] !== custom[3]);
   check('isIpLiteral accepts v4/v6', T.isIpLiteral('1.1.1.1') && T.isIpLiteral('2606:4700:4700::1111') && !T.isIpLiteral('example.com'));
+  // range-first scanner (v5.2)
+  check('scan-targets exposes CIDR ranges', Array.isArray(j.ranges) && j.ranges.length >= 10 && j.ranges.every((r) => r.includes('/')));
+  const inside = (ip, cidr) => {
+    const [b, p] = cidr.split('/');
+    const toL = (x) => x.split('.').reduce((a, o) => (a * 256) + Number(o), 0);
+    const size = 2 ** (32 - Number(p));
+    const base = toL(b) - (toL(b) % size);
+    return toL(ip) >= base && toL(ip) < base + size;
+  };
+  const rnd = T.sampleSubnet('172.67.0.0/24', 8, true);
+  check('sampleSubnet random stays inside the block', rnd.length === 8 && rnd.every((ip) => inside(ip, '172.67.0.0/24')));
+  check('sampleSubnet never emits .0 or .255', rnd.every((ip) => !/\.(0|255)$/.test(ip)));
+  check('sampleSubnet accepts a bare /32', T.sampleSubnet('1.2.3.4/32', 5).join() === '1.2.3.4');
+  const a = T.sampleSubnet('104.16.0.0/13', 8, true).join(), b = T.sampleSubnet('104.16.0.0/13', 8, true).join();
+  check('random sampling differs between runs', a !== b);
+  const exp = T.expandRanges('9.9.9.9, 188.114.96.0/20, nonsense, 10.0.0.0/8', 4);
+  check('expandRanges mixes IPs and CIDRs', exp.length === 9 && exp[0] === '9.9.9.9' && exp.slice(1, 5).every((ip) => inside(ip, '188.114.96.0/20')));
+  check('scanRanges honours SCAN_RANGES env', T.scanRanges({ SCAN_RANGES: '5.5.0.0/16, junk' }).join() === '5.5.0.0/16' && T.scanRanges({}).length === T.SCAN_RANGES.length);
+  check('default clean addresses have no IR-hosted names', !T.DEFAULT_CLEAN_ADDRESSES.some((a) => /zula\.ir|iranserver/.test(a)));
+  const ranged = await req('/api/scan?ranges=' + encodeURIComponent('172.67.0.0/24') + '&per=3');
+  check('/api/scan accepts CIDR ranges', ranged.status !== 400);
 }
 
 // 17. DoH resolver passthrough

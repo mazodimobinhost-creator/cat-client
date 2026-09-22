@@ -43,7 +43,38 @@ object IpScanner {
         val customSubnets: String = "",
         val includeBuiltin: Boolean = true,
         val includeIranLibrary: Boolean = true,
+        /** How many hosts to draw from every CIDR range per run. */
+        val perRange: Int = DEFAULT_PER_RANGE,
+        /** Draw a random host from each slice of the range so repeated scans discover new IPs. */
+        val randomSample: Boolean = true,
     )
+
+    const val DEFAULT_PER_RANGE = 24
+
+    /**
+     * Range-first defaults shown in the scanner field. These are the Cloudflare
+     * anycast blocks that most Iranian ISPs still reach; the user edits them freely.
+     */
+    val DEFAULT_RANGES: List<String> = listOf(
+        "104.16.0.0/13",
+        "104.24.0.0/14",
+        "172.64.0.0/13",
+        "162.159.192.0/24",
+        "162.159.128.0/20",
+        "188.114.96.0/20",
+        "141.101.64.0/18",
+        "108.162.192.0/18",
+        "198.41.128.0/17",
+        "103.21.244.0/22",
+        "103.22.200.0/22",
+        "103.31.4.0/22",
+        "131.0.72.0/22",
+        "173.245.48.0/20",
+        "190.93.240.0/20",
+        "197.234.240.0/22",
+    )
+
+    fun defaultRangesText(): String = DEFAULT_RANGES.joinToString(", ")
 
     data class ScanResult(
         val ip: String,
@@ -234,7 +265,14 @@ object IpScanner {
         }
     }
 
-    fun expandSubnet(cidr: String, limitPerSubnet: Int = 80): List<String> {
+    /**
+     * Expands one CIDR into up to [limitPerSubnet] candidate hosts. The block is
+     * split into equal slices and one host is taken from each; with [random] the
+     * host is drawn at a random offset inside its slice, so two scans of the same
+     * range test different addresses (BPB/vfarid style range walking).
+     * Network (`.0`) and broadcast-looking (`.255`) hosts are skipped.
+     */
+    fun expandSubnet(cidr: String, limitPerSubnet: Int = 80, random: Boolean = false): List<String> {
         val trimmed = cidr.trim()
         if (!trimmed.contains("/")) {
             return if (isValidIpv4(trimmed)) listOf(trimmed) else emptyList()
@@ -242,42 +280,52 @@ object IpScanner {
         val (ipPart, prefixPart) = trimmed.split("/", limit = 2)
         val prefix = prefixPart.toIntOrNull() ?: return emptyList()
         val ipBytes = ipPart.split(".").map { it.toIntOrNull() ?: return emptyList() }
-        if (ipBytes.size != 4 || prefix !in 0..32) return emptyList()
+        if (ipBytes.size != 4 || ipBytes.any { it !in 0..255 } || prefix !in 8..32) return emptyList()
         val ipInt = ipBytes.fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xFF) }
         val hostBits = 32 - prefix
-        val total = if (hostBits == 0) 1 else (1L shl hostBits.coerceAtMost(14)).coerceAtMost(limitPerSubnet.toLong())
-        val netMask = if (prefix == 0) 0L else (0xFFFFFFFFL shl hostBits) and 0xFFFFFFFFL
+        if (hostBits == 0) return listOf(longToIp(ipInt))
+        val netMask = (0xFFFFFFFFL shl hostBits) and 0xFFFFFFFFL
         val network = ipInt and netMask
-        val out = mutableListOf<String>()
-        // Sample evenly if subnet is larger than limit
-        val step = (1L shl hostBits.coerceAtMost(20)) / total.coerceAtLeast(1)
-        for (i in 0 until total) {
-            val addr = network + (i * step.coerceAtLeast(1))
-            out.add(longToIp(addr))
+        val blockSize = 1L shl hostBits.coerceAtMost(20)
+        val want = limitPerSubnet.toLong().coerceIn(1L, (blockSize - 1).coerceAtLeast(1L))
+        val slice = blockSize.toDouble() / want.toDouble()
+        val out = LinkedHashSet<String>()
+        for (i in 0 until want) {
+            val jitter = if (random) Math.random() * slice else slice / 2.0
+            var offset = (i * slice + jitter).toLong().coerceIn(1L, blockSize - 1)
+            val last = offset and 0xFF
+            if (last == 0L && offset + 1 <= blockSize - 1) offset += 1
+            else if (last == 255L && offset - 1 >= 1) offset -= 1
+            out.add(longToIp(network + offset))
         }
-        return out
+        return out.toList()
     }
+
+    /** Splits a free-form "ip, cidr, cidr" string into the entries the scanner walks. */
+    fun parseRangeList(text: String): List<String> =
+        text.split(",", "\n", " ", ";", "\t")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) }
 
     internal fun buildCandidateList(options: ScanOptions): List<String> {
         val ips = linkedSetOf<String>()
-        if (options.includeBuiltin) {
+        val perRange = options.perRange.coerceIn(1, 256)
+        // User ranges first (range-first scanner): every CIDR yields `perRange` hosts.
+        val custom = parseRangeList(options.customSubnets)
+        custom.forEach { part ->
+            if (part.contains("/")) ips += expandSubnet(part, perRange, options.randomSample)
+            else ips += part
+        }
+        if (options.includeBuiltin && custom.none { it.contains("/") }) {
             BUILTIN_RANGES.forEach { cidr ->
-                ips += expandSubnet(cidr)
+                ips += expandSubnet(cidr, perRange, options.randomSample)
             }
         }
         if (options.includeIranLibrary) {
             ips += IRAN_LIBRARY
         }
-        // Custom subnets or single IPs
-        options.customSubnets
-            .split(",", "\n", " ", ";")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .forEach { part ->
-                if (part.contains("/")) ips += expandSubnet(part)
-                else if (isValidIpv4(part)) ips += part
-            }
-        return ips.toList()
+        return ips.shuffled()
     }
 
     fun isValidIpv4(ip: String): Boolean =

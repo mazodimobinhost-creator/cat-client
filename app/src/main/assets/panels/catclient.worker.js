@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.1.0';
+const CAT_PANEL_VERSION = '5.2.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -1601,9 +1601,15 @@ function panelPaths(env) {
   };
 }
 
-/** Well-known Cloudflare-fronted addresses that usually work from Iran. */
+/**
+ * Well-known Cloudflare-fronted addresses that usually work from Iran.
+ * Every hostname here MUST resolve to Cloudflare anycast (verified 2026-09):
+ * a non-Cloudflare address can never reach the worker, so it silently
+ * produces dead configs (zula.ir / iranserver.com were such cases).
+ */
 const DEFAULT_CLEAN_ADDRESSES = [
-  'www.speedtest.net', 'www.visa.com', 'cf.090227.xyz', 'zula.ir', 'www.iranserver.com', 'ip.sb',
+  'www.speedtest.net', 'www.visa.com', 'cf.090227.xyz', 'ip.sb', 'cdnjs.cloudflare.com', 'speed.cloudflare.com',
+  'www.shopify.com', 'discord.com', 'icook.tw', 'www.wto.org',
   '104.16.132.229', '172.67.181.32', '188.114.96.1', '162.159.192.1', '104.17.148.22', '172.64.80.1',
 ];
 const TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
@@ -2066,18 +2072,46 @@ function longToIp(value) {
   return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join('.');
 }
 
-/** Pick `count` evenly spread addresses from a CIDR block. */
-function sampleSubnet(cidr, count = 4) {
+/**
+ * Pick `count` addresses spread over a CIDR block. Each slot gets a random
+ * offset inside its slice (when `random` is true) so repeated scans of the same
+ * range keep discovering new hosts instead of re-testing the same 4 IPs.
+ */
+function sampleSubnet(cidr, count = 8, random = false) {
   const parts = String(cidr).split('/');
   const base = ipToLong(parts[0]);
   if (base === null) return [];
-  const prefix = Number(parts[1]);
+  const prefix = parts.length > 1 ? Number(parts[1]) : 32;
   if (!Number.isInteger(prefix) || prefix < 8 || prefix > 32) return [];
+  if (prefix === 32) return [longToIp(base)];
   const hostBits = 32 - prefix;
+  const netBase = (base >>> 0) - ((base >>> 0) % Math.pow(2, hostBits));
   const total = Math.pow(2, Math.min(hostBits, 20));
-  const step = Math.max(1, Math.floor(total / (count + 1)));
+  const want = Math.max(1, Math.min(count, total - 1));
+  const slice = total / want;
   const out = [];
-  for (let i = 1; i <= count; i++) out.push(longToIp((base + i * step) >>> 0));
+  const seen = new Set();
+  for (let i = 0; i < want; i++) {
+    const jitter = random ? Math.floor(Math.random() * slice) : Math.floor(slice / 2);
+    let offset = Math.floor(i * slice + jitter);
+    if (offset < 1) offset = 1;
+    if (offset > total - 1) offset = total - 1;
+    if ((offset & 255) === 0 && offset + 1 <= total - 1) offset += 1; // skip x.x.x.0
+    if ((offset & 255) === 255 && offset - 1 >= 1) offset -= 1; // skip x.x.x.255
+    const ip = longToIp((netBase + offset) >>> 0);
+    if (!seen.has(ip)) { seen.add(ip); out.push(ip); }
+  }
+  return out;
+}
+
+/** Expand a comma/space separated list of IPs and CIDR ranges into candidate IPs. */
+function expandRanges(text, perRange = 8, random = true) {
+  const out = [];
+  const seen = new Set();
+  splitCsv(text).forEach((item) => {
+    const list = item.includes('/') ? sampleSubnet(item, perRange, random) : isIpLiteral(item) ? [item] : [];
+    list.forEach((ip) => { if (!seen.has(ip)) { seen.add(ip); out.push(ip); } });
+  });
   return out;
 }
 
@@ -2091,13 +2125,15 @@ function scanTargets(env) {
   };
   splitCsv(env.CF_IPS).forEach(push);
   IR_CLEAN_IPS.forEach(push);
-  const custom = splitCsv(env.SCAN_IPS);
-  custom.forEach((item) => {
-    if (item.includes('/')) sampleSubnet(item, 4).forEach(push);
-    else push(item);
-  });
-  for (const range of SCAN_RANGES) sampleSubnet(range, 4).forEach(push);
+  expandRanges(env.SCAN_IPS, 8, true).forEach(push);
+  for (const range of scanRanges(env)) sampleSubnet(range, 6, true).forEach(push);
   return out;
+}
+
+/** CIDR ranges the scanner walks: SCAN_RANGES env (comma separated) or the built-in Cloudflare list. */
+function scanRanges(env) {
+  const custom = splitCsv(env && env.SCAN_RANGES).filter((r) => r.includes('/') && sampleSubnet(r, 1).length);
+  return custom.length ? custom : SCAN_RANGES.slice();
 }
 
 /**
@@ -2347,6 +2383,7 @@ function panelState(host, env, uuid, request, settings) {
     dohUrl: 'https://' + host + '/dns-query',
     qrBase: 'https://' + host + '/qr.svg',
     scanTargets: scanTargets(env),
+    scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
 }
@@ -2391,7 +2428,7 @@ function panelShell(state) {
     '<div class="theme-menu" id="themeMenu">' + themeMenuHtml() + '</div>' +
     '</div></header>' +
 
-    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml() +
+    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml(state) +
       dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
     '<nav class="tabs"><div class="inner">' +
@@ -2521,6 +2558,15 @@ function configsTabHtml(state) {
     '<p class="muted" style="margin-top:8px">بدون KV هم کار می‌کند: «اعمال» تنظیمات را داخل خود لینک ساب می‌گذارد. با KV، لینک کوتاه <code>/sub/UUID</code> همیشه آخرین تنظیمات را می‌دهد.</p>' +
     '</div>' +
 
+    '<div class="card"><h2><span class="dot"></span><span data-i18n="connectHowTitle">چرا وصل نمی‌شود؟ (همان روش BPB)</span></h2>' +
+    '<p>تونل این پنل با VLESS و Trojan روی WebSocket تست شده و سالم است. اگر کانفیگ وصل نمی‌شود، تقریباً همیشه مشکل <b>مسیر رسیدن به کلودفلر</b> است، نه خود پنل:</p>' +
+    '<p>• دامنهٔ <code>workers.dev</code> در ایران روی SNI فیلتر است؛ کانفیگی که آدرسش خودِ ورکر باشد از خیلی اپراتورها بالا نمی‌آید. کانفیگ‌های <b>آی‌پی تمیز</b> (آدرس = IP، SNI/Host = دامنهٔ ورکر) را امتحان کن — این دقیقاً روش BPB است.<br>' +
+    '• در اپ، گزینهٔ <b>Fragment</b> را روشن کن (طول 100-200، تأخیر 1-1، بسته tlshello) تا SNI تکه‌تکه ارسال شود؛ Cat Client / MahsaNG / v2rayNG این را دارند.<br>' +
+    '• اگر یک دامنهٔ شخصی روی کلودفلر داری، آن را به‌عنوان Custom Domain به ورکر وصل کن و در فیلد SNI بنویس — پایدارترین راه است.<br>' +
+    '• آی‌پی‌های تازه را از تب «اسکنر» بگیر (روی رنج‌ها اسکن می‌کند) و با «گذاشتن داخل کانفیگ‌ها» همین‌جا اعمال کن؛ پورت ۴۴۳ + SNI دامنهٔ ورکر.</p>' +
+    '<div class="row"><button class="btn ghost tiny" id="cfgCopyFragmentHint">کپی تنظیم Fragment پیشنهادی</button><button class="btn ghost tiny" data-goto-tab="scanner">رفتن به اسکنر</button></div>' +
+    '</div>' +
+
     '<div class="card"><h2><span class="dot"></span><span data-i18n="subTitle">لینک سابسکریپشن</span></h2>' +
     '<div class="chips" id="cfgSubFormats">' +
     '<button class="chip active" data-fmt="">لینک ساب (Base64)</button>' +
@@ -2572,7 +2618,8 @@ function configsTabHtml(state) {
     '</section>';
 }
 
-function scannerTabHtml() {
+function scannerTabHtml(state) {
+  const ranges = (state && state.scanRanges) || SCAN_RANGES;
   return '<section class="tab" data-tab-panel="scanner">' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerTitle">اسکنر آی‌پی تمیز کلودفلر</span></h2>' +
     '<p>دو اسکنر داری: <b>«از مرورگر»</b> سرعت واقعی هر آی‌پی را روی اینترنت خودت می‌سنجد (همان چیزی که برای اپراتور تو مهم است). <b>«از ورکر»</b> می‌گوید آن آی‌پی برای دامنهٔ پنل جواب می‌دهد یا نه (از سمت کلودفلر). نتیجهٔ خوب = هردو سبز.</p>' +
@@ -2580,10 +2627,15 @@ function scannerTabHtml() {
     '<label class="field"><span>حالت اسکن مرورگر</span><select id="scanMode"><option value="http">HTTP :80 — دقیق‌ترین از مرورگر (پیشنهادی)</option><option value="https">HTTPS :443 — فقط دسترسی TCP/TLS</option></select></label>' +
     '<label class="field"><span>تعداد هم‌زمان</span><input id="scanConc" type="number" min="1" max="32" value="8"></label>' +
     '<label class="field"><span>تایم‌اوت هر تست (ms)</span><input id="scanTimeout" type="number" min="500" max="8000" value="2000"></label>' +
-    '<label class="field"><span>تعداد آی‌پی برای اسکن</span><input id="scanLimit" type="number" min="8" max="400" value="60"></label>' +
+    '<label class="field"><span>تعداد آی‌پی برای اسکن</span><input id="scanLimit" type="number" min="8" max="400" value="80"></label>' +
     '</div>' +
     '<input type="hidden" id="scanSni">' +
-    '<label class="field"><span>آی‌پی یا رنج دلخواه (اختیاری — با کاما جدا کن)</span><textarea id="scanCustom" rows="2" placeholder="104.16.6.62, 172.67.0.0/24"></textarea></label>' +
+    '<div class="grid two" style="margin-top:8px">' +
+    '<label class="field" style="grid-column:1/-1"><span>رنج‌های آی‌پی (CIDR) — هر بار از داخل هر رنج، آی‌پی‌های تازه و تصادفی تست می‌شود</span><textarea id="scanCustom" rows="3" dir="ltr" placeholder="104.16.0.0/13, 172.64.0.0/13, 188.114.96.0/20">' + esc(ranges.join(', ')) + '</textarea></label>' +
+    '<label class="field"><span>تعداد آی‌پی از هر رنج</span><input id="scanPerRange" type="number" min="1" max="64" value="8"></label>' +
+    '<label class="field"><span>&nbsp;</span><button class="btn ghost tiny" id="scanRangesReset" type="button">بازگشت به رنج‌های پیش‌فرض کلودفلر</button></label>' +
+    '</div>' +
+    '<p class="muted">می‌توانی تک‌آی‌پی هم بنویسی (مثلاً 104.16.6.62)، اما اسکن اصلی روی رنج‌ها انجام می‌شود؛ خالی بگذاری از کتابخانهٔ داخلی استفاده می‌شود.</p>' +
     '<div class="row"><button class="btn" id="scanStart">شروع اسکن از مرورگر</button>' +
     '<button class="btn ghost" id="scanServerAll">اسکن از ورکر</button>' +
     '<button class="btn ghost" id="scanStop" disabled>توقف</button>' +
@@ -2752,8 +2804,8 @@ function panelClientJs() {
     'var $=function(s,r){return (r||document).querySelector(s)};',
     'var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};',
     'var I18N={',
-    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",cfgBuilderTitle:"تنظیم کانفیگ‌ها (مثل BPB)",usersTitle:"کاربران پنل",toolsTitle:"ابزارها و تنظیمات",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
-    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",cfgBuilderTitle:"Config builder (BPB-style)",usersTitle:"Panel users",toolsTitle:"Tools & settings",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
+    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",cfgBuilderTitle:"تنظیم کانفیگ‌ها (مثل BPB)",connectHowTitle:"چرا وصل نمی‌شود؟ (همان روش BPB)",usersTitle:"کاربران پنل",toolsTitle:"ابزارها و تنظیمات",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
+    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",cfgBuilderTitle:"Config builder (BPB-style)",connectHowTitle:"Why does it not connect? (BPB method)",usersTitle:"Panel users",toolsTitle:"Tools & settings",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
     '};',
     'var lang="fa",theme="dark";',
     'try{lang=localStorage.getItem("catpanel.lang")||"fa";theme=localStorage.getItem("catpanel.theme")||"dark";}catch(e){}',
@@ -2857,6 +2909,8 @@ function panelClientJs() {
     '$$("#subFormats .chip").forEach(function(chip){chip.addEventListener("click",function(){',
     ' $$("#subFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");',
     ' $("#subUrlText").textContent=subUrlFor(chip.getAttribute("data-fmt")||"");});});',
+    'if($("#cfgCopyFragmentHint"))$("#cfgCopyFragmentHint").addEventListener("click",function(){copyText("Fragment: packets=tlshello, length=100-200, interval=1-1");toast(lang==="fa"?"تنظیم Fragment کپی شد":"Fragment settings copied");});',
+    '$$("[data-goto-tab]").forEach(function(b){b.addEventListener("click",function(){showTab(b.getAttribute("data-goto-tab"));});});',
     '$$("#cfgSubFormats .chip").forEach(function(chip){chip.addEventListener("click",function(){',
     ' $$("#cfgSubFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");cfgFmt=chip.getAttribute("data-fmt")||"";refreshSubUrl();});});',
     '$$("#cfgPorts .chip, #cfgProtos .chip").forEach(function(chip){chip.addEventListener("click",function(){chip.classList.toggle("active")});});',
@@ -2974,13 +3028,19 @@ function panelClientJs() {
     'function sampleTargets(limit,custom){var list=(custom&&custom.length?custom:(S.scanTargets||[])).slice();',
     ' for(var i=list.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=list[i];list[i]=list[j];list[j]=t;}',
     ' return limit&&list.length>limit?list.slice(0,limit):list;}',
-    'function expandCustom(text){var out=[];(text||"").split(/[\\s,;]+/).forEach(function(item){',
+    'function perRange(){return Math.max(1,Math.min(64,Number($("#scanPerRange")&&$("#scanPerRange").value)||8));}',
+    '/* Range-first expansion: every CIDR is split into `per` equal slices and one',
+    '   random host is drawn from each slice, so each run tests fresh addresses. */',
+    'function expandCustom(text,per){per=per||perRange();var out=[],seen={};function push(ip){if(!seen[ip]){seen[ip]=1;out.push(ip)}}',
+    ' (text||"").split(/[\\s,;]+/).forEach(function(item){',
     ' item=item.trim();if(!item)return;',
-    ' if(item.indexOf("/")<0){out.push(item);return;}',
+    ' if(item.indexOf("/")<0){if(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(item))push(item);return;}',
     ' var p=item.split("/"),parts=p[0].split(".").map(Number),prefix=Number(p[1]);',
-    ' if(parts.length!==4||parts.some(function(n){return isNaN(n)})||prefix<8||prefix>32)return;',
-    ' var base=((parts[0]<<24)>>>0)+(parts[1]<<16)+(parts[2]<<8)+parts[3];var hostBits=32-prefix;var total=Math.pow(2,Math.min(hostBits,12));var step=Math.max(1,Math.floor(total/16));',
-    ' for(var i=1;i<=16;i++){var v=(base+i*step)>>>0;out.push([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join("."));}});return out;}',
+    ' if(parts.length!==4||parts.some(function(n){return isNaN(n)||n<0||n>255})||prefix<8||prefix>32)return;',
+    ' var base=((parts[0]<<24)>>>0)+(parts[1]<<16)+(parts[2]<<8)+parts[3];var hostBits=32-prefix;var size=Math.pow(2,hostBits);base=base-(base%size);',
+    ' var total=Math.pow(2,Math.min(hostBits,20));var want=Math.max(1,Math.min(per,total-1));var slice=total/want;',
+    ' for(var i=0;i<want;i++){var off=Math.floor(i*slice+Math.random()*slice);if(off<1)off=1;if(off>total-1)off=total-1;if((off&255)===0)off+=1;else if((off&255)===255)off-=1;var v=(base+off)>>>0;push([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join("."));}});return out;}',
+    'if($("#scanRangesReset"))$("#scanRangesReset").addEventListener("click",function(){$("#scanCustom").value=(S.scanRanges||[]).join(", ");toast(lang==="fa"?"رنج‌های پیش‌فرض برگشت":"Default ranges restored");});',
     'var scanResults=[],scanRunning=false,scanAbort=null;',
     '/* Browser probe. HTTP:80 gives a real round-trip on Cloudflare edges (they answer',
     '   /cdn-cgi/trace on plain HTTP). HTTPS:443 only proves TCP+TLS reachability because',
@@ -3043,7 +3103,7 @@ function panelClientJs() {
     ' for(var k=0;k<conc;k++)next();',
     '});',
     '$("#scanServerAll").addEventListener("click",function(){var btn=this;btn.disabled=true;',
-    ' var custom=expandCustom($("#scanCustom").value);var targets=sampleTargets(Math.min(64,Number($("#scanLimit").value)||60),custom);',
+    ' var custom=expandCustom($("#scanCustom").value);var targets=sampleTargets(Math.min(96,Number($("#scanLimit").value)||80),custom);',
     ' $("#scanStatus").textContent="اسکن از ورکر روی "+targets.length+" آی‌پی…";',
     ' fetch("/api/scan?ips="+encodeURIComponent(targets.join(","))+"&timeout=4000&concurrency=16").then(function(r){return r.json()}).then(function(j){btn.disabled=false;',
     '  if(!j.ok){$("#scanStatus").textContent="خطا: "+j.error;return;}',
@@ -3493,7 +3553,7 @@ async function fetchHandler(request, env) {
     return jsonResponse(panelState(host, env, uuid, request, settings), 200, CORS);
   }
   if (path === '/api/scan-targets.json') {
-    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env) }, 200, CORS);
+    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env), ranges: scanRanges(env) }, 200, CORS);
   }
   if (path === '/api/ping') {
     const ip = url.searchParams.get('ip') || '';
@@ -3599,8 +3659,9 @@ async function fetchHandler(request, env) {
   }
 
   if (path === '/api/scan') {
-    const list = splitCsv(url.searchParams.get('ips')).filter(isIpLiteral).slice(0, 64);
-    if (!list.length) return jsonResponse({ ok: false, error: 'ips required' }, 400, CORS);
+    const perRange = Math.max(1, Math.min(32, Number(url.searchParams.get('per') || 8)));
+    const list = expandRanges([url.searchParams.get('ips'), url.searchParams.get('ranges')].filter(Boolean).join(','), perRange, true).slice(0, 96);
+    if (!list.length) return jsonResponse({ ok: false, error: 'ips or ranges required' }, 400, CORS);
     const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
     const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
     const results = [];
@@ -3750,7 +3811,9 @@ export const _testing = {
   vlessLink,
   trojanLink,
   scanTargets,
+  scanRanges,
   sampleSubnet,
+  expandRanges,
   probeIp,
   probeDnsUpstream,
   resolveHost,

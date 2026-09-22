@@ -228,6 +228,10 @@
     <string name="tls_integrity_section">Connection security</string>
     <string name="tls_integrity_title">TLS integrity</string>
     <string name="tls_integrity_description">Checks secure sites and blocks routes with invalid certificates.</string>
+    <string name="tls_fragment_title">TLS Fragment (ByeDPI)</string>
+    <string name="tls_fragment_description">Splits the TLS ClientHello so filters cannot read the SNI — the BPB \"Fragment\" trick for filtered workers.dev domains. Turn off if connections get slower.</string>
+    <string name="tls_fragment_enabled_toast">TLS Fragment on — reconnecting</string>
+    <string name="tls_fragment_disabled_toast">TLS Fragment off — reconnecting</string>
     <string name="settings_warp_section">WARP Pro / Amnezia Noise</string>
     <string name="amnezia_noise_title">Amnezia Noise</string>
     <string name="amnezia_noise_description">Applied only to WireGuard/WARP outbounds; when off, the subscription setting is used.</string>
@@ -480,10 +484,13 @@
     <string name="scanner_settings_section">Scan settings</string>
     <string name="scanner_sni_label">SNI (panel domain)</string>
     <string name="scanner_sni_hint">e.g. mypanel.workers.dev</string>
-    <string name="scanner_subnets_label">Extra IPs or CIDR ranges (comma separated)</string>
-    <string name="scanner_subnets_hint">104.16.6.62, 172.67.0.0/24</string>
+    <string name="scanner_subnets_label">IP ranges to scan (CIDR, comma separated)</string>
+    <string name="scanner_subnets_hint">104.16.0.0/13, 172.64.0.0/13, 188.114.96.0/20</string>
+    <string name="scanner_ranges_note">Every run draws fresh random hosts from each range (24 per range). Single IPs are accepted too.</string>
+    <string name="scanner_ranges_reset">Cloudflare defaults</string>
+    <string name="scanner_ranges_invalid">No valid range found. Use CIDR like 104.16.0.0/13 or plain IPv4 addresses.</string>
     <string name="scanner_stop">Stop</string>
-    <string name="scanner_idle">Ready. Built-in Cloudflare, Gcore and Fastly ranges plus your own list.</string>
+    <string name="scanner_idle">Ready. Scans random hosts inside your IP ranges (range-first, like BPB) plus the Iran clean-IP library.</string>
     <string name="scanner_progress_hint">Scanning… TLS-pinging candidates</string>
     <string name="scanner_progress">%1$d/%2$d tested (%3$d%%) · best %4$d ms</string>
     <string name="scanner_progress_empty">%1$d/%2$d tested (%3$d%%)</string>
