@@ -1439,10 +1439,20 @@ class MainActivity : Activity() {
                 connectionCountLabel(item.connectionCount),
                 updated,
             )
+            val usage = usageStore.read(item.input)
+            val isRemote = item.input.trim().startsWith("https://", ignoreCase = true)
+            val shareActions: List<Pair<Int, () -> Unit>> = if (isRemote) listOf(
+                R.string.subscription_action_copy_link to { copySubscriptionLink(item) },
+                R.string.subscription_action_qr to { showConfigQrCodes(listOf(item.input.trim()), item.name) },
+                R.string.subscription_action_share to { shareSubscriptionLink(item) },
+                R.string.subscription_action_open_v2rayng to { openSubscriptionInApp(item, "v2rayng") },
+                R.string.subscription_action_open_v2box to { openSubscriptionInApp(item, "v2box") },
+                R.string.subscription_action_open_info to { openSubscriptionInfoPage(item) },
+            ) else emptyList()
             subscriptionsList.addView(
                 subscriptionCard(
                     title = item.name,
-                    detail = detail + subscriptionUsageLine(usageStore.read(item.input)),
+                    detail = detail + subscriptionUsageLine(usage),
                     selected = selectedId == item.id,
                     error = localizedSubscriptionError(item.lastError),
                     onTestConnections = { openSubscriptionConnectionTesting(item.id) },
@@ -1453,8 +1463,10 @@ class MainActivity : Activity() {
                         },
                         R.string.subscription_action_edit to { showEditSubscriptionDialog(item) },
                         R.string.subscription_action_refresh to { refreshSubscription(item) },
+                    ) + shareActions + listOf(
                         R.string.subscription_action_delete to { confirmDeleteSubscription(item) },
                     ),
+                    usage = usage,
                 ),
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
             )
@@ -1471,6 +1483,7 @@ class MainActivity : Activity() {
         error: String,
         onTestConnections: () -> Unit,
         actions: List<Pair<Int, () -> Unit>>,
+        usage: SubscriptionUsage? = null,
     ): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -1554,6 +1567,32 @@ class MainActivity : Activity() {
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
             gravity = Gravity.START
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        if (usage != null && usage.totalBytes > 0) {
+            // Quota bar (panel reported total=): green → amber → red as it fills up.
+            val fraction = usage.usedFraction
+            val barColor = when {
+                fraction >= 0.9f -> ERROR
+                fraction >= 0.7f -> palette.amber
+                else -> TEAL
+            }
+            addView(
+                ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    isIndeterminate = false
+                    max = 1000
+                    progress = (fraction * 1000f).toInt().coerceIn(0, 1000)
+                    progressTintList = ColorStateList.valueOf(barColor)
+                    progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    contentDescription = getString(
+                        R.string.subscription_usage_traffic,
+                        SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
+                        SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
+                        usage.usedPercent,
+                    )
+                },
+                LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(10) },
+            )
+        }
         if (error.isNotBlank()) addView(TextView(this@MainActivity).apply {
             text = getString(R.string.subscription_error, error)
             textSize = 12f
@@ -1871,6 +1910,58 @@ class MainActivity : Activity() {
                     ).show()
                 }
         }
+    }
+
+    /* ---- share a remote subscription with other clients (v2rayNG / V2Box / …) ---- */
+
+    private fun subscriptionLink(item: UserSubscription): String = item.input.trim()
+
+    private fun copySubscriptionLink(item: UserSubscription) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("subscription", subscriptionLink(item)))
+        Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun shareSubscriptionLink(item: UserSubscription) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, item.name)
+            putExtra(Intent.EXTRA_TEXT, subscriptionLink(item))
+        }
+        runCatching { startActivity(Intent.createChooser(send, item.name)) }
+            .onFailure { Toast.makeText(this, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show() }
+    }
+
+    /**
+     * Hands the subscription to another installed client through its URL scheme
+     * (same schemes Marzban/Vodiwalker pages use). Falls back to copying the link.
+     */
+    private fun openSubscriptionInApp(item: UserSubscription, app: String) {
+        val link = subscriptionLink(item)
+        val encoded = Uri.encode(link)
+        val name = Uri.encode(item.name)
+        val target = when (app) {
+            "v2rayng" -> "v2rayng://install-sub?url=$encoded&name=$name"
+            "v2box" -> "v2box://install-sub?url=$encoded&name=$name"
+            "hiddify" -> "hiddify://import/$link#${item.name}"
+            else -> return
+        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val launched = runCatching { startActivity(intent); true }.getOrDefault(false)
+        if (!launched) {
+            copySubscriptionLink(item)
+            Toast.makeText(this, getString(R.string.subscription_app_missing, app), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Cat Panel per-user pages live at /info/<token>; other panels get the plain link. */
+    private fun openSubscriptionInfoPage(item: UserSubscription) {
+        val link = subscriptionLink(item)
+        val info = Regex("^(https://[^/]+)/u/([^/?#]+)").find(link)
+            ?.let { "${it.groupValues[1]}/info/${it.groupValues[2]}" }
+            ?: link.substringBefore('#').let { if (it.contains('?')) "$it&web=1" else "$it?web=1" }
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info))) }
+            .onFailure { copySubscriptionLink(item) }
     }
 
     private fun confirmDeleteSubscription(item: UserSubscription) {

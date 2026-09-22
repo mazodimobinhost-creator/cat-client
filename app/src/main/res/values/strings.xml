@@ -74,6 +74,14 @@
     <string name="subscription_action_options">Options</string>
     <string name="subscription_action_refresh">Refresh</string>
     <string name="subscription_action_delete">Delete</string>
+    <string name="subscription_action_copy_link">Copy link</string>
+    <string name="subscription_action_qr">QR code</string>
+    <string name="subscription_action_share">Share…</string>
+    <string name="subscription_action_open_v2rayng">Open in v2rayNG</string>
+    <string name="subscription_action_open_v2box">Open in V2Box</string>
+    <string name="subscription_action_open_info">Usage page</string>
+    <string name="subscription_share_failed">No app can receive this link.</string>
+    <string name="subscription_app_missing">%1$s is not installed — the link was copied instead.</string>
     <string name="subscription_name_hint">Subscription name</string>
     <string name="subscription_source_hint">URL, YAML, JSON, or proxy links</string>
     <string name="subscription_source_helper">Supported: subscription URLs, Mihomo YAML, Clash/Xray JSON, and VLESS, VMess, Trojan, Hysteria2/Hy2, Shadowsocks (SS), WireGuard, or SOCKS/SOCKS5 link lists (plain or Base64).</string>

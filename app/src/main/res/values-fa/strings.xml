@@ -75,6 +75,14 @@
     <string name="subscription_action_options">گزینه‌ها</string>
     <string name="subscription_action_refresh">تازه‌سازی</string>
     <string name="subscription_action_delete">حذف</string>
+    <string name="subscription_action_copy_link">کپی لینک</string>
+    <string name="subscription_action_qr">کد QR</string>
+    <string name="subscription_action_share">اشتراک‌گذاری…</string>
+    <string name="subscription_action_open_v2rayng">باز کردن در v2rayNG</string>
+    <string name="subscription_action_open_v2box">باز کردن در V2Box</string>
+    <string name="subscription_action_open_info">صفحهٔ مصرف</string>
+    <string name="subscription_share_failed">هیچ برنامه‌ای برای دریافت لینک پیدا نشد.</string>
+    <string name="subscription_app_missing">%1$s نصب نیست — لینک به‌جایش کپی شد.</string>
     <string name="subscription_name_hint">نام سابسکریپشن</string>
     <string name="subscription_source_hint">URL، YAML، JSON یا لینک‌های پروکسی</string>
     <string name="subscription_source_helper">پشتیبانی: URL سابسکریپشن، Mihomo YAML، Clash/Xray JSON و فهرست لینک‌های VLESS، VMess، Trojan، Hysteria2/Hy2، Shadowsocks (SS)، WireGuard یا SOCKS/SOCKS5 (ساده یا Base64).</string>

@@ -52,7 +52,7 @@ async function subText(url, opts) {
   check('/sub omits warp by default (v2rayNG/v2box reject unknown schemes)', !body.includes('warp://'));
   const warped = await subText('/sub?warp=1');
   check('/sub?warp=1 adds the warp link', warped.body.includes('warp://'));
-  const uaWarp = await subText('/sub', { headers: { 'User-Agent': 'CatClient/1.5.2 (+android)' } });
+  const uaWarp = await subText('/sub', { headers: { 'User-Agent': 'CatClient/1.5.3 (+android)' } });
   check('Cat Client UA gets warp automatically', uaWarp.body.includes('warp://'));
   // BPB parity (verified against a working BPB sub from Iran, 2026-09)
   const lines = body.trim().split('\n');
@@ -541,6 +541,84 @@ async function subText(url, opts) {
   (fakeClient.listeners.message || []).forEach((fn) => fn({ data: new Uint8Array([9, 9]).buffer }));
   check('relayTcp pipes client frames upstream', remoteSent.length === 2);
   globalThis.fetch = origFetch;
+}
+
+// 24. v5.4 — per-user subscriptions: live usage, userinfo headers, /info page, app deep links, regenerate
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', PANEL_TITLE: 'Cat Demo' };
+  const created = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'ali' }) }), env);
+  const body = JSON.parse(await created.text());
+  check('user created with state + infoPath', created.status === 201 && body.ok && body.user.state && body.infoPath === '/info/' + body.user.token, JSON.stringify(body).slice(0, 200));
+  const token = body.user.token;
+  const uuid = body.user.uuid;
+  // set a quota so headers carry total=
+  const r1 = new Request('https://' + HOST + '/api/users/' + body.user.id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ quotaGb: 2, days: 30 }) });
+  const put = JSON.parse(await (await worker.fetch(r1, env)).text());
+  check('PUT keeps token/uuid and sets quota', put.ok && put.user.token === token && put.user.uuid === uuid && put.user.quotaGb === 2 && put.user.expireAt > Date.now());
+
+  // buffered traffic (not yet in KV) is visible in the sub headers after the forced flush
+  await T.accountTraffic(env, uuid, 1000, 2000, true);
+  const sub = await req('/u/' + token, { env, raw: true });
+  const ui = sub.headers.get('subscription-userinfo') || '';
+  check('/u/<token> carries subscription-userinfo with live download', /download=3000;/.test(ui) && /total=2147483648;/.test(ui) && /expire=\d{10}/.test(ui), ui);
+  check('/u/<token> carries profile-title + web page url', (sub.headers.get('profile-title') || '').startsWith('base64:') && (sub.headers.get('profile-web-page-url') || '').endsWith('/info/' + token));
+  const subBody = b64dec(await sub.text());
+  check('/u/<token> body is the same BPB-style list', subBody.includes('vless://' + uuid + '@') && !subBody.includes('warp://'));
+  const stats = JSON.parse(await (await req('/u/' + token + '?stats=1', { env, raw: true })).text());
+  check('?stats=1 reports used/total/daysLeft', stats.ok && stats.used === 3000 && stats.total === 2147483648 && stats.daysLeft >= 29 && stats.status === 'active');
+  const info = await req('/info/' + token, { env, raw: true });
+  const infoHtml = await info.text();
+  check('/info/<token> is a public HTML page', info.status === 200 && (info.headers.get('content-type') || '').includes('text/html') && infoHtml.includes('ringArc'));
+  check('/info page offers v2rayNG + V2Box + Hiddify deep links', infoHtml.includes('v2rayng://install-sub?url=') && infoHtml.includes('v2box://install-sub?url=') && infoHtml.includes('hiddify://import/'));
+  check('/u/<token>?web=1 also renders the page (never by UA sniffing)', (await (await req('/u/' + token + '?web=1', { env, raw: true })).text()).includes('ringArc'));
+  const uaSub = await req('/u/' + token, { env, raw: true, headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android) Chrome/120 Mobile' } });
+  check('browser UA on /u/<token> still gets raw base64 (WebView apps)', !(await uaSub.text()).includes('<html'));
+
+  // quota exceeded → tunnel and sub blocked (Trojan too)
+  const r2 = new Request('https://' + HOST + '/api/users/' + body.user.id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usedBytes: 3 * 1024 * 1024 * 1024 }) });
+  await worker.fetch(r2, env);
+  const blocked = await req('/u/' + token, { env, raw: true });
+  check('over-quota user gets 403 on the sub', blocked.status === 403);
+  const users = await T.readUsers(env);
+  const tAuth = await T.tunnelAuth(env, uuid, await T.readSettings(env));
+  check('over-quota user is refused by tunnelAuth', tAuth.ok === false && tAuth.error === 'quota-exceeded');
+  const stillInfo = await req('/info/' + token, { env, raw: true });
+  check('/info stays reachable for a blocked user (shows status)', stillInfo.status === 200 && (await stillInfo.text()).includes('حجم تمام شده'));
+
+  // regenerate rotates uuid + token
+  const regen = JSON.parse(await (await new Promise((resolve) => resolve(worker.fetch(new Request('https://' + HOST + '/api/users/' + body.user.id + '/regenerate', { method: 'POST' }), env)))).text());
+  check('regenerate rotates uuid and token', regen.ok && regen.user.uuid !== uuid && regen.user.token !== token);
+  check('old token is gone after regenerate', (await req('/u/' + token, { env, raw: true })).status === 404);
+
+  // list with ?sync=1 flushes the buffer and returns state
+  await T.accountTraffic(env, regen.user.uuid, 10, 10, false);
+  const list = JSON.parse(await (await req('/api/users?sync=1', { env, raw: true })).text());
+  check('GET /api/users?sync=1 returns state + online', list.ok && list.users[0].state && typeof list.online === 'number');
+  const flushed = await T.readUsers(env);
+  check('?sync=1 flushed buffered bytes into KV', flushed[0].usedBytes >= 20, String(flushed[0].usedBytes));
+
+  const links = T.appDeepLinks('https://h.example/u/abc', 'Cat');
+  check('appDeepLinks covers v2rayNG, V2Box, Hiddify, Streisand, sing-box, Clash', ['v2rayng', 'v2box', 'hiddify', 'streisand', 'singbox', 'clash'].every((id) => links.some((l) => l.id === id)));
+  check('sing-box deep link points at the /singbox format', links.find((l) => l.id === 'singbox').href.includes(encodeURIComponent('https://h.example/u/abc/singbox')));
+  const home = await (await req('/?p=x', { env, raw: true })).text();
+  check('panel home shows add-to-app buttons for the master sub', home.includes('data-app="v2rayng"') && home.includes('data-app="v2box"'));
+  check('panel users tab has the new actions', home.includes('data-user-regen') && home.includes('data-user-info') && home.includes('data-user-toggle'));
+}
+
+// 25. Trojan auth applies the same quota/expiry gate as VLESS
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true' };
+  const u = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'exp', days: 1 }) }), env)).text()).user;
+  const hash = await T.trojanHash(u.uuid);
+  const ok = await T.trojanAuthorized(env, await T.readSettings(env), hash, '');
+  check('trojan auth accepts a healthy user', ok.ok === true && ok.user && ok.user.uuid === u.uuid);
+  await worker.fetch(new Request('https://' + HOST + '/api/users/' + u.id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) }), env);
+  const no = await T.trojanAuthorized(env, await T.readSettings(env), hash, '');
+  check('trojan auth refuses a disabled user', no.ok === false && no.error === 'disabled');
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');

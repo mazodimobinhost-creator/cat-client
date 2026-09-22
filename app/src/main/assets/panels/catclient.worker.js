@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.3.0';
+const CAT_PANEL_VERSION = '5.4.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -837,6 +837,7 @@ const USER_DEFAULTS = {
   enabled: true,
   note: '',
   createdAt: 0,
+  lastSeenAt: 0,
 };
 
 function normalizeUser(raw) {
@@ -873,7 +874,12 @@ function userQuotaBytes(user) {
 function userTrafficLeft(user) {
   const quota = userQuotaBytes(user);
   if (quota <= 0) return Infinity;
-  return Math.max(0, quota - (Number(user.usedBytes) || 0));
+  return Math.max(0, quota - userLiveUsed(user));
+}
+
+/** Written usage + bytes still sitting in this isolate's buffer. */
+function userLiveUsed(user) {
+  return (Number(user.usedBytes) || 0) + bufferedBytes(user && user.uuid);
 }
 
 function userExpired(user, now) {
@@ -913,33 +919,96 @@ async function tunnelAuth(env, uuid, settings) {
   return { ok: true, user: user, users: users, role: 'user' };
 }
 
-/** Debounced traffic accounting so a busy tunnel does not hammer KV. */
-const trafficBuffers = new Map();
+/**
+ * Debounced traffic accounting so a busy tunnel does not hammer KV.
+ *
+ * Lessons borrowed from the Vodiwalker worker (v2.3):
+ *  - a connection that closes must flush *unconditionally* (`force`), otherwise
+ *    an isolate that is evicted before the next timed flush silently loses the
+ *    whole session ("usage never goes up");
+ *  - flushes are serialised through one promise chain so two connections
+ *    closing at once cannot race a read-modify-write on the users list;
+ *  - a failed KV write (daily limit) puts the bytes back into the buffer.
+ *  - buffered-but-unwritten bytes count toward the quota (`bufferedBytes`).
+ */
+const trafficBuffers = globalThis.__catTraffic || (globalThis.__catTraffic = new Map());
+const trafficState = globalThis.__catTrafficState || (globalThis.__catTrafficState = { busySince: 0, lastFlush: Date.now() });
+const TRAFFIC_FLUSH_INTERVAL_MS = 15000;
+const TRAFFIC_FLUSH_THRESHOLD = 5 * 1024 * 1024;
+/** A flush older than this is assumed dead (its request context was torn down). */
+const TRAFFIC_FLUSH_STALE_MS = 5000;
 
-function accountTraffic(env, uuid, sentBytes, receivedBytes) {
-  if (!uuid) return;
+function bufferedBytes(uuid) {
+  const entry = trafficBuffers.get(String(uuid || '').toLowerCase());
+  return entry ? entry.sent + entry.received : 0;
+}
+
+function bufferedTotal() {
+  let total = 0;
+  trafficBuffers.forEach((entry) => { total += entry.sent + entry.received; });
+  return total;
+}
+
+function accountTraffic(env, uuid, sentBytes, receivedBytes, force) {
+  if (!uuid) return Promise.resolve();
   const key = uuid.toLowerCase();
-  const entry = trafficBuffers.get(key) || { sent: 0, received: 0, lastFlush: Date.now(), users: null };
+  const entry = trafficBuffers.get(key) || { sent: 0, received: 0 };
   entry.sent += sentBytes || 0;
   entry.received += receivedBytes || 0;
   trafficBuffers.set(key, entry);
-  if (Date.now() - entry.lastFlush < 15000) return;
-  void flushTraffic(env, key);
+  const dueByTime = Date.now() - trafficState.lastFlush >= TRAFFIC_FLUSH_INTERVAL_MS;
+  const dueBySize = bufferedTotal() >= TRAFFIC_FLUSH_THRESHOLD;
+  if (!force && !dueByTime && !dueBySize) return Promise.resolve();
+  return flushTraffic(env);
 }
 
-async function flushTraffic(env, uuidKey) {
-  const entry = trafficBuffers.get(uuidKey);
-  if (!entry) return;
-  const delta = entry.sent + entry.received;
-  entry.sent = 0;
-  entry.received = 0;
-  entry.lastFlush = Date.now();
-  if (delta <= 0 || !hasKv(env)) return;
-  const users = await readUsers(env);
-  const user = findUserByUuid(users, uuidKey);
-  if (!user) return;
-  user.usedBytes = (Number(user.usedBytes) || 0) + delta;
-  await writeUsers(env, users);
+/**
+ * Write buffered bytes to KV. Never shares promises between requests: in
+ * Workers a promise/timer created inside one request's I/O context may never
+ * settle once that request is cancelled, so a shared chain would wedge every
+ * later caller. Instead a busy flag skips overlapping flushes — the bytes
+ * simply stay buffered (and still count via `userLiveUsed`) until the next one.
+ */
+async function flushTraffic(env) {
+  const now = Date.now();
+  if (trafficState.busySince && now - trafficState.busySince < TRAFFIC_FLUSH_STALE_MS) return false;
+  if (!hasKv(env)) { trafficState.lastFlush = now; return false; }
+  const snapshot = new Map();
+  trafficBuffers.forEach((entry, key) => {
+    const delta = entry.sent + entry.received;
+    if (delta > 0) snapshot.set(key, delta);
+  });
+  if (!snapshot.size) { trafficState.lastFlush = now; return false; }
+  trafficState.busySince = now;
+  // Take the bytes out of the buffer only now, so a skipped flush loses nothing.
+  snapshot.forEach((delta, key) => {
+    const entry = trafficBuffers.get(key);
+    if (entry) { entry.sent = 0; entry.received = 0; }
+  });
+  try {
+    const users = await readUsers(env);
+    let changed = false;
+    snapshot.forEach((delta, key) => {
+      const user = findUserByUuid(users, key);
+      if (!user) return;
+      user.usedBytes = (Number(user.usedBytes) || 0) + delta;
+      user.lastSeenAt = Date.now();
+      changed = true;
+    });
+    if (changed) await writeUsers(env, users);
+    trafficState.lastFlush = Date.now();
+    return true;
+  } catch (e) {
+    // KV write failed (daily limit?) — put the bytes back so nothing is lost.
+    snapshot.forEach((delta, key) => {
+      const entry = trafficBuffers.get(key) || { sent: 0, received: 0 };
+      entry.received += delta;
+      trafficBuffers.set(key, entry);
+    });
+    return false;
+  } finally {
+    trafficState.busySince = 0;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1067,7 +1136,10 @@ function websocketReadable(ws, earlyData) {
         if (cancelled) return;
         controller.enqueue(toBytes(event.data));
       });
-      ws.addEventListener('close', () => {
+      ws.addEventListener('close', (event) => {
+        // Complete the close handshake: the peer sent Close, we must answer with
+        // our own or the runtime keeps the request open ("Worker's code had hung").
+        try { ws.close(1000, 'client closed'); } catch (e) { /* already closed */ }
         if (cancelled) return;
         cancelled = true;
         try { controller.close(); } catch (e) { /* already closed */ }
@@ -1087,7 +1159,8 @@ function websocketReadable(ws, earlyData) {
 
 function safeCloseWs(ws, code, reason) {
   try {
-    if (ws.readyState === WS_OPEN || ws.readyState === 0) ws.close(code || 1000, reason || '');
+    // 0 CONNECTING, 1 OPEN, 2 CLOSING (peer sent Close, ours still owed).
+    if (ws.readyState === WS_OPEN || ws.readyState === 0 || ws.readyState === 2) ws.close(code || 1000, reason || '');
   } catch (e) { /* ignore */ }
 }
 
@@ -1252,12 +1325,15 @@ async function trojanAuthorized(env, settings, hash, masterUuid) {
   if (masterUuid) candidates.push(String(masterUuid));
   const users = await readUsers(env);
   users.forEach((user) => {
-    if (user.enabled !== false && user.uuid) candidates.push(String(user.uuid));
+    if (user.uuid) candidates.push(String(user.uuid)); // the gate below reports disabled/expired/quota
   });
   for (const password of candidates) {
     const digest = await trojanHash(password);
     if (digest === hash) {
       const user = findUserByUuid(users, password);
+      // Same gate as VLESS: expiry / quota / disabled apply to Trojan too.
+      const blocked = user ? userReasonBlocked(user) : null;
+      if (blocked) return { ok: false, error: blocked, user: user, users: users };
       return { ok: true, password: password, user: user, users: users };
     }
   }
@@ -1336,8 +1412,8 @@ async function dialTarget(host, port, env, settings, log) {
  */
 async function pumpTunnel(ws, clientReadable, socket, responseHeader, counters) {
   const writer = socket.writable.getWriter();
+  const reader = clientReadable.getReader();
   const upstream = (async () => {
-    const reader = clientReadable.getReader();
     try {
       for (;;) {
         const chunk = await reader.read();
@@ -1375,6 +1451,10 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, counters) 
       try { ws.send(header); } catch (e) { /* ignore */ }
     }
     safeCloseWs(ws, 1000, 'remote closed');
+    // A peer that vanished without a Close frame never fires `close` on our
+    // side, so the upstream read would wait forever and workerd would report
+    // the request as hung. Cancelling the reader resolves that pending read.
+    try { await reader.cancel(); } catch (e) { /* ignore */ }
   })();
   await Promise.all([upstream, downstream]);
   try { socket.close(); } catch (e) { /* ignore */ }
@@ -1512,13 +1592,16 @@ async function handleTunnelConnection(ws, env, options = {}) {
     safeCloseWs(ws, 1008, 'device limit reached');
     return;
   }
+  let finished = false;
   const finish = () => {
-    if (user) {
-      accountTraffic(env, accountUuid, counters.sent, counters.received);
-      releaseConnection(accountUuid);
-    } else if (accountUuid) {
-      accountTraffic(env, accountUuid, counters.sent, counters.received);
-    }
+    if (finished) return;
+    finished = true;
+    if (user) releaseConnection(accountUuid);
+    if (!accountUuid) return;
+    // Forced flush: the session is over, write it now (Vodiwalker lesson —
+    // waiting for the next timed flush loses the bytes when the isolate dies).
+    const pending = accountTraffic(env, accountUuid, counters.sent, counters.received, true);
+    if (options.ctx && typeof options.ctx.waitUntil === 'function') options.ctx.waitUntil(pending.catch(() => {}));
   };
 
   if (isDns) {
@@ -2351,6 +2434,10 @@ function css() {
     '.ms{font-weight:700;font-variant-numeric:tabular-nums}',
     '.ms.good{color:var(--ok)}.ms.mid{color:var(--warn)}.ms.bad{color:var(--bad)}',
     '.bar{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line-soft)}',
+    'td.acts{white-space:normal;min-width:260px}td.acts .btn{margin:2px 0}',
+    '.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}',
+    '.apps .app{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:14px;background:var(--surface);border:1px solid var(--line);color:var(--text);text-decoration:none;transition:.18s}',
+    '.apps .app:hover{border-color:var(--accent);transform:translateY(-1px)}.apps .app b{font-size:13.5px}.apps .app span{font-size:11px;color:var(--muted)}',
     '.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-2),var(--accent-3));transition:width .2s}',
     '.toast{position:fixed;inset-inline:0;bottom:104px;z-index:60;display:flex;justify-content:center;pointer-events:none}',
     '.toast span{background:linear-gradient(120deg,var(--accent-2),var(--accent-3));color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;font-weight:700;box-shadow:0 14px 30px rgba(124,58,237,.35);opacity:0;transform:translateY(10px);transition:.22s}',
@@ -2446,6 +2533,14 @@ function panelState(host, env, uuid, request, settings) {
     scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
+}
+
+/** "Add to app" buttons for a subscription URL (rendered server-side, refreshed client-side). */
+function appButtonsHtml(subUrl, title) {
+  return appDeepLinks(subUrl, title || 'Cat Panel')
+    .filter((a) => a.id !== 'catclient')
+    .map((a) => '<a class="app" data-app="' + a.id + '" href="' + esc(a.href) + '"><b>' + esc(a.label) + '</b><span>افزودن خودکار</span></a>')
+    .join('');
 }
 
 function loginHtml(title, error) {
@@ -2560,6 +2655,7 @@ function homeTabHtml(state) {
     '<button class="btn ghost" id="downloadSub">دانلود فایل کانفیگ</button>' +
     '<button class="btn ghost" id="copyAllLinks">کپی همهٔ کانفیگ‌ها</button>' +
     '</div>' +
+    '<div class="apps" id="homeApps">' + appButtonsHtml(state.subUrl, state.title) + '</div>' +
     '<p class="muted" style="margin-top:8px">لینک شامل UUID توست — آن را فقط به کسانی بده که می‌خواهی وصل شوند. در Cat Client → سابسکریپشن → + → لینک را وارد کن؛ هر «بروزرسانی» آخرین آی‌پی‌ها و پورت‌های تنظیم‌شده در تب «کانفیگ‌ها» را می‌گیرد.</p>' +
     '</div>' +
 
@@ -2647,7 +2743,8 @@ function configsTabHtml(state) {
     '<a class="btn" id="cfgDeepLink" href="' + esc(state.deepLink) + '">🐱 افزودن به Cat Client</a>' +
     '<button class="btn ghost" id="downloadCfg">دانلود txt</button>' +
     '<button class="btn ghost" id="copyAllLinks">کپی همهٔ کانفیگ‌ها</button>' +
-    '</div></div>' +
+    '</div>' +
+    '<div class="apps" id="cfgApps">' + appButtonsHtml(state.subUrl, state.title) + '</div></div>' +
 
     '<div class="card"><h2><span class="dot"></span><span data-i18n="configsTitle">کانفیگ‌های ساخته‌شده</span> <span class="pill" id="cfgCount">0</span></h2>' +
     '<label class="field"><span>جستجو</span><input id="cfgSearch" placeholder="نام یا آی‌پی…"></label>' +
@@ -2777,9 +2874,14 @@ function usersTabHtml(state) {
     '<label class="field"><span>محدودیت دستگاه — 0 یعنی آزاد</span><input id="uDevices" type="number" min="0" step="1" value="0"></label>' +
     '</div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="uCreate">ساخت کاربر</button>' +
-    '<button class="btn ghost tiny" id="uReload">بارگذاری مجدد</button></div></div>' +
-    '<div class="table-wrap"><table><thead><tr><th>#</th><th>کاربر</th><th>حجم</th><th>انقضا</th><th>سابسکریپشن</th><th>عملیات</th></tr></thead>' +
+    '<button class="btn ghost tiny" id="uReload">بارگذاری مجدد</button>' +
+    '<label class="field" style="margin:0;flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="uAuto" checked style="width:auto"><span style="margin:0">تازه‌سازی خودکار هر ۲۰ ثانیه</span></label></div></div>' +
+    '<div class="grid three" style="margin-top:12px"><div class="stat"><div class="k">کاربران</div><div class="v" id="uCount">—</div></div>' +
+    '<div class="stat"><div class="k">اتصال‌های زنده</div><div class="v" id="uOnline">—</div></div>' +
+    '<div class="stat"><div class="k">مصرف کل</div><div class="v" id="uTotalUsed">—</div></div></div>' +
+    '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>#</th><th>کاربر</th><th>مصرف</th><th>انقضا</th><th>وضعیت</th><th>عملیات</th></tr></thead>' +
     '<tbody id="userTable"><tr><td colspan="6">در حال بارگذاری…</td></tr></tbody></table></div>' +
+    '<p class="muted" style="margin-top:8px">«صفحهٔ کاربر» یک صفحهٔ عمومی است (بدون رمز پنل) که کاربر در آن مصرف، انقضا و دکمه‌های افزودن به v2rayNG / V2Box / Hiddify / Streisand را می‌بیند — لینک همان را برایش بفرست.</p>' +
     '</div></section>';
 }
 
@@ -2944,7 +3046,11 @@ function panelClientJs() {
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
-    ' var deep="catclient://add-sub?url="+encodeURIComponent(subUrlFor(""))+"&name="+encodeURIComponent(S.title||"Cat Panel");$("#cfgDeepLink").setAttribute("href",deep);var d2=$("#homeDeepLink");if(d2)d2.setAttribute("href",deep);}',
+    ' var deep="catclient://add-sub?url="+encodeURIComponent(subUrlFor(""))+"&name="+encodeURIComponent(S.title||"Cat Panel");$("#cfgDeepLink").setAttribute("href",deep);var d2=$("#homeDeepLink");if(d2)d2.setAttribute("href",deep);refreshApps(subUrlFor(""));}',
+    'function appLinks(sub){var enc=encodeURIComponent(sub),tag=encodeURIComponent(S.title||"Cat Panel"),base=sub.replace(/\\/?$/,"");',
+    ' return {v2rayng:"v2rayng://install-sub?url="+enc+"&name="+tag,v2box:"v2box://install-sub?url="+enc+"&name="+tag,hiddify:"hiddify://import/"+sub+"#"+tag,streisand:"streisand://import/"+sub,v2raytun:"v2raytun://import/"+sub,',
+    '  singbox:"sing-box://import-remote-profile?url="+encodeURIComponent(base+"/singbox")+"#"+tag,clash:"clash://install-config?url="+encodeURIComponent(base+"/clash")+"&name="+tag,shadowrocket:"sub://"+btoa(sub)};}',
+    'function refreshApps(sub){var L=appLinks(sub);$$(".apps a[data-app]").forEach(function(a){var k=a.getAttribute("data-app");if(L[k])a.setAttribute("href",L[k]);});}',
     'function linkParams(port,kind,sni){var tls=TLS_PORTS.indexOf(Number(port))>=0;var path=kind==="vless"?S.vlessPath:S.trojanPath;',
     ' var common="&type=ws&path="+encodeURIComponent(path)+"&host="+encodeURIComponent(S.host);',
     ' return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp="+encodeURIComponent(OPT.fingerprint||"chrome")+"&alpn="+encodeURIComponent("http/1.1")+common):("security=none"+common);}',
@@ -3032,34 +3138,58 @@ function panelClientJs() {
     '$("#singleQr").addEventListener("click",function(){var link=$("#singleOut").textContent;if(!link||link==="—"){link=buildSingle();$("#singleOut").textContent=link;}openQr(link);});',
     '/* ---- users ---- */',
     'function escHtml(v){return String(v).replace(/[&<>]/g,function(c){return c==="&"?"&amp;":(c==="<"?"&lt;":"&gt;")})}',
+    'function fmtB(b){b=Number(b)||0;if(b<1024)return b+" B";var u=["KB","MB","GB","TB"],i=-1;do{b/=1024;i++}while(b>=1024&&i<u.length-1);return (b>=100?Math.round(b):b.toFixed(2))+" "+u[i]}',
     'function userRow(u,i){',
-    ' var gb=1073741824;var pct=u.quotaGb>0?Math.min(100,Math.round((u.usedBytes/(u.quotaGb*gb))*100)):0;',
-    ' var exp=u.expireAt?new Date(u.expireAt).toLocaleDateString("fa-IR"):"—";',
-    ' var quota=u.quotaGb>0?(u.quotaGb+" GB · "+(u.usedBytes/gb).toFixed(2)+" GB · "+pct+"%"+""):"—";',
-    ' return "<tr><td>"+(i+1)+"</td><td><b>"+escHtml(u.name||"user")+"</b><div class=\'muted\' style=\'font-size:11px;direction:ltr\'>"+String(u.uuid).slice(0,18)+"…</div></td>"+',
-    '  "<td>"+quota+"</td><td>"+exp+"</td><td><span class=\'pill\'>/u/"+String(u.token).slice(0,8)+"…</span></td>"+',
-    '  "<td><button class=\'btn ghost tiny\' data-user-sub=\'"+u.token+"\'>کپی ساب</button> "+',
+    ' var st=u.state||{};var gb=1073741824;var total=u.quotaGb>0?u.quotaGb*gb:0;var used=st.used!==undefined?st.used:(u.usedBytes||0);var pct=total>0?Math.min(100,Math.round(used/total*100)):0;',
+    ' var exp=u.expireAt?new Date(u.expireAt).toLocaleDateString("fa-IR")+(st.daysLeft>=0?" ("+st.daysLeft+" روز)":""):"نامحدود";',
+    ' var usage="<div dir=ltr style=\'font-size:11.5px\'>"+fmtB(used)+(total>0?" / "+u.quotaGb+" GB":" · ∞")+"</div><div class=\'bar\' style=\'margin-top:4px;min-width:90px\'><i style=\'width:"+pct+"%"+(pct>=90?";background:var(--bad)":"")+"\'></i></div>";',
+    ' var status=st.status||(u.enabled===false?"disabled":"active");var badge=status==="active"?"<span class=\'pill ok\'>فعال</span>":(status==="expired"?"<span class=\'pill warn\'>منقضی</span>":(status==="quota-exceeded"?"<span class=\'pill warn\'>حجم تمام</span>":"<span class=\'pill\'>غیرفعال</span>"));',
+    ' var online=st.online?"<div class=\'muted\' style=\'font-size:11px\'>🟢 "+st.online+" اتصال زنده</div>":"";',
+    ' return "<tr><td>"+(i+1)+"</td><td><b>"+escHtml(u.name||"user")+"</b><div class=\'muted\' style=\'font-size:11px;direction:ltr\'>"+String(u.uuid).slice(0,18)+"…</div>"+online+"</td>"+',
+    '  "<td>"+usage+"</td><td>"+exp+"</td><td>"+badge+"</td>"+',
+    '  "<td class=\'acts\'><button class=\'btn tiny\' data-user-sub=\'"+u.token+"\'>کپی ساب</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-info=\'"+u.token+"\'>صفحهٔ کاربر</button> "+',
     '  "<button class=\'btn ghost tiny\' data-user-qr=\'"+u.token+"\'>QR</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-edit=\'"+u.id+"\'>ویرایش</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-toggle=\'"+u.id+"\' data-enabled=\'"+(u.enabled!==false?1:0)+"\'>"+(u.enabled!==false?"غیرفعال":"فعال")+"</button> "+',
     '  "<button class=\'btn ghost tiny\' data-user-reset=\'"+u.id+"\'>ریست مصرف</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-regen=\'"+u.id+"\'>UUID جدید</button> "+',
     '  "<button class=\'btn ghost tiny\' data-user-del=\'"+u.id+"\'>حذف</button></td></tr>";}',
-    'function loadUsers(){var tb=$("#userTable");if(!tb)return;',
-    ' fetch(S.usersApi).then(function(r){return r.json()}).then(function(j){',
+    'var USERS=[];',
+    'function loadUsers(sync){var tb=$("#userTable");if(!tb)return;',
+    ' fetch(S.usersApi+(sync?"?sync=1":"")).then(function(r){return r.json()}).then(function(j){',
     '  if(!j.ok){tb.innerHTML="<tr><td colspan=6>"+(j.error==="kv-required"?"بدون KV نمی‌شود کاربر ساخت — یک Namespace بساز و با نام CAT_KV بایند کن.":"خطا: "+j.error)+"</td></tr>";return;}',
-    '  tb.innerHTML=(j.users||[]).length?j.users.map(userRow).join(""):"<tr><td colspan=6>هنوز کاربری نساخته‌ای</td></tr>";',
+    '  USERS=j.users||[];tb.innerHTML=USERS.length?USERS.map(userRow).join(""):"<tr><td colspan=6>هنوز کاربری نساخته‌ای</td></tr>";',
+    '  var tot=0;USERS.forEach(function(u){tot+=(u.state&&u.state.used)||u.usedBytes||0});',
+    '  if($("#uCount"))$("#uCount").textContent=USERS.length;if($("#uOnline"))$("#uOnline").textContent=j.online||0;if($("#uTotalUsed"))$("#uTotalUsed").textContent=fmtB(tot);',
     ' }).catch(function(){tb.innerHTML="<tr><td colspan=6>دریافت لیست ناموفق بود</td></tr>"});}',
+    'setInterval(function(){var a=$("#uAuto");if(a&&a.checked&&!document.hidden&&$("#userTable")&&document.querySelector(".tab.active[data-tab-panel=users]"))loadUsers(true)},20000);',
+    'function userPut(id,body){return fetch(S.usersApi+"/"+id,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json()});}',
     'document.addEventListener("click",function(ev){',
     ' var sub=ev.target.closest("[data-user-sub]");',
     ' if(sub){copyText(location.origin+"/u/"+sub.getAttribute("data-user-sub"));return;}',
+    ' var info=ev.target.closest("[data-user-info]");',
+    ' if(info){var iu=location.origin+"/info/"+info.getAttribute("data-user-info");copyText(iu);window.open(iu,"_blank");return;}',
     ' var qr=ev.target.closest("[data-user-qr]");',
     ' if(qr){openQr(location.origin+"/u/"+qr.getAttribute("data-user-qr"));return;}',
+    ' var ed=ev.target.closest("[data-user-edit]");',
+    ' if(ed){var id=ed.getAttribute("data-user-edit");var u=USERS.filter(function(x){return x.id===id})[0]||{};',
+    '  var name=prompt("نام کاربر",u.name||"");if(name===null)return;var q=prompt("حجم (GB) — 0 نامحدود",String(u.quotaGb||0));if(q===null)return;',
+    '  var d=prompt("انقضا از امروز (روز) — 0 بدون انقضا، خالی = بدون تغییر","");if(d===null)return;var dev=prompt("محدودیت دستگاه — 0 آزاد",String(u.deviceLimit||0));if(dev===null)return;',
+    '  var body={name:name,quotaGb:Number(q)||0,deviceLimit:Number(dev)||0};if(d.trim()!=="")body.days=Number(d)||0;',
+    '  userPut(id,body).then(function(j){toast(j.ok?"ذخیره شد":(j.error||"خطا"));loadUsers();});return;}',
+    ' var tg=ev.target.closest("[data-user-toggle]");',
+    ' if(tg){userPut(tg.getAttribute("data-user-toggle"),{enabled:tg.getAttribute("data-enabled")!=="1"}).then(function(){loadUsers()});return;}',
     ' var reset=ev.target.closest("[data-user-reset]");',
-    ' if(reset){fetch(S.usersApi+"/"+reset.getAttribute("data-user-reset"),{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({usedBytes:0,usedRequests:0})}).then(loadUsers);return;}',
+    ' if(reset){if(!confirm("مصرف این کاربر صفر شود؟"))return;userPut(reset.getAttribute("data-user-reset"),{usedBytes:0,usedRequests:0}).then(function(){loadUsers()});return;}',
+    ' var rg=ev.target.closest("[data-user-regen]");',
+    ' if(rg){if(!confirm("UUID و لینک ساب این کاربر عوض شود؟ لینک قبلی از کار می‌افتد."))return;fetch(S.usersApi+"/"+rg.getAttribute("data-user-regen")+"/regenerate",{method:"POST"}).then(function(r){return r.json()}).then(function(j){toast(j.ok?"لینک جدید ساخته شد":(j.error||"خطا"));loadUsers();});return;}',
     ' var del=ev.target.closest("[data-user-del]");',
     ' if(del){if(!confirm("کاربر حذف شود؟"))return;fetch(S.usersApi+"/"+del.getAttribute("data-user-del"),{method:"DELETE"}).then(loadUsers);return;}});',
     'if($("#uCreate"))$("#uCreate").addEventListener("click",function(){',
     ' fetch(S.usersApi,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:($("#uName").value||"user").trim(),quotaGb:Number($("#uQuota").value||0),days:Number($("#uDays").value||0),deviceLimit:Number($("#uDevices").value||0)})})',
     ' .then(function(r){return r.json()}).then(function(j){',
-    '  if(!j.ok){toast(j.hint||j.error||"خطا");return;}toast("کاربر ساخته شد");$("#uName").value="";loadUsers();});});',
+    '  if(!j.ok){toast(j.hint||j.error||"خطا");return;}toast("کاربر ساخته شد — لینک ساب کپی شد");copyText(location.origin+"/u/"+j.user.token);$("#uName").value="";loadUsers();});});',
     'if($("#uReload"))$("#uReload").addEventListener("click",loadUsers);',
     '/* ---- tools ---- */',
     'function loadSelf(){var tb=$("#selfTable");if(!tb)return;',
@@ -3374,16 +3504,30 @@ async function handleUsersApi(request, url, env, path) {
       hint: 'Bind a KV namespace as CAT_KV (or KV) to store users; the panel still works with the master UUID from env.',
     }, 409, CORS);
   }
+  if (url.searchParams.get('sync') === '1') await flushTraffic(env).catch(() => {});
   const users = await readUsers(env);
-  const id = path.startsWith('/api/users/') ? decodeURIComponent(path.slice('/api/users/'.length)) : null;
+  const idPart = path.startsWith('/api/users/') ? decodeURIComponent(path.slice('/api/users/'.length)) : '';
+  const id = idPart ? idPart.split('/')[0] : null;
+  const action = idPart && idPart.includes('/') ? idPart.split('/')[1] : '';
+  const withState = (user) => Object.assign({}, user, { state: userState(user), infoPath: '/info/' + user.token, subPath: '/u/' + user.token });
 
   if (request.method === 'GET') {
     if (id) {
       const user = users.find((item) => item.id === id || item.token === id);
-      return user ? jsonResponse({ ok: true, user: user }, 200, CORS) : jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
+      return user ? jsonResponse({ ok: true, user: withState(user) }, 200, CORS) : jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
     }
-    return jsonResponse({ ok: true, count: users.length, users: users }, 200, CORS);
+    return jsonResponse({ ok: true, count: users.length, users: users.map(withState), online: Array.from(liveConnections.entries()).reduce((a, e) => a + e[1], 0) }, 200, CORS);
   }
+
+  if (request.method === 'POST' && id && action === 'regenerate') {
+    const index = users.findIndex((item) => item.id === id);
+    if (index < 0) return jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
+    // New UUID + token: the old subscription link and configs stop working at once.
+    users[index] = normalizeUser(Object.assign({}, users[index], { uuid: newUuid(), token: newToken() }));
+    await writeUsers(env, users);
+    return jsonResponse({ ok: true, user: withState(users[index]) }, 200, CORS);
+  }
+  if (request.method === 'POST' && id) return jsonResponse({ ok: false, error: 'unknown-action' }, 404, CORS);
 
   if (request.method === 'POST') {
     let body = null;
@@ -3407,7 +3551,7 @@ async function handleUsersApi(request, url, env, path) {
     });
     users.push(user);
     await writeUsers(env, users);
-    return jsonResponse({ ok: true, user: user, subPath: '/u/' + user.token }, 201, CORS);
+    return jsonResponse({ ok: true, user: withState(user), subPath: '/u/' + user.token, infoPath: '/info/' + user.token }, 201, CORS);
   }
 
   if (request.method === 'PUT' || request.method === 'PATCH') {
@@ -3422,13 +3566,19 @@ async function handleUsersApi(request, url, env, path) {
     }
     const current = users[index];
     const days = body && body.days !== undefined ? Number(body.days) : null;
-    users[index] = normalizeUser(Object.assign({}, current, body || {}, {
+    const patch = {};
+    ['name', 'quotaGb', 'deviceLimit', 'enabled', 'note', 'usedBytes', 'usedRequests', 'uuid'].forEach((key) => {
+      if (body && body[key] !== undefined) patch[key] = body[key];
+    });
+    if (patch.name !== undefined) patch.name = String(patch.name || '').trim().slice(0, 40) || current.name;
+    if (patch.usedBytes !== undefined) trafficBuffers.delete(String(current.uuid).toLowerCase());
+    users[index] = normalizeUser(Object.assign({}, current, patch, {
       id: current.id,
       token: current.token,
       expireAt: days === null ? current.expireAt : (days > 0 ? Date.now() + days * 86400000 : 0),
     }));
     await writeUsers(env, users);
-    return jsonResponse({ ok: true, user: users[index] }, 200, CORS);
+    return jsonResponse({ ok: true, user: withState(users[index]) }, 200, CORS);
   }
 
   if (request.method === 'DELETE') {
@@ -3446,26 +3596,93 @@ async function handleUsersApi(request, url, env, path) {
 /* per-user subscription links                                          */
 /* ------------------------------------------------------------------ */
 
+/** Snapshot of a user's quota/expiry for headers, the info page and the app. */
+function userState(user, now) {
+  const at = now || Date.now();
+  const used = userLiveUsed(user);
+  const total = userQuotaBytes(user);
+  const expireAt = Number(user.expireAt) || 0;
+  const daysLeft = expireAt > 0 ? Math.max(0, Math.ceil((expireAt - at) / 86400000)) : -1;
+  const blocked = userReasonBlocked(user, at);
+  return {
+    name: user.name || 'user',
+    used: used,
+    total: total,
+    remaining: total > 0 ? Math.max(0, total - used) : -1,
+    pct: total > 0 ? Math.min(100, Math.round((used / total) * 1000) / 10) : 0,
+    expireAt: expireAt,
+    daysLeft: daysLeft,
+    status: blocked || 'active',
+    deviceLimit: Number(user.deviceLimit) || 0,
+    online: liveConnections.get(String(user.uuid || '').toLowerCase()) || 0,
+    lastSeenAt: Number(user.lastSeenAt) || 0,
+  };
+}
+
+function subscriptionUserinfo(state) {
+  return [
+    'upload=0',
+    'download=' + Math.max(0, Math.floor(state.used)),
+    'total=' + Math.max(0, Math.floor(state.total)),
+    'expire=' + (state.expireAt > 0 ? Math.floor(state.expireAt / 1000) : 0),
+  ].join('; ');
+}
+
+/**
+ * Deep links understood by the popular clients (same list Marzban ships).
+ * `sub` must be the full https URL of the subscription.
+ */
+function appDeepLinks(sub, name) {
+  const enc = encodeURIComponent(sub);
+  const tag = encodeURIComponent(name || 'Cat Panel');
+  return [
+    { id: 'catclient', label: 'Cat Client', href: 'catclient://add-sub?url=' + enc + '&name=' + tag },
+    { id: 'v2rayng', label: 'v2rayNG', href: 'v2rayng://install-sub?url=' + enc + '&name=' + tag },
+    { id: 'v2box', label: 'V2Box', href: 'v2box://install-sub?url=' + enc + '&name=' + tag },
+    { id: 'hiddify', label: 'Hiddify', href: 'hiddify://import/' + sub + '#' + tag },
+    { id: 'streisand', label: 'Streisand', href: 'streisand://import/' + sub },
+    { id: 'v2raytun', label: 'v2rayTun', href: 'v2raytun://import/' + sub },
+    { id: 'singbox', label: 'sing-box', href: 'sing-box://import-remote-profile?url=' + encodeURIComponent(sub.replace(/\/?$/, '') + '/singbox') + '#' + tag },
+    { id: 'clash', label: 'Clash / Mihomo', href: 'clash://install-config?url=' + encodeURIComponent(sub.replace(/\/?$/, '') + '/clash') + '&name=' + tag },
+    { id: 'shadowrocket', label: 'Shadowrocket', href: 'sub://' + b64encode(sub) },
+  ];
+}
+
 async function handleUserSubscription(request, url, env, host, path) {
-  const rest = path.slice('/u/'.length).split('/');
+  const isInfo = path.startsWith('/info/');
+  const rest = path.slice(isInfo ? '/info/'.length : '/u/'.length).split('/');
   const token = decodeURIComponent(rest[0] || '');
   const format = (rest[1] || '').toLowerCase();
+  // Make the number the app sees match the panel: write this isolate's buffer first.
+  await flushTraffic(env).catch(() => {});
   const users = await readUsers(env);
   const user = findUserByToken(users, token);
   if (!user) return new Response('Not Found', { status: 404, headers: CORS });
-  if (userReasonBlocked(user)) {
-    const reason = userReasonBlocked(user);
-    return new Response('Cat Panel: ' + reason, { status: 403, headers: CORS });
+  const state = userState(user);
+  const subUrl = 'https://' + host + '/u/' + user.token;
+  const title = String(env.PANEL_TITLE || 'Cat Panel');
+
+  if (url.searchParams.get('stats') === '1') {
+    return jsonResponse(Object.assign({ ok: true, ts: Date.now() }, state), 200, Object.assign({ 'cache-control': 'no-store' }, CORS));
+  }
+  // Graphical page ONLY on explicit request (/info/<token> or ?web=1): sniffing
+  // User-Agent breaks WebView/Cronet based apps (Vodiwalker lesson).
+  if (isInfo || url.searchParams.get('web') === '1') {
+    return htmlResponse(userInfoHtml({ title: title, host: host, user: user, state: state, subUrl: subUrl, apps: appDeepLinks(subUrl, title + ' | ' + state.name) }));
+  }
+  if (state.status !== 'active') {
+    return new Response('Cat Panel: ' + state.status, { status: 403, headers: CORS });
   }
   const uuid = user.uuid;
   const options = configOptions(url, host, env, await readSettings(env));
-  const usageHeader = [
-    'upload=0',
-    'download=' + (Number(user.usedBytes) || 0),
-    'total=' + (userQuotaBytes(user) || 0),
-    'expire=' + (Number(user.expireAt) ? Math.floor(Number(user.expireAt) / 1000) : 0),
-  ].join('; ');
-  const headers = Object.assign({}, CORS, { 'subscription-userinfo': usageHeader });
+  const headers = Object.assign({}, CORS, {
+    'subscription-userinfo': subscriptionUserinfo(state),
+    'profile-title': 'base64:' + b64encode(title + ' | ' + state.name),
+    'profile-update-interval': '6',
+    'profile-web-page-url': 'https://' + host + '/info/' + user.token,
+    'support-url': 'https://' + host + '/info/' + user.token,
+    'cache-control': 'no-store',
+  });
   if (format === 'clash' || format === 'mihomo' || format === 'yaml') {
     return new Response(buildClashYaml(host, env, uuid, options), {
       headers: Object.assign({}, headers, { 'content-type': 'text/yaml; charset=utf-8' }),
@@ -3477,7 +3694,7 @@ async function handleUserSubscription(request, url, env, host, path) {
     });
   }
   if (format === 'all') {
-    return jsonResponse(Object.assign({ ok: true, user: { name: user.name, token: user.token } }, buildAllConfigs(host, env, uuid, options)), 200, headers);
+    return jsonResponse(Object.assign({ ok: true, user: { name: user.name, token: user.token }, usage: state }, buildAllConfigs(host, env, uuid, options)), 200, headers);
   }
   const wantsWarp = url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
   const links = buildSubLinks(host, env, uuid, options, wantsWarp).join('\n') + '\n';
@@ -3489,6 +3706,94 @@ async function handleUserSubscription(request, url, env, host, path) {
   return new Response(links, {
     headers: Object.assign({}, headers, { 'content-type': 'text/plain; charset=utf-8' }),
   });
+}
+
+function fmtBytes(b) {
+  b = Number(b) || 0;
+  if (b < 1024) return b + ' B';
+  const u = ['KB', 'MB', 'GB', 'TB'];
+  let i = -1;
+  do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
+  return (b >= 100 ? Math.round(b) : b.toFixed(2)) + ' ' + u[i];
+}
+
+/** Public per-user page (/info/<token>): usage ring, expiry, one-tap app import. */
+function userInfoHtml(d) {
+  const st = d.state;
+  const statusFa = st.status === 'active' ? 'فعال' : st.status === 'expired' ? 'منقضی' : st.status === 'quota-exceeded' ? 'حجم تمام شده' : 'غیرفعال';
+  const usedText = fmtBytes(st.used);
+  const totalText = st.total > 0 ? fmtBytes(st.total) : 'نامحدود';
+  const remainText = st.remaining < 0 ? 'نامحدود' : fmtBytes(st.remaining);
+  const expiryText = st.daysLeft < 0 ? 'نامحدود' : st.daysLeft === 0 ? 'پایان‌یافته' : st.daysLeft + ' روز';
+  const initial = esc(String(st.name).trim().charAt(0).toUpperCase() || 'C');
+  const boot = JSON.stringify({ subUrl: d.subUrl, name: st.name }).replace(/</g, '\\u003c');
+  const appButtons = d.apps.map((a) => '<a class="app" href="' + esc(a.href) + '" data-app="' + a.id + '"><b>' + esc(a.label) + '</b><span>افزودن خودکار</span></a>').join('');
+  return '<!doctype html><html lang="fa" dir="rtl" data-theme="dark"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow">' +
+    '<meta name="theme-color" content="#06030c"><title>' + esc(d.title) + ' · ' + esc(st.name) + '</title>' +
+    '<style>' + css() + infoCss() + '</style></head><body data-lang="fa"><div class="bg"></div><div class="wrap info">' +
+    '<header class="ihead"><div class="avatar">' + initial + '</div><div class="grow"><h1>' + esc(st.name) + '</h1>' +
+    '<div class="tags"><span class="pill ' + (st.status === 'active' ? 'ok' : 'warn') + '" id="statusTag">' + statusFa + '</span>' +
+    '<span class="pill">انقضا: <b id="expiryTag">' + expiryText + '</b></span>' +
+    '<span class="pill">آنلاین: <b id="onlineTag">' + st.online + '</b></span></div></div>' +
+    '<div class="brand"><span class="cat">🐱</span><small>' + esc(d.title) + '</small></div></header>' +
+
+    '<section class="card glow usage"><div class="ring"><svg viewBox="0 0 120 120"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1">' +
+    '<stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#d946ef"/></linearGradient></defs>' +
+    '<circle class="bgc" cx="60" cy="60" r="50"></circle><circle class="fgc" id="ringArc" cx="60" cy="60" r="50" stroke-dasharray="314.16" stroke-dashoffset="314.16"></circle></svg>' +
+    '<div class="lbl"><b id="ringPct">' + (st.total > 0 ? st.pct + '%' : '∞') + '</b><span>مصرف</span></div></div>' +
+    '<div class="mini"><div class="mbox"><label>مصرف شده</label><b id="uUsed">' + usedText + '</b></div>' +
+    '<div class="mbox"><label>باقی‌مانده</label><b id="uRemain" class="ok">' + remainText + '</b></div>' +
+    '<div class="mbox"><label>سقف</label><b id="uLimit">' + totalText + '</b></div>' +
+    '<div class="mbox"><label>محدودیت دستگاه</label><b>' + (st.deviceLimit > 0 ? st.deviceLimit : 'نامحدود') + '</b></div></div>' +
+    '<div class="bar" style="margin-top:14px"><i id="usageBar" style="width:' + (st.total > 0 ? st.pct : 0) + '%"></i></div>' +
+    '<p class="muted" style="margin-top:8px">عدد مصرف از شمارندهٔ واقعی سرویس خوانده می‌شود و هر ۲۰ ثانیه تازه می‌شود.</p></section>' +
+
+    '<section class="card"><h2><span class="dot"></span>لینک اشتراک</h2>' +
+    '<div class="link-row"><span class="grow mono" id="subUrl">' + esc(d.subUrl) + '</span><button class="btn tiny" id="copySub">کپی</button>' +
+    '<button class="btn ghost tiny" id="qrSub">QR</button></div>' +
+    '<p class="muted" style="margin-top:8px">این لینک را در هر برنامه‌ای (v2rayNG، V2Box، Hiddify، Streisand، sing-box، Clash) به‌عنوان Subscription اضافه کن؛ حجم و انقضا هم داخل برنامه دیده می‌شود.</p>' +
+    '<div class="apps">' + appButtons + '</div>' +
+    '<div class="row" style="margin-top:10px"><a class="btn ghost" href="' + esc(d.subUrl) + '/raw" download="cat-configs.txt">دانلود فایل کانفیگ‌ها</a>' +
+    '<a class="btn ghost" href="' + esc(d.subUrl) + '/clash">Clash YAML</a><a class="btn ghost" href="' + esc(d.subUrl) + '/singbox">sing-box JSON</a></div></section>' +
+
+    '<div class="modal" id="qrModal"><div class="box"><img id="qrImg" alt="QR"><p class="mono" id="qrHint"></p><button class="btn" id="qrClose">بستن</button></div></div>' +
+    '<div class="toast" id="toast"><span></span></div>' +
+    '<footer class="muted" style="text-align:center;margin:24px 0 8px;font-size:11px">Cat Panel ' + CAT_PANEL_VERSION + '</footer></div>' +
+    '<script>(function(){var D=' + boot + ';function $(s){return document.querySelector(s)}' +
+    'function toast(t){var el=$("#toast");el.firstChild.textContent=t;el.classList.add("show");setTimeout(function(){el.classList.remove("show")},1800)}' +
+    'function copy(t){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast("کپی شد")},function(){fallback(t)})}else fallback(t)}' +
+    'function fallback(t){var ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("کپی شد")}catch(e){}document.body.removeChild(ta)}' +
+    '$("#copySub").onclick=function(){copy(D.subUrl)};' +
+    '$("#qrSub").onclick=function(){$("#qrImg").src="/qr.svg?d="+encodeURIComponent(D.subUrl)+"&size=8";$("#qrHint").textContent=D.subUrl;$("#qrModal").classList.add("show")};' +
+    '$("#qrClose").onclick=function(){$("#qrModal").classList.remove("show")};' +
+    'function fmt(b){b=Number(b)||0;if(b<1024)return b+" B";var u=["KB","MB","GB","TB"],i=-1;do{b/=1024;i++}while(b>=1024&&i<u.length-1);return (b>=100?Math.round(b):b.toFixed(2))+" "+u[i]}' +
+    'function apply(s){if(!s||!s.ok)return;$("#uUsed").textContent=fmt(s.used);$("#uRemain").textContent=s.remaining<0?"نامحدود":fmt(s.remaining);$("#uLimit").textContent=s.total>0?fmt(s.total):"نامحدود";' +
+    ' var pct=s.total>0?s.pct:0;$("#ringPct").textContent=s.total>0?pct+"%":"∞";$("#ringArc").style.strokeDashoffset=String(314.16-314.16*Math.min(100,pct)/100);$("#usageBar").style.width=pct+"%";' +
+    ' $("#onlineTag").textContent=s.online;$("#expiryTag").textContent=s.daysLeft<0?"نامحدود":(s.daysLeft===0?"پایان‌یافته":s.daysLeft+" روز");' +
+    ' var st=$("#statusTag");st.className="pill "+(s.status==="active"?"ok":"warn");st.textContent=s.status==="active"?"فعال":(s.status==="expired"?"منقضی":(s.status==="quota-exceeded"?"حجم تمام شده":"غیرفعال"));}' +
+    'setTimeout(function(){$("#ringArc").style.strokeDashoffset=String(314.16-314.16*Math.min(100,' + (st.total > 0 ? st.pct : 0) + ')/100)},80);' +
+    'function poll(){fetch(D.subUrl+"?stats=1",{cache:"no-store"}).then(function(r){return r.json()}).then(apply).catch(function(){})}' +
+    'setInterval(poll,20000);document.addEventListener("visibilitychange",function(){if(!document.hidden)poll()});' +
+    '})();</script></body></html>';
+}
+
+function infoCss() {
+  return [
+    '.wrap.info{max-width:760px;padding-top:26px}',
+    '.ihead{display:flex;align-items:center;gap:14px;margin-bottom:18px}',
+    '.ihead h1{font-size:22px;margin:0 0 6px}.ihead .grow{flex:1;min-width:0}',
+    '.avatar{width:56px;height:56px;border-radius:18px;display:grid;place-items:center;font-size:24px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--accent-2),var(--accent-3));box-shadow:0 12px 30px var(--glow-a)}',
+    '.tags{display:flex;flex-wrap:wrap;gap:6px}.tags .pill b{margin-inline-start:4px}',
+    '.usage{display:flex;gap:22px;align-items:center;flex-wrap:wrap}',
+    '.ring{position:relative;width:132px;height:132px;flex-shrink:0;margin-inline:auto}.ring svg{width:100%;height:100%;transform:rotate(-90deg)}',
+    '.ring .bgc{fill:none;stroke:var(--surface-2);stroke-width:10}.ring .fgc{fill:none;stroke:url(#rg);stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset 1s cubic-bezier(.16,1,.3,1)}',
+    '.ring .lbl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.ring .lbl b{font-size:24px}.ring .lbl span{font-size:11px;color:var(--muted)}',
+    '.usage .mini{flex:1;min-width:220px;display:grid;grid-template-columns:1fr 1fr;gap:10px}',
+    '.mbox{padding:12px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--line-soft)}.mbox label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}.mbox b{font-size:15px;direction:ltr;display:inline-block}.mbox b.ok{color:var(--ok)}',
+    '.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:50;padding:18px}.modal.show{display:flex}',
+    '.modal .box{background:#fff;color:#111;border-radius:20px;padding:18px;max-width:360px;width:100%;text-align:center}.modal img{width:100%;max-width:300px;display:block;margin:0 auto 10px}.modal p{font-size:10.5px;word-break:break-all;direction:ltr;color:#444;margin-bottom:12px}',
+  ].join('\n');
 }
 
 async function handlePanelRequest(request, url, env, host, uuid, state) {
@@ -3512,7 +3817,7 @@ async function handlePanelRequest(request, url, env, host, uuid, state) {
   return htmlResponse(panelShell(state));
 }
 
-async function fetchHandler(request, env) {
+async function fetchHandler(request, env, ctx) {
   const url = new URL(request.url);
   const host = (request.headers.get('Host') || url.hostname || '').toLowerCase();
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
@@ -3539,6 +3844,7 @@ async function fetchHandler(request, env) {
       path: path,
       earlyDataHeader: request.headers.get('sec-websocket-protocol') || '',
       masterUuid: uuid,
+      ctx: ctx || null,
     }).catch(() => {
       try { server.close(1011, 'tunnel error'); } catch (e) { /* ignore */ }
     });
@@ -3780,7 +4086,7 @@ async function fetchHandler(request, env) {
   }
 
   /* per-user subscription: /u/<token>[/format] */
-  if (path === '/u' || path.startsWith('/u/')) {
+  if (path === '/u' || path.startsWith('/u/') || path.startsWith('/info/')) {
     return handleUserSubscription(request, url, env, host, path);
   }
 
@@ -3820,9 +4126,9 @@ async function fetchHandler(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await fetchHandler(request, env || {});
+      return await fetchHandler(request, env || {}, ctx);
     } catch (e) {
       return new Response('Cat Panel error: ' + (e && e.message ? e.message : e), {
         status: 500,
@@ -3858,8 +4164,13 @@ export const _testing = {
   writeUsers,
   normalizeUser,
   userTrafficLeft,
+  userLiveUsed,
+  bufferedBytes,
+  accountTraffic,
+  flushTraffic,
   userReasonBlocked,
   tunnelAuth,
+  trojanAuthorized,
   kvBinding,
   parseHttpRequest,
   buildSubLinks,
@@ -3896,6 +4207,10 @@ export const _testing = {
   loginHtml,
   handleUsersApi,
   handleUserSubscription,
+  userState,
+  subscriptionUserinfo,
+  appDeepLinks,
+  userInfoHtml,
   handleLogin,
   requirePanelAuth,
   sha256Hex,
