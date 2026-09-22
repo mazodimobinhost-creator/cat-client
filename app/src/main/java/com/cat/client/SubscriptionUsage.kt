@@ -23,6 +23,10 @@ data class SubscriptionUsage(
     val remainingBytes: Long get() = if (totalBytes > 0) (totalBytes - usedBytes).coerceAtLeast(0L) else 0L
     val usedPercent: Int
         get() = if (totalBytes <= 0) 0 else ((usedBytes * 100L) / totalBytes).coerceIn(0L, 100L).toInt()
+
+    /** Share of the quota already consumed, for progress bars (0..1). */
+    val usedFraction: Float
+        get() = if (totalBytes <= 0) 0f else (usedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
 }
 
 object SubscriptionUsagePolicy {

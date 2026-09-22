@@ -75,7 +75,25 @@ check('config table filled', document.querySelectorAll('#cfgTable tr').length >=
 const allLinks = document.querySelector('#cfgAllText')?.textContent || '';
 check('links include vless/trojan/warp', allLinks.includes('vless://') && allLinks.includes('trojan://') && allLinks.includes('warp://'));
 check('clean-IP variants built', allLinks.includes('104.16.6.62'));
-check('dns table filled', document.querySelectorAll('#dnsTable tr').length === 4);
+const dnsRows = document.querySelectorAll('#dnsTable tr').length;
+check('dns table filled', dnsRows >= 6, 'rows=' + dnsRows);
+check('dns presets include new resolvers', (document.querySelector('#dnsTable')?.textContent || '').includes('dns.mullvad.net'));
+check('custom DoH/DoT inputs render', !!document.querySelector('#dohCustom') && !!document.querySelector('#dotCustom'));
+check('DoT presets render', document.querySelectorAll('#dotTable tr').length >= 6 || document.body.innerHTML.includes('one.one.one.one'));
+check('theme picker renders options', document.querySelectorAll('[data-theme-pick]').length === 5);
+check('single-config builder renders', !!document.querySelector('#singleBuild') && !!document.querySelector('#singleAddr'));
+check('single config builds a vless link', (() => {
+  document.querySelector('#singleAddr').value = '104.16.6.62';
+  document.querySelector('#singleName').value = 'Cat Single';
+  click(document.querySelector('#singleBuild'));
+  const out = document.querySelector('#singleOut').textContent;
+  return out.startsWith('vless://') && out.includes('104.16.6.62') && out.includes(HOST);
+})(), (document.querySelector('#singleOut') || {}).textContent);
+check('single config add link points at the app', (document.querySelector('#singleAdd')?.getAttribute('href') || '').startsWith('catclient://add-sub?url='));
+check('theme switch toggles the body attribute', (() => {
+  click(document.querySelector('[data-theme-pick="mono"]'));
+  return win.document.documentElement.getAttribute('data-theme') === 'mono';
+})());
 check('sub + doh urls shown', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub') && (document.querySelector('#dohUrlText')?.textContent || '').includes('/dns-query'));
 check('deep link present', document.body.innerHTML.includes('catclient://add-sub?url='));
 check('scan targets embedded', (win.CAT_STATE?.scanTargets || []).length > 20);

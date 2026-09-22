@@ -260,8 +260,26 @@ class MainActivity : Activity() {
     private lateinit var scannerResultsList: LinearLayout
     private lateinit var scannerApplyButton: MaterialButton
     private var scannerResults: List<IpScanner.ScanResult> = emptyList()
+    private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
     private var scannerRunning: Boolean = false
     private var scannerJob: Job? = null
+
+    /* Free configs (community sources, fetched + ping-tested in-app) */
+    private lateinit var freeConfigsStatus: TextView
+    private lateinit var freeConfigsProgress: ProgressBar
+    private lateinit var homeUsageCard: LinearLayout
+    private lateinit var homeUsageBar: UsageBarView
+    private lateinit var homeUsageTitle: TextView
+    private lateinit var homeUsageValue: TextView
+    private lateinit var homeUsageLegend: TextView
+    private lateinit var homeUsageHint: TextView
+    private lateinit var freeConfigsList: LinearLayout
+    private lateinit var freeConfigsFetchButton: MaterialButton
+    private lateinit var freeConfigsTestButton: MaterialButton
+    private lateinit var freeConfigsImportButton: MaterialButton
+    private var freeConfigEntries: List<FreeConfigs.FreeEntry> = emptyList()
+    private var freeConfigsFetching = false
+    private var freeConfigsJob: Job? = null
     private var connectionCountryFlag: String = ""
     private var debugFrontingIp: String = ""
     private var connectionDetails: String = ""
@@ -618,7 +636,10 @@ class MainActivity : Activity() {
         cloudTabContent.visibility = if (position == 3) View.VISIBLE else View.GONE
         scannerTabContent.visibility = if (position == 4) View.VISIBLE else View.GONE
         if (position == 0) renderSubscriptions()
-        if (position == 1) renderConnectionSelection()
+        if (position == 1) {
+            renderConnectionSelection()
+            renderHomeUsageCard()
+        }
         if (position == 2) renderAdvancedControls()
     }
 
@@ -712,9 +733,554 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
         content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        content.addView(
+            buildFreeConfigsSection(),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28) },
+        )
         scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
         renderSubscriptions()
         return scroll
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Home usage graph (quota reported by the panel)                       */
+    /* ------------------------------------------------------------------ */
+
+    private fun buildHomeUsageCard(): LinearLayout {
+        homeUsageBar = UsageBarView(this).apply {
+            configureColors(
+                download = TEAL,
+                upload = withAlpha(TEAL, 130),
+                track = withAlpha(TEXT_SECONDARY, 36),
+            )
+            layoutParams = LinearLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(12) }
+        }
+        homeUsageTitle = TextView(this).apply {
+            setText(R.string.home_usage_title)
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+        }
+        homeUsageValue = TextView(this).apply {
+            textSize = 12.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEAL)
+            includeFontPadding = false
+            gravity = Gravity.END
+        }
+        homeUsageLegend = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            includeFontPadding = false
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }
+        homeUsageHint = TextView(this).apply {
+            setText(R.string.home_usage_empty)
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            includeFontPadding = false
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            addView(homeUsageTitle, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(homeUsageValue, LinearLayout.LayoutParams(-2, -2))
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glassSurfaceDrawable(radiusDp = 16)
+            clipToOutline = true
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            addView(header, LinearLayout.LayoutParams(-1, -2))
+            addView(homeUsageBar, LinearLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(12) })
+            addView(
+                homeUsageLegend,
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            )
+            addView(
+                homeUsageHint,
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+            )
+        }
+    }
+
+    /** Reads the last usage snapshot of the selected subscription and redraws the bar. */
+    private fun renderHomeUsageCard() {
+        if (!::homeUsageCard.isInitialized) return
+        val store = SubscriptionStore(this)
+        val subscription = store.readUserSubscription(store.readSelectedSubscriptionId())
+        val usage = subscription?.input?.let { SubscriptionUsageStore(this).read(it) }
+        if (usage == null || (usage.totalBytes <= 0 && usage.usedBytes <= 0)) {
+            homeUsageBar.setSplit(0f, 0f, withAlpha(TEXT_SECONDARY, 36))
+            homeUsageValue.text = "—"
+            homeUsageLegend.text = selectedSubscriptionName()
+            homeUsageHint.setText(R.string.home_usage_empty)
+            homeUsageHint.visibility = View.VISIBLE
+            return
+        }
+        val used = if (usage.totalBytes > 0) usage.usedFraction else 1f
+        val uploadShare = if (usage.usedBytes > 0) {
+            (usage.uploadBytes.toFloat() / usage.usedBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        homeUsageBar.setSplit(used, uploadShare, withAlpha(TEXT_SECONDARY, 36))
+        homeUsageValue.text = if (usage.totalBytes > 0) "${usage.usedPercent}%" else
+            SubscriptionUsagePolicy.formatBytes(usage.usedBytes)
+        val parts = mutableListOf<String>()
+        parts += getString(
+            R.string.home_usage_download,
+            SubscriptionUsagePolicy.formatBytes(usage.downloadBytes),
+        )
+        parts += getString(
+            R.string.home_usage_upload,
+            SubscriptionUsagePolicy.formatBytes(usage.uploadBytes),
+        )
+        if (usage.totalBytes > 0) {
+            parts += getString(
+                R.string.home_usage_remaining,
+                SubscriptionUsagePolicy.formatBytes(usage.remainingBytes),
+            )
+        }
+        usage.expireEpochSeconds?.let { seconds ->
+            val days = ((seconds * 1000L) - System.currentTimeMillis()) / 86_400_000L
+            parts += getString(R.string.home_usage_expires, days.coerceAtLeast(0L))
+        }
+        homeUsageLegend.text = parts.joinToString(" · ")
+        homeUsageHint.setText(R.string.home_usage_footer)
+        homeUsageHint.visibility = View.VISIBLE
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Free configs (community sources) + single-config quick add           */
+    /* ------------------------------------------------------------------ */
+
+    private fun buildFreeConfigsSection(): View {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        column.addView(
+            TextView(this).apply {
+                setText(R.string.free_title)
+                textSize = 20f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        column.addView(
+            advancedSectionDetail(getString(R.string.free_description)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+        column.addView(
+            advancedSectionDetail(getString(R.string.free_sources_hint, FreeConfigs.sources().size)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fun freeButton(labelRes: Int, accent: Boolean, click: (View) -> Unit): MaterialButton =
+            MaterialButton(this).apply {
+                setText(labelRes)
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                cornerRadius = dp(10)
+                minWidth = 0
+                minimumWidth = 0
+                insetTop = 0
+                insetBottom = 0
+                setPaddingRelative(dp(8), 0, dp(8), 0)
+                backgroundTintList = ColorStateList.valueOf(if (accent) TEAL else withAlpha(TEXT_SECONDARY, 40))
+                setTextColor(if (accent) palette.onAccent else TEXT_PRIMARY)
+                setOnClickListener(click)
+            }
+        freeConfigsFetchButton = freeButton(R.string.free_fetch, true) { fetchFreeConfigs() }
+        buttons.addView(freeConfigsFetchButton, LinearLayout.LayoutParams(0, dp(46), 1f))
+        freeConfigsTestButton = freeButton(R.string.free_test_ping, false) { testFreeConfigs() }
+        buttons.addView(
+            freeConfigsTestButton,
+            LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) },
+        )
+        freeConfigsImportButton = freeButton(R.string.free_import_all, false) { importFreeConfigs() }
+        buttons.addView(
+            freeConfigsImportButton,
+            LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) },
+        )
+        column.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+
+        freeConfigsProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+            visibility = View.GONE
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
+        }
+        column.addView(freeConfigsProgress, LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(12) })
+
+        freeConfigsStatus = TextView(this).apply {
+            setText(R.string.free_idle)
+            textSize = 12.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(0, dp(8), 0, 0)
+        }
+        column.addView(freeConfigsStatus, LinearLayout.LayoutParams(-1, -2))
+
+        freeConfigsList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        column.addView(freeConfigsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        column.addView(
+            MaterialButton(this).apply {
+                setText(R.string.free_quick_add)
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(10)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 40))
+                setTextColor(TEAL)
+                insetTop = 0
+                insetBottom = 0
+                setOnClickListener { showQuickConfigMenu(this) }
+            },
+            LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(14) },
+        )
+        return column
+    }
+
+    private fun fetchFreeConfigs() {
+        if (freeConfigsFetching) return
+        freeConfigsFetching = true
+        freeConfigsFetchButton.isEnabled = false
+        freeConfigsProgress.visibility = View.VISIBLE
+        freeConfigsProgress.progress = 0
+        freeConfigsStatus.setText(R.string.free_loading)
+        freeConfigsList.removeAllViews()
+        freeConfigsJob = activityScope.launch {
+            val report = runCatching {
+                FreeConfigs.fetchAll(this@MainActivity) { name, done, total ->
+                    mainHandler.post {
+                        freeConfigsProgress.progress = (done * 100) / total.coerceAtLeast(1)
+                        if (name.isNotEmpty()) {
+                            freeConfigsStatus.text = getString(R.string.free_progress, name, done, total)
+                        }
+                    }
+                }
+            }.getOrNull()
+            freeConfigsFetching = false
+            freeConfigsFetchButton.isEnabled = true
+            freeConfigsProgress.visibility = View.GONE
+            if (report == null || report.entries.isEmpty()) {
+                freeConfigsStatus.setText(R.string.free_empty)
+                return@launch
+            }
+            freeConfigEntries = report.entries
+            freeConfigsStatus.text = buildString {
+                append(getString(R.string.free_loaded, report.entries.size))
+                if (report.sourcesOk.isNotEmpty()) append("\n✓ ").append(report.sourcesOk.joinToString(" · "))
+                if (report.sourcesFailed.isNotEmpty()) append("\n✗ ").append(report.sourcesFailed.joinToString(" · "))
+            }
+            renderFreeConfigs()
+        }
+    }
+
+    private fun renderFreeConfigs() {
+        if (!::freeConfigsList.isInitialized) return
+        freeConfigsList.removeAllViews()
+        val preview = freeConfigEntries.take(FREE_PREVIEW_ROWS)
+        preview.forEach { entry ->
+            freeConfigsList.addView(
+                freeConfigRow(entry),
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+            )
+        }
+        if (freeConfigEntries.size > preview.size) {
+            freeConfigsList.addView(
+                TextView(this).apply {
+                    text = getString(R.string.free_more_rows, freeConfigEntries.size - preview.size)
+                    textSize = 12f
+                    setTextColor(TEXT_SECONDARY)
+                    typeface = CatClientBodyTypeface
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+    }
+
+    private fun freeConfigRow(entry: FreeConfigs.FreeEntry): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            background = glassSurfaceDrawable(radiusDp = 12)
+            clipToOutline = true
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        row.addView(
+            TextView(this).apply {
+                text = entry.tag
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        row.addView(
+            TextView(this).apply {
+                text = entry.protocol.uppercase(Locale.US) + " · " + entry.host
+                textSize = 11.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
+        )
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fun actionButton(labelRes: Int, accent: Boolean, click: (View) -> Unit) =
+            MaterialButton(this).apply {
+                setText(labelRes)
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                isSingleLine = true
+                cornerRadius = dp(9)
+                minWidth = 0
+                minimumWidth = 0
+                insetTop = 0
+                insetBottom = 0
+                setPaddingRelative(dp(6), 0, dp(6), 0)
+                backgroundTintList =
+                    ColorStateList.valueOf(if (accent) TEAL else withAlpha(TEXT_SECONDARY, 40))
+                setTextColor(if (accent) palette.onAccent else TEXT_PRIMARY)
+                setOnClickListener(click)
+            }
+        actions.addView(
+            actionButton(R.string.free_add_single, true) { addSingleConfig(entry.link, entry.tag) },
+            LinearLayout.LayoutParams(0, dp(40), 1f),
+        )
+        actions.addView(
+            actionButton(R.string.free_copy, false) { copyFreeConfig(entry) },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
+        )
+        actions.addView(
+            actionButton(R.string.free_qr, false) { showConfigQrCodes(listOf(entry.link), entry.tag) },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
+        )
+        row.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        return row
+    }
+
+    private fun copyFreeConfig(entry: FreeConfigs.FreeEntry) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("free-config", entry.link))
+        Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Adds one share-link as its own Subscription and selects it. */
+    private fun addSingleConfig(link: String, name: String) {
+        if (link.isBlank()) return
+        val subscriptionName = name.take(48).ifBlank { "Cat Single" }
+        activityScope.launch {
+            val added = runCatching {
+                withContext(Dispatchers.IO) { userSubscriptionManager.add(subscriptionName, link) }
+            }.getOrNull()
+            if (added == null) {
+                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            userSubscriptionManager.select(added.id)
+            renderSubscriptions()
+            onSubscriptionSelected()
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.free_quick_add_done)
+                .setMessage(subscriptionName)
+                .setPositiveButton(R.string.free_quick_add_connect) { _, _ -> beginConnectFlow(Actions.CONNECT) }
+                .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .show()
+        }
+    }
+
+    /** Paste / clipboard / QR entry point for a single config. */
+    private fun showQuickConfigMenu(anchor: View) {
+        val menu = whiteDnsPopupMenu(anchor)
+        menu.menu.add(R.string.free_quick_paste).setOnMenuItemClickListener {
+            showQuickConfigDialog()
+            true
+        }
+        menu.menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
+            addSubscriptionFromClipboard()
+            true
+        }
+        menu.menu.add(R.string.subscription_scan_qr).setOnMenuItemClickListener {
+            startSubscriptionQrScan()
+            true
+        }
+        menu.menu.add(R.string.free_qr_all).setOnMenuItemClickListener {
+            showConfigQrCodes(freeConfigEntries.take(FREE_QR_BATCH).map { it.link }, getString(R.string.free_title))
+            true
+        }
+        menu.show()
+    }
+
+    private fun showQuickConfigDialog() {
+        val input = EditText(this).apply {
+            hint = getString(R.string.free_quick_hint)
+            textSize = 13f
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            maxLines = 4
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.free_quick_add)
+            .setView(container)
+            .setPositiveButton(R.string.free_quick_add_confirm) { _, _ ->
+                val link = input.text?.toString()?.trim().orEmpty()
+                if (link.isEmpty()) {
+                    Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                normalizedSubscriptionSource(link)?.let { source ->
+                    addSingleConfig(source, scannedSubscriptionName(source) ?: "Cat Single")
+                } ?: Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(R.string.subscription_scan_qr) { _, _ -> startSubscriptionQrScan() }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .show()
+    }
+
+    /** Ping-tests the fetched free configs through the core's connection testing page. */
+    private fun testFreeConfigs() {
+        val entries = freeConfigEntries
+        if (entries.isEmpty()) {
+            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        activityScope.launch {
+            val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
+            if (id != null) openSubscriptionConnectionTesting(id)
+        }
+    }
+
+    /** Adds every fetched free config as one Subscription (capped for size). */
+    private fun importFreeConfigs() {
+        val entries = freeConfigEntries
+        if (entries.isEmpty()) {
+            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        activityScope.launch {
+            val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
+            if (id == null) {
+                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            userSubscriptionManager.select(id)
+            renderSubscriptions()
+            onSubscriptionSelected()
+            Toast.makeText(this@MainActivity, R.string.free_imported, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private suspend fun ensureFreeSubscription(links: List<String>): String? {
+        if (links.isEmpty()) return null
+        val content = links.joinToString("\n")
+        val name = getString(R.string.free_subscription_name)
+        val existing = userSubscriptionManager.list().firstOrNull { it.name == name }
+        if (existing != null) {
+            val updated = runCatching {
+                withContext(Dispatchers.IO) { userSubscriptionManager.update(existing.id, name, content) }
+            }.getOrNull()
+            if (updated != null) return updated.id
+            // Fall through to creating a fresh one when the update is rejected.
+            userSubscriptionManager.delete(existing.id)
+        }
+        return runCatching {
+            withContext(Dispatchers.IO) { userSubscriptionManager.add(name, content) }
+        }.getOrNull()?.id
+    }
+
+    /** QR codes for one or more share links, shown natively (no network needed). */
+    private fun showConfigQrCodes(links: List<String>, title: String) {
+        val valid = links.filter { it.isNotBlank() }.distinct()
+        if (valid.isEmpty()) {
+            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val index = intArrayOf(0)
+        val image = ImageView(this).apply {
+            adjustViewBounds = true
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setBackgroundColor(Color.WHITE)
+        }
+        val caption = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(TEXT_SECONDARY)
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.MIDDLE
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(dp(16), dp(6), dp(16), 0)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(image, LinearLayout.LayoutParams(-1, -2))
+            addView(caption, LinearLayout.LayoutParams(-1, -2))
+        }
+        fun render() {
+            val link = valid[index[0]]
+            image.setImageBitmap(QrCodes.bitmap(link, sizePx = dp(240)))
+            caption.text = "${index[0] + 1}/${valid.size} · $link"
+        }
+        render()
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.free_qr_title, title))
+            .setView(container)
+            .setPositiveButton(R.string.free_qr_copy) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", valid[index[0]]))
+                Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+        if (valid.size > 1) {
+            builder.setNeutralButton(R.string.free_qr_next) { _, _ ->
+                index[0] = (index[0] + 1) % valid.size
+                showConfigQrCodes(listOf(valid[index[0]]), title)
+            }
+        }
+        builder.show()
     }
 
     /** Human-readable quota line for a subscription panel that reports usage. */
@@ -1982,6 +2548,8 @@ class MainActivity : Activity() {
         }
         val dataRows = dataRowsList
 
+        homeUsageCard = buildHomeUsageCard()
+
         dashboardContent.apply {
             addView(
                 headerBlock,
@@ -2000,7 +2568,12 @@ class MainActivity : Activity() {
                 dataRows,
                 contentParams(dp(16)),
             )
+            addView(
+                homeUsageCard,
+                contentParams(dp(16)),
+            )
         }
+        renderHomeUsageCard()
         viewport.addView(
             dashboardContent,
             FrameLayout.LayoutParams(
@@ -3566,6 +4139,7 @@ class MainActivity : Activity() {
         scannerStopButton.isEnabled = true
         scannerProgressBar.visibility = View.VISIBLE
         scannerStatusText.setText(R.string.scanner_progress_hint)
+        scannerLiveResults.clear()
         scannerResultsList.removeAllViews()
         scannerApplyButton.isEnabled = false
         val options = IpScanner.ScanOptions(
@@ -3573,9 +4147,31 @@ class MainActivity : Activity() {
             customSubnets = customSubnets,
             includeBuiltin = true,
         )
+        scannerProgressBar.progress = 0
         scannerJob = activityScope.launch {
-            val found = runCatching { IpScanner.scan(this@MainActivity, options) }
-                .getOrDefault(emptyList())
+            val found = runCatching {
+                IpScanner.scan(this@MainActivity, options) { done, total, result ->
+                    // Called from an IO thread for every finished candidate.
+                    mainHandler.post {
+                        if (!scannerRunning) return@post
+                        val percent = (done * 100) / total.coerceAtLeast(1)
+                        scannerProgressBar.progress = percent
+                        if (result != null && scannerLiveResults.none { it.ip == result.ip }) {
+                            scannerLiveResults += result
+                        }
+                        val best = scannerLiveResults.minByOrNull { it.pingMs }?.pingMs
+                        scannerStatusText.text = if (best == null) {
+                            getString(R.string.scanner_progress_empty, done, total, percent)
+                        } else {
+                            getString(R.string.scanner_progress, done, total, percent, best)
+                        }
+                        if (done % SCANNER_LIVE_REFRESH_EVERY == 0 || done == total) {
+                            scannerLiveResults.sortBy { it.pingMs }
+                            renderScannerResults()
+                        }
+                    }
+                }
+            }.getOrDefault(emptyList())
             if (!scannerRunning) return@launch
             scannerRunning = false
             scannerStartButton.isEnabled = true
@@ -3603,8 +4199,9 @@ class MainActivity : Activity() {
 
     private fun renderScannerResults() {
         if (!::scannerResultsList.isInitialized) return
+        val visible = if (scannerRunning) scannerLiveResults.toList() else scannerResults
         scannerResultsList.removeAllViews()
-        if (scannerResults.isEmpty()) {
+        if (visible.isEmpty()) {
             scannerResultsList.addView(
                 TextView(this).apply {
                     setText(R.string.scanner_results_empty)
@@ -3619,7 +4216,7 @@ class MainActivity : Activity() {
             return
         }
         scannerApplyButton.isEnabled = true
-        scannerResults.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
+        visible.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
             scannerResultsList.addView(
                 scannerResultRow(index + 1, result),
                 LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
@@ -7667,6 +8264,7 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
         ) View.VISIBLE else View.GONE
         renderConnectionDetails(state)
+        if (::homeUsageCard.isInitialized) renderHomeUsageCard()
         refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.INVISIBLE
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
@@ -7941,6 +8539,12 @@ class MainActivity : Activity() {
         const val SCANNER_SNI_KEY = "scanner_sni"
         const val DEFAULT_SCANNER_SNI = "skk.moe"
         const val SCANNER_VISIBLE_RESULTS = 24
+        const val SCANNER_LIVE_REFRESH_EVERY = 5
+
+        /* Free configs */
+        const val FREE_PREVIEW_ROWS = 12
+        const val FREE_QR_BATCH = 12
+        const val FREE_SUBSCRIPTION_LIMIT = 200
         const val SCANNER_GOOD_MS = 300L
         const val SCANNER_FAIR_MS = 700L
     }

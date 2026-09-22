@@ -6,7 +6,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLParameters
@@ -57,25 +58,43 @@ object IpScanner {
         "89.187.163.0/24",
     )
 
-    suspend fun scan(context: Context, options: ScanOptions): List<ScanResult> =
-        coroutineScope {
-            val candidates = buildCandidateList(options)
-            val results = withContext(Dispatchers.IO) {
-                candidates.map { ip ->
-                    async {
-                        val ms = tlsPing(ip, options.port, options.sni, options.pingTimeoutMs)
-                        if (ms != null) ScanResult(
-                            ip = ip,
-                            pingMs = ms,
-                            sni = options.sni,
-                            countryCode = null, // GeoIP is resolved offline lazily
-                            countryName = null,
-                        ) else null
-                    }
-                }.awaitAll().filterNotNull()
+    /**
+     * Scans every candidate concurrently and streams progress as results arrive.
+     * [onProgress] is invoked with (done, total, resultOrNull) from an IO thread
+     * as soon as each candidate finishes, so the UI can show a live percentage
+     * and append rows while the scan is still running.
+     */
+    suspend fun scan(
+        context: Context,
+        options: ScanOptions,
+        onProgress: ((Int, Int, ScanResult?) -> Unit)? = null,
+    ): List<ScanResult> = coroutineScope {
+        val candidates = buildCandidateList(options)
+        val total = candidates.size
+        if (total == 0) return@coroutineScope emptyList()
+        val channel = Channel<ScanResult?>(Channel.UNLIMITED)
+        val jobs = candidates.map { ip ->
+            launch(Dispatchers.IO) {
+                val ms = tlsPing(ip, options.port, options.sni, options.pingTimeoutMs)
+                channel.send(
+                    ms?.let {
+                        ScanResult(ip = ip, pingMs = it, sni = options.sni, countryCode = null, countryName = null)
+                    },
+                )
             }
-            results.sortedBy { it.pingMs }
         }
+        val results = ArrayList<ScanResult>(total)
+        var done = 0
+        repeat(total) {
+            val result = channel.receive()
+            done++
+            if (result != null) results += result
+            onProgress?.invoke(done, total, result)
+        }
+        jobs.forEach { it.join() }
+        channel.close()
+        results.sortedBy { it.pingMs }
+    }
 
     fun expandSubnet(cidr: String, limitPerSubnet: Int = 80): List<String> {
         val trimmed = cidr.trim()

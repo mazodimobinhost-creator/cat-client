@@ -297,5 +297,56 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   check('/health reports doh + scanner', health.doh === 'https://' + HOST + '/dns-query' && health.scanTargets > 10);
 }
 
+// 19. v3.1 panel surface: themes, custom DoH/DoT, single-config builder
+{
+  const body = await (await req('/')).text();
+  check('panel has theme picker', body.includes('themeMenu') && body.includes('data-theme-pick="orchid"') && body.includes('data-theme-pick="mono"'));
+  check('panel exposes 5 themes', (body.match(/data-theme-pick=/g) || []).length === 5);
+  check('panel has custom DoH + DoT fields', body.includes('id="dohCustom"') && body.includes('id="dotCustom"'));
+  check('panel lists DoT presets', body.includes('one.one.one.one') && body.includes('dns.adguard-dns.com'));
+  check('panel has single-config builder', body.includes('id="singleBuild"') && body.includes('id="singleAddr"'));
+  check('single builder ships deep links', body.includes('catclient://scan?sni=') && body.includes('catclient://add-sub?url='));
+  const state = JSON.parse(await (await req('/api/config.json')).text());
+  check('config json exposes dot presets', Array.isArray(state.dotPresets) && state.dotPresets.some((p) => p.host === 'dns.google'));
+}
+
+// 20. resolver helpers
+{
+  check('safeUpstreamOverride accepts https', T.safeUpstreamOverride('https://dns.google/dns-query') === 'https://dns.google/dns-query');
+  check('safeUpstreamOverride rejects http', T.safeUpstreamOverride('http://dns.google/dns-query') === null);
+  check('safeUpstreamOverride rejects bare IPs', T.safeUpstreamOverride('https://1.1.1.1/dns-query') === null);
+  check('safeUpstreamOverride rejects junk', T.safeUpstreamOverride('not a url') === null);
+
+  const origFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url) => {
+    seen = String(url);
+    return new Response(JSON.stringify({ Answer: [{ name: 'dns.google', type: 1, data: '8.8.8.8' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/dns-json' },
+    });
+  };
+  const resolved = await T.resolveHost('dns.google', {});
+  check('resolveHost returns answers', resolved.ok === true && resolved.answers[0] === '8.8.8.8', JSON.stringify(resolved));
+  check('resolveHost queries the upstream', seen.includes('name=dns.google'));
+  const bad = await T.resolveHost('not a host!', {});
+  check('resolveHost rejects invalid names', bad.ok === false);
+
+  const override = await req('/dns-query?dns=AAAA&u=' + encodeURIComponent('https://dns.quad9.net/dns-query'));
+  check('/dns-query?u= override works', override.status === 200 && seen.includes('dns.quad9.net'));
+  const denied = await req('/dns-query?dns=AAAA&u=http%3A%2F%2Fevil.example%2Fdns-query');
+  check('/dns-query ignores non-https override', denied.status === 200 && seen.includes('cloudflare-dns.com'));
+  const resolveRoute = JSON.parse(await (await req('/api/resolve?host=dns.google')).text());
+  check('/api/resolve route works', resolveRoute.ok === true && resolveRoute.answers.length === 1);
+  globalThis.fetch = origFetch;
+}
+
+// 21. scan progress helpers in the panel client
+{
+  const body = await (await req('/')).text();
+  check('scanner reports live percentage', body.includes('(pct+"%)"') || body.includes('pct+"%"'));
+  check('scanner status mentions best ping', body.includes('best: '));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

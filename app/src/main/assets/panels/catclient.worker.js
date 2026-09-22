@@ -1,7 +1,7 @@
 /**
  * 🐱 Cat Panel — single-file Cloudflare Worker panel (VLESS / Trojan / WARP / DoH)
  *
- * Version: 3.0.0 — "purple night" edition
+ * Version: 3.1.0 — "purple night" edition (themes · custom DoH/DoT · single-config builder · live scan %)
  *
  * WHAT YOU GET
  *  - Proxy data plane: VLESS-over-WebSocket, Trojan-over-WebSocket, WARP link.
@@ -48,7 +48,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '3.0.0';
+const CAT_PANEL_VERSION = '3.1.0';
 const CAT_REPO = 'https://github.com/mazodimobinhost-creator/cat-client';
 const CAT_CODE_URLS = [
   'https://raw.githubusercontent.com/mazodimobinhost-creator/cat-client/main/app/src/main/assets/panels/catclient.worker.js',
@@ -976,14 +976,16 @@ function subUserInfoHeader(env) {
 /* ------------------------------------------------------------------ */
 
 const DNS_PRESETS = [
-  { id: 'cloudflare', name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
-  { id: 'google', name: 'Google', url: 'https://dns.google/dns-query' },
-  { id: 'quad9', name: 'Quad9', url: 'https://dns.quad9.net/dns-query' },
-  { id: 'adguard', name: 'AdGuard', url: 'https://dns.adguard-dns.com/dns-query' },
+  { id: 'cloudflare', name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query', dot: 'one.one.one.one' },
+  { id: 'google', name: 'Google', url: 'https://dns.google/dns-query', dot: 'dns.google' },
+  { id: 'quad9', name: 'Quad9', url: 'https://dns.quad9.net/dns-query', dot: 'dns.quad9.net' },
+  { id: 'adguard', name: 'AdGuard', url: 'https://dns.adguard-dns.com/dns-query', dot: 'dns.adguard-dns.com' },
+  { id: 'mullvad', name: 'Mullvad', url: 'https://dns.mullvad.net/dns-query', dot: 'dns.mullvad.net' },
+  { id: 'controld', name: 'ControlD', url: 'https://freedns.controld.com/p0', dot: 'p0.freedns.controld.com' },
 ];
 
 function dohUpstream(env) {
-  return String(env.DNS_UPSTREAM || DNS_PRESETS[0].url).trim();
+  return String((env && env.DNS_UPSTREAM) || DNS_PRESETS[0].url).trim();
 }
 
 const DNS_QUERY_NAME = 'cloudflare.com';
@@ -1005,15 +1007,61 @@ async function probeDnsUpstream(url, name) {
     clearTimeout(timer);
     const ms = Date.now() - started;
     if (!answer.ok) return { ok: false, ms: ms, error: 'HTTP ' + answer.status };
-    return { ok: true, ms: ms };
+    const text = await answer.text();
+    let answers = [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed.Answer)) {
+        answers = parsed.Answer.slice(0, 3).map((a) => String(a.data)).filter(Boolean);
+      }
+    } catch (e) { /* upstream ignored the JSON content type */ }
+    return { ok: true, ms: ms, answers: answers };
   } catch (e) {
     return { ok: false, ms: Date.now() - started, error: e && e.message ? e.message : String(e) };
   }
 }
 
+/** Resolve a hostname through the configured DoH upstream (used to sanity-check DoT hosts). */
+async function resolveHost(host, env) {
+  const name = String(host || '').trim();
+  if (!/^[a-z0-9.-]+$/i.test(name)) return { ok: false, error: 'invalid hostname' };
+  const upstream = dohUpstream(env || {});
+  const started = Date.now();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const answer = await fetch(
+      upstream + (upstream.includes('?') ? '&' : '?') + 'name=' + encodeURIComponent(name) + '&type=A',
+      { headers: { accept: 'application/dns-json' }, signal: controller.signal },
+    );
+    clearTimeout(timer);
+    if (!answer.ok) return { ok: false, error: 'HTTP ' + answer.status };
+    const parsed = await answer.json();
+    const answers = Array.isArray(parsed.Answer) ? parsed.Answer.map((a) => String(a.data)) : [];
+    if (!answers.length) return { ok: false, error: 'no answer', ms: Date.now() - started };
+    return { ok: true, ms: Date.now() - started, answers: answers.slice(0, 4), dot: name };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+/** Only https URLs to public hosts may override the resolver (no SSRF into internal nets). */
+function safeUpstreamOverride(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:') return null;
+    if (isIpLiteral(parsed.hostname)) return null;
+    return parsed.toString();
+  } catch (e) {
+    return null;
+  }
+}
+
 async function handleDnsQuery(request, env) {
   const url = new URL(request.url);
-  const upstream = dohUpstream(env);
+  const upstream = safeUpstreamOverride(url.searchParams.get('u')) || dohUpstream(env);
   const cors = {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -1163,17 +1211,40 @@ function css() {
     '--line:rgba(168,85,247,.24);--line-soft:rgba(255,255,255,.08);',
     '--text:#f4f4f5;--muted:#a1a1aa;--dim:#71717a;',
     '--accent:#a855f7;--accent-2:#7c3aed;--accent-3:#d946ef;--on-accent:#fff;',
+    '--glow-a:rgba(168,85,247,.22);--glow-b:rgba(217,70,239,.16);',
     '--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--radius:18px;',
     '}',
+    /* theme picker: violet (default), oled, orchid, mono, light */
+    'html[data-theme="violet"]{}',
+    'html[data-theme="oled"]{--bg:#000000;--bg-soft:#050505;--surface:rgba(255,255,255,.035);--surface-2:rgba(255,255,255,.06);',
+    '--line:rgba(139,92,246,.22);--line-soft:rgba(255,255,255,.07);--accent:#8b5cf6;--accent-2:#7c3aed;--accent-3:#a855f7;',
+    '--glow-a:rgba(139,92,246,.16);--glow-b:rgba(124,58,237,.12)}',
+    'html[data-theme="orchid"]{--bg:#0b0410;--bg-soft:#12061c;--surface:rgba(255,255,255,.05);--surface-2:rgba(255,255,255,.08);',
+    '--line:rgba(236,72,153,.26);--line-soft:rgba(255,255,255,.09);--accent:#ec4899;--accent-2:#db2777;--accent-3:#d946ef;',
+    '--glow-a:rgba(236,72,153,.20);--glow-b:rgba(217,70,239,.14)}',
+    'html[data-theme="mono"]{--bg:#0b0b0f;--bg-soft:#111116;--surface:rgba(255,255,255,.05);--surface-2:rgba(255,255,255,.09);',
+    '--line:rgba(255,255,255,.16);--line-soft:rgba(255,255,255,.10);--text:#f4f4f5;--muted:#a1a1aa;--dim:#71717a;',
+    '--accent:#e5e7eb;--accent-2:#d4d4d8;--accent-3:#fafafa;--on-accent:#0b0b0f;',
+    '--glow-a:rgba(255,255,255,.06);--glow-b:rgba(255,255,255,.04)}',
     'html[data-theme="light"]{',
     '--bg:#f6f3fc;--bg-soft:#ffffff;--surface:#ffffff;--surface-2:#f3eefc;',
     '--line:rgba(124,58,237,.22);--line-soft:rgba(20,10,40,.08);',
     '--text:#12061f;--muted:#5b5566;--dim:#8a8494;',
     '--accent:#7c3aed;--accent-2:#6d28d9;--accent-3:#c026d3;--on-accent:#fff;',
-    '}',
+    '--glow-a:rgba(124,58,237,.12);--glow-b:rgba(192,38,211,.10)}',
+    'html[data-theme="light"] .card{box-shadow:0 12px 34px rgba(76,29,149,.08)}',
+    '.theme-menu{position:absolute;top:52px;inset-inline-end:12px;z-index:50;display:none;flex-direction:column;gap:4px;padding:8px;',
+    'min-width:190px;background:var(--bg-soft);border:1px solid var(--line);border-radius:16px;box-shadow:0 22px 60px rgba(0,0,0,.45)}',
+    '.theme-menu.show{display:flex}',
+    '.theme-menu button{display:flex;align-items:center;gap:9px;background:none;border:0;color:var(--text);font:inherit;font-size:13px;',
+    'padding:8px 10px;border-radius:10px;cursor:pointer;text-align:start}',
+    '.theme-menu button:hover{background:var(--surface-2)}',
+    '.theme-menu button.active{background:var(--surface-2);font-weight:700}',
+    '.swatches{display:flex;gap:3px}',
+    '.swatches i{width:12px;height:12px;border-radius:50%;display:block;border:1px solid rgba(255,255,255,.25)}',
     'body{font-family:"Vazirmatn",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);',
     'min-height:100vh;line-height:1.7;padding-bottom:96px;',
-    'background-image:radial-gradient(900px 500px at 12% -8%,rgba(168,85,247,.22),transparent 60%),radial-gradient(700px 420px at 96% 4%,rgba(217,70,239,.16),transparent 62%)}',
+    'background-image:radial-gradient(900px 500px at 12% -8%,var(--glow-a),transparent 60%),radial-gradient(700px 420px at 96% 4%,var(--glow-b),transparent 62%)}',
     'body[data-lang="en"]{direction:ltr}',
     'body[data-lang="fa"]{direction:rtl}',
     '.wrap{width:100%;max-width:1000px;margin:0 auto;padding:16px}',
@@ -1261,6 +1332,28 @@ function css() {
   ].join('');
 }
 
+/**
+ * Panel themes. `violet` is the Cat Client signature (purple night) and the
+ * default; the others are one-tap alternatives for people who want a different
+ * look on the same panel.
+ */
+const PANEL_THEMES = [
+  { id: 'violet', nameFa: 'بنفش شب', nameEn: 'Violet night', swatch: ['#0b0517', '#7c3aed', '#d946ef'] },
+  { id: 'oled', nameFa: 'مشکی خالص', nameEn: 'Pure black', swatch: ['#000000', '#8b5cf6', '#a855f7'] },
+  { id: 'orchid', nameFa: 'ارکیده', nameEn: 'Orchid', swatch: ['#0b0410', '#db2777', '#ec4899'] },
+  { id: 'mono', nameFa: 'تکرنگ', nameEn: 'Monochrome', swatch: ['#0b0b0f', '#e5e7eb', '#71717a'] },
+  { id: 'light', nameFa: 'روشن', nameEn: 'Violet light', swatch: ['#ffffff', '#7c3aed', '#c026d3'] },
+];
+
+function themeMenuHtml() {
+  return PANEL_THEMES.map((theme) =>
+    '<button type="button" data-theme-pick="' + theme.id + '">' +
+    '<span class="swatches"><i style="background:' + theme.swatch[0] + '"></i>' +
+    '<i style="background:' + theme.swatch[1] + '"></i><i style="background:' + theme.swatch[2] + '"></i></span>' +
+    '<span>' + esc(theme.nameFa) + ' · ' + esc(theme.nameEn) + '</span></button>',
+  ).join('');
+}
+
 /* ------------------------------------------------------------------ */
 /* panel page                                                          */
 /* ------------------------------------------------------------------ */
@@ -1289,6 +1382,7 @@ function panelState(host, env, uuid, request) {
     asn: cf.asOrganization || '',
     dnsUpstream: dohUpstream(env),
     dnsPresets: DNS_PRESETS,
+    dotPresets: DNS_PRESETS.map((p) => ({ name: p.name, host: p.dot })),
     repo: CAT_REPO,
     subUrl: 'https://' + host + '/sub',
     clashUrl: 'https://' + host + '/clash',
@@ -1330,8 +1424,9 @@ function panelShell(state) {
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
     '<span class="spacer"></span>' +
     '<span class="pill ok" id="onlinePill">آنلاین</span>' +
-    '<button class="icon-btn" id="themeBtn" title="تم">🌙</button>' +
+    '<button class="icon-btn" id="themeBtn" title="تم / Theme">🎨</button>' +
     '<button class="icon-btn" id="langBtn" title="Language">EN</button>' +
+    '<div class="theme-menu" id="themeMenu">' + themeMenuHtml() + '</div>' +
     '</div></header>' +
 
     '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml() + dnsTabHtml(state) + helpTabHtml(state) + '</div>' +
@@ -1429,6 +1524,28 @@ function statCard(key, value) {
 
 function configsTabHtml(state) {
   return '<section class="tab" data-tab-panel="configs">' +
+    '<div class="card glow"><h2><span class="dot"></span><span data-i18n="singleTitle">ساخت کانفیگ تکی</span></h2>' +
+    '<p>یک آدرس دلخواه بده (آی‌پی تمیز، دامنهٔ خودت یا دامنهٔ دیگر) و کانفیگ تکی VLESS/Trojan با SNI پنل بساز — آمادهٔ QR، کپی یا فرستادن به اپ.</p>' +
+    '<div class="grid two" style="margin-top:12px">' +
+    '<label class="field"><span>آدرس سرور (IP یا دامنه)</span><input id="singleAddr" dir="ltr" value="' + esc(state.host) + '"></label>' +
+    '<label class="field"><span>نام کانفیگ</span><input id="singleName" value="Cat Single"></label>' +
+    '<label class="field"><span>SNI</span><input id="singleSni" dir="ltr" value="' + esc(state.sni) + '"></label>' +
+    '<label class="field"><span>پورت</span><input id="singlePort" type="number" min="1" max="65535" value="' + esc(String(state.port)) + '"></label>' +
+    '<label class="field"><span>Host هدر</span><input id="singleHost" dir="ltr" value="' + esc(state.host) + '"></label>' +
+    '<label class="field"><span>مسیر WebSocket</span><input id="singlePath" dir="ltr" value="' + esc(state.vlessPath) + '"></label>' +
+    '</div>' +
+    '<div class="chips" id="singleProto">' +
+    '<button class="chip active" data-proto="vless">VLESS + WS</button>' +
+    '<button class="chip" data-proto="trojan">Trojan + WS</button>' +
+    '</div>' +
+    '<div class="row" style="margin-top:12px">' +
+    '<button class="btn" id="singleBuild">ساخت کانفیگ</button>' +
+    '<button class="btn ghost tiny" id="singleCopy">کپی</button>' +
+    '<button class="btn ghost tiny" id="singleQr">QR</button>' +
+    '<a class="btn ghost tiny" id="singleAdd" href="#">افزودن به Cat Client</a>' +
+    '<button class="btn ghost tiny" id="singleScan">اعمال در اسکنر اپ</button>' +
+    '</div>' +
+    '<pre id="singleOut" style="margin-top:10px">—</pre></div>' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="configsTitle">همهٔ کانفیگ‌های آماده</span></h2>' +
     '<label class="field"><span>جستجو</span><input id="cfgSearch" placeholder="نام یا آی‌پی…"></label>' +
     '<div class="row"><button class="btn ghost tiny" data-copy-target="cfgAllText">کپی همه</button>' +
@@ -1473,6 +1590,9 @@ function scannerTabHtml() {
 }
 
 function dnsTabHtml(state) {
+  const dotRows = state.dotPresets.map((p) =>
+    '<tr><td>' + esc(p.name) + '</td><td dir="ltr"><code>' + esc(p.host) +
+    '</code></td><td><button class="btn ghost tiny" data-dot="' + esc(p.host) + '">کپی / بررسی</button></td></tr>').join('');
   return '<section class="tab" data-tab-panel="dns">' +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="dnsTitle">DNS رمزنگاری‌شده (DoH)</span></h2>' +
     '<p>این Worker در نقش یک رزولور DoH هم کار می‌کند. دستگاهت می‌تواند کوئری‌های DNS را رمزنگاری‌شده به همین دامنه بفرستد؛ نتیجه از طریق کلودفلر بیرون می‌رود و اپراتور نمی‌تواند داخل آن را ببیند.</p>' +
@@ -1487,6 +1607,21 @@ function dnsTabHtml(state) {
     '<tbody id="dnsTable"></tbody></table></div>' +
     '<p class="muted" style="margin-top:10px">سرور پیش‌فرض: <code id="dnsCurrent">' + esc(state.dnsUpstream) + '</code> — با متغیر <code>DNS_UPSTREAM</code> قابل تغییر است.</p>' +
     '<pre id="dnsCustomText" style="display:none"></pre></div>' +
+    '<div class="card"><h2><span class="dot"></span><span data-i18n="dnsCustomTitle">DoH و DoT سفارشی</span></h2>' +
+    '<div class="grid two">' +
+    '<label class="field"><span>آدرس DoH دلخواه (سرور خودت یا هر رزولور)</span><input id="dohCustom" dir="ltr" placeholder="https://dns.example.com/dns-query"></label>' +
+    '<label class="field"><span>هاست DoT دلخواه (برای Private DNS اندروید)</span><input id="dotCustom" dir="ltr" placeholder="dns.example.com"></label>' +
+    '</div>' +
+    '<div class="row">' +
+    '<button class="btn tiny" id="dohCustomTest">تست DoH دلخواه</button>' +
+    '<button class="btn ghost tiny" id="dohCustomApply">استفاده در /dns-query این پنل</button>' +
+    '<button class="btn ghost tiny" id="dotCustomCheck">بررسی DoT</button>' +
+    '</div>' +
+    '<pre id="dnsCustomResult" style="margin-top:10px">—</pre>' +
+    '<p class="muted">DoT را نمی‌شود از داخل Worker پروکسی کرد (کلودفلر فقط HTTPS می‌دهد)؛ برای اندروید کافی است هاست DoT را در <b>Private DNS</b> بگذاری. بررسی DoT اینجا فقط رزولوشن نام را تست می‌کند.</p>' +
+    '<h2 style="margin-top:16px"><span class="dot"></span><span data-i18n="dotTitle">هاست‌های DoT پیشنهادی</span></h2>' +
+    '<div class="table-wrap"><table><thead><tr><th>نام</th><th>هاست DoT</th><th>عملیات</th></tr></thead><tbody>' + dotRows + '</tbody></table></div>' +
+    '</div>' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="dnsUseTitle">چطور استفاده کنم؟</span></h2>' +
     '<div class="steps" id="dnsSteps">' +
     '<div class="step">Cat Client → تنظیمات → DNS رمزنگاری‌شده → حالت سفارشی (DoH) و همین آدرس را وارد کن.</div>' +
@@ -1550,8 +1685,8 @@ function panelClientJs() {
     'var $=function(s,r){return (r||document).querySelector(s)};',
     'var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};',
     'var I18N={',
-    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
-    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
+    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
+    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
     '};',
     'var lang="fa",theme="dark";',
     'try{lang=localStorage.getItem("catpanel.lang")||"fa";theme=localStorage.getItem("catpanel.theme")||"dark";}catch(e){}',
@@ -1571,8 +1706,17 @@ function panelClientJs() {
     ' $("#heroSub").textContent=lang==="fa"?"این Worker روی شبکهٔ کلودفلر اجرا می‌شود؛ با یک لینک، همهٔ دستگاه‌هایت را وصل کن.":"This worker runs on Cloudflare edge; connect every device with one link.";',
     ' $("#onlinePill").textContent=d.online;',
     '}',
-    'function applyTheme(){document.documentElement.setAttribute("data-theme",theme);$("#themeBtn").textContent=theme==="dark"?"🌙":"☀️";',
-    ' var m=document.querySelector("meta[name=theme-color]");if(m)m.setAttribute("content",theme==="dark"?"#06030c":"#f6f3fc");}',
+    'var THEMES=' + JSON.stringify(PANEL_THEMES.map((t) => ({ id: t.id, fa: t.nameFa, en: t.nameEn }))) + ';',
+    'var THEME_BG={violet:"#06030c",oled:"#000000",orchid:"#0b0410",mono:"#0b0b0f",light:"#f6f3fc"};',
+    'if(theme==="dark")theme="violet";if(theme==="light")theme="light";',
+    'function applyTheme(){document.documentElement.setAttribute("data-theme",theme);',
+    ' var m=document.querySelector("meta[name=theme-color]");if(m)m.setAttribute("content",THEME_BG[theme]||"#06030c");',
+    ' $$("[data-theme-pick]").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-theme-pick")===theme)});}',
+    '$("#themeBtn").addEventListener("click",function(ev){ev.stopPropagation();$("#themeMenu").classList.toggle("show")});',
+    'document.addEventListener("click",function(ev){var pick=ev.target.closest("[data-theme-pick]");',
+    ' if(pick){theme=pick.getAttribute("data-theme-pick");try{localStorage.setItem("catpanel.theme",theme)}catch(e){}applyTheme();',
+    '  $("#themeMenu").classList.remove("show");toast(lang==="fa"?"تم تغییر کرد":"Theme updated");return;}',
+    ' if(!ev.target.closest("#themeMenu")&&!ev.target.closest("#themeBtn"))$("#themeMenu").classList.remove("show");});',
     'function toast(msg){var t=$("#toast");$("#toastText").textContent=msg;t.classList.add("show");setTimeout(function(){t.classList.remove("show")},1500);}',
     'function copyText(text){',
     ' if(navigator.clipboard&&navigator.clipboard.writeText){return navigator.clipboard.writeText(text).then(function(){toast(I18N[lang].copied)})}',
@@ -1586,7 +1730,7 @@ function panelClientJs() {
     '}',
     '$$("nav.tabs button").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"))})});',
     '$("#langBtn").addEventListener("click",function(){lang=lang==="fa"?"en":"fa";try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();});',
-    '$("#themeBtn").addEventListener("click",function(){theme=theme==="dark"?"light":"dark";try{localStorage.setItem("catpanel.theme",theme)}catch(e){}applyTheme();});',
+
     'document.addEventListener("click",function(ev){',
     ' var t=ev.target.closest("[data-copy-target]");',
     ' if(t){var el=document.getElementById(t.getAttribute("data-copy-target"));if(el)copyText((el.value!==undefined?el.value:el.textContent).trim());return;}',
@@ -1627,6 +1771,27 @@ function panelClientJs() {
     '$$("#subFormats .chip").forEach(function(chip){chip.addEventListener("click",function(){',
     ' $$("#subFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");',
     ' $("#subUrlText").textContent=chip.getAttribute("data-url");});});',
+    '/* ---- single-config builder ---- */',
+    'var singleProto="vless";',
+    '$$("#singleProto .chip").forEach(function(chip){chip.addEventListener("click",function(){',
+    ' $$("#singleProto .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");',
+    ' singleProto=chip.getAttribute("data-proto");buildSingle();});});',
+    'function buildSingle(){',
+    ' var addr=($("#singleAddr").value||"").trim();var name=($("#singleName").value||"Cat Single").trim();',
+    ' var sni=($("#singleSni").value||S.sni).trim();var port=Number($("#singlePort").value||S.port);',
+    ' var hostHeader=($("#singleHost").value||S.host).trim();var path=($("#singlePath").value||S.vlessPath).trim();',
+    ' if(!addr){toast("آدرس سرور را وارد کن");return "";}',
+    ' if(singleProto==="vless"){',
+    '  return "vless://"+S.uuid+"@"+addr+":"+port+"?encryption=none&security=tls&sni="+encodeURIComponent(sni)+',
+    '   "&type=ws&path="+encodeURIComponent(path)+"&host="+encodeURIComponent(hostHeader)+"&alpn=h2,http%2F1.1&fp=randomized#"+encodeURIComponent(name);}',
+    ' return "trojan://"+encodeURIComponent(S.trojanPass)+"@"+addr+":"+port+"?security=tls&sni="+encodeURIComponent(sni)+',
+    '  "&type=ws&path="+encodeURIComponent(path.indexOf("trojan")>=0?path:S.trojanPath)+"&host="+encodeURIComponent(hostHeader)+"&alpn=h2,http%2F1.1&fp=randomized#"+encodeURIComponent(name);}',
+    '$("#singleBuild").addEventListener("click",function(){var link=buildSingle();if(!link)return;',
+    ' $("#singleOut").textContent=link;$("#singleAdd").setAttribute("href","catclient://add-sub?url="+encodeURIComponent(link)+"&name="+encodeURIComponent("Cat Single"));',
+    ' $("#singleScan").onclick=function(){location.href="catclient://scan?sni="+encodeURIComponent($("#singleSni").value||S.sni);};',
+    ' copyText(link);});',
+    '$("#singleCopy").addEventListener("click",function(){var link=$("#singleOut").textContent;if(!link||link==="—"){link=buildSingle();$("#singleOut").textContent=link;}copyText(link);});',
+    '$("#singleQr").addEventListener("click",function(){var link=$("#singleOut").textContent;if(!link||link==="—"){link=buildSingle();$("#singleOut").textContent=link;}openQr(link);});',
     '/* ---- scanner ---- */',
     'function sampleTargets(limit,custom){var list=(custom&&custom.length?custom:(S.scanTargets||[])).slice();',
     ' for(var i=list.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=list[i];list[i]=list[j];list[j]=t;}',
@@ -1675,7 +1840,9 @@ function panelClientJs() {
     '   return;}',
     '  var ip=targets[index++];',
     '  pingIp(ip,timeout).then(function(ms){done++;scanResults.push({ip:ip,ms:ms,colo:"",selected:ms!==null&&ms<400});',
-    '   $("#scanBar").style.width=Math.round(done/targets.length*100)+"%";$("#scanStatus").textContent=I18N[lang].scanning+" "+done+"/"+targets.length;',
+    '   var pct=Math.round(done/targets.length*100);$("#scanBar").style.width=pct+"%";',
+    '   var alive=scanResults.filter(function(r){return r.ms!==null});var best=alive.length?Math.min.apply(null,alive.map(function(r){return r.ms})):null;',
+    '   $("#scanStatus").textContent=(lang==="fa"?"در حال اسکن… ":"Scanning… ")+done+"/"+targets.length+" ("+pct+"%)"+(best!==null?(" · "+(lang==="fa"?"بهترین: ":"best: ")+best+"ms"):"");',
     '   if(done%4===0||done===targets.length)renderScan();next();});',
     ' }',
     ' for(var k=0;k<conc;k++)next();',
@@ -1703,6 +1870,26 @@ function panelClientJs() {
     ' }).catch(function(){rowEl.textContent="خطا";if(btn)btn.disabled=false});}',
     'document.addEventListener("click",function(ev){var t=ev.target.closest("[data-dns-test]");if(!t)return;',
     ' var url=t.getAttribute("data-dns-test");var row=document.querySelector("[data-dns-ms=\\""+url+"\\"]");if(row)probeDns(url,row,t);});',
+    'function dnsResult(html){$("#dnsCustomResult").innerHTML=html;}',
+    '$("#dohCustomTest").addEventListener("click",function(){',
+    ' var url=($("#dohCustom").value||"").trim();if(!url){toast("آدرس DoH را وارد کن");return;}',
+    ' dnsResult("در حال تست…");',
+    ' fetch("/api/dns-probe?u="+encodeURIComponent(url)).then(function(r){return r.json()}).then(function(j){',
+    '  dnsResult(j.ok?("<b>DoH سالم</b> — تأخیر "+j.ms+"ms"+(j.answers?(" · نمونه پاسخ: "+j.answers):"")):"DoH پاسخ نداد — "+(j.error||"خطا"));',
+    ' }).catch(function(){dnsResult("تست ناموفق")});});',
+    '$("#dohCustomApply").addEventListener("click",function(){',
+    ' var url=($("#dohCustom").value||"").trim();if(!url){toast("آدرس DoH را وارد کن");return;}',
+    ' try{localStorage.setItem("catpanel.dohCustom",url)}catch(e){}',
+    ' dnsResult("در این نسخه، سرور بالادستی با متغیر <code>DNS_UPSTREAM</code> عوض می‌شود: <code>"+url+"</code><br>می‌توانی همین را در Variables ورکر بگذاری، یا موقتاً از <code>/dns-query?u="+url+"</code> استفاده کنی.");',
+    ' copyText(url);});',
+    'function checkDot(){var host=($("#dotCustom").value||"").trim();if(!host){toast("هاست DoT را وارد کن");return;}',
+    ' dnsResult("در حال بررسی "+host+" …");',
+    ' fetch("/api/resolve?host="+encodeURIComponent(host)).then(function(r){return r.json()}).then(function(j){',
+    '  dnsResult(j.ok?("<b>DoT قابل استفاده است</b> — "+host+" → "+(j.answers||[]).join(", ")):"رزولوشن ناموفق — "+(j.error||"خطا"));',
+    '  copyText(host);}).catch(function(){dnsResult("بررسی ناموفق")});}',
+    '$("#dotCustomCheck").addEventListener("click",checkDot);',
+    'document.addEventListener("click",function(ev){var d=ev.target.closest("[data-dot]");if(d){var h=d.getAttribute("data-dot");',
+    ' $("#dotCustom").value=h;checkDot();}});',
     '$("#dohTest").addEventListener("click",function(){var status=$("#dohStatus");status.textContent="در حال تست…";',
     ' var list=(S.dnsPresets||[]);var pending=list.length;var best=null;',
     ' list.forEach(function(p){var row=document.querySelector("[data-dns-ms=\\""+p.url+"\\"]");if(!row)return;',
@@ -1848,6 +2035,10 @@ async function fetchHandler(request, env) {
     if (!isIpLiteral(ip)) return jsonResponse({ ok: false, error: 'ip required' }, 400, CORS);
     return jsonResponse(await probeIp(ip, Number(url.searchParams.get('timeout') || 4000)), 200, CORS);
   }
+  if (path === '/api/resolve') {
+    const target = url.searchParams.get('host') || '';
+    return jsonResponse(await resolveHost(target, env), 200, CORS);
+  }
   if (path === '/api/dns-probe') {
     const upstream = url.searchParams.get('u') || dohUpstream(env);
     const name = url.searchParams.get('name') || DNS_QUERY_NAME;
@@ -1922,6 +2113,8 @@ export const _testing = {
   sampleSubnet,
   probeIp,
   probeDnsUpstream,
+  resolveHost,
+  safeUpstreamOverride,
   panelState,
   panelShell,
   loginHtml,
