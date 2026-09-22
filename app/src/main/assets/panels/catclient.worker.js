@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.4.0';
+const CAT_PANEL_VERSION = '5.5.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -111,6 +111,23 @@ function jsonResponse(value, status = 200, extraHeaders = {}) {
       { 'content-type': 'application/json; charset=utf-8' },
       extraHeaders,
     ),
+  });
+}
+
+/**
+ * Camouflage for unknown paths: a stock "nginx"-looking 404 with no CORS / JSON / branding, so
+ * a probe that hits the worker on a random path sees a boring static host, not a proxy panel
+ * (same idea as BPB / Vodiwalker fake pages). Real routes never reach this.
+ */
+function notFoundHtml() {
+  return '<!DOCTYPE html>\n<html>\n<head><title>404 Not Found</title></head>\n<body>\n' +
+    '<center><h1>404 Not Found</h1></center>\n<hr><center>nginx</center>\n</body>\n</html>\n';
+}
+
+function notFoundResponse() {
+  return new Response(notFoundHtml(), {
+    status: 404,
+    headers: { 'content-type': 'text/html', 'cache-control': 'no-store' },
   });
 }
 
@@ -741,11 +758,23 @@ async function kvGet(env, key) {
   }
 }
 
-async function kvPut(env, key, value) {
+async function kvPut(env, key, value, options) {
   const store = kvBinding(env);
   if (!store) return false;
   try {
-    await store.put(key, value);
+    if (options) await store.put(key, value, options);
+    else await store.put(key, value);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function kvDelete(env, key) {
+  const store = kvBinding(env);
+  if (!store || typeof store.delete !== 'function') return false;
+  try {
+    await store.delete(key);
     return true;
   } catch (e) {
     return false;
@@ -3399,6 +3428,20 @@ const AUTH_COOKIE = 'catpanel_auth';
 const BRUTE_LIMIT = 8;
 const BRUTE_WINDOW_MS = 10 * 60 * 1000;
 
+/** Parses the stored brute-force counter; legacy plain numbers (no window) count as expired. */
+function readBruteState(raw, now) {
+  if (!raw) return { count: 0, until: 0 };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      const until = Number(parsed.until) || 0;
+      if (until <= now) return { count: 0, until: 0 };
+      return { count: Number(parsed.count) || 0, until: until };
+    }
+  } catch (e) { /* legacy value */ }
+  return { count: 0, until: 0 };
+}
+
 async function sha256Hex(value) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -3452,12 +3495,17 @@ async function handleLogin(request, env) {
   if (!password) {
     return jsonResponse({ ok: true, note: 'no password configured' }, 200, CORS);
   }
-  const offenders = Number(await kvGet(env, 'catpanel:brute:' + (request.headers.get('cf-connecting-ip') || 'unknown')) || 0);
-  if (offenders >= BRUTE_LIMIT) {
-    return jsonResponse({ ok: false, error: 'too-many-attempts' }, 429, CORS);
+  const bruteKey = 'catpanel:brute:' + (request.headers.get('cf-connecting-ip') || 'unknown');
+  const bruteRaw = await kvGet(env, bruteKey);
+  const brute = readBruteState(bruteRaw, Date.now());
+  if (brute.count >= BRUTE_LIMIT) {
+    const retryAfter = Math.max(1, Math.ceil((brute.until - Date.now()) / 1000));
+    return jsonResponse({ ok: false, error: 'too-many-attempts', retryAfterSec: retryAfter }, 429,
+      Object.assign({ 'retry-after': String(retryAfter) }, CORS));
   }
   if (supplied && supplied === password) {
     const token = await sha256Hex(password);
+    if (bruteRaw) await kvDelete(env, bruteKey);
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: Object.assign({}, CORS, {
@@ -3466,9 +3514,11 @@ async function handleLogin(request, env) {
       }),
     });
   }
-  void BRUTE_WINDOW_MS;
-  await kvPut(env, 'catpanel:brute:' + (request.headers.get('cf-connecting-ip') || 'unknown'), String(offenders + 1));
-  return jsonResponse({ ok: false, error: 'invalid-password', attemptsLeft: Math.max(0, BRUTE_LIMIT - offenders - 1) }, 401, CORS);
+  // Sliding window: the counter expires BRUTE_WINDOW_MS after the last failure (KV TTL as a
+  // backstop; the JSON `until` is what is checked, so a KV without TTL support still unlocks).
+  const next = { count: brute.count + 1, until: Date.now() + BRUTE_WINDOW_MS };
+  await kvPut(env, bruteKey, JSON.stringify(next), { expirationTtl: Math.ceil(BRUTE_WINDOW_MS / 1000) });
+  return jsonResponse({ ok: false, error: 'invalid-password', attemptsLeft: Math.max(0, BRUTE_LIMIT - next.count) }, 401, CORS);
 }
 
 function redactSettings(settings) {
@@ -3851,7 +3901,9 @@ async function fetchHandler(request, env, ctx) {
     return new Response(null, { status: 101, statusText: 'Switching Protocols', webSocket: client });
   }
   if (path === vlessName || path === trojanName) {
-    return new Response('Cat Panel tunnel endpoint — WebSocket upgrade required', { status: 426, headers: CORS });
+    // A plain GET on the tunnel path (scanner / censor probe) sees the same fake 404 as any
+    // unknown path; only a WebSocket upgrade reveals the endpoint.
+    return notFoundResponse();
   }
 
   /* subscriptions — BPB-style: the UUID is the secret. /sub/<uuid>[/clash|singbox|b64|all] */
@@ -4122,7 +4174,7 @@ async function fetchHandler(request, env, ctx) {
     return handlePanelRequest(request, url, env, host, uuid, state);
   }
 
-  return new Response('Not Found', { status: 404, headers: CORS });
+  return notFoundResponse();
 }
 
 export default {
@@ -4223,6 +4275,8 @@ export const _testing = {
   DEFAULT_SETTINGS,
   deepMerge,
   panelPassword,
+  readBruteState,
+  notFoundHtml,
   dohUpstream,
   isIpLiteral,
   fetchHandler,

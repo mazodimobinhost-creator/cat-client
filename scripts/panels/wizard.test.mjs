@@ -94,7 +94,7 @@ T.__setFetch(async (input, init = {}) => {
     const name = new URL(url).hostname.split('.')[0];
     if (!state.scripts[name]) return new Response('nf', { status: 404 });
     const isWizard = state.scripts[name].script.includes('CAT_WIZARD_VERSION');
-    return json({ ok: true, version: isWizard ? T.CAT_WIZARD_VERSION : '5.4.0' });
+    return json({ ok: true, version: isWizard ? T.CAT_WIZARD_VERSION : '5.5.0' });
   }
   return new Response('unhandled ' + url, { status: 500 });
 });
@@ -166,7 +166,7 @@ let first;
   check('subdomain auto-created', /^catpanel-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
   check('KV namespace created + bound', first.kvBound && state.kv.length === 1 && state.kv[0].title === 'my-panel-catpanel');
   const s = state.scripts['my-panel'];
-  check('panel script uploaded (real Cat Panel source)', s && s.script.includes("CAT_PANEL_VERSION = '5.4.0'"));
+  check('panel script uploaded (real Cat Panel source)', s && s.script.includes("CAT_PANEL_VERSION = '5.5.0'"));
   check('fallback source used after releases/latest 404', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com')));
   const bind = Object.fromEntries(s.bindings.map((b) => [b.name, b]));
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));
@@ -174,7 +174,7 @@ let first;
   check('no PANEL_PASSWORD when none supplied', !bind.PANEL_PASSWORD);
   check('nodejs_compat + compat date set', s.meta.compatibility_flags.includes('nodejs_compat') && s.meta.compatibility_date);
   check('route enabled', state.routes['my-panel'] === true);
-  check('online after health probe', first.online === true && first.panelVersion === '5.4.0');
+  check('online after health probe', first.online === true && first.panelVersion === '5.5.0');
   check('result: password = UUID by default', first.password === first.uuid && first.customPassword === false);
   check('result: panel URL unlocks with ?p=<uuid>', first.panelUrl === first.workerUrl + '/?p=' + first.uuid);
   check('result: sub URL /sub/<uuid>', first.subUrl === first.workerUrl + '/sub/' + first.uuid);

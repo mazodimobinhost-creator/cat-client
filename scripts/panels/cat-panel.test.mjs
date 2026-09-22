@@ -621,5 +621,43 @@ async function subText(url, opts) {
   check('trojan auth refuses a disabled user', no.ok === false && no.error === 'disabled');
 }
 
+// 26. v5.5: fake 404 camouflage + brute-force window that actually expires
+{
+  const unknown = await req('/wp-admin/setup.php', { raw: true });
+  const unknownBody = await unknown.text();
+  check('unknown path → fake nginx 404 (no CORS, no branding)',
+    unknown.status === 404 && unknownBody.includes('<center>nginx</center>') &&
+    !unknownBody.toLowerCase().includes('cat') && unknown.headers.get('access-control-allow-origin') === null);
+  const tunnelGet = await req('/ws', { raw: true });
+  check('plain GET on tunnel path is indistinguishable from unknown path', tunnelGet.status === 404 && (await tunnelGet.text()) === unknownBody);
+  const realRoutesStillWork = await req('/health', { raw: true });
+  check('/health still answers', realRoutesStillWork.status === 200);
+
+  const now = Date.now();
+  check('brute state: empty → 0', T.readBruteState(null, now).count === 0);
+  check('brute state: legacy number counts as expired', T.readBruteState('7', now).count === 0);
+  check('brute state: live window kept', T.readBruteState(JSON.stringify({ count: 3, until: now + 1000 }), now).count === 3);
+  check('brute state: elapsed window reset', T.readBruteState(JSON.stringify({ count: 3, until: now - 1 }), now).count === 0);
+
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, PANEL_PASSWORD: 'secret-pw' };
+  const login = (pw, ip) => worker.fetch(new Request('https://' + HOST + '/api/login', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip || '198.51.100.7' }, body: JSON.stringify({ password: pw }),
+  }), env);
+  let last = null;
+  for (let i = 0; i < 8; i++) last = await login('nope');
+  check('8 wrong attempts → 401 with attemptsLeft 0', last.status === 401 && JSON.parse(await last.text()).attemptsLeft === 0);
+  const blocked = await login('secret-pw');
+  check('9th attempt is 429 even with the right password (+ retry-after)', blocked.status === 429 && Number(blocked.headers.get('retry-after')) > 0);
+  const otherIp = await login('secret-pw', '203.0.113.9');
+  check('other IP is not affected', otherIp.status === 200);
+  // expire the window by rewriting the stored state, then a correct login clears it
+  const key = 'catpanel:brute:198.51.100.7';
+  mem.set(key, JSON.stringify({ count: 8, until: Date.now() - 5 }));
+  const afterWindow = await login('secret-pw');
+  check('after the window a correct login succeeds and clears the counter', afterWindow.status === 200 && !mem.has(key));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

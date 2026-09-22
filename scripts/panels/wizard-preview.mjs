@@ -36,7 +36,7 @@ if (process.env.WIZARD_FAKE_CF) {
       if (url.endsWith('/subdomain') && method === 'POST') return json({ success: true, result: {} });
       if (method === 'PUT') { state.scripts[url.split('/').pop()] = true; return json({ success: true, result: {} }); }
     }
-    if (url.endsWith('/health')) return json({ ok: true, version: '5.4.0' });
+    if (url.endsWith('/health')) return json({ ok: true, version: '5.5.0' });
     return new Response('nf', { status: 404 });
   });
   console.log('fake Cloudflare API enabled — paste any token ending in "demo"');
