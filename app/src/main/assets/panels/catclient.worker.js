@@ -51,7 +51,17 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.0.0';
+const CAT_PANEL_VERSION = '5.1.0';
+/* Cloudflare "API token template" URL — opens the dashboard with the exact
+ * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
+ * Account Settings read). Same link the Cat Wizard uses. */
+const CF_TOKEN_TEMPLATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
+  encodeURIComponent(JSON.stringify([
+    { key: 'workers_scripts', type: 'edit' },
+    { key: 'workers_kv_storage', type: 'edit' },
+    { key: 'account_settings', type: 'read' },
+    { key: 'user_details', type: 'read' },
+  ])) + '&accountId=*&zoneId=all&name=Cat%20Panel';
 const CAT_REPO = 'https://github.com/mazodimobinhost-creator/cat-client';
 const CAT_CODE_URLS = [
   'https://raw.githubusercontent.com/mazodimobinhost-creator/cat-client/main/app/src/main/assets/panels/catclient.worker.js',
@@ -2299,6 +2309,7 @@ function panelState(host, env, uuid, request, settings) {
   const cf = (request && request.cf) || {};
   return {
     version: CAT_PANEL_VERSION,
+    tokenTemplateUrl: CF_TOKEN_TEMPLATE_URL,
     title: String(env.PANEL_TITLE || 'Cat Panel'),
     host: host,
     sni: effectiveSni(host, env),
@@ -2705,7 +2716,8 @@ function helpTabHtml(state) {
   return '<section class="tab" data-tab-panel="help">' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="helpTitle">راهنمای پنل</span></h2>' +
     '<div class="steps">' +
-    '<div class="step">Cloudflare → Workers &amp; Pages → Create Worker → کد را کامل جای‌گذاری کن → Deploy.</div>' +
+    '<div class="step"><b>راه سریع (ویزارد):</b> <a href="' + esc(CF_TOKEN_TEMPLATE_URL) + '" target="_blank" rel="noopener">این لینک</a> صفحهٔ API Token کلودفلر را با دسترسی‌های آماده باز می‌کند → Continue to summary → Create Token → توکن را در اپ Cat Client (تب Cloud) یا در Cat Wizard بچسبان؛ پنل + KV + رمز خودکار ساخته می‌شود.</div>' +
+    '<div class="step"><b>راه دستی:</b> Cloudflare → Workers &amp; Pages → Create Worker → کد را کامل جای‌گذاری کن → Deploy.</div>' +
     '<div class="step">Settings → Variables &amp; Secrets → هر متغیری که لازم داری اضافه کن (جدول پایین).</div>' +
     '<div class="step">آدرس Worker را باز کن؛ همین پنل بالا می‌آید. برای قفل‌کردن، PANEL_PASSWORD بگذار و آدرس را با <code>?p=رمز</code> باز کن.</div>' +
     '<div class="step">لینک ساب را در Cat Client وارد کن و اتصال را تست کن.</div>' +
@@ -3605,6 +3617,11 @@ async function fetchHandler(request, env) {
     return jsonResponse({ ok: true, count: sorted.length, alive: sorted.filter((r) => r.ok).length, results: sorted }, 200, CORS);
   }
 
+  if (path === '/token' || path === '/api/token-url') {
+    if (path === '/token') return Response.redirect(CF_TOKEN_TEMPLATE_URL, 302);
+    return jsonResponse({ ok: true, url: CF_TOKEN_TEMPLATE_URL }, 200, CORS);
+  }
+
   if (path === '/api/ir-ips') {
     return jsonResponse({ ok: true, count: IR_CLEAN_IPS.length, ips: IR_CLEAN_IPS }, 200, CORS);
   }
@@ -3683,6 +3700,7 @@ export default {
 
 /* Test hooks (ignored by Cloudflare) */
 export const _testing = {
+  CF_TOKEN_TEMPLATE_URL,
   parseVless,
   parseVlessHeader,
   parseSocksAddress,

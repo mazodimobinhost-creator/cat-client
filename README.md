@@ -101,6 +101,32 @@ The easiest path is to push to this repo — GitHub Actions builds debug + relea
 
 ## 🔑 Cloudflare API Token (for in-app Worker deploy)
 
+**Fast path (1 tap):** in the app, Cloud tab → **🔑 Get a Cloudflare token**. It opens
+Cloudflare with the exact permissions pre-selected (a Cloudflare *token template URL*):
+
+`https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=[workers_scripts:edit, workers_kv_storage:edit, account_settings:read, user_details:read]&accountId=*&zoneId=all&name=Cat%20Panel`
+
+Scroll down → **Continue to summary → Create Token → Copy** → paste it in the app.
+
+### 🧙 Cat Wizard (share a one-click installer with friends)
+
+Cloud tab → **Build my wizard page** deploys `catclient.wizard.js` on your account
+(e.g. `https://cat-wizard.<you>.workers.dev`). Anyone who opens that page:
+
+1. taps **Get token** (same pre-filled Cloudflare page) → Continue → Create → Copy,
+2. pastes the token, taps **Install**,
+3. the wizard — running on *your* worker, but using *their* token — creates on *their*
+   account the workers.dev subdomain, a KV namespace, the Cat Panel worker with UUID /
+   password bindings, enables the route, waits for `/health`, and shows panel URL +
+   password + sub link + QR. Tokens are used in-flight only, never stored.
+
+Optional `WIZARD_PASSWORD` env turns it into an invite-only page; a "Create my own
+private wizard" button lets visitors clone the wizard onto their own account.
+The Worker sources are attached to every GitHub release (`catclient.worker.js`,
+`catclient.wizard.js`), so the wizard always installs the latest panel.
+
+**Manual path:**
+
 1. Log in to https://dash.cloudflare.com/ → **My Profile → API Tokens**
 2. **Create Token** → use **"Edit Cloudflare Workers"** template (fastest,
    works out of the box), or build a Custom token with:

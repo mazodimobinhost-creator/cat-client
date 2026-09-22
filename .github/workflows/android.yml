@@ -83,6 +83,7 @@ jobs:
           node --version
           node scripts/panels/cat-panel.test.mjs
           node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/wizard.test.mjs
 
       - name: Pre-check Kotlin compile (fail fast)
         run: |
@@ -211,7 +212,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG"
           git push origin "$TAG" || true
-          gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk \
+          # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
+          cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk catclient.worker.js catclient.wizard.js \
             --title "Cat Client v${APP_VERSION} ($TAG)" \
-            --notes "Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — purple/black/white redesign, Cat Panel v3 with QR + DoH + built-in clean-IP scanner, and a dedicated Scanner tab.\n\n**Install**\n- 64-bit phones: app-arm64-v8a-release.apk\n- any device: app-universal-release.apk\n- Debug APKs are included for testing.\n\nBuilt from ${GITHUB_SHA}." \
-            || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk --clobber
+            --notes "Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — purple/black/white redesign, Cat Panel v5 (BPB-style configs, locked panel, in-panel scanner) and the Cat Wizard one-click installer (catclient.wizard.js attached).\n\n**Install**\n- 64-bit phones: app-arm64-v8a-release.apk\n- any device: app-universal-release.apk\n- Debug APKs are included for testing.\n\nBuilt from ${GITHUB_SHA}." \
+            || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk catclient.worker.js catclient.wizard.js --clobber

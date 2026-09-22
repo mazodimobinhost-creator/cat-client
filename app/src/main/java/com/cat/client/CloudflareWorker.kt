@@ -25,6 +25,21 @@ object CloudflareWorker {
 
     const val REPO_URL = "https://github.com/mazodimobinhost-creator/cat-client"
     const val WORKER_ASSET_PATH = "panels/catclient.worker.js"
+    const val WIZARD_ASSET_PATH = "panels/catclient.wizard.js"
+
+    /**
+     * Cloudflare "API token template" URL: opens dash.cloudflare.com with the exact
+     * permissions pre-selected (Workers Scripts edit, Workers KV edit, Account Settings
+     * read, User Details read). The user only taps Continue to summary → Create Token.
+     * https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
+     */
+    const val CF_TOKEN_TEMPLATE_URL =
+        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" +
+            "%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C" +
+            "%7B%22key%22%3A%22user_details%22%2C%22type%22%3A%22read%22%7D%5D" +
+            "&accountId=*&zoneId=all&name=Cat%20Panel"
 
     enum class DeployKind {
         /** We upload a JS module to Workers for this panel via API directly. */
@@ -339,6 +354,55 @@ object CloudflareWorker {
         context.assets.open(WORKER_ASSET_PATH).bufferedReader().use { it.readText() }
     }.getOrDefault(MINIMAL_WORKER_SCRIPT)
 
+    /** Bundled Cat Wizard worker source (one-click installer page for friends). */
+    fun builtInWizardScript(context: Context): String? = runCatching {
+        context.assets.open(WIZARD_ASSET_PATH).bufferedReader().use { it.readText() }
+    }.getOrNull()
+
+    data class WizardDeploymentResult(
+        val workerName: String,
+        val wizardUrl: String,
+        val verifiedOnline: Boolean,
+    )
+
+    /**
+     * Deploy the Cat Wizard on the user's account. Anyone who opens the resulting URL
+     * can install their own Cat Panel with their own token (nothing is shared).
+     * Optional [inviteCode] locks the wizard (WIZARD_PASSWORD secret binding).
+     */
+    suspend fun deployWizard(
+        context: Context,
+        token: String,
+        accountId: String,
+        workerName: String = "cat-wizard",
+        inviteCode: String = "",
+    ): WizardDeploymentResult = withContext(Dispatchers.IO) {
+        val script = builtInWizardScript(context)
+            ?: throw RuntimeException("wizard asset missing from the APK")
+        val subdomain = resolveWorkersSubdomain(token, accountId)
+        val wizardUrl = "https://$workerName.$subdomain.workers.dev"
+        val uploadUrl =
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+        val secrets = if (inviteCode.isBlank()) emptyMap() else mapOf("WIZARD_PASSWORD" to inviteCode)
+        val putResult = cfUploadWorker(token, uploadUrl, script, uuid = "", kvNamespaceId = null, secrets = secrets)
+        if (!putResult.optBoolean("success", false)) {
+            val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
+            throw RuntimeException("Wizard upload failed: $errors")
+        }
+        runCatching {
+            cfPost(
+                token,
+                "$uploadUrl/subdomain",
+                JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
+            )
+        }
+        WizardDeploymentResult(
+            workerName = workerName,
+            wizardUrl = wizardUrl,
+            verifiedOnline = smokeTestPanel(wizardUrl),
+        )
+    }
+
     data class CfTokenPermissions(
         val valid: Boolean,
         val accountId: String?,
@@ -549,10 +613,14 @@ object CloudflareWorker {
         script: String,
         uuid: String = "",
         kvNamespaceId: String? = null,
+        secrets: Map<String, String> = emptyMap(),
     ): JSONObject {
         val bindings = JSONArray()
         if (uuid.isNotBlank()) {
             bindings.put(JSONObject().put("type", "plain_text").put("name", "UUID").put("text", uuid))
+        }
+        for ((name, value) in secrets) {
+            bindings.put(JSONObject().put("type", "secret_text").put("name", name).put("text", value))
         }
         if (!kvNamespaceId.isNullOrBlank()) {
             bindings.put(
@@ -625,6 +693,12 @@ class PanelDeploymentStore(context: Context) {
     fun rememberLast(workerUrl: String, uuid: String) {
         prefs.edit().putString("last_url", workerUrl).putString("last_uuid", uuid).apply()
     }
+
+    fun rememberWizard(url: String) {
+        prefs.edit().putString("last_wizard", url).apply()
+    }
+
+    fun lastWizardUrl(): String? = prefs.getString("last_wizard", null)
 
     fun lastPanelUrl(): String? = prefs.getString("last_url", null)
     fun lastUuid(): String? = prefs.getString("last_uuid", null)

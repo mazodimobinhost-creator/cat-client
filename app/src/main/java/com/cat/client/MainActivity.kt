@@ -4709,6 +4709,18 @@ class MainActivity : Activity() {
             setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
             addView(tokenInput)
         }
+        // Step 1 — open Cloudflare with the permissions pre-selected (token template URL).
+        catPanelCard.addView(
+            cloudActionButton(R.string.cloud_get_token, R.drawable.ic_cloud_tab, accent = true) {
+                openCloudflareTokenPage()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        catPanelCard.addView(
+            advancedSectionDetail(getString(R.string.cloud_get_token_steps)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+        tokenLayout.helperText = getString(R.string.cloud_token_help)
         catPanelCard.addView(
             tokenLayout,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
@@ -4766,6 +4778,87 @@ class MainActivity : Activity() {
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // ---- Cat Wizard: a shareable one-click installer page on the user's own account ----
+        val wizardCard = advancedSettingsPanel()
+        wizardCard.addView(
+            TextView(this).apply {
+                text = getString(R.string.cloud_wizard_title)
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        wizardCard.addView(
+            advancedSectionDetail(getString(R.string.cloud_wizard_desc)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+        val lastWizard = PanelDeploymentStore(this).lastWizardUrl()
+        val wizardUrlView = TextView(this).apply {
+            text = lastWizard ?: ""
+            visibility = if (lastWizard.isNullOrBlank()) View.GONE else View.VISIBLE
+            textSize = 13f
+            setTextColor(TEAL)
+            setTextIsSelectable(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(0, dp(8), 0, 0)
+            setOnClickListener {
+                val u = text?.toString().orEmpty()
+                if (u.isNotBlank()) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }
+            }
+        }
+        wizardCard.addView(wizardUrlView, LinearLayout.LayoutParams(-1, -2))
+        var wizardInProgress = false
+        val wizardButton = cloudActionButton(R.string.cloud_wizard_deploy, R.drawable.ic_cloud_tab, accent = false) { }
+        wizardButton.setOnClickListener {
+            if (wizardInProgress) return@setOnClickListener
+            val token = tokenInput.text?.toString()?.trim().orEmpty()
+            if (token.isEmpty()) {
+                Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            wizardInProgress = true
+            wizardButton.isEnabled = false
+            activityScope.launch {
+                try {
+                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
+                    val permissions = CloudflareWorker.verifyToken(token)
+                    val accountId = permissions.accountId
+                    if (!permissions.valid || accountId == null) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@launch
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_deploying, "cat-wizard"),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    val result = CloudflareWorker.deployWizard(this@MainActivity, token, accountId)
+                    PanelDeploymentStore(this@MainActivity).rememberWizard(result.wizardUrl)
+                    wizardUrlView.text = result.wizardUrl
+                    wizardUrlView.visibility = View.VISIBLE
+                    showWizardDeployedDialog(result)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } finally {
+                    wizardInProgress = false
+                    wizardButton.isEnabled = true
+                }
+            }
+        }
+        wizardCard.addView(wizardButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        body.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         // Cross-link: the built-in panel is only useful with a clean IP — jump to the scanner.
         val scannerLinkCard = advancedSettingsPanel()
@@ -4900,6 +4993,43 @@ class MainActivity : Activity() {
 
         scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
         return scroll
+    }
+
+    /** Opens dash.cloudflare.com with the Cat Panel permissions pre-selected. */
+    private fun openCloudflareTokenPage() {
+        val opened = runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.CF_TOKEN_TEMPLATE_URL)))
+        }.isSuccess
+        if (!opened) {
+            runCatching {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cf-token-url", CloudflareWorker.CF_TOKEN_TEMPLATE_URL))
+            }
+        }
+        Toast.makeText(this, R.string.cloud_get_token_toast, Toast.LENGTH_LONG).show()
+    }
+
+    private fun showWizardDeployedDialog(result: CloudflareWorker.WizardDeploymentResult) {
+        val status = if (result.verifiedOnline) {
+            getString(R.string.cloud_verified_online)
+        } else {
+            getString(R.string.cloud_verify_pending)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_wizard_deployed)
+            .setMessage(status + "\n\n" + result.wizardUrl + "\n\n" + getString(R.string.cloud_wizard_share_hint))
+            .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.wizardUrl))) }
+            }
+            .setNeutralButton(R.string.cloud_copy_all) { _, _ ->
+                runCatching {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-wizard", result.wizardUrl))
+                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {

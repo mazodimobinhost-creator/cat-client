@@ -501,7 +501,7 @@
     <string name="cloud_title">پنل من</string>
     <string name="cloud_intro">پنل خودت (Cat Panel) را با یک توکن API روی حساب کلادفلر نصب کن، بعد از تب «اسکنر» آی‌پی تمیز بگیر. پنل‌های سروری هم با راهنمای نصب پایین فهرست شده‌اند.</string>
     <string name="cloud_token_hint">توکن API کلادفلر</string>
-    <string name="cloud_token_help">برای یاد گرفتن ساخت توکن اینجا بزنید</string>
+    <string name="cloud_token_help">توکن را اینجا بچسبان — فقط برای همین نصب استفاده می‌شود و ذخیره نمی‌شود</string>
     <string name="cloud_howto_title">ساخت توکن API کلادفلر</string>
     <string name="cloud_howto_body">۱. وارد dash.cloudflare.com شوید → My Profile → API Tokens\n۲. روی <b>Create Token</b> بزنید\n۳. قالب <b>Edit Cloudflare Workers</b> را انتخاب کنید\n۴. Account Resources را روی All accounts بگذارید\n۵. Continue to summary → Create Token → توکن را کپی کنید\n۶. اینجا جای‌گذاری کنید و روی نصب پنل دلخواه بزنید.</string>
     <string name="cloud_deploy">نصب روی کلادفلر من</string>
@@ -548,4 +548,12 @@
     <string name="scanner_build_apply_fronting">اعمال به‌عنوان فرانتینگ</string>
     <string name="scanner_build_sub_name">اسکن کت · %1$s</string>
     <string name="scanner_build_done">✓ %1$d کانفیگ با آی‌پی‌های تمیز تو ساخته شد — در حال اتصال…</string>
+    <string name="cloud_get_token">🔑 دریافت توکن کلودفلر (یک ضربه، دسترسی‌ها آماده)</string>
+    <string name="cloud_get_token_steps">صفحهٔ کلودفلر با دسترسی‌های لازم از قبل انتخاب‌شده باز می‌شود → پایین صفحه Continue to summary → Create Token → Copy. توکن را پایین بچسبان. حساب کلودفلر نداری؟ همان‌جا رایگان بساز.</string>
+    <string name="cloud_get_token_toast">صفحهٔ توکن کلودفلر باز شد. Continue to summary → Create Token → Copy، بعد اینجا بچسبان.</string>
+    <string name="cloud_wizard_title">Cat Wizard — نصب یک‌کلیکی برای دوستان</string>
+    <string name="cloud_wizard_desc">یک صفحهٔ «ویزارد» کوچک روی حساب خودت می‌سازد. هرکس آن را باز کند «دریافت توکن» را می‌زند، توکن کلودفلر خودش را می‌چسباند و پنل Cat خودش را می‌گیرد (آدرس پنل + رمز + لینک ساب) — روی حساب خودش، چیزی از تو رد نمی‌شود. کد دعوت اختیاری صفحه را قفل می‌کند.</string>
+    <string name="cloud_wizard_deploy">🧙 ساخت صفحهٔ ویزارد من</string>
+    <string name="cloud_wizard_deployed">✓ ویزارد بالا آمد</string>
+    <string name="cloud_wizard_share_hint">این لینک را به دوستانت بده. هرکس با توکن خودش پنل خودش را نصب می‌کند؛ توکن هیچ‌جا ذخیره نمی‌شود.</string>
 </resources>

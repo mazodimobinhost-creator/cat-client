@@ -502,7 +502,7 @@
     <string name="cloud_title">My Panel</string>
     <string name="cloud_intro">Deploy Cat Panel — your own panel — on your Cloudflare account with one API token, then use the Scanner tab for clean IPs. Server-based panels are listed below with install guides.</string>
     <string name="cloud_token_hint">Cloudflare API Token</string>
-    <string name="cloud_token_help">Tap here to learn how to create a Cloudflare API token</string>
+    <string name="cloud_token_help">Paste the token here — it is used only for this deploy and never stored</string>
     <string name="cloud_howto_title">How to create a Cloudflare API Token</string>
     <string name="cloud_howto_body">1. Open dash.cloudflare.com → My Profile → API Tokens\n2. Tap <b>Create Token</b>\n3. Choose the <b>Edit Cloudflare Workers</b> template\n4. Leave Account Resources = All accounts\n5. Continue to summary → Create Token → copy the token\n6. Paste it here and tap Deploy on your chosen panel.</string>
     <string name="cloud_deploy">Deploy on my Cloudflare</string>
@@ -549,4 +549,12 @@
     <string name="scanner_build_apply_fronting">Apply as fronting</string>
     <string name="scanner_build_sub_name">Cat Scan · %1$s</string>
     <string name="scanner_build_done">✓ %1$d configs built with your clean IPs — connecting…</string>
+    <string name="cloud_get_token">🔑 Get a Cloudflare token (1 tap, permissions pre-filled)</string>
+    <string name="cloud_get_token_steps">Cloudflare opens with the exact permissions already selected → scroll down → Continue to summary → Create Token → Copy. Paste it below. No Cloudflare account? Create a free one on that page first.</string>
+    <string name="cloud_get_token_toast">Cloudflare token page opened. Continue to summary → Create Token → Copy, then paste it here.</string>
+    <string name="cloud_wizard_title">Cat Wizard — one-click installer for friends</string>
+    <string name="cloud_wizard_desc">Deploys a small “wizard” page on YOUR account. Anyone who opens it taps “Get token”, pastes their own Cloudflare token and gets their own Cat Panel (panel URL + password + sub link) — on their own account, nothing goes through you. Optional invite code protects the page.</string>
+    <string name="cloud_wizard_deploy">🧙 Build my wizard page</string>
+    <string name="cloud_wizard_deployed">✓ Wizard is live</string>
+    <string name="cloud_wizard_share_hint">Share this link. Each visitor installs their own panel with their own token; the token is never stored.</string>
 </resources>

@@ -314,7 +314,7 @@ async function subText(url, opts) {
   check('/api/config.json needs auth when locked', jLocked.status === 401);
   const cookieX = 'catpanel_auth=' + (await T.sha256Hex('x'));
   const j = JSON.parse(await (await req('/api/config.json', { headers: { cookie: cookieX }, env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
-  check('/api/config.json is v5', j.version === '5.0.0', j.version);
+  check('/api/config.json is v5', j.version.startsWith('5.'), j.version);
   check('/api/config.json sub url carries uuid', j.subUrl === 'https://' + HOST + '/sub/' + j.uuid);
   check('/api/config.json exposes config options', j.configOptions && Array.isArray(j.configOptions.ports) && j.configOptions.ports[0] === 443);
   check('/api/config.json exposes doh url', j.dohUrl === 'https://' + HOST + '/dns-query');
