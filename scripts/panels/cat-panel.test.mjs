@@ -113,7 +113,11 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   const body = await res.text();
   check('panel html 200', res.status === 200);
   check('panel html has sub link', body.includes('https://' + HOST + '/sub'));
-  check('panel html has clean-IP section', body.includes('Clean Cloudflare IPs'));
+  check('panel html is v3 shell', body.includes('Cat Panel') && body.includes('catpanel.tab') && body.includes('CAT_STATE'));
+  check('panel html has clean-IP scanner tab', body.includes('data-tab-panel="scanner"') && body.includes('scanStart'));
+  check('panel html has DoH tab', body.includes('/dns-query') && body.includes('data-tab-panel="dns"'));
+  check('panel html has deep link', body.includes('catclient://add-sub?url='));
+  check('panel html is bilingual', body.includes('خانه') && body.includes('Home'));
   const locked = await req('/', { env: { PANEL_PASSWORD: 'secret123' } });
   check('panel locked without password', locked.status === 200 && (await locked.text()).includes('name="p"'));
   const unlocked = await req('/?p=secret123', { env: { PANEL_PASSWORD: 'secret123' } });
@@ -203,6 +207,94 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
     worker.fetch(r, {}).then(resolve);
   });
   check('OPTIONS 204 + CORS', res.status === 204 && res.headers.get('access-control-allow-origin') === '*');
+}
+
+// 14. new subscription formats
+{
+  const singbox = JSON.parse(await (await req('/singbox')).text());
+  check('/singbox is valid JSON with outbounds', Array.isArray(singbox.outbounds) && singbox.outbounds.some((o) => o.type === 'vless'));
+  check('/singbox has trojan outbound', singbox.outbounds.some((o) => o.type === 'trojan'));
+  check('/singbox points DoH at the worker', JSON.stringify(singbox.dns).includes('/dns-query'));
+  const all = JSON.parse(await (await req('/all')).text());
+  check('/all lists links', Array.isArray(all.links) && all.links.length >= 3);
+  check('/all exposes sni whitelist', Array.isArray(all.sniWhitelist) && all.sniWhitelist.includes(HOST));
+  const yaml = await (await req('/clash')).text();
+  check('/clash contains DoH nameserver', yaml.includes('https://' + HOST + '/dns-query'));
+}
+
+// 15. QR encoder fixtures (verified against the reference implementation)
+{
+  const fnv = (s) => {
+    let h = 0x811c9dc5;
+    for (const ch of s) { h ^= ch.charCodeAt(0); h = (h * 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  };
+  const fixtures = [
+    ['HELLO', 'M', 21, 4, '493ae778'],
+    ['https://catpanel-demo.workers.dev/sub', 'M', 29, 5, '9621b278'],
+    ['https://catpanel-demo.workers.dev/sub', 'L', 29, 7, '722d5814'],
+    ['سلام دنیا', 'M', 25, 3, 'eb63eae0'],
+    ['x'.repeat(300), 'Q', 81, 0, '4bd6ed8c'],
+  ];
+  let ok = true;
+  for (const [text, ecl, size, mask, hash] of fixtures) {
+    const qr = T.qrEncode(text, ecl);
+    let bits = '';
+    for (const row of qr.modules) for (const cell of row) bits += cell ? '1' : '0';
+    if (qr.size !== size || qr.mask !== mask || fnv(bits) !== hash) {
+      ok = false;
+      console.error('  fixture mismatch:', JSON.stringify(text.slice(0, 20)), ecl, qr.size, qr.mask, fnv(bits));
+    }
+  }
+  check('QR fixtures match reference matrices', ok);
+  const svg = T.qrSvg('https://catpanel-demo.workers.dev/sub');
+  check('qrSvg returns an svg path', svg.startsWith('<svg') && svg.includes('<path d="M') && svg.includes('</svg>'));
+  const res = await req('/qr.svg?d=hello&size=6');
+  const svgBody = await res.text();
+  check('/qr.svg serves svg', res.status === 200 && (res.headers.get('content-type') || '').includes('image/svg+xml') && svgBody.includes('<svg'));
+  const bad = await req('/qr.svg');
+  check('/qr.svg needs payload', bad.status === 400);
+}
+
+// 16. scanner + dns api
+{
+  const res = await req('/api/scan-targets.json', { env: { CF_IPS: '104.16.6.62' } });
+  const j = JSON.parse(await res.text());
+  check('scan targets include CF_IPS first', j.targets[0] === '104.16.6.62');
+  check('scan targets are IPv4', j.targets.every((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)));
+  check('scan targets size is sane', j.targets.length >= 20 && j.targets.length <= 200);
+  check('scan sni defaults to host', j.sni === HOST);
+  const opts = await req('/api/ping');
+  check('/api/ping rejects non-IP', opts.status === 400);
+  const custom = T.sampleSubnet('104.16.0.0/13', 4);
+  check('sampleSubnet spreads addresses', custom.length === 4 && custom[0] !== custom[3]);
+  check('isIpLiteral accepts v4/v6', T.isIpLiteral('1.1.1.1') && T.isIpLiteral('2606:4700:4700::1111') && !T.isIpLiteral('example.com'));
+}
+
+// 17. DoH resolver passthrough
+{
+  const origFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), init };
+    return new Response('dns-bytes', { status: 200, headers: { 'content-type': 'application/dns-message' } });
+  };
+  const res = await req('/dns-query?dns=AAAA', { env: { DNS_UPSTREAM: 'https://dns.google/dns-query' } });
+  const text = await res.text();
+  check('/dns-query forwards to upstream', seen && seen.url.startsWith('https://dns.google/dns-query?dns=AAAA'));
+  check('/dns-query returns dns-message type', (res.headers.get('content-type') || '').includes('application/dns-message') && text === 'dns-bytes');
+  globalThis.fetch = origFetch;
+}
+
+// 18. panel api json
+{
+  const j = JSON.parse(await (await req('/api/config.json', { env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
+  check('/api/config.json is v3', j.version.startsWith('3.'));
+  check('/api/config.json exposes doh url', j.dohUrl === 'https://' + HOST + '/dns-query');
+  check('/api/config.json flags locked panel', j.panelLocked === true);
+  check('/api/config.json embeds scan targets', Array.isArray(j.scanTargets) && j.scanTargets.length > 10);
+  const health = JSON.parse(await (await req('/health')).text());
+  check('/health reports doh + scanner', health.doh === 'https://' + HOST + '/dns-query' && health.scanTargets > 10);
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');

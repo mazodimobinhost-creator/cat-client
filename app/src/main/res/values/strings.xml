@@ -385,6 +385,7 @@
 
     <!-- Cat Client feature strings -->
     <string name="tab_free">Free</string>
+    <string name="tab_scanner">Scanner</string>
     <string name="tab_cloud">Cloud</string>
     <string name="free_title">Free Configs</string>
     <string name="free_description">Public, ping-tested configs scraped live. Tap any entry to connect.</string>
@@ -434,8 +435,28 @@
     <string name="notif_speed_up">↑ %1$s/s</string>
     <string name="ping_label">Ping</string>
     <string name="connected_to">Connected to</string>
-    <string name="cloud_title">Cloud Panels</string>
-    <string name="cloud_intro">Pick a panel to deploy on your Cloudflare account. Paste an API token once and Cat Client uploads the worker for you, or open the guide for server-based panels.</string>
+    <string name="scanner_intro">Find Cloudflare edge IPs that are fast from your own network (per ISP), then apply them as fronting addresses — the SNI/Host stays your panel domain, so the config keeps working.</string>
+    <string name="scanner_settings_section">Scan settings</string>
+    <string name="scanner_sni_label">SNI (panel domain)</string>
+    <string name="scanner_sni_hint">e.g. mypanel.workers.dev</string>
+    <string name="scanner_subnets_label">Extra IPs or CIDR ranges (comma separated)</string>
+    <string name="scanner_subnets_hint">104.16.6.62, 172.67.0.0/24</string>
+    <string name="scanner_stop">Stop</string>
+    <string name="scanner_idle">Ready. Built-in Cloudflare, Gcore and Fastly ranges plus your own list.</string>
+    <string name="scanner_progress_hint">Scanning… TLS-pinging candidates</string>
+    <string name="scanner_stopped">Scan stopped.</string>
+    <string name="scanner_done">Found %1$d reachable IPs (sorted by ping).</string>
+    <string name="scanner_no_results">No reachable IP found. Try another SNI or add a CIDR range.</string>
+    <string name="scanner_results_section">Results</string>
+    <string name="scanner_results_empty">Nothing yet — run a scan to fill this list.</string>
+    <string name="scanner_result_rank">#%1$d %2$s</string>
+    <string name="scanner_result_ping">%1$d ms</string>
+    <string name="scanner_use">Use</string>
+    <string name="scanner_apply_best">Apply the fastest IP (fronting)</string>
+    <string name="scanner_applied">✓ %1$s applied as fronting IP (%2$d ms). The SNI stays your panel domain.</string>
+    <string name="scanner_ip_copied">%1$s copied</string>
+    <string name="cloud_title">My Panel</string>
+    <string name="cloud_intro">Deploy Cat Panel — your own panel — on your Cloudflare account with one API token, then use the Scanner tab for clean IPs. Server-based panels are listed below with install guides.</string>
     <string name="cloud_token_hint">Cloudflare API Token</string>
     <string name="cloud_token_help">Tap here to learn how to create a Cloudflare API token</string>
     <string name="cloud_howto_title">How to create a Cloudflare API Token</string>
@@ -451,8 +472,10 @@
     <string name="cloud_builtin_label">Built-in</string>
     <string name="cloud_featured_label">Popular</string>
     <string name="cloud_server_label">Server install</string>
-    <string name="cloud_section_catpanel">Cat Panel — built-in Cloudflare Worker</string>
-    <string name="cloud_catpanel_desc">Single-file panel: VLESS-WS + Trojan-WS + WARP, SNI whitelist, clean Cloudflare IP variants, Mihomo/Clash output. Copy the code and paste it into any Cloudflare Worker, or deploy through the API below.</string>
+    <string name="cloud_open_scanner">🛰️ Open the clean-IP scanner</string>
+    <string name="cloud_scanner_hint">After deploy: run the scanner with your panel domain as SNI, then apply the fastest Cloudflare IP so the config works on your own ISP.</string>
+    <string name="cloud_section_catpanel">Cat Panel — my Cloudflare Worker</string>
+    <string name="cloud_catpanel_desc">Cat Panel v3 — your own panel on Cloudflare: VLESS-WS + Trojan-WS + WARP, subscription output for every client (vless / base64 / Mihomo / sing-box / all), offline QR codes, in-panel clean-IP scanner, encrypted DNS (DoH) resolver, SNI whitelist and clean-IP variants. Copy the code into any Cloudflare Worker or deploy with the API token below — then drive it from the Scanner tab.</string>
     <string name="cloud_copy_code">📋 Copy Worker code (paste into Cloudflare)</string>
     <string name="cloud_code_copied">Worker code copied — paste it into your Cloudflare Worker</string>
     <string name="cloud_code_failed">Could not read the worker code</string>

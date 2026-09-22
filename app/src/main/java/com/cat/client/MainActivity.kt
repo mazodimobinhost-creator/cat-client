@@ -78,6 +78,7 @@ import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.Size
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -103,7 +104,7 @@ class SubscriptionQrCaptureActivity : CaptureActivity() {
         }
 }
 
-/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app · tone: utilitarian · anchor hue: green */
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app · tone: utilitarian · anchor hue: violet (purple / black / white) */
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41) · slop: pass */
 class MainActivity : Activity() {
     private val palette: CatClientPalette by lazy { CatClientDesignTokens.forContext(this) }
@@ -247,6 +248,20 @@ class MainActivity : Activity() {
     private lateinit var subscriptionsTabContent: View
     private lateinit var advancedTabContent: View
     private lateinit var cloudTabContent: View
+
+    /* IP scanner tab (clean Cloudflare IPs with SNI + fronting) */
+    private lateinit var scannerTabContent: View
+    private lateinit var scannerSniInput: TextInputEditText
+    private lateinit var scannerSubnetsInput: TextInputEditText
+    private lateinit var scannerStartButton: MaterialButton
+    private lateinit var scannerStopButton: MaterialButton
+    private lateinit var scannerProgressBar: ProgressBar
+    private lateinit var scannerStatusText: TextView
+    private lateinit var scannerResultsList: LinearLayout
+    private lateinit var scannerApplyButton: MaterialButton
+    private var scannerResults: List<IpScanner.ScanResult> = emptyList()
+    private var scannerRunning: Boolean = false
+    private var scannerJob: Job? = null
     private var connectionCountryFlag: String = ""
     private var debugFrontingIp: String = ""
     private var connectionDetails: String = ""
@@ -360,18 +375,49 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Deep link: catclient://add-sub?url=<subscription or share links>&name=<optional>
-     * Lets external panels (Cat Panel etc.) hand a subscription straight to the app.
+     * Deep links from the Cat Panel web UI:
+     *   catclient://add-sub?url=<subscription or share links>&name=<optional>
+     *   catclient://scan?sni=<panel host>            → opens the IP scanner tab
+     *   catclient://scan?sni=…&ip=<clean ip,ip,…>    → opens and applies clean IPs
      */
     private fun handleCatClientDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme != "catclient" || data.host != "add-sub") return
-        val source = data.getQueryParameter("url")?.trim().orEmpty()
-        if (source.isEmpty()) return
-        val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
-        mainHandler.post {
-            showAppTab(0)
-            showAddSubscriptionDialog(source, name)
+        if (data.scheme != "catclient") return
+        when (data.host) {
+            "add-sub" -> {
+                val source = data.getQueryParameter("url")?.trim().orEmpty()
+                if (source.isEmpty()) return
+                val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
+                mainHandler.post {
+                    showAppTab(0)
+                    showAddSubscriptionDialog(source, name)
+                }
+            }
+            "scan" -> {
+                val sni = data.getQueryParameter("sni")?.trim().orEmpty()
+                val ips = data.getQueryParameter("ip")?.trim().orEmpty()
+                mainHandler.post {
+                    if (sni.isNotEmpty() && ::scannerSniInput.isInitialized) {
+                        scannerSniInput.setText(sni)
+                        saveScannerSni(sni)
+                    }
+                    showAppTab(4)
+                    val tokens = ips.split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+                    if (tokens.isNotEmpty()) {
+                        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+                        frontingIps = runCatching {
+                            FrontingIpPolicy.normalizeIps((frontingIps + tokens).joinToString(","))
+                        }.getOrDefault(frontingIps)
+                        renderFrontingIpChips()
+                        saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
+                        Toast.makeText(
+                            this,
+                            getString(R.string.scanner_applied, tokens.first(), 0L),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
         }
     }
 
@@ -395,11 +441,13 @@ class MainActivity : Activity() {
         subscriptionsTabContent = buildSubscriptionsScreen().apply { visibility = View.GONE }
         advancedTabContent = buildAdvancedScreen().apply { visibility = View.GONE }
         cloudTabContent = buildCloudScreen().apply { visibility = View.GONE }
+        scannerTabContent = buildScannerScreen().apply { visibility = View.GONE }
         val content = FrameLayout(this).apply {
             addView(vpnTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(subscriptionsTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(advancedTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(cloudTabContent, FrameLayout.LayoutParams(-1, -1))
+            addView(scannerTabContent, FrameLayout.LayoutParams(-1, -1))
         }
         shell.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -425,10 +473,11 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // Reorder tabs: Settings, VPN (center/active), Subscription, Cloud
+            // Tab order (visual): settings, VPN (center), subscriptions, cloud panel, IP scanner
             addTab(newTab().setText(R.string.tab_settings).setIcon(R.drawable.ic_advanced_tab))
             addTab(newTab().setText(R.string.tab_vpn).setIcon(R.drawable.ic_vpn_tab), true)
             addTab(newTab().setText(R.string.tab_subscriptions).setIcon(R.drawable.ic_subscriptions_tab))
+            addTab(newTab().setText(R.string.tab_scanner).setIcon(R.drawable.ic_speedometer))
             addTab(newTab().setText(R.string.tab_cloud).setIcon(R.drawable.ic_cloud_tab))
             post {
                 val tabStrip = getChildAt(0) as? ViewGroup ?: return@post
@@ -443,12 +492,14 @@ class MainActivity : Activity() {
             }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
-                    // Map new tab order: 0=Settings, 1=VPN, 2=Subscriptions, 3=Cloud
+                    // Visual order maps onto the content screens:
+                    // 0=Settings(3) 1=VPN(1) 2=Subscriptions(0) 3=Scanner(4) 4=Cloud(2)
                     val mappedPosition = when (tab.position) {
-                        0 -> 2  // Settings -> position 2
-                        1 -> 1  // VPN -> position 1
-                        2 -> 0  // Subscriptions -> position 0
-                        3 -> 3  // Cloud -> position 3
+                        0 -> 3  // Settings
+                        1 -> 1  // VPN
+                        2 -> 0  // Subscriptions
+                        3 -> 4  // IP scanner
+                        4 -> 2  // Cloud panel
                         else -> tab.position
                     }
                     showAppTab(mappedPosition)
@@ -565,6 +616,7 @@ class MainActivity : Activity() {
         subscriptionsTabContent.visibility = if (position == 0) View.VISIBLE else View.GONE
         advancedTabContent.visibility = if (position == 2) View.VISIBLE else View.GONE
         cloudTabContent.visibility = if (position == 3) View.VISIBLE else View.GONE
+        scannerTabContent.visibility = if (position == 4) View.VISIBLE else View.GONE
         if (position == 0) renderSubscriptions()
         if (position == 1) renderConnectionSelection()
         if (position == 2) renderAdvancedControls()
@@ -3277,6 +3329,380 @@ class MainActivity : Activity() {
         CloudflareWorker.PanelScope.TUNNEL -> getString(R.string.cloud_scope_tunnel)
     }
 
+    /* ------------------------------------------------------------------ */
+    /* IP scanner screen: clean Cloudflare IPs (SNI + fronting)            */
+    /* ------------------------------------------------------------------ */
+
+    private fun buildScannerScreen(): View {
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            val topInset = insets.getInsets(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
+            ).top
+            view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
+            insets
+        }
+        val body = MaxWidthLinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            maxWidthPx = dp(520)
+            setPadding(dp(24), dp(28), dp(24), dp(40))
+        }
+
+        body.addView(
+            TextView(this).apply {
+                setText(R.string.scanner_title)
+                textSize = 28f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        body.addView(
+            advancedSectionDetail(getString(R.string.scanner_intro)),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(18)
+            },
+        )
+
+        val controls = advancedSettingsPanel()
+        controls.addView(
+            advancedSectionLabel(getString(R.string.scanner_settings_section)),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(10)
+                bottomMargin = dp(8)
+            },
+        )
+        scannerSniInput = scannerInput(
+            hint = getString(R.string.scanner_sni_hint),
+            initial = scannerSniPreference(),
+        )
+        controls.addView(
+            scannerFieldLayout(getString(R.string.scanner_sni_label), scannerSniInput),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        scannerSubnetsInput = scannerInput(
+            hint = getString(R.string.scanner_subnets_hint),
+            initial = "",
+        )
+        controls.addView(
+            scannerFieldLayout(getString(R.string.scanner_subnets_label), scannerSubnetsInput),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                MaterialButton(this@MainActivity).apply {
+                    setText(R.string.scanner_start)
+                    textSize = 13.5f
+                    typeface = CatClientBodyBoldTypeface
+                    isAllCaps = false
+                    cornerRadius = dp(10)
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(palette.onAccent)
+                    insetTop = 0
+                    insetBottom = 0
+                    setOnClickListener { startIpScanner() }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                MaterialButton(this@MainActivity).apply {
+                    setText(R.string.scanner_stop)
+                    textSize = 13.5f
+                    typeface = CatClientBodyBoldTypeface
+                    isAllCaps = false
+                    cornerRadius = dp(10)
+                    isEnabled = false
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(TEXT_SECONDARY, 60))
+                    setTextColor(TEXT_PRIMARY)
+                    insetTop = 0
+                    insetBottom = 0
+                    setOnClickListener { stopIpScanner() }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        controls.addView(actionRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        scannerStartButton = actionRow.getChildAt(0) as MaterialButton
+        scannerStopButton = actionRow.getChildAt(1) as MaterialButton
+
+        scannerProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+            visibility = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(TEAL)
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
+        }
+        controls.addView(
+            scannerProgressBar,
+            LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(14) },
+        )
+        scannerStatusText = TextView(this).apply {
+            setText(R.string.scanner_idle)
+            textSize = 12.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        controls.addView(scannerStatusText, LinearLayout.LayoutParams(-1, -2))
+        body.addView(controls, LinearLayout.LayoutParams(-1, -2))
+
+        body.addView(
+            advancedSectionLabel(getString(R.string.scanner_results_section)),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(22)
+                bottomMargin = dp(10)
+            },
+        )
+        scannerApplyButton = MaterialButton(this).apply {
+            setText(R.string.scanner_apply_best)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 120))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { applyScannerResult() }
+        }
+        body.addView(scannerApplyButton, LinearLayout.LayoutParams(-1, -2))
+
+        scannerResultsList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        body.addView(
+            scannerResultsList,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
+        )
+        renderScannerResults()
+
+        return scroll.apply { addView(body, FrameLayout.LayoutParams(-1, -2)) }
+    }
+
+    private fun scannerInput(hint: String, initial: String): TextInputEditText =
+        TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            setHint(hint)
+            setText(initial)
+        }
+
+    private fun scannerFieldLayout(hint: String, input: TextInputEditText): TextInputLayout =
+        TextInputLayout(this).apply {
+            this.hint = hint
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(input)
+        }
+
+    private fun scannerSniPreference(): String {
+        val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+            .getString(SCANNER_SNI_KEY, null)
+            ?.trim()
+        return saved?.takeIf { it.isNotEmpty() } ?: DEFAULT_SCANNER_SNI
+    }
+
+    private fun saveScannerSni(value: String) {
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(SCANNER_SNI_KEY, value)
+            .apply()
+    }
+
+    private fun startIpScanner() {
+        if (scannerRunning) return
+        val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+        saveScannerSni(sni)
+        val customSubnets = scannerSubnetsInput.text?.toString()?.trim().orEmpty()
+        scannerRunning = true
+        scannerStartButton.isEnabled = false
+        scannerStopButton.isEnabled = true
+        scannerProgressBar.visibility = View.VISIBLE
+        scannerStatusText.setText(R.string.scanner_progress_hint)
+        scannerResultsList.removeAllViews()
+        scannerApplyButton.isEnabled = false
+        val options = IpScanner.ScanOptions(
+            sni = sni,
+            customSubnets = customSubnets,
+            includeBuiltin = true,
+        )
+        scannerJob = activityScope.launch {
+            val found = runCatching { IpScanner.scan(this@MainActivity, options) }
+                .getOrDefault(emptyList())
+            if (!scannerRunning) return@launch
+            scannerRunning = false
+            scannerStartButton.isEnabled = true
+            scannerStopButton.isEnabled = false
+            scannerProgressBar.visibility = View.GONE
+            scannerResults = found
+            renderScannerResults()
+            scannerStatusText.text = if (found.isEmpty()) {
+                getString(R.string.scanner_no_results)
+            } else {
+                getString(R.string.scanner_done, found.size)
+            }
+        }
+    }
+
+    private fun stopIpScanner() {
+        scannerJob?.cancel()
+        scannerJob = null
+        scannerRunning = false
+        scannerStartButton.isEnabled = true
+        scannerStopButton.isEnabled = false
+        scannerProgressBar.visibility = View.GONE
+        scannerStatusText.setText(R.string.scanner_stopped)
+    }
+
+    private fun renderScannerResults() {
+        if (!::scannerResultsList.isInitialized) return
+        scannerResultsList.removeAllViews()
+        if (scannerResults.isEmpty()) {
+            scannerResultsList.addView(
+                TextView(this).apply {
+                    setText(R.string.scanner_results_empty)
+                    textSize = 12.5f
+                    typeface = CatClientBodyTypeface
+                    setTextColor(TEXT_SECONDARY)
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+            scannerApplyButton.isEnabled = false
+            return
+        }
+        scannerApplyButton.isEnabled = true
+        scannerResults.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
+            scannerResultsList.addView(
+                scannerResultRow(index + 1, result),
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+            )
+        }
+    }
+
+    private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            background = glassSurfaceDrawable(radiusDp = 12)
+            clipToOutline = true
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+            setSelectableBackground()
+            setOnClickListener {
+                copyScannerIp(result)
+            }
+        }
+        row.addView(
+            TextView(this).apply {
+                text = getString(R.string.scanner_result_rank, rank, result.flag)
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_SECONDARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-2, -2),
+        )
+        row.addView(
+            TextView(this).apply {
+                text = result.ip
+                textSize = 14f
+                typeface = CatClientDataTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                includeFontPadding = false
+                setPadding(dp(10), 0, 0, 0)
+            },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        row.addView(
+            TextView(this).apply {
+                text = getString(R.string.scanner_result_ping, result.pingMs)
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(
+                    when {
+                        result.pingMs < SCANNER_GOOD_MS -> TEAL
+                        result.pingMs < SCANNER_FAIR_MS -> AMBER
+                        else -> ERROR
+                    },
+                )
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-2, -2),
+        )
+        row.addView(
+            MaterialButton(this).apply {
+                setText(R.string.scanner_use)
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(10)
+                minWidth = 0
+                minimumWidth = 0
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 48))
+                setTextColor(TEAL)
+                insetTop = 0
+                insetBottom = 0
+                setPadding(dp(12), 0, dp(12), 0)
+                setOnClickListener { applyScannerResult(result) }
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+        )
+        return row
+    }
+
+    private fun copyScannerIp(result: IpScanner.ScanResult) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.ip))
+        Toast.makeText(this, getString(R.string.scanner_ip_copied, result.ip), Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Applies a scanned IP as a fronting endpoint: connects to that clean CDN IP
+     * while the profile's SNI/Host (the panel domain) stays untouched.
+     */
+    private fun applyScannerResult(result: IpScanner.ScanResult? = null) {
+        val target = result ?: scannerResults.firstOrNull()
+        if (target == null) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip).joinToString(","))
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        Toast.makeText(
+            this,
+            getString(R.string.scanner_applied, target.ip, target.pingMs),
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+
     private fun buildCloudScreen(): View {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -3437,6 +3863,24 @@ class MainActivity : Activity() {
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Cross-link: the built-in panel is only useful with a clean IP — jump to the scanner.
+        val scannerLinkCard = advancedSettingsPanel()
+        scannerLinkCard.addView(
+            advancedSectionDetail(getString(R.string.cloud_scanner_hint)),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(10)
+                bottomMargin = dp(4)
+            },
+        )
+        scannerLinkCard.addView(
+            cloudActionButton(R.string.cloud_open_scanner, R.drawable.ic_speedometer, accent = false) {
+                // Visual tab 3 is the scanner (see the tab mapping in buildAppShell)
+                appTabs.getTabAt(3)?.select()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(scannerLinkCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         // ---- panel catalog ----
         body.addView(
@@ -7465,5 +7909,13 @@ class MainActivity : Activity() {
         const val STATE_CONNECT_FLOW_PENDING = "connect_flow_pending"
         const val STATE_CONNECT_FLOW_ACTION = "connect_flow_action"
         const val SUBSCRIPTION_ITEM_ID_BASE = 200
+
+        /* IP scanner */
+        const val SCANNER_PREFERENCES = "cat_client_scanner"
+        const val SCANNER_SNI_KEY = "scanner_sni"
+        const val DEFAULT_SCANNER_SNI = "skk.moe"
+        const val SCANNER_VISIBLE_RESULTS = 24
+        const val SCANNER_GOOD_MS = 300L
+        const val SCANNER_FAIR_MS = 700L
     }
 }

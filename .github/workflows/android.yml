@@ -195,11 +195,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(date +%Y%m%d%H%M)"
+          APP_VERSION="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n1)"
+          APP_CODE="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -n1)"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG"
           git push origin "$TAG" || true
           gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk \
-            --title "Cat Client $TAG" \
-            --notes "Automated Cat Client build. Signed release APKs per ABI (install app-release-arm64-v8a.apk on 64-bit devices; app-release-universal.apk contains all ABIs). Debug APKs included for testing. Built from ${GITHUB_SHA}." \
+            --title "Cat Client v${APP_VERSION} ($TAG)" \
+            --notes "Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — purple/black/white redesign, Cat Panel v3 with QR + DoH + built-in clean-IP scanner, and a dedicated Scanner tab.\n\n**Install**\n- 64-bit phones: app-arm64-v8a-release.apk\n- any device: app-universal-release.apk\n- Debug APKs are included for testing.\n\nBuilt from ${GITHUB_SHA}." \
             || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk --clobber

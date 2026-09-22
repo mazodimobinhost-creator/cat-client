@@ -384,6 +384,7 @@
 
     <!-- Cat Client feature strings (Persian) -->
     <string name="tab_free">رایگان</string>
+    <string name="tab_scanner">اسکنر IP</string>
     <string name="tab_cloud">کلود</string>
     <string name="free_title">کانفیگ‌های رایگان</string>
     <string name="free_description">کانفیگ‌های عمومی سالم که لحظه‌ای تست پینگ می‌شوند. روی هر کدام بزنید و متصل شوید.</string>
@@ -407,7 +408,6 @@
     <string name="scanner_sni">SNI</string>
     <string name="scanner_port">پورت</string>
     <string name="scanner_subnet">ساب‌نت یا IPهای دلخواه (با ویرگول جدا کنید)</string>
-    <string name="scanner_start">شروع اسکن</string>
     <string name="scanner_scanning">در حال اسکن… %1$d IP بررسی شد، %2$d عدد سالم</string>
     <string name="scanner_apply">اعمال IP انتخابی روی کانفیگ‌ها</string>
 
@@ -433,8 +433,29 @@
     <string name="notif_speed_up">↑ %1$s/s</string>
     <string name="ping_label">پینگ</string>
     <string name="connected_to">متصل به</string>
-    <string name="cloud_title">پنل‌های کلود</string>
-    <string name="cloud_intro">یک پنل برای نصب روی کلادفلر انتخاب کنید. با یک‌بار وارد کردن توکن API، Cat Client به‌طور خودکار Worker را برای شما نصب می‌کند. برای پنل‌های سروری، راهنمای نصب نمایش داده می‌شود.</string>
+    <string name="scanner_intro">آی‌پی‌های لبهٔ کلودفلر را که از شبکهٔ خودت (هر اپراتور جدا) سریع‌اند پیدا کن و به‌عنوان آدرس فرانتینگ اعمال کن — SNI و Host همان دامنهٔ پنل می‌ماند، پس کانفیگ سالم می‌ماند.</string>
+    <string name="scanner_settings_section">تنظیمات اسکن</string>
+    <string name="scanner_sni_label">SNI (دامنهٔ پنل)</string>
+    <string name="scanner_sni_hint">مثلاً mypanel.workers.dev</string>
+    <string name="scanner_subnets_label">آی‌پی یا رنج‌های دلخواه (با کاما جدا کنید)</string>
+    <string name="scanner_subnets_hint">104.16.6.62, 172.67.0.0/24</string>
+    <string name="scanner_start">شروع اسکن</string>
+    <string name="scanner_stop">توقف</string>
+    <string name="scanner_idle">آماده. رنج‌های داخلی کلودفلر، Gcore و Fastly به‌همراه لیست خودت اسکن می‌شوند.</string>
+    <string name="scanner_progress_hint">در حال اسکن… تست TLS روی کاندیدها</string>
+    <string name="scanner_stopped">اسکن متوقف شد.</string>
+    <string name="scanner_done">%1$d آی‌پی سالم پیدا شد (به‌ترتیب پینگ).</string>
+    <string name="scanner_no_results">آی‌پی سالمی پیدا نشد. SNI دیگری امتحان کن یا یک رنج اضافه کن.</string>
+    <string name="scanner_results_section">نتایج</string>
+    <string name="scanner_results_empty">هنوز چیزی نیست — یک اسکن اجرا کن.</string>
+    <string name="scanner_result_rank">#%1$d %2$s</string>
+    <string name="scanner_result_ping">%1$d ms</string>
+    <string name="scanner_use">انتخاب</string>
+    <string name="scanner_apply_best">اعمال سریع‌ترین آی‌پی (فرانتینگ)</string>
+    <string name="scanner_applied">✓ %1$s به‌عنوان آی‌پی فرانتینگ اعمال شد (%2$d میلی‌ثانیه). SNI همان دامنهٔ پنل می‌ماند.</string>
+    <string name="scanner_ip_copied">%1$s کپی شد</string>
+    <string name="cloud_title">پنل من</string>
+    <string name="cloud_intro">پنل خودت (Cat Panel) را با یک توکن API روی حساب کلادفلر نصب کن، بعد از تب «اسکنر» آی‌پی تمیز بگیر. پنل‌های سروری هم با راهنمای نصب پایین فهرست شده‌اند.</string>
     <string name="cloud_token_hint">توکن API کلادفلر</string>
     <string name="cloud_token_help">برای یاد گرفتن ساخت توکن اینجا بزنید</string>
     <string name="cloud_howto_title">ساخت توکن API کلادفلر</string>
@@ -450,8 +471,10 @@
     <string name="cloud_builtin_label">داخلی</string>
     <string name="cloud_featured_label">محبوب</string>
     <string name="cloud_server_label">نصب روی سرور</string>
-    <string name="cloud_section_catpanel">Cat Panel — ورکر داخلی کلادفلر</string>
-    <string name="cloud_catpanel_desc">پنل تک‌فایل: VLESS-WS + Trojan-WS + WARP، سفیدلیست SNI، واریانت‌های IP سفید کلادفلر و خروجی Mihomo/Clash. کد را کپی کنید و داخل هر Worker کلادفلر بچسبانید، یا از پایین با API دیپلوی کنید.</string>
+    <string name="cloud_open_scanner">🛰️ رفتن به اسکنر آی‌پی تمیز</string>
+    <string name="cloud_scanner_hint">بعد از دیپلوی: در اسکنر، دامنهٔ پنل را به‌عنوان SNI بگذار و سریع‌ترین آی‌پی کلودفلر را اعمال کن تا کانفیگ روی اپراتور خودت کار کند.</string>
+    <string name="cloud_section_catpanel">Cat Panel — ورکر کلادفلر من</string>
+    <string name="cloud_catpanel_desc">Cat Panel نسخهٔ ۳ — پنل شخصی خودت روی کلودفلر: VLESS-WS + Trojan-WS + WARP، خروجی سابسکریپشن برای همهٔ کلاینت‌ها (vless / Base64 / Mihomo / sing-box / همه‌چیز)، QR آفلاین، اسکنر آی‌پی تمیز داخل پنل، رزولور DNS رمزنگاری‌شده (DoH)، سفیدلیست SNI و آی‌پی‌های تمیز. کد را در هر Worker کلودفلر بچسبان یا با توکن API پایین دیپلوی کن — بعد از تب «اسکنر» استفاده کن.</string>
     <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
     <string name="cloud_code_copied">کد Worker کپی شد — داخل Worker کلادفلر بچسبانید</string>
     <string name="cloud_code_failed">خواندن کد Worker ممکن نشد</string>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary colors — Deep Purple -->
+    <!-- Primary colors — Cat purple (violet on black/white) -->
     <color name="whitedns_primary">#7C3AED</color>
     <color name="whitedns_on_primary">#FFFFFF</color>
     <color name="whitedns_primary_container">#5B21B6</color>
@@ -10,9 +10,9 @@
     <color name="whitedns_secondary">#A855F7</color>
 
     <!-- Background and surface — Clean White theme default -->
-    <color name="whitedns_background">#FAFAFA</color>
+    <color name="whitedns_background">#FFFFFF</color>
     <color name="whitedns_surface">#FFFFFF</color>
-    <color name="whitedns_surface_variant">#F4F4F5</color>
+    <color name="whitedns_surface_variant">#F3EEFC</color>
 
     <!-- Surface elevations -->
     <color name="surface_elevated_1">#FFFFFF</color>
@@ -39,7 +39,7 @@
     <color name="red_container">#FEE2E2</color>
 
     <!-- Gradient colors — Purple glow -->
-    <color name="background_gradient_start">#FAFAFA</color>
+    <color name="background_gradient_start">#FFFFFF</color>
     <color name="background_gradient_end">#F5F3FF</color>
     <color name="accent_gradient_start">#7C3AED</color>
     <color name="accent_gradient_end">#A855F7</color>
