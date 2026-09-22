@@ -78,6 +78,12 @@ jobs:
           keytool -genkeypair -v -keystore $RUNNER_TEMP/catclient.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
 
+      - name: Panel worker tests (data plane, subscriptions, auth)
+        run: |
+          node --version
+          node scripts/panels/cat-panel.test.mjs
+          node scripts/panels/tunnel-e2e.test.mjs
+
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew

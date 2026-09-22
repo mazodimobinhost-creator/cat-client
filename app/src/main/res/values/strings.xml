@@ -519,7 +519,7 @@
     <string name="cloud_open_scanner">🛰️ Open the clean-IP scanner</string>
     <string name="cloud_scanner_hint">After deploy: run the scanner with your panel domain as SNI, then apply the fastest Cloudflare IP so the config works on your own ISP.</string>
     <string name="cloud_section_catpanel">Cat Panel — my Cloudflare Worker</string>
-    <string name="cloud_catpanel_desc">Cat Panel v3 — your own panel on Cloudflare: VLESS-WS + Trojan-WS + WARP, subscription output for every client (vless / base64 / Mihomo / sing-box / all), offline QR codes, in-panel clean-IP scanner, encrypted DNS (DoH) resolver, SNI whitelist and clean-IP variants. Copy the code into any Cloudflare Worker or deploy with the API token below — then drive it from the Scanner tab.</string>
+    <string name="cloud_catpanel_desc">Cat Panel v5 — your own BPB-style panel on Cloudflare: real VLESS-WS / Trojan-WS relay, clean IPs baked into every config (you pick the ports and SNI), per-user quotas on KV, password lock (UUID by default), Iranian DNS presets, in-panel + server-side scanners, QR and Clash / sing-box output. Deploy with the API token below — the app creates the KV store, sets the UUID and imports the subscription for you.</string>
     <string name="cloud_copy_code">📋 Copy Worker code (paste into Cloudflare)</string>
     <string name="cloud_code_copied">Worker code copied — paste it into your Cloudflare Worker</string>
     <string name="cloud_code_failed">Could not read the worker code</string>
@@ -538,4 +538,15 @@
     <string name="cloud_scope_tunnel">Tunnel</string>
     <string name="cloud_section_catalog">More panels (searched &amp; verified)</string>
     <string name="cloud_panel_open">Open ↗</string>
+    <string name="cloud_kv_bound">✓ KV storage bound (users, clean IPs and ports are saved in the panel).</string>
+    <string name="cloud_kv_missing">⚠ No KV binding (token lacks Workers KV Storage: Edit). The panel still works; settings live inside the sub link.</string>
+    <string name="cloud_panel_url">Panel (already unlocked with your UUID)</string>
+    <string name="cloud_uuid_is_password">UUID = your subscription secret AND the panel password: %1$s</string>
+    <string name="cloud_copy_all">Copy all</string>
+    <string name="scanner_build_configs">📥 Build configs from these IPs (BPB-style)</string>
+    <string name="scanner_build_title">Build configs from scan</string>
+    <string name="scanner_build_no_panel">No panel subscription matches SNI “%1$s”. Import your panel’s /sub/UUID link first (Cloud tab → Import), or apply the fastest IP as a fronting address instead.</string>
+    <string name="scanner_build_apply_fronting">Apply as fronting</string>
+    <string name="scanner_build_sub_name">Cat Scan · %1$s</string>
+    <string name="scanner_build_done">✓ %1$d configs built with your clean IPs — connecting…</string>
 </resources>

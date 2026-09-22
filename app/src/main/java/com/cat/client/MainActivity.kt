@@ -259,6 +259,7 @@ class MainActivity : Activity() {
     private lateinit var scannerStatusText: TextView
     private lateinit var scannerResultsList: LinearLayout
     private lateinit var scannerApplyButton: MaterialButton
+    private lateinit var scannerBuildButton: MaterialButton
     private var scannerResults: List<IpScanner.ScanResult> = emptyList()
     private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
     private var scannerRunning: Boolean = false
@@ -4222,6 +4223,27 @@ class MainActivity : Activity() {
             setOnClickListener { applyScannerResult() }
         }
         body.addView(scannerApplyButton, LinearLayout.LayoutParams(-1, -2))
+        scannerBuildButton = MaterialButton(this).apply {
+            setText(R.string.scanner_build_configs)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(TEAL)
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener {
+                val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
+                if (source.isEmpty()) {
+                    Toast.makeText(this@MainActivity, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+                } else {
+                    buildSubscriptionFromScan(source)
+                }
+            }
+        }
+        body.addView(scannerBuildButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4264,7 +4286,97 @@ class MainActivity : Activity() {
         val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
             .getString(SCANNER_SNI_KEY, null)
             ?.trim()
-        return saved?.takeIf { it.isNotEmpty() } ?: DEFAULT_SCANNER_SNI
+        if (!saved.isNullOrEmpty() && saved != DEFAULT_SCANNER_SNI) return saved
+        return detectPanelSniFromSubscriptions() ?: saved?.takeIf { it.isNotEmpty() } ?: DEFAULT_SCANNER_SNI
+    }
+
+    /**
+     * BPB-style panels put the worker host in `servername:` / ws `Host:`; read it
+     * from the selected (or first) user subscription so the scanner tests the
+     * right SNI without the user typing anything.
+     */
+    private fun detectPanelSniFromSubscriptions(): String? {
+        val store = SubscriptionStore(this)
+        val ids = buildList {
+            add(store.readSelectedSubscriptionId())
+            userSubscriptionManager.list().forEach { add(it.id) }
+        }.filter { it.isNotBlank() }.distinct()
+        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            pattern.findAll(yaml).map { it.groupValues[1].lowercase(Locale.US) }
+                .firstOrNull { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
+                ?.let { return it }
+            pattern.find(yaml)?.groupValues?.get(1)?.lowercase(Locale.US)?.let { return it }
+        }
+        return null
+    }
+
+    /** Detected panel identity (uuid + ws path + trojan path) for rebuilding configs with new IPs. */
+    private data class PanelIdentity(val host: String, val uuid: String, val vlessPath: String, val trojanPath: String?)
+
+    private fun detectPanelIdentity(sni: String): PanelIdentity? {
+        val store = SubscriptionStore(this)
+        val ids = (listOf(store.readSelectedSubscriptionId()) + userSubscriptionManager.list().map { it.id })
+            .filter { it.isNotBlank() }.distinct()
+        val uuidRe = Regex("""uuid:\s*['"]?([0-9a-fA-F-]{36})""")
+        val pathRe = Regex("""path:\s*['"]?([^'"\n]+)""")
+        val trojanRe = Regex("""type:\s*trojan[\s\S]{0,400}?path:\s*['"]?([^'"\n]+)""")
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            if (!yaml.contains(sni, ignoreCase = true)) return@forEach
+            val uuid = uuidRe.find(yaml)?.groupValues?.get(1) ?: return@forEach
+            val path = pathRe.find(yaml)?.groupValues?.get(1)?.trim() ?: "/ws?ed=2048"
+            val trojanPath = trojanRe.find(yaml)?.groupValues?.get(1)?.trim()
+            return PanelIdentity(sni, uuid, path, trojanPath)
+        }
+        return null
+    }
+
+    /**
+     * BPB behaviour: take the scanned IPs and build real configs (address = clean IP,
+     * SNI/Host = panel) as a new subscription the core can pick from — no fronting
+     * layer involved, so the app connects to those IPs directly.
+     */
+    private fun buildSubscriptionFromScan(results: List<IpScanner.ScanResult>) {
+        val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+        val identity = detectPanelIdentity(sni)
+        if (identity == null) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.scanner_build_title)
+                .setMessage(getString(R.string.scanner_build_no_panel, sni))
+                .setPositiveButton(R.string.scanner_build_apply_fronting) { _, _ -> applyScannerResult(results.firstOrNull()) }
+                .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .show()
+            return
+        }
+        val top = results.sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs })).take(SCANNER_BUILD_LIMIT)
+        val links = buildList {
+            top.forEach { r ->
+                val label = "🐱 " + r.ip + " · " + r.pingMs + "ms"
+                add(
+                    "vless://" + identity.uuid + "@" + r.ip + ":443?encryption=none&security=tls&sni=" +
+                        Uri.encode(identity.host) + "&fp=chrome&alpn=" + Uri.encode("http/1.1") +
+                        "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host) +
+                        "#" + Uri.encode(label),
+                )
+            }
+        }
+        val name = getString(R.string.scanner_build_sub_name, identity.host.substringBefore('.'))
+        activityScope.launch {
+            val added = runCatching {
+                withContext(Dispatchers.IO) { userSubscriptionManager.add(name, links.joinToString("\n")) }
+            }.getOrNull()
+            if (added == null) {
+                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            userSubscriptionManager.select(added.id)
+            renderSubscriptions()
+            onSubscriptionSelected()
+            Toast.makeText(this@MainActivity, getString(R.string.scanner_build_done, links.size), Toast.LENGTH_LONG).show()
+            beginConnectFlow(Actions.CONNECT)
+        }
     }
 
     private fun saveScannerSni(value: String) {
@@ -4363,9 +4475,11 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(-1, -2),
             )
             scannerApplyButton.isEnabled = false
+            if (::scannerBuildButton.isInitialized) scannerBuildButton.isEnabled = false
             return
         }
         scannerApplyButton.isEnabled = true
+        if (::scannerBuildButton.isInitialized) scannerBuildButton.isEnabled = true
         visible.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
             scannerResultsList.addView(
                 scannerResultRow(index + 1, result),
@@ -4789,14 +4903,17 @@ class MainActivity : Activity() {
     }
 
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
+        PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
         val status = if (result.verifiedOnline) {
             getString(R.string.cloud_verified_online)
         } else {
             getString(R.string.cloud_verify_pending)
         }
-        val message = status + "\n\n" +
-            getString(R.string.cloud_worker_url) + ":\n" + result.workerUrl + "\n\n" +
-            getString(R.string.cloud_sub_label) + ":\n" + result.subscriptionUrl
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        val message = status + "\n" + kvLine + "\n\n" +
+            getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl + "\n\n" +
+            getString(R.string.cloud_sub_label) + ":\n" + result.subscriptionUrl + "\n\n" +
+            getString(R.string.cloud_uuid_is_password, result.uuid)
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.cloud_deployed)
             .setMessage(message)
@@ -4805,17 +4922,15 @@ class MainActivity : Activity() {
             }
             .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
                 runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.workerUrl)))
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl)))
                 }
             }
-            .setNeutralButton(R.string.cloud_dashboard) { _, _ ->
+            .setNeutralButton(R.string.cloud_copy_all) { _, _ ->
                 runCatching {
-                    startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://dash.cloudflare.com/workers/services?search=${result.workerName}"),
-                        ),
-                    )
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = "Panel: ${result.panelUrl}\nSub: ${result.subscriptionUrl}\nUUID / password: ${result.uuid}"
+                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel", text))
+                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
                 }
             }
             .setOnCancelListener {
@@ -8713,6 +8828,7 @@ class MainActivity : Activity() {
         const val SCANNER_PREFERENCES = "cat_client_scanner"
         const val SCANNER_SNI_KEY = "scanner_sni"
         const val DEFAULT_SCANNER_SNI = "skk.moe"
+        const val SCANNER_BUILD_LIMIT = 12
         const val SCANNER_VISIBLE_RESULTS = 24
         const val SCANNER_LIVE_REFRESH_EVERY = 5
         const val SCANNER_CONCURRENCY = 24

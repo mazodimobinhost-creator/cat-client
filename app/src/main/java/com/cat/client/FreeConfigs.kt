@@ -2,6 +2,12 @@ package com.cat.client
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.net.HttpURLConnection
@@ -155,21 +161,27 @@ object FreeConfigs {
         useTunnel: Boolean = false,
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): FetchReport = withContext(Dispatchers.IO) {
+        val list = sources(baseUrl)
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        onProgress?.invoke(list.firstOrNull()?.nameFa.orEmpty(), 0, list.size)
+        // All sources in parallel; inside each source the mirrors race (first body wins).
+        val results = list.map { source ->
+            async {
+                val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                val links = text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                val finished = done.incrementAndGet()
+                onProgress?.invoke(source.nameFa, finished, list.size)
+                source to links
+            }
+        }.awaitAll()
+
         val all = linkedMapOf<String, FreeEntry>()
         val ok = mutableListOf<String>()
         val failed = mutableListOf<String>()
-        val list = sources(baseUrl)
-        list.forEachIndexed { index, source ->
-            onProgress?.invoke(source.nameFa, index, list.size)
-            val text = fetchFirstWorking(source.urls, useTunnel)
-            if (text == null) {
-                failed += source.nameFa
-                return@forEachIndexed
-            }
-            val links = extractLinks(text).take(source.limit)
+        results.forEach { (source, links) ->
             if (links.isEmpty()) {
                 failed += source.nameFa
-                return@forEachIndexed
+                return@forEach
             }
             ok += "${source.nameFa} (${links.size})"
             links.forEach { link ->
@@ -187,6 +199,35 @@ object FreeConfigs {
         onProgress?.invoke("", list.size, list.size)
         FetchReport(all.values.toList(), ok, failed)
     }
+
+    /** Races the mirrors [MIRROR_PARALLELISM] at a time and returns the first non-empty body. */
+    private suspend fun fetchFirstWorkingRaced(urls: List<String>, useTunnel: Boolean): String? {
+        for (chunk in urls.chunked(MIRROR_PARALLELISM)) {
+            val winner = coroutineScope {
+                val results = Channel<String?>(chunk.size)
+                val jobs = chunk.map { url ->
+                    launch {
+                        val body = runCatching { fetchUrl(url, useTunnel) }.getOrNull()?.takeIf { it.isNotBlank() }
+                        results.send(body)
+                    }
+                }
+                var found: String? = null
+                repeat(chunk.size) {
+                    if (found == null) {
+                        val body = results.receive()
+                        if (body != null) found = body
+                    }
+                }
+                if (found != null) jobs.forEach { it.cancel() }
+                found
+            }
+            if (winner != null) return winner
+        }
+        return null
+    }
+
+    private const val SOURCE_BUDGET_MS = 25_000L
+    private const val MIRROR_PARALLELISM = 4
 
     private val cacheFile = "free-configs-cache.json"
 
@@ -290,8 +331,8 @@ object FreeConfigs {
         } else {
             URL(url).openConnection() as HttpURLConnection
         }
-        conn.connectTimeout = 9_000
-        conn.readTimeout = 12_000
+        conn.connectTimeout = 6_000
+        conn.readTimeout = 10_000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "CatClient/1.1 (+android)")
         conn.setRequestProperty("Accept", "text/plain,*/*;q=0.1")

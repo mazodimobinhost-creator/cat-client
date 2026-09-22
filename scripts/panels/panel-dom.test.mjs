@@ -25,7 +25,9 @@ try {
 const mod = await import(workerPath);
 const worker = mod.default;
 const HOST = 'catpanel-demo.workers.dev';
-const ENV = { CF_IPS: '104.16.6.62,172.67.181.32', SNI_LIST: 'cdn.example.ir' };
+const ENV = {
+  OPEN_PANEL: 'true', // the panel is locked by default in v5; DOM tests look at the unlocked shell
+ CF_IPS: '104.16.6.62,172.67.181.32', SNI_LIST: 'cdn.example.ir' };
 
 const html = await (await worker.fetch(new Request('https://' + HOST + '/', { headers: { Host: HOST } }), ENV)).text();
 
@@ -102,10 +104,31 @@ check('sub + doh urls shown', (document.querySelector('#subUrlText')?.textConten
 check('deep link present', document.body.innerHTML.includes('catclient://add-sub?url='));
 check('scan targets embedded', (win.CAT_STATE?.scanTargets || []).length > 20);
 check('scanner sni prefilled with panel host', document.querySelector('#scanSni')?.value === HOST);
-check('scanner custom IPs prefilled', (document.querySelector('#scanCustom')?.value || '').includes('104.16.6.62'));
+check('config builder lists CF_IPS as addresses', (document.querySelector('#cfgAddresses')?.value || '').includes('104.16.6.62'));
+check('sub url carries the uuid', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub/' + win.CAT_STATE.uuid));
+check('config table has address × port rows', document.querySelectorAll('#cfgTable tr').length >= 6);
 
-click(document.querySelector('#subFormats .chip[data-format="clash"]'));
+click(document.querySelector('#subFormats .chip[data-fmt="/clash"]'));
 check('format chip switches url', (document.querySelector('#subUrlText')?.textContent || '').includes('/clash'));
+
+// --- BPB-style builder: pick ports + protocol, apply, url + table update ---
+click(document.querySelector('#cfgPorts .chip[data-port="2053"]'));
+click(document.querySelector('#cfgPorts .chip[data-port="80"]'));
+click(document.querySelector('#cfgProtos .chip[data-proto="trojan"]')); // turn trojan off
+document.querySelector('#cfgSni').value = 'cdn.example.ir';
+click(document.querySelector('#cfgApply'));
+await wait(20);
+const cfgUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
+check('apply embeds ports in the sub url', cfgUrl.includes('ports=443,2053,80'), cfgUrl);
+check('apply embeds protocol filter', cfgUrl.includes('proto=vless'), cfgUrl);
+check('apply embeds custom sni', cfgUrl.includes('sni=cdn.example.ir'), cfgUrl);
+const allText = document.querySelector('#cfgAllText')?.textContent || '';
+check('table drops trojan after toggle', !allText.includes('trojan://'));
+check('table has plain-http port-80 config', allText.includes(':80?encryption=none&security=none'));
+check('table has tls port-2053 config', allText.includes(':2053?encryption=none&security=tls'));
+const embeddedSub = await (await worker.fetch(new Request(cfgUrl.replace('/clash', ''), { headers: { Host: HOST } }), ENV)).text();
+const decodedSub = Buffer.from(embeddedSub, 'base64').toString('utf8');
+check('worker honours the embedded options', decodedSub.includes('@104.16.6.62:2053') && decodedSub.includes('sni=cdn.example.ir') && !decodedSub.includes('trojan://'));
 
 click(document.querySelector('#langBtn'));
 check('language toggles to EN', document.body.getAttribute('data-lang') === 'en');
@@ -127,9 +150,11 @@ const scanRows = document.querySelectorAll('#scanTable tr').length;
 check('scan produced result rows', scanRows >= 1, 'rows=' + scanRows);
 check('scan probed the CDN trace endpoint', pings.some((u) => u.includes('/cdn-cgi/trace')), pings.slice(0, 2).join(','));
 check('scan status reports completion', (document.querySelector('#scanStatus')?.textContent || '').length > 0);
-click(document.querySelector('#buildFromIps'));
+document.querySelectorAll('#scanTable [data-ip-check]').forEach((cb) => { cb.checked = true; cb.dispatchEvent(new win.Event('change', { bubbles: true })); });
+click(document.querySelector('#useIpsInConfigs'));
 await wait(50);
-check('build-from-ips produced configs', (document.querySelector('#dnsCustomText')?.textContent || '').includes('vless://'));
+check('scan → configs moves ips into the builder', document.querySelector('[data-tab-panel="configs"]').classList.contains('active') && (document.querySelector('#cfgAddresses')?.value || '').split('\n').length >= 2);
+check('scan → configs rebuilt the sub url', (document.querySelector('#cfgSubUrl')?.textContent || '').includes('ips='));
 
 // --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
 const payload = 'https://' + HOST + '/sub';

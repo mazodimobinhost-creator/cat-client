@@ -27,15 +27,25 @@ function check(name, cond, extra) {
 }
 
 const HOST = 'catpanel-demo.workers.dev';
-function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
+// v5: subscriptions need the UUID in the path (BPB-style) and the panel is
+// locked by default. Tests that exercise the content use OPEN_* to keep the
+// short URLs; dedicated checks below cover the locked behaviour.
+const OPEN = { OPEN_SUB: 'true', OPEN_PANEL: 'true' };
+function req(url, { headers = {}, env = {}, method = 'GET', raw = false } = {}) {
   const r = new Request('https://' + HOST + url, { headers, method });
-  return worker.fetch(r, env);
+  return worker.fetch(r, raw ? env : Object.assign({}, OPEN, env));
+}
+const b64dec = (t) => decodeURIComponent(escape(atob(t.trim())));
+async function subText(url, opts) {
+  const res = await req(url, opts);
+  const text = await res.text();
+  const decoded = text.includes('://') ? text : b64dec(text);
+  return { res, body: decoded };
 }
 
 // 1. /sub basic
 {
-  const res = await req('/sub');
-  const body = await res.text();
+  const { res, body } = await subText('/sub');
   check('/sub returns 200', res.status === 200);
   check('/sub has vless link', body.includes('vless://'));
   check('/sub has trojan link', body.includes('trojan://'));
@@ -45,22 +55,29 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   check('/sub subscription-userinfo header', (res.headers.get('subscription-userinfo') || '').includes('total='));
   const m = body.match(/vless:\/\/([0-9a-f-]{36})@/);
   check('/sub contains stable UUID', !!m);
-  const res2 = await req('/sub');
-  const body2 = await res2.text();
+  const { body: body2 } = await subText('/sub');
   check('UUID stable across requests', body2.includes('vless://' + m[1] + '@'));
+  const locked = await req('/sub', { raw: true });
+  check('/sub without uuid is refused when not OPEN_SUB', locked.status === 401);
+  const withUuid = await subText('/sub/' + m[1], { raw: true });
+  check('/sub/<uuid> works without OPEN_SUB', withUuid.res.status === 200 && withUuid.body.includes('vless://' + m[1] + '@'));
+  const wrong = await req('/sub/00000000-0000-4000-8000-000000000000', { raw: true });
+  check('/sub/<wrong uuid> is 404', wrong.status === 404);
+  const rawTxt = await req('/sub/' + m[1] + '/raw', { raw: true });
+  check('/sub/<uuid>/raw is plain text', (await rawTxt.text()).startsWith('vless://'));
+  const clash = await req('/sub/' + m[1] + '/clash', { raw: true });
+  check('/sub/<uuid>/clash yields yaml', (await clash.text()).includes('proxies:'));
 }
 
 // 2. explicit UUID env
 {
-  const res = await req('/sub', { env: { UUID: '11111111-2222-4333-8444-555555555555' } });
-  const body = await res.text();
+  const { body } = await subText('/sub', { env: { UUID: '11111111-2222-4333-8444-555555555555' } });
   check('explicit UUID env respected', body.includes('vless://11111111-2222-4333-8444-555555555555@'));
 }
 
 // 3. clean IPs
 {
-  const res = await req('/sub', { env: { CF_IPS: '104.16.1.1, 172.64.148.100, [2606:4700:4700::1111]' } });
-  const body = await res.text();
+  const { body } = await subText('/sub', { env: { CF_IPS: '104.16.1.1, 172.64.148.100, [2606:4700:4700::1111]' } });
   check('clean-IP vless variant (v4)', body.includes('@104.16.1.1:443'));
   check('clean-IP trojan variant', body.includes('@104.16.1.1:443') && /trojan:\/\/[0-9a-f-]+@104\.16\.1\.1:443/.test(body));
   check('clean-IP v6 bracketed', body.includes('@[2606:4700:4700::1111]:443'));
@@ -69,8 +86,7 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
 
 // 4. custom SNI
 {
-  const res = await req('/sub', { env: { SNI: 'my.sni.example' } });
-  const body = await res.text();
+  const { body } = await subText('/sub', { env: { SNI: 'my.sni.example' } });
   check('custom SNI in links', body.includes('sni=my.sni.example'));
   check('host param still worker host', body.includes('host=catpanel-demo.workers.dev'));
 }
@@ -194,10 +210,16 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
 
 // 12. sub64
 {
-  const a = await req('/sub');
+  const a = await subText('/sub');
   const b = await req('/sub64');
-  const dec = decodeURIComponent(escape(atob(await b.text())));
-  check('/sub64 decodes to /sub', dec === (await a.text()));
+  const dec = b64dec(await b.text());
+  check('/sub64 decodes to /sub', dec === a.body);
+  const q = await subText('/sub?ips=1.2.3.4,5.6.7.8&ports=443,2053,80&proto=vless&sni=cdn.example.com');
+  check('query addresses replace defaults', q.body.includes('@1.2.3.4:443') && q.body.includes('@5.6.7.8:2053'));
+  check('query ports add plain-http variants', q.body.includes('@1.2.3.4:80?encryption=none&security=none'));
+  check('query proto filter drops trojan', !q.body.includes('trojan://'));
+  check('query sni applies to tls links', q.body.includes('sni=cdn.example.com'));
+  check('host header stays the worker host', q.body.includes('host=' + HOST));
 }
 
 // 13. OPTIONS CORS
@@ -288,13 +310,34 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
 
 // 18. panel api json
 {
-  const j = JSON.parse(await (await req('/api/config.json', { env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
-  check('/api/config.json is v4', j.version === '4.0.0', j.version);
+  const jLocked = await req('/api/config.json', { raw: true, env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } });
+  check('/api/config.json needs auth when locked', jLocked.status === 401);
+  const cookieX = 'catpanel_auth=' + (await T.sha256Hex('x'));
+  const j = JSON.parse(await (await req('/api/config.json', { headers: { cookie: cookieX }, env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
+  check('/api/config.json is v5', j.version === '5.0.0', j.version);
+  check('/api/config.json sub url carries uuid', j.subUrl === 'https://' + HOST + '/sub/' + j.uuid);
+  check('/api/config.json exposes config options', j.configOptions && Array.isArray(j.configOptions.ports) && j.configOptions.ports[0] === 443);
   check('/api/config.json exposes doh url', j.dohUrl === 'https://' + HOST + '/dns-query');
   check('/api/config.json flags locked panel', j.panelLocked === true);
   check('/api/config.json embeds scan targets', Array.isArray(j.scanTargets) && j.scanTargets.length > 10);
   const health = JSON.parse(await (await req('/health')).text());
   check('/health reports doh + scanner', health.doh === 'https://' + HOST + '/dns-query' && health.scanTargets > 10);
+}
+
+// 18b. panel lock — UUID is the password until one is configured
+{
+  const lockedPage = await (await req('/', { raw: true })).text();
+  check('panel locked by default shows login', lockedPage.includes('id="loginForm"') && !lockedPage.includes('nav class="tabs"'));
+  const openPage = await (await req('/', { raw: true, env: { OPEN_PANEL: 'true' } })).text();
+  check('OPEN_PANEL=true opens the panel', openPage.includes('nav class="tabs"') || openPage.includes('class="tabs"'));
+  const uuidHere = (await (await req('/api/config.json')).json()).uuid;
+  const viaUuid = await req('/?p=' + uuidHere, { raw: true });
+  check('uuid unlocks the panel and sets the cookie', viaUuid.status === 200 && (viaUuid.headers.get('set-cookie') || '').includes('catpanel_auth='));
+  const cookie = (viaUuid.headers.get('set-cookie') || '').split(';')[0];
+  const withCookie = await (await req('/', { raw: true, headers: { cookie } })).text();
+  check('cookie session keeps the panel open', withCookie.includes('data-tab-panel="home"'));
+  const badLogin = await req('/api/login', { raw: true, method: 'POST' });
+  check('wrong password → 401', badLogin.status === 401);
 }
 
 // 19. v3.1 panel surface: themes, custom DoH/DoT, single-config builder
@@ -355,12 +398,37 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   const uuid = '11111111-2222-3333-4444-555555555555';
   const uuidBytes = uuid.replace(/-/g, '').match(/../g).map((h) => parseInt(h, 16));
   const domain = Array.from(encoder.encode('example.com'));
-  const frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 3, domain.length, ...domain]);
+  // Real Xray wire format: atyp 1 = IPv4, 2 = domain, 3 = IPv6 (NOT the SOCKS numbering).
+  const frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 2, domain.length, ...domain, 0x47, 0x45, 0x54]);
   const parsed = T.parseVlessHeader(frame);
-  check('parseVlessHeader uuid', parsed && parsed.uuid === uuid);
+  check('parseVlessHeader uuid', parsed && parsed.uuid === uuid, parsed && parsed.uuid);
   check('parseVlessHeader command/port', parsed && parsed.command === 1 && parsed.port === 443);
-  check('parseVlessHeader host', parsed && parsed.host === 'example.com');
+  check('parseVlessHeader host', parsed && parsed.host === 'example.com', parsed && parsed.host);
+  check('parseVlessHeader payload survives', parsed && parsed.rest.length === 3 && parsed.rest[0] === 0x47);
+  const v4frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x00, 0x50, 1, 1, 1, 1, 1]);
+  const v4 = T.parseVlessHeader(v4frame);
+  check('parseVlessHeader ipv4', v4 && v4.host === '1.1.1.1' && v4.port === 80, v4 && v4.host);
+  const v6frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 3, ...new Array(15).fill(0), 1]);
+  const v6 = T.parseVlessHeader(v6frame);
+  check('parseVlessHeader ipv6', v6 && v6.host === '0:0:0:0:0:0:0:1', v6 && v6.host);
+  const udpDns = new Uint8Array([0, ...uuidBytes, 0, 2, 0x00, 0x35, 1, 8, 8, 8, 8]);
+  const dns = T.parseVlessHeader(udpDns);
+  check('parseVlessHeader udp dns command', dns && dns.command === 2 && dns.port === 53 && dns.host === '8.8.8.8');
+  const withAddons = new Uint8Array([0, ...uuidBytes, 2, 0xAA, 0xBB, 1, 0x01, 0xBB, 2, domain.length, ...domain]);
+  const addons = T.parseVlessHeader(withAddons);
+  check('parseVlessHeader skips addons', addons && addons.command === 1 && addons.host === 'example.com' && addons.port === 443);
   check('parseVlessHeader rejects junk', T.parseVlessHeader(new Uint8Array([1, 2, 3])) === null);
+  check('parseVlessHeader rejects bad atyp', T.parseVlessHeader(new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 9, 1, 2, 3, 4])) === null);
+  // early data (Xray ?ed=2048 puts the first frame in Sec-WebSocket-Protocol as base64url)
+  const early = T.decodeEarlyData(Buffer.from(frame).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''));
+  check('decodeEarlyData round-trips base64url', early && early.byteLength === frame.byteLength && early[17] === 0);
+  check('decodeEarlyData empty → null', T.decodeEarlyData('') === null);
+  check('splitHostPort host:port', JSON.stringify(T.splitHostPort('1.2.3.4:8443', 443)) === '{"hostname":"1.2.3.4","port":8443}');
+  check('splitHostPort bare host', JSON.stringify(T.splitHostPort('bpb.yousef.isegaro.com', 443)) === '{"hostname":"bpb.yousef.isegaro.com","port":443}');
+  check('splitHostPort [v6]:port', T.splitHostPort('[2606:4700::1]:2053', 443).port === 2053);
+  check('proxyIpList falls back to defaults', T.proxyIpList({}, T.DEFAULT_SETTINGS).length === T.DEFAULT_PROXY_IPS.length);
+  check('proxyIpList honours env', T.proxyIpList({ PROXYIP: '9.9.9.9' }, T.DEFAULT_SETTINGS)[0] === '9.9.9.9');
+  check('proxyIpList prefers settings', T.proxyIpList({ PROXYIP: '9.9.9.9' }, { tunnel: { proxyIps: ['8.8.8.8'] } })[0] === '8.8.8.8');
 
   const trojanFrame = new Uint8Array([0x01, 0x03, 12, ...Array.from(encoder.encode('hysteria.com')), 0x01, 0xBB, 13, 10, 65]);
   const trojan = T.parseTrojanRequest(trojanFrame);

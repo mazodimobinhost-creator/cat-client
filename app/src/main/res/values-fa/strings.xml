@@ -518,7 +518,7 @@
     <string name="cloud_open_scanner">🛰️ رفتن به اسکنر آی‌پی تمیز</string>
     <string name="cloud_scanner_hint">بعد از دیپلوی: در اسکنر، دامنهٔ پنل را به‌عنوان SNI بگذار و سریع‌ترین آی‌پی کلودفلر را اعمال کن تا کانفیگ روی اپراتور خودت کار کند.</string>
     <string name="cloud_section_catpanel">Cat Panel — ورکر کلادفلر من</string>
-    <string name="cloud_catpanel_desc">Cat Panel نسخهٔ ۳ — پنل شخصی خودت روی کلودفلر: VLESS-WS + Trojan-WS + WARP، خروجی سابسکریپشن برای همهٔ کلاینت‌ها (vless / Base64 / Mihomo / sing-box / همه‌چیز)، QR آفلاین، اسکنر آی‌پی تمیز داخل پنل، رزولور DNS رمزنگاری‌شده (DoH)، سفیدلیست SNI و آی‌پی‌های تمیز. کد را در هر Worker کلودفلر بچسبان یا با توکن API پایین دیپلوی کن — بعد از تب «اسکنر» استفاده کن.</string>
+    <string name="cloud_catpanel_desc">کت پنل نسخهٔ ۵ — پنل شخصی تو روی کلودفلر، شبیه BPB: رلهٔ واقعی VLESS-WS / Trojan-WS، آی‌پی‌های تمیز داخل همهٔ کانفیگ‌ها (پورت و SNI را خودت انتخاب می‌کنی)، سهمیهٔ کاربران روی KV، قفل رمز (پیش‌فرض همان UUID)، DNSهای ایرانی، اسکنر داخل پنل و سمت ورکر، QR و خروجی Clash / sing-box. با توکن پایین دیپلوی کن — اپ خودش KV می‌سازد، UUID می‌گذارد و ساب را وارد می‌کند.</string>
     <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
     <string name="cloud_code_copied">کد Worker کپی شد — داخل Worker کلادفلر بچسبانید</string>
     <string name="cloud_code_failed">خواندن کد Worker ممکن نشد</string>
@@ -537,4 +537,15 @@
     <string name="cloud_scope_tunnel">تونل</string>
     <string name="cloud_section_catalog">پنل‌های دیگر (پیدا شده و بررسی شده)</string>
     <string name="cloud_panel_open">باز کردن ↗</string>
+    <string name="cloud_kv_bound">✓ فضای KV وصل شد (کاربران، آی‌پی‌های تمیز و پورت‌ها داخل پنل ذخیره می‌شوند).</string>
+    <string name="cloud_kv_missing">⚠ KV وصل نشد (توکن دسترسی Workers KV Storage: Edit ندارد). پنل کار می‌کند؛ تنظیمات داخل خود لینک ساب می‌نشیند.</string>
+    <string name="cloud_panel_url">پنل (با UUID تو باز شده)</string>
+    <string name="cloud_uuid_is_password">UUID = هم رمز سابسکریپشن و هم رمز ورود پنل: %1$s</string>
+    <string name="cloud_copy_all">کپی همه</string>
+    <string name="scanner_build_configs">📥 ساخت کانفیگ با همین آی‌پی‌ها (مثل BPB)</string>
+    <string name="scanner_build_title">ساخت کانفیگ از نتیجهٔ اسکن</string>
+    <string name="scanner_build_no_panel">سابسکریپشن پنلی با SNI «%1$s» پیدا نشد. اول لینک /sub/UUID پنل را وارد کن (تب ابر → وارد کردن)، یا سریع‌ترین آی‌پی را به‌عنوان فرانتینگ اعمال کن.</string>
+    <string name="scanner_build_apply_fronting">اعمال به‌عنوان فرانتینگ</string>
+    <string name="scanner_build_sub_name">اسکن کت · %1$s</string>
+    <string name="scanner_build_done">✓ %1$d کانفیگ با آی‌پی‌های تمیز تو ساخته شد — در حال اتصال…</string>
 </resources>

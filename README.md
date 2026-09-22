@@ -29,12 +29,17 @@ combining one-tap connectivity with all the tools Iranian users need.
   Worker), or open install guides for 20+ researched panels (Z-E-U-S, BPB, Nova,
   Netra, Apex, Epeius, Marzban, 3x-ui, w-ui, Spider, Technamooz, SulgX, RVG, Luffy,
   Lunel, x4g, OpenVPN, wg-easy, BackPack …):
-  - 🐱 **Cat Panel v4 (built-in)** — single-file Cloudflare Worker panel, purple-night
+  - 🐱 **Cat Panel v5 (built-in)** — single-file Cloudflare Worker panel, purple-night
     UI, Persian + English, **five themes** (violet / OLED / orchid / mono / light):
-    - **Real data plane** — VLESS-WS and Trojan-WS are relayed as raw TCP through
-      `cloudflare:sockets`, with a **proxy-IP WebSocket fallback** (BPB-style) when the
-      direct dial is unavailable; the Xray wire format (`version/uuid/addonLen/command/
-      port/atyp`) is parsed, so every standard client connects
+    - **Real data plane** — VLESS-WS and Trojan-WS relayed as raw TCP through
+      `cloudflare:sockets` with early-data (`?ed=2048`) support, a proxy-IP fallback for
+      Cloudflare-hosted destinations and UDP/53 answered through DoH (BPB behaviour);
+      covered by an end-to-end tunnel test suite
+    - **BPB-style config builder** — clean IPs / domains × TLS + HTTP ports × protocol
+      baked into every subscription; pick ports and SNI in the panel, the app just pulls
+      `/sub/<uuid>` (options persist in KV, or travel inside the link without KV)
+    - **Locked by default** — the UUID is both the subscription secret and the panel
+      password until you set your own
     - **KV-backed accounts** — per-user UUID + subscription link `/u/<token>`, traffic
       quota (GB), daily expiry, concurrent-device limit, live usage counting and a
       `subscription-userinfo` header for the app's usage graph
