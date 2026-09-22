@@ -289,7 +289,7 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
 // 18. panel api json
 {
   const j = JSON.parse(await (await req('/api/config.json', { env: { CF_IPS: '1.2.3.4', PANEL_PASSWORD: 'x' } })).text());
-  check('/api/config.json is v3', j.version.startsWith('3.'));
+  check('/api/config.json is v4', j.version === '4.0.0', j.version);
   check('/api/config.json exposes doh url', j.dohUrl === 'https://' + HOST + '/dns-query');
   check('/api/config.json flags locked panel', j.panelLocked === true);
   check('/api/config.json embeds scan targets', Array.isArray(j.scanTargets) && j.scanTargets.length > 10);
@@ -335,7 +335,7 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   const override = await req('/dns-query?dns=AAAA&u=' + encodeURIComponent('https://dns.quad9.net/dns-query'));
   check('/dns-query?u= override works', override.status === 200 && seen.includes('dns.quad9.net'));
   const denied = await req('/dns-query?dns=AAAA&u=http%3A%2F%2Fevil.example%2Fdns-query');
-  check('/dns-query ignores non-https override', denied.status === 200 && seen.includes('cloudflare-dns.com'));
+  check('/dns-query ignores non-https override', denied.status === 200 && seen.includes('178.22.122.100'));
   const resolveRoute = JSON.parse(await (await req('/api/resolve?host=dns.google')).text());
   check('/api/resolve route works', resolveRoute.ok === true && resolveRoute.answers.length === 1);
   globalThis.fetch = origFetch;
@@ -346,6 +346,98 @@ function req(url, { headers = {}, env = {}, method = 'GET' } = {}) {
   const body = await (await req('/')).text();
   check('scanner reports live percentage', body.includes('(pct+"%)"') || body.includes('pct+"%"'));
   check('scanner status mentions best ping', body.includes('best: '));
+}
+
+
+// 22. users / settings / backup / scan API + tunnel parsers
+{
+  const encoder = new TextEncoder();
+  const uuid = '11111111-2222-3333-4444-555555555555';
+  const uuidBytes = uuid.replace(/-/g, '').match(/../g).map((h) => parseInt(h, 16));
+  const domain = Array.from(encoder.encode('example.com'));
+  const frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 3, domain.length, ...domain]);
+  const parsed = T.parseVlessHeader(frame);
+  check('parseVlessHeader uuid', parsed && parsed.uuid === uuid);
+  check('parseVlessHeader command/port', parsed && parsed.command === 1 && parsed.port === 443);
+  check('parseVlessHeader host', parsed && parsed.host === 'example.com');
+  check('parseVlessHeader rejects junk', T.parseVlessHeader(new Uint8Array([1, 2, 3])) === null);
+
+  const trojanFrame = new Uint8Array([0x01, 0x03, 12, ...Array.from(encoder.encode('hysteria.com')), 0x01, 0xBB, 13, 10, 65]);
+  const trojan = T.parseTrojanRequest(trojanFrame);
+  check('parseTrojanRequest host/port', trojan && trojan.host === 'hysteria.com' && trojan.port === 443);
+  check('parseTrojanRequest payload', trojan && trojan.payload.length === 1 && trojan.payload[0] === 65);
+  const password = await T.trojanHash('secret-pass');
+  check('trojanHash is sha224 hex', password.length === 56 && /^[0-9a-f]+$/.test(password));
+  const hex = encoder.encode(password);
+  const trojanPw = T.trojanPassword(new Uint8Array([...hex, 13, 10, 1, 1, 1, 0, 0, 53]));
+  check('trojanPassword strips hash + CRLF', trojanPw && trojanPw.password === password);
+
+  check('isCloudflareIp detects CF edge', T.isCloudflareIp('104.16.1.1') === true && T.isCloudflareIp('8.8.8.8') === false);
+
+  const settings = await T.readSettings({});
+  check('settings defaults exist', settings.dns && settings.tunnel && settings.scan);
+  check('no KV binding is reported', T.kvBinding({}) === null && T.kvBinding({ CAT_KV: {} }) !== null);
+
+  const user = T.normalizeUser({ name: 'u1', quotaGb: 1, usedBytes: 5 });
+  check('user quota math', T.userTrafficLeft(user) === 1024 * 1024 * 1024 - 5);
+  check('unlimited quota stays infinite', T.userTrafficLeft(T.normalizeUser({ quotaGb: 0 })) === Infinity);
+  check('expired detection', T.userReasonBlocked(T.normalizeUser({ expireAt: Date.now() - 1000 })) === 'expired');
+  check('disabled detection', T.userReasonBlocked(T.normalizeUser({ enabled: false })) === 'disabled');
+  check('healthy user passes', T.userReasonBlocked(T.normalizeUser({ quotaGb: 5 })) === null);
+
+  const usersRoute = await req('/api/users');
+  check('users API refuses without KV', usersRoute.status === 409);
+  const version = JSON.parse(await (await req('/api/version')).text());
+  check('/api/version lists features', version.ok === true && version.features.includes('users'));
+  const irIps = JSON.parse(await (await req('/api/ir-ips')).text());
+  check('/api/ir-ips ships an Iran library', irIps.count > 20 && irIps.ips.includes('104.16.0.1'));
+  const scan = JSON.parse(await (await req('/api/scan?ips=1.1.1.1,8.8.8.8')).text());
+  check('/api/scan requires a valid list', scan.ok === false || Array.isArray(scan.results));
+  const settingsRoute = await req('/api/settings');
+  check('/api/settings returns defaults', settingsRoute.status === 200);
+  check('Iranian resolvers are presets', JSON.parse(await (await req('/api/config.json')).text()).dnsPresets.some((p) => p.id === 'shecan'));
+}
+
+// 23. tunnel relay picks the proxy-IP websocket when TCP sockets are absent
+{
+  const encoder = new TextEncoder();
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const uuidBytes = uuid.replace(/-/g, '').match(/../g).map((h) => parseInt(h, 16));
+  const frame = new Uint8Array([0, ...uuidBytes, 0, 1, 0x01, 0xBB, 1, 1, 2, 3, 4]);
+  const sent = [];
+  let relayed = null;
+  const fakeClient = {
+    readyState: 1,
+    listeners: {},
+    send(chunk) { sent.push(chunk); },
+    close() {},
+    addEventListener(name, fn) { (this.listeners[name] = this.listeners[name] || []).push(fn); },
+  };
+  const remoteSent = [];
+  const fakeRemote = {
+    accept() {},
+    send(chunk) { remoteSent.push(chunk); },
+    close() {},
+    addEventListener(name, fn) { (this['on' + name] = fn); },
+  };
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    relayed = String(url);
+    return { webSocket: fakeRemote };
+  };
+  const ok = await T.relayTcp(fakeClient, {
+    firstPayload: new Uint8Array([1, 2, 3]),
+    headerBytes: frame,
+    target: { host: 'example.org', port: 8443 },
+    proxyIps: ['proxy.example.net'],
+    preferConnect: false,
+    path: '/tunnel',
+  });
+  check('relayTcp uses the proxy websocket', ok === true && relayed === 'https://proxy.example.net/tunnel');
+  check('relayTcp replays the protocol header', remoteSent.length === 1 && remoteSent[0].byteLength === frame.byteLength);
+  (fakeClient.listeners.message || []).forEach((fn) => fn({ data: new Uint8Array([9, 9]).buffer }));
+  check('relayTcp pipes client frames upstream', remoteSent.length === 2);
+  globalThis.fetch = origFetch;
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');

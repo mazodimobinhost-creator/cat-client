@@ -1,7 +1,10 @@
 /**
  * 🐱 Cat Panel — single-file Cloudflare Worker panel (VLESS / Trojan / WARP / DoH)
  *
- * Version: 3.1.0 — "purple night" edition (themes · custom DoH/DoT · single-config builder · live scan %)
+ * Version: 4.0.0 — "purple night" edition. Real data plane (VLESS/Trojan raw TCP
+ * relay via cloudflare:sockets + proxy-IP WS fallback), KV-backed users with quota,
+ * expiry and device limits, panel password sessions, Iranian resolver presets,
+ * clean-IP library, server-side scan API, DoH/DoT, themes, QR, backup/restore.
  *
  * WHAT YOU GET
  *  - Proxy data plane: VLESS-over-WebSocket, Trojan-over-WebSocket, WARP link.
@@ -48,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '3.1.0';
+const CAT_PANEL_VERSION = '4.0.0';
 const CAT_REPO = 'https://github.com/mazodimobinhost-creator/cat-client';
 const CAT_CODE_URLS = [
   'https://raw.githubusercontent.com/mazodimobinhost-creator/cat-client/main/app/src/main/assets/panels/catclient.worker.js',
@@ -694,30 +697,662 @@ async function tunnelToRemote(remoteUrl, clientWs, firstData) {
   remote.addEventListener('error', done);
 }
 
-function handleDataWebSocket(ws, env) {
-  let started = false;
-  ws.addEventListener('message', async (event) => {
-    if (started) return; // only the first frame carries the VLESS header
-    started = true;
-    const data = event.data;
+function handleDataWebSocket(ws, env, options = {}) {
+  // v4 data plane: VLESS/Trojan with native TCP relay, proxy-IP WS relay and
+  // HTTP forwarding as the last resort (see handleTunnelConnection).
+  return handleTunnelConnection(ws, env, options);
+}
 
+/* ------------------------------------------------------------------ */
+/* storage layer — Cloudflare KV is optional; everything degrades to    */
+/* env vars + in-memory when no KV binding is present.                  */
+/* ------------------------------------------------------------------ */
+
+const KV_KEYS = {
+  settings: 'catpanel:settings',
+  users: 'catpanel:users',
+  traffic: 'catpanel:traffic',
+};
+
+function kvBinding(env) {
+  return env && (env.CAT_KV || env.CATCLIENT_KV || env.PANEL_KV || env.KV || env.BK_KV) || null;
+}
+
+function hasKv(env) {
+  return kvBinding(env) !== null;
+}
+
+async function kvGet(env, key) {
+  const store = kvBinding(env);
+  if (!store) return null;
+  try {
+    const value = await store.get(key);
+    return value === undefined ? null : value;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function kvPut(env, key, value) {
+  const store = kvBinding(env);
+  if (!store) return false;
+  try {
+    await store.put(key, value);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+const DEFAULT_SETTINGS = {
+  title: 'Cat Panel',
+  panelPassword: '',
+  theme: 'violet',
+  dns: {
+    upstream: 'https://dns.google/dns-query',
+    blockAds: false,
+    blockNsfw: false,
+  },
+  tunnel: {
+    proxyIps: [],
+    preferConnect: true,
+    fragment: '1-3',
+  },
+  scan: {
+    ranges: [],
+    concurrency: 24,
+    timeoutMs: 4000,
+  },
+  masterUuid: '',
+  updatedAt: 0,
+};
+
+function deepMerge(base, patch) {
+  if (!patch || typeof patch !== 'object') return base;
+  const out = Array.isArray(base) ? base.slice() : Object.assign({}, base);
+  Object.keys(patch).forEach((key) => {
+    const value = patch[key];
+    if (value && typeof value === 'object' && !Array.isArray(value) && base && typeof base[key] === 'object' && !Array.isArray(base[key])) {
+      out[key] = deepMerge(base[key], value);
+    } else if (value !== undefined) {
+      out[key] = value;
+    }
+  });
+  return out;
+}
+
+/** Settings = built-in defaults + env overrides + KV overrides (KP last). */
+async function readSettings(env) {
+  const stored = await kvGet(env, KV_KEYS.settings);
+  let parsed = null;
+  try {
+    parsed = stored ? JSON.parse(stored) : null;
+  } catch (e) {
+    parsed = null;
+  }
+  const merged = deepMerge(DEFAULT_SETTINGS, parsed || {});
+  if (env.PANEL_TITLE) merged.title = String(env.PANEL_TITLE);
+  if (env.PANEL_PASSWORD) merged.panelPassword = String(env.PANEL_PASSWORD);
+  if (env.DNS_UPSTREAM) merged.dns.upstream = String(env.DNS_UPSTREAM);
+  if (env.PROXY_IPS) merged.tunnel.proxyIps = splitCsv(env.PROXY_IPS);
+  return merged;
+}
+
+async function writeSettings(env, patch) {
+  const current = await readSettings(env);
+  const next = deepMerge(current, patch || {});
+  next.updatedAt = Date.now();
+  const ok = await kvPut(env, KV_KEYS.settings, JSON.stringify(next));
+  return { settings: next, persisted: ok };
+}
+
+/* ------------------------------------------------------------------ */
+/* users — KV-backed accounts with quota, expiry and device limits      */
+/* ------------------------------------------------------------------ */
+
+const USER_DEFAULTS = {
+  quotaGb: 0,
+  usedBytes: 0,
+  usedRequests: 0,
+  expireAt: 0,
+  deviceLimit: 0,
+  enabled: true,
+  note: '',
+  createdAt: 0,
+};
+
+function normalizeUser(raw) {
+  const user = Object.assign({}, USER_DEFAULTS, raw || {});
+  user.quotaGb = Number(user.quotaGb) || 0;
+  user.usedBytes = Number(user.usedBytes) || 0;
+  user.usedRequests = Number(user.usedRequests) || 0;
+  user.expireAt = Number(user.expireAt) || 0;
+  user.deviceLimit = Number(user.deviceLimit) || 0;
+  user.enabled = user.enabled !== false;
+  return user;
+}
+
+async function readUsers(env) {
+  const raw = await kvGet(env, KV_KEYS.users);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(normalizeUser) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function writeUsers(env, users) {
+  return kvPut(env, KV_KEYS.users, JSON.stringify(users.map(normalizeUser)));
+}
+
+function userQuotaBytes(user) {
+  return Math.max(0, (Number(user.quotaGb) || 0) * 1024 * 1024 * 1024);
+}
+
+/** 0 = unlimited. */
+function userTrafficLeft(user) {
+  const quota = userQuotaBytes(user);
+  if (quota <= 0) return Infinity;
+  return Math.max(0, quota - (Number(user.usedBytes) || 0));
+}
+
+function userExpired(user, now) {
+  const at = Number(user.expireAt) || 0;
+  return at > 0 && at <= (now || Date.now());
+}
+
+function userReasonBlocked(user, now) {
+  if (!user) return 'unknown-user';
+  if (user.enabled === false) return 'disabled';
+  if (userExpired(user, now)) return 'expired';
+  if (userTrafficLeft(user) <= 0) return 'quota-exceeded';
+  return null;
+}
+
+function findUserByUuid(users, uuid) {
+  const needle = String(uuid || '').toLowerCase();
+  return users.find((user) => String(user.uuid || '').toLowerCase() === needle) || null;
+}
+
+function findUserByToken(users, token) {
+  const needle = String(token || '');
+  return users.find((user) => String(user.token || '') === needle) || null;
+}
+
+/** Allow-list of UUIDs that may open a tunnel: env UUID + KV users + master. */
+async function tunnelAuth(env, uuid, settings) {
+  const master = String(env.UUID || (settings && settings.masterUuid) || '').toLowerCase();
+  if (master && uuid.toLowerCase() === master) {
+    return { ok: true, user: null, role: 'master' };
+  }
+  const users = await readUsers(env);
+  const user = findUserByUuid(users, uuid);
+  if (!user) return { ok: false, error: 'unknown-uuid', users: users };
+  const blocked = userReasonBlocked(user);
+  if (blocked) return { ok: false, error: blocked, user: user, users: users };
+  return { ok: true, user: user, users: users, role: 'user' };
+}
+
+/** Debounced traffic accounting so a busy tunnel does not hammer KV. */
+const trafficBuffers = new Map();
+
+function accountTraffic(env, uuid, sentBytes, receivedBytes) {
+  if (!uuid) return;
+  const key = uuid.toLowerCase();
+  const entry = trafficBuffers.get(key) || { sent: 0, received: 0, lastFlush: Date.now(), users: null };
+  entry.sent += sentBytes || 0;
+  entry.received += receivedBytes || 0;
+  trafficBuffers.set(key, entry);
+  if (Date.now() - entry.lastFlush < 15000) return;
+  void flushTraffic(env, key);
+}
+
+async function flushTraffic(env, uuidKey) {
+  const entry = trafficBuffers.get(uuidKey);
+  if (!entry) return;
+  const delta = entry.sent + entry.received;
+  entry.sent = 0;
+  entry.received = 0;
+  entry.lastFlush = Date.now();
+  if (delta <= 0 || !hasKv(env)) return;
+  const users = await readUsers(env);
+  const user = findUserByUuid(users, uuidKey);
+  if (!user) return;
+  user.usedBytes = (Number(user.usedBytes) || 0) + delta;
+  await writeUsers(env, users);
+}
+
+/* ------------------------------------------------------------------ */
+/* connection limits — best effort per-user device cap                  */
+/* ------------------------------------------------------------------ */
+
+const liveConnections = new Map();
+
+function acquireConnection(uuid, limit) {
+  const key = uuid.toLowerCase();
+  const count = (liveConnections.get(key) || 0) + 1;
+  liveConnections.set(key, count);
+  if (limit > 0 && count > limit) {
+    liveConnections.set(key, count - 1);
+    return false;
+  }
+  return true;
+}
+
+function releaseConnection(uuid) {
+  const key = String(uuid || '').toLowerCase();
+  const count = (liveConnections.get(key) || 1) - 1;
+  if (count <= 0) liveConnections.delete(key);
+  else liveConnections.set(key, count);
+}
+
+/* ------------------------------------------------------------------ */
+/* VLESS / Trojan relay — raw TCP through cloudflare:sockets when        */
+/* available, WS relay through PROXY_IPS as the fallback, HTTP forward   */
+/* as the last resort (keeps the old behaviour for plain HTTP traffic).  */
+/* ------------------------------------------------------------------ */
+
+let socketsModulePromise = null;
+
+/** `cloudflare:sockets` only exists inside Workers; tests get null. */
+function loadSockets() {
+  if (!socketsModulePromise) {
+    socketsModulePromise = (async () => {
+      try {
+        const mod = await import('cloudflare:sockets');
+        return mod && typeof mod.connect === 'function' ? mod : null;
+      } catch (e) {
+        return null;
+      }
+    })();
+  }
+  return socketsModulePromise;
+}
+
+/** SOCKS5-style address block: ATYP + ADDR [+ PORT]. Trojan includes the port, VLESS does not. */
+function parseSocksAddress(bytes, offset, withPort = true) {
+  const atyp = bytes[offset];
+  let cursor = offset + 1;
+  let host = '';
+  const suffix = withPort ? 2 : 0;
+  if (atyp === 1) {
+    if (bytes.length < cursor + 4 + suffix) return null;
+    host = bytes[cursor] + '.' + bytes[cursor + 1] + '.' + bytes[cursor + 2] + '.' + bytes[cursor + 3];
+    cursor += 4;
+  } else if (atyp === 3) {
+    if (bytes.length < cursor + 1) return null;
+    const len = bytes[cursor];
+    cursor += 1;
+    if (bytes.length < cursor + len + suffix) return null;
+    host = new TextDecoder().decode(bytes.subarray(cursor, cursor + len));
+    cursor += len;
+  } else if (atyp === 4) {
+    if (bytes.length < cursor + 16 + suffix) return null;
+    const groups = [];
+    for (let i = 0; i < 16; i += 2) groups.push(((bytes[cursor + i] << 8) | bytes[cursor + i + 1]).toString(16));
+    host = '[' + groups.join(':') + ']';
+    cursor += 16;
+  } else {
+    return null;
+  }
+  let port = 0;
+  if (withPort) {
+    if (bytes.length < cursor + 2) return null;
+    port = (bytes[cursor] << 8) | bytes[cursor + 1];
+    cursor += 2;
+  }
+  return { atyp: atyp, host: host, port: port, rest: bytes.slice(cursor) };
+}
+
+/**
+ * VLESS request header as specified by Xray:
+ *   [version 1][uuid 16][addonLen 1][command 1][port 2][atyp 1][address][payload]
+ */
+function parseVlessHeader(bytes) {
+  if (!bytes || bytes.length < 24) return null;
+  const version = bytes[0];
+  const uuidBytes = bytes.subarray(1, 17);
+  const hex = Array.from(uuidBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const uuid = hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' +
+    hex.slice(16, 20) + '-' + hex.slice(20);
+  const addonLength = bytes[17];
+  const command = bytes[18];
+  const offset = 19 + addonLength;
+  if (bytes.length < offset + 3) return null;
+  const port = (bytes[offset] << 8) | bytes[offset + 1];
+  const address = parseSocksAddress(bytes, offset + 2, false);
+  if (!address) return null;
+  return {
+    version: version,
+    uuid: uuid,
+    command: command,
+    host: address.host,
+    port: port,
+    rest: address.rest,
+  };
+}
+
+function trojanPassword(bytes) {
+  if (!bytes || bytes.length < 56) return null;
+  const hex = new TextDecoder().decode(bytes.subarray(0, 56));
+  if (!/^[0-9a-f]{56}$/i.test(hex)) return null;
+  const after = bytes.subarray(56);
+  // CRLF after the password
+  const text = new TextDecoder().decode(after.subarray(0, 2));
+  const rest = text === '\r\n' ? after.subarray(2) : after;
+  return { password: hex.toLowerCase(), rest: rest };
+}
+
+/* SHA-224 in pure JS: the WebCrypto of both Workers and Node lack it. */
+const SHA224_K = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+function sha224Hex(input) {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  const h = [0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939, 0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4];
+  const bitLength = bytes.length * 8;
+  const padded = new Uint8Array((((bytes.length + 9) >> 6) + 1) << 6);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 4, bitLength >>> 0, false);
+  view.setUint32(padded.length - 8, Math.floor(bitLength / 0x100000000), false);
+  // Final length field spans 8 bytes; the write above covers the low 64 bits.
+  const w = new Uint32Array(64);
+  const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4, false);
+    for (let i = 16; i < 64; i++) {
+      const s0 = (rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3)) >>> 0;
+      const s1 = (rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10)) >>> 0;
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
+      const ch = ((e & f) ^ (~e & g)) >>> 0;
+      const temp1 = (hh + S1 + ch + SHA224_K[i] + w[i]) >>> 0;
+      const S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
+      const maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+      const temp2 = (S0 + maj) >>> 0;
+      hh = g; g = f; f = e;
+      e = (d + temp1) >>> 0;
+      d = c; c = b; b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+    h[0] = (h[0] + a) >>> 0; h[1] = (h[1] + b) >>> 0; h[2] = (h[2] + c) >>> 0; h[3] = (h[3] + d) >>> 0;
+    h[4] = (h[4] + e) >>> 0; h[5] = (h[5] + f) >>> 0; h[6] = (h[6] + g) >>> 0; h[7] = (h[7] + hh) >>> 0;
+  }
+  return h.slice(0, 7).map((value) => value.toString(16).padStart(8, '0')).join('');
+}
+
+/** Hash used by Trojan clients: lowercase hex SHA-224 of the password. */
+async function trojanHash(password) {
+  return sha224Hex(String(password));
+}
+
+async function trojanAuthorized(env, settings, hash) {
+  const candidates = [];
+  if (env.TROJAN_PASS) candidates.push(env.TROJAN_PASS);
+  const users = await readUsers(env);
+  users.forEach((user) => {
+    if (user.enabled !== false && user.uuid) candidates.push(user.uuid);
+  });
+  for (const password of candidates) {
+    const digest = await trojanHash(String(password));
+    if (digest === hash) return { ok: true, password: String(password), users: users };
+  }
+  return { ok: false, users: users };
+}
+
+function isCloudflareIp(ip) {
+  const value = ipToLong(ip);
+  if (value === null) return false;
+  return CF_CIDR_RANGES.some((range) => ipInCidr(value, range));
+}
+
+const CF_CIDR_RANGES = [
+  '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '162.158.0.0/15',
+  '131.0.72.0/22', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+  '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+  '197.234.240.0/22', '198.41.128.0/17', '173.245.48.0/20', '162.159.192.0/24',
+];
+
+function ipInCidr(ipLong, cidr) {
+  const parts = String(cidr).split('/');
+  const base = ipToLong(parts[0]);
+  if (base === null) return false;
+  const prefix = Number(parts[1]);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const mask = prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) >>> 0;
+  return ((ipLong & mask) >>> 0) === ((base & mask) >>> 0);
+}
+
+function releaseAll(closeFns) {
+  closeFns.forEach((fn) => {
+    try { fn(); } catch (e) { /* already closed */ }
+  });
+}
+
+/**
+ * Relay raw TCP: client WS <-> (cloudflare:sockets | proxy-IP WS).
+ * `headerBytes` is the unparsed protocol header for proxy-IP mode, which needs
+ * to see the original VLESS/Trojan preamble.
+ */
+async function relayTcp(clientWs, options) {
+  const firstPayload = options.firstPayload;
+  const target = options.target;
+  const proxyIps = options.proxyIps || [];
+  const sent = { bytes: 0 };
+  const received = { bytes: 0 };
+
+  // 1. Native outbound TCP through Workers sockets (fastest, no extra hop).
+  if (options.preferConnect && !isCloudflareIp(target.host)) {
+    const sockets = await loadSockets();
+    if (sockets) {
+      let socket = null;
+      try {
+        socket = sockets.connect({ hostname: target.host, port: target.port });
+        const writer = socket.writable.getWriter();
+        if (firstPayload && firstPayload.byteLength) {
+          await writer.write(firstPayload);
+          sent.bytes += firstPayload.byteLength;
+        }
+        clientWs.addEventListener('message', async (event) => {
+          try {
+            const chunk = event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data;
+            await writer.write(chunk);
+            sent.bytes += chunk.byteLength || 0;
+          } catch (e) {
+            try { await writer.close(); } catch (err) {}
+          }
+        });
+        const reader = socket.readable.getReader();
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          if (chunk.value && clientWs.readyState === 1) {
+            clientWs.send(chunk.value);
+            received.bytes += chunk.value.byteLength || 0;
+          }
+        }
+        try { clientWs.close(1000); } catch (e) {}
+      } catch (e) {
+        // fall through to proxy-IP / HTTP fallback
+      } finally {
+        if (options.onClose) options.onClose(sent.bytes, received.bytes);
+        if (socket && socket.close) { try { socket.close(); } catch (e) {} }
+      }
+      if (sent.bytes > 0 || received.bytes > 0) return true;
+    }
+  }
+
+  // 2. WS relay to a proxy IP (BPB-style). The proxy speaks the same
+  //    VLESS/Trojan protocol, so the original header frame is replayed.
+  for (const proxyIp of proxyIps) {
+    try {
+      const upstream = await fetch('https://' + proxyIp + (options.path || '/'), {
+        headers: { Upgrade: 'websocket', Connection: 'Upgrade' },
+      });
+      const remote = upstream.webSocket;
+      if (!remote) continue;
+      remote.accept();
+      if (options.headerBytes && options.headerBytes.byteLength) remote.send(options.headerBytes);
+      remote.addEventListener('message', (event) => {
+        try {
+          clientWs.send(event.data);
+          received.bytes += event.data && event.data.byteLength ? event.data.byteLength : 0;
+        } catch (e) {}
+      });
+      clientWs.addEventListener('message', (event) => {
+        try {
+          remote.send(event.data);
+          sent.bytes += event.data && event.data.byteLength ? event.data.byteLength : 0;
+        } catch (e) {}
+      });
+      const closeBoth = () => {
+        try { remote.close(); } catch (e) {}
+        try { clientWs.close(); } catch (e) {}
+        if (options.onClose) options.onClose(sent.bytes, received.bytes);
+      };
+      remote.addEventListener('close', closeBoth);
+      clientWs.addEventListener('close', closeBoth);
+      return true;
+    } catch (e) {
+      // try the next proxy IP
+    }
+  }
+
+  // 3. Last resort: treat the payload as HTTP (keeps the legacy behaviour).
+  if (options.httpFallback) {
+    const parsed = parseVless(options.headerBytes || new Uint8Array(0));
+    if (parsed) {
+      await httpForward(clientWs, parsed);
+      if (options.onClose) options.onClose(sent.bytes, received.bytes);
+      return true;
+    }
+  }
+  return false;
+}
+
+function closeWithError(ws, status, message) {
+  sendHttpError(ws, status, message);
+}
+
+/**
+ * Cat Panel data plane: VLESS-WS and Trojan-WS with KV-backed auth,
+ * per-user quota accounting and connection limits.
+ */
+async function handleTunnelConnection(ws, env, options = {}) {
+  let done = false;
+  ws.addEventListener('message', async (event) => {
+    if (done) return;
+    done = true;
+    const raw = event.data;
+    const bytes = raw instanceof ArrayBuffer
+      ? new Uint8Array(raw)
+      : raw && raw.byteLength !== undefined
+        ? new Uint8Array(raw)
+        : new TextEncoder().encode(String(raw || ''));
+
+    const settings = await readSettings(env);
+    const proxyIps = settings.tunnel.proxyIps.length ? settings.tunnel.proxyIps : splitCsv(env.PROXY_IPS);
+    const preferConnect = settings.tunnel.preferConnect;
+
+    const vless = parseVlessHeader(bytes);
+    if (vless) {
+      const auth = await tunnelAuth(env, vless.uuid, settings);
+      if (!auth.ok) {
+        closeWithError(ws, 403, 'Cat Panel: ' + auth.error);
+        return;
+      }
+      if (vless.command === 1) {
+        closeWithError(ws, 405, 'Cat Panel: UDP over WS is not supported');
+        return;
+      }
+      if (auth.user && !acquireConnection(vless.uuid, auth.user.deviceLimit)) {
+        closeWithError(ws, 429, 'Cat Panel: device limit reached');
+        return;
+      }
+      const target = { host: vless.host, port: vless.port };
+      const relayed = await relayTcp(ws, {
+        firstPayload: vless.rest,
+        headerBytes: bytes,
+        target: target,
+        proxyIps: proxyIps,
+        preferConnect: preferConnect,
+        path: options.path,
+        httpFallback: true,
+        onClose: (sent, received) => {
+          if (auth.user) {
+            accountTraffic(env, vless.uuid, sent, received);
+            releaseConnection(vless.uuid);
+          }
+        },
+      });
+      if (!relayed) closeWithError(ws, 502, 'Cat Panel: no route to ' + target.host + ':' + target.port);
+      return;
+    }
+
+    const trojan = trojanPassword(bytes);
+    if (trojan) {
+      const auth = await trojanAuthorized(env, settings, trojan.password);
+      if (!auth.ok) {
+        closeWithError(ws, 403, 'Cat Panel: trojan password rejected');
+        return;
+      }
+      const request = parseTrojanRequest(trojan.rest);
+      if (!request) {
+        closeWithError(ws, 400, 'Cat Panel: malformed trojan request');
+        return;
+      }
+      const relayed = await relayTcp(ws, {
+        firstPayload: request.payload,
+        headerBytes: bytes,
+        target: { host: request.host, port: request.port },
+        proxyIps: proxyIps,
+        preferConnect: preferConnect,
+        path: options.path,
+      });
+      if (!relayed) closeWithError(ws, 502, 'Cat Panel: no route to ' + request.host);
+      return;
+    }
+
+    // REMOTE mode tunnels every frame to a websocket upstream untouched.
     if (env.REMOTE) {
-      await tunnelToRemote(String(env.REMOTE), ws, data);
+      await tunnelToRemote(String(env.REMOTE), ws, bytes);
       return;
     }
-    let bytes;
-    if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
-    else if (typeof data === 'string') bytes = new TextEncoder().encode(data);
-    else if (data && data.byteLength !== undefined) bytes = new Uint8Array(data);
-    else bytes = new Uint8Array(0);
-    const parsed = parseVless(bytes);
-    if (!parsed) {
-      sendHttpError(ws, 400, 'Malformed VLESS header');
-      return;
-    }
-    await httpForward(ws, parsed);
+    closeWithError(ws, 400, 'Cat Panel: unrecognised tunnel handshake');
   });
   ws.addEventListener('error', () => {});
+  ws.addEventListener('close', () => { done = true; });
+}
+
+/**
+ * Trojan request: CMD(1) + ATYP(1) + ADDR + PORT(2) + CRLF + payload.
+ * (The 56-byte password hash is stripped by `trojanPassword` before this.)
+ */
+function parseTrojanRequest(bytes) {
+  if (!bytes || bytes.length < 7) return null;
+  const command = bytes[0];
+  if (command !== 1 && command !== 3 && command !== 0) return null;
+  const address = parseSocksAddress(bytes, 1);
+  if (!address) return null;
+  const payload = address.rest.length > 2 && address.rest[0] === 13 && address.rest[1] === 10
+    ? address.rest.subarray(2)
+    : address.rest;
+  return { command: command, host: address.host, port: address.port, payload: payload };
 }
 
 /* ------------------------------------------------------------------ */
@@ -976,6 +1611,14 @@ function subUserInfoHeader(env) {
 /* ------------------------------------------------------------------ */
 
 const DNS_PRESETS = [
+  // Iran-friendly resolvers first: IP-based endpoints survive DNS filtering.
+  { id: 'shecan', name: 'Shecan (ایران)', url: 'https://178.22.122.100/dns-query', dot: 'shecan.ir', sni: 'shecan.ir', ir: true },
+  { id: 'electro', name: 'Electro (ایران)', url: 'https://78.157.42.100/dns-query', dot: 'electrotm.org', sni: 'electrotm.org', ir: true },
+  { id: 'radar', name: 'Radar (ایران)', url: 'https://10.202.10.10/dns-query', dot: 'radar.game', sni: 'radar.game', ir: true },
+  { id: 'online403', name: '403.online (ایران)', url: 'https://10.202.10.202/dns-query', dot: '403.online', sni: '403.online', ir: true },
+  { id: 'begzar', name: 'Begzar (ایران)', url: 'https://185.55.226.26/dns-query', dot: 'begzar.ir', sni: 'begzar.ir', ir: true },
+  { id: 'alidns', name: 'AliDNS', url: 'https://223.5.5.5/dns-query', dot: 'dns.alidns.com', sni: 'dns.alidns.com' },
+  { id: 'yandex', name: 'Yandex', url: 'https://77.88.8.8/dns-query', dot: 'common.dot.dns.yandex.net', sni: 'common.dot.dns.yandex.net' },
   { id: 'cloudflare', name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query', dot: 'one.one.one.one' },
   { id: 'google', name: 'Google', url: 'https://dns.google/dns-query', dot: 'dns.google' },
   { id: 'quad9', name: 'Quad9', url: 'https://dns.quad9.net/dns-query', dot: 'dns.quad9.net' },
@@ -985,8 +1628,11 @@ const DNS_PRESETS = [
 ];
 
 function dohUpstream(env) {
-  return String((env && env.DNS_UPSTREAM) || DNS_PRESETS[0].url).trim();
+  return String((env && env.DNS_UPSTREAM) || DEFAULT_DOH_UPSTREAM).trim();
 }
+
+/** Default upstream when no env/KV override exists (Shecan: reachable from Iran). */
+const DEFAULT_DOH_UPSTREAM = 'https://178.22.122.100/dns-query';
 
 const DNS_QUERY_NAME = 'cloudflare.com';
 
@@ -1113,6 +1759,23 @@ async function handleDnsQuery(request, env) {
 /* ------------------------------------------------------------------ */
 
 /** Cloudflare (and a few CDN) ranges that are useful as fronting targets. */
+/**
+ * Clean-IP library for Iranian networks. These are public Cloudflare anycast
+ * edge addresses that Iranian ISPs route without throttling; every entry is
+ * verified by the scanner before you use it.
+ */
+const IR_CLEAN_IPS = [
+  '104.16.0.1', '104.16.132.229', '104.17.0.1', '104.17.148.22', '104.18.0.1',
+  '104.19.0.1', '104.20.0.1', '104.21.0.1', '104.22.0.1', '104.24.0.1',
+  '104.25.0.1', '104.26.0.1', '104.27.0.1', '104.28.0.1', '104.31.0.1',
+  '172.64.0.1', '172.64.80.1', '172.65.0.1', '172.66.0.1', '172.67.0.1',
+  '172.68.0.1', '172.69.0.1', '172.70.0.1', '172.71.0.1',
+  '162.158.0.1', '162.158.80.1', '162.159.0.1', '162.159.128.1', '162.159.192.1',
+  '141.101.64.1', '141.101.90.1', '108.162.192.1', '108.162.220.1',
+  '188.114.96.1', '190.93.240.1', '197.234.240.1', '198.41.128.1',
+  '103.21.244.1', '103.22.200.1', '103.31.4.1', '131.0.72.1', '173.245.48.1',
+];
+
 const SCAN_RANGES = [
   '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '162.158.0.0/15',
   '131.0.72.0/22', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
@@ -1156,6 +1819,7 @@ function scanTargets(env) {
     out.push(ip);
   };
   splitCsv(env.CF_IPS).forEach(push);
+  IR_CLEAN_IPS.forEach(push);
   const custom = splitCsv(env.SCAN_IPS);
   custom.forEach((item) => {
     if (item.includes('/')) sampleSubnet(item, 4).forEach(push);
@@ -1382,6 +2046,9 @@ function panelState(host, env, uuid, request) {
     asn: cf.asOrganization || '',
     dnsUpstream: dohUpstream(env),
     dnsPresets: DNS_PRESETS,
+    irIps: IR_CLEAN_IPS,
+    hasKv: hasKv(env),
+    usersApi: '/api/users',
     dotPresets: DNS_PRESETS.map((p) => ({ name: p.name, host: p.dot })),
     repo: CAT_REPO,
     subUrl: 'https://' + host + '/sub',
@@ -1395,7 +2062,7 @@ function panelState(host, env, uuid, request) {
   };
 }
 
-function loginHtml(title) {
+function loginHtml(title, error) {
   return '<!doctype html><html data-theme="dark" data-lang="fa"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + '</title>' +
     '<style>' + css() + '</style></head><body data-lang="fa">' +
@@ -1420,7 +2087,7 @@ function panelShell(state) {
     '<style>' + css() + '</style></head>' +
     '<body data-lang="fa">' +
     '<header class="top"><div class="top-inner">' +
-    '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span>' + esc(state.title) +
+    '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span><b id="brandName">' + esc(state.title) + '</b>' +
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
     '<span class="spacer"></span>' +
     '<span class="pill ok" id="onlinePill">آنلاین</span>' +
@@ -1429,13 +2096,16 @@ function panelShell(state) {
     '<div class="theme-menu" id="themeMenu">' + themeMenuHtml() + '</div>' +
     '</div></header>' +
 
-    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml() + dnsTabHtml(state) + helpTabHtml(state) + '</div>' +
+    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml() +
+      dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
     '<nav class="tabs"><div class="inner">' +
     navButton('home', 'خانه', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
     navButton('configs', 'کانفیگ‌ها', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
     navButton('scanner', 'اسکنر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
+    navButton('users', 'کاربران', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
     navButton('dns', 'DNS', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
+    navButton('tools', 'ابزارها', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
     navButton('help', 'راهنما', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
     '</div></nav>' +
 
@@ -1631,6 +2301,56 @@ function dnsTabHtml(state) {
     '</div></div></section>';
 }
 
+function usersTabHtml(state) {
+  return '<section class="tab" data-tab-panel="users">' +
+    '<div class="card glow"><h2><span class="dot"></span><span data-i18n="usersTitle">کاربران پنل</span></h2>' +
+    '<p>هر کاربر لینک سابسکریپشن، UUID و رمز Trojan مستقل خودش را دارد؛ حجم، تاریخ انقضا و تعداد دستگاه هم قابل تنظیم است. برای ذخیره‌سازی به بایندینگ KV نیاز است.</p>' +
+    '<p class="muted" id="kvState">' + (state.hasKv ? '✅ KV متصل است — کاربران ذخیره می‌شوند.' : '⚠️ KV وصل نیست — فقط UUID اصلی کار می‌کند. یک Namespace بساز و با نام <code>CAT_KV</code> به ورکر بایند کن.') + '</p>' +
+    '<div class="card" style="background:transparent;border-style:dashed"><h2><span class="dot"></span><span>کاربر جدید</span></h2>' +
+    '<div class="grid two">' +
+    '<label class="field"><span>نام</span><input id="uName" placeholder="Ali"></label>' +
+    '<label class="field"><span>حجم (GB) — 0 یعنی نامحدود</span><input id="uQuota" type="number" min="0" step="1" value="0"></label>' +
+    '<label class="field"><span>انقضا (روز) — 0 یعنی بدون انقضا</span><input id="uDays" type="number" min="0" step="1" value="0"></label>' +
+    '<label class="field"><span>محدودیت دستگاه — 0 یعنی آزاد</span><input id="uDevices" type="number" min="0" step="1" value="0"></label>' +
+    '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="uCreate">ساخت کاربر</button>' +
+    '<button class="btn ghost tiny" id="uReload">بارگذاری مجدد</button></div></div>' +
+    '<div class="table-wrap"><table><thead><tr><th>#</th><th>کاربر</th><th>حجم</th><th>انقضا</th><th>سابسکریپشن</th><th>عملیات</th></tr></thead>' +
+    '<tbody id="userTable"><tr><td colspan="6">در حال بارگذاری…</td></tr></tbody></table></div>' +
+    '</div></section>';
+}
+
+function toolsTabHtml(state) {
+  return '<section class="tab" data-tab-panel="tools">' +
+    '<div class="card"><h2><span class="dot"></span><span data-i18n="toolsTitle">ابزارها و تنظیمات پنل</span></h2>' +
+    '<div class="grid two">' +
+    '<label class="field"><span>عنوان پنل</span><input id="tTitle" value="' + esc(state.title) + '"></label>' +
+    '<label class="field"><span>رمز ورود پنل (خالی = بدون رمز)</span><input id="tPass" type="password" placeholder="••••••"></label>' +
+    '<label class="field"><span>DoH بالادستی</span><input id="tDns" dir="ltr" value="' + esc(state.dnsUpstream) + '"></label>' +
+    '<label class="field"><span>UUID اصلی (env: UUID)</span><input id="tUuid" dir="ltr" value="' + esc(state.uuid) + '"></label>' +
+    '<label class="field"><span>پروکسی‌آی‌پی‌ها (با کاما)</span><input id="tProxyIps" dir="ltr" placeholder="1.2.3.4,5.6.7.8"></label>' +
+    '<label class="field"><span>SNI-های مجاز (با کاما)</span><input id="tSnis" dir="ltr" value="' + esc((state.sniList || []).join(',')) + '"></label>' +
+    '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="tSave">ذخیره در KV</button>' +
+    '<button class="btn ghost tiny" id="tBackup">دانلود بکاپ JSON</button>' +
+    '<button class="btn ghost tiny" id="tRestoreBtn">بازیابی بکاپ</button>' +
+    '<input type="file" id="tRestoreFile" accept="application/json" style="display:none"></div>' +
+    '<pre id="tResult" style="margin-top:10px">—</pre></div>' +
+
+    '<div class="card"><h2><span class="dot"></span><span>وضعیت ورکر</span></h2>' +
+    '<div class="table-wrap"><table><tbody id="selfTable"><tr><td>در حال خواندن…</td></tr></tbody></table></div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn ghost tiny" id="selfReload">به‌روزرسانی</button>' +
+    '<button class="btn ghost tiny" id="scanServer">اسکن سرور روی همهٔ آی‌پی‌های کتابخانه</button></div>' +
+    '<pre id="selfScanOut" style="margin-top:10px">—</pre></div>' +
+
+    '<div class="card"><h2><span class="dot"></span><span>کتابخانهٔ آی‌پی تمیز (مناسب ایران)</span></h2>' +
+    '<p class="muted">این آی‌پی‌ها روی شبکه‌های ایران معمولاً بدون افت کار می‌کنند. «اسکن» تأخیر واقعی را از سمت ورکر می‌سنجد.</p>' +
+    '<pre id="irIpsOut" style="max-height:180px;overflow:auto;direction:ltr">' + IR_CLEAN_IPS.join('\n') + '</pre>' +
+    '<div class="row"><button class="btn ghost tiny" data-copy-target="irIpsOut">کپی همه</button>' +
+    '<button class="btn ghost tiny" id="irIpsUse">ساخت کانفیگ با این آی‌پی‌ها</button></div></div>' +
+    '</section>';
+}
+
 function helpTabHtml(state) {
   const envRows = [
     ['UUID', state.uuid, 'شناسهٔ اتصال (auto از دامنه)'],
@@ -1685,8 +2405,8 @@ function panelClientJs() {
     'var $=function(s,r){return (r||document).querySelector(s)};',
     'var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};',
     'var I18N={',
-    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
-    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
+    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",usersTitle:"کاربران پنل",toolsTitle:"ابزارها و تنظیمات",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
+    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",usersTitle:"Panel users",toolsTitle:"Tools & settings",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
     '};',
     'var lang="fa",theme="dark";',
     'try{lang=localStorage.getItem("catpanel.lang")||"fa";theme=localStorage.getItem("catpanel.theme")||"dark";}catch(e){}',
@@ -1699,6 +2419,8 @@ function panelClientJs() {
     ' $("[data-nav-label=home]").textContent=lang==="fa"?"خانه":"Home";',
     ' $("[data-nav-label=configs]").textContent=lang==="fa"?"کانفیگ‌ها":"Configs";',
     ' $("[data-nav-label=scanner]").textContent=lang==="fa"?"اسکنر":"Scanner";',
+    ' $("[data-nav-label=users]").textContent=lang==="fa"?"کاربران":"Users";',
+    ' $("[data-nav-label=tools]").textContent=lang==="fa"?"ابزارها":"Tools";',
     ' $("[data-nav-label=dns]").textContent="DNS";',
     ' $("[data-nav-label=help]").textContent=lang==="fa"?"راهنما":"Help";',
     ' $("#brandSub").textContent=lang==="fa"?"پنل کلودفلر شخصی شما":"Your personal Cloudflare panel";',
@@ -1726,6 +2448,8 @@ function panelClientJs() {
     ' $$("nav.tabs button").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tab")===name)});',
     ' $$(".tab").forEach(function(s){s.classList.toggle("active",s.getAttribute("data-tab-panel")===name)});',
     ' try{localStorage.setItem("catpanel.tab",name)}catch(e){}',
+    ' if(name==="users")loadUsers();if(name==="tools"){loadSelf();loadSettings();}',
+    ' if(name==="scanner"){}',
     ' try{window.scrollTo({top:0,behavior:"smooth"})}catch(e){try{window.scrollTo(0,0)}catch(e2){}}',
     '}',
     '$$("nav.tabs button").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"))})});',
@@ -1792,6 +2516,71 @@ function panelClientJs() {
     ' copyText(link);});',
     '$("#singleCopy").addEventListener("click",function(){var link=$("#singleOut").textContent;if(!link||link==="—"){link=buildSingle();$("#singleOut").textContent=link;}copyText(link);});',
     '$("#singleQr").addEventListener("click",function(){var link=$("#singleOut").textContent;if(!link||link==="—"){link=buildSingle();$("#singleOut").textContent=link;}openQr(link);});',
+    '/* ---- users ---- */',
+    'function escHtml(v){return String(v).replace(/[&<>]/g,function(c){return c==="&"?"&amp;":(c==="<"?"&lt;":"&gt;")})}',
+    'function userRow(u,i){',
+    ' var gb=1073741824;var pct=u.quotaGb>0?Math.min(100,Math.round((u.usedBytes/(u.quotaGb*gb))*100)):0;',
+    ' var exp=u.expireAt?new Date(u.expireAt).toLocaleDateString("fa-IR"):"—";',
+    ' var quota=u.quotaGb>0?(u.quotaGb+" GB · "+(u.usedBytes/gb).toFixed(2)+" GB · "+pct+"%"+""):"—";',
+    ' return "<tr><td>"+(i+1)+"</td><td><b>"+escHtml(u.name||"user")+"</b><div class=\'muted\' style=\'font-size:11px;direction:ltr\'>"+String(u.uuid).slice(0,18)+"…</div></td>"+',
+    '  "<td>"+quota+"</td><td>"+exp+"</td><td><span class=\'pill\'>/u/"+String(u.token).slice(0,8)+"…</span></td>"+',
+    '  "<td><button class=\'btn ghost tiny\' data-user-sub=\'"+u.token+"\'>کپی ساب</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-qr=\'"+u.token+"\'>QR</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-reset=\'"+u.id+"\'>ریست مصرف</button> "+',
+    '  "<button class=\'btn ghost tiny\' data-user-del=\'"+u.id+"\'>حذف</button></td></tr>";}',
+    'function loadUsers(){var tb=$("#userTable");if(!tb)return;',
+    ' fetch(S.usersApi).then(function(r){return r.json()}).then(function(j){',
+    '  if(!j.ok){tb.innerHTML="<tr><td colspan=6>"+(j.error==="kv-required"?"بدون KV نمی‌شود کاربر ساخت — یک Namespace بساز و با نام CAT_KV بایند کن.":"خطا: "+j.error)+"</td></tr>";return;}',
+    '  tb.innerHTML=(j.users||[]).length?j.users.map(userRow).join(""):"<tr><td colspan=6>هنوز کاربری نساخته‌ای</td></tr>";',
+    ' }).catch(function(){tb.innerHTML="<tr><td colspan=6>دریافت لیست ناموفق بود</td></tr>"});}',
+    'document.addEventListener("click",function(ev){',
+    ' var sub=ev.target.closest("[data-user-sub]");',
+    ' if(sub){copyText(location.origin+"/u/"+sub.getAttribute("data-user-sub"));return;}',
+    ' var qr=ev.target.closest("[data-user-qr]");',
+    ' if(qr){openQr(location.origin+"/u/"+qr.getAttribute("data-user-qr"));return;}',
+    ' var reset=ev.target.closest("[data-user-reset]");',
+    ' if(reset){fetch(S.usersApi+"/"+reset.getAttribute("data-user-reset"),{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({usedBytes:0,usedRequests:0})}).then(loadUsers);return;}',
+    ' var del=ev.target.closest("[data-user-del]");',
+    ' if(del){if(!confirm("کاربر حذف شود؟"))return;fetch(S.usersApi+"/"+del.getAttribute("data-user-del"),{method:"DELETE"}).then(loadUsers);return;}});',
+    'if($("#uCreate"))$("#uCreate").addEventListener("click",function(){',
+    ' fetch(S.usersApi,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:($("#uName").value||"user").trim(),quotaGb:Number($("#uQuota").value||0),days:Number($("#uDays").value||0),deviceLimit:Number($("#uDevices").value||0)})})',
+    ' .then(function(r){return r.json()}).then(function(j){',
+    '  if(!j.ok){toast(j.hint||j.error||"خطا");return;}toast("کاربر ساخته شد");$("#uName").value="";loadUsers();});});',
+    'if($("#uReload"))$("#uReload").addEventListener("click",loadUsers);',
+    '/* ---- tools ---- */',
+    'function loadSelf(){var tb=$("#selfTable");if(!tb)return;',
+    ' fetch("/api/self").then(function(r){return r.json()}).then(function(j){',
+    '  var rows=[["آی‌پی",j.ip],["کشور",(j.country||"—")+" / "+(j.city||"—")],["کولو",j.colo],["ASN",j.asn],["TLS",j.tlsVersion],["HTTP",j.httpProtocol],["نسخهٔ پنل",j.version]];',
+    '  tb.innerHTML=rows.map(function(r){return "<tr><td>"+r[0]+"</td><td dir=ltr>"+(r[1]||"—")+"</td></tr>"}).join("");});}',
+    'if($("#selfReload"))$("#selfReload").addEventListener("click",loadSelf);',
+    'function loadSettings(){fetch("/api/settings").then(function(r){return r.json()}).then(function(j){if(!j.ok)return;',
+    ' var st=j.settings;$("#tTitle").value=st.title||"";$("#tDns").value=(st.dns&&st.dns.upstream)||"";',
+    ' $("#tProxyIps").value=((st.tunnel&&st.tunnel.proxyIps)||[]).join(",");',
+    ' $("#tResult").textContent=j.hasKv?"KV متصل است":"KV وصل نیست — تغییرات فقط تا ری‌استارت زنده می‌ماند";});}',
+    'if($("#tSave"))$("#tSave").addEventListener("click",function(){',
+    ' var payload={title:$("#tTitle").value.trim(),dns:{upstream:$("#tDns").value.trim()},tunnel:{proxyIps:($("#tProxyIps").value||"").split(",").map(function(x){return x.trim()}).filter(Boolean)}};',
+    ' var pass=$("#tPass").value;if(pass)payload.panelPassword=pass;',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)})',
+    '  .then(function(r){return r.json()}).then(function(j){',
+    '   $("#tResult").textContent=j.ok?(j.persisted?"ذخیره شد ✅":"در KV ذخیره نشد (بایندینگ KV نداری)"):("خطا: "+j.error);',
+    '   if(j.ok&&j.settings&&j.settings.title){var b=$("#brandName");if(b)b.textContent=j.settings.title;}});});',
+    'if($("#tBackup"))$("#tBackup").addEventListener("click",function(){',
+    ' fetch("/api/backup").then(function(r){return r.json()}).then(function(j){download("cat-panel-backup.json",JSON.stringify(j,null,2));toast("بکاپ گرفته شد")});});',
+    'if($("#tRestoreBtn")&&$("#tRestoreFile")){',
+    ' $("#tRestoreBtn").addEventListener("click",function(){$("#tRestoreFile").click()});',
+    ' $("#tRestoreFile").addEventListener("change",function(ev){var f=ev.target.files[0];if(!f)return;var reader=new FileReader();',
+    '  reader.onload=function(){fetch("/api/backup",{method:"POST",headers:{"content-type":"application/json"},body:String(reader.result)})',
+    '   .then(function(r){return r.json()}).then(function(j){toast(j.ok?"بازیابی شد":"خطا");loadUsers();loadSettings();});};',
+    '  reader.readAsText(f);});}',
+    'if($("#scanServer"))$("#scanServer").addEventListener("click",function(){',
+    ' var out=$("#selfScanOut");out.textContent="اسکن ۳۲ آی‌پی…";',
+    ' var ips=(S.irIps||[]).slice(0,32).join(",");',
+    ' fetch("/api/scan?ips="+encodeURIComponent(ips)+"&concurrency=16&timeout=4000").then(function(r){return r.json()}).then(function(j){',
+    '  if(!j.ok){out.textContent="خطا: "+j.error;return;}',
+    '  out.textContent=j.results.map(function(r){return r.ip+"  "+(r.ok?r.ms+" ms"+(r.colo?"  "+r.colo:""):"x")}).join("\\n");',
+    '  toast(j.alive+" آی‌پی پاسخ داد");});});',
+    'if($("#irIpsUse"))$("#irIpsUse").addEventListener("click",function(){',
+    ' var first=(S.irIps||[])[0];if(!first)return;$("#singleAddr").value=first;showTab("configs");toast("آی‌پی در سازندهٔ کانفیگ گذاشته شد");});',
     '/* ---- scanner ---- */',
     'function sampleTargets(limit,custom){var list=(custom&&custom.length?custom:(S.scanTargets||[])).slice();',
     ' for(var i=list.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=list[i];list[i]=list[j];list[j]=t;}',
@@ -1928,10 +2717,234 @@ function isIpLiteral(value) {
   return /^[0-9a-fA-F:]{3,45}$/.test(v6) && v6.includes(':');
 }
 
+/* ------------------------------------------------------------------ */
+/* panel authentication (password from env or KV, cookie session)       */
+/* ------------------------------------------------------------------ */
+
+const AUTH_COOKIE = 'catpanel_auth';
+const BRUTE_LIMIT = 8;
+const BRUTE_WINDOW_MS = 10 * 60 * 1000;
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function cookieValue(request, name) {
+  const header = request.headers.get('cookie') || '';
+  const parts = header.split(';');
+  for (const part of parts) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
+  }
+  return null;
+}
+
+async function panelPassword(env) {
+  const settings = await readSettings(env);
+  return String(env.PANEL_PASSWORD || settings.panelPassword || '').trim();
+}
+
+/** Authed = no password configured, or the cookie carries the right hash. */
+async function requirePanelAuth(request, env) {
+  const password = await panelPassword(env);
+  if (!password) return { ok: true, open: true };
+  const expected = await sha256Hex(password);
+  if (cookieValue(request, AUTH_COOKIE) === expected) return { ok: true, open: false };
+  return {
+    ok: false,
+    open: false,
+    response: jsonResponse({ ok: false, error: 'unauthorized', login: '/login' }, 401, CORS),
+  };
+}
+
+async function handleLogin(request, env) {
+  const password = await panelPassword(env);
+  let body = null;
+  try {
+    body = await request.json();
+  } catch (e) {
+    const form = await request.formData().catch(() => null);
+    body = form ? { password: form.get('password') } : null;
+  }
+  const supplied = String((body && body.password) || '');
+  if (!password) {
+    return jsonResponse({ ok: true, note: 'no password configured' }, 200, CORS);
+  }
+  const offenders = Number(await kvGet(env, 'catpanel:brute:' + (request.headers.get('cf-connecting-ip') || 'unknown')) || 0);
+  if (offenders >= BRUTE_LIMIT) {
+    return jsonResponse({ ok: false, error: 'too-many-attempts' }, 429, CORS);
+  }
+  if (supplied && supplied === password) {
+    const token = await sha256Hex(password);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: Object.assign({}, CORS, {
+        'content-type': 'application/json; charset=utf-8',
+        'set-cookie': AUTH_COOKIE + '=' + token + '; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax',
+      }),
+    });
+  }
+  void BRUTE_WINDOW_MS;
+  await kvPut(env, 'catpanel:brute:' + (request.headers.get('cf-connecting-ip') || 'unknown'), String(offenders + 1));
+  return jsonResponse({ ok: false, error: 'invalid-password', attemptsLeft: Math.max(0, BRUTE_LIMIT - offenders - 1) }, 401, CORS);
+}
+
+function redactSettings(settings) {
+  const copy = JSON.parse(JSON.stringify(settings || {}));
+  if (copy.panelPassword) copy.panelPassword = '••••••';
+  return copy;
+}
+
+/* ------------------------------------------------------------------ */
+/* users API                                                            */
+/* ------------------------------------------------------------------ */
+
+function newToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function newUuid() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
+
+async function handleUsersApi(request, url, env, path) {
+  const auth = await requirePanelAuth(request, env);
+  if (!auth.ok) return auth.response;
+  if (!hasKv(env)) {
+    return jsonResponse({
+      ok: false,
+      error: 'kv-required',
+      hint: 'Bind a KV namespace as CAT_KV (or KV) to store users; the panel still works with the master UUID from env.',
+    }, 409, CORS);
+  }
+  const users = await readUsers(env);
+  const id = path.startsWith('/api/users/') ? decodeURIComponent(path.slice('/api/users/'.length)) : null;
+
+  if (request.method === 'GET') {
+    if (id) {
+      const user = users.find((item) => item.id === id || item.token === id);
+      return user ? jsonResponse({ ok: true, user: user }, 200, CORS) : jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
+    }
+    return jsonResponse({ ok: true, count: users.length, users: users }, 200, CORS);
+  }
+
+  if (request.method === 'POST') {
+    let body = null;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return jsonResponse({ ok: false, error: 'invalid-json' }, 400, CORS);
+    }
+    const name = String((body && body.name) || '').trim().slice(0, 40) || 'user-' + (users.length + 1);
+    const days = Number((body && body.days) || 0);
+    const user = normalizeUser({
+      id: newToken(),
+      token: newToken(),
+      uuid: (body && body.uuid) || newUuid(),
+      name: name,
+      quotaGb: (body && body.quotaGb) || 0,
+      deviceLimit: (body && body.deviceLimit) || 0,
+      note: (body && body.note) || '',
+      expireAt: days > 0 ? Date.now() + days * 86400000 : 0,
+      createdAt: Date.now(),
+    });
+    users.push(user);
+    await writeUsers(env, users);
+    return jsonResponse({ ok: true, user: user, subPath: '/u/' + user.token }, 201, CORS);
+  }
+
+  if (request.method === 'PUT' || request.method === 'PATCH') {
+    if (!id) return jsonResponse({ ok: false, error: 'id-required' }, 400, CORS);
+    const index = users.findIndex((item) => item.id === id);
+    if (index < 0) return jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
+    let body = null;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return jsonResponse({ ok: false, error: 'invalid-json' }, 400, CORS);
+    }
+    const current = users[index];
+    const days = body && body.days !== undefined ? Number(body.days) : null;
+    users[index] = normalizeUser(Object.assign({}, current, body || {}, {
+      id: current.id,
+      token: current.token,
+      expireAt: days === null ? current.expireAt : (days > 0 ? Date.now() + days * 86400000 : 0),
+    }));
+    await writeUsers(env, users);
+    return jsonResponse({ ok: true, user: users[index] }, 200, CORS);
+  }
+
+  if (request.method === 'DELETE') {
+    if (!id) return jsonResponse({ ok: false, error: 'id-required' }, 400, CORS);
+    const next = users.filter((item) => item.id !== id);
+    if (next.length === users.length) return jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
+    await writeUsers(env, next);
+    return jsonResponse({ ok: true, removed: users.length - next.length }, 200, CORS);
+  }
+
+  return jsonResponse({ ok: false, error: 'method-not-allowed' }, 405, CORS);
+}
+
+/* ------------------------------------------------------------------ */
+/* per-user subscription links                                          */
+/* ------------------------------------------------------------------ */
+
+async function handleUserSubscription(request, url, env, host, path) {
+  const rest = path.slice('/u/'.length).split('/');
+  const token = decodeURIComponent(rest[0] || '');
+  const format = (rest[1] || '').toLowerCase();
+  const users = await readUsers(env);
+  const user = findUserByToken(users, token);
+  if (!user) return new Response('Not Found', { status: 404, headers: CORS });
+  if (userReasonBlocked(user)) {
+    const reason = userReasonBlocked(user);
+    return new Response('Cat Panel: ' + reason, { status: 403, headers: CORS });
+  }
+  const uuid = user.uuid;
+  const usageHeader = [
+    'upload=0',
+    'download=' + (Number(user.usedBytes) || 0),
+    'total=' + (userQuotaBytes(user) || 0),
+    'expire=' + (Number(user.expireAt) ? Math.floor(Number(user.expireAt) / 1000) : 0),
+  ].join('; ');
+  const headers = Object.assign({}, CORS, { 'subscription-userinfo': usageHeader });
+  if (format === 'clash' || format === 'mihomo' || format === 'yaml') {
+    return new Response(buildClashYaml(host, env, uuid), {
+      headers: Object.assign({}, headers, { 'content-type': 'text/yaml; charset=utf-8' }),
+    });
+  }
+  if (format === 'singbox' || format === 'sing-box' || format === 'json') {
+    return new Response(JSON.stringify(buildSingboxConfig(host, env, uuid), null, 2), {
+      headers: Object.assign({}, headers, { 'content-type': 'application/json; charset=utf-8' }),
+    });
+  }
+  if (format === 'all') {
+    return jsonResponse(Object.assign({ ok: true, user: { name: user.name, token: user.token } }, buildAllConfigs(host, env, uuid)), 200, headers);
+  }
+  const links = buildSubLinks(host, env, uuid).join('\n') + '\n';
+  if (format === 'b64' || format === 'base64') {
+    return new Response(b64encode(links), {
+      headers: Object.assign({}, headers, { 'content-type': 'text/plain; charset=utf-8' }),
+    });
+  }
+  return new Response(links, {
+    headers: Object.assign({}, headers, { 'content-type': 'text/plain; charset=utf-8' }),
+  });
+}
+
 async function handlePanelRequest(request, url, env, host, uuid, state) {
-  const panelPass = String(env.PANEL_PASSWORD || '');
-  if (panelPass && url.searchParams.get('p') !== panelPass) {
-    return htmlResponse(loginHtml(state.title));
+  const panelPass = await panelPassword(env);
+  if (panelPass) {
+    const expected = await sha256Hex(panelPass);
+    const authed = cookieValue(request, AUTH_COOKIE) === expected || url.searchParams.get('p') === panelPass;
+    if (!authed) return htmlResponse(loginHtml(state.title, ''));
   }
   return htmlResponse(panelShell(state));
 }
@@ -2045,6 +3058,140 @@ async function fetchHandler(request, env) {
     return jsonResponse(await probeDnsUpstream(upstream, name), 200, CORS);
   }
 
+  /* ---- panel API (settings / users / backup / scan / info) ---- */
+  if (path === '/api/version') {
+    return jsonResponse({
+      ok: true,
+      panel: 'cat-panel',
+      version: CAT_PANEL_VERSION,
+      kv: hasKv(env),
+      features: ['vless-ws', 'trojan-ws', 'tcp-relay', 'proxy-ip', 'users', 'quota', 'dns', 'scan', 'qr', 'subs', 'backup'],
+    }, 200, CORS);
+  }
+
+  if (path === '/api/self') {
+    const cf = request.cf || {};
+    return jsonResponse({
+      ok: true,
+      ip: request.headers.get('cf-connecting-ip') || null,
+      country: cf.country || null,
+      city: cf.city || null,
+      colo: cf.colo || null,
+      asn: cf.asn || null,
+      tlsVersion: cf.tlsVersion || null,
+      httpProtocol: cf.httpProtocol || null,
+      panel: 'cat-panel',
+      version: CAT_PANEL_VERSION,
+    }, 200, CORS);
+  }
+
+  if (path === '/api/settings') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    if (request.method === 'GET') {
+      const settings = await readSettings(env);
+      return jsonResponse({ ok: true, settings: redactSettings(settings), hasKv: hasKv(env) }, 200, CORS);
+    }
+    if (request.method === 'POST' || request.method === 'PUT') {
+      let patch = null;
+      try {
+        patch = await request.json();
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'invalid-json' }, 400, CORS);
+      }
+      const result = await writeSettings(env, patch || {});
+      return jsonResponse({
+        ok: true,
+        persisted: result.persisted,
+        settings: redactSettings(result.settings),
+      }, 200, CORS);
+    }
+    return jsonResponse({ ok: false, error: 'method-not-allowed' }, 405, CORS);
+  }
+
+  if (path === '/api/users' || path.startsWith('/api/users/')) {
+    return handleUsersApi(request, url, env, path);
+  }
+
+  if (path === '/api/backup') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    if (request.method === 'GET') {
+      const settings = await readSettings(env);
+      const users = await readUsers(env);
+      return jsonResponse({
+        ok: true,
+        version: CAT_PANEL_VERSION,
+        exportedAt: new Date().toISOString(),
+        settings: redactSettings(settings),
+        users: users,
+      }, 200, CORS);
+    }
+    if (request.method === 'POST') {
+      let payload = null;
+      try {
+        payload = await request.json();
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'invalid-json' }, 400, CORS);
+      }
+      const restored = { settings: false, users: false };
+      if (payload && payload.settings) {
+        restored.settings = (await writeSettings(env, payload.settings)).persisted;
+      }
+      if (payload && Array.isArray(payload.users)) {
+        restored.users = await writeUsers(env, payload.users.map(normalizeUser));
+      }
+      return jsonResponse({ ok: true, restored: restored, hasKv: hasKv(env) }, 200, CORS);
+    }
+    return jsonResponse({ ok: false, error: 'method-not-allowed' }, 405, CORS);
+  }
+
+  if (path === '/api/scan') {
+    const list = splitCsv(url.searchParams.get('ips')).filter(isIpLiteral).slice(0, 64);
+    if (!list.length) return jsonResponse({ ok: false, error: 'ips required' }, 400, CORS);
+    const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
+    const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
+    const results = [];
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
+      for (;;) {
+        const index = cursor++;
+        if (index >= list.length) return;
+        results.push(await probeIp(list[index], timeout));
+      }
+    });
+    await Promise.all(workers);
+    const sorted = results.sort((a, b) => (a.ok === b.ok ? (a.ms || 99999) - (b.ms || 99999) : a.ok ? -1 : 1));
+    return jsonResponse({ ok: true, count: sorted.length, alive: sorted.filter((r) => r.ok).length, results: sorted }, 200, CORS);
+  }
+
+  if (path === '/api/ir-ips') {
+    return jsonResponse({ ok: true, count: IR_CLEAN_IPS.length, ips: IR_CLEAN_IPS }, 200, CORS);
+  }
+
+  if (path === '/api/proxy-ips') {
+    return jsonResponse({ ok: true, ips: splitCsv(env.PROXY_IPS), note: 'PROXY_IPS env or settings.tunnel.proxyIps' }, 200, CORS);
+  }
+
+  if (path === '/api/login' && request.method === 'POST') {
+    return handleLogin(request, env);
+  }
+
+  if (path === '/api/logout') {
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: Object.assign({}, CORS, {
+        'content-type': 'application/json; charset=utf-8',
+        'set-cookie': 'catpanel_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      }),
+    });
+  }
+
+  /* per-user subscription: /u/<token>[/format] */
+  if (path === '/u' || path.startsWith('/u/')) {
+    return handleUserSubscription(request, url, env, host, path);
+  }
+
   /* encrypted DNS resolver */
   if (path === '/dns-query' || path === '/dns-query/') {
     return handleDnsQuery(request, env);
@@ -2093,6 +3240,24 @@ export default {
 /* Test hooks (ignored by Cloudflare) */
 export const _testing = {
   parseVless,
+  parseVlessHeader,
+  parseSocksAddress,
+  parseTrojanRequest,
+  trojanPassword,
+  trojanHash,
+  sha224Hex,
+  isCloudflareIp,
+  relayTcp,
+  handleTunnelConnection,
+  readSettings,
+  writeSettings,
+  readUsers,
+  writeUsers,
+  normalizeUser,
+  userTrafficLeft,
+  userReasonBlocked,
+  tunnelAuth,
+  kvBinding,
   parseHttpRequest,
   buildSubLinks,
   buildClashYaml,
@@ -2118,6 +3283,20 @@ export const _testing = {
   panelState,
   panelShell,
   loginHtml,
+  handleUsersApi,
+  handleUserSubscription,
+  handleLogin,
+  requirePanelAuth,
+  sha256Hex,
+  newUuid,
+  newToken,
+  redactSettings,
+  IR_CLEAN_IPS,
+  DNS_PRESETS,
+  SCAN_RANGES,
+  DEFAULT_SETTINGS,
+  deepMerge,
+  panelPassword,
   dohUpstream,
   isIpLiteral,
   fetchHandler,

@@ -69,9 +69,13 @@ const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: tr
 const realErrors = errors.filter((e) => !e.includes('scrollTo'));
 check('no script errors', realErrors.length === 0, realErrors.join(' | '));
 check('state injected', win.CAT_STATE?.host === HOST);
-check('five tabs render', document.querySelectorAll('nav.tabs button').length === 5);
+check('seven tabs render', document.querySelectorAll('nav.tabs button').length === 7, String(document.querySelectorAll('nav.tabs button').length));
+check('users tab exists', !!document.querySelector('[data-tab-panel="users"]'));
+check('tools tab exists', !!document.querySelector('[data-tab-panel="tools"]'));
 check('home tab active by default', document.querySelector('[data-tab-panel="home"]').classList.contains('active'));
 check('config table filled', document.querySelectorAll('#cfgTable tr').length >= 5);
+check('IR clean-IP library listed', (document.querySelector('#irIpsOut')?.textContent || '').includes('104.16.0.1'));
+check('tools expose KV state', !!document.querySelector('#tSave') && !!document.querySelector('#selfTable'));
 const allLinks = document.querySelector('#cfgAllText')?.textContent || '';
 check('links include vless/trojan/warp', allLinks.includes('vless://') && allLinks.includes('trojan://') && allLinks.includes('warp://'));
 check('clean-IP variants built', allLinks.includes('104.16.6.62'));

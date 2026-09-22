@@ -263,6 +263,9 @@ class MainActivity : Activity() {
     private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
     private var scannerRunning: Boolean = false
     private var scannerJob: Job? = null
+    private val dockTabs = mutableListOf<DockTab>()
+    private lateinit var pingValueText: TextView
+    private lateinit var uptimeValueText: TextView
 
     /* Free configs (community sources, fetched + ping-tested in-app) */
     private lateinit var freeConfigsStatus: TextView
@@ -471,6 +474,7 @@ class MainActivity : Activity() {
 
         // New bottom navigation with pill-shaped container
         val tabs = TabLayout(this).apply {
+            appTabsPending = this
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             minimumHeight = dp(72)
             background = GradientDrawable().apply {
@@ -491,23 +495,15 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
+            // Dock style: each tab is a custom icon+label cell that paints itself as a
+            // filled violet pill when selected (v2box-style bottom dock).
             // Tab order (visual): settings, VPN (center), subscriptions, cloud panel, IP scanner
-            addTab(newTab().setText(R.string.tab_settings).setIcon(R.drawable.ic_advanced_tab))
-            addTab(newTab().setText(R.string.tab_vpn).setIcon(R.drawable.ic_vpn_tab), true)
-            addTab(newTab().setText(R.string.tab_subscriptions).setIcon(R.drawable.ic_subscriptions_tab))
-            addTab(newTab().setText(R.string.tab_scanner).setIcon(R.drawable.ic_speedometer))
-            addTab(newTab().setText(R.string.tab_cloud).setIcon(R.drawable.ic_cloud_tab))
-            post {
-                val tabStrip = getChildAt(0) as? ViewGroup ?: return@post
-                for (index in 0 until tabStrip.childCount) {
-                    val tabView = tabStrip.getChildAt(index) as? ViewGroup ?: continue
-                    tabView.setPadding(0, tabView.paddingTop, 0, tabView.paddingBottom)
-                    val icon = tabView.getChildAt(0) as? ImageView ?: continue
-                    val params = icon.layoutParams as? ViewGroup.MarginLayoutParams ?: continue
-                    params.bottomMargin = dp(5)
-                    icon.layoutParams = params
-                }
-            }
+            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
+            addDockTab(R.string.tab_vpn, R.drawable.ic_vpn_tab, selected = true)
+            addDockTab(R.string.tab_subscriptions, R.drawable.ic_subscriptions_tab, selected = false)
+            addDockTab(R.string.tab_scanner, R.drawable.ic_speedometer, selected = false)
+            addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
+            post { renderDockSelection(1) }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
                     // Visual order maps onto the content screens:
@@ -521,6 +517,7 @@ class MainActivity : Activity() {
                         else -> tab.position
                     }
                     showAppTab(mappedPosition)
+                    renderDockSelection(tab.position)
                 }
 
                 override fun onTabUnselected(tab: TabLayout.Tab) = Unit
@@ -627,6 +624,59 @@ class MainActivity : Activity() {
         activeChainPickerSlot = null
         activeChainPickerSubscriptionId = null
     }
+
+    /** One bottom-dock cell: rounded pill + icon + label. */
+    private fun addDockTab(@StringRes labelRes: Int, @DrawableRes iconRes: Int, selected: Boolean) {
+        val context = ContextThemeWrapper(this, R.style.WhiteDnsPopupTheme)
+        val icon = ImageView(context).apply {
+            setImageResource(iconRes)
+            setColorFilter(if (selected) TEAL else TEXT_SECONDARY)
+        }
+        val label = TextView(context).apply {
+            setText(labelRes)
+            textSize = 10f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(if (selected) TEAL else TEXT_SECONDARY)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val pill = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(7), dp(6), dp(7))
+            background = dockPillBackground(selected)
+            addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
+            addView(label, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+        }
+        dockTabs += DockTab(pill, icon, label)
+        val tab = appTabsPending.newTab()
+        tab.customView = pill
+        appTabsPending.addTab(tab, selected)
+    }
+
+    private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(16).toFloat()
+        setColor(if (selected) withAlpha(TEAL, if (palette.isDark) 52 else 32) else Color.TRANSPARENT)
+        if (selected) setStroke(dp(1), withAlpha(TEAL, 90))
+    }
+
+    /** Repaints every dock cell so only the active one is filled. */
+    private fun renderDockSelection(activeIndex: Int) {
+        dockTabs.forEachIndexed { index, tab ->
+            val active = index == activeIndex
+            tab.pill.background = dockPillBackground(active)
+            tab.icon.setColorFilter(if (active) TEAL else TEXT_SECONDARY)
+            tab.label.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+        }
+    }
+
+    private class DockTab(val pill: LinearLayout, val icon: ImageView, val label: TextView)
+
+    private lateinit var appTabsPending: TabLayout
 
     private fun showAppTab(position: Int) {
         if (position != 2) advancedSettingsBackAction?.invoke()
@@ -947,6 +997,11 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
         column.addView(freeConfigsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        FreeConfigs.loadCache(this)?.takeIf { it.entries.isNotEmpty() }?.let { cached ->
+            freeConfigEntries = cached.entries
+            freeConfigsStatus.setText(R.string.free_from_cache)
+            renderFreeConfigs()
+        }
 
         column.addView(
             MaterialButton(this).apply {
@@ -966,17 +1021,24 @@ class MainActivity : Activity() {
         return column
     }
 
+    /** True when the core reports a live session (used to route fetches). */
+    private fun vpnStateEqualsStarted(): Boolean =
+        buttonModel.state == VpnState.Started || VpnRuntimeStateStore.read(this) == VpnState.Started
+
     private fun fetchFreeConfigs() {
         if (freeConfigsFetching) return
+        // If a tunnel is up we fetch *through* it: inside Iran most of the mirrors
+        // are unreachable directly but answer fine once anything is connected.
+        val useTunnel = vpnStateEqualsStarted()
         freeConfigsFetching = true
         freeConfigsFetchButton.isEnabled = false
         freeConfigsProgress.visibility = View.VISIBLE
         freeConfigsProgress.progress = 0
-        freeConfigsStatus.setText(R.string.free_loading)
+        freeConfigsStatus.text = getString(if (useTunnel) R.string.free_loading_tunnel else R.string.free_loading)
         freeConfigsList.removeAllViews()
         freeConfigsJob = activityScope.launch {
             val report = runCatching {
-                FreeConfigs.fetchAll(this@MainActivity) { name, done, total ->
+                FreeConfigs.fetchAll(this@MainActivity, useTunnel = useTunnel) { name, done, total ->
                     mainHandler.post {
                         freeConfigsProgress.progress = (done * 100) / total.coerceAtLeast(1)
                         if (name.isNotEmpty()) {
@@ -989,9 +1051,17 @@ class MainActivity : Activity() {
             freeConfigsFetchButton.isEnabled = true
             freeConfigsProgress.visibility = View.GONE
             if (report == null || report.entries.isEmpty()) {
-                freeConfigsStatus.setText(R.string.free_empty)
+                val cached = FreeConfigs.loadCache(this@MainActivity)
+                if (cached != null && cached.entries.isNotEmpty()) {
+                    freeConfigEntries = cached.entries
+                    freeConfigsStatus.setText(R.string.free_from_cache)
+                    renderFreeConfigs()
+                } else {
+                    freeConfigsStatus.setText(R.string.free_empty)
+                }
                 return@launch
             }
+            FreeConfigs.saveCache(this@MainActivity, report)
             freeConfigEntries = report.entries
             freeConfigsStatus.text = buildString {
                 append(getString(R.string.free_loaded, report.entries.size))
@@ -2345,17 +2415,92 @@ class MainActivity : Activity() {
             // Value on right
             addView(value, LinearLayout.LayoutParams(-2, -2))
         }
+        fun kpiCard(label: String, value: TextView, accent: Boolean): LinearLayout =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER_VERTICAL
+                background = glassSurfaceDrawable(radiusDp = 14)
+                clipToOutline = true
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = label
+                        textSize = 11f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(TEXT_SECONDARY)
+                        includeFontPadding = false
+                    },
+                    LinearLayout.LayoutParams(-2, -2),
+                )
+                addView(
+                    value,
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+                )
+                if (accent) {
+                    addView(
+                        View(this@MainActivity).apply {
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dp(2).toFloat()
+                                setColor(withAlpha(TEAL, 140))
+                            }
+                        },
+                        LinearLayout.LayoutParams(dp(28), dp(3)).apply { topMargin = dp(8) },
+                    )
+                }
+            }
+        pingValueText = TextView(this).apply {
+            text = "—"
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            textSize = 19f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+        }
+        uptimeValueText = TextView(this).apply {
+            text = "00:00:00"
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            textSize = 19f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+        }
+        // 2 x 2 KPI grid: download / upload / ping / uptime
         val speedStatsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
             addView(
-                speedStatRow(getString(R.string.metric_download), downloadSpeedText, true, downloadArrowIcon),
-                LinearLayout.LayoutParams(0, -2, 1f),
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(
+                        kpiCard(getString(R.string.metric_download), downloadSpeedText, true),
+                        LinearLayout.LayoutParams(0, -2, 1f),
+                    )
+                    addView(
+                        kpiCard(getString(R.string.metric_upload), uploadSpeedText, false),
+                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
+                    )
+                },
+                LinearLayout.LayoutParams(-1, -2),
             )
             addView(
-                speedStatRow(getString(R.string.metric_upload), uploadSpeedText, false, uploadArrowIcon),
-                LinearLayout.LayoutParams(0, -2, 1f),
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(
+                        kpiCard(getString(R.string.home_ping_label), pingValueText, false),
+                        LinearLayout.LayoutParams(0, -2, 1f),
+                    )
+                    addView(
+                        kpiCard(getString(R.string.home_uptime_label), uptimeValueText, false),
+                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
+                    )
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
             )
         }
 
@@ -4146,6 +4291,11 @@ class MainActivity : Activity() {
             sni = sni,
             customSubnets = customSubnets,
             includeBuiltin = true,
+            includeIranLibrary = true,
+            concurrency = SCANNER_CONCURRENCY,
+            connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
+            tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
+            verifyHttp = true,
         )
         scannerProgressBar.progress = 0
         scannerJob = activityScope.launch {
@@ -4182,7 +4332,7 @@ class MainActivity : Activity() {
             scannerStatusText.text = if (found.isEmpty()) {
                 getString(R.string.scanner_no_results)
             } else {
-                getString(R.string.scanner_done, found.size)
+                getString(R.string.scanner_done_detailed, found.size, found.count { it.tlsOk })
             }
         }
     }
@@ -4239,6 +4389,22 @@ class MainActivity : Activity() {
                 copyScannerIp(result)
             }
         }
+        row.addView(
+            TextView(this).apply {
+                text = if (result.tlsOk) "TLS ✓" else "TCP"
+                textSize = 10.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(if (result.tlsOk) TEAL else TEXT_SECONDARY)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(6).toFloat()
+                    setColor(withAlpha(if (result.tlsOk) TEAL else TEXT_SECONDARY, 24))
+                }
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+        )
         row.addView(
             TextView(this).apply {
                 text = getString(R.string.scanner_result_rank, rank, result.flag)
@@ -8264,6 +8430,15 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
         ) View.VISIBLE else View.GONE
         renderConnectionDetails(state)
+        if (::pingValueText.isInitialized) {
+            pingValueText.text = connectionDetails
+                .takeIf { state == VpnState.Started }
+                ?.let { details -> Regex("(\\d+\\s?ms)").find(details)?.value }
+                ?: "—"
+        }
+        if (::uptimeValueText.isInitialized && ::timerText.isInitialized) {
+            uptimeValueText.text = timerText.text
+        }
         if (::homeUsageCard.isInitialized) renderHomeUsageCard()
         refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.INVISIBLE
         refreshActionButton.isEnabled = state == VpnState.Started
@@ -8540,6 +8715,9 @@ class MainActivity : Activity() {
         const val DEFAULT_SCANNER_SNI = "skk.moe"
         const val SCANNER_VISIBLE_RESULTS = 24
         const val SCANNER_LIVE_REFRESH_EVERY = 5
+        const val SCANNER_CONCURRENCY = 24
+        const val SCANNER_CONNECT_TIMEOUT_MS = 1500
+        const val SCANNER_TLS_TIMEOUT_MS = 2500
 
         /* Free configs */
         const val FREE_PREVIEW_ROWS = 12

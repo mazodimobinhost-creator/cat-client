@@ -29,8 +29,21 @@ combining one-tap connectivity with all the tools Iranian users need.
   Worker), or open install guides for 20+ researched panels (Z-E-U-S, BPB, Nova,
   Netra, Apex, Epeius, Marzban, 3x-ui, w-ui, Spider, Technamooz, SulgX, RVG, Luffy,
   Lunel, x4g, OpenVPN, wg-easy, BackPack …):
-  - 🐱 **Cat Panel v3.1 (built-in)** — single-file Cloudflare Worker panel, purple-night
+  - 🐱 **Cat Panel v4 (built-in)** — single-file Cloudflare Worker panel, purple-night
     UI, Persian + English, **five themes** (violet / OLED / orchid / mono / light):
+    - **Real data plane** — VLESS-WS and Trojan-WS are relayed as raw TCP through
+      `cloudflare:sockets`, with a **proxy-IP WebSocket fallback** (BPB-style) when the
+      direct dial is unavailable; the Xray wire format (`version/uuid/addonLen/command/
+      port/atyp`) is parsed, so every standard client connects
+    - **KV-backed accounts** — per-user UUID + subscription link `/u/<token>`, traffic
+      quota (GB), daily expiry, concurrent-device limit, live usage counting and a
+      `subscription-userinfo` header for the app's usage graph
+    - **Panel password** with hashed cookie sessions and brute-force throttling
+    - **Tools tab** — panel settings, full JSON backup/restore, live worker status
+      (IP / colo / ASN / TLS) and a **server-side scan API** (`/api/scan`)
+    - **Iranian resolvers first** — Shecan, Radar, Electro, 403.online, Begzar, AliDNS
+      and Yandex as IP-based DoH endpoints (filtering-proof), plus custom DoH/DoT
+    - **Clean-IP library for Iran** (`/api/ir-ips`) with a server-side scan button
     - **Subscriptions for every client** — `/sub`, `/sub64` (base64), `/clash`
       (Mihomo/Clash Meta YAML with DNS + Iran-direct rules), `/singbox`
       (sing-box / Hiddify JSON), `/all` (everything in one JSON)
@@ -53,15 +66,19 @@ combining one-tap connectivity with all the tools Iranian users need.
       (server = any CF edge IP, SNI stays the panel host), optional `REMOTE` wss
       relay for full-TCP mode, panel password, `warp://` link
 - 🛰️ **Scanner tab — clean-IP scanner (SNI + fronting)** — built-in Cloudflare,
-  Gcore and Fastly ranges + custom CIDR/IP input; TLS-pings every candidate with
-  your panel SNI and shows **live progress (`done/total (pct%) · best N ms`)** while
-  the results stream in; one tap applies the fastest IP as a fronting endpoint
-  (SNI/Host stay the panel domain) and reconnects live
+  Gcore and Fastly ranges, the **Iran clean-IP library** and custom CIDR/IP input;
+  every candidate is probed in **two stages** (TCP connect, then TLS + `/cdn-cgi/trace`
+  with your SNI) so you always get results, each row is badged **TLS ✓ / TCP**, and
+  **live progress (`done/total (pct%) · best N ms`)** streams in while the scan runs;
+  one tap applies the fastest IP as a fronting endpoint and reconnects live
 - 📈 **Home usage graph** — the dashboard draws the selected subscription's quota as a
   download/upload bar (used ‎%, remainder, days to expiry) from the panel's
   `subscription-userinfo` header, refreshed on every state change
 - 🌍 **Live globe + country detection** — shows connected IP, country name + flag, ISP and ping on the dashboard with an animated arc from Iran to the destination
 - 📲 **Rich notification** — live up/down speed, connected config name, ping, country flag
+- ⚡ **Fast connects inside Iran** — DNS bootstrap on IP-based Iranian resolvers
+  (Shecan / Radar / Electro / AliDNS), `tcp-concurrent`, selector caching, so the
+  first connect no longer waits on a blocked DoH round-trip
 - 🔤 **Bilingual**: full Persian (فارسی) and English with RTL
 - 🧭 **Quick-settings tile + home-screen widget**
 - 🚫 **Zero tracking** — no Firebase / third-party analytics.

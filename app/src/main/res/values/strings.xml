@@ -393,6 +393,8 @@
     <string name="free_fetch">Fetch configs</string>
     <string name="free_test_ping">Ping test</string>
     <string name="free_import_all">Import all</string>
+    <string name="free_loading_tunnel">Fetching through your tunnel…</string>
+    <string name="free_from_cache">Showing the last fetched list (saved on this device).</string>
     <string name="free_idle">Tap “Fetch configs” to pull the latest free configs from every source, then “Ping test” to keep only the fast ones.</string>
     <string name="free_progress">Fetching %1$s (%2$d/%3$d sources)…</string>
     <string name="free_loaded">%1$d unique configs loaded.</string>
@@ -417,6 +419,8 @@
     <string name="free_qr_copy">Copy link</string>
     <string name="free_qr_next">Next QR</string>
     <string name="free_qr_all">QR for every fetched config</string>
+    <string name="home_ping_label">Ping</string>
+    <string name="home_uptime_label">Session time</string>
     <string name="home_usage_title">Subscription usage</string>
     <string name="home_usage_empty">No quota reported yet. Open the Subscriptions tab and refresh a panel that sends usage headers.</string>
     <string name="home_usage_download">Download %1$s</string>
@@ -484,6 +488,7 @@
     <string name="scanner_progress">%1$d/%2$d tested (%3$d%%) · best %4$d ms</string>
     <string name="scanner_progress_empty">%1$d/%2$d tested (%3$d%%)</string>
     <string name="scanner_stopped">Scan stopped.</string>
+    <string name="scanner_done_detailed">%1$d reachable IPs · %2$d passed TLS check</string>
     <string name="scanner_done">Found %1$d reachable IPs (sorted by ping).</string>
     <string name="scanner_no_results">No reachable IP found. Try another SNI or add a CIDR range.</string>
     <string name="scanner_results_section">Results</string>

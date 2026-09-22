@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Base64
@@ -55,7 +57,11 @@ object FreeConfigs {
         val sourcesFailed: List<String>,
     )
 
-    /** raw.githubusercontent + three mirrors that usually survive Iranian ISPs. */
+    /**
+     * Raw GitHub plus the mirror chain that survives Iranian ISPs. raw.githubusercontent
+     * is regularly blocked, so every jsDelivr edge, two GitHub proxies and two
+     * git mirrors are queued; the first one that answers wins.
+     */
     private fun githubSource(
         id: String,
         nameEn: String,
@@ -67,10 +73,20 @@ object FreeConfigs {
         limit: Int = 250,
     ): FreeSource {
         val raw = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-        val dotted = "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$path"
-        val proxied = "https://ghproxy.net/$raw"
-        val mirrored = "https://raw.gitmirror.com/$owner/$repo/$branch/$path"
-        return FreeSource(id, nameEn, nameFa, listOf(raw, dotted, proxied, mirrored), limit)
+        val mirrors = listOf(
+            "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://fastly.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://gcore.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://testingcf.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://cdn.statically.io/gh/$owner/$repo/$branch/$path",
+            "https://raw.githack.com/$owner/$repo/$branch/$path",
+            "https://ghproxy.net/$raw",
+            "https://gh-proxy.com/$raw",
+            "https://ghfast.top/$raw",
+            "https://raw.gitmirror.com/$owner/$repo/$branch/$path",
+            "https://raw.githubusercontent.com".let { raw },
+        )
+        return FreeSource(id, nameEn, nameFa, mirrors.distinct(), limit)
     }
 
     /**
@@ -136,6 +152,7 @@ object FreeConfigs {
     suspend fun fetchAll(
         context: Context,
         baseUrl: String = DEFAULT_FREEVLESSNODE_BASE,
+        useTunnel: Boolean = false,
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): FetchReport = withContext(Dispatchers.IO) {
         val all = linkedMapOf<String, FreeEntry>()
@@ -144,7 +161,7 @@ object FreeConfigs {
         val list = sources(baseUrl)
         list.forEachIndexed { index, source ->
             onProgress?.invoke(source.nameFa, index, list.size)
-            val text = fetchFirstWorking(source.urls)
+            val text = fetchFirstWorking(source.urls, useTunnel)
             if (text == null) {
                 failed += source.nameFa
                 return@forEachIndexed
@@ -171,9 +188,53 @@ object FreeConfigs {
         FetchReport(all.values.toList(), ok, failed)
     }
 
-    private fun fetchFirstWorking(urls: List<String>): String? {
+    private val cacheFile = "free-configs-cache.json"
+
+    /** Remembers the last successful fetch so the tab has content offline. */
+    fun loadCache(context: Context): FetchReport? {
+        val file = java.io.File(context.filesDir, cacheFile)
+        if (!file.isFile) return null
+        return runCatching {
+            val root = org.json.JSONObject(file.readText())
+            val entries = root.optJSONArray("entries") ?: return null
+            val list = ArrayList<FreeEntry>(entries.length())
+            for (index in 0 until entries.length()) {
+                val item = entries.getJSONObject(index)
+                list += FreeEntry(
+                    link = item.optString("link"),
+                    tag = item.optString("tag"),
+                    sourceId = item.optString("sourceId"),
+                    sourceNameFa = item.optString("sourceNameFa"),
+                    protocol = item.optString("protocol"),
+                    host = item.optString("host"),
+                )
+            }
+            FetchReport(list.filter { it.link.isNotBlank() }, emptyList(), emptyList())
+        }.getOrNull()
+    }
+
+    fun saveCache(context: Context, report: FetchReport) {
+        runCatching {
+            val entries = org.json.JSONArray()
+            report.entries.take(600).forEach { entry ->
+                entries.put(
+                    org.json.JSONObject()
+                        .put("link", entry.link)
+                        .put("tag", entry.tag)
+                        .put("sourceId", entry.sourceId)
+                        .put("sourceNameFa", entry.sourceNameFa)
+                        .put("protocol", entry.protocol)
+                        .put("host", entry.host),
+                )
+            }
+            val payload = org.json.JSONObject().put("savedAt", System.currentTimeMillis()).put("entries", entries)
+            java.io.File(context.filesDir, cacheFile).writeText(payload.toString())
+        }
+    }
+
+    private fun fetchFirstWorking(urls: List<String>, useTunnel: Boolean): String? {
         for (url in urls) {
-            val body = runCatching { fetchUrl(url) }.getOrNull()
+            val body = runCatching { fetchUrl(url, useTunnel) }.getOrNull()
             if (!body.isNullOrBlank()) return body
         }
         return null
@@ -219,8 +280,16 @@ object FreeConfigs {
         return host.ifBlank { protocolOf(link) }
     }
 
-    private fun fetchUrl(url: String): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
+    private fun fetchUrl(url: String, useTunnel: Boolean = false): String {
+        val conn = if (useTunnel) {
+            // Fetch through the running core: inside Iran the mirrors are often
+            // blocked directly but reachable once any config is connected.
+            URL(url).openConnection(
+                Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT)),
+            ) as HttpURLConnection
+        } else {
+            URL(url).openConnection() as HttpURLConnection
+        }
         conn.connectTimeout = 9_000
         conn.readTimeout = 12_000
         conn.instanceFollowRedirects = true

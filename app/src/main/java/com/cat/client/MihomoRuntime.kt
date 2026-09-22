@@ -306,8 +306,9 @@ enum class DnsPrivacyMode(val wireName: String, val labelRes: Int) {
 }
 
 object DnsPrivacyPolicy {
-    const val DEFAULT_DOH_URL = "https://1.1.1.1/dns-query"
-    const val DEFAULT_DOT_ENDPOINT = "tls://1.1.1.1:853"
+    /** Shecan's IP-based DoH endpoint: resolvable and reachable from inside Iran. */
+    const val DEFAULT_DOH_URL = "https://178.22.122.100/dns-query"
+    const val DEFAULT_DOT_ENDPOINT = "tls://178.22.122.100:853"
 
     fun normalizeDohUrl(value: String): String {
         val input = value.trim()
@@ -742,10 +743,9 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 DnsPrivacyMode.DoH -> listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl))
                 DnsPrivacyMode.DoT -> listOf(DnsPrivacyPolicy.normalizeDotEndpoint(dotEndpoint))
             }
-            val bootstrapServers = when (dnsPrivacyMode) {
-                DnsPrivacyMode.Automatic, DnsPrivacyMode.DoH -> DOH_SERVERS
-                DnsPrivacyMode.DoT -> DOT_SERVERS
-            }
+            // Bootstrap (default-nameserver) must answer without any dependency on
+            // a working tunnel, so plain-IP DNS is used instead of DoH URLs.
+            val bootstrapServers = PLAIN_BOOTSTRAP_SERVERS
             return buildString {
                 if (subscriptionYaml.isNotBlank()) {
                     append(subscriptionYaml.trimEnd())
@@ -794,6 +794,14 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 append("ipv6: false\n")
                 append("unified-delay: true\n")
                 append("global-client-fingerprint: chrome\n")
+                // Faster session bring-up: dial proxies in parallel and keep the
+                // selector cache so a reconnect skips the delay test entirely.
+                append("tcp-concurrent: true\n")
+                append("find-process-mode: off\n")
+                append("keep-alive-interval: 30\n")
+                append("profile:\n")
+                append("  store-selected: true\n")
+                append("  store-fake-ip: true\n")
                 append("dns:\n")
                 append("  enable: true\n")
                 // Loopback only: `allow-lan: false` gates the proxy listeners but not this one, so
@@ -877,6 +885,10 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             "ipv6",
             "unified-delay",
             "global-client-fingerprint",
+            "tcp-concurrent",
+            "find-process-mode",
+            "keep-alive-interval",
+            "profile",
             "dns",
             "tun",
             // Android installs bundled geodata; subscriptions cannot start native updaters.
@@ -888,13 +900,35 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
         private const val IRAN_RULESET_URL =
             "https://github.com/ygbkm/clash-rules-iran/releases/latest/download/rules.txt"
 
+        /**
+         * Resolver order matters: Iranian ISPs drop plain queries to foreign
+         * resolvers, so the IP-based Iranian endpoints come first and only then
+         * the international ones. This is the difference between a lookup that
+         * resolves in ~20 ms and a connect that hangs for ten seconds.
+         */
         private val DOH_SERVERS = listOf(
+            "https://178.22.122.100/dns-query",   // Shecan
+            "https://10.202.10.10/dns-query",     // Radar
+            "https://78.157.42.100/dns-query",    // Electro
+            "https://223.5.5.5/dns-query",        // AliDNS (usually reachable)
             "https://1.1.1.1/dns-query",
             "https://8.8.8.8/dns-query",
         )
         private val DOT_SERVERS = listOf(
+            "tls://178.22.122.100:853",
+            "tls://10.202.10.10:853",
+            "tls://78.157.42.100:853",
             "tls://1.1.1.1:853",
             "tls://8.8.8.8:853",
+        )
+        /** Plain-UDP resolvers used before the DoH bootstrap is up. */
+        private val PLAIN_BOOTSTRAP_SERVERS = listOf(
+            "178.22.122.100",
+            "10.202.10.10",
+            "78.157.42.100",
+            "223.5.5.5",
+            "1.1.1.1",
+            "8.8.8.8",
         )
         private val LAN_ALLOWED_IPS = listOf(
             "127.0.0.0/8",
