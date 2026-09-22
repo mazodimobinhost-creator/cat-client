@@ -65,14 +65,14 @@ class MihomoRuntimeConfigBuilderTest {
 
         assertEquals(
             listOf(
-                "https://valid-isrgrootx1.letsencrypt.org/",
                 "https://connectivitycheck.gstatic.com/generate_204",
                 "https://cloudflare.com/cdn-cgi/trace",
+                "https://valid-isrgrootx1.letsencrypt.org/",
             ),
             TlsIntegrityPolicy.TEST_URLS,
         )
         assertEquals(TlsIntegrityPolicy.TEST_URLS, MihomoRuntimeDefaults.HEALTH_URLS)
-        assertEquals("https://valid-isrgrootx1.letsencrypt.org/", MihomoRuntimeDefaults.HEALTH_URL)
+        assertEquals("https://connectivitycheck.gstatic.com/generate_204", MihomoRuntimeDefaults.HEALTH_URL)
         assertEquals(2_000, TlsIntegrityPolicy.PROBE_TIMEOUT_MS)
         assertEquals(7_000L, TlsIntegrityPolicy.TOTAL_TIMEOUT_MS)
         assertEquals("104.16.0.1:443", TlsIntegrityPolicy.endpointKey(endpoint))

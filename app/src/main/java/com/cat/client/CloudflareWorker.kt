@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
+import java.util.UUID
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -23,6 +25,21 @@ object CloudflareWorker {
 
     const val REPO_URL = "https://github.com/mazodimobinhost-creator/cat-client"
     const val WORKER_ASSET_PATH = "panels/catclient.worker.js"
+    const val WIZARD_ASSET_PATH = "panels/catclient.wizard.js"
+
+    /**
+     * Cloudflare "API token template" URL: opens dash.cloudflare.com with the exact
+     * permissions pre-selected (Workers Scripts edit, Workers KV edit, Account Settings
+     * read, User Details read). The user only taps Continue to summary → Create Token.
+     * https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
+     */
+    const val CF_TOKEN_TEMPLATE_URL =
+        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" +
+            "%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C" +
+            "%7B%22key%22%3A%22user_details%22%2C%22type%22%3A%22read%22%7D%5D" +
+            "&accountId=*&zoneId=all&name=Cat%20Panel"
 
     enum class DeployKind {
         /** We upload a JS module to Workers for this panel via API directly. */
@@ -337,6 +354,55 @@ object CloudflareWorker {
         context.assets.open(WORKER_ASSET_PATH).bufferedReader().use { it.readText() }
     }.getOrDefault(MINIMAL_WORKER_SCRIPT)
 
+    /** Bundled Cat Wizard worker source (one-click installer page for friends). */
+    fun builtInWizardScript(context: Context): String? = runCatching {
+        context.assets.open(WIZARD_ASSET_PATH).bufferedReader().use { it.readText() }
+    }.getOrNull()
+
+    data class WizardDeploymentResult(
+        val workerName: String,
+        val wizardUrl: String,
+        val verifiedOnline: Boolean,
+    )
+
+    /**
+     * Deploy the Cat Wizard on the user's account. Anyone who opens the resulting URL
+     * can install their own Cat Panel with their own token (nothing is shared).
+     * Optional [inviteCode] locks the wizard (WIZARD_PASSWORD secret binding).
+     */
+    suspend fun deployWizard(
+        context: Context,
+        token: String,
+        accountId: String,
+        workerName: String = "cat-wizard",
+        inviteCode: String = "",
+    ): WizardDeploymentResult = withContext(Dispatchers.IO) {
+        val script = builtInWizardScript(context)
+            ?: throw RuntimeException("wizard asset missing from the APK")
+        val subdomain = resolveWorkersSubdomain(token, accountId)
+        val wizardUrl = "https://$workerName.$subdomain.workers.dev"
+        val uploadUrl =
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+        val secrets = if (inviteCode.isBlank()) emptyMap() else mapOf("WIZARD_PASSWORD" to inviteCode)
+        val putResult = cfUploadWorker(token, uploadUrl, script, uuid = "", kvNamespaceId = null, secrets = secrets)
+        if (!putResult.optBoolean("success", false)) {
+            val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
+            throw RuntimeException("Wizard upload failed: $errors")
+        }
+        runCatching {
+            cfPost(
+                token,
+                "$uploadUrl/subdomain",
+                JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
+            )
+        }
+        WizardDeploymentResult(
+            workerName = workerName,
+            wizardUrl = wizardUrl,
+            verifiedOnline = smokeTestPanel(wizardUrl),
+        )
+    }
+
     data class CfTokenPermissions(
         val valid: Boolean,
         val accountId: String?,
@@ -350,6 +416,9 @@ object CloudflareWorker {
         val subscriptionUrl: String,
         val workerUrl: String,
         val verifiedOnline: Boolean,
+        val uuid: String = "",
+        val panelUrl: String = workerUrl,
+        val kvBound: Boolean = false,
     )
 
     suspend fun verifyToken(token: String): CfTokenPermissions = withContext(Dispatchers.IO) {
@@ -377,27 +446,64 @@ object CloudflareWorker {
     ): DeploymentResult = withContext(Dispatchers.IO) {
         // 1. Account workers.dev subdomain: read it, create it when missing.
         val subdomain = resolveWorkersSubdomain(token, accountId)
+        val workerUrl = "https://$workerName.$subdomain.workers.dev"
 
-        // 2. Upload the worker module (multipart: metadata JSON + worker.js).
+        // 2. Keep the UUID stable across re-deploys (it is the sub secret AND the panel password).
+        val uuid = PanelDeploymentStore(context).uuidFor(workerUrl)
+
+        // 3. KV namespace so users / clean IPs / ports survive restarts (optional: token may lack the scope).
+        val kvId = runCatching { ensureKvNamespace(token, accountId, "${workerName}-catpanel") }.getOrNull()
+
+        // 4. Upload the worker module (multipart: metadata JSON + worker.js).
         val script = builtInWorkerScript(context)
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
-        val putResult = cfUploadWorker(token, uploadUrl, script)
+        val putResult = cfUploadWorker(token, uploadUrl, script, uuid, kvId)
         if (!putResult.optBoolean("success", false)) {
             val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
             throw RuntimeException("Worker upload failed: $errors")
         }
 
-        // 3. Smoke-test the live panel (workers.dev propagation takes a few seconds).
-        val workerUrl = "https://$workerName.$subdomain.workers.dev"
-        val verifiedOnline = smokeTestPanel(workerUrl)
+        // 5. Make sure the workers.dev route is enabled for this script.
+        runCatching {
+            cfPost(
+                token,
+                "$uploadUrl/subdomain",
+                JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
+            )
+        }
+
+        // 6. Smoke-test the live panel (workers.dev propagation takes a few seconds).
+        val verifiedOnline = smokeTestPanel(workerUrl, uuid)
         DeploymentResult(
             workerName = workerName,
             subdomain = subdomain,
             workerUrl = workerUrl,
-            subscriptionUrl = "$workerUrl/sub",
+            subscriptionUrl = "$workerUrl/sub/$uuid",
             verifiedOnline = verifiedOnline,
+            uuid = uuid,
+            panelUrl = "$workerUrl/?p=$uuid",
+            kvBound = kvId != null,
         )
+    }
+
+    /** Find (by title) or create the KV namespace used by the panel; returns its id. */
+    private fun ensureKvNamespace(token: String, accountId: String, title: String): String {
+        val base = "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces"
+        val listing = cfGet(token, "$base?per_page=100")
+        val existing = listing.optJSONArray("result")
+        if (existing != null) {
+            for (i in 0 until existing.length()) {
+                val ns = existing.getJSONObject(i)
+                if (ns.optString("title") == title) return ns.getString("id")
+            }
+        }
+        val created = cfPost(token, base, JSONObject().put("title", title).toString())
+        val id = created.optJSONObject("result")?.optString("id").orEmpty()
+        if (id.isBlank()) {
+            throw RuntimeException("KV namespace create failed: ${created.optJSONArray("errors")}")
+        }
+        return id
     }
 
     /** GET the account subdomain; create one when the account has none yet. */
@@ -431,20 +537,35 @@ object CloudflareWorker {
         return (1..length).map { alphabet.random() }.joinToString("")
     }
 
-    /** Poll the deployed panel's /health endpoint; true when it answers {"ok":true}. */
-    private fun smokeTestPanel(workerUrl: String, attempts: Int = 5, delayMs: Long = 2_500L): Boolean {
+    /** Poll health and, for Cat Panel deployments, verify the UUID subscription too. */
+    private fun smokeTestPanel(
+        workerUrl: String,
+        uuid: String = "",
+        attempts: Int = 5,
+        delayMs: Long = 2_500L,
+    ): Boolean {
         for (i in 0 until attempts) {
             val ok = runCatching {
-                val conn = (URL("$workerUrl/health").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 8_000
-                    readTimeout = 8_000
-                    setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                fun get(path: String): Pair<Int, String> {
+                    val conn = (URL(workerUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8_000
+                        readTimeout = 8_000
+                        setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                    }
+                    val code = conn.responseCode
+                    val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    return code to body
                 }
-                val code = conn.responseCode
-                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
-                code == 200 && body.contains("\"ok\":true")
+                val health = get("/health")
+                if (health.first != 200 || !health.second.contains("\"ok\":true")) return@runCatching false
+                if (uuid.isBlank()) true
+                else {
+                    val subscription = get("/sub/" + uuid + "?raw=1")
+                    subscription.first == 200 &&
+                        (subscription.second.contains("vless://") || subscription.second.contains("trojan://"))
+                }
             }.getOrDefault(false)
             if (ok) return true
             if (i < attempts - 1) Thread.sleep(delayMs)
@@ -468,6 +589,22 @@ object CloudflareWorker {
             .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
     }
 
+    private fun cfPost(token: String, url: String, jsonBody: String): JSONObject {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 20_000
+            readTimeout = 20_000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Content-Type", "application/json")
+        }
+        conn.outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        return runCatching { JSONObject(body) }.getOrDefault(JSONObject().put("success", code in 200..299))
+    }
+
     private fun cfPut(token: String, url: String, jsonBody: String): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
@@ -485,7 +622,31 @@ object CloudflareWorker {
             .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
     }
 
-    private fun cfUploadWorker(token: String, url: String, script: String): JSONObject {
+    private fun cfUploadWorker(
+        token: String,
+        url: String,
+        script: String,
+        uuid: String = "",
+        kvNamespaceId: String? = null,
+        secrets: Map<String, String> = emptyMap(),
+    ): JSONObject {
+        val bindings = JSONArray()
+        if (uuid.isNotBlank()) {
+            bindings.put(JSONObject().put("type", "plain_text").put("name", "UUID").put("text", uuid))
+        }
+        for ((name, value) in secrets) {
+            bindings.put(JSONObject().put("type", "secret_text").put("name", name).put("text", value))
+        }
+        if (!kvNamespaceId.isNullOrBlank()) {
+            bindings.put(
+                JSONObject().put("type", "kv_namespace").put("name", "CAT_KV").put("namespace_id", kvNamespaceId),
+            )
+        }
+        val metadata = JSONObject()
+            .put("main_module", "worker.js")
+            .put("bindings", bindings)
+            .put("compatibility_date", "2025-03-04")
+            .put("compatibility_flags", JSONArray().put("nodejs_compat"))
         val boundary = "----catclient${System.currentTimeMillis()}"
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
@@ -500,7 +661,7 @@ object CloudflareWorker {
             w.write("--$boundary\r\n")
             w.write("Content-Disposition: form-data; name=\"metadata\"\r\n")
             w.write("Content-Type: application/json\r\n\r\n")
-            w.write("{\"main_module\":\"worker.js\",\"bindings\":[],\"compatibility_date\":\"2025-03-04\"}\r\n")
+            w.write(metadata.toString() + "\r\n")
             w.write("--$boundary\r\n")
             w.write("Content-Disposition: form-data; name=\"worker.js\"; filename=\"worker.js\"\r\n")
             w.write("Content-Type: application/javascript+module\r\n\r\n")
@@ -520,7 +681,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const host = request.headers.get('Host') || '';
-    if (url.pathname === '/sub') {
+    if (url.pathname.startsWith('/sub')) {
       const uuid = env.UUID || crypto.randomUUID();
       const vless = `vless://${'$'}{uuid}@${'$'}{host}:443?encryption=none&security=tls&sni=${'$'}{host}&type=ws&path=%2Fws%3Fed%3D2048&host=${'$'}{host}#Cat-Client`;
       return new Response(vless + '\n', { headers: { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'subscription-userinfo': 'upload=0; download=0; total=1099511627776' } });
@@ -530,4 +691,100 @@ export default {
 };
 """
 
+}
+
+/** Remembers the UUID per deployed worker so re-deploys never rotate the secret. */
+data class PanelDeploymentRecord(
+    val workerUrl: String,
+    val uuid: String,
+    val createdAt: Long,
+) {
+    val panelUrl: String
+        get() = workerUrl.trimEnd('/') + "/?p=" + uuid
+}
+
+class PanelDeploymentStore(context: Context) {
+    private val prefs = context.getSharedPreferences("cat_client_panel_deploys", Context.MODE_PRIVATE)
+
+    fun uuidFor(workerUrl: String): String {
+        val normalized = workerUrl.trimEnd('/')
+        val key = "uuid:" + normalized.lowercase(Locale.US)
+        prefs.getString(key, null)?.takeIf { it.isNotBlank() }?.let { return it }
+
+        // Older app versions only kept last_url/last_uuid. Reuse that secret when
+        // upgrading, otherwise a harmless re-deploy silently invalidates every
+        // existing /sub/<uuid> link and the panel password at the same worker URL.
+        val legacyUrl = prefs.getString("last_url", null)?.trimEnd('/').orEmpty()
+        val legacyUuid = prefs.getString("last_uuid", null).orEmpty()
+        if (legacyUuid.isNotBlank() && legacyUrl.equals(normalized, ignoreCase = true)) {
+            prefs.edit().putString(key, legacyUuid).apply()
+            return legacyUuid
+        }
+
+        // The deployment history is another source of truth after an interrupted
+        // write of the per-worker key.
+        deployments().firstOrNull { it.workerUrl.equals(normalized, ignoreCase = true) }
+            ?.uuid?.takeIf { it.isNotBlank() }?.let { saved ->
+                prefs.edit().putString(key, saved).apply()
+                return saved
+            }
+
+        val fresh = UUID.randomUUID().toString()
+        prefs.edit().putString(key, fresh).apply()
+        return fresh
+    }
+
+    fun rememberLast(workerUrl: String, uuid: String) {
+        val normalized = workerUrl.trimEnd('/')
+        val history = deployments()
+            .filterNot { it.workerUrl == normalized }
+            .toMutableList()
+        history.add(0, PanelDeploymentRecord(normalized, uuid, System.currentTimeMillis()))
+        val encoded = JSONArray().apply {
+            history.take(8).forEach { item ->
+                put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt))
+            }
+        }
+        prefs.edit()
+            .putString("uuid:" + normalized.lowercase(Locale.US), uuid)
+            .putString("last_url", normalized)
+            .putString("last_uuid", uuid)
+            .putString("history", encoded.toString())
+            .apply()
+    }
+
+    fun deployments(): List<PanelDeploymentRecord> {
+        val raw = prefs.getString("history", null).orEmpty()
+        val parsed = runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val url = item.optString("url").trimEnd('/')
+                    val uuid = item.optString("uuid")
+                    if (url.isNotBlank() && uuid.isNotBlank()) {
+                        add(PanelDeploymentRecord(url, uuid, item.optLong("createdAt", 0L)))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+        if (parsed.isNotEmpty()) return parsed
+        // Migrate the single deployment saved by older Cat Client builds.
+        val legacyUrl = prefs.getString("last_url", null)?.trimEnd('/').orEmpty()
+        val legacyUuid = prefs.getString("last_uuid", null).orEmpty()
+        return if (legacyUrl.isNotBlank() && legacyUuid.isNotBlank()) {
+            listOf(PanelDeploymentRecord(legacyUrl, legacyUuid, 0L))
+        } else {
+            emptyList()
+        }
+    }
+
+    fun rememberWizard(url: String) {
+        prefs.edit().putString("last_wizard", url).apply()
+    }
+
+    fun lastWizardUrl(): String? = prefs.getString("last_wizard", null)
+
+    fun lastPanelUrl(): String? = prefs.getString("last_url", null)
+    fun lastUuid(): String? = prefs.getString("last_uuid", null)
 }

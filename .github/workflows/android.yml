@@ -44,7 +44,11 @@ jobs:
         run: |
           set -x
           yes | sdkmanager --licenses > sdk-licenses.log 2>&1 || true
-          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
+          # Two NDKs: the AGP default (27.x) is what the :app module's CMake build
+          # asks for, and 29.x is what scripts/build-flclash-core.sh targets via
+          # ANDROID_NDK. New runner images no longer preinstall 27.x, so install it
+          # here instead of letting AGP auto-download it mid-build.
+          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
             echo "=== sdkmanager --list (installed) ===" >> sdk-install.log
             sdkmanager --list_installed >> sdk-install.log 2>&1 || true
             tail -n 40 sdk-install.log
@@ -73,6 +77,13 @@ jobs:
         run: |
           keytool -genkeypair -v -keystore $RUNNER_TEMP/catclient.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
+
+      - name: Panel worker tests (data plane, subscriptions, auth)
+        run: |
+          node --version
+          node scripts/panels/cat-panel.test.mjs
+          node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/wizard.test.mjs
 
       - name: Pre-check Kotlin compile (fail fast)
         run: |
@@ -195,11 +206,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(date +%Y%m%d%H%M)"
+          APP_VERSION="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n1)"
+          APP_CODE="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -n1)"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG"
           git push origin "$TAG" || true
-          gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk \
-            --title "Cat Client $TAG" \
-            --notes "Automated Cat Client build. Signed release APKs per ABI (install app-release-arm64-v8a.apk on 64-bit devices; app-release-universal.apk contains all ABIs). Debug APKs included for testing. Built from ${GITHUB_SHA}." \
-            || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk --clobber
+          # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
+          cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk catclient.worker.js catclient.wizard.js \
+            --title "Cat Client v${APP_VERSION} ($TAG)" \
+            --notes "Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — purple/black/white redesign, Cat Panel v5 (location-aware configs, locked panel, in-panel scanner) and the Cat Wizard one-click installer (catclient.wizard.js attached).\n\n**Install**\n- 64-bit phones: app-arm64-v8a-release.apk\n- any device: app-universal-release.apk\n- Debug APKs are included for testing.\n\nBuilt from ${GITHUB_SHA}." \
+            || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk catclient.worker.js catclient.wizard.js --clobber

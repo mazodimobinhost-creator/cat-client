@@ -57,6 +57,8 @@ object ConnectionDetailsPresenter {
     fun forProfile(
         profile: ConnectionProfile,
         showServer: Boolean = false,
+        latencyMs: Long? = null,
+        frontingIp: String = "",
         stringFor: (Int) -> String = ::englishString,
     ): String {
         val normalizedType = profile.type.lowercase()
@@ -78,7 +80,15 @@ object ConnectionDetailsPresenter {
         }
         return buildList {
             add(stringFor(R.string.connection_detail_outbound).format(outbound))
-            if (showServer) add(truncateServer(profile.server))
+            latencyMs?.takeIf { it > 0L }?.let {
+                add(stringFor(R.string.connection_detail_ping).format(it))
+            }
+            val endpoint = frontingIp.takeIf { it.isNotBlank() }
+                ?: profile.server.takeIf { isIpLiteral(it) }
+            endpoint?.let {
+                add(stringFor(R.string.connection_detail_edge_ip).format(it))
+            }
+            if (showServer && profile.server != endpoint) add(truncateServer(profile.server))
             profile.amneziaNoise?.let {
                 add(stringFor(R.string.connection_detail_amnezia).format(it.count, it.minSize, it.maxSize))
             }
@@ -88,12 +98,22 @@ object ConnectionDetailsPresenter {
 
     private fun englishString(@StringRes id: Int): String = when (id) {
         R.string.connection_detail_outbound -> "%1\$s outbound"
+        R.string.connection_detail_ping -> "%1\$d ms"
+        R.string.connection_detail_edge_ip -> "edge %1\$s"
         R.string.connection_detail_ech_not_applicable -> "ECH not applicable"
         R.string.connection_detail_ech_unknown -> "ECH unknown"
         R.string.connection_detail_ech_enabled -> "ECH enabled"
         R.string.connection_detail_ech_disabled -> "ECH disabled"
         R.string.connection_detail_amnezia -> "Amnezia %1\$d×%2\$d–%3\$d B"
         else -> error("Unsupported connection detail string: $id")
+    }
+
+    private fun isIpLiteral(value: String): Boolean {
+        val normalized = value.trim().removePrefix("[").removeSuffix("]")
+        return normalized.contains(":") ||
+            normalized.split(".").let { parts ->
+                parts.size == 4 && parts.all { it.toIntOrNull()?.let { octet -> octet in 0..255 } == true }
+            }
     }
 
     private fun truncateServer(server: String, maxLength: Int = 24): String =
