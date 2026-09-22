@@ -81,6 +81,8 @@
     <string name="subscription_action_open_v2box">Open in V2Box</string>
     <string name="subscription_action_open_info">Usage page</string>
     <string name="subscription_share_failed">No app can receive this link.</string>
+    <string name="connection_share_unavailable">This connection has no shareable link.</string>
+    <string name="connection_share_hint">Long-press a connection to copy or share it</string>
     <string name="subscription_app_missing">%1$s is not installed — the link was copied instead.</string>
     <string name="subscription_name_hint">Subscription name</string>
     <string name="subscription_source_hint">URL, YAML, JSON, or proxy links</string>

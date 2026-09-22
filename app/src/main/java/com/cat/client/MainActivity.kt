@@ -1912,6 +1912,45 @@ class MainActivity : Activity() {
         }
     }
 
+    /* ---- share a single connection (long-press on a row) ---- */
+
+    /**
+     * Long-press menu on a connection row: copy / QR / share the `vless://`-style form of that one
+     * connection, so a single working config can be moved to v2rayNG, V2Box, Streisand, etc.
+     */
+    private fun showConnectionShareMenu(anchor: View, profile: ConnectionProfile) {
+        val link = profile.shareLink?.takeIf(String::isNotBlank)
+        if (link == null) {
+            Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        whiteDnsPopupMenu(anchor).apply {
+            menu.add(R.string.subscription_action_copy_link).setOnMenuItemClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", link))
+                Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                true
+            }
+            menu.add(R.string.subscription_action_qr).setOnMenuItemClickListener {
+                showConfigQrCodes(listOf(link), profile.tag)
+                true
+            }
+            menu.add(R.string.subscription_action_share).setOnMenuItemClickListener {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, profile.tag)
+                    putExtra(Intent.EXTRA_TEXT, link)
+                }
+                runCatching { startActivity(Intent.createChooser(send, profile.tag)) }
+                    .onFailure {
+                        Toast.makeText(this@MainActivity, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show()
+                    }
+                true
+            }
+            show()
+        }
+    }
+
     /* ---- share a remote subscription with other clients (v2rayNG / V2Box / …) ---- */
 
     private fun subscriptionLink(item: UserSubscription): String = item.input.trim()
@@ -6289,7 +6328,7 @@ class MainActivity : Activity() {
                     settings.timeoutSeconds,
                     settings.concurrency,
                     settings.speedTestMegabytes,
-                )
+                ) + (if (pageProfiles.any { it.shareLink != null }) " · " + getString(R.string.connection_share_hint) else "")
             }
             textSize = 12f
             typeface = CatClientDataTypeface
@@ -6848,6 +6887,12 @@ class MainActivity : Activity() {
                     }
                     closeConnectionTestingPage()
                 }
+                row.setOnLongClickListener {
+                    val target = profile ?: return@setOnLongClickListener false
+                    showConnectionShareMenu(row, target)
+                    true
+                }
+                row.isLongClickable = profile?.shareLink != null
                 return row
             }
         }

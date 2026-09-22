@@ -64,6 +64,11 @@ data class ConnectionProfile(
     val echEnabled: Boolean = false,
     val echCapable: Boolean = false,
     val amneziaNoise: AmneziaNoiseSettings? = null,
+    /**
+     * `vless://` / `trojan://` / … form of this connection for copying into other clients.
+     * Not part of [fingerprint] so adding it never invalidates cached delays or selections.
+     */
+    val shareLink: String? = null,
 ) {
     val cacheKey: String
         get() = listOf(fingerprint, type, port.toString(), validationHost.lowercase()).joinToString("|")

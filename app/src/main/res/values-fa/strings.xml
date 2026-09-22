@@ -82,6 +82,8 @@
     <string name="subscription_action_open_v2box">باز کردن در V2Box</string>
     <string name="subscription_action_open_info">صفحهٔ مصرف</string>
     <string name="subscription_share_failed">هیچ برنامه‌ای برای دریافت لینک پیدا نشد.</string>
+    <string name="connection_share_unavailable">این اتصال لینک قابل اشتراک‌گذاری ندارد.</string>
+    <string name="connection_share_hint">برای کپی یا اشتراک‌گذاری، روی اتصال نگه دارید</string>
     <string name="subscription_app_missing">%1$s نصب نیست — لینک به‌جایش کپی شد.</string>
     <string name="subscription_name_hint">نام سابسکریپشن</string>
     <string name="subscription_source_hint">URL، YAML، JSON یا لینک‌های پروکسی</string>
