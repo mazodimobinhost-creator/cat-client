@@ -603,10 +603,8 @@
     <string name="diagnostics_copy">Copy diagnostic report</string>
     <string name="diagnostics_share">Share diagnostic report</string>
     <string name="diagnostics_clear">Clear diagnostic report</string>
-    <string name="diagnostics_copied">Diagnostic report copied.</string>
     <string name="diagnostics_shared">Choose an app to send the diagnostic report.</string>
     <string name="diagnostics_cleared">Diagnostic report cleared.</string>
-    <string name="diagnostics_empty">No diagnostics have been recorded yet.</string>
     <string name="diagnostics_share_failed">Could not open the share sheet.</string>
     <string name="scanner_port_label">Probe port</string>
     <string name="scanner_port_hint">Use 443 first; 2053, 2083 and 8443 can work when an ISP treats ports differently.</string>

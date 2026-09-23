@@ -602,10 +602,8 @@
     <string name="diagnostics_copy">کپی گزارش عیب‌یابی</string>
     <string name="diagnostics_share">اشتراک‌گذاری گزارش عیب‌یابی</string>
     <string name="diagnostics_clear">پاک کردن گزارش عیب‌یابی</string>
-    <string name="diagnostics_copied">گزارش عیب‌یابی کپی شد.</string>
     <string name="diagnostics_shared">برنامهٔ دریافت‌کنندهٔ گزارش را انتخاب کنید.</string>
     <string name="diagnostics_cleared">گزارش عیب‌یابی پاک شد.</string>
-    <string name="diagnostics_empty">هنوز گزارشی ثبت نشده است.</string>
     <string name="diagnostics_share_failed">باز کردن پنجرهٔ اشتراک‌گذاری ممکن نشد.</string>
     <string name="scanner_port_label">پورت تست</string>
     <string name="scanner_port_hint">اول ۴۴۳ را امتحان کن؛ ۲۰۵۳، ۲۰۸۳ و ۸۴۴۳ گاهی با اپراتور متفاوت بهتر جواب می‌دهند.</string>
