@@ -323,9 +323,9 @@ class ConnectionGlobeView(context: Context) : View(context) {
         val lonRad = Math.toRadians((lon + rotation).toDouble())
         val latRad = Math.toRadians(lat.toDouble())
         val cosLat = cos(latRad)
-        val x = sin(lonRad) * cosLat
-        val depth = cos(lonRad) * cosLat
-        val y = -sin(latRad)
+        val x = (sin(lonRad) * cosLat).toFloat()
+        val depth = (cos(lonRad) * cosLat).toFloat()
+        val y = (-sin(latRad)).toFloat()
         return Projection(radius * x, radius * y * .82f, depth)
     }
 
