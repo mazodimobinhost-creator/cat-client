@@ -147,7 +147,11 @@ jobs:
           fi
           set -e
           if [[ "$STATUS" != "0" ]]; then
-            grep -nE "^e: " kotlin-precheck.log | head -n 40 || true
+            # Promote compiler diagnostics to GitHub annotations so they remain
+            # visible even when the raw Actions log service is unavailable.
+            grep -nE "^e: " kotlin-precheck.log | head -n 40 | while IFS= read -r line; do
+              printf '::error title=Kotlin compile::%s\n' "$line"
+            done
             exit "$STATUS"
           fi
 
