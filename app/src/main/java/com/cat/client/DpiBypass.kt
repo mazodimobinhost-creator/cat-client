@@ -41,13 +41,23 @@ object ByeDpiProxy {
     private external fun jniStopProxy(): Int
 }
 
+/**
+ * Opt-in TLS fragmenting (ByeDPI) — the "Fragment" trick the panel recommends when the
+ * worker's SNI is filtered: the ClientHello is split/disordered before it leaves
+ * the phone so DPI cannot read the SNI. Off by default; the VPN service falls
+ * back to a direct dial automatically if the local proxy fails to start.
+ */
 class DpiBypassPreferenceStore(context: Context) {
-    init {
-        context.getSharedPreferences("cat_client_dpi_bypass", Context.MODE_PRIVATE)
-            .edit()
-            .remove("enabled")
-            .apply()
+    private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+
+    fun isEnabled(): Boolean = preferences.getBoolean(KEY_ENABLED, false)
+
+    fun saveEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    fun isEnabled(): Boolean = false
+    private companion object {
+        const val PREFERENCES = "cat_client_dpi_bypass"
+        const val KEY_ENABLED = "enabled"
+    }
 }

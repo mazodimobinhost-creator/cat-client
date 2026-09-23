@@ -80,7 +80,7 @@ static void free_args(char **argv, int argc) {
     free(argv);
 }
 
-extern "C" int whitedns_byedpi_protect_fd(int fd) {
+extern "C" int catclient_byedpi_protect_fd(int fd) {
     jobject protect_interface = nullptr;
     jmethodID protect_method = nullptr;
     {
@@ -99,7 +99,7 @@ extern "C" int whitedns_byedpi_protect_fd(int fd) {
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_whitedns_vpn_ByeDpiProxy_jniStartProxy(JNIEnv *env, jobject thiz, jobjectArray args, jobject protect) {
+Java_com_cat_client_ByeDpiProxy_jniStartProxy(JNIEnv *env, jobject thiz, jobjectArray args, jobject protect) {
     if (args == nullptr || protect == nullptr) return -1;
 
     const auto protect_class = env->GetObjectClass(protect);
@@ -142,7 +142,7 @@ Java_com_whitedns_vpn_ByeDpiProxy_jniStartProxy(JNIEnv *env, jobject thiz, jobje
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_whitedns_vpn_ByeDpiProxy_jniStopProxy(JNIEnv *env, jobject thiz) {
+Java_com_cat_client_ByeDpiProxy_jniStopProxy(JNIEnv *env, jobject thiz) {
     bool running = false;
     {
         const std::lock_guard<std::mutex> lock(g_proxy_mutex);

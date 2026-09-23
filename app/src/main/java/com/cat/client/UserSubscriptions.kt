@@ -468,6 +468,7 @@ class UserSubscriptionManager(
     context: Context,
     private val store: SubscriptionStore = SubscriptionStore(context),
 ) {
+    private val appContext = context.applicationContext
     private val snapshots = SubscriptionSnapshotResolver(
         persistence = AndroidSubscriptionSnapshotAdapter(context, store),
     )
@@ -536,7 +537,12 @@ class UserSubscriptionManager(
     fun cachedSnapshot(id: String): MihomoSubscriptionSnapshot? = snapshots.cached(id)
 
     private suspend fun compile(input: String): CompiledSubscription {
-        val content = SubscriptionSourceLoader.load(userSubscriptionSource(input))
-        return SubscriptionCompiler.compile(content, System.currentTimeMillis())
+        val loaded = SubscriptionSourceLoader.loadDetailed(userSubscriptionSource(input))
+        // Panels (Cat Panel included) report quota through this header; keep the
+        // latest numbers per Subscription Source so the list can show usage.
+        SubscriptionUsagePolicy.parse(loaded.usageHeader)?.let { usage ->
+            SubscriptionUsageStore(appContext).save(input, usage)
+        }
+        return SubscriptionCompiler.compile(loaded.content, System.currentTimeMillis())
     }
 }

@@ -64,7 +64,16 @@ data class ConnectionProfile(
     val echEnabled: Boolean = false,
     val echCapable: Boolean = false,
     val amneziaNoise: AmneziaNoiseSettings? = null,
+    /**
+     * `vless://` / `trojan://` / … form of this connection for copying into other clients.
+     * Not part of [fingerprint] so adding it never invalidates cached delays or selections.
+     */
+    val shareLink: String? = null,
 ) {
+    /** Location-first label shown in the app; [tag] remains the runtime selector name. */
+    val displayTag: String
+        get() = ConnectionLabelPolicy.displayName(this)
+
     val cacheKey: String
         get() = listOf(fingerprint, type, port.toString(), validationHost.lowercase()).joinToString("|")
 

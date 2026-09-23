@@ -129,7 +129,7 @@ object GitHubReleaseClient {
             val version = AppUpdatePolicy.normalizedVersion(tag)
             if (version.isEmpty() || tag != tag.trim()) throw IOException("GitHub release version is invalid")
             val releaseUrl = response.getString("html_url")
-            val apkName = variant?.let { "Cat Client-V$version-${it.suffix}.apk" }
+            val apkName = variant?.let { "CatClient-V$version-${it.suffix}.apk" }
             val assets = response.getJSONArray("assets")
             val selected = mutableMapOf<String, ReleaseAsset?>()
             for (index in 0 until assets.length()) {
@@ -165,9 +165,9 @@ object GitHubReleaseClient {
         if (version.isEmpty() || release.version != release.version.trim()) {
             throw IOException("GitHub release version is invalid")
         }
-        requireRepositoryUrl(release.url, "/CatClient/Cat Client/releases/tag/${release.version}")
+        requireRepositoryUrl(release.url, "/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/tag/${release.version}")
         for ((asset, expectedName) in listOf(
-            release.apk to variant?.let { "Cat Client-V$version-${it.suffix}.apk" },
+            release.apk to variant?.let { "CatClient-V$version-${it.suffix}.apk" },
             release.checksums to "SHA256SUMS",
         )) {
             if (asset == null) continue
@@ -179,7 +179,7 @@ object GitHubReleaseClient {
     }
 
     internal fun requireAssetUrl(url: String, tag: String, name: String) {
-        requireRepositoryUrl(url, "/CatClient/Cat Client/releases/download/$tag/$name")
+        requireRepositoryUrl(url, "/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/download/$tag/$name")
     }
 
     private fun positiveLong(json: JSONObject, key: String): Long {
@@ -255,6 +255,8 @@ object GitHubReleaseClient {
         throw IOException("GitHub release redirected too many times")
     }
 
+    private const val GITHUB_OWNER = "mazodimobinhost-creator"
+    private const val GITHUB_REPOSITORY = "cat-client"
     private const val LATEST_RELEASE_URL =
-        "https://api.github.com/repos/CatClient/Cat Client/releases/latest"
+        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest"
 }

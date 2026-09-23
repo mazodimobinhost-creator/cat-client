@@ -44,7 +44,11 @@ jobs:
         run: |
           set -x
           yes | sdkmanager --licenses > sdk-licenses.log 2>&1 || true
-          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
+          # Two NDKs: the AGP default (27.x) is what the :app module's CMake build
+          # asks for, and 29.x is what scripts/build-flclash-core.sh targets via
+          # ANDROID_NDK. New runner images no longer preinstall 27.x, so install it
+          # here instead of letting AGP auto-download it mid-build.
+          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
             echo "=== sdkmanager --list (installed) ===" >> sdk-install.log
             sdkmanager --list_installed >> sdk-install.log 2>&1 || true
             tail -n 40 sdk-install.log
@@ -69,10 +73,63 @@ jobs:
             app/src/main/cpp/includes
           key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch') }}
 
-      - name: Generate debug keystore
+      - name: Read app version
+        id: app_version
         run: |
-          keytool -genkeypair -v -keystore $RUNNER_TEMP/catclient.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
+          set -euo pipefail
+          version="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n 1)"
+          code="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -n 1)"
+          [[ -n "$version" && -n "$code" ]] || { echo "Cannot read app version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release signing
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.CATCLIENT_RELEASE_KEYSTORE_B64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.CATCLIENT_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.CATCLIENT_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.CATCLIENT_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/catclient-release.jks"
+          configured_count=0
+          for value in "$RELEASE_KEYSTORE_B64" "$RELEASE_STORE_PASSWORD" "$RELEASE_KEY_ALIAS" "$RELEASE_KEY_PASSWORD"; do
+            [[ -n "$value" ]] && configured_count=$((configured_count + 1))
+          done
+          if [[ "$configured_count" -eq 4 ]]; then
+            printf '%s' "$RELEASE_KEYSTORE_B64" | base64 --decode > "$key_path"
+            chmod 600 "$key_path"
+            store_password="$RELEASE_STORE_PASSWORD"
+            key_alias="$RELEASE_KEY_ALIAS"
+            key_password="$RELEASE_KEY_PASSWORD"
+            echo "Using the repository release-signing key."
+          elif [[ "$configured_count" -eq 0 ]]; then
+            # This keeps the public CI build runnable before repository signing
+            # secrets are configured. Set the four CATCLIENT_RELEASE_* secrets for
+            # upgrade-safe releases; the fallback key is intentionally per-run.
+            echo "::warning::Stable release signing is not configured; this build is installable but cannot upgrade a previous CI release."
+            keytool -genkeypair -v -keystore "$key_path" -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass catclient -alias catclient -keypass catclient -dname "CN=Cat Client"
+            store_password=catclient
+            key_alias=catclient
+            key_password=catclient
+          else
+            echo "Configure all four CATCLIENT_RELEASE_* signing secrets, or remove all of them." >&2
+            exit 1
+          fi
+          {
+            echo "CATCLIENT_RELEASE_STORE_FILE=$key_path"
+            echo "CATCLIENT_RELEASE_STORE_PASSWORD=$store_password"
+            echo "CATCLIENT_RELEASE_KEY_ALIAS=$key_alias"
+            echo "CATCLIENT_RELEASE_KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Panel worker tests (data plane, subscriptions, auth)
+        run: |
+          node --version
+          node scripts/panels/cat-panel.test.mjs
+          node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/wizard.test.mjs
 
       - name: Pre-check Kotlin compile (fail fast)
         run: |
@@ -122,11 +179,52 @@ jobs:
         if: success()
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          CATCLIENT_RELEASE_STORE_FILE: ${{ runner.temp }}/catclient.jks
-          CATCLIENT_RELEASE_STORE_PASSWORD: catclient
-          CATCLIENT_RELEASE_KEY_ALIAS: catclient
-          CATCLIENT_RELEASE_KEY_PASSWORD: catclient
         run: chmod +x gradlew && ./gradlew assembleRelease
+
+      - name: Validate and package release APKs
+        if: success()
+        env:
+          APP_VERSION: ${{ steps.app_version.outputs.version }}
+          APP_CODE: ${{ steps.app_version.outputs.code }}
+        run: |
+          set -euo pipefail
+          build_tools="$ANDROID_HOME/build-tools/35.0.0"
+          apksigner="$build_tools/apksigner"
+          zipalign="$build_tools/zipalign"
+          aapt2="$build_tools/aapt2"
+          release_dir="$RUNNER_TEMP/catclient-release"
+          mkdir -p "$release_dir"
+          rm -f "$release_dir"/*
+          expected=(armeabi-v7a arm64-v8a x86 x86_64 universal)
+          found=()
+          for apk in app/build/outputs/apk/release/*.apk; do
+            [[ -f "$apk" ]] || continue
+            base="$(basename "$apk")"
+            variant=""
+            case "$base" in
+              *armeabi-v7a*) variant=armeabi-v7a ;;
+              *arm64-v8a*) variant=arm64-v8a ;;
+              *x86_64*) variant=x86_64 ;;
+              *x86*) variant=x86 ;;
+              *universal*) variant=universal ;;
+            esac
+            [[ -n "$variant" ]] || { echo "Unexpected APK output: $base" >&2; exit 1; }
+            destination="$release_dir/CatClient-V${APP_VERSION}-${variant}.apk"
+            cp "$apk" "$destination"
+            echo "Checking $destination"
+            "$apksigner" verify --verbose --print-certs "$destination"
+            "$zipalign" -c -p 4 "$destination"
+            "$aapt2" dump badging "$destination" | grep -F "package: name='com.cat.client' versionCode='${APP_CODE}' versionName='${APP_VERSION}'"
+            found+=("$variant")
+          done
+          for variant in "${expected[@]}"; do
+            printf '%s\n' "${found[@]}" | grep -Fx "$variant" >/dev/null || {
+              echo "Missing release APK variant: $variant" >&2
+              exit 1
+            }
+          done
+          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk > SHA256SUMS)
+          echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
 
       - name: Upload debug APKs
         if: success()
@@ -137,12 +235,12 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Upload release APKs
+      - name: Upload release APKs and checksums
         if: success()
         uses: actions/upload-artifact@v7
         with:
           name: catclient-release-${{ github.sha }}
-          path: app/build/outputs/apk/release/*.apk
+          path: ${{ runner.temp }}/catclient-release/*
           if-no-files-found: error
           retention-days: 90
 
@@ -194,12 +292,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v$(date +%Y%m%d%H%M)"
+          set -euo pipefail
+          APP_VERSION="${{ steps.app_version.outputs.version }}"
+          APP_CODE="${{ steps.app_version.outputs.code }}"
+          TAG="v${APP_VERSION}"
+          release_dir="$RUNNER_TEMP/catclient-release"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
+          git tag "$TAG" 2>/dev/null || true
           git push origin "$TAG" || true
-          gh release create "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk \
-            --title "Cat Client $TAG" \
-            --notes "Automated Cat Client build. Signed release APKs per ABI (install app-release-arm64-v8a.apk on 64-bit devices; app-release-universal.apk contains all ABIs). Debug APKs included for testing. Built from ${GITHUB_SHA}." \
-            || gh release upload "$TAG" app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk --clobber
+          # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
+          cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          release_assets=(
+            "$release_dir"/CatClient-V${APP_VERSION}-*.apk
+            "$release_dir"/SHA256SUMS
+            app/build/outputs/apk/debug/*.apk
+            catclient.worker.js
+            catclient.wizard.js
+          )
+          notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — installable APKs with verified signatures, ABI-specific and universal variants, and SHA-256 checksums. The Cat Panel UUID recovery fix is included.\n\n**Install**\n- 64-bit phones: CatClient-V${APP_VERSION}-arm64-v8a.apk\n- any supported device: CatClient-V${APP_VERSION}-universal.apk\n- If Android says the package conflicts with an older CI build, uninstall that older build first; future releases use the configured stable signing key.\n\nBuilt from ${GITHUB_SHA}."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${release_assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${release_assets[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
+          fi

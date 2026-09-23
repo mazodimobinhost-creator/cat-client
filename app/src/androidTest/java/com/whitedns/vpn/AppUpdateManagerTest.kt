@@ -104,14 +104,14 @@ class AppUpdateManagerTest {
 
     private fun releaseJson(version: String, size: Long = 100L): JSONObject {
         val variant = AppUpdatePolicy.variantOfApk(File(target.applicationInfo.sourceDir))!!
-        val apkName = "WhiteVPN-V${AppUpdatePolicy.normalizedVersion(version)}-${variant.suffix}.apk"
-        val base = "https://github.com/WhiteDNS/WhiteVPN/releases/download/$version"
+        val apkName = "CatClient-V${AppUpdatePolicy.normalizedVersion(version)}-${variant.suffix}.apk"
+        val base = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/$version"
         val assets = JSONArray()
         for ((index, name) in listOf(apkName, "SHA256SUMS").withIndex()) {
             assets.put(JSONObject().put("id", index + 1).put("name", name).put("size", size)
                 .put("state", "uploaded").put("browser_download_url", "$base/$name"))
         }
-        return JSONObject().put("tag_name", version).put("html_url", "https://github.com/WhiteDNS/WhiteVPN/releases/tag/$version")
+        return JSONObject().put("tag_name", version).put("html_url", "https://github.com/mazodimobinhost-creator/cat-client/releases/tag/$version")
             .put("draft", false).put("prerelease", false).put("variant", variant.name).put("assets", assets)
     }
 }
