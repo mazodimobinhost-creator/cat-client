@@ -223,7 +223,9 @@ object IpScanner {
         val started = System.nanoTime()
         var socket: SSLSocket? = null
         return try {
-            socket = (SSLSocketFactory.getDefault().createSocket() as SSLSocket).apply {
+            val connectedSocket = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+            socket = connectedSocket
+            connectedSocket.apply {
                 soTimeout = timeoutMs
                 tcpNoDelay = true
                 connect(InetSocketAddress(ip, port), timeoutMs)
@@ -237,7 +239,7 @@ object IpScanner {
             }
             val ms = (System.nanoTime() - started) / 1_000_000
             if (!http) return TlsProbe(ms, null, null)
-            val trace = readTrace(socket, sni, timeoutMs)
+            val trace = readTrace(connectedSocket, sni, timeoutMs)
             TlsProbe(ms, trace?.first, trace?.second)
         } catch (e: Exception) {
             null
