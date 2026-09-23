@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Primary colors — Purple on black (OLED-friendly) -->
-    <color name="whitedns_primary">#A855F7</color>
-    <color name="whitedns_on_primary">#0A0A0A</color>
-    <color name="whitedns_primary_container">#2E1065</color>
-    <color name="whitedns_on_primary_container">#F5F3FF</color>
+    <color name="catclient_primary">#A855F7</color>
+    <color name="catclient_on_primary">#0A0A0A</color>
+    <color name="catclient_primary_container">#2E1065</color>
+    <color name="catclient_on_primary_container">#F5F3FF</color>
 
     <!-- Secondary accent -->
-    <color name="whitedns_secondary">#C084FC</color>
+    <color name="catclient_secondary">#C084FC</color>
 
     <!-- Background and surface — Pure OLED black -->
-    <color name="whitedns_background">#000000</color>
-    <color name="whitedns_surface">#0A0A0A</color>
-    <color name="whitedns_surface_variant">#18181B</color>
+    <color name="catclient_background">#000000</color>
+    <color name="catclient_surface">#0A0A0A</color>
+    <color name="catclient_surface_variant">#18181B</color>
 
     <!-- Surface elevations (lighter as elevation increases) -->
     <color name="surface_elevated_1">#111111</color>
@@ -20,18 +20,18 @@
     <color name="surface_elevated_3">#27272A</color>
 
     <!-- On surface colors (high contrast) -->
-    <color name="whitedns_on_surface">#FAFAFA</color>
-    <color name="whitedns_on_surface_variant">#A1A1AA</color>
+    <color name="catclient_on_surface">#FAFAFA</color>
+    <color name="catclient_on_surface_variant">#A1A1AA</color>
 
     <!-- Text hierarchy -->
     <color name="text_tertiary">#71717A</color>
     <color name="text_muted">#52525B</color>
 
     <!-- Outline -->
-    <color name="whitedns_outline">#27272A</color>
+    <color name="catclient_outline">#27272A</color>
 
     <!-- Error (vibrant) -->
-    <color name="whitedns_error">#F87171</color>
+    <color name="catclient_error">#F87171</color>
 
     <!-- State container colors -->
     <color name="teal_container">#2E1065</color>

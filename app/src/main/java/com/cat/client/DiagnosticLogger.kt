@@ -36,6 +36,15 @@ object DiagnosticLogger {
         }
     }
 
+    /** Writes a redacted, share-safe report into the app-private files directory. */
+    fun reportFile(context: Context): File {
+        val directory = File(context.filesDir, "diagnostics")
+        directory.mkdirs()
+        return File(directory, "catclient-report.txt").also { file ->
+            file.writeText(read(context))
+        }
+    }
+
     fun read(context: Context): String {
         val body = runCatching {
             synchronized(this) {

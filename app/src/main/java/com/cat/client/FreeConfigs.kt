@@ -2,105 +2,359 @@ package com.cat.client
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
+import java.text.SimpleDateFormat
 import java.util.Base64
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 
 /**
- * FreeConfigs — fetches publicly available, tested configs from multiple
- * community-maintained sources. Sources are refreshed daily; each config is
- * returned with a tag that includes source + country hint (if parsable).
+ * FreeConfigs — public, community-maintained config sources.
  *
- * All sources are HTTPS and serve plain or base64 lists of standard share-links
- * (vless://, vmess://, trojan://, ss://, hy2://, tuic://, wg://).
+ * Every source is HTTPS and serves either plain share-links or a base64 blob of
+ * share-links. GitHub raw URLs are declared through [githubSource], which queues
+ * several mirrors (raw → jsDelivr → ghproxy → gitmirror) because
+ * raw.githubusercontent.com is regularly blocked inside Iran; the first mirror
+ * that answers wins. The Freevlessnode source is a GitHub Pages site whose files
+ * are named by date, so [dailyDatedSite] tries today and the previous few days.
  */
 object FreeConfigs {
 
-    data class FreeSource(
-        val id: String,
-        val name: String,
-        val url: String,
-        val nameFa: String,
+    /** Protocol prefixes we know how to turn into Route Profiles. */
+    private val SHARE_PREFIXES = listOf(
+        "vless://", "vmess://", "trojan://", "ss://", "ssr://",
+        "hysteria2://", "hy2://", "tuic://", "wireguard://", "wg://", "warp://",
     )
 
-    val SOURCES = listOf(
-        FreeSource(
-            id = "v2fly",
-            name = "V2Fly Community",
-            url = "https://raw.githubusercontent.com/v2fly/config/master/config.txt",
-            nameFa = "جامعه V2Fly",
-        ),
-        FreeSource(
-            id = "ircf",
-            name = "IRCf Space",
-            url = "https://raw.githubusercontent.com/ircfspace/cfworker-vless/main/dist/worker.txt",
-            nameFa = "IRCf Space",
-        ),
-        FreeSource(
-            id = "freefq",
-            name = "FreeFQ",
-            url = "https://raw.githubusercontent.com/freefq/free/master/v2",
-            nameFa = "FreeFQ",
-        ),
-        FreeSource(
-            id = "ermilite",
-            name = "ErmiLite Auto",
-            url = "https://raw.githubusercontent.com/ErmiLite/AutoConfig/main/normal",
-            nameFa = "ErmiLite Auto",
-        ),
+    data class FreeSource(
+        val id: String,
+        val nameEn: String,
+        val nameFa: String,
+        /** Candidate URLs, tried in order until one answers. */
+        val urls: List<String>,
+        /** Cap on links taken from this source (keeps big aggregators manageable). */
+        val limit: Int = 250,
     )
 
     data class FreeEntry(
         val link: String,
         val tag: String,
-        val source: String,
+        val sourceId: String,
+        val sourceNameFa: String,
+        val protocol: String,
+        val host: String,
     )
 
-    suspend fun fetchAll(context: Context): List<FreeEntry> = withContext(Dispatchers.IO) {
-        val all = mutableListOf<FreeEntry>()
-        for (s in SOURCES) {
-            runCatching {
-                val text = fetchUrl(s.url)
-                val decoded = decodeIfBase64(text)
-                val links = decoded.lines()
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() && !it.startsWith("#") }
-                    .filter { it.startsWith("vless://") || it.startsWith("vmess://") || it.startsWith("trojan://") || it.startsWith("ss://") || it.startsWith("hy2://") || it.startsWith("hysteria2://") || it.startsWith("tuic://") || it.startsWith("wg://") }
-                links.forEachIndexed { i, link ->
-                    all.add(FreeEntry(link = link, tag = "Free · ${s.name} #${i + 1}", source = s.id))
-                }
-            }
-        }
-        // Deduplicate
-        all.distinctBy { it.link }
+    data class FetchReport(
+        val entries: List<FreeEntry>,
+        val sourcesOk: List<String>,
+        val sourcesFailed: List<String>,
+    )
+
+    /**
+     * Raw GitHub plus the mirror chain that survives Iranian ISPs. raw.githubusercontent
+     * is regularly blocked, so every jsDelivr edge, two GitHub proxies and two
+     * git mirrors are queued; the first one that answers wins.
+     */
+    private fun githubSource(
+        id: String,
+        nameEn: String,
+        nameFa: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        path: String,
+        limit: Int = 250,
+    ): FreeSource {
+        val raw = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+        val mirrors = listOf(
+            "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://fastly.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://gcore.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://testingcf.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://cdn.statically.io/gh/$owner/$repo/$branch/$path",
+            "https://raw.githack.com/$owner/$repo/$branch/$path",
+            "https://ghproxy.net/$raw",
+            "https://gh-proxy.com/$raw",
+            "https://ghfast.top/$raw",
+            "https://raw.gitmirror.com/$owner/$repo/$branch/$path",
+            "https://raw.githubusercontent.com".let { raw },
+        )
+        return FreeSource(id, nameEn, nameFa, mirrors.distinct(), limit)
     }
 
-    private fun fetchUrl(url: String): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 15_000
-        conn.setRequestProperty("User-Agent", "CatClient/1.0")
+    /**
+     * Freevlessnode (github.io) publishes `uploads/YYYY/MM/{0..4}-YYYYMMDD.txt`
+     * every day. We ask for today and the previous [days] days.
+     */
+    private fun freevlessnodeSource(baseUrl: String, days: Int = 3, filesPerDay: Int = 5): FreeSource {
+        val urls = mutableListOf<String>()
+        val format = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val month = SimpleDateFormat("yyyy/MM", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+        repeat(days) { offset ->
+            val date = calendar.time
+            for (index in 0 until filesPerDay) {
+                urls += "${baseUrl.trimEnd('/')}/uploads/${month.format(date)}/$index-${format.format(date)}.txt"
+            }
+            calendar.add(Calendar.DAY_OF_MONTH, -1)
+        }
+        return FreeSource(
+            id = "freevlessnode",
+            nameEn = "FreeVlessNode (daily)",
+            nameFa = "FreeVlessNode (روزانه)",
+            urls = urls,
+            limit = 400,
+        )
+    }
+
+    /** Sources that were reachable at the time of writing (verified against the GitHub API). */
+    fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = listOf(
+        freevlessnodeSource(baseUrl),
+        githubSource(
+            "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
+            "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
+        ),
+        githubSource(
+            "morpheusadam-iran", "Morpheus Iran bundle", "مورفیوس (ویژهٔ ایران)",
+            "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
+        ),
+        githubSource(
+            "radikal", "0xRadikal VLESS", "رادیکال VLESS",
+            "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
+        ),
+        githubSource(
+            "epodonios", "Epodonios collector", "اپودونیوس",
+            "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
+        ),
+        githubSource(
+            "aliilapro", "ALIILAPRO v2rayNG", "علی‌ال‌آپرو",
+            "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
+        ),
+        githubSource(
+            "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
+            "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
+        ),
+    )
+
+    const val DEFAULT_FREEVLESSNODE_BASE = "https://freevlessnode.github.io"
+
+    /**
+     * Fetches every source, de-duplicates by link and returns entries tagged with
+     * source and protocol. [onProgress] receives (sourceNameFa, done, total).
+     */
+    suspend fun fetchAll(
+        context: Context,
+        baseUrl: String = DEFAULT_FREEVLESSNODE_BASE,
+        useTunnel: Boolean = false,
+        onProgress: ((String, Int, Int) -> Unit)? = null,
+    ): FetchReport = withContext(Dispatchers.IO) {
+        val list = sources(baseUrl)
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        onProgress?.invoke(list.firstOrNull()?.nameFa.orEmpty(), 0, list.size)
+        // All sources in parallel; inside each source the mirrors race (first body wins).
+        val results = list.map { source ->
+            async {
+                val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                val links = text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                val finished = done.incrementAndGet()
+                onProgress?.invoke(source.nameFa, finished, list.size)
+                source to links
+            }
+        }.awaitAll()
+
+        val all = linkedMapOf<String, FreeEntry>()
+        val ok = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        results.forEach { (source, links) ->
+            if (links.isEmpty()) {
+                failed += source.nameFa
+                return@forEach
+            }
+            ok += "${source.nameFa} (${links.size})"
+            links.forEach { link ->
+                if (all.containsKey(link)) return@forEach
+                all[link] = FreeEntry(
+                    link = link,
+                    tag = "${hostOf(link)} · ${source.nameFa}",
+                    sourceId = source.id,
+                    sourceNameFa = source.nameFa,
+                    protocol = protocolOf(link),
+                    host = hostOf(link),
+                )
+            }
+        }
+        onProgress?.invoke("", list.size, list.size)
+        FetchReport(all.values.toList(), ok, failed)
+    }
+
+    /** Races the mirrors [MIRROR_PARALLELISM] at a time and returns the first non-empty body. */
+    private suspend fun fetchFirstWorkingRaced(urls: List<String>, useTunnel: Boolean): String? {
+        for (chunk in urls.chunked(MIRROR_PARALLELISM)) {
+            val winner = coroutineScope {
+                val results = Channel<String?>(chunk.size)
+                val jobs = chunk.map { url ->
+                    launch {
+                        val body = runCatching { fetchUrl(url, useTunnel) }.getOrNull()?.takeIf { it.isNotBlank() }
+                        results.send(body)
+                    }
+                }
+                var found: String? = null
+                repeat(chunk.size) {
+                    if (found == null) {
+                        val body = results.receive()
+                        if (body != null) found = body
+                    }
+                }
+                if (found != null) jobs.forEach { it.cancel() }
+                found
+            }
+            if (winner != null) return winner
+        }
+        return null
+    }
+
+    private const val SOURCE_BUDGET_MS = 25_000L
+    private const val MIRROR_PARALLELISM = 4
+    private const val MAX_SOURCE_BYTES = 2 * 1024 * 1024
+
+    private val cacheFile = "free-configs-cache.json"
+
+    /** Remembers the last successful fetch so the tab has content offline. */
+    fun loadCache(context: Context): FetchReport? {
+        val file = java.io.File(context.filesDir, cacheFile)
+        if (!file.isFile) return null
+        return runCatching {
+            val root = org.json.JSONObject(file.readText())
+            val entries = root.optJSONArray("entries") ?: return null
+            val list = ArrayList<FreeEntry>(entries.length())
+            for (index in 0 until entries.length()) {
+                val item = entries.getJSONObject(index)
+                list += FreeEntry(
+                    link = item.optString("link"),
+                    tag = item.optString("tag"),
+                    sourceId = item.optString("sourceId"),
+                    sourceNameFa = item.optString("sourceNameFa"),
+                    protocol = item.optString("protocol"),
+                    host = item.optString("host"),
+                )
+            }
+            FetchReport(list.filter { it.link.isNotBlank() }, emptyList(), emptyList())
+        }.getOrNull()
+    }
+
+    fun saveCache(context: Context, report: FetchReport) {
+        runCatching {
+            val entries = org.json.JSONArray()
+            report.entries.take(600).forEach { entry ->
+                entries.put(
+                    org.json.JSONObject()
+                        .put("link", entry.link)
+                        .put("tag", entry.tag)
+                        .put("sourceId", entry.sourceId)
+                        .put("sourceNameFa", entry.sourceNameFa)
+                        .put("protocol", entry.protocol)
+                        .put("host", entry.host),
+                )
+            }
+            val payload = org.json.JSONObject().put("savedAt", System.currentTimeMillis()).put("entries", entries)
+            java.io.File(context.filesDir, cacheFile).writeText(payload.toString())
+        }
+    }
+
+    private fun fetchFirstWorking(urls: List<String>, useTunnel: Boolean): String? {
+        for (url in urls) {
+            val body = runCatching { fetchUrl(url, useTunnel) }.getOrNull()
+            if (!body.isNullOrBlank()) return body
+        }
+        return null
+    }
+
+    /** Plain links, base64 blobs and list files with prefixes are all supported. */
+    internal fun extractLinks(text: String): List<String> {
+        val raw = text.trim()
+        if (raw.isEmpty()) return emptyList()
+        val direct = linksIn(raw)
+        if (direct.isNotEmpty()) return direct
+        val decoded = runCatching {
+            String(Base64.getDecoder().decode(raw.filter { !it.isWhitespace() }))
+        }.getOrNull() ?: runCatching {
+            String(Base64.getUrlDecoder().decode(raw.filter { !it.isWhitespace() }))
+        }.getOrNull() ?: return emptyList()
+        return linksIn(decoded)
+    }
+
+    private fun linksIn(text: String): List<String> =
+        text.lineSequence()
+            .map { it.trim().trimStart('\uFEFF') }
+            .filter { line -> SHARE_PREFIXES.any { line.startsWith(it, ignoreCase = true) } }
+            .filter { it.length in 12..4096 }
+            .toList()
+
+    internal fun protocolOf(link: String): String =
+        link.substringBefore("://").lowercase(Locale.US)
+
+    /** Best-effort host extraction for the row label (vmess links carry JSON). */
+    internal fun hostOf(link: String): String {
+        if (link.startsWith("vmess://", ignoreCase = true)) {
+            return runCatching {
+                val json = String(Base64.getDecoder().decode(link.removePrefix("vmess://").trim()))
+                val obj = org.json.JSONObject(json)
+                obj.optString("add").ifBlank { "vmess" }
+            }.getOrDefault("vmess")
+        }
+        val afterScheme = link.substringAfter("://", "")
+        val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
+        val hostPort = authority.substringAfter('@', authority)
+        val host = if (hostPort.startsWith("[")) hostPort.substringBefore(']') + "]" else hostPort.substringBefore(':')
+        return host.ifBlank { protocolOf(link) }
+    }
+
+    private fun fetchUrl(url: String, useTunnel: Boolean = false): String {
+        if (runCatching { URL(url).protocol.lowercase(Locale.US) }.getOrNull() != "https") return ""
+        val conn = if (useTunnel) {
+            // Fetch through the running core: inside Iran the mirrors are often
+            // blocked directly but reachable once any config is connected.
+            URL(url).openConnection(
+                Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT)),
+            ) as HttpURLConnection
+        } else {
+            URL(url).openConnection() as HttpURLConnection
+        }
+        conn.connectTimeout = 6_000
+        conn.readTimeout = 10_000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "CatClient/1.1 (+android)")
+        conn.setRequestProperty("Accept", "text/plain,*/*;q=0.1")
         conn.useCaches = false
         return try {
-            conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            if (conn.responseCode !in 200..299 || conn.url.protocol.lowercase(Locale.US) != "https") return ""
+            if (conn.contentLengthLong > MAX_SOURCE_BYTES) return ""
+            conn.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(16 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count == -1) break
+                    if (output.size() + count > MAX_SOURCE_BYTES) return ""
+                    output.write(buffer, 0, count)
+                }
+                output.toString(Charsets.UTF_8.name())
+            }
         } finally {
             conn.disconnect()
         }
-    }
-
-    private fun decodeIfBase64(text: String): String {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return ""
-        // If it's already share-links, return as-is
-        if (trimmed.lines().any { it.startsWith("vless://") || it.startsWith("vmess://") || it.startsWith("trojan://") || it.startsWith("ss://") }) {
-            return trimmed
-        }
-        return runCatching {
-            val decoded = String(Base64.getDecoder().decode(trimmed.filter { !it.isWhitespace() }))
-            if (decoded.contains("://")) decoded else trimmed
-        }.getOrDefault(trimmed)
     }
 }

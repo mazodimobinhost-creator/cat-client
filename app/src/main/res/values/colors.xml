@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary colors — Deep Purple -->
-    <color name="whitedns_primary">#7C3AED</color>
-    <color name="whitedns_on_primary">#FFFFFF</color>
-    <color name="whitedns_primary_container">#5B21B6</color>
-    <color name="whitedns_on_primary_container">#F5F3FF</color>
+    <!-- Primary colors — Cat purple (violet on black/white) -->
+    <color name="catclient_primary">#7C3AED</color>
+    <color name="catclient_on_primary">#FFFFFF</color>
+    <color name="catclient_primary_container">#5B21B6</color>
+    <color name="catclient_on_primary_container">#F5F3FF</color>
 
     <!-- Secondary accent — Vivid Purple -->
-    <color name="whitedns_secondary">#A855F7</color>
+    <color name="catclient_secondary">#A855F7</color>
 
     <!-- Background and surface — Clean White theme default -->
-    <color name="whitedns_background">#FAFAFA</color>
-    <color name="whitedns_surface">#FFFFFF</color>
-    <color name="whitedns_surface_variant">#F4F4F5</color>
+    <color name="catclient_background">#FFFFFF</color>
+    <color name="catclient_surface">#FFFFFF</color>
+    <color name="catclient_surface_variant">#F3EEFC</color>
 
     <!-- Surface elevations -->
     <color name="surface_elevated_1">#FFFFFF</color>
@@ -20,18 +20,18 @@
     <color name="surface_elevated_3">#F4F4F5</color>
 
     <!-- On surface colors -->
-    <color name="whitedns_on_surface">#0A0A0A</color>
-    <color name="whitedns_on_surface_variant">#3F3F46</color>
+    <color name="catclient_on_surface">#0A0A0A</color>
+    <color name="catclient_on_surface_variant">#3F3F46</color>
 
     <!-- Text hierarchy -->
     <color name="text_tertiary">#71717A</color>
     <color name="text_muted">#A1A1AA</color>
 
     <!-- Outline -->
-    <color name="whitedns_outline">#E4E4E7</color>
+    <color name="catclient_outline">#E4E4E7</color>
 
     <!-- Error -->
-    <color name="whitedns_error">#EF4444</color>
+    <color name="catclient_error">#EF4444</color>
 
     <!-- State container colors -->
     <color name="teal_container">#EDE9FE</color>
@@ -39,7 +39,7 @@
     <color name="red_container">#FEE2E2</color>
 
     <!-- Gradient colors — Purple glow -->
-    <color name="background_gradient_start">#FAFAFA</color>
+    <color name="background_gradient_start">#FFFFFF</color>
     <color name="background_gradient_end">#F5F3FF</color>
     <color name="accent_gradient_start">#7C3AED</color>
     <color name="accent_gradient_end">#A855F7</color>

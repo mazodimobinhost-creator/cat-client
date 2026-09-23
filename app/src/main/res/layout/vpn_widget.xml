@@ -26,7 +26,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="@string/app_name"
-            android:textColor="@color/whitedns_on_surface"
+            android:textColor="@color/catclient_on_surface"
             android:autoSizeTextType="uniform"
             android:autoSizeMinTextSize="12sp"
             android:autoSizeMaxTextSize="14sp"
@@ -42,7 +42,7 @@
             android:ellipsize="end"
             android:maxLines="2"
             android:text="@string/widget_disconnected"
-            android:textColor="@color/whitedns_on_surface_variant"
+            android:textColor="@color/catclient_on_surface_variant"
             android:accessibilityLiveRegion="polite"
             android:textSize="12sp" />
     </LinearLayout>
@@ -55,5 +55,5 @@
         android:contentDescription="@string/widget_connect"
         android:padding="10dp"
         android:src="@drawable/ic_widget_power"
-        android:tint="@color/whitedns_primary" />
+        android:tint="@color/catclient_primary" />
 </LinearLayout>

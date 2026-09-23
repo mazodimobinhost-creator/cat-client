@@ -42,6 +42,7 @@ internal class AppUpdateUi(
     private var notice: String? = null
     private var dialog: AlertDialog? = null
     private lateinit var versions: TextView
+    private lateinit var securityNote: TextView
     private lateinit var status: TextView
     private lateinit var badge: TextView
     private lateinit var progress: ProgressBar
@@ -66,6 +67,12 @@ internal class AppUpdateUi(
         panel.addView(heading)
         versions = label("")
         panel.addView(versions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        securityNote = label(activity.getString(R.string.update_security_note)).apply {
+            textSize = 11f
+            setTextColor(palette.textSecondary)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }
+        panel.addView(securityNote, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         status = label("")
         panel.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {

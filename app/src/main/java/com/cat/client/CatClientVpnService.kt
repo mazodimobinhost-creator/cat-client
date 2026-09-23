@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
@@ -257,6 +258,14 @@ class CatClientVpnService : VpnService() {
     private var startupJob: Job? = null
     private var stopJob: Job? = null
     private var subscriptionRefreshJob: Job? = null
+    private var notificationTrafficJob: Job? = null
+    @Volatile
+    private var notificationDownloadBps: Long = 0L
+    @Volatile
+    private var notificationUploadBps: Long = 0L
+    private var notificationLastRxBytes: Long = TrafficStats.UNSUPPORTED.toLong()
+    private var notificationLastTxBytes: Long = TrafficStats.UNSUPPORTED.toLong()
+    private var notificationLastSampleElapsedMs: Long = 0L
     private var postConnectHealthJob: Job? = null
     @Volatile
     private var awaitingPreservedRuntimeHealth = false
@@ -505,6 +514,7 @@ class CatClientVpnService : VpnService() {
         connectionSpeedTestJobs.values.toList().forEach { it.cancel(CancellationException("Service destroyed")) }
         stopJob?.cancel()
         subscriptionRefreshJob?.cancel()
+        stopNotificationTrafficUpdates()
         cancelPostConnectHealthWatchdog()
         stopCoreImmediately()
         scope.cancel()
@@ -4589,6 +4599,11 @@ class CatClientVpnService : VpnService() {
     private fun publishState(newState: VpnState, notice: String? = null) {
         state = newState
         currentVpnServiceState = newState
+        if (newState == VpnState.Started) {
+            startNotificationTrafficUpdates()
+        } else {
+            stopNotificationTrafficUpdates()
+        }
         val countryFlag = if (newState == VpnState.Started) {
             activeConnectionCountryFlag
         } else {
@@ -4604,6 +4619,8 @@ class CatClientVpnService : VpnService() {
                 ConnectionDetailsPresenter.forProfile(
                     it,
                     showServer = activeProfileShowsServer,
+                    latencyMs = activeDelayMs,
+                    frontingIp = activeFrontingIp,
                     stringFor = { id -> getString(id) },
                 )
             }.orEmpty()
@@ -4683,6 +4700,73 @@ class CatClientVpnService : VpnService() {
         )
     }
 
+    /** Starts a light-weight sampler so the foreground notification shows live tunnel traffic. */
+    private fun startNotificationTrafficUpdates() {
+        if (notificationTrafficJob?.isActive == true || state != VpnState.Started) return
+        notificationLastRxBytes = TrafficStats.UNSUPPORTED.toLong()
+        notificationLastTxBytes = TrafficStats.UNSUPPORTED.toLong()
+        notificationLastSampleElapsedMs = 0L
+        notificationDownloadBps = 0L
+        notificationUploadBps = 0L
+        notificationTrafficJob = scope.launch(Dispatchers.Default) {
+            while (isActive && state == VpnState.Started) {
+                delay(NOTIFICATION_TRAFFIC_INTERVAL_MS)
+                val now = SystemClock.elapsedRealtime()
+                val rx = TrafficStats.getUidRxBytes(android.os.Process.myUid())
+                val tx = TrafficStats.getUidTxBytes(android.os.Process.myUid())
+                val previousAt = notificationLastSampleElapsedMs
+                if (
+                    rx != TrafficStats.UNSUPPORTED.toLong() &&
+                    tx != TrafficStats.UNSUPPORTED.toLong() &&
+                    previousAt > 0L &&
+                    now > previousAt
+                ) {
+                    val elapsedMs = now - previousAt
+                    notificationDownloadBps = bytesPerSecond(rx, notificationLastRxBytes, elapsedMs)
+                    notificationUploadBps = bytesPerSecond(tx, notificationLastTxBytes, elapsedMs)
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, serviceNotification(connectedNotificationText()))
+                }
+                notificationLastRxBytes = rx
+                notificationLastTxBytes = tx
+                notificationLastSampleElapsedMs = now
+            }
+        }
+        notificationTrafficJob?.invokeOnCompletion {
+            if (notificationTrafficJob?.isCompleted == true) notificationTrafficJob = null
+        }
+    }
+
+    private fun bytesPerSecond(currentBytes: Long, previousBytes: Long, elapsedMs: Long): Long {
+        if (
+            elapsedMs <= 0L ||
+            previousBytes == TrafficStats.UNSUPPORTED.toLong() ||
+            currentBytes == TrafficStats.UNSUPPORTED.toLong() ||
+            currentBytes < previousBytes
+        ) return 0L
+        return ((currentBytes - previousBytes) * 1_000L / elapsedMs).coerceAtLeast(0L)
+    }
+
+    private fun stopNotificationTrafficUpdates() {
+        notificationTrafficJob?.cancel()
+        notificationTrafficJob = null
+        notificationLastRxBytes = TrafficStats.UNSUPPORTED.toLong()
+        notificationLastTxBytes = TrafficStats.UNSUPPORTED.toLong()
+        notificationLastSampleElapsedMs = 0L
+        notificationDownloadBps = 0L
+        notificationUploadBps = 0L
+    }
+
+    private fun notificationContent(content: String): String {
+        if (state != VpnState.Started) return content
+        return getString(
+            R.string.notification_connected_traffic,
+            content,
+            formatTransferSpeed(notificationDownloadBps),
+            formatTransferSpeed(notificationUploadBps),
+        )
+    }
+
     private fun serviceNotification(content: String): android.app.Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -4693,7 +4777,7 @@ class CatClientVpnService : VpnService() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(content)
+            .setContentText(notificationContent(content))
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -4754,6 +4838,7 @@ class CatClientVpnService : VpnService() {
 
         const val CHANNEL_ID = "cat_client_vpn"
         const val NOTIFICATION_ID = 1001
+        const val NOTIFICATION_TRAFFIC_INTERVAL_MS = 1_000L
         const val CORE_SETUP_SLOW_WARNING_MS = 15_000L
         const val CORE_SETUP_HARD_TIMEOUT_MS = 60_000L
         const val CORE_SETUP_CLEANUP_GRACE_MS = 5_000L

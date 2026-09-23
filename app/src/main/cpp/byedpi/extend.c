@@ -819,12 +819,12 @@ ssize_t udp_hook(struct eval *val,
 
 
 #ifdef ANDROID_APP
-extern int whitedns_byedpi_protect_fd(int fd);
+extern int catclient_byedpi_protect_fd(int fd);
 
 int protect(int conn_fd, const char *path)
 {
     (void)path;
-    return whitedns_byedpi_protect_fd(conn_fd);
+    return catclient_byedpi_protect_fd(conn_fd);
 }
 #elif defined(__linux__)
 static int protect(int conn_fd, const char *path)
