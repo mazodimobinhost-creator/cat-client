@@ -105,6 +105,10 @@ Cat Client includes an **App updates** card under Settings. It checks the offici
 
 For upgrade-in-place updates, configure the stable release-signing secrets described in [docs/release-signing.md](docs/release-signing.md). APKs made with the temporary CI fallback key are for smoke testing and require a one-time uninstall before migrating to the stable-key release.
 
+## ☁️ Cat Panel updates from inside the app
+
+The Cloud tab's **My Cat Panel deployments** card shows the live version of every panel you deployed. **Update panel** pulls the newest official panel source (the GitHub release asset, falling back to the copy bundled in the APK) and re-uploads it to the same Worker — your UUID password, subscription links, users, quotas and saved settings survive untouched. Readable bindings are carried over; if the Worker holds hand-made secrets the API can never return (like `PANEL_PASSWORD`), the update stops safely and tells you to update from the Cloudflare dashboard instead. When a deployment is already current, the same button reinstalls/repairs the worker.
+
 ## 🔑 Cloudflare API Token (for in-app Worker deploy)
 
 **Fast path (1 tap):** in the app, Cloud tab → **🔑 Get a Cloudflare token**. It opens

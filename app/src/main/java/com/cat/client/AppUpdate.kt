@@ -111,6 +111,17 @@ object GitHubReleaseClient {
         parseRelease(readText(LATEST_RELEASE_URL, 1_048_576, asset = false), variant)
     }
 
+    /**
+     * Download a plain source asset (panel / wizard worker) from the latest
+     * GitHub release. Same URL shape the wizard uses, same host allow-list.
+     */
+    suspend fun releaseAsset(name: String, maxBytes: Int): String {
+        if (!name.matches(Regex("[A-Za-z0-9._-]{1,80}"))) {
+            throw IOException("GitHub asset name is invalid")
+        }
+        return readText("$LATEST_DOWNLOAD_BASE/$name", maxBytes, asset = true)
+    }
+
     suspend fun expectedSha256(release: AppRelease): String = withContext(Dispatchers.IO) {
         val apk = release.apk ?: throw IOException("Release APK is not uploaded yet")
         val checksums = release.checksums ?: throw IOException("Release checksums are not uploaded yet")
@@ -259,4 +270,6 @@ object GitHubReleaseClient {
     private const val GITHUB_REPOSITORY = "cat-client"
     private const val LATEST_RELEASE_URL =
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest"
+    private const val LATEST_DOWNLOAD_BASE =
+        "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest/download"
 }

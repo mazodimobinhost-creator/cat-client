@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.6.0';
+const CAT_PANEL_VERSION = '5.7.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -132,9 +132,11 @@ function notFoundResponse() {
 }
 
 function htmlResponse(body, status = 200) {
+  // Panel pages carry live state (and change with every in-app panel update), so
+  // never let a browser cache them — a stale shell outlives an update otherwise.
   return new Response(body, {
     status,
-    headers: { 'content-type': 'text/html; charset=utf-8' },
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
   });
 }
 

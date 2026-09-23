@@ -10,6 +10,7 @@ import java.util.UUID
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 
 /**
@@ -345,6 +346,42 @@ object CloudflareWorker {
             deployKind = DeployKind.GUIDE,
             url = "https://github.com/AminMGMT/BackPack",
         ),
+        Panel(
+            id = "mlm-gateway",
+            displayName = "MLM VPN Gateway",
+            displayNameFa = "گیت‌وی MLM VPN",
+            scope = PanelScope.SERVER,
+            description = "Lightweight FastAPI VLESS gateway with one-click deploy to your own cloud (Docker/ghcr): " +
+                "XHTTP relay, per-link speed limits, live stats and a Telegram bot.",
+            descriptionFa = "درگاه سبک VLESS با FastAPI و استقرار یک‌کلیکی روی ابر خودت (Docker): رله XHTTP، " +
+                "محدودیت سرعت هر لینک، آمار زنده و بات تلگرام.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/mlmvpn/mlmvpn-gateway",
+        ),
+        Panel(
+            id = "mlm-proxy",
+            displayName = "mlm-proxy",
+            displayNameFa = "mlm-proxy",
+            scope = PanelScope.SERVER,
+            description = "Tiny JavaScript fetch-proxy for serverless hosts: relays app and subscription traffic " +
+                "on restricted networks without running a server.",
+            descriptionFa = "پروکسی fetch کوچک جاوااسکریپتی برای هاست سرورلس: ترافیک اپ و سابسکریپشن را در " +
+                "شبکه‌های محدود بدون سرور اختصاصی رد می‌کند.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/mlmvpn/mlm-proxy",
+        ),
+        Panel(
+            id = "cloud-web-panel",
+            displayName = "Cloud Web Panel",
+            displayNameFa = "پنل وب ابری",
+            scope = PanelScope.SERVER,
+            description = "Self-hosted Cloudflare VPN config panel with per-user password-derived encryption; " +
+                "its console deploys multi-user Worker panels with quotas and expiry.",
+            descriptionFa = "پنل خودمیزبان ساخت کانفیگ VPN روی کلادفلر با رمزنگاری مشتق از رمز هر کاربر؛ " +
+                "از کنسولش می‌توان پنل‌های چندکاربرهٔ Worker با کتای و انقضا نصب کرد.",
+            deployKind = DeployKind.GUIDE,
+            url = "https://github.com/mlmvpn/cloud-web-panel",
+        ),
     )
 
     fun byId(id: String): Panel? = PANELS.firstOrNull { it.id == id }
@@ -485,6 +522,125 @@ object CloudflareWorker {
             panelUrl = "$workerUrl/?p=$uuid",
             kvBound = kvId != null,
         )
+    }
+
+    sealed class PanelUpdateOutcome {
+        data class Success(
+            val workerUrl: String,
+            val uuid: String,
+            val fromVersion: String,
+            val toVersion: String,
+            val verifiedOnline: Boolean,
+            val kvBound: Boolean,
+            val fromRelease: Boolean,
+        ) : PanelUpdateOutcome() {
+            val panelUrl: String
+                get() = workerUrl.trimEnd('/') + "/?p=" + uuid
+        }
+
+        /** The worker holds secret bindings whose values Cloudflare never returns. */
+        data class Blocked(val secretNames: List<String>) : PanelUpdateOutcome()
+    }
+
+    /**
+     * Update an existing Cat Panel deployment in place: re-upload the newest
+     * panel source (GitHub release asset, falling back to the APK bundle) to the
+     * same worker name. The UUID password, subscription links, KV store (users,
+     * clean IPs, settings) and every readable binding survive untouched.
+     */
+    suspend fun updateBuiltIn(
+        context: Context,
+        token: String,
+        accountId: String,
+        workerUrl: String,
+        fromVersion: String,
+        script: PanelUpdate.PanelScript,
+    ): PanelUpdateOutcome = withContext(Dispatchers.IO) {
+        val normalized = workerUrl.trimEnd('/')
+        val workerName = workerNameFromUrl(normalized)
+        val uuid = PanelDeploymentStore(context).uuidFor(normalized)
+        val uploadUrl =
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+
+        // Never silently drop a secret the user added (e.g. PANEL_PASSWORD):
+        // Cloudflare does not return secret values, so refuse instead.
+        val existing = readScriptBindings(token, uploadUrl)
+        val blocked = existing
+            ?.filter { it.optString("type") == "secret_text" && it.optString("text").isNullOrBlank() }
+            ?.mapNotNull { it.optString("name").takeIf { name -> name.isNotBlank() } }
+            .orEmpty()
+        if (blocked.isNotEmpty()) return@withContext PanelUpdateOutcome.Blocked(blocked)
+
+        // Prefer the KV namespace already bound to this worker; fall back to the
+        // deterministic "<worker>-catpanel" title the deploy flow creates.
+        val kvId = existing
+            ?.firstOrNull {
+                it.optString("type") == "kv_namespace" && it.optString("name") == "CAT_KV"
+            }
+            ?.optString("namespace_id")?.takeIf { it.isNotBlank() }
+            ?: runCatching { ensureKvNamespace(token, accountId, "${workerName}-catpanel") }.getOrNull()
+
+        // Carry every other readable binding through the re-upload. UUID and
+        // CAT_KV are re-attached from known state above.
+        val extras = JSONArray()
+        existing?.forEach { binding ->
+            val name = binding.optString("name")
+            if (name.isBlank() || name == "UUID" || name == "CAT_KV") return@forEach
+            when (binding.optString("type")) {
+                "plain_text", "secret_text" -> extras.put(
+                    JSONObject()
+                        .put("type", binding.optString("type"))
+                        .put("name", name)
+                        .put("text", binding.optString("text")),
+                )
+                else -> extras.put(JSONObject(binding.toString()))
+            }
+        }
+
+        val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras)
+        if (!putResult.optBoolean("success", false)) {
+            val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
+            throw RuntimeException("Worker upload failed: $errors")
+        }
+        runCatching {
+            cfPost(
+                token,
+                "$uploadUrl/subdomain",
+                JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
+            )
+        }
+        val verifiedOnline = smokeTestPanel(normalized, uuid)
+        PanelDeploymentStore(context).rememberLast(normalized, uuid)
+        PanelUpdateOutcome.Success(
+            workerUrl = normalized,
+            uuid = uuid,
+            fromVersion = fromVersion,
+            toVersion = script.version,
+            verifiedOnline = verifiedOnline,
+            kvBound = kvId != null,
+            fromRelease = script.fromRelease,
+        )
+    }
+
+    private fun workerNameFromUrl(workerUrl: String): String {
+        val host = runCatching { URI(workerUrl).host }.getOrNull()?.lowercase(Locale.US).orEmpty()
+        val name = host.substringBefore('.')
+        if (!name.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"))) {
+            throw RuntimeException("Not a deployable Cat Panel URL: $workerUrl")
+        }
+        return name
+    }
+
+    /** Current script bindings from the Cloudflare API, or null when unreadable. */
+    private fun readScriptBindings(token: String, uploadUrl: String): List<JSONObject>? {
+        val json = runCatching { cfGet(token, uploadUrl) }.getOrNull() ?: return null
+        if (!json.optBoolean("success", true) && json.optJSONObject("result") == null) return null
+        val bindings = json.optJSONObject("result")?.optJSONArray("bindings") ?: return null
+        return buildList {
+            for (index in 0 until bindings.length()) {
+                bindings.optJSONObject(index)?.let { add(it) }
+            }
+        }
     }
 
     /** Find (by title) or create the KV namespace used by the panel; returns its id. */
@@ -629,6 +785,7 @@ object CloudflareWorker {
         uuid: String = "",
         kvNamespaceId: String? = null,
         secrets: Map<String, String> = emptyMap(),
+        extraBindings: JSONArray = JSONArray(),
     ): JSONObject {
         val bindings = JSONArray()
         if (uuid.isNotBlank()) {
@@ -641,6 +798,9 @@ object CloudflareWorker {
             bindings.put(
                 JSONObject().put("type", "kv_namespace").put("name", "CAT_KV").put("namespace_id", kvNamespaceId),
             )
+        }
+        for (index in 0 until extraBindings.length()) {
+            extraBindings.optJSONObject(index)?.let { bindings.put(it) }
         }
         val metadata = JSONObject()
             .put("main_module", "worker.js")

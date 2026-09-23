@@ -5517,20 +5517,32 @@ class MainActivity : Activity() {
         return scroll
     }
 
+    private var panelUpdateInProgress = false
+
+    @Volatile
+    private var newestPanelCache: PanelUpdate.PanelScript? = null
+
+    private suspend fun newestPanelScript(): PanelUpdate.PanelScript =
+        newestPanelCache ?: PanelUpdate.newestPanel(this).also { newestPanelCache = it }
+
     private fun renderCloudDeploymentHistory() {
         val host = cloudDeploymentHistoryHost ?: return
         host.removeAllViews()
         val history = PanelDeploymentStore(this).deployments()
         if (history.isEmpty()) return
         history.forEachIndexed { index, deployment ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
                 setPadding(dp(10), dp(9), dp(8), dp(9))
                 background = glassSurfaceDrawable(radiusDp = 14)
             }
-            row.addView(
+            val titleLine = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            }
+            titleLine.addView(
                 TextView(this).apply {
                     text = "🐱  " + deployment.workerUrl.removePrefix("https://").take(42)
                     textSize = 12.5f
@@ -5543,8 +5555,20 @@ class MainActivity : Activity() {
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
-            val open = MaterialButton(this).apply {
-                setText(R.string.cloud_open_deployment)
+            val versionBadge = TextView(this).apply {
+                text = getString(R.string.cloud_panel_version_checking)
+                textSize = 11f
+                typeface = CatClientDataTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                maxLines = 1
+            }
+            titleLine.addView(versionBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+            card.addView(titleLine, LinearLayout.LayoutParams(-1, -2))
+
+            fun rowButton(labelText: CharSequence): MaterialButton = MaterialButton(this@MainActivity).apply {
+                text = labelText
                 setAllCaps(false)
                 textSize = 11.5f
                 minWidth = 0
@@ -5558,15 +5582,222 @@ class MainActivity : Activity() {
                 strokeWidth = dp(1)
                 strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
                 setTextColor(TEAL)
+            }
+
+            val buttons = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            }
+            val open = rowButton(getString(R.string.cloud_open_deployment)).apply {
                 setOnClickListener {
                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(deployment.panelUrl))) }
                 }
             }
-            row.addView(open, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-            host.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            val update = rowButton(getString(R.string.cloud_update_panel)).apply {
+                setOnClickListener { showPanelUpdateDialog(deployment) }
+            }
+            buttons.addView(open, LinearLayout.LayoutParams(0, -2, 1f).apply { topMargin = dp(8) })
+            buttons.addView(update, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                topMargin = dp(8)
+                marginStart = dp(8)
+            })
+            card.addView(buttons, LinearLayout.LayoutParams(-1, -2))
+            host.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
                 if (index > 0) topMargin = dp(7)
             })
+
+            // Live version check: deployed (/api/version) vs newest (release asset / bundle).
+            activityScope.launch {
+                val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
+                val newest = runCatching { newestPanelScript() }.getOrNull()
+                if (!versionBadge.isAttachedToWindow) return@launch
+                applyPanelVersionBadge(versionBadge, deployed, newest)
+            }
         }
+    }
+
+    private fun applyPanelVersionBadge(
+        badge: TextView,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript?,
+    ) {
+        when {
+            deployed == null -> {
+                badge.setTextColor(TEXT_SECONDARY)
+                badge.text = getString(R.string.cloud_panel_version_unknown)
+            }
+            newest != null && AppUpdatePolicy.isNewer(newest.version, deployed) -> {
+                badge.setTextColor(TEAL)
+                badge.text = getString(R.string.cloud_panel_update_ready, deployed, newest.version)
+            }
+            else -> {
+                badge.setTextColor(TEXT_SECONDARY)
+                badge.text = getString(R.string.cloud_panel_uptodate, deployed)
+            }
+        }
+    }
+
+    private fun showPanelUpdateDialog(deployment: PanelDeploymentRecord) {
+        if (panelUpdateInProgress) return
+        panelUpdateInProgress = true
+        Toast.makeText(this, R.string.cloud_panel_version_checking, Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            try {
+                val newest = newestPanelScript()
+                val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
+                val hasUpdate = deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed)
+                presentPanelUpdateDialog(deployment, deployed, newest, hasUpdate)
+            } catch (e: Exception) {
+                panelUpdateInProgress = false
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.cloud_update_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private fun presentPanelUpdateDialog(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+        hasUpdate: Boolean,
+    ) {
+        val tokenInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val tokenLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_token_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
+            helperText = getString(R.string.cloud_token_help)
+            isHelperTextEnabled = true
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(tokenInput)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(24), dp(6), dp(24), 0)
+            addView(tokenLayout, LinearLayout.LayoutParams(-1, -2))
+        }
+        val message = if (hasUpdate) {
+            getString(
+                R.string.cloud_update_message,
+                deployment.workerUrl.removePrefix("https://"),
+                deployed ?: "?",
+                newest.version,
+            )
+        } else {
+            getString(R.string.cloud_update_uptodate_message, newest.version)
+        }
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_title)
+            .setMessage(message)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
+            .setNeutralButton(R.string.cloud_get_token_short) { _, _ ->
+                panelUpdateInProgress = false
+                openCloudflareTokenPage()
+            }
+            .setPositiveButton(
+                if (hasUpdate) R.string.cloud_update_confirm else R.string.cloud_update_reinstall,
+                null,
+            )
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val token = tokenInput.text?.toString()?.trim().orEmpty()
+                if (token.isEmpty()) {
+                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                runPanelUpdate(deployment, token, deployed, newest)
+            }
+        }
+        dialog.setOnCancelListener { panelUpdateInProgress = false }
+        dialog.show()
+    }
+
+    private fun runPanelUpdate(
+        deployment: PanelDeploymentRecord,
+        token: String,
+        deployed: String?,
+        script: PanelUpdate.PanelScript,
+    ) {
+        Toast.makeText(this, R.string.cloud_update_running, Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            try {
+                val permissions = CloudflareWorker.verifyToken(token)
+                val accountId = permissions.accountId
+                if (!permissions.valid || accountId == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                val outcome = CloudflareWorker.updateBuiltIn(
+                    this@MainActivity,
+                    token,
+                    accountId,
+                    deployment.workerUrl,
+                    deployed ?: "",
+                    script,
+                )
+                when (outcome) {
+                    is CloudflareWorker.PanelUpdateOutcome.Blocked -> {
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.cloud_update_title)
+                            .setMessage(getString(R.string.cloud_update_blocked, outcome.secretNames.joinToString(", ")))
+                            .setNegativeButton(android.R.string.ok, null)
+                            .show()
+                    }
+                    is CloudflareWorker.PanelUpdateOutcome.Success -> showCloudUpdateDialog(outcome)
+                }
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.cloud_update_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                panelUpdateInProgress = false
+                renderCloudDeploymentHistory()
+            }
+        }
+    }
+
+    private fun showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {
+        val status = if (result.verifiedOnline) {
+            getString(R.string.cloud_verified_online)
+        } else {
+            getString(R.string.cloud_verify_pending)
+        }
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        val message = getString(R.string.cloud_update_done, result.toVersion) + "\n" + status + "\n" + kvLine +
+            "\n\n" + result.panelUrl
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .setNegativeButton(android.R.string.ok, null)
+            .show()
     }
 
     /** Opens dash.cloudflare.com with the Cat Panel permissions pre-selected. */

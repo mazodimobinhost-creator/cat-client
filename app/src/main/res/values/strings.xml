@@ -590,6 +590,24 @@
     <string name="cloud_get_token">🔑 Get a Cloudflare token (1 tap, permissions pre-filled)</string>
     <string name="cloud_get_token_steps">Cloudflare opens with the exact permissions already selected → scroll down → Continue to summary → Create Token → Copy. Paste it below. No Cloudflare account? Create a free one on that page first.</string>
     <string name="cloud_get_token_toast">Cloudflare token page opened. Continue to summary → Create Token → Copy, then paste it here.</string>
+    <string name="cloud_get_token_short">Get a token</string>
+
+    <!-- Cat Panel in-app updates -->
+    <string name="cloud_update_panel">Update panel</string>
+    <string name="cloud_panel_version">Panel v%1$s</string>
+    <string name="cloud_panel_version_unknown">Version unknown</string>
+    <string name="cloud_panel_version_checking">Checking panel version…</string>
+    <string name="cloud_panel_uptodate">v%1$s · up to date</string>
+    <string name="cloud_panel_update_ready">v%1$s → v%2$s available</string>
+    <string name="cloud_update_title">Update Cat Panel</string>
+    <string name="cloud_update_message">Install Cat Panel v%3$s on %1$s (now v%2$s)? The UUID password, subscription links, users, quotas and saved settings all stay exactly as they are.</string>
+    <string name="cloud_update_uptodate_message">This deployment already runs the newest Cat Panel (v%1$s). Reinstalling is still useful to repair a broken worker.</string>
+    <string name="cloud_update_confirm">Update now</string>
+    <string name="cloud_update_reinstall">Reinstall</string>
+    <string name="cloud_update_running">Updating the panel…</string>
+    <string name="cloud_update_done">Panel updated to v%1$s</string>
+    <string name="cloud_update_failed">Panel update failed: %1$s</string>
+    <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. To keep them, update the worker from the Cloudflare dashboard instead.</string>
     <string name="cloud_wizard_title">Cat Wizard — one-click installer for friends</string>
     <string name="cloud_wizard_desc">Deploys a small “wizard” page on YOUR account. Anyone who opens it taps “Get token”, pastes their own Cloudflare token and gets their own Cat Panel (panel URL + password + sub link) — on their own account, nothing goes through you. Optional invite code protects the page.</string>
     <string name="cloud_wizard_deploy">🧙 Build my wizard page</string>

@@ -589,6 +589,24 @@
     <string name="cloud_get_token">🔑 دریافت توکن کلودفلر (یک ضربه، دسترسی‌ها آماده)</string>
     <string name="cloud_get_token_steps">صفحهٔ کلودفلر با دسترسی‌های لازم از قبل انتخاب‌شده باز می‌شود → پایین صفحه Continue to summary → Create Token → Copy. توکن را پایین بچسبان. حساب کلودفلر نداری؟ همان‌جا رایگان بساز.</string>
     <string name="cloud_get_token_toast">صفحهٔ توکن کلودفلر باز شد. Continue to summary → Create Token → Copy، بعد اینجا بچسبان.</string>
+    <string name="cloud_get_token_short">ساخت توکن</string>
+
+    <!-- بروزرسانی پنل Cat از داخل اپ -->
+    <string name="cloud_update_panel">بروزرسانی پنل</string>
+    <string name="cloud_panel_version">پنل v%1$s</string>
+    <string name="cloud_panel_version_unknown">نسخه نامشخص</string>
+    <string name="cloud_panel_version_checking">در حال بررسی نسخهٔ پنل…</string>
+    <string name="cloud_panel_uptodate">v%1$s · به‌روز</string>
+    <string name="cloud_panel_update_ready">نسخهٔ v%2$s آماده است (فعلی v%1$s)</string>
+    <string name="cloud_update_title">بروزرسانی Cat Panel</string>
+    <string name="cloud_update_message">نسخهٔ v%3$s Cat Panel روی %1$s نصب شود (فعلی v%2$s)؟ رمز UUID، لینک‌های اشتراک، کاربران، کتای‌ها و تنظیمات ذخیره‌شده دقیقاً سر جایشان می‌مانند.</string>
+    <string name="cloud_update_uptodate_message">این نصب همین حالا روی جدیدترین نسخهٔ Cat Panel (v%1$s) است. نصب دوباره برای ترمیم ورکر خراب به‌کار می‌آید.</string>
+    <string name="cloud_update_confirm">الان بروزرسانی کن</string>
+    <string name="cloud_update_reinstall">نصب دوباره</string>
+    <string name="cloud_update_running">در حال بروزرسانی پنل…</string>
+    <string name="cloud_update_done">پنل به نسخهٔ v%1$s بروزرسانی شد</string>
+    <string name="cloud_update_failed">بروزرسانی پنل ناموفق بود: %1$s</string>
+    <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظ آن‌ها ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>
     <string name="cloud_wizard_title">Cat Wizard — نصب یک‌کلیکی برای دوستان</string>
     <string name="cloud_wizard_desc">یک صفحهٔ «ویزارد» کوچک روی حساب خودت می‌سازد. هرکس آن را باز کند «دریافت توکن» را می‌زند، توکن کلودفلر خودش را می‌چسباند و پنل Cat خودش را می‌گیرد (آدرس پنل + رمز + لینک ساب) — روی حساب خودش، چیزی از تو رد نمی‌شود. کد دعوت اختیاری صفحه را قفل می‌کند.</string>
     <string name="cloud_wizard_deploy">🧙 ساخت صفحهٔ ویزارد من</string>
