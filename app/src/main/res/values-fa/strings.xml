@@ -607,6 +607,22 @@
     <string name="cloud_update_done">پنل به نسخهٔ v%1$s بروزرسانی شد</string>
     <string name="cloud_update_failed">بروزرسانی پنل ناموفق بود: %1$s</string>
     <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظ آن‌ها ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>
+
+    <!-- سلامت زندهٔ IPها -->
+    <string name="ip_health_section">سلامت زندهٔ IPها</string>
+    <string name="ip_health_desc">وقتی اپ باز است، مجموعهٔ IP تمیز همیشه تازه می‌ماند. هر بار همهٔ IPها دوباره تست می‌شوند؛ هر IP خراب یا کند حذف و بلافاصله یک جایگزین سالم از کتابخانه‌های اسکنر جای آن گذاشته می‌شود.</string>
+    <string name="ip_health_auto">جایگزینی خودکار IPها</string>
+    <string name="ip_health_auto_on">چرخش خودکار IP روشن شد</string>
+    <string name="ip_health_auto_off">چرخش خودکار IP خاموش شد</string>
+    <string name="ip_health_interval">هر %1$d دقیقه</string>
+    <string name="ip_health_rotate_now">همین حالا بررسی و جایگزینی</string>
+    <string name="ip_health_sweeping">در حال بررسی مجموعهٔ IP…</string>
+    <string name="ip_health_pool">IPهای زیر نظر: %1$d</string>
+    <string name="ip_health_best">بهترین %1$s · %2$d ms</string>
+    <string name="ip_health_last_event">آخرین چرخش: %1$s ← %2$s</string>
+    <string name="ip_health_rotated">%1$d IP خراب حذف شد؛ %2$d جایگزین اضافه شد</string>
+    <string name="ip_health_all_ok">همهٔ IPهای زیر نظر سالم‌اند</string>
+    <string name="ip_health_failed">بررسی سلامت IP ناموفق بود: %1$s</string>
     <string name="cloud_wizard_title">Cat Wizard — نصب یک‌کلیکی برای دوستان</string>
     <string name="cloud_wizard_desc">یک صفحهٔ «ویزارد» کوچک روی حساب خودت می‌سازد. هرکس آن را باز کند «دریافت توکن» را می‌زند، توکن کلودفلر خودش را می‌چسباند و پنل Cat خودش را می‌گیرد (آدرس پنل + رمز + لینک ساب) — روی حساب خودش، چیزی از تو رد نمی‌شود. کد دعوت اختیاری صفحه را قفل می‌کند.</string>
     <string name="cloud_wizard_deploy">🧙 ساخت صفحهٔ ویزارد من</string>

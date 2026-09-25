@@ -80,6 +80,7 @@ import com.journeyapps.barcodescanner.Size
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -719,7 +720,7 @@ class MainActivity : Activity() {
         val content = MaxWidthLinearLayout(this).apply {
             maxWidthPx = dp(520)
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(34), dp(24), dp(40))
+            setPadding(dp(24), dp(34), dp(24), dp(104))
         }
         val subscriptionsHeaderCopy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2271,7 +2272,7 @@ class MainActivity : Activity() {
             insets
         }
         val viewport = FrameLayout(this).apply {
-            setPadding(0, 0, 0, dp(24))
+            setPadding(0, 0, 0, dp(104))
             // Allow particles to extend beyond this layout's bounds
             clipChildren = false
             clipToPadding = false
@@ -2288,7 +2289,7 @@ class MainActivity : Activity() {
             maxWidthPx = dp(520)
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, 0, 0, dp(24))
+            setPadding(0, 0, 0, dp(104))
             // Allow particles to extend beyond this layout's bounds
             clipChildren = false
             clipToPadding = false
@@ -2932,7 +2933,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             maxWidthPx = dp(520)
-            setPadding(dp(24), dp(20), dp(24), dp(40))
+            setPadding(dp(24), dp(20), dp(24), dp(104))
         }
         fun settingsContent() = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3985,7 +3986,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             maxWidthPx = dp(520)
-            setPadding(dp(24), dp(34), dp(24), dp(40))
+            setPadding(dp(24), dp(34), dp(24), dp(104))
             addView(
                 TextView(this@MainActivity).apply {
                     setText(R.string.settings_title)
@@ -4356,7 +4357,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             maxWidthPx = dp(520)
-            setPadding(dp(24), dp(28), dp(24), dp(40))
+            setPadding(dp(24), dp(28), dp(24), dp(104))
         }
 
         body.addView(
@@ -4376,6 +4377,102 @@ class MainActivity : Activity() {
                 bottomMargin = dp(18)
             },
         )
+
+        // ---- live IP health: auto-refresh the pool and replace broken IPs ----
+        val ipHealthStore = IpHealthStore(this)
+        val healthCard = advancedSettingsPanel()
+        healthCard.addView(
+            advancedSectionLabel(getString(R.string.ip_health_section)),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(10)
+                bottomMargin = dp(8)
+            },
+        )
+        healthCard.addView(
+            advancedSectionDetail(getString(R.string.ip_health_desc)),
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) },
+        )
+        ipHealthStatusView = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        healthCard.addView(ipHealthStatusView, LinearLayout.LayoutParams(-1, -2))
+        val intervalChips = mutableListOf<Chip>()
+        val autoChip = Chip(this@MainActivity).apply {
+            setText(R.string.ip_health_auto)
+            isCheckable = true
+            isChecked = ipHealthStore.autoEnabled
+            textSize = 12f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                ipHealthStore.autoEnabled = checked
+                startIpHealthLoop()
+                Toast.makeText(
+                    this@MainActivity,
+                    if (checked) R.string.ip_health_auto_on else R.string.ip_health_auto_off,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+        val rotateButton = MaterialButton(this).apply {
+            setText(R.string.ip_health_rotate_now)
+            setAllCaps(false)
+            textSize = 11.5f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = dp(36)
+            minimumHeight = dp(36)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+            setTextColor(TEAL)
+            setOnClickListener { runIpHealthSweep() }
+        }
+        val healthRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        healthRow.addView(autoChip, LinearLayout.LayoutParams(-2, -2))
+        healthRow.addView(rotateButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        healthCard.addView(healthRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        val intervalRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        listOf(5, 15, 30).forEach { minutes ->
+            val chip = Chip(this@MainActivity).apply {
+                text = getString(R.string.ip_health_interval, minutes)
+                isCheckable = true
+                isChecked = ipHealthStore.intervalMinutes == minutes
+                textSize = 11f
+                setTextColor(TEXT_PRIMARY)
+                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
+                chipStrokeWidth = dp(1).toFloat()
+                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) {
+                        intervalChips.filterNot { it === this }.forEach { it.isChecked = false }
+                        ipHealthStore.intervalMinutes = minutes
+                        startIpHealthLoop()
+                    }
+                }
+            }
+            intervalChips += chip
+            intervalRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
+        }
+        healthCard.addView(intervalRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(healthCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        renderScannerIpHealth()
+        startIpHealthLoop()
 
         val controls = advancedSettingsPanel()
         controls.addView(
@@ -4888,7 +4985,14 @@ class MainActivity : Activity() {
             scannerStopButton.isEnabled = false
             scannerProgressBar.visibility = View.GONE
             scannerResults = found.sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+            IpHealthMonitor.seed(
+                IpHealthStore(this@MainActivity),
+                scannerResults,
+                scannerSniPreference(),
+                scannerPortPreference(),
+            )
             renderScannerResults()
+            renderScannerIpHealth()
             scannerStatusText.text = if (found.isEmpty()) {
                 getString(R.string.scanner_no_results)
             } else {
@@ -4905,6 +5009,77 @@ class MainActivity : Activity() {
         scannerStopButton.isEnabled = false
         scannerProgressBar.visibility = View.GONE
         scannerStatusText.setText(R.string.scanner_stopped)
+    }
+
+    private var ipHealthJob: Job? = null
+    private var ipHealthSweeping = false
+    private var ipHealthStatusView: TextView? = null
+
+    private fun renderScannerIpHealth() {
+        val view = ipHealthStatusView ?: return
+        val store = IpHealthStore(this)
+        val entries = store.entries()
+        val last = store.events().firstOrNull()
+        view.text = buildString {
+            append(getString(R.string.ip_health_pool, entries.size))
+            val best = entries.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }
+            if (best != null) {
+                append("  ·  ")
+                append(getString(R.string.ip_health_best, best.ip, best.pingMs))
+            }
+            if (last != null) {
+                append('\n')
+                append(getString(R.string.ip_health_last_event, last.removedIp, last.addedIp ?: "—"))
+            }
+        }
+    }
+
+    private fun startIpHealthLoop() {
+        ipHealthJob?.cancel()
+        ipHealthJob = null
+        if (!IpHealthStore(this).autoEnabled) return
+        ipHealthJob = activityScope.launch {
+            while (true) {
+                runIpHealthSweep(silent = true)
+                delay(IpHealthStore(this@MainActivity).intervalMinutes * 60_000L)
+            }
+        }
+    }
+
+    private fun runIpHealthSweep(silent: Boolean = false) {
+        if (ipHealthSweeping) return
+        ipHealthSweeping = true
+        val store = IpHealthStore(this)
+        val sni = scannerSniPreference().ifBlank { IpScanner.RECOMMENDED_SNIS.first() }
+        val port = scannerPortPreference()
+        if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            try {
+                val result = IpHealthMonitor.sweep(store, sni, port)
+                renderScannerIpHealth()
+                if (!silent) {
+                    if (result.removed.isEmpty() && result.added.isEmpty()) {
+                        Toast.makeText(this@MainActivity, R.string.ip_health_all_ok, Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.ip_health_rotated, result.removed.size, result.added.size),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) {
+                if (!silent) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.ip_health_failed, e.message ?: e::class.java.simpleName),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } finally {
+                ipHealthSweeping = false
+            }
+        }
     }
 
     private fun renderScannerResults() {
@@ -5109,7 +5284,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             maxWidthPx = dp(520)
-            setPadding(dp(24), dp(20), dp(24), dp(40))
+            setPadding(dp(24), dp(20), dp(24), dp(104))
         }
 
         body.addView(
@@ -6891,7 +7066,7 @@ class MainActivity : Activity() {
         val content = MaxWidthLinearLayout(this).apply {
             maxWidthPx = dp(640)
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(12))
+            setPadding(dp(24), dp(20), dp(24), dp(104))
         }
 
         val backButton = ImageButton(this).apply {
@@ -9748,7 +9923,12 @@ class MainActivity : Activity() {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
             setColor(if (highlighted) palette.surfaceElevated2 else palette.surface)
-            if (highlighted) setStroke(dp(1), withAlpha(TEAL, 170))
+            if (highlighted) {
+                setStroke(dp(1), withAlpha(TEAL, 170))
+            } else if (palette.isDark) {
+                // Glass edge: a whisper of white keeps cards readable on black.
+                setStroke(dp(1), withAlpha(0xFFFFFFFF.toInt(), 24))
+            }
         }
     }
 

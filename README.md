@@ -99,6 +99,15 @@ Requirements: JDK 21, Android SDK (platform 36, build-tools 35.0.0, NDK 29, CMak
 
 The easiest path is to push to this repo — GitHub Actions builds debug + release APKs automatically and attaches them to a versioned release.
 
+## 🖥️ Windows app
+
+The desktop build lives in [`windows/`](windows/README.md) — a dependency-free
+tkinter client with the same Cat identity (subscriptions + copy in every
+format + share with multiple users, clean-IP scanner with real country flags,
+free configs and link latency tests). Run `windows/run.bat`, or download the
+`CatClient-Windows.zip` asset from a GitHub Release (built by GitHub Actions
+with PyInstaller). Windows builds run in the dedicated `windows` workflow.
+
 ## 🔄 In-app updates
 
 Cat Client includes an **App updates** card under Settings. It checks the official Cat Client GitHub release, chooses the APK matching the installed ABI, downloads it through Android DownloadManager, verifies the release `SHA256SUMS`, package name, version code, native ABI set and signing certificate, then opens Android's installer. The app never installs an arbitrary URL or a mismatched APK.

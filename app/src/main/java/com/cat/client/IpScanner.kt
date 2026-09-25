@@ -348,6 +348,7 @@ object IpScanner {
         }
         if (options.includeIranLibrary) {
             ips += IRAN_LIBRARY
+            ips += CommunityIpLibrary.ips
         }
         return ips.shuffled()
     }

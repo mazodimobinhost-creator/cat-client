@@ -608,6 +608,22 @@
     <string name="cloud_update_done">Panel updated to v%1$s</string>
     <string name="cloud_update_failed">Panel update failed: %1$s</string>
     <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. To keep them, update the worker from the Cloudflare dashboard instead.</string>
+
+    <!-- Live clean-IP health -->
+    <string name="ip_health_section">Live IP health</string>
+    <string name="ip_health_desc">Keeps the clean-IP pool fresh while the app is open. Every sweep re-probes the tracked IPs, removes broken or slow ones, and automatically pulls healthy replacements from the scanner libraries — a bad IP is swapped out the moment it starts failing.</string>
+    <string name="ip_health_auto">Auto-replace IPs</string>
+    <string name="ip_health_auto_on">Automatic IP rotation is on</string>
+    <string name="ip_health_auto_off">Automatic IP rotation is off</string>
+    <string name="ip_health_interval">every %1$d min</string>
+    <string name="ip_health_rotate_now">Check &amp; replace now</string>
+    <string name="ip_health_sweeping">Checking the IP pool…</string>
+    <string name="ip_health_pool">Tracked IPs: %1$d</string>
+    <string name="ip_health_best">best %1$s · %2$d ms</string>
+    <string name="ip_health_last_event">Last rotation: %1$s → %2$s</string>
+    <string name="ip_health_rotated">Removed %1$d broken IP(s); %2$d replacement(s) added</string>
+    <string name="ip_health_all_ok">All tracked IPs are healthy</string>
+    <string name="ip_health_failed">IP health check failed: %1$s</string>
     <string name="cloud_wizard_title">Cat Wizard — one-click installer for friends</string>
     <string name="cloud_wizard_desc">Deploys a small “wizard” page on YOUR account. Anyone who opens it taps “Get token”, pastes their own Cloudflare token and gets their own Cat Panel (panel URL + password + sub link) — on their own account, nothing goes through you. Optional invite code protects the page.</string>
     <string name="cloud_wizard_deploy">🧙 Build my wizard page</string>
