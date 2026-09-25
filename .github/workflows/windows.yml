@@ -34,13 +34,13 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist/package | Out-Null
-          Copy-Item dist/CatClient.exe dist/package/
-          Copy-Item windows/run.bat dist/package/
-          Copy-Item windows/README.md dist/package/
-          Copy-Item windows/CatClientWin/ips.txt dist/package/
-          Compress-Archive -Path dist/package/* -DestinationPath CatClient-Windows.zip
-          Get-ChildItem dist
+          New-Item -ItemType Directory -Path package | Out-Null
+          Copy-Item windows/CatClientWin/dist/CatClient.exe package/
+          Copy-Item windows/run.bat package/
+          Copy-Item windows/README.md package/
+          Copy-Item windows/CatClientWin/ips.txt package/
+          Compress-Archive -Path package/* -DestinationPath CatClient-Windows.zip -Force
+          Get-ChildItem package
 
       - uses: actions/upload-artifact@v4
         with:
