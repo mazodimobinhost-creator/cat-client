@@ -190,8 +190,7 @@ object IpHealthMonitor {
             }.forEach { deferred ->
                 val (entry, result) = deferred.await()
                 val nowStamp = System.currentTimeMillis()
-                val healthy = result != null && result.tlsOk && result.pingMs <= SLOW_MS
-                if (healthy) {
+                if (result != null && result.tlsOk && result.pingMs <= SLOW_MS) {
                     kept += entry.copy(
                         pingMs = result.pingMs,
                         tlsMs = result.tlsMs,
@@ -205,8 +204,7 @@ object IpHealthMonitor {
                 } else {
                     val reason = when {
                         result == null -> "tcp"
-                        !result.tlsOk -> "tls"
-                        else -> "slow"
+                        else -> if (result.tlsOk) "slow" else "tls"
                     }
                     val fails = entry.fails + 1
                     if (fails >= MAX_FAILS) {
