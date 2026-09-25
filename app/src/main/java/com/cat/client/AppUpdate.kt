@@ -33,6 +33,11 @@ data class AppRelease(
     val downloadable: Boolean get() = apk != null && checksums != null
 }
 
+/** Why an update was refused after download — surfaced verbatim to the UI. */
+enum class AppFailureReason { SIGNER, CHECKSUM, PACKAGE, VERSION, VARIANT, GENERIC }
+
+class UpdateRejectedException(val reason: AppFailureReason, message: String) : IOException(message)
+
 data class AppApkMetadata(
     val packageName: String,
     val versionName: String,
@@ -84,21 +89,22 @@ object AppUpdatePolicy {
 
     fun validateApk(candidate: AppApkMetadata, installed: AppApkMetadata, release: AppRelease) {
         if (candidate.packageName != installed.packageName || candidate.packageName.isBlank()) {
-            throw IOException("Update package does not match this app")
+            throw UpdateRejectedException(AppFailureReason.PACKAGE, "Update package does not match this app")
         }
         val releaseVersion = normalizedVersion(release.version)
         if (releaseVersion.isEmpty() || normalizedVersion(candidate.versionName) != releaseVersion ||
             !isNewer(release.version, installed.versionName) || candidate.versionCode <= installed.versionCode
         ) {
-            throw IOException("Update version does not match the newer release")
+            throw UpdateRejectedException(AppFailureReason.VERSION, "Update version does not match the newer release")
         }
-        if (candidate.signerSha256.isEmpty() || installed.signerSha256.isEmpty() ||
-            candidate.signerSha256 != installed.signerSha256
-        ) {
-            throw IOException("Update signing certificate does not match this app")
+        if (candidate.signerSha256.isEmpty() || installed.signerSha256.isEmpty()) {
+            throw UpdateRejectedException(AppFailureReason.SIGNER, "Update APK signing certificate could not be read")
+        }
+        if (candidate.signerSha256 != installed.signerSha256) {
+            throw UpdateRejectedException(AppFailureReason.SIGNER, "Update signing certificate does not match this app")
         }
         if (candidate.variant == null || candidate.variant != installed.variant) {
-            throw IOException("Update APK type does not match this app")
+            throw UpdateRejectedException(AppFailureReason.VARIANT, "Update APK type does not match this app")
         }
     }
 

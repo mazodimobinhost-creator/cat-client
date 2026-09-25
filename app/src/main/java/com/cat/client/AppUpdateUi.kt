@@ -189,7 +189,7 @@ internal class AppUpdateUi(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                state = AppDownloadState.Failed
+                state = AppDownloadState.Failed()
                 fail("update.download.failed", error, R.string.update_download_failed)
             } finally {
                 busy = false
@@ -234,7 +234,7 @@ internal class AppUpdateUi(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    state = AppDownloadState.Failed
+                    state = AppDownloadState.Failed()
                     fail("update.refresh.failed", error, R.string.update_download_failed)
                 }
                 if (state !is AppDownloadState.Downloading && state !is AppDownloadState.Verifying) break
@@ -277,7 +277,7 @@ internal class AppUpdateUi(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                if (!verifiedForInstall) state = AppDownloadState.Failed
+                if (!verifiedForInstall) state = AppDownloadState.Failed()
                 fail("update.install.failed", error, R.string.update_install_failed)
             } finally {
                 busy = false
@@ -311,7 +311,7 @@ internal class AppUpdateUi(
             notice != null -> notice
             ready -> activity.getString(R.string.update_ready,
                 version((state as AppDownloadState.Ready).release.version))
-            state is AppDownloadState.Failed -> activity.getString(R.string.update_download_failed)
+            state is AppDownloadState.Failed -> failedMessage(state as AppDownloadState.Failed)
             release != null && !release.downloadable -> activity.getString(R.string.update_not_ready)
             else -> ""
         }
@@ -329,6 +329,12 @@ internal class AppUpdateUi(
             else -> R.string.update_download
         })
         releaseButton.visibility = if (available) View.VISIBLE else View.GONE
+    }
+
+    private fun failedMessage(failed: AppDownloadState.Failed): String = when (failed.reason) {
+        AppFailureReason.SIGNER -> activity.getString(R.string.update_error_signer)
+        AppFailureReason.CHECKSUM -> activity.getString(R.string.update_error_verify)
+        else -> activity.getString(R.string.update_download_failed)
     }
 
     private fun fail(event: String, error: Exception, message: Int) {

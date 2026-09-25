@@ -5911,6 +5911,7 @@ class MainActivity : Activity() {
         token: String,
         deployed: String?,
         script: PanelUpdate.PanelScript,
+        secretValues: Map<String, String> = emptyMap(),
     ) {
         Toast.makeText(this, R.string.cloud_update_running, Toast.LENGTH_SHORT).show()
         activityScope.launch {
@@ -5925,6 +5926,15 @@ class MainActivity : Activity() {
                     ).show()
                     return@launch
                 }
+                val remaining = CloudflareWorker.protectedSecretNames(token, accountId, deployment.workerUrl)
+                    .filterNot { secretValues.containsKey(it) }
+                if (remaining.isNotEmpty()) {
+                    panelUpdateInProgress = false
+                    showPanelSecretsDialog(deployment, token, deployed, script, remaining) { values ->
+                        runPanelUpdate(deployment, token, deployed, script, secretValues + values)
+                    }
+                    return@launch
+                }
                 val outcome = CloudflareWorker.updateBuiltIn(
                     this@MainActivity,
                     token,
@@ -5932,14 +5942,20 @@ class MainActivity : Activity() {
                     deployment.workerUrl,
                     deployed ?: "",
                     script,
+                    secretValues,
                 )
                 when (outcome) {
                     is CloudflareWorker.PanelUpdateOutcome.Blocked -> {
-                        MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle(R.string.cloud_update_title)
-                            .setMessage(getString(R.string.cloud_update_blocked, outcome.secretNames.joinToString(", ")))
-                            .setNegativeButton(android.R.string.ok, null)
-                            .show()
+                        panelUpdateInProgress = false
+                        showPanelSecretsDialog(
+                            deployment,
+                            token,
+                            deployed,
+                            script,
+                            outcome.secretNames,
+                        ) { values ->
+                            runPanelUpdate(deployment, token, deployed, script, secretValues + values)
+                        }
                     }
                     is CloudflareWorker.PanelUpdateOutcome.Success -> showCloudUpdateDialog(outcome)
                 }
@@ -5954,6 +5970,79 @@ class MainActivity : Activity() {
                 renderCloudDeploymentHistory()
             }
         }
+    }
+
+    private fun showPanelSecretsDialog(
+        deployment: PanelDeploymentRecord,
+        token: String,
+        deployed: String?,
+        script: PanelUpdate.PanelScript,
+        secretNames: List<String>,
+        onValues: (Map<String, String>) -> Unit,
+    ) {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(24), dp(8), dp(24), 0)
+        }
+        column.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_secrets_desc)
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(dp(2).toFloat(), 1f)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+        )
+        val inputs = mutableMapOf<String, TextInputEditText>()
+        secretNames.forEach { name ->
+            val input = TextInputEditText(this).apply {
+                setSingleLine(true)
+                hint = name
+                background = null
+                setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+                setTextColor(TEXT_PRIMARY)
+                setHintTextColor(TEXT_SECONDARY)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            inputs[name] = input
+            column.addView(
+                TextInputLayout(this).apply {
+                    this.hint = name
+                    boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+                    boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+                    boxStrokeColor = TEAL
+                    defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+                    setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+                    addView(input)
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+            )
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_secrets_title)
+            .setView(column)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
+            .setPositiveButton(R.string.cloud_secrets_confirm, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val values = mutableMapOf<String, String>()
+                for ((name, input) in inputs) {
+                    val value = input.text?.toString().orEmpty()
+                    if (value.isEmpty()) {
+                        Toast.makeText(this, getString(R.string.cloud_secrets_missing, name), Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+                    values[name] = value
+                }
+                dialog.dismiss()
+                panelUpdateInProgress = true
+                onValues(values)
+            }
+        }
+        dialog.setOnCancelListener { panelUpdateInProgress = false }
+        dialog.show()
     }
 
     private fun showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {

@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.9.0"
+        versionCode = 17
+        versionName = "1.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
@@ -110,6 +110,9 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                if (releaseStoreFilePath!!.endsWith(".p12") || releaseStoreFilePath!!.endsWith(".pfx")) {
+                    storeType = "pkcs12"
+                }
             }
         }
     }

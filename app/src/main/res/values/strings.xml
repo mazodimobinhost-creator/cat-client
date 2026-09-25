@@ -607,7 +607,17 @@
     <string name="cloud_update_running">Updating the panel…</string>
     <string name="cloud_update_done">Panel updated to v%1$s</string>
     <string name="cloud_update_failed">Panel update failed: %1$s</string>
-    <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. To keep them, update the worker from the Cloudflare dashboard instead.</string>
+    <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. Enter their values to keep them through the update — or update the worker from the Cloudflare dashboard instead.</string>
+
+    <!-- Update failure reasons -->
+    <string name="update_error_signer">The update\'s signing key does not match this app. If the release key just changed, reinstall once from GitHub — every later update installs in-app again.</string>
+    <string name="update_error_verify">The downloaded update failed its security check and was not installed.</string>
+
+    <!-- Protected panel secrets -->
+    <string name="cloud_secrets_title">Protected secrets</string>
+    <string name="cloud_secrets_desc">Cloudflare never returns secret values. Enter each one to keep it through the update — nothing is dropped.</string>
+    <string name="cloud_secrets_confirm">Update and keep</string>
+    <string name="cloud_secrets_missing">Enter the value of %1$s first.</string>
 
     <!-- Live clean-IP health -->
     <string name="ip_health_section">Live IP health</string>

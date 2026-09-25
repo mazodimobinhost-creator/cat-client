@@ -555,6 +555,7 @@ object CloudflareWorker {
         workerUrl: String,
         fromVersion: String,
         script: PanelUpdate.PanelScript,
+        secretValues: Map<String, String> = emptyMap(),
     ): PanelUpdateOutcome = withContext(Dispatchers.IO) {
         val normalized = workerUrl.trimEnd('/')
         val workerName = workerNameFromUrl(normalized)
@@ -562,13 +563,15 @@ object CloudflareWorker {
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
 
-        // Never silently drop a secret the user added (e.g. PANEL_PASSWORD):
-        // Cloudflare does not return secret values, so refuse instead.
+        // Never silently drop a secret the user added (e.g. WIZARD_PASSWORD):
+        // Cloudflare does not return secret values, so the caller must provide
+        // them (the app collects them first). Anything still missing blocks.
         val existing = readScriptBindings(token, uploadUrl)
         val blocked = existing
             ?.filter { it.optString("type") == "secret_text" && it.optString("text").isNullOrBlank() }
             ?.mapNotNull { it.optString("name").takeIf { name -> name.isNotBlank() } }
             .orEmpty()
+            .filterNot { secretValues.containsKey(it) }
         if (blocked.isNotEmpty()) return@withContext PanelUpdateOutcome.Blocked(blocked)
 
         // Prefer the KV namespace already bound to this worker; fall back to the
@@ -587,12 +590,15 @@ object CloudflareWorker {
             val name = binding.optString("name")
             if (name.isBlank() || name == "UUID" || name == "CAT_KV") return@forEach
             when (binding.optString("type")) {
-                "plain_text", "secret_text" -> extras.put(
-                    JSONObject()
-                        .put("type", binding.optString("type"))
-                        .put("name", name)
-                        .put("text", binding.optString("text")),
-                )
+                "plain_text", "secret_text" -> {
+                    val text = secretValues[name] ?: binding.optString("text")
+                    extras.put(
+                        JSONObject()
+                            .put("type", binding.optString("type"))
+                            .put("name", name)
+                            .put("text", text),
+                    )
+                }
                 else -> extras.put(JSONObject(binding.toString()))
             }
         }
@@ -632,6 +638,22 @@ object CloudflareWorker {
     }
 
     /** Current script bindings from the Cloudflare API, or null when unreadable. */
+    /**
+     * Names of `secret_text` bindings on a deployed worker. Cloudflare never
+     * returns their values, so the update flow asks the user for each one and
+     * carries them through the re-upload instead of dropping them.
+     */
+    suspend fun protectedSecretNames(token: String, accountId: String, workerUrl: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val normalized = workerUrl.trimEnd('/')
+            val uploadUrl =
+                "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/${workerNameFromUrl(normalized)}"
+            readScriptBindings(token, uploadUrl)
+                ?.filter { it.optString("type") == "secret_text" && it.optString("text").isNullOrBlank() }
+                ?.mapNotNull { it.optString("name").takeIf { name -> name.isNotBlank() } }
+                .orEmpty()
+        }
+
     private fun readScriptBindings(token: String, uploadUrl: String): List<JSONObject>? {
         val json = runCatching { cfGet(token, uploadUrl) }.getOrNull() ?: return null
         if (!json.optBoolean("success", true) && json.optJSONObject("result") == null) return null

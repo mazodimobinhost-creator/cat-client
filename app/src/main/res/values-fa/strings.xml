@@ -606,7 +606,17 @@
     <string name="cloud_update_running">در حال بروزرسانی پنل…</string>
     <string name="cloud_update_done">پنل به نسخهٔ v%1$s بروزرسانی شد</string>
     <string name="cloud_update_failed">بروزرسانی پنل ناموفق بود: %1$s</string>
-    <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظ آن‌ها ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>
+    <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظشان مقدار هر کدام را وارد کن — یا ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>
+
+    <!-- دلایل شکست به‌روزرسانی -->
+    <string name="update_error_signer">کلید امضای به‌روزرسانی با این اپ یکی نیست. اگر تازه کلید امضا عوض شده، یک بار از گیت‌هاب نصب کن؛ از این پس همهٔ به‌روزرسانی‌ها درون اپ نصب می‌شوند.</string>
+    <string name="update_error_verify">به‌روزرسانی دانلودشده از بررسی امنیتی رد شد و نصب نشد.</string>
+
+    <!-- رمزهای محافظت‌شدهٔ پنل -->
+    <string name="cloud_secrets_title">رمزهای محافظت‌شده</string>
+    <string name="cloud_secrets_desc">کلودفلر هرگز مقدار رمزها را برنمی‌گرداند. برای حفظ هر کدام در به‌روزرسانی، مقدار آن را وارد کن — هیچ رمزی حذف نمی‌شود.</string>
+    <string name="cloud_secrets_confirm">به‌روزرسانی و نگه‌داشتن</string>
+    <string name="cloud_secrets_missing">اول مقدار %1$s را وارد کن.</string>
 
     <!-- سلامت زندهٔ IPها -->
     <string name="ip_health_section">سلامت زندهٔ IPها</string>

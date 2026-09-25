@@ -24,7 +24,7 @@ sealed interface AppDownloadState {
     data class Downloading(val downloaded: Long, val total: Long, val paused: Boolean) : AppDownloadState
     data object Verifying : AppDownloadState
     data class Ready(val file: File, val release: AppRelease) : AppDownloadState
-    data object Failed : AppDownloadState
+    data class Failed(val reason: AppFailureReason = AppFailureReason.GENERIC) : AppDownloadState
 }
 
 class AppUpdateManager(context: Context) {
@@ -96,7 +96,7 @@ class AppUpdateManager(context: Context) {
         mutationLock.withLock {
             reconcileInstalledUpdate()
             val pending = pending() ?: return@withLock AppDownloadState.Idle
-            if (pending.failed) return@withLock AppDownloadState.Failed
+            if (pending.failed) return@withLock AppDownloadState.Failed(savedFailureReason())
             if (verified == pending && snapshot.isFile && snapshot.length() == pending.release.apk?.size) {
                 return@withLock AppDownloadState.Ready(snapshot, pending.release)
             }
@@ -127,7 +127,7 @@ class AppUpdateManager(context: Context) {
                 throw cancelled
             } catch (error: Exception) {
                 failDownload(pending, error)
-                AppDownloadState.Failed
+                AppDownloadState.Failed(reasonOf(error))
             }
         }
     }
@@ -185,7 +185,7 @@ class AppUpdateManager(context: Context) {
         val installed = installedMetadata()
         GitHubReleaseClient.validateRelease(pending.release, installed.variant)
         if (!snapshot.isFile || snapshot.length() != pending.release.apk?.size) {
-            throw IOException("Update APK size does not match the release")
+            throw UpdateRejectedException(AppFailureReason.CHECKSUM, "Update APK size does not match the release")
         }
         val digest = MessageDigest.getInstance("SHA-256")
         snapshot.inputStream().use { input ->
@@ -197,9 +197,11 @@ class AppUpdateManager(context: Context) {
                 digest.update(buffer, 0, count)
             }
         }
-        if (hex(digest.digest()) != pending.sha256) throw IOException("Update APK checksum does not match the release")
+        if (hex(digest.digest()) != pending.sha256) {
+            throw UpdateRejectedException(AppFailureReason.CHECKSUM, "Update APK checksum does not match the release")
+        }
         val info = context.packageManager.getPackageArchiveInfo(snapshot.path, signatureFlags())
-            ?: throw IOException("Update APK cannot be read")
+            ?: throw UpdateRejectedException(AppFailureReason.PACKAGE, "Update APK cannot be read")
         AppUpdatePolicy.validateApk(metadata(info, snapshot), installed, pending.release)
         verified = pending
     }
@@ -244,7 +246,7 @@ class AppUpdateManager(context: Context) {
 
     private fun clearDownload(pending: PendingDownload?) {
         pending?.let { downloads.remove(it.id) }
-        if (!preferences.edit().remove("pending").commit()) throw IOException("Cannot clear pending update")
+        if (!preferences.edit().remove("pending").remove("failedReason").commit()) throw IOException("Cannot clear pending update")
         verified = null
         snapshot.delete()
         File(updateDirectory, "update.apk.part").delete()
@@ -257,9 +259,17 @@ class AppUpdateManager(context: Context) {
         snapshot.delete()
         File(updateDirectory, "update.apk.part").delete()
         savePending(pending.copy(failed = true))
+        preferences.edit().putString("failedReason", reasonOf(error).name).apply()
         downloads.remove(pending.id)
         context.getExternalFilesDir("updates")?.let { File(it, "download.apk").delete() }
     }
+
+    private fun reasonOf(error: Exception): AppFailureReason =
+        (error as? UpdateRejectedException)?.reason ?: AppFailureReason.GENERIC
+
+    private fun savedFailureReason(): AppFailureReason = runCatching {
+        AppFailureReason.valueOf(preferences.getString("failedReason", null) ?: "")
+    }.getOrDefault(AppFailureReason.GENERIC)
 
     private fun pending(): PendingDownload? = try {
         preferences.getString("pending", null)?.let { value ->
