@@ -315,7 +315,7 @@ jobs:
             catclient.worker.js
             catclient.wizard.js
           )
-          notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — installable APKs with verified signatures, ABI-specific and universal variants, and SHA-256 checksums. The Cat Panel UUID recovery fix is included.\n\n**Install**\n- 64-bit phones: CatClient-V${APP_VERSION}-arm64-v8a.apk\n- any supported device: CatClient-V${APP_VERSION}-universal.apk\n- If Android says the package conflicts with an older CI build, uninstall that older build first; future releases use the configured stable signing key.\n\nBuilt from ${GITHUB_SHA}."
+          notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
           else
