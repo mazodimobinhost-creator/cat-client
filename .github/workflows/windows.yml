@@ -52,4 +52,6 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload $env:GITHUB_REF_NAME CatClient-Windows.zip --clobber
+        run: |
+          $tag = "v" + (Select-String -Path app/build.gradle.kts -Pattern 'versionName\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          gh release upload $tag CatClient-Windows.zip --clobber
