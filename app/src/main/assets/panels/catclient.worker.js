@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.9.0';
+const CAT_PANEL_VERSION = '5.10.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -865,6 +865,7 @@ async function writeSettings(env, patch) {
 /* ------------------------------------------------------------------ */
 
 const USER_DEFAULTS = {
+  countries: [],
   quotaGb: 0,
   usedBytes: 0,
   usedRequests: 0,
@@ -878,6 +879,9 @@ const USER_DEFAULTS = {
 
 function normalizeUser(raw) {
   const user = Object.assign({}, USER_DEFAULTS, raw || {});
+  user.countries = Array.isArray(user.countries)
+    ? user.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c))
+    : (user.countries ? String(user.countries).split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)) : []);
   user.quotaGb = Number(user.quotaGb) || 0;
   user.usedBytes = Number(user.usedBytes) || 0;
   user.usedRequests = Number(user.usedRequests) || 0;
@@ -1088,6 +1092,25 @@ const DEFAULT_PROXY_IPS = [
   'di.nscl.ir',
   'tr.diam4.ggff.net',
 ];
+
+async function refreshProxyIps(env, source) {
+  const answer = await fetch(source, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
+  const text = await answer.text();
+  let ips = [];
+  try {
+    const data = JSON.parse(text);
+    const body = Array.isArray(data) ? data : (Array.isArray(data.body) ? data.body : (Array.isArray(data.ips) ? data.ips : []));
+    ips = body.map((item) => (item && item.ip) ? item.ip : String(item || '')).filter(Boolean);
+  } catch (e) {
+    ips = text.split(/\s+/);
+  }
+  ips = Array.from(new Set(ips.map((ip) => String(ip).trim()).filter(Boolean))).slice(0, 64);
+  if (!ips.length) return { ok: false, error: 'empty source' };
+  const settings = await readSettings(env);
+  settings.tunnel = Object.assign({}, settings.tunnel, { proxyIps: ips });
+  const saved = await writeSettings(env, { tunnel: { proxyIps: ips } });
+  return { ok: true, count: ips.length, ips: ips, persisted: !!saved.persisted };
+}
 
 function proxyIpList(env, settings) {
   const fromSettings = settings && settings.tunnel && Array.isArray(settings.tunnel.proxyIps)
@@ -1393,10 +1416,36 @@ function ipInCidr(ipLong, cidr) {
   return ((ipLong & mask) >>> 0) === ((base & mask) >>> 0);
 }
 
+function parseV6Hextets(addr) {
+  let s = String(addr || '').trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  if (!s.includes(':')) return null;
+  const dbl = s.split('::');
+  if (dbl.length > 2) return null;
+  const head = dbl[0] ? dbl[0].split(':') : [];
+  const tail = dbl.length === 2 ? (dbl[1] ? dbl[1].split(':') : []) : [];
+  if (head.length + tail.length > 8) return null;
+  const mid = new Array(8 - head.length - tail.length).fill('0');
+  return head.concat(mid, tail).map((h) => (h || '0'));
+}
+
+let cfV6HeadsCache = null;
+function cfV6Heads() {
+  if (!cfV6HeadsCache) {
+    cfV6HeadsCache = SCAN_RANGES6.map((cidr) => {
+      const h = parseV6Hextets(cidr.split('/')[0]);
+      return h ? parseInt(h[0], 16) * 0x10000 + parseInt(h[1], 16) : -1;
+    });
+  }
+  return cfV6HeadsCache;
+}
+
 function isCloudflareIp(ip) {
   const value = ipToLong(ip);
-  if (value === null) return false;
-  return CF_CIDR_RANGES.some((range) => ipInCidr(value, range));
+  if (value !== null) return CF_CIDR_RANGES.some((range) => ipInCidr(value, range));
+  const h = parseV6Hextets(ip);
+  if (!h) return false;
+  const head32 = parseInt(h[0], 16) * 0x10000 + parseInt(h[1], 16);
+  return cfV6Heads().indexOf(head32) >= 0;
 }
 
 /**
@@ -1759,7 +1808,14 @@ const DEFAULT_SUB_ENTRIES = 8;
  * Cloudflare IPv6 anycast for dual-stack phones (the panel emits IPv6 entries too;
  * many Iranian mobile carriers hand out v6 that is less policed than v4).
  */
-const DEFAULT_CLEAN_IPV6 = ['2606:4700::6810:84e5', '2606:4700::6812:1a2e', '2606:4700:3030::ac43:b58a', '2606:4700:3032::6815:3ef9'];
+const DEFAULT_CLEAN_IPV6 = ['2606:4700::6810:84e5', '2606:4700::6812:1a2e', '2606:4700:3030::ac43:b58a', '2606:4700:3032::6815:3ef9', '2400:cb00::6815:3ef9', '2a06:98c0::6815:3ef9'];
+/* Cloudflare IPv6 anycast (the pool the CloudflareScanner ipv6.txt walks). */
+const SCAN_RANGES6 = [
+  '2400:cb00::/32', '2405:b500::/32', '2405:8100::/32', '2606:4700::/32',
+  '2803:f800::/32', '2a06:98c0::/32', '2a06:98c1::/32', '2a06:98c2::/32',
+  '2a06:98c3::/32', '2a06:98c4::/32', '2a06:98c5::/32', '2a06:98c6::/32',
+  '2a06:98c7::/32', '2c0f:f248::/32',
+];
 
 function panelHosts(host, env) {
   const ips = splitCsv(env.CF_IPS);
@@ -2289,14 +2345,15 @@ async function ensureVerifiedPool(env, host) {
   }
 }
 
-function configOptions(url, host, env, settings) {
+function configOptions(url, host, env, settings, allowedCountries) {
   const cfg = (settings && settings.configs) || {};
   const q = url && url.searchParams ? url.searchParams : new URLSearchParams();
   const fromQuery = splitCsv(q.get('ips') || q.get('addresses'));
   const fromSettings = Array.isArray(cfg.addresses) ? cfg.addresses : [];
   const fromEnv = splitCsv(env.CF_IPS);
   const verifiedEntries = normalizedVerifiedEntries(settings);
-  const requestedCountryCodes = splitCsv(q.get('countries') || q.get('country') || cfg.country || env.COUNTRY)
+  const ownerGate = Array.isArray(allowedCountries) ? allowedCountries : null;
+  let requestedCountryCodes = splitCsv(q.get('countries') || q.get('country') || cfg.country || env.COUNTRY)
     .map((value) => String(value).trim().toUpperCase())
     .filter(Boolean);
   let addresses = fromQuery.length ? fromQuery : fromSettings.length ? fromSettings : fromEnv.length ? fromEnv : DEFAULT_CLEAN_ADDRESSES;
@@ -2352,6 +2409,22 @@ function configOptions(url, host, env, settings) {
   const includeV6 = q.has('v6') ? q.get('v6') !== '0' : cfg.includeIpv6 !== false;
   const pathName = url && url.pathname ? String(url.pathname) : '';
   const recipientPath = pathName === '/u' || pathName.startsWith('/u/') || pathName.startsWith('/info/');
+  if (ownerGate) {
+    // Per-user gate: the owner picks each user's countries first; until then the
+    // user gets zero configs, and afterwards only from the picked set.
+    if (!ownerGate.length) {
+      return {
+        addresses: [], ports: DEFAULT_PORTS.slice(), sni: String(host).toLowerCase(),
+        protocols: ['vless', 'trojan'], includeHost: false, fragment: false,
+        fingerprint: 'chrome', includeIpv6: false, locations: {},
+        country: '', countryCodes: [], verifiedEntries: [],
+        entryLimit: 0, count: 0, max: MAX_SUB_ENTRIES,
+      };
+    }
+    requestedCountryCodes = requestedCountryCodes.length
+      ? requestedCountryCodes.filter((code) => ownerGate.includes(code))
+      : ownerGate.slice();
+  }
   const requestedCount = Number(q.get('count') || cfg.entryLimit || (recipientPath ? DEFAULT_SUB_ENTRIES : MAX_SUB_ENTRIES));
   const entryLimit = Number.isFinite(requestedCount) ? Math.max(1, Math.min(MAX_SUB_ENTRIES, Math.floor(requestedCount))) : DEFAULT_SUB_ENTRIES;
   return {
@@ -2854,7 +2927,34 @@ function longToIp(value) {
  * offset inside its slice (when `random` is true) so repeated scans of the same
  * range keep discovering new hosts instead of re-testing the same 4 IPs.
  */
+function sampleSubnet6(cidr, count = 4, random = false) {
+  const parts = String(cidr).split('/');
+  const hextets = parseV6Hextets(parts[0]);
+  if (!hextets) return [];
+  const prefix = parts.length > 1 ? Number(parts[1]) : 128;
+  if (!Number.isInteger(prefix) || prefix < 16 || prefix > 128) return [];
+  const fixed = Math.floor(prefix / 16);
+  const rem = prefix % 16;
+  const out = [];
+  const seen = new Set();
+  const want = Math.max(1, count);
+  for (let i = 0; i < want * 3 && out.length < want; i++) {
+    const copy = hextets.slice();
+    for (let h = fixed + (rem ? 1 : 0); h < 8; h++) copy[h] = random ? Math.floor(Math.random() * 0x10000).toString(16) : (i + 1).toString(16);
+    if (rem) {
+      const keepMask = 0xffff ^ ((1 << (16 - rem)) - 1);
+      const partial = (parseInt(hextets[fixed] || '0', 16) || 0) & keepMask;
+      const randPart = random ? Math.floor(Math.random() * (1 << (16 - rem))) : (i + 1);
+      copy[fixed] = (partial | randPart).toString(16);
+    }
+    const ip = copy.join(':');
+    if (!seen.has(ip)) { seen.add(ip); out.push(ip); }
+  }
+  return out;
+}
+
 function sampleSubnet(cidr, count = 8, random = false) {
+  if (String(cidr).includes(':')) return sampleSubnet6(cidr, count, random);
   const parts = String(cidr).split('/');
   const base = ipToLong(parts[0]);
   if (base === null) return [];
@@ -2903,14 +3003,14 @@ function scanTargets(env) {
   splitCsv(env.CF_IPS).forEach(push);
   IR_CLEAN_IPS.forEach(push);
   expandRanges(env.SCAN_IPS, 8, true).forEach(push);
-  for (const range of scanRanges(env)) sampleSubnet(range, 6, true).forEach(push);
+  for (const range of scanRanges(env)) sampleSubnet(range, range.includes(':') ? 3 : 6, true).forEach(push);
   return out;
 }
 
 /** CIDR ranges the scanner walks: SCAN_RANGES env (comma separated) or the built-in Cloudflare list. */
 function scanRanges(env) {
   const custom = splitCsv(env && env.SCAN_RANGES).filter((r) => r.includes('/') && sampleSubnet(r, 1).length);
-  return custom.length ? custom : SCAN_RANGES.slice();
+  return custom.length ? custom : SCAN_RANGES.concat(SCAN_RANGES6);
 }
 
 function ipStringInCidr(ip, cidr) {
@@ -3558,6 +3658,7 @@ function usersTabHtml(state) {
     '<label class="field"><span>حجم (GB) — 0 یعنی نامحدود</span><input id="uQuota" type="number" min="0" step="1" value="0"></label>' +
     '<label class="field"><span>انقضا (روز) — 0 یعنی بدون انقضا</span><input id="uDays" type="number" min="0" step="1" value="0"></label>' +
     '<label class="field"><span>محدودیت دستگاه — 0 یعنی آزاد</span><input id="uDevices" type="number" min="0" step="1" value="0"></label>' +
+    '<label class="field" style="grid-column:1/-1"><span>کشورهای کاربر (با کاما) — تا کشوری انتخاب نکنی کانفیگی نمی‌گیرد؛ مثلاً NL,DE,FR 🇳🇱🇩🇪🇫🇷</span><input id="uCountries" dir="ltr" placeholder="NL,DE,FR"></label>' +
     '</div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="uCreate">ساخت کاربر</button>' +
     '<button class="btn ghost tiny" id="uReload">بارگذاری مجدد</button>' +
@@ -3748,7 +3849,7 @@ function panelClientJs() {
     'function trojanLink(addr,name,sni,port){port=port||OPT.ports[0]||443;return "trojan://"+encodeURIComponent(S.trojanPass)+"@"+addr+":"+port+"?"+linkParams(port,"trojan",sni)+"#"+encodeURIComponent(name);}',
     'function allLinks(){var out=[];var addrs=[],seen={};function push(a){a=String(a).replace(/^\\[/,"").replace(/\\]$/,"");var k=a.toLowerCase();if(!a||seen[k])return;seen[k]=1;addrs.push(a);}',
     ' function poolIps(countries){var pools=S.countryPools||[];var want=countries.map(function(c){return String(c).toUpperCase()});var ips=[],locs={};pools.forEach(function(p){if(want.indexOf(String(p.code||"").toUpperCase())<0)return;(p.ips||[]).forEach(function(ip){ips.push(ip);locs[ip.toLowerCase()]=p.code})});OPT.locations=Object.assign({},OPT.locations||{},locs);return ips;}',
-    ' if(OPT.includeHost!==false)push(S.host);var list=(OPT.countries&&OPT.countries.length)?poolIps(OPT.countries):(OPT.addresses||[]);list.filter(isV4).forEach(push);',
+    ' if(OPT.includeHost!==false)push(S.host);var manual=(OPT.addresses||[]);var list=manual.slice();if(OPT.countries&&OPT.countries.length){poolIps(OPT.countries).forEach(function(ip){if(list.indexOf(ip)<0)list.push(ip)})}list.filter(isV4).forEach(push);',
     ' var v6=list.filter(function(a){return !isV4(a)&&isV6(a)});if(OPT.includeIpv6!==false)(v6.length?v6:(S.defaultIpv6||[])).forEach(push);list.filter(function(a){return !isV4(a)&&!isV6(a)}).forEach(push);',
     ' var idx=0;OPT.protocols.forEach(function(k){OPT.ports.forEach(function(p){addrs.forEach(function(h){idx++;var kind=addrKind(h);',
     '  var loc=locationForAddr(h);var name="🐱 Cat · "+loc.country+" · "+(k==="vless"?"VLESS":"Trojan")+" · "+p+" · "+loc.flag;',
@@ -3780,7 +3881,7 @@ function panelClientJs() {
     '$$("#cfgSubFormats .chip").forEach(function(chip){chip.addEventListener("click",function(){',
     ' $$("#cfgSubFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");cfgFmt=chip.getAttribute("data-fmt")||"";refreshSubUrl();});});',
     '$$("#cfgPorts .chip, #cfgProtos .chip").forEach(function(chip){chip.addEventListener("click",function(){chip.classList.toggle("active")});});',
-    '$$("#cfgCountries .chip").forEach(function(chip){chip.addEventListener("click",function(){var box=chip.parentNode;var isAll=chip.getAttribute("data-cc")==="";$$("#cfgCountries .chip").forEach(function(c){if(isAll){c.classList.toggle("active",c===chip)}else if(c!==chip&&c.getAttribute("data-cc")===""){c.classList.remove("active")}});if(!isAll)chip.classList.toggle("active");if(!box.querySelector(".chip.active"))box.querySelector("[data-cc]").classList.add("active")})});',
+    '$("#cfgCountries").addEventListener("click",function(ev2){var chip=ev2.target.closest(".chip");if(!chip||!this.contains(chip))return;var box=chip.parentNode;var isAll=chip.getAttribute("data-cc")==="";$$("#cfgCountries .chip").forEach(function(c){if(isAll){c.classList.toggle("active",c===chip)}else if(c!==chip&&c.getAttribute("data-cc")===""){c.classList.remove("active")}});if(!isAll)chip.classList.toggle("active");if(!box.querySelector(".chip.active"))box.querySelector("[data-cc]").classList.add("active")});',
     '$("#cfgUseDefaults").addEventListener("click",function(){$("#cfgAddresses").value=(S.defaultAddresses||[]).join("\\n")});',
     '$("#cfgUseIr").addEventListener("click",function(){$("#cfgAddresses").value=(S.irIps||[]).slice(0,24).join("\\n")});',
     '$("#cfgClearAddr").addEventListener("click",function(){$("#cfgAddresses").value=""});',
@@ -3866,7 +3967,8 @@ function panelClientJs() {
     ' if(ed){var id=ed.getAttribute("data-user-edit");var u=USERS.filter(function(x){return x.id===id})[0]||{};',
     '  var name=prompt("نام کاربر",u.name||"");if(name===null)return;var q=prompt("حجم (GB) — 0 نامحدود",String(u.quotaGb||0));if(q===null)return;',
     '  var d=prompt("انقضا از امروز (روز) — 0 بدون انقضا، خالی = بدون تغییر","");if(d===null)return;var dev=prompt("محدودیت دستگاه — 0 آزاد",String(u.deviceLimit||0));if(dev===null)return;',
-    '  var body={name:name,quotaGb:Number(q)||0,deviceLimit:Number(dev)||0};if(d.trim()!=="")body.days=Number(d)||0;',
+    '  var cc=prompt("کشورهای کاربر (با کاما، مثل NL,DE) — تا کشوری نگذاری کانفیگی نمی‌گیرد؛ خالی = بدون کشور",(u.countries||[]).join(","));if(cc===null)return;',
+    '  var body={name:name,quotaGb:Number(q)||0,deviceLimit:Number(dev)||0,countries:cc};if(d.trim()!=="")body.days=Number(d)||0;',
     '  userPut(id,body).then(function(j){toast(j.ok?"ذخیره شد":(j.error||"خطا"));loadUsers();});return;}',
     ' var tg=ev.target.closest("[data-user-toggle]");',
     ' if(tg){userPut(tg.getAttribute("data-user-toggle"),{enabled:tg.getAttribute("data-enabled")!=="1"}).then(function(){loadUsers()});return;}',
@@ -3877,9 +3979,9 @@ function panelClientJs() {
     ' var del=ev.target.closest("[data-user-del]");',
     ' if(del){if(!confirm("کاربر حذف شود؟"))return;fetch(S.usersApi+"/"+del.getAttribute("data-user-del"),{method:"DELETE"}).then(loadUsers);return;}});',
     'if($("#uCreate"))$("#uCreate").addEventListener("click",function(){',
-    ' fetch(S.usersApi,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:($("#uName").value||"user").trim(),quotaGb:Number($("#uQuota").value||0),days:Number($("#uDays").value||0),deviceLimit:Number($("#uDevices").value||0)})})',
+    ' fetch(S.usersApi,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:($("#uName").value||"user").trim(),quotaGb:Number($("#uQuota").value||0),days:Number($("#uDays").value||0),deviceLimit:Number($("#uDevices").value||0),countries:($("#uCountries").value||"")})})',
     ' .then(function(r){return r.json()}).then(function(j){',
-    '  if(!j.ok){toast(j.hint||j.error||"خطا");return;}toast("کاربر ساخته شد — لینک ساب کپی شد");copyText(location.origin+"/u/"+j.user.token);$("#uName").value="";loadUsers();});});',
+    '  if(!j.ok){toast(j.hint||j.error||"خطا");return;}var il=location.origin+"/info/"+j.user.token;toast(j.user.countries&&j.user.countries.length?"کاربر ساخته شد — لینک صفحهٔ کاربر (انتخاب کانفیگ) کپی شد":"کاربر ساخته شد — هنوز کشوری ندارد؛ ویرایش کن و کشور بگذار");copyText(il);$("#uName").value="";$("#uCountries").value="";loadUsers();});});',
     'if($("#uReload"))$("#uReload").addEventListener("click",loadUsers);',
     '/* ---- tools ---- */',
     'function loadSelf(){var tb=$("#selfTable");if(!tb)return;',
@@ -4001,10 +4103,22 @@ function panelClientJs() {
     '  var existing={};scanResults.forEach(function(r){existing[r.ip]=r});',
     '  (j.results||[]).forEach(function(r){if(existing[r.ip]){existing[r.ip].server=r;}else{scanResults.push({ip:r.ip,ms:null,server:r,selected:r.ok});}});',
     '  scanResults.sort(function(a,b){var x=a.server&&a.server.ok?a.server.ms:99999,y=b.server&&b.server.ok?b.server.ms:99999;return x-y});renderScan();',
-    '  $("#scanStatus").textContent="ورکر: "+j.alive+" آی‌پی برای دامنهٔ پنل جواب دادند"+(j.saved?" و در ساب ذخیره شدند — فقط همین IPهای موفق ارسال می‌شوند":" (KV ذخیره نشد)")+". برای سرعت واقعی، اسکن مرورگر را هم بزن.";}).catch(function(){btn.disabled=false;$("#scanStatus").textContent="اسکن ورکر ناموفق بود";});});',
-    'function selectedIps(){return scanResults.filter(function(r){return r.selected&&(r.server===undefined?r.ms!==null:r.server&&r.server.ok)}).map(function(r){return r.ip})}',
+    '  $("#scanStatus").textContent="ورکر: "+j.alive+" آی‌پی برای دامنهٔ پنل جواب دادند"+(j.saved?" و در ساب ذخیره شدند":" (KV ذخیره نشد)")+". برای سرعت واقعی، اسکن مرورگر را هم بزن.";',
+    '  mergePools(j.results||[]);renderPoolUi();',
+    '  var alive=(j.results||[]).filter(function(r){return r.ok}).sort(function(a,b){return (a.ms||9999)-(b.ms||9999)}).slice(0,24);',
+    '  if(alive.length){var cur=parseAddrList($("#cfgAddresses").value);alive.forEach(function(r){if(OPT.locations&&r.colo)OPT.locations[String(r.ip).toLowerCase()]=r.colo;if(cur.indexOf(r.ip)<0)cur.push(r.ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");applyOptions();toast(alive.length+" آی‌پی موفق خودکار به کانفیگ‌ها اضافه شد ✅");}',
+    ' }).catch(function(){btn.disabled=false;$("#scanStatus").textContent="اسکن ورکر ناموفق بود";});});',
+    'function flagOf(code){var x=(S.edgeLocations||{});for(var k in x){if(x[k]&&String(x[k].iso||"").toUpperCase()===String(code||"").toUpperCase())return x[k].flag}return "";}' +
+'function mergePools(results){var map={};(S.countryPools||[]).forEach(function(p){map[p.code||"-"]=p});' +
+' results.forEach(function(r){if(!r.ok||!r.ip)return;var code=String(r.countryCode||"").toUpperCase();var key=code||"-";var p=map[key]||(map[key]={code:code,name:r.countryName||"Cloudflare edge",flag:flagOf(code),count:0,ips:[]});if(!p.flag)p.flag=code?flagOf(code):"";if(p.ips.indexOf(r.ip)<0){p.ips.push(r.ip);p.count+=1}});' +
+' S.countryPools=Object.keys(map).map(function(k){return map[k]}).sort(function(a,b){return b.count-a.count});}' +
+'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[];' +
+' if(el){el.innerHTML=pools.length?pools.map(function(p){return "<div class=\"config-group\"><h3><span>"+(p.flag||"")+" "+p.name+"</span><span class=\"cnt\">"+p.count+" IP</span></h3><div class=\"tags\">"+p.ips.map(function(ip){return "<span class=\"pill\" dir=\"ltr\">"+ip+"</span>"}).join("")+(p.count>p.ips.length?"<span class=\"pill\">…</span>":"")+"</div></div>"}).join(""):"<p class=\"muted\">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>";}' +
+' var box=$("#cfgCountries");if(box){var chips="<button class=\"chip active\" type=\"button\" data-cc=\"\">همه</button>"+pools.filter(function(p){return p.code}).map(function(p){return "<button class=\"chip\" type=\"button\" data-cc=\""+p.code+"\">"+(p.flag||"")+" "+p.name+" · "+p.count+"</button>"}).join("");box.innerHTML=chips;}}' +
+'function selectedIps(){return scanResults.filter(function(r){return r.selected&&(r.server===undefined?r.ms!==null:r.server&&r.server.ok)}).map(function(r){return r.ip})}',
     '$("#copyBestIps").addEventListener("click",function(){var top=scanResults.filter(function(r){return r.server===undefined?r.ms!==null:r.server&&r.server.ok}).sort(function(a,b){return (a.server?a.server.ms:a.ms)-(b.server?b.server.ms:b.ms)}).slice(0,10).map(function(r){return r.ip});if(!top.length){toast("نتیجه‌ای نیست");return;}copyText(top.join("\\n"))});',
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
+    ' ips.forEach(function(ip){var hit=scanResults.filter(function(r){return r.ip===ip})[0];if(hit&&hit.server&&hit.server.colo&&OPT.locations)OPT.locations[ip.toLowerCase()]=hit.server.colo});',
     ' var cur=parseAddrList($("#cfgAddresses").value);ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");',
     ' applyOptions();showTab("configs");toast(ips.length+" آی‌پی به کانفیگ‌ها اضافه شد — لینک ساب به‌روز است");});',
     '$("#buildFromIps").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را انتخاب کن");return;}',
@@ -4260,6 +4374,7 @@ async function handleUsersApi(request, url, env, path) {
       quotaGb: (body && body.quotaGb) || 0,
       deviceLimit: (body && body.deviceLimit) || 0,
       note: (body && body.note) || '',
+      countries: (body && body.countries) || '',
       expireAt: days > 0 ? Date.now() + days * 86400000 : 0,
       createdAt: Date.now(),
     });
@@ -4281,7 +4396,7 @@ async function handleUsersApi(request, url, env, path) {
     const current = users[index];
     const days = body && body.days !== undefined ? Number(body.days) : null;
     const patch = {};
-    ['name', 'quotaGb', 'deviceLimit', 'enabled', 'note', 'usedBytes', 'usedRequests', 'uuid'].forEach((key) => {
+    ['name', 'quotaGb', 'deviceLimit', 'enabled', 'note', 'usedBytes', 'usedRequests', 'uuid', 'countries'].forEach((key) => {
       if (body && body[key] !== undefined) patch[key] = body[key];
     });
     if (patch.name !== undefined) patch.name = String(patch.name || '').trim().slice(0, 40) || current.name;
@@ -4362,6 +4477,13 @@ function appDeepLinks(sub, name) {
   ];
 }
 
+function wantsHtmlPage(request) {
+  const accept = String((request.headers.get('Accept') || '')).toLowerCase();
+  const ua = String((request.headers.get('User-Agent') || '')).toLowerCase();
+  const isClient = /v2ray|clash|mihomo|sing|hiddify|streisand|nekobox|shadowrocket|surfboard|loon|stash|v2box|sfi|sfa|husi|catclient/.test(ua);
+  return !isClient && accept.includes('text/html');
+}
+
 async function handleUserSubscription(request, url, env, host, path, ctx) {
   const isInfo = path.startsWith('/info/');
   const rest = path.slice(isInfo ? '/info/'.length : '/u/'.length).split('/');
@@ -4382,11 +4504,17 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
   // The recipient page is intentionally strict: it never advertises the panel's
   // fallback address list. It shows only the successful worker-probe set saved
   // by the owner, then lets the recipient choose a count and countries.
+  const userCountries = Array.isArray(user.countries) ? user.countries : [];
+  const gated = userCountries.length === 0;
+  if (!isInfo && !format && wantsHtmlPage(request)) {
+    // A human opening the subscription link gets the chooser page (count + countries).
+    return Response.redirect('https://' + host + '/info/' + encodeURIComponent(user.token), 302);
+  }
   const settings = await readSettings(env);
   if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(Promise.resolve(ensureVerifiedPool(env, host)).catch(() => {}));
   const landingUrl = new URL(url.toString());
   landingUrl.searchParams.set('verified', '1');
-  const landingOptions = configOptions(landingUrl, host, env, settings);
+  const landingOptions = configOptions(landingUrl, host, env, settings, userCountries);
   const landingCatalog = buildAllConfigs(host, env, user.uuid, landingOptions);
   const landingCountries = landingOptions.verifiedEntries
     .map((entry) => {
@@ -4413,7 +4541,9 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
       apps: appDeepLinks(subUrl, title + ' | ' + state.name),
       allUrl: subUrl + '/all?verified=1',
       catalog: landingCatalog,
-      countries: landingCountries,
+      countries: gated ? [] : landingCountries,
+      userCountries: userCountries,
+      gated: gated,
       verifiedScanned: settings.configs && settings.configs.verifiedScanned === true,
     }));
   }
@@ -4421,7 +4551,7 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
     return new Response('Cat Panel: ' + state.status, { status: 403, headers: CORS });
   }
   const uuid = user.uuid;
-  const options = configOptions(url, host, env, settings);
+  const options = configOptions(url, host, env, settings, userCountries);
   const headers = Object.assign({}, CORS, {
     'subscription-userinfo': subscriptionUserinfo(state),
     'profile-title': 'base64:' + b64encode(title + ' | ' + state.name),
@@ -4485,6 +4615,7 @@ function userInfoHtml(d) {
     entries: d.catalog && d.catalog.entries ? d.catalog.entries : [],
     verifiedOnly: !!(d.catalog && d.catalog.verifiedOnly),
     verifiedScanned: !!d.verifiedScanned,
+    gated: !!d.gated,
   }).replace(/</g, '\\u003c');
   const appButtons = d.apps.map((a) => '<a class="app" href="' + esc(a.href) + '" data-app="' + a.id + '"><b>' + esc(a.label) + '</b><span>افزودن خودکار</span></a>').join('');
   return '<!doctype html><html lang="fa" dir="rtl" data-theme="dark"><head><meta charset="utf-8">' +
@@ -4516,13 +4647,16 @@ function userInfoHtml(d) {
     '<div class="row" style="margin-top:10px"><a class="btn ghost" href="' + esc(d.subUrl) + '/raw" download="cat-configs.txt">دانلود فایل کانفیگ‌ها</a>' +
     '<a class="btn ghost" href="' + esc(d.subUrl) + '/clash">Clash YAML</a><a class="btn ghost" href="' + esc(d.subUrl) + '/singbox">sing-box JSON</a></div></section>' +
 
-    '<section class="card" id="recipientConfigs"><h2><span class="dot"></span>انتخاب کانفیگ‌ها</h2>' +
+    (d.gated
+    ? '<section class="card" id="recipientConfigs"><h2><span class="dot"></span>کانفیگی هنوز فعال نشده</h2>' +
+    '<p class="muted">مالک پنل هنوز کشوری برای حساب تو انتخاب نکرده است. به او بگو در تب «کاربران»، کشورهای دلخواهت را (مثلاً 🇳🇱 هلند یا 🇩🇪 آلمان) برایت تعیین کند؛ بعد از آن همین صفحه هم تعداد کانفیگ و هم لوکیشن را از تو می‌پرسد و فقط از همان کشورها کانفیگ می‌سازد.</p></section>'
+    : '<section class="card" id="recipientConfigs"><h2><span class="dot"></span>انتخاب کانفیگ‌ها</h2>' +
     '<p>تعداد کانفیگ و کشورهای دلخواهت را انتخاب کن. خروجی فقط از IPهایی ساخته می‌شود که آخرین اسکن پنل با موفقیت به آن‌ها پاسخ داده؛ هر کشور در گروه خودش نمایش داده می‌شود.</p>' +
     '<div class="grid two" style="margin-top:12px"><label class="field"><span>تعداد کانفیگ</span><select id="configCount"><option value="3">۳ کانفیگ</option><option value="6" selected>۶ کانفیگ</option><option value="10">۱۰ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option><option value="80">۸۰ کانفیگ</option></select></label>' +
     '<div class="field"><span>کشورها</span><div class="country-choices" id="countryChoices">' + countryControls + '</div></div></div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="loadRecipientConfigs">نمایش کانفیگ‌های انتخابی</button><span class="muted" id="recipientStatus"></span></div>' +
     '<div class="link-row" style="margin-top:10px"><span class="grow mono" id="selectedSubUrl">' + esc(d.allUrl || d.subUrl) + '</span><button class="btn tiny" id="copySelectedSub">کپی لینک انتخابی</button><a class="btn ghost tiny" id="addSelectedSub" href="' + esc('catclient://add-sub?url=' + encodeURIComponent(d.subUrl) + '&name=' + encodeURIComponent(st.name)) + '">افزودن به Cat Client</a></div>' +
-    '<div id="recipientGroups" style="margin-top:14px"></div></section>' +
+    '<div id="recipientGroups" style="margin-top:14px"></div></section>') +
 
     '<div class="modal" id="qrModal"><div class="box"><img id="qrImg" alt="QR"><p class="mono" id="qrHint"></p><button class="btn" id="qrClose">بستن</button></div></div>' +
     '<div class="toast" id="toast"><span></span></div>' +
@@ -4865,6 +4999,33 @@ async function fetchHandler(request, env, ctx) {
   if (path === '/api/proxy-ips') {
     const settings = await readSettings(env);
     return jsonResponse({ ok: true, ips: proxyIpList(env, settings), defaults: DEFAULT_PROXY_IPS, note: 'settings.tunnel.proxyIps > PROXY_IPS env > built-in defaults' }, 200, CORS);
+  }
+
+  /* BPB-style proxy-ip service: /proxy-ip (plain list) and /proxy-ip/get (JSON). */
+  if (path === '/proxy-ip' || path === '/proxyip' || path === '/proxy-ip/get') {
+    const settings = await readSettings(env);
+    const ips = proxyIpList(env, settings);
+    if (path === '/proxy-ip/get') {
+      return jsonResponse({ success: true, body: ips.map((ip) => ({ ip: ip })), message: '' }, 200, CORS);
+    }
+    if (url.searchParams.get('json') === '1') {
+      return jsonResponse({ ok: true, count: ips.length, ips: ips }, 200, CORS);
+    }
+    const one = url.searchParams.get('all') === '1' ? ips.join('\n') + '\n' : ips[Math.floor(Math.random() * ips.length)] + '\n';
+    return new Response(one, { status: 200, headers: Object.assign({}, CORS, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }) });
+  }
+
+  if (path === '/api/proxy-ips/refresh' && request.method === 'POST') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    let source = String(env.PROXY_IP_SOURCE || '').trim();
+    try {
+      const body = await request.json();
+      if (body && body.source) source = String(body.source).trim();
+    } catch (e) { /* body optional */ }
+    if (!source) return jsonResponse({ ok: false, error: 'source-required (set PROXY_IP_SOURCE or pass {source})' }, 400, CORS);
+    const result = await refreshProxyIps(env, source);
+    return jsonResponse(result, 200, CORS);
   }
 
   if (path === '/api/login' && request.method === 'POST') {

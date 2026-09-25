@@ -296,8 +296,8 @@ async function subText(url, opts) {
   const res = await req('/api/scan-targets.json', { env: { CF_IPS: '104.16.6.62' } });
   const j = JSON.parse(await res.text());
   check('scan targets include CF_IPS first', j.targets[0] === '104.16.6.62');
-  check('scan targets are IPv4', j.targets.every((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)));
-  check('scan targets size is sane', j.targets.length >= 20 && j.targets.length <= 200);
+  check('scan targets are IPv4/IPv6', j.targets.every((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip) || ip.includes(':')));
+  check('scan targets size is sane', j.targets.length >= 20 && j.targets.length <= 320);
   check('scan sni defaults to host', j.sni === HOST);
   const opts = await req('/api/ping');
   check('/api/ping rejects non-IP', opts.status === 400);
@@ -321,7 +321,7 @@ async function subText(url, opts) {
   check('random sampling differs between runs', a !== b);
   const exp = T.expandRanges('9.9.9.9, 188.114.96.0/20, nonsense, 10.0.0.0/8', 4);
   check('expandRanges mixes IPs and CIDRs', exp.length === 9 && exp[0] === '9.9.9.9' && exp.slice(1, 5).every((ip) => inside(ip, '188.114.96.0/20')));
-  check('scanRanges honours SCAN_RANGES env', T.scanRanges({ SCAN_RANGES: '5.5.0.0/16, junk' }).join() === '5.5.0.0/16' && T.scanRanges({}).length === T.SCAN_RANGES.length);
+  check('scanRanges honours SCAN_RANGES env', T.scanRanges({ SCAN_RANGES: '5.5.0.0/16, junk' }).join() === '5.5.0.0/16' && (T.scanRanges({}).filter((r) => !r.includes(':')).length === T.SCAN_RANGES.length && T.scanRanges({}).some((r) => r.includes(':'))));
   check('default clean addresses have no IR-hosted names', !T.DEFAULT_CLEAN_ADDRESSES.some((a) => /zula\.ir|iranserver/.test(a)));
   const ranged = await req('/api/scan?ranges=' + encodeURIComponent('172.67.0.0/24') + '&per=3');
   check('/api/scan accepts CIDR ranges', ranged.status !== 400);
@@ -569,7 +569,7 @@ async function subText(url, opts) {
   const mem = new Map();
   const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
   const env = { CAT_KV: kv, OPEN_PANEL: 'true', PANEL_TITLE: 'Cat Demo' };
-  const created = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'ali' }) }), env);
+  const created = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'ali', countries: 'DE,FR' }) }), env);
   const body = JSON.parse(await created.text());
   check('user created with state + infoPath', created.status === 201 && body.ok && body.user.state && body.infoPath === '/info/' + body.user.token, JSON.stringify(body).slice(0, 200));
   const token = body.user.token;
@@ -621,6 +621,15 @@ async function subText(url, opts) {
 
   const uaSub = await req('/u/' + token, { env, raw: true, headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android) Chrome/120 Mobile' } });
   check('browser UA on /u/<token> still gets raw base64 (WebView apps)', !(await uaSub.text()).includes('<html'));
+  const htmlGet = await worker.fetch(new Request('https://' + HOST + '/u/' + token, { headers: { 'Accept': 'text/html,application/xhtml+xml', 'User-Agent': 'Mozilla/5.0 (Linux; Android) Chrome/120 Mobile' } }), env);
+  check('browser Accept on /u/<token> redirects to the chooser page', htmlGet.status === 302 && (htmlGet.headers.get('Location') || '').includes('/info/' + token));
+
+  const gatedCreate = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'nogeo' }) }), env);
+  const gatedUser = JSON.parse(await gatedCreate.text()).user;
+  const gatedSub = b64dec(await (await req('/u/' + gatedUser.token, { env, raw: true })).text());
+  check('per-user gate: no countries chosen -> no configs', !gatedSub.includes('vless://') && !gatedSub.includes('trojan://'));
+  const gatedInfo = await (await req('/info/' + gatedUser.token, { env, raw: true })).text();
+  check('per-user gate page asks the owner to pick countries', gatedInfo.includes('کشوری برای حساب تو انتخاب نکرده'));
 
   // quota exceeded → tunnel and sub blocked (Trojan too)
   const r2 = new Request('https://' + HOST + '/api/users/' + body.user.id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usedBytes: 3 * 1024 * 1024 * 1024 }) });
