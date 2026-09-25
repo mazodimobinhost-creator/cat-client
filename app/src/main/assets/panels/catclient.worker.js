@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.8.0';
+const CAT_PANEL_VERSION = '5.9.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -1754,6 +1754,7 @@ const DEFAULT_PORTS = [80, 443, 2053, 8443, 8080];
 const MAX_SUB_ADDRESSES = 40;
 /** Hard cap on links per subscription — url-test groups with hundreds of nodes make every client sluggish. */
 const MAX_SUB_ENTRIES = 200;
+const DEFAULT_SUB_ENTRIES = 8;
 /**
  * Cloudflare IPv6 anycast for dual-stack phones (the panel emits IPv6 entries too;
  * many Iranian mobile carriers hand out v6 that is less policed than v4).
@@ -2221,6 +2222,73 @@ function countryCodeFromFlag(flag) {
   return points.map((point) => String.fromCharCode(point - 0x1f1e6 + 65)).join('');
 }
 
+function countryPools(entries) {
+  const map = new Map();
+  for (const entry of entries || []) {
+    const loc = locationFromCodeOrColo(entry.colo || entry.countryCode || '');
+    const code = String(entry.countryCode || (loc && loc.iso) || '').toUpperCase();
+    const flag = (loc && loc.flag) || flagFromCountry(code);
+    const name = String(entry.countryName || (loc && loc.country) || 'Cloudflare edge').trim() || 'Cloudflare edge';
+    const key = code || '-';
+    if (!map.has(key)) map.set(key, { code: code, name: name, flag: flag, count: 0, ips: [] });
+    const pool = map.get(key);
+    pool.count += 1;
+    if (entry.ip && pool.ips.length < 48 && !pool.ips.includes(entry.ip)) pool.ips.push(entry.ip);
+  }
+  return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+/* Auto country discovery: before the owner ever runs a scan, probe a small IP
+ * pool in the background so the recipient chooser has real countries with
+ * real flags within seconds of the first visit. */
+let verifiedPoolJob = null;
+function probeCandidates() {
+  const seen = new Set();
+  const out = [];
+  const all = DEFAULT_CLEAN_ADDRESSES.concat(IR_CLEAN_IPS, COMMUNITY_IPS);
+  for (const raw of all) {
+    const ip = String(raw).trim();
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || seen.has(ip)) continue;
+    seen.add(ip);
+    out.push(ip);
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+async function ensureVerifiedPool(env, host) {
+  try {
+    const current = await readSettings(env);
+    if (current.configs && current.configs.verifiedScanned === true) return;
+    if (verifiedPoolJob) return verifiedPoolJob;
+    verifiedPoolJob = (async () => {
+      try {
+        const results = await Promise.all(probeCandidates().map((ip) => probeIp(ip, 3500, host, env)));
+        const verified = results
+          .filter((r) => r && r.ok && r.colo)
+          .map((r) => ({ ip: r.ip, colo: r.colo, countryCode: r.countryCode, countryName: r.countryName, checkedAt: Date.now() }));
+        if (!verified.length) return;
+        const fresh = await readSettings(env);
+        const existing = normalizedVerifiedEntries(fresh);
+        const merged = verified.concat(existing.filter((e) => !verified.some((v) => v.ip === e.ip)));
+        await writeSettings(env, {
+          configs: {
+            verified: merged.slice(0, 240),
+            verifiedScanned: true,
+            verifiedAt: Date.now(),
+          },
+        });
+      } catch (e) {
+        // best-effort background discovery; a later request retries
+      } finally {
+        verifiedPoolJob = null;
+      }
+    })();
+    return verifiedPoolJob;
+  } catch (e) {
+    return null;
+  }
+}
+
 function configOptions(url, host, env, settings) {
   const cfg = (settings && settings.configs) || {};
   const q = url && url.searchParams ? url.searchParams : new URLSearchParams();
@@ -2250,7 +2318,9 @@ function configOptions(url, host, env, settings) {
     });
   } else if (requestedCountryCodes.length && Object.keys(locations).length) {
     addresses = addresses.filter((address) => {
-      const code = String(locations[String(address).toLowerCase()] || '').toUpperCase();
+      const raw = String(locations[String(address).toLowerCase()] || '').toUpperCase();
+      const foundLoc = locationFromCodeOrColo(raw);
+      const code = String((foundLoc && foundLoc.iso) || raw).toUpperCase();
       return !isIpLiteral(address) || requestedCountryCodes.includes(code);
     });
   } else if (verifiedEntries.length) {
@@ -2280,8 +2350,10 @@ function configOptions(url, host, env, settings) {
   const fpRaw = String(q.get('fp') || cfg.fingerprint || env.FINGERPRINT || 'chrome').toLowerCase();
   const fingerprint = /^(chrome|firefox|safari|ios|android|edge|360|qq|random|randomized)$/.test(fpRaw) ? fpRaw : 'chrome';
   const includeV6 = q.has('v6') ? q.get('v6') !== '0' : cfg.includeIpv6 !== false;
-  const requestedCount = Number(q.get('count') || cfg.entryLimit || MAX_SUB_ENTRIES);
-  const entryLimit = Number.isFinite(requestedCount) ? Math.max(1, Math.min(MAX_SUB_ENTRIES, Math.floor(requestedCount))) : MAX_SUB_ENTRIES;
+  const pathName = url && url.pathname ? String(url.pathname) : '';
+  const recipientPath = pathName === '/u' || pathName.startsWith('/u/') || pathName.startsWith('/info/');
+  const requestedCount = Number(q.get('count') || cfg.entryLimit || (recipientPath ? DEFAULT_SUB_ENTRIES : MAX_SUB_ENTRIES));
+  const entryLimit = Number.isFinite(requestedCount) ? Math.max(1, Math.min(MAX_SUB_ENTRIES, Math.floor(requestedCount))) : DEFAULT_SUB_ENTRIES;
   return {
     addresses: addresses,
     ports: ports,
@@ -2379,7 +2451,7 @@ function buildConfigEntries(host, env, uuid, opts) {
   }
   names.forEach(push);
   const entries = [];
-  const entryLimit = Math.min(MAX_SUB_ENTRIES, Number(options.entryLimit) || MAX_SUB_ENTRIES);
+  const entryLimit = Math.min(MAX_SUB_ENTRIES, Number(options.entryLimit) || DEFAULT_SUB_ENTRIES);
   let index = 0;
   options.protocols.forEach((kind) => {
     options.ports.forEach((port) => {
@@ -3106,6 +3178,8 @@ function panelState(host, env, uuid, request, settings) {
     colo: cf.colo || '',
     country: cf.country || '',
     edgeLocations: EDGE_LOCATIONS,
+    verifiedScanned: !!(settings && settings.configs && settings.configs.verifiedScanned === true),
+    countryPools: countryPools(normalizedVerifiedEntries(settings)),
     city: cf.city || '',
     asn: cf.asOrganization || '',
     dnsUpstream: dohUpstream(env),
@@ -3290,6 +3364,10 @@ function configsTabHtml(state) {
     '<button class="btn ghost tiny" id="cfgFromScan">از نتیجهٔ اسکنر</button>' +
     '<button class="btn ghost tiny" id="cfgClearAddr">پاک کردن</button>' +
     '</div>' +
+    '<div class="grid two" style="margin-top:10px">' +
+    '<label class="field"><span>تعداد کانفیگ — خودت انتخاب کن (پیش‌فرض ۸، نه صدتا!)</span><select id="cfgCount"><option value="3">۳ کانفیگ</option><option value="6">۶ کانفیگ</option><option value="8" selected>۸ کانفیگ</option><option value="12">۱۲ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option></select></label>' +
+    '<div class="field"><span>لوکیشن — فقط از همین کشورها کانفیگ بساز (IP از استخر همان کشور می‌آید و پرچم واقعی‌اش روی کانفیگ می‌نشیند)</span><div class="chips" id="cfgCountries"><button class="chip active" type="button" data-cc="">همه</button>' + ((state && state.countryPools) || []).filter((p) => p.code).map((p) => '<button class="chip" type="button" data-cc="' + esc(p.code) + '">' + esc(p.flag + ' ' + p.name + ' · ' + p.count) + '</button>').join('') + '</div></div>' +
+    '</div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>SNI (خالی = دامنهٔ ورکر)</span><input id="cfgSni" dir="ltr" value="' + esc(o.sni === state.host ? '' : o.sni) + '" placeholder="' + esc(state.host) + '"></label>' +
     '<label class="field"><span>پروتکل‌ها</span><div class="chips" id="cfgProtos" style="margin-top:6px">' +
@@ -3417,6 +3495,10 @@ function scannerTabHtml(state) {
     '<button class="btn ghost" id="copyBestIps">کپی آی‌پی‌های برتر</button>' +
     '</div>' +
     '<p class="muted" style="margin-top:8px">«گذاشتن داخل کانفیگ‌ها» آی‌پی‌ها را به تب «کانفیگ‌ها» می‌برد؛ آن‌جا پورت و SNI را انتخاب کن و «اعمال» بزن — لینک ساب خودش عوض می‌شود و اپ با «بروزرسانی» همه را می‌گیرد.</p>' +
+    '</div>' +
+    '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerPools">IPها به تفکیک کشور</span></h2>' +
+    '<p class="muted">هر کشور یک بخش جدا با پرچم و رنج خودش است؛ برچسب کانفیگ‌ها هم از همین دسته‌بندی می‌آید. داده از «اسکن از ورکر» یا شناسایی خودکار می‌آید.</p>' +
+    ((state && state.countryPools && state.countryPools.length) ? state.countryPools.map((p) => '<div class="config-group"><h3>' + esc(p.flag + ' ' + p.name) + (p.code ? ' <span class="pill">' + esc(p.code) + '</span>' : '') + '<span class="cnt">' + p.count + ' IP</span></h3><div class="tags">' + p.ips.map((ip) => '<span class="pill" dir="ltr">' + esc(ip) + '</span>').join('') + (p.count > p.ips.length ? '<span class="pill">…</span>' : '') + '</div></div>').join('') : '<p class="muted">هنوز دسته‌بندی‌ای ساخته نشده — یک بار «اسکن از ورکر» را بزن یا چند لحظه صبر کن تا شناسایی خودکار تمام شود؛ بعد هلند 🇳🇱، آلمان 🇩🇪، فرانسه 🇫🇷 و… هرکدام جدا می‌آیند.</p>') +
     '</div>' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerHowto">راهنمای نتیجه</span></h2>' +
     '<p>• مرورگر زیر ۳۰۰ms = عالی · ۳۰۰–۷۰۰ = قابل قبول · ✗ = از شبکهٔ تو بسته است.<br>• ستون «ورکر» ✓ یعنی آن آی‌پی برای دامنهٔ پنل تو جواب می‌دهد.<br>• قبل از اسکن، VPN را خاموش کن تا نتیجه مال اپراتور خودت باشد.</p>' +
@@ -3645,8 +3727,8 @@ function panelClientJs() {
     ' var host=$("#cfgProtos .chip[data-flag=host]").classList.contains("active");',
     ' var sni=($("#cfgSni").value||"").trim().toLowerCase()||S.host;',
     ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
-    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||""};}',
-    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
+    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean)};}',
+    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
@@ -3660,16 +3742,18 @@ function panelClientJs() {
     ' return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp="+encodeURIComponent(OPT.fingerprint||"chrome")+"&alpn="+encodeURIComponent("http/1.1")+common):("security=none"+common);}',
     'function isV4(a){return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(a)}function isV6(a){return a.indexOf(":")>=0}',
     'function addrKind(a){if(a.toLowerCase()===S.host.toLowerCase())return "Domain";if(isV4(a))return "IPv4";if(isV6(a))return "IPv6";return "CDN";}',
-    'function locationForAddr(a){var code=(OPT.locations||{})[String(a).toLowerCase()]||OPT.country||"";var x=(S.edgeLocations||{})[String(code).toUpperCase()];if(x)return x;var countries={DE:["Germany","🇩🇪"],NL:["Netherlands","🇳🇱"],FR:["France","🇫🇷"],GB:["United Kingdom","🇬🇧"],TR:["Turkey","🇹🇷"],US:["United States","🇺🇸"],SG:["Singapore","🇸🇬"],JP:["Japan","🇯🇵"],KR:["South Korea","🇰🇷"],AE:["United Arab Emirates","🇦🇪"]};var c=countries[String(code).toUpperCase()]||["Cloudflare edge","🌐"];return {city:"Auto edge",country:c[0],flag:c[1]};}',
+    'function locationForAddr(a){var code=(OPT.locations||{})[String(a).toLowerCase()]||OPT.country||"";var x=(S.edgeLocations||{})[String(code).toUpperCase()];if(x)return x;var up=String(code).toUpperCase(),ev=S.edgeLocations||{};for(var ek in ev){if(ev[ek]&&String(ev[ek].iso||"").toUpperCase()===up)return ev[ek]}var countries={DE:["Germany","🇩🇪"],NL:["Netherlands","🇳🇱"],FR:["France","🇫🇷"],GB:["United Kingdom","🇬🇧"],TR:["Turkey","🇹🇷"],US:["United States","🇺🇸"],SG:["Singapore","🇸🇬"],JP:["Japan","🇯🇵"],KR:["South Korea","🇰🇷"],AE:["United Arab Emirates","🇦🇪"]};var c=countries[String(code).toUpperCase()]||["Cloudflare edge","🌐"];return {city:"Auto edge",country:c[0],flag:c[1]};}',
     'function fmtAddr(a){return isV6(a)?"["+a+"]":a}',
     'function vlessLink(addr,name,sni,port){port=port||OPT.ports[0]||443;return "vless://"+S.uuid+"@"+addr+":"+port+"?encryption=none&"+linkParams(port,"vless",sni)+"#"+encodeURIComponent(name);}',
     'function trojanLink(addr,name,sni,port){port=port||OPT.ports[0]||443;return "trojan://"+encodeURIComponent(S.trojanPass)+"@"+addr+":"+port+"?"+linkParams(port,"trojan",sni)+"#"+encodeURIComponent(name);}',
     'function allLinks(){var out=[];var addrs=[],seen={};function push(a){a=String(a).replace(/^\\[/,"").replace(/\\]$/,"");var k=a.toLowerCase();if(!a||seen[k])return;seen[k]=1;addrs.push(a);}',
-    ' if(OPT.includeHost!==false)push(S.host);var list=(OPT.addresses||[]);list.filter(isV4).forEach(push);',
+    ' function poolIps(countries){var pools=S.countryPools||[];var want=countries.map(function(c){return String(c).toUpperCase()});var ips=[],locs={};pools.forEach(function(p){if(want.indexOf(String(p.code||"").toUpperCase())<0)return;(p.ips||[]).forEach(function(ip){ips.push(ip);locs[ip.toLowerCase()]=p.code})});OPT.locations=Object.assign({},OPT.locations||{},locs);return ips;}',
+    ' if(OPT.includeHost!==false)push(S.host);var list=(OPT.countries&&OPT.countries.length)?poolIps(OPT.countries):(OPT.addresses||[]);list.filter(isV4).forEach(push);',
     ' var v6=list.filter(function(a){return !isV4(a)&&isV6(a)});if(OPT.includeIpv6!==false)(v6.length?v6:(S.defaultIpv6||[])).forEach(push);list.filter(function(a){return !isV4(a)&&!isV6(a)}).forEach(push);',
     ' var idx=0;OPT.protocols.forEach(function(k){OPT.ports.forEach(function(p){addrs.forEach(function(h){idx++;var kind=addrKind(h);',
     '  var loc=locationForAddr(h);var name="🐱 Cat · "+loc.country+" · "+(k==="vless"?"VLESS":"Trojan")+" · "+p+" · "+loc.flag;',
     '  out.push({name:name,type:k==="vless"?"VLESS":"Trojan",addr:h,port:p,tls:TLS_PORTS.indexOf(Number(p))>=0,link:k==="vless"?vlessLink(fmtAddr(h),name,OPT.sni,p):trojanLink(fmtAddr(h),name,OPT.sni,p),ms:null});});});});',
+    ' out=out.slice(0,Math.max(1,Number(OPT.entryLimit)||8));',
     ' if(S.warp)out.push({name:"🐱 Cat WARP",type:"WARP",addr:"—",port:"",tls:true,link:"warp://#Cat WARP",ms:null});',
     ' return out;}',
     'var CFG=allLinks();',
@@ -3696,6 +3780,7 @@ function panelClientJs() {
     '$$("#cfgSubFormats .chip").forEach(function(chip){chip.addEventListener("click",function(){',
     ' $$("#cfgSubFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");cfgFmt=chip.getAttribute("data-fmt")||"";refreshSubUrl();});});',
     '$$("#cfgPorts .chip, #cfgProtos .chip").forEach(function(chip){chip.addEventListener("click",function(){chip.classList.toggle("active")});});',
+    '$$("#cfgCountries .chip").forEach(function(chip){chip.addEventListener("click",function(){var box=chip.parentNode;var isAll=chip.getAttribute("data-cc")==="";$$("#cfgCountries .chip").forEach(function(c){if(isAll){c.classList.toggle("active",c===chip)}else if(c!==chip&&c.getAttribute("data-cc")===""){c.classList.remove("active")}});if(!isAll)chip.classList.toggle("active");if(!box.querySelector(".chip.active"))box.querySelector("[data-cc]").classList.add("active")})});',
     '$("#cfgUseDefaults").addEventListener("click",function(){$("#cfgAddresses").value=(S.defaultAddresses||[]).join("\\n")});',
     '$("#cfgUseIr").addEventListener("click",function(){$("#cfgAddresses").value=(S.irIps||[]).slice(0,24).join("\\n")});',
     '$("#cfgClearAddr").addEventListener("click",function(){$("#cfgAddresses").value=""});',
@@ -3704,7 +3789,7 @@ function panelClientJs() {
     'function applyOptions(){OPT=readOptions();cfgSavedInKv=false;CFG=allLinks();renderConfigs();refreshSubUrl();$("#cfgSaveState").textContent="";}',
     '$("#cfgApply").addEventListener("click",function(){applyOptions();toast(CFG.length+" کانفیگ ساخته شد — لینک ساب به‌روز شد");});',
     '$("#cfgSave").addEventListener("click",function(){applyOptions();var o=OPT;',
-    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,locations:o.locations||{},country:o.country||""}})})',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8}})})',
     ' .then(function(r){return r.json()}).then(function(j){if(j.ok&&j.persisted){cfgSavedInKv=true;refreshSubUrl();$("#cfgSaveState").textContent="ذخیره شد — لینک کوتاه فعال است ✅";toast("در KV ذخیره شد");}',
     '  else{$("#cfgSaveState").textContent=j.ok?"KV وصل نیست — لینک با تنظیمات داخلش استفاده می‌شود":"خطا: "+j.error;}}).catch(function(){$("#cfgSaveState").textContent="خطا در ذخیره";});});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
@@ -4277,7 +4362,7 @@ function appDeepLinks(sub, name) {
   ];
 }
 
-async function handleUserSubscription(request, url, env, host, path) {
+async function handleUserSubscription(request, url, env, host, path, ctx) {
   const isInfo = path.startsWith('/info/');
   const rest = path.slice(isInfo ? '/info/'.length : '/u/'.length).split('/');
   const token = decodeURIComponent(rest[0] || '');
@@ -4298,16 +4383,22 @@ async function handleUserSubscription(request, url, env, host, path) {
   // fallback address list. It shows only the successful worker-probe set saved
   // by the owner, then lets the recipient choose a count and countries.
   const settings = await readSettings(env);
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(Promise.resolve(ensureVerifiedPool(env, host)).catch(() => {}));
   const landingUrl = new URL(url.toString());
   landingUrl.searchParams.set('verified', '1');
   const landingOptions = configOptions(landingUrl, host, env, settings);
   const landingCatalog = buildAllConfigs(host, env, user.uuid, landingOptions);
   const landingCountries = landingOptions.verifiedEntries
-    .filter((entry) => entry.countryCode)
+    .map((entry) => {
+      const loc = locationFromCodeOrColo(entry.colo || entry.countryCode || '');
+      const code = String(entry.countryCode || (loc && loc.iso) || '').toUpperCase();
+      return code ? { code: code, name: entry.countryName || loc.country, flag: loc.flag, count: 1 } : null;
+    })
+    .filter(Boolean)
     .reduce((out, entry) => {
-      if (!out.some((item) => item.code === entry.countryCode)) {
-        out.push({ code: entry.countryCode, name: entry.countryName, flag: locationFromCodeOrColo(entry.colo || entry.countryCode).flag });
-      }
+      const found = out.find((item) => item.code === entry.code);
+      if (found) found.count += 1;
+      else out.push(entry);
       return out;
     }, []);
   // Graphical page ONLY on explicit request (/info/<token> or ?web=1): sniffing
@@ -4384,8 +4475,8 @@ function userInfoHtml(d) {
   const initial = esc(String(st.name).trim().charAt(0).toUpperCase() || 'C');
   const countries = Array.isArray(d.countries) ? d.countries : [];
   const countryControls = countries.length
-    ? countries.map((country) => '<label class="country-choice"><input type="checkbox" data-country="' + esc(country.code) + '" checked><span>' + esc(country.flag + ' ' + country.name) + '</span></label>').join('')
-    : '<p class="muted">هنوز نتیجهٔ موفقی از اسکن پنل ذخیره نشده است. مالک پنل باید ابتدا در تب اسکنر، «اسکن از ورکر» را اجرا کند.</p>';
+    ? countries.map((country) => '<label class="country-choice"><input type="checkbox" data-country="' + esc(country.code) + '" checked><span>' + esc(country.flag + ' ' + country.name) + (country.count ? ' <b class="cnt">' + country.count + '</b>' : '') + '</span></label>').join('')
+    : '<p class="muted">IPهای تمیز به‌صورت خودکار در حال شناسایی‌اند و این صفحه چند لحظهٔ دیگر خودش تازه می‌شود. اگر باز هم خالی بود، از مالک پنل بخواه یک بار «اسکن از ورکر» را بزند.</p>';
   const boot = JSON.stringify({
     subUrl: d.subUrl,
     allUrl: d.allUrl,
@@ -4446,7 +4537,7 @@ function userInfoHtml(d) {
     'function renderRecipientEntries(entries){var groups={};(entries||[]).forEach(function(e){var key=e.countryCode||"EDGE";(groups[key]||(groups[key]={name:e.countryName||"Cloudflare edge",flag:e.flag||"🌐",entries:[]})).entries.push(e)});var keys=Object.keys(groups);$("#recipientGroups").innerHTML=keys.length?keys.map(function(k){var g=groups[k];return "<div class=\\"config-group\\"><h3>"+escH(g.flag+" "+g.name)+" <span class=pill>"+g.entries.length+"</span></h3><div class=\\"config-list\\">"+g.entries.map(function(e){return "<div class=\\"config-item\\"><div><b>"+escH(e.name)+"</b><small dir=ltr>"+escH(e.addr)+":"+escH(e.port)+"</small></div><div class=\\"row\\"><button class=\\"btn ghost tiny\\" data-copy-config=\\""+encodeURIComponent(e.link)+"\\">کپی</button><a class=\\"btn tiny\\" href=\\"catclient://add-sub?url="+encodeURIComponent(e.link)+"&name="+encodeURIComponent(e.name)+"\\">افزودن</a></div></div>"}).join("")+"</div></div>"}).join(""):"<p class=muted>برای انتخاب فعلی، IP موفقی پیدا نشد. کشور دیگری یا تعداد بیشتری انتخاب کن.</p>";}' +
     'function loadRecipientConfigs(){var u=refreshSelectedLink();$("#recipientStatus").textContent="در حال ساخت…";fetch(u,{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)throw new Error("failed");renderRecipientEntries(j.entries||[]);$("#recipientStatus").textContent=(j.entries||[]).length+" کانفیگ موفق";}).catch(function(){$("#recipientStatus").textContent="ساخت لینک ناموفق بود";});}' +
     'document.addEventListener("click",function(ev){var c=ev.target.closest("[data-copy-config]");if(c){copy(decodeURIComponent(c.getAttribute("data-copy-config")));}});' +
-    '$("#copySelectedSub").onclick=function(){copy(refreshSelectedLink())};$("#loadRecipientConfigs").onclick=loadRecipientConfigs;' +
+    '$("#copySelectedSub").onclick=function(){copy(refreshSelectedLink())};$("#loadRecipientConfigs").onclick=loadRecipientConfigs;renderRecipientEntries(D.entries||[]);loadRecipientConfigs();if(!D.verifiedScanned){try{if(!sessionStorage.getItem("catinfo_r")){sessionStorage.setItem("catinfo_r","1");setTimeout(function(){location.reload()},12000)}}catch(e){}}' +
     '$("#copySub").onclick=function(){copy(D.subUrl)};' +
     '$("#qrSub").onclick=function(){$("#qrImg").src="/qr.svg?d="+encodeURIComponent(D.subUrl)+"&size=8";$("#qrHint").textContent=D.subUrl;$("#qrModal").classList.add("show")};' +
     '$("#qrClose").onclick=function(){$("#qrModal").classList.remove("show")};' +
@@ -4476,7 +4567,7 @@ function infoCss() {
     '.mbox{padding:12px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--line-soft)}.mbox label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}.mbox b{font-size:15px;direction:ltr;display:inline-block}.mbox b.ok{color:var(--ok)}',
     '.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:50;padding:18px}.modal.show{display:flex}',
     '.modal .box{background:#fff;color:#111;border-radius:20px;padding:18px;max-width:360px;width:100%;text-align:center}.modal img{width:100%;max-width:300px;display:block;margin:0 auto 10px}.modal p{font-size:10.5px;word-break:break-all;direction:ltr;color:#444;margin-bottom:12px}',
-    '.country-choices{display:flex;flex-wrap:wrap;gap:7px;min-height:38px}.country-choice{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft);font-size:12px;cursor:pointer}.country-choice input{width:auto;accent-color:#a855f7}.config-group{padding:12px;border-radius:16px;background:var(--surface);border:1px solid var(--line-soft);margin-top:10px}.config-group h3{font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:7px}.config-list{display:grid;gap:7px}.config-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft)}.config-item b{display:block;font-size:12px}.config-item small{display:block;color:var(--muted);margin-top:3px;direction:ltr}.config-item .row{margin:0;flex-shrink:0}',
+    '.card+.card{margin-top:18px}.cnt{font-size:10px;background:#a855f7;color:#fff;border-radius:999px;padding:2px 8px;margin-inline-start:8px}.config-group{padding:12px;border-radius:16px;background:var(--surface-2,var(--surface));border:1px solid var(--line-soft,var(--line));margin-top:12px}.config-group+.config-group{margin-top:14px}.config-group h3{font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:7px}.country-choices{display:flex;flex-wrap:wrap;gap:7px;min-height:38px}.country-choice{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft);font-size:12px;cursor:pointer}.country-choice input{width:auto;accent-color:#a855f7}.config-group{padding:12px;border-radius:16px;background:var(--surface);border:1px solid var(--line-soft);margin-top:10px}.config-group h3{font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:7px}.config-list{display:grid;gap:7px}.config-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft)}.config-item b{display:block;font-size:12px}.config-item small{display:block;color:var(--muted);margin-top:3px;direction:ltr}.config-item .row{margin:0;flex-shrink:0}',
   ].join('\n');
 }
 
@@ -4792,7 +4883,7 @@ async function fetchHandler(request, env, ctx) {
 
   /* per-user subscription: /u/<token>[/format] */
   if (path === '/u' || path.startsWith('/u/') || path.startsWith('/info/')) {
-    return handleUserSubscription(request, url, env, host, path);
+    return handleUserSubscription(request, url, env, host, path, ctx);
   }
 
   /* encrypted DNS resolver */
