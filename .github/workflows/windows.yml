@@ -54,4 +54,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v" + (Select-String -Path app/build.gradle.kts -Pattern 'versionName\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $deadline = (Get-Date).AddMinutes(20)
+          while ((Get-Date) -lt $deadline) {
+            gh release view $tag | Out-Null
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Host "release $tag not published yet - waiting 30s..."
+            Start-Sleep -Seconds 30
+          }
           gh release upload $tag CatClient-Windows.zip --clobber
