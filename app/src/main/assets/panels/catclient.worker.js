@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.12.1';
+const CAT_PANEL_VERSION = '5.12.2';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -3660,7 +3660,7 @@ function configsTabHtml(state) {
     '</div>' +
     '<div class="apps" id="cfgApps">' + appButtonsHtml(state.subUrl, state.title) + '</div></div>' +
 
-    '<div class="card"><h2><span class="dot"></span><span data-i18n="configsTitle">کانفیگ‌های ساخته‌شده</span> <span class="pill" id="cfgCount">0</span></h2>' +
+    '<div class="card"><h2><span class="dot"></span><span data-i18n="configsTitle">کانفیگ‌های ساخته‌شده</span> <span class="pill" id="cfgCountLabel">0</span></h2>' +
     '<label class="field"><span>جستجو</span><input id="cfgSearch" placeholder="نام یا آی‌پی…"></label>' +
     '<div class="row"><button class="btn ghost tiny" id="cfgPingAll">پینگ همه (از مرورگر)</button>' +
     '<button class="btn ghost tiny" id="refreshCfg">ساخت دوباره</button></div>' +
@@ -3733,7 +3733,7 @@ function scannerTabHtml(state) {
     '<th><input type="checkbox" id="scanAll" style="width:auto"></th><th>آی‌پی</th><th>مرورگر</th><th>ورکر</th><th>عملیات</th>' +
     '</tr></thead><tbody id="scanTable"></tbody></table></div>' +
     '<div class="row" style="margin-top:12px">' +
-    '<button class="btn" id="useIpsInConfigs">📥 گذاشتن آی‌پی‌های انتخابی داخل کانفیگ‌ها</button>' +
+    '<button class="btn" id="useIpsInConfigs">📥 گذاشتن آی‌پی‌های انتخابی داخل کانفیگ‌ها</button><span class="pill" id="scanSelCount">0 انتخاب</span>' +
     '<button class="btn ghost" id="buildFromIps">کپی کانفیگ با انتخابی‌ها</button>' +
     '<button class="btn ghost" id="copyBestIps">کپی آی‌پی‌های برتر</button>' +
     '</div>' +
@@ -4011,7 +4011,7 @@ function panelClientJs() {
     'function renderConfigs(){var q=($("#cfgSearch").value||"").toLowerCase();var rows=CFG.filter(function(c){return !q||c.name.toLowerCase().indexOf(q)>=0||c.addr.toLowerCase().indexOf(q)>=0});',
     ' var html=rows.map(function(c,i){var ms=c.ms===null?"—":(c.ms<0?"✗":c.ms+" ms");return "<tr><td>"+(i+1)+"</td><td>"+c.name+"</td><td dir=ltr>"+c.addr+"</td><td dir=ltr>"+c.port+(c.tls?"":" <span class=pill>http</span>")+"</td><td class=\\"ms "+msClass(c.ms)+"\\" data-cfg-ms=\\""+i+"\\">"+ms+"</td>"+',
     ' "<td><button class=\\"btn tiny\\" data-copy=\\""+encodeURIComponent(c.link)+"\\">کپی</button> <button class=\\"btn ghost tiny\\" data-qr=\\""+encodeURIComponent(c.link)+"\\">QR</button> <a class=\\"btn ghost tiny\\" href=\\"catclient://add-sub?url="+encodeURIComponent(c.link)+"&name="+encodeURIComponent(c.name)+"\\">افزودن</a></td></tr>"}).join("");',
-    ' $("#cfgTable").innerHTML=html||"<tr><td colspan=6>موردی نیست</td></tr>";$("#cfgCount").textContent=String(CFG.length);',
+    ' $("#cfgTable").innerHTML=html||"<tr><td colspan=6>موردی نیست</td></tr>";$("#cfgCountLabel").textContent=String(CFG.length);',
     ' $("#cfgAllText").textContent=CFG.map(function(c){return c.link}).join("\\n");',
     '}',
     'document.addEventListener("click",function(ev){var c=ev.target.closest("[data-copy]");if(c){copyText(decodeURIComponent(c.getAttribute("data-copy")));return;}',
@@ -4031,6 +4031,7 @@ function panelClientJs() {
     ' $$("#cfgSubFormats .chip").forEach(function(c){c.classList.remove("active")});chip.classList.add("active");cfgFmt=chip.getAttribute("data-fmt")||"";refreshSubUrl();});});',
     '$$("#cfgPorts .chip, #cfgProtos .chip").forEach(function(chip){chip.addEventListener("click",function(){chip.classList.toggle("active")});});',
     '$("#cfgCountries").addEventListener("click",function(ev2){var chip=ev2.target.closest(".chip");if(!chip||!this.contains(chip))return;var box=chip.parentNode;var isAll=chip.getAttribute("data-cc")==="";$$("#cfgCountries .chip").forEach(function(c){if(isAll){c.classList.toggle("active",c===chip)}else if(c!==chip&&c.getAttribute("data-cc")===""){c.classList.remove("active")}});if(!isAll)chip.classList.toggle("active");if(!box.querySelector(".chip.active"))box.querySelector("[data-cc]").classList.add("active")});',
+    '$("#cfgCount").addEventListener("change",applyOptions);',
     '$("#cfgUseDefaults").addEventListener("click",function(){$("#cfgAddresses").value=(S.defaultAddresses||[]).join("\\n")});',
     '$("#cfgUseIr").addEventListener("click",function(){$("#cfgAddresses").value=(S.irIps||[]).slice(0,24).join("\\n")});',
     '$("#cfgClearAddr").addEventListener("click",function(){$("#cfgAddresses").value=""});',
@@ -4218,8 +4219,8 @@ function panelClientJs() {
     ' var c=ev.target.closest("[data-copy-ip]");if(c){copyText(c.getAttribute("data-copy-ip"));return;}',
     ' var u=ev.target.closest("[data-use-ip]");if(u){var ip=u.getAttribute("data-use-ip");scanResults.forEach(function(r){if(r.ip===ip)r.selected=!r.selected});renderScan();return;}',
     '});',
-    'document.addEventListener("change",function(ev){var cb=ev.target.closest("[data-ip-check]");if(cb){var ip=cb.getAttribute("data-ip-check");scanResults.forEach(function(r){if(r.ip===ip)r.selected=cb.checked});}',
-    ' if(ev.target.id==="scanAll"){scanResults.forEach(function(r){r.selected=ev.target.checked&&r.ms!==null});renderScan();}});',
+    'document.addEventListener("change",function(ev){var cb=ev.target.closest("[data-ip-check]");if(cb){var ip=cb.getAttribute("data-ip-check");var hit=scanResults.filter(function(r){return r.ip===ip})[0];var reachable=!!hit&&(hit.ms!==null||(hit.server&&hit.server.ok));if(cb.checked&&!reachable){cb.checked=false;toast("این آی‌پی زنده نیست — فقط سبزها را تیک بزن");}else{scanResults.forEach(function(r){if(r.ip===ip)r.selected=cb.checked});updateSelCount();}}',
+    ' if(ev.target.id==="scanAll"){scanResults.forEach(function(r){r.selected=ev.target.checked&&(r.ms!==null||(r.server&&r.server.ok))});renderScan();updateSelCount();}});',
     '$("#scanClear").addEventListener("click",function(){scanResults=[];renderScan();$("#scanStatus").textContent=I18N[lang].scanReady;$("#scanBar").style.width="0"});',
     '$("#scanStop").addEventListener("click",function(){scanRunning=false;if(scanAbort)scanAbort.abort();$("#scanStatus").textContent="متوقف شد.";$("#scanStart").disabled=false;$("#scanStop").disabled=true;});',
     'function finishScan(){scanRunning=false;$("#scanStart").disabled=false;$("#scanStop").disabled=true;',
@@ -4270,6 +4271,7 @@ function panelClientJs() {
 ' results.forEach(function(r){if(!r.ok||!r.ip)return;var code=String(r.countryCode||"").toUpperCase();var key=code||"-";var p=map[key]||(map[key]={code:code,name:r.countryName||"Cloudflare edge",flag:flagOf(code),count:0,ips:[]});if(!p.flag)p.flag=code?flagOf(code):"";if(p.ips.indexOf(r.ip)<0){p.ips.push(r.ip);p.count+=1}});' +
 ' S.countryPools=Object.keys(map).map(function(k){return map[k]}).sort(function(a,b){return b.count-a.count});}' +
     'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[]; if(el){el.innerHTML=pools.length?pools.map(function(p){return `<div class="config-group"><h3><span>`+(p.flag||"")+" "+p.name+`</span><span class="cnt">`+p.count+` IP</span></h3><div class="tags">`+p.ips.map(function(ip){return `<span class="pill" dir="ltr">`+ip+`</span>`}).join("")+(p.count>p.ips.length?`<span class="pill">…</span>`:"")+`</div></div>`}).join(""):`<p class="muted">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>`;} var box=$("#cfgCountries");if(box){var chips=`<button class="chip active" type="button" data-cc="">همه</button>`+pools.filter(function(p){return p.code}).map(function(p){return `<button class="chip" type="button" data-cc="`+p.code+`">`+(p.flag||"")+" "+p.name+" · "+p.count+`</button>`}).join("");box.innerHTML=chips;}}',
+    'function updateSelCount(){var el=$("#scanSelCount");if(el)el.textContent=selectedIps().length+" انتخاب";}',
 'function selectedIps(){return scanResults.filter(function(r){return r.selected&&(r.server===undefined?r.ms!==null:r.server&&r.server.ok)}).map(function(r){return r.ip})}',
     '$("#copyBestIps").addEventListener("click",function(){var top=scanResults.filter(function(r){return r.server===undefined?r.ms!==null:r.server&&r.server.ok}).sort(function(a,b){return (a.server?a.server.ms:a.ms)-(b.server?b.server.ms:b.ms)}).slice(0,10).map(function(r){return r.ip});if(!top.length){toast("نتیجه‌ای نیست");return;}copyText(top.join("\\n"))});',
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
@@ -4881,7 +4883,7 @@ function userInfoHtml(d) {
     'function renderRecipientEntries(entries){var groups={};(entries||[]).forEach(function(e){var key=e.countryCode||"EDGE";(groups[key]||(groups[key]={name:e.countryName||"Cloudflare edge",flag:e.flag||"🌐",entries:[]})).entries.push(e)});var keys=Object.keys(groups);$("#recipientGroups").innerHTML=keys.length?keys.map(function(k){var g=groups[k];return "<div class=\\"config-group\\"><h3>"+escH(g.flag+" "+g.name)+" <span class=pill>"+g.entries.length+"</span></h3><div class=\\"config-list\\">"+g.entries.map(function(e){return "<div class=\\"config-item\\"><div><b>"+escH(e.name)+"</b><small dir=ltr>"+escH(e.addr)+":"+escH(e.port)+"</small></div><div class=\\"row\\"><button class=\\"btn ghost tiny\\" data-copy-config=\\""+encodeURIComponent(e.link)+"\\">کپی</button><a class=\\"btn tiny\\" href=\\"catclient://add-sub?url="+encodeURIComponent(e.link)+"&name="+encodeURIComponent(e.name)+"\\">افزودن</a></div></div>"}).join("")+"</div></div>"}).join(""):"<p class=muted>برای انتخاب فعلی، IP موفقی پیدا نشد. کشور دیگری یا تعداد بیشتری انتخاب کن.</p>";}' +
     'function loadRecipientConfigs(){var u=refreshSelectedLink();$("#recipientStatus").textContent="در حال ساخت…";fetch(u,{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)throw new Error("failed");renderRecipientEntries(j.entries||[]);$("#recipientStatus").textContent=(j.entries||[]).length+" کانفیگ موفق";}).catch(function(){$("#recipientStatus").textContent="ساخت لینک ناموفق بود";});}' +
     'document.addEventListener("click",function(ev){var c=ev.target.closest("[data-copy-config]");if(c){copy(decodeURIComponent(c.getAttribute("data-copy-config")));}});' +
-    '$("#copySelectedSub").onclick=function(){copy(refreshSelectedLink())};$("#loadRecipientConfigs").onclick=loadRecipientConfigs;renderRecipientEntries(D.entries||[]);loadRecipientConfigs();if(!D.verifiedScanned){try{if(!sessionStorage.getItem("catinfo_r")){sessionStorage.setItem("catinfo_r","1");setTimeout(function(){location.reload()},12000)}}catch(e){}}' +
+    '$("#configCount").addEventListener("change",loadRecipientConfigs);$("#countryChoices").addEventListener("change",loadRecipientConfigs);$("#copySelectedSub").onclick=function(){copy(refreshSelectedLink())};$("#loadRecipientConfigs").onclick=loadRecipientConfigs;renderRecipientEntries(D.entries||[]);loadRecipientConfigs();if(!D.verifiedScanned){try{if(!sessionStorage.getItem("catinfo_r")){sessionStorage.setItem("catinfo_r","1");setTimeout(function(){location.reload()},12000)}}catch(e){}}' +
     '$("#copySub").onclick=function(){copy(D.subUrl)};' +
     '$("#qrSub").onclick=function(){$("#qrImg").src="/qr.svg?d="+encodeURIComponent(D.subUrl)+"&size=8";$("#qrHint").textContent=D.subUrl;$("#qrModal").classList.add("show")};' +
     '$("#qrClose").onclick=function(){$("#qrModal").classList.remove("show")};' +

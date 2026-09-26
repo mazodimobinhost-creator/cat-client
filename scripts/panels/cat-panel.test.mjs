@@ -800,6 +800,18 @@ async function subText(url, opts) {
   blocks.forEach((body, i) => { try { new Function(body); } catch (e) { bad++; console.error('script block ' + i + ': ' + e.message); } });
   check('all rendered page scripts parse (' + blocks.length + ' blocks)', bad === 0);
   check('panel client JS still wires the health + scanner buttons', shell.includes('healthBtn') && shell.includes('scanServerAll'));
+  const countSel = (shell.match(/id="cfgCount"/g) || []).length;
+  check('exactly ONE #cfgCount (the count select) — a duplicate id used to let the counter pill destroy the selector', countSel === 1 && shell.includes('id="cfgCountLabel"'));
+  check('count select + scan selection are live-wired', shell.includes('cfgCount").addEventListener("change",applyOptions)') && shell.includes('scanSelCount') && shell.includes('r.ms!==null||(r.server&&r.server.ok)') && shell.includes('updateSelCount'));
+  const selMem = new Map();
+  const gatedEnv = { CAT_KV: { get: async (k) => selMem.get(k) ?? null, put: async (k, v) => { selMem.set(k, v); }, delete: async (k) => { selMem.delete(k); } }, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const gu = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'sel', countries: 'DE' }) }), gatedEnv)).text()).user;
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { verified: [{ ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' }], verifiedScanned: true } }),
+  }), gatedEnv);
+  const infoSel = await (await req('/info/' + gu.token, { env: gatedEnv, raw: true })).text();
+  check('recipient page count/country pickers rebuild live', infoSel.includes('configCount\").addEventListener(\"change\",loadRecipientConfigs)'));
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
