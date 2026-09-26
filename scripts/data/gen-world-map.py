@@ -127,7 +127,7 @@ kt.append(const_decl('D0', chunks))
 
 kt.append('')
 kt.append('    val LAND: String by lazy {')
-kt.append('        ' + ' + '.join('D%d' % i for i in range(len(chunks))))
+kt.append('        D0')
 kt.append('    }')
 kt.append('')
 kt.append('    /** Decode rings into flat [x0,y0,dx,dy,...] arrays in decidegrees. */')
