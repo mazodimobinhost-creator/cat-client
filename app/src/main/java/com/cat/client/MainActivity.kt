@@ -5356,6 +5356,57 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
 
+        // Admin gate: every new panel gets a username + password (management
+        // panel — not open access). Suggested values are prefilled.
+        val panelUserInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            setText("admin")
+        }
+        val panelUserLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_panel_user_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(panelUserInput)
+        }
+        catPanelCard.addView(
+            panelUserLayout,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        val suggestedPanelPassword = List(12) { "abcdefghjkmnpqrstuvwxyz23456789".random() }.joinToString("")
+        val panelPassInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(suggestedPanelPassword)
+        }
+        val panelPassLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_panel_password_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+            boxStrokeColor = TEAL
+            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+            addView(panelPassInput)
+        }
+        catPanelCard.addView(
+            panelPassLayout,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
         val tokenInput = TextInputEditText(this).apply {
             setSingleLine(true)
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -5430,7 +5481,15 @@ class MainActivity : Activity() {
                         getString(R.string.cloud_deploying, workerName),
                         Toast.LENGTH_SHORT,
                     ).show()
-                    val result = CloudflareWorker.deployBuiltIn(this@MainActivity, token, accountId, workerName)
+                    val result = CloudflareWorker.deployBuiltIn(
+                        this@MainActivity,
+                        token,
+                        accountId,
+                        workerName,
+                        panelUser = panelUserInput.text?.toString()?.trim().orEmpty(),
+                        panelPassword = panelPassInput.text?.toString()?.trim().orEmpty(),
+                    )
+                    PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
                     showCloudDeploymentDialog(result)
                 } catch (e: Exception) {
                     Toast.makeText(
@@ -5839,6 +5898,13 @@ class MainActivity : Activity() {
         newest: PanelUpdate.PanelScript,
         hasUpdate: Boolean,
     ) {
+        // The Cloudflare token was saved at deploy/update time: this flow only
+        // confirms the panel password, the saved token authorizes the upload.
+        val savedToken = PanelDeploymentStore(this).tokenFor(deployment.workerUrl)
+        if (!savedToken.isNullOrBlank()) {
+            presentPanelUpdatePasswordDialog(deployment, deployed, newest, hasUpdate, savedToken)
+            return
+        }
         val tokenInput = TextInputEditText(this).apply {
             setSingleLine(true)
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -5906,6 +5972,90 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
+    /**
+     * Update confirmation with the saved Cloudflare token: the owner proves
+     * they manage this panel by signing in with its username + password, then
+     * the saved token performs the upload.
+     */
+    private fun presentPanelUpdatePasswordDialog(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+        hasUpdate: Boolean,
+        savedToken: String,
+    ) {
+        fun secretField(hintRes: Int, ltrHint: String? = null): TextInputLayout {
+            val input = TextInputEditText(this).apply {
+                setSingleLine(true)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                background = null
+                setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+                setTextColor(TEXT_PRIMARY)
+                setHintTextColor(TEXT_SECONDARY)
+                ltrHint?.let { hint = it }
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            return TextInputLayout(this).apply {
+                hint = getString(hintRes)
+                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+                boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+                boxStrokeColor = TEAL
+                defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+                setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+                addView(input)
+                tag = input
+            }
+        }
+        val userLayout = secretField(R.string.cloud_panel_user_hint, "admin")
+        val passLayout = secretField(R.string.cloud_panel_password_hint)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(24), dp(6), dp(24), 0)
+            addView(userLayout, LinearLayout.LayoutParams(-1, -2))
+            addView(passLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }
+        val message = getString(
+            R.string.cloud_update_saved_token_message,
+            deployment.workerUrl.removePrefix("https://"),
+            deployed ?: "?",
+            newest.version,
+        )
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_title)
+            .setMessage(message)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
+            .setPositiveButton(
+                if (hasUpdate) R.string.cloud_update_confirm else R.string.cloud_update_reinstall,
+                null,
+            )
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val pass = (passLayout.tag as? TextInputEditText)?.text?.toString() ?: ""
+                val user = (userLayout.tag as? TextInputEditText)?.text?.toString()?.trim().orEmpty()
+                if (pass.isEmpty()) {
+                    Toast.makeText(this, R.string.cloud_panel_password_required, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                activityScope.launch {
+                    val authorized = CloudflareWorker.verifyPanelLogin(deployment.workerUrl, user, pass)
+                    if (!authorized) {
+                        panelUpdateInProgress = false
+                        Toast.makeText(this@MainActivity, R.string.cloud_panel_login_failed, Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    runPanelUpdate(deployment, savedToken, deployed, newest)
+                }
+            }
+        }
+        dialog.setOnCancelListener { panelUpdateInProgress = false }
+        dialog.show()
+    }
+
     private fun runPanelUpdate(
         deployment: PanelDeploymentRecord,
         token: String,
@@ -5926,6 +6076,7 @@ class MainActivity : Activity() {
                     ).show()
                     return@launch
                 }
+                PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
                 val remaining = CloudflareWorker.protectedSecretNames(token, accountId, deployment.workerUrl)
                     .filterNot { secretValues.containsKey(it) }
                 if (remaining.isNotEmpty()) {

@@ -252,6 +252,7 @@ async function* runInstall(input, env) {
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
   const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || 'catpanel'));
   const customPassword = String(input.password || '').trim();
+  const customUser = String(input.username || '').trim();
   if (!token) throw new Error('token missing');
 
   log('verify', 'info', 'verifying token'); yield* flush();
@@ -279,6 +280,7 @@ async function* runInstall(input, env) {
     uuid = isUuid(previous.UUID) ? previous.UUID : (isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid());
     bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
     if (customPassword) bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: customPassword });
+    if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
     log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
     try {
       const kv = previous['kv:CAT_KV']
@@ -326,13 +328,14 @@ async function* runInstall(input, env) {
       kind,
       workerName,
       workerUrl,
-      panelUrl: workerUrl + '/?p=' + encodeURIComponent(password),
+      panelUrl: customUser ? workerUrl + '/' : workerUrl + '/?p=' + encodeURIComponent(password),
       subUrl: workerUrl + '/sub/' + uuid,
       subClash: workerUrl + '/sub/' + uuid + '/clash',
       subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
       deepLink: 'catclient://add-sub?url=' + encodeURIComponent(workerUrl + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
       uuid,
       password,
+      username: customUser,
       customPassword: !!customPassword,
       kvBound,
       online,
@@ -427,6 +430,7 @@ function i18n() {
       s3: 'نصب پنل',
       name: 'نام ورکر (اختیاری)',
       pass: 'رمز پنل (اختیاری — پیش‌فرض UUID)',
+      user: 'نام کاربری پنل (اختیاری — ورود با نام کاربری + رمز)',
       adv: 'تنظیمات بیشتر',
       install: 'نصب Cat Panel روی حساب من',
       installWizard: 'ساخت ویزارد خصوصی خودم',
@@ -468,6 +472,7 @@ function i18n() {
       s3: 'Install the panel',
       name: 'Worker name (optional)',
       pass: 'Panel password (optional — UUID by default)',
+      user: 'Panel username (optional — sign in with username + password)',
       adv: 'More options',
       install: 'Install Cat Panel on my account',
       installWizard: 'Create my own private wizard',
@@ -536,6 +541,7 @@ function pageHtml(env, host) {
     '<section class="card"><h2><span class="n">3</span><span data-i18n="s3">' + t.s3 + '</span></h2>' +
     '<details><summary data-i18n="adv">' + t.adv + '</summary>' +
     '<label class="field"><span data-i18n="name">' + t.name + '</span><input id="wname" value="' + esc(state.defaultWorker) + '"></label>' +
+    '<label class="field"><span data-i18n="user">' + t.user + '</span><input id="wuser" autocomplete="username" placeholder="admin"></label>' +
     '<label class="field"><span data-i18n="pass">' + t.pass + '</span><input id="wpass" autocomplete="new-password"></label></details>' +
     '<div class="progress"><i id="bar"></i></div>' +
     '<button class="btn block" id="installBtn">🚀 <span data-i18n="install">' + t.install + '</span></button>' +
@@ -546,6 +552,7 @@ function pageHtml(env, host) {
     '<h2>✅ <span id="resultTitle" data-i18n="done">' + t.done + '</span> <span class="pill" id="onlinePill"></span></h2>' +
     '<div class="kv" id="panelResult">' +
     '<div><label data-i18n="panel">' + t.panel + '</label><code id="rPanel"></code><div class="row" style="margin-top:6px"><a class="btn sm" id="rOpen" target="_blank" rel="noopener" data-i18n="open">' + t.open + '</a><button class="btn ghost sm" data-copy="rPanel" data-i18n="copy">' + t.copy + '</button></div></div>' +
+    '<div id="rUserRow" class="hide"><label>Username · نام کاربری</label><code id="rUser"></code><button class="btn ghost sm" data-copy="rUser" data-i18n="copy" style="margin-top:6px">' + t.copy + '</button></div>' +
     '<div><label data-i18n="password">' + t.password + '</label><code id="rPass"></code><button class="btn ghost sm" data-copy="rPass" data-i18n="copy" style="margin-top:6px">' + t.copy + '</button></div>' +
     '<div><label data-i18n="subl">' + t.subl + '</label><code id="rSub"></code><div class="row" style="margin-top:6px"><button class="btn ghost sm" data-copy="rSub" data-i18n="copy">' + t.copy + '</button><a class="btn ghost sm" id="rApp" data-i18n="app">' + t.app + '</a><a class="btn ghost sm" id="rApk" target="_blank" rel="noopener" href="' + esc(REPO_URL) + '/releases/latest" data-i18n="apk">' + t.apk + '</a></div></div>' +
     '<div class="qr"><img id="rQr" alt="QR" hidden></div>' +
@@ -589,7 +596,7 @@ function clientJs() {
     'function install(kind){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
     ' if(!$("#token").value.trim()){err.textContent=t("needToken");err.classList.remove("hide");return}',
     ' $("#installBtn").disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
-    ' var body=payload({kind:kind,workerName:$("#wname").value,password:$("#wpass").value});',
+    ' var body=payload({kind:kind,workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
     ' fetch("/api/install",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(res){',
     '  if(!res.ok&&res.headers.get("content-type")&&res.headers.get("content-type").indexOf("json")>=0&&res.headers.get("content-type").indexOf("ndjson")<0){return res.json().then(function(j){throw new Error(j.error||("HTTP "+res.status))})}',
     '  var reader=res.body.getReader();var dec=new TextDecoder();var buf="";',
@@ -600,7 +607,7 @@ function clientJs() {
     ' }).then(function(){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
     'function showResult(r){$("#bar").style.width="100%";var box=$("#result");box.classList.add("show");var pill=$("#onlinePill");pill.textContent=r.online?t("online"):t("offline");pill.className="pill "+(r.online?"ok":"warn");',
     ' if(r.kind==="wizard"){$("#resultTitle").textContent=t("wizardDone");$("#panelResult").classList.add("hide");$("#wizardResult").classList.remove("hide");$("#rWiz").textContent=r.workerUrl;$("#rWizOpen").href=r.workerUrl;}',
-    ' else{$("#resultTitle").textContent=t("done");$("#panelResult").classList.remove("hide");$("#wizardResult").classList.add("hide");$("#rPanel").textContent=r.panelUrl;$("#rOpen").href=r.panelUrl;$("#rPass").textContent=r.password;$("#rSub").textContent=r.subUrl;$("#rApp").href=r.deepLink;',
+    ' else{$("#resultTitle").textContent=t("done");$("#panelResult").classList.remove("hide");$("#wizardResult").classList.add("hide");$("#rPanel").textContent=r.panelUrl;$("#rOpen").href=r.panelUrl;$("#rPass").textContent=r.password;var uR=$("#rUserRow");if(r.username){uR.classList.remove("hide");$("#rUser").textContent=r.username;}else{uR.classList.add("hide");}$("#rSub").textContent=r.subUrl;$("#rApp").href=r.deepLink;',
     '  var qr=$("#rQr");if(r.online){qr.src=r.workerUrl+"/qr.svg?d="+encodeURIComponent(r.subUrl)+"&size=6";qr.hidden=false}else{qr.hidden=true}}',
     ' box.scrollIntoView({behavior:"smooth"})}',
     '$("#installBtn").addEventListener("click",function(){install("panel")});',

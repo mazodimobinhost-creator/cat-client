@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.10.0';
+const CAT_PANEL_VERSION = '5.11.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -786,6 +786,7 @@ async function kvDelete(env, key) {
 const DEFAULT_SETTINGS = {
   title: 'Cat Panel',
   panelPassword: '',
+  panelUser: '',
   theme: 'violet',
   dns: {
     upstream: 'https://178.22.122.100/dns-query',
@@ -846,6 +847,7 @@ async function readSettings(env) {
   const merged = deepMerge(DEFAULT_SETTINGS, parsed || {});
   if (env.PANEL_TITLE) merged.title = String(env.PANEL_TITLE);
   if (env.PANEL_PASSWORD) merged.panelPassword = String(env.PANEL_PASSWORD);
+  if (env.PANEL_USER) merged.panelUser = String(env.PANEL_USER);
   if (env.DNS_UPSTREAM) merged.dns.upstream = String(env.DNS_UPSTREAM);
   if (env.PROXY_IPS || env.PROXYIP) merged.tunnel.proxyIps = splitCsv(env.PROXY_IPS || env.PROXYIP);
   if (env.UUID) merged.masterUuid = String(env.UUID);
@@ -3219,6 +3221,40 @@ function css() {
     '.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}',
     '.switch input{width:auto;accent-color:var(--accent)}',
     '@media(max-width:560px){.wrap{padding:12px}.card{padding:15px}.top-inner{padding:9px 12px}.brand{font-size:16px}table{min-width:440px}}',
+    '/* ── v5.11 admin shell ─────────────────────────────────────── */',
+    '.shell{display:flex;align-items:stretch;min-height:100vh}',
+    '.main{flex:1;min-width:0;display:flex;flex-direction:column}',
+    '.side{display:none}',
+    '@media(min-width:1024px){',
+    '.side{display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;width:272px;flex-shrink:0;padding:20px 14px;',
+    'border-inline-end:1px solid var(--line-soft);background:linear-gradient(180deg,color-mix(in srgb,var(--bg-soft) 88%,transparent),var(--bg));backdrop-filter:blur(16px)}',
+    'nav.tabs{display:none!important}',
+    'body{padding-bottom:28px}',
+    '.wrap{max-width:1120px}',
+    '}',
+    '.side-brand{display:flex;align-items:center;gap:10px;padding:4px 10px 14px;font-weight:800;font-size:16.5px}',
+    '.side-brand small{display:block;font-weight:600;font-size:10.5px;color:var(--muted);letter-spacing:.4px}',
+    '.side-nav{display:flex;flex-direction:column;gap:4px}',
+    '.side-nav button{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;border:1px solid transparent;',
+    'background:none;color:var(--muted);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;text-align:start;transition:background .16s,color .16s}',
+    '.side-nav button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}',
+    '.side-nav button:hover{background:var(--surface);color:var(--text)}',
+    '.side-nav button.active{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 10px 26px var(--glow-a)}',
+    '.side-txt small{display:block;font-weight:500;font-size:10.5px;opacity:.75;margin-top:1px}',
+    '.side-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 10px 2px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--dim)}',
+    '.section-head{display:flex;align-items:center;gap:12px;margin:4px 2px 14px}',
+    '.sh-icon{width:44px;height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:21px;border-radius:15px;',
+    'background:linear-gradient(135deg,var(--glow-a),var(--glow-b));border:1px solid var(--line);box-shadow:0 8px 22px var(--glow-a)}',
+    '.section-head h1{font-size:20px;font-weight:800;letter-spacing:.2px}',
+    '.section-head p{font-size:12.5px;color:var(--muted);margin-top:2px}',
+    '.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px;',
+    'background-image:radial-gradient(700px 420px at 50% -10%,var(--glow-a),transparent 60%)}',
+    '.login-card{width:100%;max-width:410px;padding:28px 24px;text-align:center}',
+    '.login-logo{width:64px;height:64px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;border-radius:20px;',
+    'background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 16px 44px var(--glow-a)}',
+    '.card{border-radius:20px}',
+    '.card h2{font-size:15.5px;font-weight:800;gap:9px}',
+    '.btn{font-weight:700}',
   ].join('');
 }
 
@@ -3310,23 +3346,25 @@ function appButtonsHtml(subUrl, title) {
     .join('');
 }
 
-function loginHtml(title, error) {
+function loginHtml(title, error, userRequired) {
   return '<!doctype html><html data-theme="dark" data-lang="fa"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + '</title>' +
     '<style>' + css() + '</style></head><body data-lang="fa">' +
-    '<div class="wrap" style="max-width:420px;padding-top:12vh">' +
-    '<div class="card glow" style="text-align:center">' +
-    '<div class="brand" style="justify-content:center;margin-bottom:12px"><span class="cat">' + catLogo(28) + '</span>' + esc(title) + '</div>' +
-    '<p style="margin-bottom:14px">رمز پنل را وارد کنید / Enter the panel password</p>' +
-    '<p class="muted" style="margin-bottom:14px;font-size:12px">تا وقتی رمزی نگذاشته‌ای، رمز پنل همان <b>UUID</b> است (در متغیر UUID یا از ابزارها). / Until you set one, the password is the panel UUID.</p>' +
-    (error ? '<p class="warn" style="margin-bottom:10px">' + esc(error) + '</p>' : '') +
-    '<form method="get" action="/" id="loginForm">' +
-    '<label class="field"><span>Password</span><input type="password" name="p" id="loginPass" autofocus autocomplete="current-password"></label>' +
-    '<button class="btn" type="submit" style="width:100%">ورود / Unlock</button>' +
-    '</form></div></div>' +
-    '<script>document.getElementById("loginForm").addEventListener("submit",function(ev){ev.preventDefault();var p=document.getElementById("loginPass").value;' +
-    'fetch("/api/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password:p})}).then(function(r){return r.json()}).then(function(j){' +
-    'if(j.ok){location.href="/";}else{alert(j.error==="too-many-attempts"?"تلاش زیاد — ۱۰ دقیقه صبر کن":"رمز اشتباه است");}}).catch(function(){location.href="/?p="+encodeURIComponent(p)});});</script>' +
+    '<div class="login-wrap"><div class="login-card card glow">' +
+    '<div class="login-logo"><span class="cat">' + catLogo(34) + '</span></div>' +
+    '<h1 style="font-size:20px;font-weight:800">' + esc(title) + '</h1>' +
+    '<p class="muted" style="margin-top:6px">پنل مدیریت — ورود مخصوص مدیر / Admin sign-in</p>' +
+    (error ? '<p class="warn" style="margin-top:10px">' + esc(error) + '</p>' : '') +
+    '<form method="get" action="/" id="loginForm" style="margin-top:12px">' +
+    (userRequired ? '<label class="field" style="text-align:start;margin-top:10px"><span>Username · نام کاربری</span><input id="loginUser" autocomplete="username" placeholder="admin"></label>' : '') +
+    '<label class="field" style="text-align:start;margin-top:10px"><span>Password · رمز پنل</span><input type="password" id="loginPass" autofocus autocomplete="current-password" placeholder="••••••••"></label>' +
+    '<button class="btn" type="submit" style="width:100%;margin-top:14px">ورود امن / Sign in</button>' +
+    '</form>' +
+    '<p class="muted" style="margin-top:14px;font-size:11.5px">تا وقتی رمز جدا نگذاشته‌ای، رمز پنل همان <b>UUID</b> است. / Until you set one, the password is the panel UUID.</p>' +
+    '</div></div>' +
+    '<script>document.getElementById("loginForm").addEventListener("submit",function(ev){ev.preventDefault();var p=document.getElementById("loginPass").value;var u=document.getElementById("loginUser");' +
+    'fetch("/api/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password:p,username:u?u.value:""})}).then(function(r){return r.json()}).then(function(j){' +
+    'if(j.ok){location.href="/";}else{alert(j.error==="too-many-attempts"?"تلاش زیاد — ۱۰ دقیقه صبر کن":"نام کاربری یا رمز اشتباه است");}}).catch(function(){location.href="/?p="+encodeURIComponent(p)});});</script>' +
     '</body></html>';
 }
 
@@ -3340,6 +3378,21 @@ function panelShell(state) {
     '<link rel="icon" href="data:image/svg+xml,' + encodeURIComponent(catLogo(48)) + '">' +
     '<style>' + css() + '</style></head>' +
     '<body data-lang="fa">' +
+    '<div class="shell">' +
+    '<aside class="side">' +
+    '<div class="side-brand"><span class="cat">' + catLogo(26) + '</span><span><b>' + esc(state.title) + '</b><small>پنل مدیریت Cat</small></span></div>' +
+    '<nav class="side-nav">' +
+    sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
+    sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
+    sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
+    sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
+    sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
+    sideButton('tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
+    sideButton('help', 'راهنما', 'نصب و رفع اشکال', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
+    '</nav>' +
+    '<div class="side-foot"><span class="pill ok">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div>' +
+    '</aside>' +
+    '<div class="main">' +
     '<header class="top"><div class="top-inner">' +
     '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span><b id="brandName">' + esc(state.title) + '</b>' +
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
@@ -3361,7 +3414,7 @@ function panelShell(state) {
     navButton('dns', 'DNS', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
     navButton('tools', 'ابزارها', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
     navButton('help', 'راهنما', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
-    '</div></nav>' +
+    '</div></nav></div></div>' +
 
     '<div class="toast" id="toast"><span id="toastText"></span></div>' +
     '<div class="modal" id="qrModal"><div class="box">' +
@@ -3381,6 +3434,16 @@ function navButton(id, label, path) {
   return '<button data-tab="' + id + '" class="' + (id === 'home' ? 'active' : '') + '">' +
     '<svg viewBox="0 0 24 24">' + path + '</svg>' +
     '<span data-nav-label="' + id + '">' + esc(label) + '</span></button>';
+}
+
+function sideButton(id, label, desc, path) {
+  return '<button data-tab="' + id + '" class="' + (id === 'home' ? 'active' : '') + '">' +
+    '<svg viewBox="0 0 24 24">' + path + '</svg>' +
+    '<span class="side-txt"><span data-nav-label="' + id + '">' + esc(label) + '</span><small>' + esc(desc) + '</small></span></button>';
+}
+
+function sectionHead(icon, title, sub) {
+  return '<div class="section-head"><span class="sh-icon">' + icon + '</span><div><h1>' + title + '</h1><p>' + sub + '</p></div></div>';
 }
 
 function homeTabHtml(state) {
@@ -3453,7 +3516,7 @@ function statCard(key, value) {
 function configsTabHtml(state) {
   const o = state.configOptions || { addresses: [], ports: [443], sni: state.sni, protocols: ['vless', 'trojan'], includeHost: true };
   const portChip = (p, tls) => '<button class="chip' + (o.ports.includes(p) ? ' active' : '') + '" data-port="' + p + '" data-tls="' + (tls ? 1 : 0) + '">' + p + (tls ? '' : ' <small>http</small>') + '</button>';
-  return '<section class="tab" data-tab-panel="configs">' +
+  return '<section class="tab" data-tab-panel="configs">' + sectionHead('⚙️', 'کانفیگ‌ها', 'ساخت کانفیگ با انتخاب کشور، تعداد و پورت') +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="cfgBuilderTitle">تنظیم کانفیگ‌های Cat</span></h2>' +
     '<p>این‌جا تعیین می‌کنی کانفیگ‌های سابسکریپشن با <b>چه آدرس‌هایی</b> (آی‌پی تمیز / دامنه)، <b>چه پورت‌هایی</b> و <b>چه SNI‌ای</b> ساخته شوند. هر ترکیبِ آدرس × پورت × پروتکل یک کانفیگ می‌شود؛ اپ همه را می‌گیرد و خودش سریع‌ترین را انتخاب می‌کند.</p>' +
     '<label class="field" style="margin-top:12px"><span>آدرس‌های تمیز (آی‌پی یا دامنه — هر خط یا با کاما)</span>' +
@@ -3563,7 +3626,7 @@ function scannerTabHtml(state) {
   const sniChips = sniSuggestions.map((value) =>
     '<button class="chip" type="button" data-sni-suggestion="' + esc(value) + '">' + esc(value) + '</button>',
   ).join('');
-  return '<section class="tab" data-tab-panel="scanner">' +
+  return '<section class="tab" data-tab-panel="scanner">' + sectionHead('🛰️', 'اسکنر آی‌پی', 'پیدا کردن IP سالم کلودفلر — IPv4 و IPv6 — و افزودن خودکار به کانفیگ‌ها') +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerTitle">اسکنر آی‌پی تمیز کلودفلر</span></h2>' +
     '<p>دو اسکنر داری: <b>«از مرورگر»</b> سرعت واقعی هر آی‌پی را روی اینترنت خودت می‌سنجد (همان چیزی که برای اپراتور تو مهم است). <b>«از ورکر»</b> می‌گوید آن آی‌پی برای دامنهٔ پنل جواب می‌دهد یا نه (از سمت کلودفلر). نتیجهٔ خوب = هردو سبز.</p>' +
     '<div class="grid two" style="margin-top:12px">' +
@@ -3609,7 +3672,7 @@ function dnsTabHtml(state) {
   const dotRows = state.dotPresets.map((p) =>
     '<tr><td>' + esc(p.name) + '</td><td dir="ltr"><code>' + esc(p.host) +
     '</code></td><td><button class="btn ghost tiny" data-dot="' + esc(p.host) + '">کپی / بررسی</button></td></tr>').join('');
-  return '<section class="tab" data-tab-panel="dns">' +
+  return '<section class="tab" data-tab-panel="dns">' + sectionHead('🔐', 'DNS رمزنگاری‌شده', 'DoH و DoT برای عبور امن از فیلترینگ') +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="dnsTitle">DNS رمزنگاری‌شده (DoH)</span></h2>' +
     '<p>این Worker در نقش یک رزولور DoH هم کار می‌کند. دستگاهت می‌تواند کوئری‌های DNS را رمزنگاری‌شده به همین دامنه بفرستد؛ نتیجه از طریق کلودفلر بیرون می‌رود و اپراتور نمی‌تواند داخل آن را ببیند.</p>' +
     '<div class="link-row" style="margin-top:12px"><span class="grow" id="dohUrlText">' + esc(state.dohUrl) + '</span>' +
@@ -3648,7 +3711,7 @@ function dnsTabHtml(state) {
 }
 
 function usersTabHtml(state) {
-  return '<section class="tab" data-tab-panel="users">' +
+  return '<section class="tab" data-tab-panel="users">' + sectionHead('👥', 'کاربران', 'برای هر نفر کشور انتخاب کن و لینک اختصاصی بگیر') +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="usersTitle">کاربران پنل</span></h2>' +
     '<p>هر کاربر لینک سابسکریپشن، UUID و رمز Trojan مستقل خودش را دارد؛ حجم، تاریخ انقضا و تعداد دستگاه هم قابل تنظیم است. برای ذخیره‌سازی به بایندینگ KV نیاز است.</p>' +
     '<p class="muted" id="kvState">' + (state.hasKv ? '✅ KV متصل است — کاربران ذخیره می‌شوند.' : '⚠️ KV وصل نیست — فقط UUID اصلی کار می‌کند. یک Namespace بساز و با نام <code>CAT_KV</code> به ورکر بایند کن.') + '</p>' +
@@ -3673,11 +3736,12 @@ function usersTabHtml(state) {
 }
 
 function toolsTabHtml(state) {
-  return '<section class="tab" data-tab-panel="tools">' +
+  return '<section class="tab" data-tab-panel="tools">' + sectionHead('🧰', 'ابزارها و تنظیمات', 'رمز و نام کاربری پنل، عنوان، بکاپ و بازیابی') +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="toolsTitle">ابزارها و تنظیمات پنل</span></h2>' +
     '<div class="grid two">' +
     '<label class="field"><span>عنوان پنل</span><input id="tTitle" value="' + esc(state.title) + '"></label>' +
     '<label class="field"><span>رمز ورود پنل (خالی = بدون رمز)</span><input id="tPass" type="password" placeholder="••••••"></label>' +
+    '<label class="field"><span>نام کاربری پنل (خالی = فقط رمز)</span><input id="tUser" dir="ltr" placeholder="admin"></label>' +
     '<label class="field"><span>DoH بالادستی</span><input id="tDns" dir="ltr" value="' + esc(state.dnsUpstream) + '"></label>' +
     '<label class="field"><span>UUID اصلی (env: UUID)</span><input id="tUuid" dir="ltr" value="' + esc(state.uuid) + '"></label>' +
     '<label class="field"><span>پروکسی‌آی‌پی‌ها (با کاما)</span><input id="tProxyIps" dir="ltr" placeholder="1.2.3.4,5.6.7.8"></label>' +
@@ -3719,7 +3783,7 @@ function helpTabHtml(state) {
   const rows = envRows.map((r) =>
     '<tr><td><code>' + esc(r[0]) + '</code></td><td dir="ltr">' + esc(r[1]) +
     '</td><td class="muted">' + esc(r[2]) + '</td></tr>').join('');
-  return '<section class="tab" data-tab-panel="help">' +
+  return '<section class="tab" data-tab-panel="help">' + sectionHead('📖', 'راهنما', 'نصب، اتصال و رفع اشکال') +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="helpTitle">راهنمای پنل</span></h2>' +
     '<div class="steps">' +
     '<div class="step"><b>راه سریع (ویزارد):</b> <a href="' + esc(CF_TOKEN_TEMPLATE_URL) + '" target="_blank" rel="noopener">این لینک</a> صفحهٔ API Token کلودفلر را با دسترسی‌های آماده باز می‌کند → Continue to summary → Create Token → توکن را در اپ Cat Client (تب Cloud) یا در Cat Wizard بچسبان؛ پنل + KV + رمز خودکار ساخته می‌شود.</div>' +
@@ -3769,13 +3833,13 @@ function panelClientJs() {
     ' var d=I18N[lang];',
     ' $$("[data-i18n]").forEach(function(el){var k=el.getAttribute("data-i18n");if(d[k])el.textContent=d[k];});',
     ' $("#langBtn").textContent=lang==="fa"?"EN":"فا";',
-    ' $("[data-nav-label=home]").textContent=lang==="fa"?"خانه":"Home";',
-    ' $("[data-nav-label=configs]").textContent=lang==="fa"?"کانفیگ‌ها":"Configs";',
-    ' $("[data-nav-label=scanner]").textContent=lang==="fa"?"اسکنر":"Scanner";',
-    ' $("[data-nav-label=users]").textContent=lang==="fa"?"کاربران":"Users";',
-    ' $("[data-nav-label=tools]").textContent=lang==="fa"?"ابزارها":"Tools";',
-    ' $("[data-nav-label=dns]").textContent="DNS";',
-    ' $("[data-nav-label=help]").textContent=lang==="fa"?"راهنما":"Help";',
+    ' $$("[data-nav-label=home]").forEach(function(el){el.textContent=lang==="fa"?"خانه":"Home";});',
+    ' $$("[data-nav-label=configs]").forEach(function(el){el.textContent=lang==="fa"?"کانفیگ‌ها":"Configs";});',
+    ' $$("[data-nav-label=scanner]").forEach(function(el){el.textContent=lang==="fa"?"اسکنر":"Scanner";});',
+    ' $$("[data-nav-label=users]").forEach(function(el){el.textContent=lang==="fa"?"کاربران":"Users";});',
+    ' $$("[data-nav-label=tools]").forEach(function(el){el.textContent=lang==="fa"?"ابزارها":"Tools";});',
+    ' $$("[data-nav-label=dns]").forEach(function(el){el.textContent="DNS";});',
+    ' $$("[data-nav-label=help]").forEach(function(el){el.textContent=lang==="fa"?"راهنما":"Help";});',
     ' $("#brandSub").textContent=lang==="fa"?"پنل کلودفلر شخصی شما":"Your personal Cloudflare panel";',
     ' $("#heroTitle").textContent=lang==="fa"?"پنل فعال است":"Panel is live";',
     ' $("#heroSub").textContent=lang==="fa"?"این Worker روی شبکهٔ کلودفلر اجرا می‌شود؛ با یک لینک، همهٔ دستگاه‌هایت را وصل کن.":"This worker runs on Cloudflare edge; connect every device with one link.";',
@@ -3798,14 +3862,14 @@ function panelClientJs() {
     ' var ta=document.createElement("textarea");ta.value=text;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast(I18N[lang].copied)}catch(e){}document.body.removeChild(ta);return Promise.resolve();',
     '}',
     'function showTab(name){',
-    ' $$("nav.tabs button").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tab")===name)});',
+    ' $$("[data-tab]").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tab")===name)});',
     ' $$(".tab").forEach(function(s){s.classList.toggle("active",s.getAttribute("data-tab-panel")===name)});',
     ' try{localStorage.setItem("catpanel.tab",name)}catch(e){}',
     ' if(name==="users")loadUsers();if(name==="tools"){loadSelf();loadSettings();}',
     ' if(name==="scanner"){}',
     ' try{window.scrollTo({top:0,behavior:"smooth"})}catch(e){try{window.scrollTo(0,0)}catch(e2){}}',
     '}',
-    '$$("nav.tabs button").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"))})});',
+    '$$("[data-tab]").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"))})});',
     '$("#langBtn").addEventListener("click",function(){lang=lang==="fa"?"en":"fa";try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();});',
 
     'document.addEventListener("click",function(ev){',
@@ -3995,7 +4059,7 @@ function panelClientJs() {
     ' $("#tResult").textContent=j.hasKv?"KV متصل است":"KV وصل نیست — تغییرات فقط تا ری‌استارت زنده می‌ماند";});}',
     'if($("#tSave"))$("#tSave").addEventListener("click",function(){',
     ' var payload={title:$("#tTitle").value.trim(),dns:{upstream:$("#tDns").value.trim()},tunnel:{proxyIps:($("#tProxyIps").value||"").split(",").map(function(x){return x.trim()}).filter(Boolean)}};',
-    ' var pass=$("#tPass").value;if(pass)payload.panelPassword=pass;',
+    ' var pass=$("#tPass").value;if(pass)payload.panelPassword=pass;var puser=$("#tUser").value;if(puser)payload.panelUser=puser;',
     ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)})',
     '  .then(function(r){return r.json()}).then(function(j){',
     '   $("#tResult").textContent=j.ok?(j.persisted?"ذخیره شد ✅":"در KV ذخیره نشد (بایندینگ KV نداری)"):("خطا: "+j.error);',
@@ -4236,6 +4300,19 @@ function cookieValue(request, name) {
   return null;
 }
 
+async function panelUser(env) {
+  const settings = await readSettings(env);
+  return String(env.PANEL_USER || settings.panelUser || '').trim();
+}
+
+/** Session cookie value: hash of username+password when a username is set, else the password hash. */
+async function panelAuthHash(env, hostForUuid) {
+  const password = await panelPassword(env, hostForUuid);
+  if (!password) return '';
+  const user = await panelUser(env);
+  return sha256Hex(user ? user + '\n' + password : password);
+}
+
 async function panelPassword(env, hostForUuid) {
   const settings = await readSettings(env);
   const explicit = String(env.PANEL_PASSWORD || settings.panelPassword || '').trim();
@@ -4250,7 +4327,7 @@ async function requirePanelAuth(request, env) {
   const host = (request.headers.get('Host') || new URL(request.url).hostname || '').toLowerCase();
   const password = await panelPassword(env, host);
   if (!password) return { ok: true, open: true };
-  const expected = await sha256Hex(password);
+  const expected = await panelAuthHash(env, host);
   if (cookieValue(request, AUTH_COOKIE) === expected) return { ok: true, open: false };
   return {
     ok: false,
@@ -4262,14 +4339,16 @@ async function requirePanelAuth(request, env) {
 async function handleLogin(request, env) {
   const host = (request.headers.get('Host') || new URL(request.url).hostname || '').toLowerCase();
   const password = await panelPassword(env, host);
+  const expectedUser = await panelUser(env);
   let body = null;
   try {
     body = await request.json();
   } catch (e) {
     const form = await request.formData().catch(() => null);
-    body = form ? { password: form.get('password') } : null;
+    body = form ? { password: form.get('password'), username: form.get('username') } : null;
   }
   const supplied = String((body && body.password) || '');
+  const suppliedUser = String((body && body.username) || '').trim();
   if (!password) {
     return jsonResponse({ ok: true, note: 'no password configured' }, 200, CORS);
   }
@@ -4281,8 +4360,9 @@ async function handleLogin(request, env) {
     return jsonResponse({ ok: false, error: 'too-many-attempts', retryAfterSec: retryAfter }, 429,
       Object.assign({ 'retry-after': String(retryAfter) }, CORS));
   }
-  if (supplied && supplied === password) {
-    const token = await sha256Hex(password);
+  const userOk = !expectedUser || suppliedUser.toLowerCase() === expectedUser.toLowerCase();
+  if (userOk && supplied && supplied === password) {
+    const token = await panelAuthHash(env, host);
     if (bruteRaw) await kvDelete(env, bruteKey);
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
@@ -4296,7 +4376,7 @@ async function handleLogin(request, env) {
   // backstop; the JSON `until` is what is checked, so a KV without TTL support still unlocks).
   const next = { count: brute.count + 1, until: Date.now() + BRUTE_WINDOW_MS };
   await kvPut(env, bruteKey, JSON.stringify(next), { expirationTtl: Math.ceil(BRUTE_WINDOW_MS / 1000) });
-  return jsonResponse({ ok: false, error: 'invalid-password', attemptsLeft: Math.max(0, BRUTE_LIMIT - next.count) }, 401, CORS);
+  return jsonResponse({ ok: false, error: 'invalid-password', userRequired: !!expectedUser, attemptsLeft: Math.max(0, BRUTE_LIMIT - next.count) }, 401, CORS);
 }
 
 function redactSettings(settings) {
@@ -4707,11 +4787,13 @@ function infoCss() {
 
 async function handlePanelRequest(request, url, env, host, uuid, state) {
   const panelPass = await panelPassword(env, host);
+  const panelUserName = await panelUser(env);
   if (panelPass) {
-    const expected = await sha256Hex(panelPass);
+    const expected = panelUserName ? await sha256Hex(panelUserName + '\n' + panelPass) : await sha256Hex(panelPass);
     const supplied = url.searchParams.get('p') || url.searchParams.get('uuid') || '';
-    const authed = cookieValue(request, AUTH_COOKIE) === expected || (supplied && supplied === panelPass);
-    if (!authed) return htmlResponse(loginHtml(state.title, ''));
+    // With a username set, ?p= alone is not a login — the form asks for both.
+    const authed = cookieValue(request, AUTH_COOKIE) === expected || (!panelUserName && supplied && supplied === panelPass);
+    if (!authed) return htmlResponse(loginHtml(state.title, '', panelUserName));
     if (supplied && supplied === panelPass) {
       // Log in via ?p= once and set the cookie so the URL can be shared without the secret.
       return new Response(panelShell(state), {

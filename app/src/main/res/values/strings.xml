@@ -605,6 +605,11 @@
     <string name="cloud_update_confirm">Update now</string>
     <string name="cloud_update_reinstall">Reinstall</string>
     <string name="cloud_update_running">Updating the panel…</string>
+    <string name="cloud_update_saved_token_message">Update %1$s to Cat Panel v%3$s (now v%2$s) using the saved Cloudflare token. Confirm the panel password to authorize it.</string>
+    <string name="cloud_panel_user_hint">Panel username (if set)</string>
+    <string name="cloud_panel_password_hint">Panel password</string>
+    <string name="cloud_panel_password_required">Enter the panel password</string>
+    <string name="cloud_panel_login_failed">Panel sign-in failed — wrong username or password.</string>
     <string name="cloud_update_done">Panel updated to v%1$s</string>
     <string name="cloud_update_failed">Panel update failed: %1$s</string>
     <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. Enter their values to keep them through the update — or update the worker from the Cloudflare dashboard instead.</string>

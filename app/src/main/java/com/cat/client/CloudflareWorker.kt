@@ -458,6 +458,36 @@ object CloudflareWorker {
         val kvBound: Boolean = false,
     )
 
+    /**
+     * True when the live panel accepts this username+password at `/api/login`.
+     * Used to authorize a panel update with the panel password instead of
+     * asking for the Cloudflare API token again.
+     */
+    suspend fun verifyPanelLogin(workerUrl: String, username: String, password: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val conn = (URL(workerUrl.trimEnd('/') + "/api/login").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("User-Agent", "CatClient/${BuildConfig.VERSION_NAME} (panel-login-check)")
+                }
+                conn.outputStream.use { out ->
+                    out.write(
+                        JSONObject().put("username", username).put("password", password).toString().toByteArray(Charsets.UTF_8),
+                    )
+                }
+                val code = conn.responseCode
+                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    .orEmpty()
+                conn.disconnect()
+                code in 200..299 && JSONObject(body).optBoolean("ok", false)
+            }.getOrDefault(false)
+        }
+
     suspend fun verifyToken(token: String): CfTokenPermissions = withContext(Dispatchers.IO) {
         val tokenDetails = cfGet(token, "https://api.cloudflare.com/client/v4/user/tokens/verify")
         val tokenOk = tokenDetails.optBoolean("success", false)
@@ -480,6 +510,8 @@ object CloudflareWorker {
         token: String,
         accountId: String,
         workerName: String,
+        panelUser: String = "",
+        panelPassword: String = "",
     ): DeploymentResult = withContext(Dispatchers.IO) {
         // 1. Account workers.dev subdomain: read it, create it when missing.
         val subdomain = resolveWorkersSubdomain(token, accountId)
@@ -495,7 +527,17 @@ object CloudflareWorker {
         val script = builtInWorkerScript(context)
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
-        val putResult = cfUploadWorker(token, uploadUrl, script, uuid, kvId)
+        // Admin gate bindings: with a username set, the panel login asks for
+        // username + password (a management panel, not open access).
+        val authBindings = JSONArray().apply {
+            if (panelUser.isNotBlank()) {
+                put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", panelUser))
+            }
+            if (panelPassword.isNotBlank()) {
+                put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", panelPassword))
+            }
+        }
+        val putResult = cfUploadWorker(token, uploadUrl, script, uuid, kvId, extraBindings = authBindings)
         if (!putResult.optBoolean("success", false)) {
             val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
             throw RuntimeException("Worker upload failed: $errors")
@@ -519,7 +561,7 @@ object CloudflareWorker {
             subscriptionUrl = "$workerUrl/sub/$uuid",
             verifiedOnline = verifiedOnline,
             uuid = uuid,
-            panelUrl = "$workerUrl/?p=$uuid",
+            panelUrl = if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
             kvBound = kvId != null,
         )
     }
@@ -964,6 +1006,19 @@ class PanelDeploymentStore(context: Context) {
     fun rememberWizard(url: String) {
         prefs.edit().putString("last_wizard", url).apply()
     }
+
+    /**
+     * Cloudflare API token for a worker URL, remembered from the deploy/update
+     * flow so later panel updates never ask for it again — they only confirm
+     * the panel password instead.
+     */
+    fun rememberToken(workerUrl: String, token: String) {
+        prefs.edit().putString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), token).apply()
+    }
+
+    fun tokenFor(workerUrl: String): String? =
+        prefs.getString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
+
 
     fun lastWizardUrl(): String? = prefs.getString("last_wizard", null)
 

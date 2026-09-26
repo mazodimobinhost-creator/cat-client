@@ -28,3 +28,5 @@ app/src/main/cpp/includes/
 # Node tooling for the panel dev scripts
 node_modules/
 package-lock.json
+__pycache__/
+*.pyc

@@ -604,6 +604,11 @@
     <string name="cloud_update_confirm">الان بروزرسانی کن</string>
     <string name="cloud_update_reinstall">نصب دوباره</string>
     <string name="cloud_update_running">در حال بروزرسانی پنل…</string>
+    <string name="cloud_update_saved_token_message">بروزرسانی %1$s به پنل v%3$s (الان v%2$s) با توکن ذخیره‌شدهٔ کلودفلر. برای تأیید، رمز پنل را وارد کن.</string>
+    <string name="cloud_panel_user_hint">نام کاربری پنل (اگر گذاشته‌ای)</string>
+    <string name="cloud_panel_password_hint">رمز پنل</string>
+    <string name="cloud_panel_password_required">رمز پنل را وارد کن</string>
+    <string name="cloud_panel_login_failed">ورود به پنل نشد — نام کاربری یا رمز اشتباه است.</string>
     <string name="cloud_update_done">پنل به نسخهٔ v%1$s بروزرسانی شد</string>
     <string name="cloud_update_failed">بروزرسانی پنل ناموفق بود: %1$s</string>
     <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظشان مقدار هر کدام را وارد کن — یا ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>

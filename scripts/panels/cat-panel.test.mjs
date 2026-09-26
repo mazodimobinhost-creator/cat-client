@@ -148,7 +148,7 @@ async function subText(url, opts) {
   check('panel html has deep link', body.includes('catclient://add-sub?url='));
   check('panel html is bilingual', body.includes('خانه') && body.includes('Home'));
   const locked = await req('/', { env: { PANEL_PASSWORD: 'secret123' } });
-  check('panel locked without password', locked.status === 200 && (await locked.text()).includes('name="p"'));
+  check('panel locked without password', locked.status === 200 && (await locked.text()).includes('loginPass'));
   const unlocked = await req('/?p=secret123', { env: { PANEL_PASSWORD: 'secret123' } });
   check('panel unlocks with password', (await unlocked.text()).includes('Cat Panel'));
 }
@@ -712,6 +712,33 @@ async function subText(url, opts) {
   mem.set(key, JSON.stringify({ count: 8, until: Date.now() - 5 }));
   const afterWindow = await login('secret-pw');
   check('after the window a correct login succeeds and clears the counter', afterWindow.status === 200 && !mem.has(key));
+}
+
+// 27. v5.11 — admin gate: username + password (a management panel, not open access)
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, PANEL_PASSWORD: 'pw-123', PANEL_USER: 'boss' };
+  const login = (body) => worker.fetch(new Request('https://' + HOST + '/api/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }), env);
+  const wrongUser = await login({ username: 'hacker', password: 'pw-123' });
+  check('username gate: right password + wrong username is rejected', wrongUser.status === 401 && JSON.parse(await wrongUser.text()).userRequired === true);
+  const right = await login({ username: 'Boss', password: 'pw-123' });
+  check('login accepts username (case-insensitive) + password and sets the session cookie', right.status === 200 && (right.headers.get('set-cookie') || '').includes('catpanel_auth='));
+  const cookie = (right.headers.get('set-cookie').match(/catpanel_auth=([^;]+)/) || [])[1] || '';
+  const withCookie = await worker.fetch(new Request('https://' + HOST + '/', { headers: { cookie: 'catpanel_auth=' + cookie } }), env);
+  const pageHtml = await withCookie.text();
+  check('panel shell opens with the username+password session cookie', withCookie.status === 200 && pageHtml.includes('id="brandName"'));
+  check('sidebar admin shell + section heads render', pageHtml.includes('class="side-nav"') && pageHtml.includes('section-head') && pageHtml.includes('sideButton') === false);
+  const noCookie = await worker.fetch(new Request('https://' + HOST + '/'), env);
+  const noCookieHtml = await noCookie.text();
+  check('without a session the login form asks username + password', noCookieHtml.includes('loginUser') && noCookieHtml.includes('loginPass'));
+  const qpBypass = await worker.fetch(new Request('https://' + HOST + '/?p=pw-123'), env);
+  const qpHtml = await qpBypass.text();
+  check('?p= alone no longer unlocks when a username is set', qpHtml.includes('loginUser'));
+  const qpNoUser = await worker.fetch(new Request('https://' + HOST + '/?p=pw-123'), { CAT_KV: kv, PANEL_PASSWORD: 'pw-123' });
+  check('?p= still works for password-only panels', (await qpNoUser.text()).includes('id="brandName"'));
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
