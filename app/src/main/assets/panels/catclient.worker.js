@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.12.2';
+const CAT_PANEL_VERSION = '5.13.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -2459,6 +2459,10 @@ function configOptions(url, host, env, settings, allowedCountries) {
 
   const sniRaw = String(q.get('sni') || cfg.sni || env.SNI || '').trim().toLowerCase();
   const sni = sniRaw && validAddress(sniRaw) && !isIpLiteral(sniRaw) ? sniRaw : String(host).toLowerCase();
+  const snisExtra = splitCsv(q.get('snis')).concat(Array.isArray(cfg.snis) ? cfg.snis.map(String) : splitCsv(typeof cfg.snis === 'string' ? cfg.snis : ''));
+  const snis = [sni].concat(snisExtra.map((v) => v.trim().toLowerCase()))
+    .filter((v, i, arr) => v && arr.indexOf(v) === i && validAddress(v) && !isIpLiteral(v))
+    .slice(0, 4);
 
   const protoRaw = splitCsv(q.get('proto') || q.get('protocols')).map((p) => p.toLowerCase());
   const protocols = (protoRaw.length ? protoRaw : Array.isArray(cfg.protocols) && cfg.protocols.length ? cfg.protocols : ['vless', 'trojan'])
@@ -2494,6 +2498,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
     addresses: addresses,
     ports: ports,
     sni: sni,
+    snis: snis,
     protocols: protocols.length ? protocols : ['vless'],
     includeHost: includeHost,
     fragment: fragment,
@@ -2594,8 +2599,10 @@ function buildConfigEntries(host, env, uuid, opts) {
       addresses.forEach((addr) => {
         if (entries.length >= entryLimit) return;
         index += 1;
+        const snis = (options.snis && options.snis.length) ? options.snis : [options.sni];
+        const sni = snis[index % snis.length];
         const name = configName(kind, addr, port, index, host, options);
-        const overrides = { port: port, sni: options.sni, fingerprint: options.fingerprint };
+        const overrides = { port: port, sni: sni, fingerprint: options.fingerprint };
         const link = kind === 'vless'
           ? vlessLink(host, env, uuid, addr, name, overrides)
           : trojanLink(host, env, uuid, addr, name, overrides);
@@ -3613,6 +3620,7 @@ function configsTabHtml(state) {
     '</div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>SNI (خالی = دامنهٔ ورکر)</span><input id="cfgSni" dir="ltr" value="' + esc(o.sni === state.host ? '' : o.sni) + '" placeholder="' + esc(state.host) + '"></label>' +
+    '<label class="field"><span>SNIهای بیشتر (با کاما — بین کانفیگ‌ها می‌چرخند و دسترسی را بهتر می‌کنند)</span><input id="cfgSnis" dir="ltr" placeholder="speed.cloudflare.com,cdn.jsdelivr.net"></label>' +
     '<label class="field"><span>پروتکل‌ها</span><div class="chips" id="cfgProtos" style="margin-top:6px">' +
     '<button class="chip' + (o.protocols.includes('vless') ? ' active' : '') + '" data-proto="vless">VLESS</button>' +
     '<button class="chip' + (o.protocols.includes('trojan') ? ' active' : '') + '" data-proto="trojan">Trojan</button>' +
@@ -3806,7 +3814,7 @@ function usersTabHtml(state) {
     '<label class="field"><span>حجم (GB) — 0 یعنی نامحدود</span><input id="uQuota" type="number" min="0" step="1" value="0"></label>' +
     '<label class="field"><span>انقضا (روز) — 0 یعنی بدون انقضا</span><input id="uDays" type="number" min="0" step="1" value="0"></label>' +
     '<label class="field"><span>محدودیت دستگاه — 0 یعنی آزاد</span><input id="uDevices" type="number" min="0" step="1" value="0"></label>' +
-    '<label class="field" style="grid-column:1/-1"><span>کشورهای کاربر (با کاما) — تا کشوری انتخاب نکنی کانفیگی نمی‌گیرد؛ مثلاً NL,DE,FR 🇳🇱🇩🇪🇫🇷</span><input id="uCountries" dir="ltr" placeholder="NL,DE,FR"></label>' +
+    '<label class="field" style="grid-column:1/-1"><span>کشورهای کاربر — با یک کلیک انتخاب کن (تا کشوری نگذاری کانفیگی نمی‌گیرد)</span><div class="chips" id="uCountryChips"></div><input id="uCountries" dir="ltr" placeholder="یا اینجا اضافه کن: NL,DE,FR" style="margin-top:8px"></label>' +
     '</div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="uCreate">ساخت کاربر</button>' +
     '<button class="btn ghost tiny" id="uReload">بارگذاری مجدد</button>' +
@@ -3976,9 +3984,10 @@ function panelClientJs() {
     ' var protos=$$("#cfgProtos .chip.active[data-proto]").map(function(c){return c.getAttribute("data-proto")});if(!protos.length)protos=["vless"];',
     ' var host=$("#cfgProtos .chip[data-flag=host]").classList.contains("active");',
     ' var sni=($("#cfgSni").value||"").trim().toLowerCase()||S.host;',
+    ' var snis=($("#cfgSnis").value||"").split(/[;, ]+/).map(function(s){return s.trim().toLowerCase()}).filter(function(s){return s&&s.indexOf(".")>0&&s.indexOf(":")<0}).slice(0,4);',
     ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
-    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean)};}',
-    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
+    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean)};}',
+    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
@@ -4040,7 +4049,7 @@ function panelClientJs() {
     'function applyOptions(){OPT=readOptions();cfgSavedInKv=false;CFG=allLinks();renderConfigs();refreshSubUrl();$("#cfgSaveState").textContent="";}',
     '$("#cfgApply").addEventListener("click",function(){applyOptions();toast(CFG.length+" کانفیگ ساخته شد — لینک ساب به‌روز شد");});',
     '$("#cfgSave").addEventListener("click",function(){applyOptions();var o=OPT;',
-    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8}})})',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,snis:(o.snis||[]).join(","),locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8}})})',
     ' .then(function(r){return r.json()}).then(function(j){if(j.ok&&j.persisted){cfgSavedInKv=true;refreshSubUrl();$("#cfgSaveState").textContent="ذخیره شد — لینک کوتاه فعال است ✅";toast("در KV ذخیره شد");}',
     '  else{$("#cfgSaveState").textContent=j.ok?"KV وصل نیست — لینک با تنظیمات داخلش استفاده می‌شود":"خطا: "+j.error;}}).catch(function(){$("#cfgSaveState").textContent="خطا در ذخیره";});});',
     'function ccFlag(cc){if(!cc||cc.length!==2)return"";return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1));}',
@@ -4052,6 +4061,7 @@ function panelClientJs() {
     ' $("#healthState").textContent="زنده: "+j.alive+" از "+j.checked+(j.dead.length?" — مرده‌ها از کانفیگ‌ها حذف شدند ✅":"");',
     ' toast("سلامت آی‌پی‌ها چک شد");applyOptions();}catch(e){$("#healthState").textContent="خطا: "+e.message;}b.disabled=false;});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
+    'function snisQ(){var v=($("#scanSnis")||{}).value||"";v=v.trim();return v?"&snis="+encodeURIComponent(v):""}',
     'function pingAddr(addr,port,timeout){return new Promise(function(resolve){',
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;var started=performance.now();var done=false;',
     ' var timer=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();resolve(-1)}},timeout);',
@@ -4125,9 +4135,9 @@ function panelClientJs() {
     ' if(ed){var id=ed.getAttribute("data-user-edit");var u=USERS.filter(function(x){return x.id===id})[0]||{};',
     '  var name=prompt("نام کاربر",u.name||"");if(name===null)return;var q=prompt("حجم (GB) — 0 نامحدود",String(u.quotaGb||0));if(q===null)return;',
     '  var d=prompt("انقضا از امروز (روز) — 0 بدون انقضا، خالی = بدون تغییر","");if(d===null)return;var dev=prompt("محدودیت دستگاه — 0 آزاد",String(u.deviceLimit||0));if(dev===null)return;',
-    '  var cc=prompt("کشورهای کاربر (با کاما، مثل NL,DE) — تا کشوری نگذاری کانفیگی نمی‌گیرد؛ خالی = بدون کشور",(u.countries||[]).join(","));if(cc===null)return;',
-    '  var body={name:name,quotaGb:Number(q)||0,deviceLimit:Number(dev)||0,countries:cc};if(d.trim()!=="")body.days=Number(d)||0;',
-    '  userPut(id,body).then(function(j){toast(j.ok?"ذخیره شد":(j.error||"خطا"));loadUsers();});return;}',
+    '  pickCountries(u.countries||[]).then(function(cc){if(cc===null)return;',
+    '   var body={name:name,quotaGb:Number(q)||0,deviceLimit:Number(dev)||0,countries:cc};if(d.trim()!=="")body.days=Number(d)||0;',
+    '   userPut(id,body).then(function(j2){toast(j2.ok?"ذخیره شد":(j2.error||"خطا"));loadUsers();});});return;}',
     ' var tg=ev.target.closest("[data-user-toggle]");',
     ' if(tg){userPut(tg.getAttribute("data-user-toggle"),{enabled:tg.getAttribute("data-enabled")!=="1"}).then(function(){loadUsers()});return;}',
     ' var reset=ev.target.closest("[data-user-reset]");',
@@ -4136,6 +4146,19 @@ function panelClientJs() {
     ' if(rg){if(!confirm("UUID و لینک ساب این کاربر عوض شود؟ لینک قبلی از کار می‌افتد."))return;fetch(S.usersApi+"/"+rg.getAttribute("data-user-regen")+"/regenerate",{method:"POST"}).then(function(r){return r.json()}).then(function(j){toast(j.ok?"لینک جدید ساخته شد":(j.error||"خطا"));loadUsers();});return;}',
     ' var del=ev.target.closest("[data-user-del]");',
     ' if(del){if(!confirm("کاربر حذف شود؟"))return;fetch(S.usersApi+"/"+del.getAttribute("data-user-del"),{method:"DELETE"}).then(loadUsers);return;}});',
+    'var CHIP_CODES=[].concat((S.countryPools||[]).filter(function(p){return p.code}).map(function(p){return p.code}),["NL","DE","FR","US","GB","TR","SE","JP","SG","AE"]).filter(function(v,i,a){return a.indexOf(v)===i}).slice(0,16);',
+    'var ucBox=$("#uCountryChips");if(ucBox){ucBox.innerHTML=CHIP_CODES.map(function(cc){return `<button type=\'button\' class=\'chip\' data-ucc=\'>`+cc+`>`+(flagOf(cc)||"")+" "+cc+"</button>"}).join("");}',
+    'if(ucBox)ucBox.addEventListener("click",function(ev){var b=ev.target.closest("[data-ucc]");if(!b)return;b.classList.toggle("active");var codes=$$("#uCountryChips .chip.active").map(function(x){return x.getAttribute("data-ucc")});var extra=($("#uCountries").value||"").split(/[;, ]+/).map(function(s){return s.trim().toUpperCase()}).filter(function(s){return s&&CHIP_CODES.indexOf(s)<0});$("#uCountries").value=codes.concat(extra).join(",");});',
+    'function pickCountries(current){var codes=CHIP_CODES.slice();(current||[]).forEach(function(c){if(codes.indexOf(String(c).toUpperCase())<0)codes.push(String(c).toUpperCase())});',
+    ' return new Promise(function(resolve){var ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99;display:flex;align-items:center;justify-content:center;padding:18px";',
+    '  var box=document.createElement("div");box.className="card glow";box.style.cssText="max-width:430px;width:100%";',
+    '  box.innerHTML=`<h2 style=\'margin-bottom:10px\'>🌍 کشورهای این کاربر</h2><div class=\'chips\' id=\'pkChips\'></div><div class=\'row\' style=\'margin-top:12px\'><button class=\'btn\' id=\'pkSave\'>ذخیره</button><button class=\'btn ghost\' id=\'pkCancel\'>انصراف</button></div>`;',
+    '  ov.appendChild(box);document.body.appendChild(ov);var chosen=(current||[]).map(function(c){return String(c).toUpperCase()});var chipsBox=box.querySelector("#pkChips");',
+    '  function paint(){chipsBox.innerHTML=codes.map(function(cc){return `<button type=\'button\' class=\'chip\'+(chosen.indexOf(cc)>=0?" active":"")+\' data-pk=\'>`+cc+`>`+(flagOf(cc)||"")+" "+cc+"</button>"}).join("");}',
+    '  paint();chipsBox.addEventListener("click",function(ev){var b=ev.target.closest("[data-pk]");if(!b)return;var cc=b.getAttribute("data-pk");var i=chosen.indexOf(cc);if(i>=0)chosen.splice(i,1);else chosen.push(cc);paint();});',
+    '  box.querySelector("#pkSave").onclick=function(){document.body.removeChild(ov);resolve(chosen.join(","))};',
+    '  box.querySelector("#pkCancel").onclick=function(){document.body.removeChild(ov);resolve(null)};',
+    ' });}',
     'if($("#uCreate"))$("#uCreate").addEventListener("click",function(){',
     ' fetch(S.usersApi,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:($("#uName").value||"user").trim(),quotaGb:Number($("#uQuota").value||0),days:Number($("#uDays").value||0),deviceLimit:Number($("#uDevices").value||0),countries:($("#uCountries").value||"")})})',
     ' .then(function(r){return r.json()}).then(function(j){',
@@ -4210,9 +4233,8 @@ function panelClientJs() {
     '  resolve(Math.round(((performance&&performance.now)?performance.now():Date.now())-started));});});}',
     'function renderScan(){var rows=scanResults.map(function(r,i){var cls=r.ms===null?"bad":(r.ms<300?"good":(r.ms<700?"mid":"bad"));',
     ' var msText=r.ms===null?"✗":(r.ms+" ms");var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
-    ' return "<tr><td><input type=checkbox style=\\"width:auto\\" data-ip-check=\\""+r.ip+"\\""+(r.selected?" checked":"")+"></td><td dir=ltr><b>"+r.ip+"</b><br><small>"+loc+"</small></td>"+',
-    ' "<td class=\\"ms "+cls+"\\">"+msText+"</td><td class=\\"ms "+(r.server&&r.server.ok?"good":(r.server===undefined?"":"bad"))+"\\">"+srv+"</td>"+',
-    ' "<td><button class=\\"btn ghost tiny\\" data-copy-ip=\\""+r.ip+"\\">کپی</button> <button class=\\"btn tiny\\" data-use-ip=\\""+r.ip+"\\">انتخاب</button></td></tr>"}).join("");',
+    ' var sniRow=(r.server&&r.server.snisOk)?Object.keys(r.server.snisOk).filter(function(s){return r.server.snisOk[s].ok}).map(function(s){return "✓ "+s}).join("<br>"):"";',
+    ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+`+sniRow+`+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
     ' $("#scanTable").innerHTML=rows||"<tr><td colspan=5>هنوز نتیجه‌ای نیست</td></tr>";',
     '}',
     'document.addEventListener("click",function(ev){',
@@ -4222,6 +4244,8 @@ function panelClientJs() {
     'document.addEventListener("change",function(ev){var cb=ev.target.closest("[data-ip-check]");if(cb){var ip=cb.getAttribute("data-ip-check");var hit=scanResults.filter(function(r){return r.ip===ip})[0];var reachable=!!hit&&(hit.ms!==null||(hit.server&&hit.server.ok));if(cb.checked&&!reachable){cb.checked=false;toast("این آی‌پی زنده نیست — فقط سبزها را تیک بزن");}else{scanResults.forEach(function(r){if(r.ip===ip)r.selected=cb.checked});updateSelCount();}}',
     ' if(ev.target.id==="scanAll"){scanResults.forEach(function(r){r.selected=ev.target.checked&&(r.ms!==null||(r.server&&r.server.ok))});renderScan();updateSelCount();}});',
     '$("#scanClear").addEventListener("click",function(){scanResults=[];renderScan();$("#scanStatus").textContent=I18N[lang].scanReady;$("#scanBar").style.width="0"});',
+    '$("#scanPickBest").addEventListener("click",function(){var alive=scanResults.filter(function(r){return (r.ms!==null)||(r.server&&r.server.ok)});',
+    ' alive.sort(function(a,b){var x=a.ms!==null?a.ms:((a.server&&a.server.ms)||99999),y=b.ms!==null?b.ms:((b.server&&b.server.ms)||99999);return x-y});scanResults.forEach(function(r){r.selected=false});alive.slice(0,8).forEach(function(r){r.selected=true});renderScan();updateSelCount();toast(alive.length?(Math.min(8,alive.length)+" تندترین آی‌پی انتخاب شد"):"آی‌پی زنده‌ای نیست");});',
     '$("#scanStop").addEventListener("click",function(){scanRunning=false;if(scanAbort)scanAbort.abort();$("#scanStatus").textContent="متوقف شد.";$("#scanStart").disabled=false;$("#scanStop").disabled=true;});',
     'function finishScan(){scanRunning=false;$("#scanStart").disabled=false;$("#scanStop").disabled=true;',
     ' scanResults.sort(function(a,b){if(a.ms===null&&b.ms===null)return 0;if(a.ms===null)return 1;if(b.ms===null)return -1;return a.ms-b.ms});renderScan();',
@@ -4277,6 +4301,7 @@ function panelClientJs() {
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
     ' ips.forEach(function(ip){var hit=scanResults.filter(function(r){return r.ip===ip})[0];if(hit&&hit.server&&hit.server.colo&&OPT.locations)OPT.locations[ip.toLowerCase()]=hit.server.colo});',
     ' var cur=parseAddrList($("#cfgAddresses").value);ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");',
+    ' if(ips.filter(function(ip){var h=scanResults.filter(function(r){return r.ip===ip})[0];return !(h&&h.server&&h.server.ok&&h.server.colo)}).length)verifyOnServer(ips);',
     ' applyOptions();showTab("configs");toast(ips.length+" آی‌پی به کانفیگ‌ها اضافه شد — لینک ساب به‌روز است");});',
     '$("#buildFromIps").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را انتخاب کن");return;}',
     ' var lines=[];ips.forEach(function(ip){var loc=locationForAddr(ip);OPT.ports.forEach(function(p){if(OPT.protocols.indexOf("vless")>=0)lines.push(vlessLink(ip,"🐱 Cat · "+loc.country+" · VLESS · "+p+" · "+loc.flag,OPT.sni,p));if(OPT.protocols.indexOf("trojan")>=0)lines.push(trojanLink(ip,"🐱 Cat · "+loc.country+" · Trojan · "+p+" · "+loc.flag,OPT.sni,p));})});',
@@ -5168,13 +5193,25 @@ async function fetchHandler(request, env, ctx) {
     if (!list.length) return jsonResponse({ ok: false, error: 'ips or ranges required' }, 400, CORS);
     const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
     const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
+    const extraSnis = splitCsv(url.searchParams.get('snis')).map((s) => s.trim().toLowerCase())
+      .filter((s) => s && validAddress(s) && !isIpLiteral(s) && s !== String(host).toLowerCase())
+      .slice(0, 3);
     const results = [];
     let cursor = 0;
     const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
       for (;;) {
         const index = cursor++;
         if (index >= list.length) return;
-        results.push(await probeIp(list[index], timeout, host, env));
+        const probe = await probeIp(list[index], timeout, host, env);
+        const enriched = Object.assign({}, probe, { location: locationFromColo(probe.colo) });
+        if (extraSnis.length && probe.ok) {
+          enriched.snisOk = {};
+          for (const altSni of extraSnis) {
+            const alt = await probeIp(list[index], timeout, altSni, env).catch(() => null);
+            enriched.snisOk[altSni] = { ok: !!(alt && alt.ok), ms: alt ? alt.ms : 0 };
+          }
+        }
+        results.push(enriched);
       }
     });
     await Promise.all(workers);

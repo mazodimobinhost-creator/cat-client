@@ -814,5 +814,31 @@ async function subText(url, opts) {
   check('recipient page count/country pickers rebuild live', infoSel.includes('configCount\").addEventListener(\"change\",loadRecipientConfigs)'));
 }
 
+
+// 30. v5.13 — multi-SNI configs, scan location payloads, country chips picker
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const su = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'sni', countries: 'DE' }),
+  }), env)).text()).user;
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { snis: 'a.com,b.com', verified: [{ ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' }], verifiedScanned: true } }),
+  }), env);
+  const all = await (await req('/u/' + su.token + '/all?count=4', { env, raw: true })).json();
+  const links = all.entries.map((e) => e.link);
+  check('multi-SNI: entries rotate through the SNI list', links.some((l) => l.includes('sni=a.com')) && links.some((l) => l.includes('sni=b.com')));
+  const cfgj = JSON.parse(await (await req('/api/config.json', { env })).text());
+  check('configOptions carries the sni list', Array.isArray(cfgj.configOptions.snis) && cfgj.configOptions.snis.includes('a.com') && cfgj.configOptions.snis.includes('b.com'));
+  const scan = await (await req('/api/scan?ips=192.0.2.1&timeout=1000', { env, raw: true })).json();
+  check('scan results carry resolved location (flag/city/country)', scan.ok && 'location' in scan.results[0]);
+  const shell = await (await req('/', { env, raw: true })).text();
+  check('country selection is chip-based (create + edit) — no more typing', shell.includes('uCountryChips') && shell.includes('pickCountries(u.countries') && !shell.includes('var cc=prompt'));
+  check('scanner has extra-SNI testing + best-IP picker + snis passthrough', shell.includes('scanSnis') && shell.includes('scanPickBest') && shell.includes('snisQ'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
