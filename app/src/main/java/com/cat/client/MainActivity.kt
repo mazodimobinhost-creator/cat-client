@@ -294,6 +294,10 @@ class MainActivity : Activity() {
     private var freeConfigsJob: Job? = null
     private var connectionCountryFlag: String = ""
     private var debugFrontingIp: String = ""
+    private var liveGeo: IpGeolocation.Info? = null
+    private var liveGeoAtMs: Long = 0L
+    private var liveGeoJob: Job? = null
+    private var vpnCurrentlyStarted = false
     private var connectionDetails: String = ""
     private var alwaysOnMode: Boolean = false
     private var lockdownMode: Boolean = false
@@ -6968,6 +6972,7 @@ class MainActivity : Activity() {
             // Enable arrow animations when connected
             if (::downloadArrowIcon.isInitialized) downloadArrowIcon.isAnimating = true
             if (::uploadArrowIcon.isInitialized) uploadArrowIcon.isAnimating = true
+            beginLiveGeoCheck()
         } else if (state == VpnState.Stopped || state == VpnState.DailyLimitReached || state is VpnState.Error) {
             activeRuntimeSubscriptionId = ""
             activeConnectionTag = ""
@@ -6983,6 +6988,8 @@ class MainActivity : Activity() {
             resetTransferSpeeds()
             // Disable arrow animations when disconnected
             if (::downloadArrowIcon.isInitialized) downloadArrowIcon.isAnimating = false
+            liveGeo = null
+            liveGeoAtMs = 0L
             if (::uploadArrowIcon.isInitialized) uploadArrowIcon.isAnimating = false
         }
         renderAlwaysOnStatus()
@@ -9877,6 +9884,33 @@ class MainActivity : Activity() {
         alwaysOnStatusText.setTextColor(if (alwaysOnMode) TEAL else TEXT_SECONDARY)
     }
 
+    /**
+     * Resolve the REAL exit location through the live tunnel (Cloudflare trace
+     * first: it reports the actual edge colo + exit IP) and feed the world map.
+     * Re-checked at most every 45 seconds while connected.
+     */
+    private fun beginLiveGeoCheck(force: Boolean = false) {
+        if (liveGeoJob?.isActive == true) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && liveGeo != null && now - liveGeoAtMs < 45_000L) return
+        liveGeoJob = activityScope.launch {
+            val info = runCatching { IpGeolocation.locate() }.getOrNull()
+            liveGeoAtMs = SystemClock.elapsedRealtime()
+            if (info == null) return@launch
+            liveGeo = info
+            val label = buildString {
+                append(info.countryName)
+                info.colo?.let { colo -> append(" · ").append(colo) }
+            }
+            connectionGlobe.setDestination(info.flag, label, info.ip)
+            if (::connectionCountryText.isInitialized && liveGeo != null && currentVpnStateIsStarted()) {
+                connectionCountryText.text = getString(R.string.route_location, info.flag, info.countryName)
+            }
+        }
+    }
+
+    private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
+
     private fun pendingGlobeCountry(): ConnectionCountry? {
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val explicitProfile = connectionSelectionPreferenceStore.readSelectedProfile(
@@ -9907,7 +9941,10 @@ class MainActivity : Activity() {
         statusText.text = getString(presentation.titleRes)
         statusText.setTextColor(TEXT_SECONDARY)
         timerText.setTextColor(if (state == VpnState.Started) TEXT_PRIMARY else TEXT_SECONDARY)
+        val live = liveGeo?.takeIf { state == VpnState.Started }
         connectionCountryText.text = when {
+            state == VpnState.Started && live != null ->
+                getString(R.string.route_location, live.flag, live.countryName)
             state == VpnState.Started && connectionCountryFlag.isNotBlank() -> {
                 val country = ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
                     ?: getString(R.string.route_edge_fallback)
@@ -9922,11 +9959,31 @@ class MainActivity : Activity() {
         }
         connectionCountryText.setTextColor(if (state == VpnState.Started) accent else TEXT_SECONDARY)
         val pendingCountry = pendingGlobeCountry()
+        val liveLabel = live?.let { info ->
+            buildString {
+                append(info.countryName)
+                info.colo?.let { colo -> append(" · ").append(colo) }
+            }
+        }
         connectionGlobe.setDestination(
-            if (state == VpnState.Started) connectionCountryFlag else pendingCountry?.flag ?: "🌐",
-            if (state == VpnState.Started) connectionCountryText.text.toString() else pendingCountry?.label.orEmpty(),
-            if (state == VpnState.Started) debugFrontingIp else "",
+            when {
+                state == VpnState.Started && live != null -> live.flag
+                state == VpnState.Started -> connectionCountryFlag
+                else -> pendingCountry?.flag ?: "🌐"
+            },
+            when {
+                state == VpnState.Started && liveLabel != null -> liveLabel
+                state == VpnState.Started -> connectionCountryText.text.toString()
+                else -> pendingCountry?.label.orEmpty()
+            },
+            when {
+                state == VpnState.Started && live != null -> live.ip
+                state == VpnState.Started -> debugFrontingIp
+                else -> ""
+            },
         )
+        vpnCurrentlyStarted = state == VpnState.Started
+        if (vpnCurrentlyStarted) beginLiveGeoCheck()
         publicServerNotice.visibility = if (
             state == VpnState.Started &&
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID

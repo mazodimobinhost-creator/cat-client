@@ -741,5 +741,49 @@ async function subText(url, opts) {
   check('?p= still works for password-only panels', (await qpNoUser.text()).includes('id="brandName"'));
 }
 
+
+// 28. v5.12 — selected IPs REALLY enter the sub (union), multi-country saved set, health-check pruning
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const created = await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'multi', countries: 'DE,FR' }),
+  }), env);
+  const u = JSON.parse(await created.text()).user;
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: {
+      addresses: ['104.16.9.9'],
+      countryCodes: 'DE,FR',
+      verified: [
+        { ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' },
+        { ip: '104.16.1.2', colo: 'CDG', countryCode: 'FR', countryName: 'France' },
+      ],
+      verifiedScanned: true,
+      locations: { '104.16.9.9': 'FRA' },
+    } }),
+  }), env);
+  const { body } = await subText('/u/' + u.token, { env, raw: true });
+  check('selected IP + scan pool both in the sub (union, not replacement)', body.includes('@104.16.9.9:') && body.includes('@104.16.1.1:') && body.includes('@104.16.1.2:'), body.slice(0, 160));
+  const cfgj = JSON.parse(await (await req('/api/config.json', { env })).text());
+  const { body: masterBody } = await subText('/sub/' + cfgj.uuid, { env, raw: true });
+  check('bare master sub carries the saved selection + pool too', masterBody.includes('@104.16.9.9:') && masterBody.includes('@104.16.1.2:'), masterBody.slice(0, 160));
+  const origFetch = globalThis.fetch;
+  let probeCalls = 0;
+  globalThis.fetch = async () => {
+    probeCalls += 1;
+    if (probeCalls === 1) return new Response('colo=FRA\nip=9.9.9.9\n', { status: 200, headers: { server: 'cloudflare' } });
+    return new Response('nope', { status: 503 });
+  };
+  const hc = JSON.parse(await (await req('/api/health-check', { env, method: 'POST', raw: true })).text());
+  check('health-check pings each IP and reports colo/country', hc.ok && hc.results.find((r) => r.ip === '104.16.9.9').colo === 'FRA' && hc.results.find((r) => r.ip === '104.16.9.9').countryName === 'Germany');
+  check('dead IPs are pruned (alive=1, both verified entries reported dead)', hc.alive === 1 && hc.dead.includes('104.16.1.1') && hc.dead.includes('104.16.1.2'));
+  const s2 = await T.readSettings(env);
+  check('pruning persists to KV (addresses + verified)', s2.configs.addresses.join() === '104.16.9.9' && s2.configs.verified.length === 0);
+  globalThis.fetch = origFetch;
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

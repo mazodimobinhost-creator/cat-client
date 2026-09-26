@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.11.0';
+const CAT_PANEL_VERSION = '5.12.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -2347,6 +2347,20 @@ async function ensureVerifiedPool(env, host) {
   }
 }
 
+function unionAddresses() {
+  const out = [];
+  const seen = new Set();
+  for (const list of arguments) {
+    for (const item of list || []) {
+      const key = String(item).toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}
+
 function configOptions(url, host, env, settings, allowedCountries) {
   const cfg = (settings && settings.configs) || {};
   const q = url && url.searchParams ? url.searchParams : new URLSearchParams();
@@ -2355,9 +2369,18 @@ function configOptions(url, host, env, settings, allowedCountries) {
   const fromEnv = splitCsv(env.CF_IPS);
   const verifiedEntries = normalizedVerifiedEntries(settings);
   const ownerGate = Array.isArray(allowedCountries) ? allowedCountries : null;
-  let requestedCountryCodes = splitCsv(q.get('countries') || q.get('country') || cfg.country || env.COUNTRY)
+  const savedCountryCodes = Array.isArray(cfg.countryCodes)
+    ? cfg.countryCodes
+    : splitCsv(typeof cfg.countryCodes === 'string' ? cfg.countryCodes : '');
+  const queryCountries = splitCsv(q.get('countries') || q.get('country'));
+  let requestedCountryCodes = (queryCountries.length
+    ? queryCountries
+    : savedCountryCodes.length
+      ? savedCountryCodes.concat(splitCsv(cfg.country))
+      : splitCsv(cfg.country).concat(splitCsv(env.COUNTRY)))
     .map((value) => String(value).trim().toUpperCase())
     .filter(Boolean);
+  requestedCountryCodes = Array.from(new Set(requestedCountryCodes));
   let addresses = fromQuery.length ? fromQuery : fromSettings.length ? fromSettings : fromEnv.length ? fromEnv : DEFAULT_CLEAN_ADDRESSES;
   const locations = parseLocationMap(q.get('locs') || cfg.locations || {});
 
@@ -2367,27 +2390,65 @@ function configOptions(url, host, env, settings, allowedCountries) {
   const verifiedScanComplete = cfg.verifiedScanned === true;
   const strictVerified = q.get('verified') === '1';
   const useVerified = (verifiedScanComplete || strictVerified) && q.get('verified') !== '0' && !fromQuery.length;
+  const explicitManual = fromQuery.length ? fromQuery : fromSettings;
   if (useVerified) {
     const selected = requestedCountryCodes.length
       ? verifiedEntries.filter((entry) => requestedCountryCodes.includes(entry.countryCode))
       : verifiedEntries;
-    addresses = selected.map((entry) => entry.ip);
+    // UNION, never replacement: hand-picked/selected addresses always survive
+    // a scan; verified scan results are ADDED on top. Strict ?verified=1
+    // (recipient page) stays scan-only.
+    addresses = strictVerified
+      ? selected.map((entry) => entry.ip)
+      : unionAddresses(explicitManual, selected.map((entry) => entry.ip));
     selected.forEach((entry) => {
       if (entry.colo) locations[entry.ip.toLowerCase()] = entry.colo;
-    });
-  } else if (requestedCountryCodes.length && Object.keys(locations).length) {
-    addresses = addresses.filter((address) => {
-      const raw = String(locations[String(address).toLowerCase()] || '').toUpperCase();
-      const foundLoc = locationFromCodeOrColo(raw);
-      const code = String((foundLoc && foundLoc.iso) || raw).toUpperCase();
-      return !isIpLiteral(address) || requestedCountryCodes.includes(code);
     });
   } else if (verifiedEntries.length) {
     verifiedEntries.forEach((entry) => {
       if (entry.colo) locations[entry.ip.toLowerCase()] = entry.colo;
     });
   }
+  if (requestedCountryCodes.length && Object.keys(locations).length) {
+    addresses = addresses.filter((address) => {
+      const raw = String(locations[String(address).toLowerCase()] || '').toUpperCase();
+      const foundLoc = locationFromCodeOrColo(raw);
+      const code = String((foundLoc && foundLoc.iso) || raw).toUpperCase();
+      if (!isIpLiteral(address)) return true;
+      // Hand-picked addresses the owner deliberately chose stay even before
+      // their country is known; only scanned pool entries are country-filtered.
+      if (!raw) return explicitManual.includes(address);
+      return requestedCountryCodes.includes(code);
+    });
+  }
+  // Multi-location subs: rotate countries so consecutive configs alternate
+  // (DE, FR, NL, DE, FR, NL…) instead of coming out as country blocks.
+  if (requestedCountryCodes.length > 1 && Object.keys(locations).length) {
+    const groups = new Map();
+    addresses.forEach((address) => {
+      const raw = String(locations[String(address).toLowerCase()] || '').toUpperCase();
+      const found = locationFromCodeOrColo(raw);
+      const code = String((found && found.iso) || raw || '??').toUpperCase();
+      if (!groups.has(code)) groups.set(code, []);
+      groups.get(code).push(address);
+    });
+    const rotated = [];
+    let added = true;
+    while (added) {
+      added = false;
+      groups.forEach((group) => {
+        if (group.length) {
+          rotated.push(group.shift());
+          added = true;
+        }
+      });
+    }
+    if (rotated.length && rotated.length >= addresses.length) addresses = rotated;
+  }
   addresses = addresses.filter(validAddress).slice(0, MAX_SUB_ADDRESSES);
+  // Safety net: if every address was pruned (e.g. health-check removed all),
+  // fall back to the built-in clean set so the sub never goes silently empty.
+  if (!addresses.length && !ownerGate) addresses = DEFAULT_CLEAN_ADDRESSES.slice(0, 12);
 
   const portSource = splitCsv(q.get('ports') || q.get('port'));
   const envPorts = splitCsv(env.PORTS || env.PORT);
@@ -3095,11 +3156,11 @@ function css() {
   return [
     '*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}',
     ':root{',
-    '--bg:#06030c;--bg-soft:#0b0517;--surface:rgba(255,255,255,.045);--surface-2:rgba(255,255,255,.08);',
-    '--line:rgba(168,85,247,.24);--line-soft:rgba(255,255,255,.08);',
-    '--text:#f4f4f5;--muted:#a1a1aa;--dim:#71717a;',
-    '--accent:#a855f7;--accent-2:#7c3aed;--accent-3:#d946ef;--on-accent:#fff;',
-    '--glow-a:rgba(168,85,247,.22);--glow-b:rgba(217,70,239,.16);',
+    '--bg:#0e0a1a;--bg-soft:#171130;--surface:rgba(255,255,255,.08);--surface-2:rgba(255,255,255,.14);',
+    '--line:rgba(202,152,255,.38);--line-soft:rgba(255,255,255,.13);',
+    '--text:#fbfaff;--muted:#c9c3dd;--dim:#a09ab8;',
+    '--accent:#b06cff;--accent-2:#8b5cf6;--accent-3:#e879f9;--on-accent:#fff;',
+    '--glow-a:rgba(168,85,247,.34);--glow-b:rgba(217,70,239,.26);',
     '--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--radius:18px;',
     '}',
     /* theme picker: violet (default), oled, orchid, mono, light */
@@ -3132,7 +3193,9 @@ function css() {
     '.swatches i{width:12px;height:12px;border-radius:50%;display:block;border:1px solid rgba(255,255,255,.25)}',
     'body{font-family:"Vazirmatn",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);',
     'min-height:100vh;line-height:1.7;padding-bottom:96px;',
-    'background-image:radial-gradient(900px 500px at 12% -8%,var(--glow-a),transparent 60%),radial-gradient(700px 420px at 96% 4%,var(--glow-b),transparent 62%)}',
+    'background-image:radial-gradient(900px 500px at 12% -8%,var(--glow-a),transparent 60%),radial-gradient(700px 420px at 96% 4%,var(--glow-b),transparent 62%),url("' + catWatermarkUri() + '");',
+    'background-position:12% -8%,96% 4%,right -70px bottom -60px;',
+    'background-size:auto,auto,min(46vw,440px);background-repeat:no-repeat}',
     'body[data-lang="en"]{direction:ltr}',
     'body[data-lang="fa"]{direction:rtl}',
     '.wrap{width:100%;max-width:1000px;margin:0 auto;padding:16px}',
@@ -3252,6 +3315,14 @@ function css() {
     '.login-card{width:100%;max-width:410px;padding:28px 24px;text-align:center}',
     '.login-logo{width:64px;height:64px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;border-radius:20px;',
     'background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 16px 44px var(--glow-a)}',
+    '/* v5.12 brighter, harmonious surfaces */',
+    '.card{background:linear-gradient(168deg,rgba(255,255,255,.085),rgba(255,255,255,.035));border:1px solid var(--line-soft);',
+    'box-shadow:0 16px 44px rgba(0,0,0,.30);backdrop-filter:blur(12px)}',
+    '.card h2{letter-spacing:.2px}',
+    '.field input,.field select,.field textarea{background:rgba(255,255,255,.07)}',
+    '.config-item{background:var(--surface-2)}',
+    'html[data-theme="oled"] .card{background:linear-gradient(168deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}',
+    'html[data-theme="light"] .card{background:#ffffff;box-shadow:0 12px 34px rgba(76,29,149,.09)}',
     '.card{border-radius:20px}',
     '.card h2{font-size:15.5px;font-weight:800;gap:9px}',
     '.btn{font-weight:700}',
@@ -3344,6 +3415,15 @@ function appButtonsHtml(subUrl, title) {
     .filter((a) => a.id !== 'catclient')
     .map((a) => '<a class="app" data-app="' + a.id + '" href="' + esc(a.href) + '"><b>' + esc(a.label) + '</b><span>افزودن خودکار</span></a>')
     .join('');
+}
+
+/** White Cat watermark (data-uri SVG) used as the panel background art. */
+function catWatermarkUri() {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">' +
+    '<path d="M11 20 8.5 6.5c-.2-1 1-1.7 1.8-1.1L20 12.6c2.6-.7 5.4-.7 8 0l9.7-7.2c.8-.6 2 .1 1.8 1.1L37 20c1.9 2.6 3 5.8 3 9.2C40 38.7 32.8 45 24 45S8 38.7 8 29.2c0-3.4 1.1-6.6 3-9.2Z" fill="#ffffff"/>' +
+    '<ellipse cx="17.5" cy="28" rx="3.1" ry="3.6" fill="#0e0a1a"/><ellipse cx="30.5" cy="28" rx="3.1" ry="3.6" fill="#0e0a1a"/>' +
+    '<path d="M24 34.5c-1.6 0-2.6 1.3-2.2 2.6.4 1.4 1.4 2.4 2.2 2.4s1.8-1 2.2-2.4c.4-1.3-.6-2.6-2.2-2.6Z" fill="#0e0a1a"/></svg>';
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
 function loginHtml(title, error, userRequired) {
@@ -3663,6 +3743,11 @@ function scannerTabHtml(state) {
     '<p class="muted">هر کشور یک بخش جدا با پرچم و رنج خودش است؛ برچسب کانفیگ‌ها هم از همین دسته‌بندی می‌آید. داده از «اسکن از ورکر» یا شناسایی خودکار می‌آید.</p>' +
     ((state && state.countryPools && state.countryPools.length) ? state.countryPools.map((p) => '<div class="config-group"><h3>' + esc(p.flag + ' ' + p.name) + (p.code ? ' <span class="pill">' + esc(p.code) + '</span>' : '') + '<span class="cnt">' + p.count + ' IP</span></h3><div class="tags">' + p.ips.map((ip) => '<span class="pill" dir="ltr">' + esc(ip) + '</span>').join('') + (p.count > p.ips.length ? '<span class="pill">…</span>' : '') + '</div></div>').join('') : '<p class="muted">هنوز دسته‌بندی‌ای ساخته نشده — یک بار «اسکن از ورکر» را بزن یا چند لحظه صبر کن تا شناسایی خودکار تمام شود؛ بعد هلند 🇳🇱، آلمان 🇩🇪، فرانسه 🇫🇷 و… هرکدام جدا می‌آیند.</p>') +
     '</div>' +
+    '<div class="card"><h2><span class="dot"></span><span>چک سلامت آی‌پی‌ها — پینگ واقعی از ورکر</span></h2>' +
+    '<p class="muted">همهٔ آی‌پی‌های انتخابی و استخر کشورها یک‌جا پینگ می‌شوند؛ کشور، کلو و پرچم هر کدام شناسایی می‌شود و آی‌پی‌های مرده خودکار از کانفیگ‌ها و لینک ساب حذف می‌شوند.</p>' +
+    '<div class="row"><button class="btn" id="healthBtn">🩺 چک سلامت و حذف مرده‌ها</button><span class="muted" id="healthState"></span></div>' +
+    '<div id="healthResults" style="margin-top:10px"></div>' +
+    '</div>' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerHowto">راهنمای نتیجه</span></h2>' +
     '<p>• مرورگر زیر ۳۰۰ms = عالی · ۳۰۰–۷۰۰ = قابل قبول · ✗ = از شبکهٔ تو بسته است.<br>• ستون «ورکر» ✓ یعنی آن آی‌پی برای دامنهٔ پنل تو جواب می‌دهد.<br>• قبل از اسکن، VPN را خاموش کن تا نتیجه مال اپراتور خودت باشد.</p>' +
     '</div></section>';
@@ -3957,6 +4042,14 @@ function panelClientJs() {
     ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8}})})',
     ' .then(function(r){return r.json()}).then(function(j){if(j.ok&&j.persisted){cfgSavedInKv=true;refreshSubUrl();$("#cfgSaveState").textContent="ذخیره شد — لینک کوتاه فعال است ✅";toast("در KV ذخیره شد");}',
     '  else{$("#cfgSaveState").textContent=j.ok?"KV وصل نیست — لینک با تنظیمات داخلش استفاده می‌شود":"خطا: "+j.error;}}).catch(function(){$("#cfgSaveState").textContent="خطا در ذخیره";});});',
+    'function ccFlag(cc){if(!cc||cc.length!==2)return"";return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1));}',
+    '$("#healthBtn").addEventListener("click",async function(){var b=this;b.disabled=true;$("#healthState").textContent="در حال پینگ آی‌پی‌ها…";',
+    ' try{var j=await(await fetch("/api/health-check",{method:"POST"})).json();if(!j.ok)throw new Error(j.error||"failed");',
+    ' var html=j.results.map(function(x){var cc=(x.countryCode||"").toUpperCase();var nm=x.countryName||cc||"—";',
+    '  return "<div class=\"config-item\"><b>"+(x.ok?"✅":"❌")+" "+ccFlag(cc)+" "+nm+(x.colo?" · "+x.colo:"")+"</b><small dir=\"ltr\">"+x.ip+" · "+(x.ok?(x.ms+"ms"):"مرده — حذف شد")+"</small></div>";}).join("");',
+    ' $("#healthResults").innerHTML=html||"<p class=\"muted\">آی‌پی‌ای برای تست نیست — اول اسکن کن.</p>";',
+    ' $("#healthState").textContent="زنده: "+j.alive+" از "+j.checked+(j.dead.length?" — مرده‌ها از کانفیگ‌ها حذف شدند ✅":"");',
+    ' toast("سلامت آی‌پی‌ها چک شد");applyOptions();}catch(e){$("#healthState").textContent="خطا: "+e.message;}b.disabled=false;});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
     'function pingAddr(addr,port,timeout){return new Promise(function(resolve){',
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;var started=performance.now();var done=false;',
@@ -4334,6 +4427,45 @@ async function requirePanelAuth(request, env) {
     open: false,
     response: jsonResponse({ ok: false, error: 'unauthorized', login: '/login' }, 401, CORS),
   };
+}
+
+/** Probe every configured address from the panel edge; prune the dead ones. */
+async function healthCheck(env, host) {
+  const settings = await readSettings(env);
+  const cfg = settings.configs || {};
+  const manual = Array.isArray(cfg.addresses) ? cfg.addresses : [];
+  const verified = normalizedVerifiedEntries(settings);
+  const targets = unionAddresses(manual, verified.map((entry) => entry.ip)).slice(0, 64);
+  const results = [];
+  const batch = 12;
+  for (let i = 0; i < targets.length; i += batch) {
+    const group = targets.slice(i, i + batch);
+    const probed = await Promise.all(group.map((ip) => probeIp(ip, 4200, host, env).catch(() => null)));
+    probed.forEach((probe, idx) => {
+      results.push({
+        ip: group[idx],
+        ok: !!(probe && probe.ok),
+        ms: probe ? probe.ms : 0,
+        colo: probe ? probe.colo : '',
+        countryCode: probe ? probe.countryCode : '',
+        countryName: probe ? probe.countryName : '',
+      });
+    });
+  }
+  const aliveSet = new Set(results.filter((r) => r.ok).map((r) => r.ip.toLowerCase()));
+  const dead = results.filter((r) => !r.ok).map((r) => r.ip);
+  await writeSettings(env, { configs: {
+    addresses: manual.filter((ip) => aliveSet.has(String(ip).toLowerCase())),
+    verified: verified.filter((entry) => aliveSet.has(String(entry.ip).toLowerCase())),
+    lastHealth: { at: Date.now(), results: results },
+  } });
+  return jsonResponse({
+    ok: true,
+    checked: results.length,
+    alive: results.length - dead.length,
+    dead: dead,
+    results: results,
+  }, 200, CORS);
 }
 
 async function handleLogin(request, env) {
@@ -5108,6 +5240,12 @@ async function fetchHandler(request, env, ctx) {
     if (!source) return jsonResponse({ ok: false, error: 'source-required (set PROXY_IP_SOURCE or pass {source})' }, 400, CORS);
     const result = await refreshProxyIps(env, source);
     return jsonResponse(result, 200, CORS);
+  }
+
+  if (path === '/api/health-check' && request.method === 'POST') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    return healthCheck(env, host);
   }
 
   if (path === '/api/login' && request.method === 'POST') {
