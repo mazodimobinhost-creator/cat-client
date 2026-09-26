@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.13.0';
+const CAT_PANEL_VERSION = '5.14.0';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -3163,11 +3163,11 @@ function css() {
   return [
     '*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}',
     ':root{',
-    '--bg:#0e0a1a;--bg-soft:#171130;--surface:rgba(255,255,255,.08);--surface-2:rgba(255,255,255,.14);',
-    '--line:rgba(202,152,255,.38);--line-soft:rgba(255,255,255,.13);',
-    '--text:#fbfaff;--muted:#c9c3dd;--dim:#a09ab8;',
-    '--accent:#b06cff;--accent-2:#8b5cf6;--accent-3:#e879f9;--on-accent:#fff;',
-    '--glow-a:rgba(168,85,247,.34);--glow-b:rgba(217,70,239,.26);',
+    '--bg:#191330;--bg-soft:#221a44;--surface:rgba(255,255,255,.11);--surface-2:rgba(255,255,255,.17);',
+    '--line:rgba(216,178,255,.5);--line-soft:rgba(255,255,255,.18);',
+    '--text:#ffffff;--muted:#ddd6f3;--dim:#beb5d9;',
+    '--accent:#c084fc;--accent-2:#a78bfa;--accent-3:#f472d0;--on-accent:#1b1030;',
+    '--glow-a:rgba(192,132,252,.42);--glow-b:rgba(244,114,208,.32);',
     '--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--radius:18px;',
     '}',
     /* theme picker: violet (default), oled, orchid, mono, light */
@@ -3199,7 +3199,7 @@ function css() {
     '.swatches{display:flex;gap:3px}',
     '.swatches i{width:12px;height:12px;border-radius:50%;display:block;border:1px solid rgba(255,255,255,.25)}',
     'body{font-family:"Vazirmatn",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);',
-    'min-height:100vh;line-height:1.7;padding-bottom:96px;',
+    'min-height:100vh;line-height:1.7;padding-bottom:44px;',
     'background-image:radial-gradient(900px 500px at 12% -8%,var(--glow-a),transparent 60%),radial-gradient(700px 420px at 96% 4%,var(--glow-b),transparent 62%),url("' + catWatermarkUri() + '");',
     'background-position:12% -8%,96% 4%,right -70px bottom -60px;',
     'background-size:auto,auto,min(46vw,440px);background-repeat:no-repeat}',
@@ -3245,7 +3245,17 @@ function css() {
     'input:focus,select:focus,textarea:focus{outline:none;border-color:var(--line)}',
     'label.field{display:block;margin-bottom:10px}',
     'label.field span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}',
-    'nav.tabs{position:fixed;inset-inline:0;bottom:0;z-index:40;backdrop-filter:blur(20px);background:color-mix(in srgb,var(--bg) 88%,transparent);border-top:1px solid var(--line-soft);padding:8px 10px calc(8px + env(safe-area-inset-bottom))}',
+    '/* v5.14 hamburger menu (replaces the bottom tab bar) */',
+    '.burger{display:inline-flex;align-items:center;justify-content:center}',
+    '.burger svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}',
+    '.hmenu{position:absolute;top:54px;inset-inline-start:12px;z-index:70;display:none;flex-direction:column;gap:4px;min-width:250px;padding:8px;',
+    'background:var(--bg-soft);border:1px solid var(--line);border-radius:18px;box-shadow:0 26px 70px rgba(0,0,0,.55)}',
+    '.hmenu.show{display:flex}',
+    '.hmenu button{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;border:1px solid transparent;',
+    'background:none;color:var(--muted);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;text-align:start}',
+    '.hmenu button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}',
+    '.hmenu button:hover{background:var(--surface-2);color:var(--text)}',
+    '.hmenu button.active{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 10px 26px var(--glow-a)}',
     'nav.tabs .inner{max-width:1000px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}',
     'nav.tabs button{background:none;border:0;color:var(--dim);font:inherit;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px 2px;border-radius:12px;cursor:pointer}',
     'nav.tabs button.active{color:var(--text);background:linear-gradient(180deg,rgba(168,85,247,.22),transparent)}',
@@ -3296,6 +3306,8 @@ function css() {
     '.main{flex:1;min-width:0;display:flex;flex-direction:column}',
     '.side{display:none}',
     '@media(min-width:1024px){',
+    '.burger{display:none}',
+    '.hmenu{display:none!important}',
     '.side{display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;width:272px;flex-shrink:0;padding:20px 14px;',
     'border-inline-end:1px solid var(--line-soft);background:linear-gradient(180deg,color-mix(in srgb,var(--bg-soft) 88%,transparent),var(--bg));backdrop-filter:blur(16px)}',
     'nav.tabs{display:none!important}',
@@ -3323,10 +3335,10 @@ function css() {
     '.login-logo{width:64px;height:64px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;border-radius:20px;',
     'background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 16px 44px var(--glow-a)}',
     '/* v5.12 brighter, harmonious surfaces */',
-    '.card{background:linear-gradient(168deg,rgba(255,255,255,.085),rgba(255,255,255,.035));border:1px solid var(--line-soft);',
+    '.card{background:linear-gradient(168deg,rgba(255,255,255,.12),rgba(255,255,255,.055));border:1px solid var(--line-soft);',
     'box-shadow:0 16px 44px rgba(0,0,0,.30);backdrop-filter:blur(12px)}',
     '.card h2{letter-spacing:.2px}',
-    '.field input,.field select,.field textarea{background:rgba(255,255,255,.07)}',
+    '.field input,.field select,.field textarea{background:rgba(255,255,255,.10)}',
     '.config-item{background:var(--surface-2)}',
     'html[data-theme="oled"] .card{background:linear-gradient(168deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}',
     'html[data-theme="light"] .card{background:#ffffff;box-shadow:0 12px 34px rgba(76,29,149,.09)}',
@@ -3481,6 +3493,16 @@ function panelShell(state) {
     '</aside>' +
     '<div class="main">' +
     '<header class="top"><div class="top-inner">' +
+    '<button class="icon-btn burger" id="burgerBtn" title="منو"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>' +
+    '<div class="hmenu" id="hmenu">' +
+    sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
+    sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
+    sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
+    sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
+    sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
+    sideButton('tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
+    sideButton('help', 'راهنما', 'نصب و رفع اشکال', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
+    '</div>' +
     '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span><b id="brandName">' + esc(state.title) + '</b>' +
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
     '<span class="spacer"></span>' +
@@ -3493,15 +3515,7 @@ function panelShell(state) {
     '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml(state) +
       dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
-    '<nav class="tabs"><div class="inner">' +
-    navButton('home', 'خانه', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
-    navButton('configs', 'کانفیگ‌ها', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
-    navButton('scanner', 'اسکنر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
-    navButton('users', 'کاربران', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
-    navButton('dns', 'DNS', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
-    navButton('tools', 'ابزارها', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
-    navButton('help', 'راهنما', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
-    '</div></nav></div></div>' +
+    '</div></div>' +
 
     '<div class="toast" id="toast"><span id="toastText"></span></div>' +
     '<div class="modal" id="qrModal"><div class="box">' +
@@ -3962,7 +3976,9 @@ function panelClientJs() {
     ' if(name==="scanner"){}',
     ' try{window.scrollTo({top:0,behavior:"smooth"})}catch(e){try{window.scrollTo(0,0)}catch(e2){}}',
     '}',
-    '$$("[data-tab]").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"))})});',
+    '$$("[data-tab]").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"));var hm=$("#hmenu");if(hm)hm.classList.remove("show")});});',
+    ' $("#burgerBtn").addEventListener("click",function(ev){ev.stopPropagation();$("#hmenu").classList.toggle("show")});',
+    ' document.addEventListener("click",function(ev){var hm=$("#hmenu");if(hm&&hm.classList.contains("show")&&!ev.target.closest("#hmenu")&&ev.target.id!=="burgerBtn")hm.classList.remove("show")});',
     '$("#langBtn").addEventListener("click",function(){lang=lang==="fa"?"en":"fa";try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();});',
 
     'document.addEventListener("click",function(ev){',

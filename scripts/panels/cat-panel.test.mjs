@@ -385,7 +385,7 @@ async function subText(url, opts) {
   const lockedPage = await (await req('/', { raw: true })).text();
   check('panel locked by default shows login', lockedPage.includes('id="loginForm"') && !lockedPage.includes('nav class="tabs"'));
   const openPage = await (await req('/', { raw: true, env: { OPEN_PANEL: 'true' } })).text();
-  check('OPEN_PANEL=true opens the panel', openPage.includes('nav class="tabs"') || openPage.includes('class="tabs"'));
+  check('OPEN_PANEL=true opens the panel', openPage.includes('id="brandName"') && openPage.includes('id="hmenu"'));
   const uuidHere = (await (await req('/api/config.json')).json()).uuid;
   const viaUuid = await req('/?p=' + uuidHere, { raw: true });
   check('uuid unlocks the panel and sets the cookie', viaUuid.status === 200 && (viaUuid.headers.get('set-cookie') || '').includes('catpanel_auth='));
@@ -811,6 +811,8 @@ async function subText(url, opts) {
     body: JSON.stringify({ configs: { verified: [{ ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' }], verifiedScanned: true } }),
   }), gatedEnv);
   const infoSel = await (await req('/info/' + gu.token, { env: gatedEnv, raw: true })).text();
+  check('sections moved to a top hamburger menu (bottom bar removed)', shell.includes('burgerBtn') && shell.includes('id="hmenu"') && !shell.includes('<nav class="tabs"') && (shell.match(/data-tab="scanner"/g) || []).length >= 2);
+  check('palette lightened (v5.14 twilight)', shell.includes('--bg:#191330') && shell.includes('--on-accent:#1b1030'));
   check('recipient page count/country pickers rebuild live', infoSel.includes('configCount\").addEventListener(\"change\",loadRecipientConfigs)'));
 }
 

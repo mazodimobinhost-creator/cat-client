@@ -71,7 +71,7 @@ const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: tr
 const realErrors = errors.filter((e) => !e.includes('scrollTo'));
 check('no script errors', realErrors.length === 0, realErrors.join(' | '));
 check('state injected', win.CAT_STATE?.host === HOST);
-check('seven tabs render', document.querySelectorAll('nav.tabs button').length === 7, String(document.querySelectorAll('nav.tabs button').length));
+check('seven tabs render', document.querySelectorAll('.side-nav button').length === 7, String(document.querySelectorAll('nav.tabs button').length));
 check('users tab exists', !!document.querySelector('[data-tab-panel="users"]'));
 check('tools tab exists', !!document.querySelector('[data-tab-panel="tools"]'));
 check('home tab active by default', document.querySelector('[data-tab-panel="home"]').classList.contains('active'));
@@ -138,7 +138,7 @@ check('nav labels translated', document.querySelector('[data-nav-label="home"]')
 click(document.querySelector('#langBtn'));
 check('language toggles back to FA', document.body.getAttribute('data-lang') === 'fa');
 
-click(document.querySelector('nav.tabs button[data-tab="scanner"]'));
+click(document.querySelector('.side-nav button[data-tab="scanner"]'));
 check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));
 
 click(document.querySelector('[data-qr-target="subUrlText"]'));
