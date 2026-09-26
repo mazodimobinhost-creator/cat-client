@@ -51,7 +51,10 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.14.2';
+const CAT_PANEL_VERSION = '5.14.3';
+/* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
+ * refresh never trips the free-tier rate limit. */
+const GEO_CACHE = new Map();
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -5225,6 +5228,44 @@ async function fetchHandler(request, env, ctx) {
       return jsonResponse({ ok: true, restored: restored, hasKv: hasKv(env) }, 200, CORS);
     }
     return jsonResponse({ ok: false, error: 'method-not-allowed' }, 405, CORS);
+  }
+
+  if (path === '/api/geo') {
+    const realIp = (request.headers.get('cf-connecting-ip') || '').trim();
+    const entryColo = (request.cf && request.cf.colo) || '';
+    let exitIp = '';
+    let exitLoc = '';
+    try {
+      const traceRes = await fetch('https://www.cloudflare.com/cdn-cgi/trace', { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
+      if (traceRes.ok) {
+        const fields = {};
+        (await traceRes.text()).trim().split('\n').forEach((line) => { const eq = line.indexOf('='); if (eq > 0) fields[line.slice(0, eq)] = line.slice(eq + 1); });
+        exitIp = (fields.ip || '').trim();
+        exitLoc = (fields.loc || '').trim();
+      }
+    } catch (_) {}
+    const geoIp = async (ip) => {
+      if (!ip) return null;
+      const key = 'geo:' + ip;
+      const hit = GEO_CACHE.get(key);
+      if (hit && Date.now() - hit.at < 600000) return hit.value;
+      let value = null;
+      try {
+        const res = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
+        const j = await res.json();
+        if (j && j.success !== false && j.ip) {
+          value = { ip: String(j.ip), cc: String(j.country_code || '').toUpperCase(), country: String(j.country || ''), city: j.city ? String(j.city) : null, isp: (j.connection && j.connection.isp) || j.isp || null };
+        }
+      } catch (_) {}
+      if (GEO_CACHE.size > 256) GEO_CACHE.clear();
+      GEO_CACHE.set(key, { at: Date.now(), value: value });
+      return value;
+    };
+    const [realGeo, exitGeo] = await Promise.all([geoIp(realIp), geoIp(exitIp)]);
+    const exit = exitGeo || (exitIp ? { ip: exitIp, cc: String(exitLoc).toUpperCase(), country: '', city: null, isp: null } : null);
+    // Even when the geo DB is unreachable, the raw IPs are still gold for the app.
+    const real = realGeo || (realIp ? { ip: realIp, cc: '', country: '', city: null, isp: null } : null);
+    return jsonResponse({ ok: true, entryColo: entryColo, real: real, exit: exit }, 200, CORS);
   }
 
   if (path === '/api/scan') {

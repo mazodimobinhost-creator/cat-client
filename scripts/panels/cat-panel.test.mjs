@@ -842,8 +842,6 @@ async function subText(url, opts) {
   check('scanner has extra-SNI testing + best-IP picker + snis passthrough', shell.includes('scanSnis') && shell.includes('scanPickBest') && shell.includes('snisQ'));
 }
 
-console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
-process.exit(failures === 0 ? 0 : 1);
 
 // 31. v5.14.1 — panel-script id references must all exist in the markup
 // (a single missing id = null.addEventListener at load = the whole client dies)
@@ -879,3 +877,19 @@ process.exit(failures === 0 ? 0 : 1);
   check('scanner: IPv4 always first, IPv6 capped at 12', firstV6 >= 8 && mixed.filter((ip) => ip.includes(':')).length <= 12);
   check('scanner: IPv6 checkbox exists and gates both scan paths', src.includes('id="scanV6"') && src.includes('checked===true'));
 }
+
+// 33. v5.14.3 — /api/geo: one open call returning the tunnel entry (real ISP
+// IP via CF-Connecting-IP) and the exit IP (what websites see), with geo.
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const geo = await (await req('/api/geo', { env, headers: { 'cf-connecting-ip': '198.51.100.7' }, raw: true })).json();
+  check('/api/geo is open and reports the connecting (real) IP', geo.ok === true && geo.real && geo.real.ip === '198.51.100.7');
+  check('/api/geo tolerates no-egress sandboxes (exit null or an object with ip)', geo.exit === null || (typeof geo.exit === 'object' && typeof geo.exit.ip === 'string'));
+  check('/api/geo carries the entry colo field', 'entryColo' in geo);
+}
+
+
+console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
+process.exit(failures === 0 ? 0 : 1);

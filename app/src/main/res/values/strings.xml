@@ -342,6 +342,8 @@
     <string name="connect_action_usage_limit">Usage limit</string>
     <string name="connect_action_always_on">Always on</string>
     <string name="route_location">%1$s  %2$s</string>
+    <string name="route_direct_state">No VPN</string>
+    <string name="route_real_ip_line">Real IP: %1$s %2$s</string>
     <string name="route_edge_fallback">Cloudflare edge · probe location unavailable</string>
     <string name="route_automatic">Output / automatic</string>
     <string name="route_selecting">Selecting route</string>

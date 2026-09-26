@@ -183,6 +183,9 @@ class MainActivity : Activity() {
     private var liveSelectableConnectionFingerprints: Set<String> = emptySet()
 
     private lateinit var connectionGlobe: ConnectionGlobeView
+    private lateinit var connectionRealIpText: TextView
+    @Volatile private var liveGeoTunneled: Boolean = false
+    private var liveGeoDirectAttempted: Boolean = false
     private lateinit var connectActionButton: MaterialButton
     private lateinit var statusDot: View
     private lateinit var statusText: TextView
@@ -2506,6 +2509,16 @@ class MainActivity : Activity() {
             setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
+        connectionRealIpText = TextView(this).apply {
+            gravity = Gravity.START
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+            textSize = 11f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+            visibility = View.GONE
+        }
         connectionCountryText = TextView(this).apply {
             setText(R.string.output_automatic)
             gravity = Gravity.START
@@ -2759,6 +2772,7 @@ class MainActivity : Activity() {
                     addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(7) })
                     addView(statusText, LinearLayout.LayoutParams(-2, -2))
                     addView(connectionCountryText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+                    addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
                 },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) },
             )
@@ -9893,20 +9907,43 @@ class MainActivity : Activity() {
         if (liveGeoJob?.isActive == true) return
         val now = SystemClock.elapsedRealtime()
         if (!force && liveGeo != null && now - liveGeoAtMs < 45_000L) return
+        val tunneledAtFetch = currentVpnStateIsStarted()
         liveGeoJob = activityScope.launch {
-            val info = runCatching { IpGeolocation.locate() }.getOrNull()
+            // The deployed panel worker knows BOTH IPs in one call: the phone's
+            // real ISP IP (tunnel entry) and the exit IP websites see.
+            val workerHost = runCatching {
+                PanelDeploymentStore(this@MainActivity).deployments()
+                    .firstOrNull()?.workerUrl?.removePrefix("https://")?.trimEnd('/')
+            }.getOrNull()
+            val info = runCatching { IpGeolocation.locate(workerHost = workerHost) }.getOrNull()
             liveGeoAtMs = SystemClock.elapsedRealtime()
             if (info == null) return@launch
             liveGeo = info
+            liveGeoTunneled = tunneledAtFetch
             val label = buildString {
+                if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
                 info.colo?.let { colo -> append(" · ").append(colo) }
             }
             connectionGlobe.setDestination(info.flag, label, info.ip)
-            if (::connectionCountryText.isInitialized && liveGeo != null && currentVpnStateIsStarted()) {
+            if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
                 connectionCountryText.text = getString(R.string.route_location, info.flag, info.countryName)
             }
+            renderRealIpLine(info, tunneledAtFetch)
         }
+    }
+
+    /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
+     * dashboard always agrees with what "what is my ip" pages display. */
+    private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
+        if (!::connectionRealIpText.isInitialized) return
+        val show = info != null && tunneled && !info.realIp.isNullOrBlank() && info.realIp != info.ip
+        if (!show) {
+            connectionRealIpText.visibility = View.GONE
+            return
+        }
+        connectionRealIpText.text = getString(R.string.route_real_ip_line, info.realIp, info.realFlag ?: "")
+        connectionRealIpText.visibility = View.VISIBLE
     }
 
     private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
@@ -9969,21 +10006,36 @@ class MainActivity : Activity() {
             when {
                 state == VpnState.Started && live != null -> live.flag
                 state == VpnState.Started -> connectionCountryFlag
+                live != null && liveGeoTunneled == false -> live.flag
                 else -> pendingCountry?.flag ?: "🌐"
             },
             when {
                 state == VpnState.Started && liveLabel != null -> liveLabel
                 state == VpnState.Started -> connectionCountryText.text.toString()
+                live != null && liveGeoTunneled == false ->
+                    getString(R.string.route_direct_state) + " · " + live.countryName
                 else -> pendingCountry?.label.orEmpty()
             },
             when {
                 state == VpnState.Started && live != null -> live.ip
                 state == VpnState.Started -> debugFrontingIp
+                live != null && liveGeoTunneled == false -> live.ip
                 else -> ""
             },
         )
         vpnCurrentlyStarted = state == VpnState.Started
-        if (vpnCurrentlyStarted) beginLiveGeoCheck()
+        if (vpnCurrentlyStarted) {
+            // A stale direct-state label must never survive the connect.
+            beginLiveGeoCheck(force = !liveGeoTunneled)
+        } else {
+            if (liveGeo != null && liveGeoTunneled) beginLiveGeoCheck(force = true)
+            else if (liveGeo == null && !liveGeoDirectAttempted) {
+                // Fresh app open while disconnected: show the REAL IP right away.
+                liveGeoDirectAttempted = true
+                beginLiveGeoCheck(force = true)
+            }
+            renderRealIpLine(live, false)
+        }
         publicServerNotice.visibility = if (
             state == VpnState.Started &&
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
