@@ -1,0 +1,50 @@
+<resources>
+    <style name="BaseAppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">@font/vazirmatn</item>
+        <item name="fontFamily">@font/vazirmatn</item>
+        <item name="colorPrimary">@color/catclient_primary</item>
+        <item name="colorOnPrimary">@color/catclient_on_primary</item>
+        <item name="colorPrimaryContainer">@color/catclient_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/catclient_on_primary_container</item>
+        <item name="colorSecondary">@color/catclient_secondary</item>
+        <item name="colorSurface">@color/catclient_surface</item>
+        <item name="colorSurfaceVariant">@color/catclient_surface_variant</item>
+        <item name="colorOnSurface">@color/catclient_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/catclient_on_surface_variant</item>
+        <item name="colorOutline">@color/catclient_outline</item>
+        <item name="colorError">@color/catclient_error</item>
+        <item name="android:windowBackground">@color/catclient_background</item>
+        <item name="android:statusBarColor">@color/catclient_background</item>
+        <item name="android:navigationBarColor">@color/catclient_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">@color/catclient_primary</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="tabStyle">@style/CatClientTabLayout</item>
+    </style>
+
+    <style name="CatClientTabTextAppearance" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:fontFamily">@font/vazirmatn</item>
+        <item name="fontFamily">@font/vazirmatn</item>
+    </style>
+
+    <style name="CatClientTabLayout" parent="Widget.Material3.TabLayout">
+        <item name="tabTextAppearance">@style/CatClientTabTextAppearance</item>
+    </style>
+
+    <style name="CatClientPopupMenu" parent="Widget.AppCompat.PopupMenu">
+        <item name="android:popupBackground">@color/catclient_surface</item>
+    </style>
+
+    <style name="CatClientPopupTheme" parent="ThemeOverlay.AppCompat">
+        <item name="android:fontFamily">@font/vazirmatn</item>
+        <item name="fontFamily">@font/vazirmatn</item>
+        <item name="colorAccent">@color/catclient_primary</item>
+        <item name="colorControlHighlight">@color/catclient_primary_container</item>
+        <item name="colorControlNormal">@color/catclient_on_surface_variant</item>
+        <item name="popupMenuStyle">@style/CatClientPopupMenu</item>
+    </style>
+
+    <style name="AppTheme" parent="BaseAppTheme" />
+</resources>
