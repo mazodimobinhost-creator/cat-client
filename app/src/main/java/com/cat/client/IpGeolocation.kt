@@ -53,7 +53,7 @@ object IpGeolocation {
     suspend fun locate(
         proxy: java.net.Proxy? = null,
         workerHost: String? = null,
-        physicalNetwork: java.net.Network? = null,
+        physicalNetwork: android.net.Network? = null,
         includeReal: Boolean = false,
     ): Info? = withContext(Dispatchers.IO) {
         // 1. EXIT — default routing: while connected the TUN captures this.
@@ -90,7 +90,7 @@ object IpGeolocation {
 
     /** /cdn-cgi/trace parsed into an Info. [network] binds the socket to a
      *  specific network (physical = bypasses the VPN). */
-    private fun traceRaw(network: java.net.Network?, proxy: java.net.Proxy?): Info? {
+    private fun traceRaw(network: android.net.Network?, proxy: java.net.Proxy?): Info? {
         val body = fetchRaw("https://www.cloudflare.com/cdn-cgi/trace", proxy, network = network) ?: return null
         val fields = body.lineSequence()
             .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }
@@ -156,7 +156,7 @@ object IpGeolocation {
         url: String,
         proxy: java.net.Proxy? = null,
         timeoutMs: Int = 6_000,
-        network: java.net.Network? = null,
+        network: android.net.Network? = null,
     ): String? {
         val conn = (when {
             network != null -> network.openConnection(URL(url))

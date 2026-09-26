@@ -9941,7 +9941,7 @@ class MainActivity : Activity() {
 
     /** The underlying physical network (Wi-Fi / cellular) — binding a request
      * to it bypasses our own TUN, so the caller sees the REAL ISP IP. */
-    private fun activePhysicalNetwork(): java.net.Network? = runCatching {
+    private fun activePhysicalNetwork(): android.net.Network? = runCatching {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return null
         cm.allNetworks.firstOrNull { net ->
             val caps = cm.getNetworkCapabilities(net) ?: return@firstOrNull false
