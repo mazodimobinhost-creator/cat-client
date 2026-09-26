@@ -114,9 +114,17 @@ kt.append('internal object WorldMapData {')
 kt.append('')
 kt.append('    const val POINT_COUNT = %d' % total_pts)
 kt.append('')
-kt.append('    private const val D0 = ' + '\n        + '.join('"%s"' % c for c in chunks[:12]))
-for i, c in enumerate(chunks[12:]):
-    kt.append('    private const val D%d = ' % (i + 1) + '\n        + '.join('"%s"' % c for c in [c]))
+def const_decl(name, parts):
+    # Kotlin requires the operator at the END of each line.
+    lines = []
+    for i, c in enumerate(parts):
+        suffix = ' +' if i < len(parts) - 1 else ''
+        prefix = '' if i == 0 else '    '
+        lines.append('%s"%s"%s' % (prefix, c, suffix))
+    return '    private const val %s = ' % name + ('\n        '.join(lines))
+
+kt.append(const_decl('D0', chunks))
+
 kt.append('')
 kt.append('    val LAND: String by lazy {')
 kt.append('        ' + ' + '.join('D%d' % i for i in range(len(chunks))))
