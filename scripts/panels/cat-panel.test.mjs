@@ -859,3 +859,23 @@ process.exit(failures === 0 ? 0 : 1);
   check('server subs: recipients stay port-major for country variety', src.includes('options.recipient') && src.includes('pairLoops'));
   check('canonical Cat port order kept on both sides', src.includes('CAT_PORT_ORDER') && src.includes('var CATPORT=[80,443,2053,2083,8443,8080]'));
 }
+
+// 32. v5.14.2 — scanner sampler: IPv4-first, IPv6 strictly opt-in and valid
+// (regression: a misplaced `return` killed the whole v4 path and the broken
+// parser emitted 2-group v6 garbage — the "scanner only makes dead v6" bug)
+{
+  const lines = src.split('\n');
+  const i0 = lines.findIndex((l) => l.includes("'function expandCustom"));
+  const i1 = lines.findIndex((l) => l.includes('return v4.concat(v6)'));
+  const code = lines.slice(i0, i1 + 1).map((l) => eval(l.trim().replace(/,$/, ''))).join('\n');
+  const expand = new Function('$', code + '\nreturn expandCustom;')(() => 8);
+  const isV6 = (ip) => /^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$/i.test(ip);
+  const off = expand('2606:4700::/32, 104.16.0.0/13', 8, false);
+  check('scanner: with IPv6 off the v4 path stays alive', off.length === 8 && off.every((ip) => !ip.includes(':') && ip.startsWith('104.')));
+  const v6 = expand('2606:4700::/32', 5, true);
+  check('scanner: opt-in IPv6 addresses are full 8-hextet', v6.length === 5 && v6.every((ip) => isV6(ip) && ip.toLowerCase().startsWith('2606:4700')));
+  const mixed = expand('104.16.0.0/13, 2606:4700::/32', 8, true);
+  const firstV6 = mixed.findIndex((ip) => ip.includes(':'));
+  check('scanner: IPv4 always first, IPv6 capped at 12', firstV6 >= 8 && mixed.filter((ip) => ip.includes(':')).length <= 12);
+  check('scanner: IPv6 checkbox exists and gates both scan paths', src.includes('id="scanV6"') && src.includes('checked===true'));
+}

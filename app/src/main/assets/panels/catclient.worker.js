@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.14.1';
+const CAT_PANEL_VERSION = '5.14.2';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -3753,6 +3753,7 @@ function scannerTabHtml(state) {
     '<div class="grid two" style="margin-top:8px">' +
     '<label class="field" style="grid-column:1/-1"><span>رنج‌های آی‌پی (CIDR) — هر بار از داخل هر رنج، آی‌پی‌های تازه و تصادفی تست می‌شود</span><textarea id="scanCustom" rows="3" dir="ltr" placeholder="104.16.0.0/13, 172.64.0.0/13, 188.114.96.0/20">' + esc(ranges.join(', ')) + '</textarea></label>' +
     '<label class="field"><span>تعداد آی‌پی از هر رنج</span><input id="scanPerRange" type="number" min="1" max="64" value="8"></label>' +
+    '<label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="scanV6" style="width:auto"> <span>اسکن IPv6 هم انجام شود (فقط اگر اینترنتت IPv6 دارد — پیش‌فرض خاموش)</span></label>' +
     '<label class="field"><span>&nbsp;</span><button class="btn ghost tiny" id="scanRangesReset" type="button">بازگشت به رنج‌های پیش‌فرض کلودفلر</button></label>' +
     '</div>' +
     '<p class="muted">می‌توانی تک‌آی‌پی هم بنویسی (مثلاً 104.16.6.62)، اما اسکن اصلی روی رنج‌ها انجام می‌شود؛ خالی بگذاری از کتابخانهٔ داخلی استفاده می‌شود.</p>' +
@@ -4236,19 +4237,23 @@ function panelClientJs() {
     'function perRange(){return Math.max(1,Math.min(64,Number($("#scanPerRange")&&$("#scanPerRange").value)||8));}',
     '/* Range-first expansion: every CIDR is split into `per` equal slices and one',
     '   random host is drawn from each slice, so each run tests fresh addresses. */',
-    'function expandCustom(text,per){per=per||perRange();var out=[],seen={};function push(ip){if(!seen[ip]){seen[ip]=1;out.push(ip)}}',
+    'function expandCustom(text,per,wantV6){per=per||perRange();var out=[],seen={};function push(ip){if(!seen[ip]){seen[ip]=1;out.push(ip)}}',
     ' (text||"").split(/[\\s,;]+/).forEach(function(item){',
     ' item=item.trim();if(!item)return;',
     ' if(item.indexOf("/")<0){if(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(item)||item.indexOf(":")>=0)push(item);return;}',
-    ' if(item.indexOf(":")>=0){var hp=item.split(":"),hs=hp[0].split(":").filter(function(x){return x!==""}),pre=Number(hp[1]||32);',
-    '  var fixed=Math.min(7,Math.max(1,Math.floor(pre/16))),base=hs.slice(0,fixed);',
-    '  for(var gi=0;gi<per;gi++){var tail=[];for(var hi=fixed;hi<8;hi++)tail.push(Math.floor(Math.random()*65536).toString(16));',
-    '   var full=base.concat(tail).slice(0,8).join(":");push(full)}}return;',
+    ' if(item.indexOf(":")>=0){var cp=item.split("/"),pre=Number(cp[1]||128);if(!(pre>=16&&pre<=128))return;var sides=cp[0].split("::");if(sides.length>2)return;',
+    '  var hx=sides[0]?sides[0].split(":"):[];var tl=sides[1]?sides[1].split(":"):[];var mid=8-hx.length-tl.length;',
+    '  if(mid<0||(sides.length===1&&mid!==0))return;for(var mi=0;mi<mid;mi++)hx.push("0");hx=hx.concat(tl);',
+    '  var fixed=Math.min(8,Math.max(1,Math.floor(pre/16))),rem=pre%16;',
+    '  for(var gi=0;gi<per;gi++){var copy=hx.slice();for(var hi=fixed+(rem?1:0);hi<8;hi++)copy[hi]=Math.floor(Math.random()*65536).toString(16);',
+    '   if(rem){var keep=(0xffff^((1<<(16-rem))-1))>>>0;copy[fixed]=(((parseInt(hx[fixed]||"0",16)||0)&keep)|Math.floor(Math.random()*(1<<(16-rem)))).toString(16);}',
+    '   push(copy.join(":"))}return;}',
     ' var p=item.split("/"),parts=p[0].split(".").map(Number),prefix=Number(p[1]);',
     ' if(parts.length!==4||parts.some(function(n){return isNaN(n)||n<0||n>255})||prefix<8||prefix>32)return;',
     ' var base=((parts[0]<<24)>>>0)+(parts[1]<<16)+(parts[2]<<8)+parts[3];var hostBits=32-prefix;var size=Math.pow(2,hostBits);base=base-(base%size);',
     ' var total=Math.pow(2,Math.min(hostBits,20));var want=Math.max(1,Math.min(per,total-1));var slice=total/want;',
-    ' for(var i=0;i<want;i++){var off=Math.floor(i*slice+Math.random()*slice);if(off<1)off=1;if(off>total-1)off=total-1;if((off&255)===0)off+=1;else if((off&255)===255)off-=1;var v=(base+off)>>>0;push([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join("."));}});return out;}',
+    ' for(var i=0;i<want;i++){var off=Math.floor(i*slice+Math.random()*slice);if(off<1)off=1;if(off>total-1)off=total-1;if((off&255)===0)off+=1;else if((off&255)===255)off-=1;var v=(base+off)>>>0;push([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join("."));}});',
+    ' var v4=out.filter(function(ip){return ip.indexOf(":")<0}),v6=wantV6?out.filter(function(ip){return ip.indexOf(":")>=0}).slice(0,12):[];return v4.concat(v6);}',
     'if($("#scanRangesReset"))$("#scanRangesReset").addEventListener("click",function(){$("#scanCustom").value=(S.scanRanges||[]).join(", ");toast(lang==="fa"?"رنج‌های پیش‌فرض برگشت":"Default ranges restored");});',
     'var scanResults=[],scanRunning=false,scanAbort=null;',
     '/* Browser probe. HTTP:80 gives a real round-trip on Cloudflare edges (they answer',
@@ -4295,7 +4300,7 @@ function panelClientJs() {
     ' if(scanRunning)return;',
     ' var mode=$("#scanMode").value||"http";var conc=Math.max(1,Math.min(32,Number($("#scanConc").value)||8));',
     ' var timeout=Math.max(500,Math.min(8000,Number($("#scanTimeout").value)||2000));var limit=Math.max(4,Math.min(400,Number($("#scanLimit").value)||60));',
-    ' var custom=expandCustom($("#scanCustom").value);var targets=sampleTargets(limit,custom);',
+    ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(limit,custom);',
     ' if(!targets.length){toast("آی‌پی‌ای برای اسکن نیست");return;}',
     ' scanRunning=true;scanAbort=typeof AbortController!=="undefined"?new AbortController():null;scanResults=[];renderScan();',
     ' $("#scanStart").disabled=true;$("#scanStop").disabled=false;$("#scanStatus").textContent=I18N[lang].scanning+" 0/"+targets.length;',
@@ -4313,7 +4318,7 @@ function panelClientJs() {
     ' for(var k=0;k<conc;k++)next();',
     '});',
     '$("#scanServerAll").addEventListener("click",function(){var btn=this;btn.disabled=true;',
-    ' var custom=expandCustom($("#scanCustom").value);var targets=sampleTargets(Math.min(96,Number($("#scanLimit").value)||80),custom);',
+    ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(Math.min(96,Number($("#scanLimit").value)||80),custom);',
     ' $("#scanStatus").textContent="اسکن از ورکر روی "+targets.length+" آی‌پی…";',
     ' fetch("/api/scan?ips="+encodeURIComponent(targets.join(","))+"&timeout=4000&concurrency=16&save=1").then(function(r){return r.json()}).then(function(j){btn.disabled=false;',
     '  if(!j.ok){$("#scanStatus").textContent="خطا: "+j.error;return;}',
