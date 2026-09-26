@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.14.0';
+const CAT_PANEL_VERSION = '5.14.1';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -2456,6 +2456,11 @@ function configOptions(url, host, env, settings, allowedCountries) {
     .map((p) => Number(p)).filter((p) => TLS_PORTS.includes(p) || PLAIN_PORTS.includes(p));
   if (!ports.length) ports = DEFAULT_PORTS.slice();
   ports = Array.from(new Set(ports)).slice(0, 8);
+  const CAT_PORT_ORDER = [80, 443, 2053, 2083, 8443, 8080];
+  ports.sort((a, b) => {
+    const ia = CAT_PORT_ORDER.indexOf(Number(a)), ib = CAT_PORT_ORDER.indexOf(Number(b));
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
 
   const sniRaw = String(q.get('sni') || cfg.sni || env.SNI || '').trim().toLowerCase();
   const sni = sniRaw && validAddress(sniRaw) && !isIpLiteral(sniRaw) ? sniRaw : String(host).toLowerCase();
@@ -2508,6 +2513,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
     country: requestedCountryCodes[0] || String(cfg.country || env.COUNTRY || '').trim().toUpperCase(),
     countryCodes: requestedCountryCodes,
     entryLimit: entryLimit,
+    recipient: recipientPath,
     verifiedOnly: useVerified,
     verifiedEntries: verifiedEntries,
   };
@@ -2594,9 +2600,14 @@ function buildConfigEntries(host, env, uuid, opts) {
   const entries = [];
   const entryLimit = Math.min(MAX_SUB_ENTRIES, Number(options.entryLimit) || DEFAULT_SUB_ENTRIES);
   let index = 0;
+  const pairLoops = options.recipient
+    ? { outer: (fn) => options.ports.forEach(fn), inner: (fn) => addresses.forEach(fn) }
+    : { outer: (fn) => addresses.forEach(fn), inner: (fn) => options.ports.forEach(fn) };
   options.protocols.forEach((kind) => {
-    options.ports.forEach((port) => {
-      addresses.forEach((addr) => {
+    pairLoops.outer((pivel) => {
+      pairLoops.inner((pivel2) => {
+        const port = options.recipient ? pivel : pivel2;
+        const addr = options.recipient ? pivel2 : pivel;
         if (entries.length >= entryLimit) return;
         index += 1;
         const snis = (options.snis && options.snis.length) ? options.snis : [options.sni];
@@ -3745,15 +3756,18 @@ function scannerTabHtml(state) {
     '<label class="field"><span>&nbsp;</span><button class="btn ghost tiny" id="scanRangesReset" type="button">بازگشت به رنج‌های پیش‌فرض کلودفلر</button></label>' +
     '</div>' +
     '<p class="muted">می‌توانی تک‌آی‌پی هم بنویسی (مثلاً 104.16.6.62)، اما اسکن اصلی روی رنج‌ها انجام می‌شود؛ خالی بگذاری از کتابخانهٔ داخلی استفاده می‌شود.</p>' +
+    '<label class="field" style="max-width:420px"><span>SNIهای اضافه برای تست هر آی‌پی (با ویرگول جدا کن، اختیاری)</span><input id="scanSnis" dir="ltr" placeholder="cdn.example.ir,sni2.example.com"></label>' +
     '<div class="row"><button class="btn" id="scanStart">شروع اسکن از مرورگر</button>' +
     '<button class="btn ghost" id="scanServerAll">اسکن از ورکر</button>' +
     '<button class="btn ghost" id="scanStop" disabled>توقف</button>' +
-    '<button class="btn ghost tiny" id="scanClear">پاک کردن</button></div>' +
+    '<button class="btn ghost tiny" id="scanClear">پاک کردن</button>' +
+    '<button class="btn ghost tiny" id="scanPickBest">⭐ انتخاب بهترین‌ها</button></div>' +
     '<div class="bar" style="margin-top:12px"><i id="scanBar"></i></div>' +
     '<p class="muted" id="scanStatus" style="margin-top:8px">آماده.</p>' +
     '<div class="table-wrap" style="margin-top:12px"><table><thead><tr>' +
     '<th><input type="checkbox" id="scanAll" style="width:auto"></th><th>آی‌پی</th><th>مرورگر</th><th>ورکر</th><th>عملیات</th>' +
     '</tr></thead><tbody id="scanTable"></tbody></table></div>' +
+    '<div id="countryPools" style="margin-top:12px"></div>' +
     '<div class="row" style="margin-top:12px">' +
     '<button class="btn" id="useIpsInConfigs">📥 گذاشتن آی‌پی‌های انتخابی داخل کانفیگ‌ها</button><span class="pill" id="scanSelCount">0 انتخاب</span>' +
     '<button class="btn ghost" id="buildFromIps">کپی کانفیگ با انتخابی‌ها</button>' +
@@ -4025,7 +4039,8 @@ function panelClientJs() {
     ' function poolIps(countries){var pools=S.countryPools||[];var want=countries.map(function(c){return String(c).toUpperCase()});var ips=[],locs={};pools.forEach(function(p){if(want.indexOf(String(p.code||"").toUpperCase())<0)return;(p.ips||[]).forEach(function(ip){ips.push(ip);locs[ip.toLowerCase()]=p.code})});OPT.locations=Object.assign({},OPT.locations||{},locs);return ips;}',
     ' if(OPT.includeHost!==false)push(S.host);var manual=(OPT.addresses||[]);var list=manual.slice();if(OPT.countries&&OPT.countries.length){poolIps(OPT.countries).forEach(function(ip){if(list.indexOf(ip)<0)list.push(ip)})}list.filter(isV4).forEach(push);',
     ' var v6=list.filter(function(a){return !isV4(a)&&isV6(a)});if(OPT.includeIpv6!==false)(v6.length?v6:(S.defaultIpv6||[])).forEach(push);list.filter(function(a){return !isV4(a)&&!isV6(a)}).forEach(push);',
-    ' var idx=0;OPT.protocols.forEach(function(k){OPT.ports.forEach(function(p){addrs.forEach(function(h){idx++;var kind=addrKind(h);',
+    ' var CATPORT=[80,443,2053,2083,8443,8080];var ports=(OPT.ports||[]).slice().sort(function(a,b){var ia=CATPORT.indexOf(Number(a)),ib=CATPORT.indexOf(Number(b));return (ia<0?99:ia)-(ib<0?99:ib)});',
+    ' var idx=0;OPT.protocols.forEach(function(k){addrs.forEach(function(h){ports.forEach(function(p){idx++;var kind=addrKind(h);',
     '  var loc=locationForAddr(h);var name="🐱 Cat · "+loc.country+" · "+(k==="vless"?"VLESS":"Trojan")+" · "+p+" · "+loc.flag;',
     '  out.push({name:name,type:k==="vless"?"VLESS":"Trojan",addr:h,port:p,tls:TLS_PORTS.indexOf(Number(p))>=0,link:k==="vless"?vlessLink(fmtAddr(h),name,OPT.sni,p):trojanLink(fmtAddr(h),name,OPT.sni,p),ms:null});});});});',
     ' out=out.slice(0,Math.max(1,Number(OPT.entryLimit)||8));',
@@ -4224,7 +4239,11 @@ function panelClientJs() {
     'function expandCustom(text,per){per=per||perRange();var out=[],seen={};function push(ip){if(!seen[ip]){seen[ip]=1;out.push(ip)}}',
     ' (text||"").split(/[\\s,;]+/).forEach(function(item){',
     ' item=item.trim();if(!item)return;',
-    ' if(item.indexOf("/")<0){if(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(item))push(item);return;}',
+    ' if(item.indexOf("/")<0){if(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(item)||item.indexOf(":")>=0)push(item);return;}',
+    ' if(item.indexOf(":")>=0){var hp=item.split(":"),hs=hp[0].split(":").filter(function(x){return x!==""}),pre=Number(hp[1]||32);',
+    '  var fixed=Math.min(7,Math.max(1,Math.floor(pre/16))),base=hs.slice(0,fixed);',
+    '  for(var gi=0;gi<per;gi++){var tail=[];for(var hi=fixed;hi<8;hi++)tail.push(Math.floor(Math.random()*65536).toString(16));',
+    '   var full=base.concat(tail).slice(0,8).join(":");push(full)}}return;',
     ' var p=item.split("/"),parts=p[0].split(".").map(Number),prefix=Number(p[1]);',
     ' if(parts.length!==4||parts.some(function(n){return isNaN(n)||n<0||n>255})||prefix<8||prefix>32)return;',
     ' var base=((parts[0]<<24)>>>0)+(parts[1]<<16)+(parts[2]<<8)+parts[3];var hostBits=32-prefix;var size=Math.pow(2,hostBits);base=base-(base%size);',
@@ -4240,7 +4259,7 @@ function panelClientJs() {
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;',
     ' var started=(performance&&performance.now)?performance.now():Date.now();',
     ' var done=false;var timer=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();resolve(null)}},timeout);',
-    ' var url=(mode==="https"?"https://"+ip+":443":"http://"+ip+":80")+"/cdn-cgi/trace?ts="+Math.random().toString(36).slice(2);',
+    ' var url=(mode==="https"?"https://"+(ip.indexOf(":")>=0?"["+ip+"]":ip)+":443":"http://"+(ip.indexOf(":")>=0?"["+ip+"]":ip)+":80")+"/cdn-cgi/trace?ts="+Math.random().toString(36).slice(2);',
     ' fetch(url,{mode:"no-cors",cache:"no-store",credentials:"omit",redirect:"manual",signal:ctrl?ctrl.signal:undefined})',
     ' .then(function(){if(done)return;done=true;clearTimeout(timer);resolve(Math.round(((performance&&performance.now)?performance.now():Date.now())-started))})',
     ' .catch(function(err){if(done)return;done=true;clearTimeout(timer);',
@@ -4250,7 +4269,7 @@ function panelClientJs() {
     'function renderScan(){var rows=scanResults.map(function(r,i){var cls=r.ms===null?"bad":(r.ms<300?"good":(r.ms<700?"mid":"bad"));',
     ' var msText=r.ms===null?"✗":(r.ms+" ms");var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
     ' var sniRow=(r.server&&r.server.snisOk)?Object.keys(r.server.snisOk).filter(function(s){return r.server.snisOk[s].ok}).map(function(s){return "✓ "+s}).join("<br>"):"";',
-    ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+`+sniRow+`+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
+    ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+sniRow+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
     ' $("#scanTable").innerHTML=rows||"<tr><td colspan=5>هنوز نتیجه‌ای نیست</td></tr>";',
     '}',
     'document.addEventListener("click",function(ev){',

@@ -844,3 +844,18 @@ async function subText(url, opts) {
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
+
+// 31. v5.14.1 — panel-script id references must all exist in the markup
+// (a single missing id = null.addEventListener at load = the whole client dies)
+{
+  const src = readFileSync(workerPath, 'utf8');
+  const refs = [...new Set([...src.matchAll(/\$\("#([A-Za-z0-9_-]+)"\)/g)].map((m) => m[1]))];
+  const missing = refs.filter((id) => !src.includes('id="' + id + '"'));
+  check('every $("#id") handler target exists in the panel markup (' + refs.length + ' refs)', missing.length === 0);
+  if (missing.length) console.log('   missing ids: ' + missing.join(', '));
+  check('scanner extra-SNI input is a real element (feature is live)', src.includes('id="scanSnis"'));
+  check('country-pool list has a render container', src.includes('id="countryPools"'));
+  check('config table emits address-major (all ports of a picked IP together)', src.includes('addrs.forEach(function(h){ports.forEach(function(p)'));
+  check('server subs: recipients stay port-major for country variety', src.includes('options.recipient') && src.includes('pairLoops'));
+  check('canonical Cat port order kept on both sides', src.includes('CAT_PORT_ORDER') && src.includes('var CATPORT=[80,443,2053,2083,8443,8080]'));
+}
