@@ -785,5 +785,22 @@ async function subText(url, opts) {
   globalThis.fetch = origFetch;
 }
 
+
+// 29. v5.12.1 regression — every panel/page <script> block must PARSE
+// (a single quote-level slip kills ALL panel buttons; this caught renderPoolUi)
+{
+  const shell = await (await req('/', { env: { OPEN_PANEL: 'true' }, raw: true })).text();
+  const login = await (await req('/login', { raw: true })).text();
+  const info = await (await req('/info/does-not-exist', { raw: true })).text();
+  const blocks = [];
+  for (const page of [shell, login, info]) {
+    for (const m of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) blocks.push(m[1]);
+  }
+  let bad = 0;
+  blocks.forEach((body, i) => { try { new Function(body); } catch (e) { bad++; console.error('script block ' + i + ': ' + e.message); } });
+  check('all rendered page scripts parse (' + blocks.length + ' blocks)', bad === 0);
+  check('panel client JS still wires the health + scanner buttons', shell.includes('healthBtn') && shell.includes('scanServerAll'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

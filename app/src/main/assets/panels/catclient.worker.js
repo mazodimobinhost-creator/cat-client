@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.12.0';
+const CAT_PANEL_VERSION = '5.12.1';
 /* Cloudflare "API token template" URL — opens the dashboard with the exact
  * permissions the app / wizard need pre-selected (Workers Scripts + KV edit,
  * Account Settings read). Same link the Cat Wizard uses. */
@@ -4046,8 +4046,8 @@ function panelClientJs() {
     '$("#healthBtn").addEventListener("click",async function(){var b=this;b.disabled=true;$("#healthState").textContent="در حال پینگ آی‌پی‌ها…";',
     ' try{var j=await(await fetch("/api/health-check",{method:"POST"})).json();if(!j.ok)throw new Error(j.error||"failed");',
     ' var html=j.results.map(function(x){var cc=(x.countryCode||"").toUpperCase();var nm=x.countryName||cc||"—";',
-    '  return "<div class=\"config-item\"><b>"+(x.ok?"✅":"❌")+" "+ccFlag(cc)+" "+nm+(x.colo?" · "+x.colo:"")+"</b><small dir=\"ltr\">"+x.ip+" · "+(x.ok?(x.ms+"ms"):"مرده — حذف شد")+"</small></div>";}).join("");',
-    ' $("#healthResults").innerHTML=html||"<p class=\"muted\">آی‌پی‌ای برای تست نیست — اول اسکن کن.</p>";',
+    '  return `<div class="config-item"><b>`+(x.ok?"✅":"❌")+" "+ccFlag(cc)+" "+nm+(x.colo?" · "+x.colo:"")+`</b><small dir="ltr">`+x.ip+" · "+(x.ok?(x.ms+"ms"):"مرده — حذف شد")+`</small></div>`;}).join("");',
+    ' $("#healthResults").innerHTML=html||`<p class="muted">آی‌پی‌ای برای تست نیست — اول اسکن کن.</p>`;',
     ' $("#healthState").textContent="زنده: "+j.alive+" از "+j.checked+(j.dead.length?" — مرده‌ها از کانفیگ‌ها حذف شدند ✅":"");',
     ' toast("سلامت آی‌پی‌ها چک شد");applyOptions();}catch(e){$("#healthState").textContent="خطا: "+e.message;}b.disabled=false;});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
@@ -4269,9 +4269,7 @@ function panelClientJs() {
 'function mergePools(results){var map={};(S.countryPools||[]).forEach(function(p){map[p.code||"-"]=p});' +
 ' results.forEach(function(r){if(!r.ok||!r.ip)return;var code=String(r.countryCode||"").toUpperCase();var key=code||"-";var p=map[key]||(map[key]={code:code,name:r.countryName||"Cloudflare edge",flag:flagOf(code),count:0,ips:[]});if(!p.flag)p.flag=code?flagOf(code):"";if(p.ips.indexOf(r.ip)<0){p.ips.push(r.ip);p.count+=1}});' +
 ' S.countryPools=Object.keys(map).map(function(k){return map[k]}).sort(function(a,b){return b.count-a.count});}' +
-'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[];' +
-' if(el){el.innerHTML=pools.length?pools.map(function(p){return "<div class=\"config-group\"><h3><span>"+(p.flag||"")+" "+p.name+"</span><span class=\"cnt\">"+p.count+" IP</span></h3><div class=\"tags\">"+p.ips.map(function(ip){return "<span class=\"pill\" dir=\"ltr\">"+ip+"</span>"}).join("")+(p.count>p.ips.length?"<span class=\"pill\">…</span>":"")+"</div></div>"}).join(""):"<p class=\"muted\">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>";}' +
-' var box=$("#cfgCountries");if(box){var chips="<button class=\"chip active\" type=\"button\" data-cc=\"\">همه</button>"+pools.filter(function(p){return p.code}).map(function(p){return "<button class=\"chip\" type=\"button\" data-cc=\""+p.code+"\">"+(p.flag||"")+" "+p.name+" · "+p.count+"</button>"}).join("");box.innerHTML=chips;}}' +
+    'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[]; if(el){el.innerHTML=pools.length?pools.map(function(p){return `<div class="config-group"><h3><span>`+(p.flag||"")+" "+p.name+`</span><span class="cnt">`+p.count+` IP</span></h3><div class="tags">`+p.ips.map(function(ip){return `<span class="pill" dir="ltr">`+ip+`</span>`}).join("")+(p.count>p.ips.length?`<span class="pill">…</span>`:"")+`</div></div>`}).join(""):`<p class="muted">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>`;} var box=$("#cfgCountries");if(box){var chips=`<button class="chip active" type="button" data-cc="">همه</button>`+pools.filter(function(p){return p.code}).map(function(p){return `<button class="chip" type="button" data-cc="`+p.code+`">`+(p.flag||"")+" "+p.name+" · "+p.count+`</button>`}).join("");box.innerHTML=chips;}}',
 'function selectedIps(){return scanResults.filter(function(r){return r.selected&&(r.server===undefined?r.ms!==null:r.server&&r.server.ok)}).map(function(r){return r.ip})}',
     '$("#copyBestIps").addEventListener("click",function(){var top=scanResults.filter(function(r){return r.server===undefined?r.ms!==null:r.server&&r.server.ok}).sort(function(a,b){return (a.server?a.server.ms:a.ms)-(b.server?b.server.ms:b.ms)}).slice(0,10).map(function(r){return r.ip});if(!top.length){toast("نتیجه‌ای نیست");return;}copyText(top.join("\\n"))});',
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
