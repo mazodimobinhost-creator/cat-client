@@ -12,10 +12,17 @@ import java.net.URL
  * interface changes so it can show flag + country + IP on the orb / globe.
  *
  * Two different IPs matter and they are NOT the same:
- *  - [Info.ip]      = the tunnel exit IP (what websites actually see).
- *  - [Info.realIp]  = the phone's own ISP IP (the tunnel entry).
- * Sites compare against the exit; "what is my ip" pages show both, which is
- * exactly why the dashboard now labels them separately.
+ *  - [Info.ip]     = the tunnel EXIT IP (what websites actually see). Measured
+ *    with a /cdn-cgi/trace sent over DEFAULT routing — the TUN captures it
+ *    while connected, so it always matches the browser.
+ *  - [Info.realIp] = the phone's own ISP IP (the tunnel ENTRY). Measured with
+ *    the same trace BOUND to the physical network, which bypasses the TUN.
+ *
+ * Country names come from a geo-DB (the same source class "what is my ip"
+ * sites use), not from Cloudflare's trace `loc`, so the dashboard never
+ * disagrees with the browser. The worker is used ONLY as a geo-DB proxy
+ * (/api/geo?ip=) — it must never decide the exit itself: its own egress is a
+ * datacenter IP, not the user's.
  */
 object IpGeolocation {
 
@@ -34,63 +41,57 @@ object IpGeolocation {
         val realFlag: String? get() = realCountryCode?.toFlagEmoji()
     }
 
-    /**
-     * Live exit detection for the dashboard map. Order:
-     *  1. the panel worker's /api/geo (when [workerHost] is known) — one call
-     *     returns the exit IP with a real geo-DB lookup AND the phone's real IP;
-     *  2. Cloudflare's /cdn-cgi/trace through the active tunnel (real edge colo
-     *     + exit IP), then refined with a geo-DB lookup so the country shown
-     *     matches what geo sites display for that IP (trace `loc` alone can
-     *     disagree with them);
-     *  3. plain geoip APIs (direct when the tunnel is down).
-     */
-    suspend fun locate(proxy: java.net.Proxy? = null, workerHost: String? = null): Info? =
-        withContext(Dispatchers.IO) {
-            if (!workerHost.isNullOrBlank()) {
-                runCatching { panelGeo(workerHost) }.getOrNull()?.let { return@withContext it }
-            }
-            trace(proxy, refine = true) ?: detect(proxy)
-        }
+    /** Geo-DB answer for one address. */
+    data class Geo(val cc: String, val country: String, val city: String?, val isp: String?)
 
-    /** One-shot dashboard payload from the user's own deployed worker. */
-    private fun panelGeo(workerHost: String): Info? {
-        val host = workerHost.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
-        if (host.isEmpty() || host.contains(' ') || host.contains('/')) return null
-        val body = runCatching {
-            fetchRaw("https://" + host + "/api/geo", null, timeoutMs = 9_000)
-        }.getOrNull() ?: return null
-        val o = runCatching { JSONObject(body) }.getOrNull() ?: return null
-        if (!o.optBoolean("ok", false)) return null
-        val exit = o.optJSONObject("exit")
-        val real = o.optJSONObject("real")
-        val main = exit ?: real ?: return null
-        val ip = main.optString("ip").orEmpty()
-        val cc = main.optString("cc").orEmpty().uppercase()
-        if (ip.isBlank() || cc.length != 2) return null
-        val countryName = main.optString("country").orEmpty().ifBlank {
-            runCatching { java.util.Locale("", cc).displayCountry }.getOrNull().orEmpty().ifBlank { cc }
+    /**
+     * Live exit detection for the dashboard map.
+     * @param workerHost the deployed panel worker, used as a cached geo-DB proxy.
+     * @param physicalNetwork the network BEHIND the VPN (null = skip real-IP step).
+     * @param includeReal fetch the real ISP IP (only meaningful while connected).
+     */
+    suspend fun locate(
+        proxy: java.net.Proxy? = null,
+        workerHost: String? = null,
+        physicalNetwork: java.net.Network? = null,
+        includeReal: Boolean = false,
+    ): Info? = withContext(Dispatchers.IO) {
+        // 1. EXIT — default routing: while connected the TUN captures this.
+        val exit = runCatching { traceRaw(null, proxy) }.getOrNull()
+            ?: return@withContext detect(proxy)
+        val exitGeo = runCatching { geoLookup(exit.ip, workerHost, proxy) }.getOrNull()
+        // 2. REAL — bound to the physical network, outside the tunnel.
+        var realIp: String? = null
+        var realCc: String? = null
+        var realCountry: String? = null
+        if (includeReal && physicalNetwork != null) {
+            val real = runCatching { traceRaw(physicalNetwork, null) }.getOrNull()
+            if (real != null && real.ip.isNotBlank() && real.ip != exit.ip) {
+                val g = runCatching { geoLookup(real.ip, workerHost, proxy) }.getOrNull()
+                realIp = real.ip
+                realCc = (g?.cc ?: real.countryCode).takeIf { it.length == 2 }
+                realCountry = g?.country?.takeIf { it.isNotBlank() } ?: real.countryName
+            }
         }
-        val realIp = real?.optString("ip")?.takeIf { it.isNotBlank() && it != ip }
-        val realCc = real?.optString("cc")?.orEmpty()?.uppercase()?.takeIf { it.length == 2 }
-        return Info(
-            ip = ip,
-            countryCode = cc,
-            countryName = countryName,
-            city = main.optString("city").orEmpty().takeIf { it.isNotBlank() },
-            isp = main.optString("isp").orEmpty().takeIf { it.isNotBlank() },
-            colo = o.optString("entryColo").orEmpty().takeIf { it.isNotBlank() },
+        val cc = (exitGeo?.cc ?: exit.countryCode).uppercase()
+        Info(
+            ip = exit.ip,
+            countryCode = cc.ifBlank { exit.countryCode },
+            countryName = exitGeo?.country?.takeIf { it.isNotBlank() }
+                ?: exit.countryName,
+            city = exitGeo?.city ?: exit.city,
+            isp = exitGeo?.isp ?: exit.isp,
+            colo = exit.colo,
             realIp = realIp,
             realCountryCode = realCc,
-            realCountryName = realCc?.let { code ->
-                real?.optString("country")?.orEmpty()?.takeIf { it.isNotBlank() }
-                    ?: runCatching { java.util.Locale("", code).displayCountry }.getOrNull().orEmpty().ifBlank { code }
-            },
+            realCountryName = realCountry,
         )
     }
 
-    private suspend fun trace(proxy: java.net.Proxy?, refine: Boolean = false): Info? {
-        val body = runCatching { fetchRaw("https://www.cloudflare.com/cdn-cgi/trace", proxy) }.getOrNull()
-            ?: return null
+    /** /cdn-cgi/trace parsed into an Info. [network] binds the socket to a
+     *  specific network (physical = bypasses the VPN). */
+    private fun traceRaw(network: java.net.Network?, proxy: java.net.Proxy?): Info? {
+        val body = fetchRaw("https://www.cloudflare.com/cdn-cgi/trace", proxy, network = network) ?: return null
         val fields = body.lineSequence()
             .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }
             .toMap()
@@ -99,7 +100,7 @@ object IpGeolocation {
         if (cc.length != 2 || ip.isBlank()) return null
         val colo = fields["colo"]?.trim()?.takeIf { it.isNotBlank() }
         val countryName = runCatching { java.util.Locale("", cc).displayCountry }.getOrNull().orEmpty()
-        val base = Info(
+        return Info(
             ip = ip,
             countryCode = cc,
             countryName = countryName.ifBlank { cc },
@@ -107,39 +108,61 @@ object IpGeolocation {
             isp = "Cloudflare",
             colo = colo,
         )
-        // Trace `loc` is Cloudflare's own view of the exit IP and can disagree
-        // with the geo databases that "what is my ip" style sites use — refine
-        // it so the dashboard never contradicts the browser.
-        if (!refine) return base
-        return runCatching { refineWithGeoDb(base, proxy) }.getOrDefault(base)
     }
 
-    /** Overrides country/city/isp of [info] with a geo-DB answer for its IP. */
-    private suspend fun refineWithGeoDb(info: Info, proxy: java.net.Proxy?): Info {
-        val raw = runCatching {
-            fetchRaw("https://ipwho.is/" + java.net.URLEncoder.encode(info.ip, "UTF-8"), proxy, timeoutMs = 6_000)
-        }.getOrNull() ?: return info
-        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return info
-        if (o.optBoolean("success", true) == false) return info
-        val cc = o.optString("country_code").orEmpty().uppercase()
-        if (cc.length != 2) return info
-        val countryName = o.optString("country").orEmpty().ifBlank {
-            runCatching { java.util.Locale("", cc).displayCountry }.getOrNull().orEmpty().ifBlank { cc }
+    /** Geo-DB lookup for one IP: the panel worker first (cached, reachable
+     *  through the tunnel), then ipwho.is directly. */
+    private suspend fun geoLookup(ip: String, workerHost: String?, proxy: java.net.Proxy?): Geo? {
+        if (!workerHost.isNullOrBlank()) {
+            runCatching { workerGeo(workerHost, ip) }.getOrNull()?.let { return it }
         }
-        return info.copy(
-            countryCode = cc,
-            countryName = countryName,
-            city = o.optString("city").orEmpty().takeIf { it.isNotBlank() } ?: info.city,
+        return runCatching { directGeo(ip, proxy) }.getOrNull()
+    }
+
+    private fun workerGeo(workerHost: String, ip: String): Geo? {
+        val host = workerHost.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
+        if (host.isEmpty() || host.contains(' ') || host.contains('/')) return null
+        val body = fetchRaw("https://" + host + "/api/geo?ip=" + java.net.URLEncoder.encode(ip, "UTF-8"), timeoutMs = 9_000) ?: return null
+        val o = runCatching { JSONObject(body) }.getOrNull() ?: return null
+        if (!o.optBoolean("ok", false)) return null
+        val g = o.optJSONObject("geo")?.optJSONObject(ip) ?: return null
+        val cc = g.optString("cc").orEmpty().uppercase()
+        if (cc.length != 2) return null
+        return Geo(
+            cc = cc,
+            country = g.optString("country").orEmpty(),
+            city = g.optString("city").orEmpty().takeIf { it.isNotBlank() },
+            isp = g.optString("isp").orEmpty().takeIf { it.isNotBlank() },
+        )
+    }
+
+    private suspend fun directGeo(ip: String, proxy: java.net.Proxy?): Geo? = withContext(Dispatchers.IO) {
+        val raw = fetchRaw("https://ipwho.is/" + java.net.URLEncoder.encode(ip, "UTF-8"), proxy, timeoutMs = 6_000) ?: return@withContext null
+        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return@withContext null
+        if (o.optBoolean("success", true) == false) return@withContext null
+        val cc = o.optString("country_code").orEmpty().uppercase()
+        if (cc.length != 2) return@withContext null
+        Geo(
+            cc = cc,
+            country = o.optString("country").orEmpty(),
+            city = o.optString("city").orEmpty().takeIf { it.isNotBlank() },
             isp = (o.optJSONObject("connection")?.optString("isp")).orEmpty()
                 .ifBlank { o.optString("isp").orEmpty() }
-                .ifBlank { info.isp ?: "" }
                 .takeIf { it.isNotBlank() },
         )
     }
 
-    private fun fetchRaw(url: String, proxy: java.net.Proxy?, timeoutMs: Int = 6_000): String? {
-        val conn = (if (proxy != null) URL(url).openConnection(proxy) else URL(url).openConnection())
-            as HttpURLConnection
+    private fun fetchRaw(
+        url: String,
+        proxy: java.net.Proxy? = null,
+        timeoutMs: Int = 6_000,
+        network: java.net.Network? = null,
+    ): String? {
+        val conn = (when {
+            network != null -> network.openConnection(URL(url))
+            proxy != null -> URL(url).openConnection(proxy)
+            else -> URL(url).openConnection()
+        }) as HttpURLConnection
         conn.connectTimeout = timeoutMs
         conn.readTimeout = timeoutMs
         conn.setRequestProperty("User-Agent", "CatClient/1.0")
@@ -153,6 +176,7 @@ object IpGeolocation {
         return body
     }
 
+    /** Direct geoip APIs — used when the tunnel is down (shows the real IP). */
     suspend fun detect(proxy: java.net.Proxy? = null): Info? = withContext(Dispatchers.IO) {
         val endpoints = listOf(
             "https://ipwho.is/",           // free, no key, returns country_code/country/city/isp

@@ -9915,7 +9915,13 @@ class MainActivity : Activity() {
                 PanelDeploymentStore(this@MainActivity).deployments()
                     .firstOrNull()?.workerUrl?.removePrefix("https://")?.trimEnd('/')
             }.getOrNull()
-            val info = runCatching { IpGeolocation.locate(workerHost = workerHost) }.getOrNull()
+            val info = runCatching {
+                IpGeolocation.locate(
+                    workerHost = workerHost,
+                    physicalNetwork = activePhysicalNetwork(),
+                    includeReal = tunneledAtFetch,
+                )
+            }.getOrNull()
             liveGeoAtMs = SystemClock.elapsedRealtime()
             if (info == null) return@launch
             liveGeo = info
@@ -9932,6 +9938,17 @@ class MainActivity : Activity() {
             renderRealIpLine(info, tunneledAtFetch)
         }
     }
+
+    /** The underlying physical network (Wi-Fi / cellular) — binding a request
+     * to it bypasses our own TUN, so the caller sees the REAL ISP IP. */
+    private fun activePhysicalNetwork(): java.net.Network? = runCatching {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return null
+        cm.allNetworks.firstOrNull { net ->
+            val caps = cm.getNetworkCapabilities(net) ?: return@firstOrNull false
+            !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+    }.getOrNull()
 
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
