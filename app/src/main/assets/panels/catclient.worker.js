@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.15.1';
+const CAT_PANEL_VERSION = '5.16.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -762,6 +762,7 @@ const KV_KEYS = {
   settings: 'catpanel:settings',
   users: 'catpanel:users',
   traffic: 'catpanel:traffic',
+  quota: 'catpanel:quota',
 };
 
 function kvBinding(env) {
@@ -840,6 +841,11 @@ const DEFAULT_SETTINGS = {
     concurrency: 24,
     timeoutMs: 4000,
   },
+  telegram: {
+    token: '',      // bot token from @BotFather — owner-set, never a CF token
+    chat: '',       // chat_id / @channel
+    enabled: false,
+  },
   masterUuid: '',
   updatedAt: 0,
 };
@@ -883,6 +889,79 @@ async function writeSettings(env, patch) {
   next.updatedAt = Date.now();
   const ok = await kvPut(env, KV_KEYS.settings, JSON.stringify(next));
   return { settings: next, persisted: ok };
+}
+
+/* ------------------------------------------------------------------ */
+/* worker request quota — self-counted, NO Cloudflare token stored       */
+/* ------------------------------------------------------------------ */
+
+const QUOTA_DAILY_LIMIT = 100000;
+const quotaCache = { day: '', count: 0, flags: {}, loaded: false };
+
+function quotaDay() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function flushQuota(env, ctx) {
+  const day = quotaCache.day;
+  if (!day || !hasKv(env)) return;
+  const payload = JSON.stringify({ count: quotaCache.count, flags: quotaCache.flags });
+  const write = () => kvPut(env, KV_KEYS.quota + ':' + day, payload).catch(() => {});
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(write());
+}
+
+function quotaThreshold(env, ctx, key, limitK) {
+  if (quotaCache.flags[key]) return;
+  quotaCache.flags[key] = 1;
+  flushQuota(env, ctx);
+  sendTelegram(env, '⚠️ سهمیهٔ ورکر: <b>' + quotaCache.count + '</b> درخواست امروز (آستانهٔ ' + limitK + ' هزار).');
+}
+
+function noteRequest(env, ctx) {
+  const day = quotaDay();
+  if (quotaCache.day !== day) {
+    quotaCache.day = day;
+    quotaCache.count = 0;
+    quotaCache.flags = {};
+    quotaCache.loaded = false;
+  }
+  quotaCache.count += 1;
+  if (!quotaCache.loaded) {
+    quotaCache.loaded = true;
+    const load = async () => {
+      try {
+        const raw = await kvGet(env, KV_KEYS.quota + ':' + day);
+        if (raw) {
+          const j = JSON.parse(raw);
+          if (j && Number.isFinite(j.count)) quotaCache.count = Math.max(quotaCache.count, j.count);
+          if (j && j.flags) quotaCache.flags = j.flags;
+        }
+      } catch (_) {}
+    };
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(load());
+  }
+  if (quotaCache.count % 25 === 0) flushQuota(env, ctx);
+  if (quotaCache.count >= 50000) quotaThreshold(env, ctx, 't50', 50);
+  if (quotaCache.count >= 80000) quotaThreshold(env, ctx, 't80', 80);
+  if (quotaCache.count >= 95000) quotaThreshold(env, ctx, 't95', 95);
+}
+
+/** Optional owner notifications (bot token lives in the OWNER's own KV,
+ * entered through the authenticated panel — never a Cloudflare credential). */
+async function sendTelegram(env, html) {
+  try {
+    const settings = await readSettings(env);
+    const tg = settings.telegram || {};
+    if (!tg.enabled || !tg.token || !tg.chat) return false;
+    const res = await fetch('https://api.telegram.org/bot' + encodeURIComponent(tg.token) + '/sendMessage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: tg.chat, text: html, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+    return res.ok;
+  } catch (_) {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3445,6 +3524,7 @@ function panelState(host, env, uuid, request, settings) {
     country: cf.country || '',
     edgeLocations: EDGE_LOCATIONS,
     verifiedScanned: !!(settings && settings.configs && settings.configs.verifiedScanned === true),
+    telegram: (function (t) { return { enabled: !!(t && t.enabled), chat: (t && t.chat) || '', tokenSet: !!(t && t.token) }; })(settings && settings.telegram),
     countryPools: countryPools(normalizedVerifiedEntries(settings)),
     city: cf.city || '',
     asn: cf.asOrganization || '',
@@ -3906,6 +3986,8 @@ function toolsTabHtml(state) {
 
     '<div class="card"><h2><span class="dot"></span><span>وضعیت ورکر</span></h2>' +
     '<div class="table-wrap"><table><tbody id="selfTable"><tr><td>در حال خواندن…</td></tr></tbody></table></div>' +
+    '<div class="bar" style="margin-top:10px"><i id="quotaBar" style="width:0"></i></div>' +
+    '<p class="muted" id="quotaText" style="margin-top:6px">سهمیهٔ امروز: در حال خواندن…</p>' +
     '<div class="row" style="margin-top:12px"><button class="btn ghost tiny" id="selfReload">به‌روزرسانی</button>' +
     '<button class="btn ghost tiny" id="scanServer">اسکن سرور روی همهٔ آی‌پی‌های کتابخانه</button></div>' +
     '<pre id="selfScanOut" style="margin-top:10px">—</pre></div>' +
@@ -3915,6 +3997,16 @@ function toolsTabHtml(state) {
     '<pre id="irIpsOut" style="max-height:180px;overflow:auto;direction:ltr">' + IR_CLEAN_IPS.join('\n') + '</pre>' +
     '<div class="row"><button class="btn ghost tiny" data-copy-target="irIpsOut">کپی همه</button>' +
     '<button class="btn ghost tiny" id="irIpsUse">ساخت کانفیگ با این آی‌پی‌ها</button></div></div>' +
+
+    '<div class="card"><h2><span class="dot"></span>اطلاع‌رسانی تلگرام</h2>' +
+    '<p class="muted">توکن ربات را از @BotFather بگیر و شناسهٔ چت را بگذار؛ بعد از ساخت/حذف کاربر و هشدار سهمیه پیام می‌گیری. توکن ربات در KV خودِ پنل تو می‌ماند و به هیچ کلید کلادفلری دست نمی‌زند.</p>' +
+    '<div class="grid two">' +
+    '<label class="field"><span>توکن ربات</span><input id="tgToken" type="password" dir="ltr" placeholder="' + ((state.telegram && state.telegram.tokenSet) ? '•••••• (ذخیره شده)' : '123456:ABC-DEF...') + '"></label>' +
+    '<label class="field"><span>شناسهٔ چت (chat_id یا @کانال)</span><input id="tgChat" dir="ltr" value="' + esc((state.telegram && state.telegram.chat) || '') + '"></label>' +
+    '</div>' +
+    '<label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tgOn" style="width:auto"' + ((state.telegram && state.telegram.enabled) ? ' checked' : '') + '> <span>فعال باشد</span></label>' +
+    '<div class="row" style="margin-top:8px"><button class="btn tiny" id="tgSave">ذخیرهٔ تلگرام</button>' +
+    '<button class="btn ghost tiny" id="tgTest">ارسال پیام تست</button><span class="muted" id="tgStatus"></span></div></div>' +
     '</section>';
 }
 
@@ -4250,6 +4342,11 @@ function panelClientJs() {
     '  reader.onload=function(){fetch("/api/backup",{method:"POST",headers:{"content-type":"application/json"},body:String(reader.result)})',
     '   .then(function(r){return r.json()}).then(function(j){toast(j.ok?"بازیابی شد":"خطا");loadUsers();loadSettings();});};',
     '  reader.readAsText(f);});}',
+    'function loadQuota(){fetch("/api/quota").then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var pct=Math.min(100,Math.round(j.requests*100/j.limit));$("#quotaBar").style.width=pct+"%";$("#quotaText").textContent="درخواست‌های امروز (تقریبی): "+j.requests+" از "+j.limit+" ("+pct+"%)";}).catch(function(){$("#quotaText").textContent="سهمیه در دسترس نیست";});}' +
+    'loadQuota();var sr=$("#selfReload");if(sr)sr.addEventListener("click",loadQuota);' +
+    'function tgPayload(){var t=$("#tgToken").value.trim();var p={telegram:{enabled:$("#tgOn").checked,chat:$("#tgChat").value.trim()}};if(t&&t.indexOf("•")<0)p.telegram.token=t;return p;}' +
+    'if($("#tgSave"))$("#tgSave").addEventListener("click",function(){fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(tgPayload())}).then(function(r){return r.json()}).then(function(j){$("#tgStatus").textContent=j.ok?"ذخیره شد ✅":"خطا: "+j.error;if(j.ok)$("#tgToken").value="";});});' +
+    'if($("#tgTest"))$("#tgTest").addEventListener("click",function(){fetch("/api/telegram-test",{method:"POST"}).then(function(r){return r.json()}).then(function(j){$("#tgStatus").textContent=j.ok?"پیام تست رفت ✅":"ناموفق: "+(j.error||"تنظیمات را ذخیره کن");});});',
     'if($("#scanServer"))$("#scanServer").addEventListener("click",function(){',
     ' var out=$("#selfScanOut");out.textContent="اسکن ۳۲ آی‌پی…";',
     ' var ips=(S.irIps||[]).slice(0,32).join(",");',
@@ -4608,6 +4705,10 @@ async function handleLogin(request, env) {
 function redactSettings(settings) {
   const copy = JSON.parse(JSON.stringify(settings || {}));
   if (copy.panelPassword) copy.panelPassword = '••••••';
+  if (copy.telegram && copy.telegram.token) {
+    copy.telegram.tokenSet = true;
+    copy.telegram.token = '';
+  }
   return copy;
 }
 
@@ -4686,6 +4787,7 @@ async function handleUsersApi(request, url, env, path) {
     });
     users.push(user);
     await writeUsers(env, users);
+    sendTelegram(env, '🐱 <b>کاربر جدید:</b> ' + esc(user.name) + '\nلینک: https://' + (url.host || '') + '/info/' + user.token);
     return jsonResponse({ ok: true, user: withState(user), subPath: '/u/' + user.token, infoPath: '/info/' + user.token }, 201, CORS);
   }
 
@@ -4718,9 +4820,11 @@ async function handleUsersApi(request, url, env, path) {
 
   if (request.method === 'DELETE') {
     if (!id) return jsonResponse({ ok: false, error: 'id-required' }, 400, CORS);
+    const removedUser = users.find((item) => item.id === id) || null;
     const next = users.filter((item) => item.id !== id);
     if (next.length === users.length) return jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
     await writeUsers(env, next);
+    if (removedUser) sendTelegram(env, '🗑 <b>کاربر حذف شد:</b> ' + esc(removedUser.name));
     return jsonResponse({ ok: true, removed: users.length - next.length }, 200, CORS);
   }
 
@@ -5038,6 +5142,7 @@ async function fetchHandler(request, env, ctx) {
   const url = new URL(request.url);
   const host = (request.headers.get('Host') || url.hostname || '').toLowerCase();
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  noteRequest(env, ctx);
 
   if (!sniAllowed(request, host, env)) {
     return new Response('Forbidden SNI', { status: 403, headers: CORS });
@@ -5217,6 +5322,25 @@ async function fetchHandler(request, env, ctx) {
       }, 200, CORS);
     }
     return jsonResponse({ ok: false, error: 'method-not-allowed' }, 405, CORS);
+  }
+
+  if (path === '/api/quota') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    return jsonResponse({
+      ok: true,
+      day: quotaCache.day || quotaDay(),
+      requests: quotaCache.count,
+      limit: QUOTA_DAILY_LIMIT,
+      sampled: true,
+    }, 200, Object.assign({ 'cache-control': 'no-store' }, CORS));
+  }
+
+  if (path === '/api/telegram-test' && request.method === 'POST') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    const sent = await sendTelegram(env, '🐱 پیام تست Cat Panel — اتصال تلگرام برقرار است.');
+    return jsonResponse(sent ? { ok: true } : { ok: false, error: 'ارسال ناموفق — توکن/چت را ذخیره و فعال کن' }, sent ? 200 : 400, CORS);
   }
 
   if (path === '/api/users' || path.startsWith('/api/users/')) {

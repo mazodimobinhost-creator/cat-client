@@ -945,5 +945,28 @@ async function subText(url, opts) {
   check('client apps still get the raw base64 subscription', appRes.status === 200 && (await appRes.text()).length > 40);
 }
 
+// 36. v5.16.0 — worker quota self-monitoring (no CF token anywhere) and
+// owner Telegram notifications with the bot token redacted on read-back.
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await worker.fetch(new Request('https://' + HOST + '/', {}), env);
+  const quota = await (await req('/api/quota', { env, raw: true })).json();
+  check('/api/quota self-counts requests without any CF token', quota.ok === true && quota.requests >= 1 && quota.limit === 100000 && quota.sampled === true);
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ telegram: { enabled: true, chat: '@catchannel', token: '123:ABC' } }),
+  }), env);
+  const cfg = await (await req('/api/settings', { env, raw: true })).json();
+  check('telegram bot token is redacted on read-back', cfg.ok && cfg.settings.telegram && cfg.settings.telegram.token === '' && cfg.settings.telegram.tokenSet === true && cfg.settings.telegram.chat === '@catchannel');
+  const probe = await req('/api/telegram-test', { env, method: 'POST', raw: true });
+  const probeBody = await probe.json();
+  check('/api/telegram-test answers honestly when the bot is unreachable', probeBody.ok === false);
+  const src2 = src;
+  check('quota/telegram UI exists in the tools tab', src2.includes('id="quotaBar"') && src2.includes('id="tgSave"') && src2.includes('id="tgTest"'));
+  check('worker counts every request at the fetch entry', src2.includes('noteRequest(env, ctx);'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
