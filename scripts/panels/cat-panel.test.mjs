@@ -1259,5 +1259,32 @@ async function subText(url, opts) {
   check('200-entry builds actually emit up to the cap', entries200.length > 40, String(entries200.length));
 }
 
+// §47 — the owner sub link opens a "Clean IP ✅" page in browsers
+{
+  const mem47 = new Map();
+  const kv47 = { get: async (k) => mem47.get(k) ?? null, put: async (k, v) => { mem47.set(k, v); }, delete: async (k) => { mem47.delete(k); } };
+  const env47 = { CAT_KV: kv47, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await T.writeSettings(env47, { configs: { verifiedScanned: true, verified: [
+    { ip: '104.21.71.244', colo: 'FRA', countryName: 'Germany', sni: 'time.is', ms: 42 },
+    { ip: '172.64.33.38', colo: 'CDG', countryName: 'France', sni: 'api.ip.sb', ms: 55 },
+  ] } });
+  const masterUuid = await T.resolveUuid(HOST, env47);
+  const U = 'https://' + HOST + '/sub/' + masterUuid;
+  const browser = await worker.fetch(new Request(U, { headers: { 'accept': 'text/html', 'user-agent': 'Mozilla/5.0 (Linux; Android 13) Chrome/126 Mobile Safari/537.36' } }), env47);
+  const page = await browser.text();
+  check('browser on /sub/<uuid> gets the Clean IP page (like commercial subs)', browser.status === 200 && (browser.headers.get('content-type') || '').includes('text/html') && page.includes('Clean IP ✅'), String(browser.status));
+  check('page lists the verified IPs with ping + country', page.includes('104.21.71.244') && page.includes('42 ms') && page.includes('Germany'));
+  check('page has add-to-app deep links + QR + copy + formats', page.includes('catclient://add-sub') && page.includes('/qr.svg?d=') && page.includes('id="cp"') && page.includes('/clash') && page.includes('/singbox'));
+  check('fastest IP sorted first', page.indexOf('104.21.71.244') < page.indexOf('172.64.33.38'));
+  const client = await worker.fetch(new Request(U, { headers: { 'user-agent': 'v2rayNG/1.8.26' } }), env47);
+  const clientBody = await client.text();
+  check('tunnel clients STILL get raw base64 (no UA sniffing damage)', !clientBody.includes('<!doctype') && clientBody.includes('vless://') === false ? Buffer.from(clientBody, 'base64').toString('utf8').includes('vless://') : clientBody.includes('vless://'));
+  const forced = await worker.fetch(new Request(U + '?raw=1', { headers: { 'accept': 'text/html', 'user-agent': 'Mozilla/5.0' } }), env47);
+  const rawBody = await forced.text();
+  check('?raw=1 escapes the page even in a browser', rawBody.includes('vless://') && !rawBody.includes('Clean IP'));
+  const web1 = await worker.fetch(new Request(U + '?web=1', { headers: { 'user-agent': 'v2rayNG/1.8.26' } }), env47);
+  check('?web=1 forces the page even for client UAs', (await web1.text()).includes('Clean IP ✅'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

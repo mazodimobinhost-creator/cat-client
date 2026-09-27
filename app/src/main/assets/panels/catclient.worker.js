@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.22.0';
+const CAT_PANEL_VERSION = '5.22.1';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -5240,6 +5240,50 @@ function wantsHtmlPage(request) {
   return !isClient && accept.includes('text/html');
 }
 
+/** Graphical page for the OWNER subscription — what a human sees opening
+ * /sub/<uuid> in a browser: the clean-IP list (ping + country), add-to-app
+ * buttons, QR and the raw formats. Client apps never see this (UA gate). */
+function masterSubHtml(opts) {
+  const title = String(opts.title || 'Cat Panel');
+  const subUrl = String(opts.subUrl || '');
+  const enc = encodeURIComponent(subUrl);
+  const entries = (opts.entries || []).slice().sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
+  const shown = entries.slice(0, 60);
+  const rows = shown.map((e) => {
+    const loc = locationFromCodeOrColo(e.colo || e.countryCode || '');
+    const flag = (loc && loc.flag) || '🌐';
+    const country = String(e.countryName || (loc && loc.country) || 'Cloudflare edge');
+    const sni = e.sni ? '<span dir="ltr" style="opacity:.65;font-size:11px">' + esc(e.sni) + '</span>' : '';
+    const ms = Number(e.ms) || 0;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid rgba(128,128,128,.15)">' +
+      '<span style="color:#22c55e">●</span><b dir="ltr" style="font-size:13.5px">' + esc(e.ip) + '</b>' +
+      '<span style="font-size:11.5px;opacity:.75">' + flag + ' ' + esc(country) + '</span>' +
+      (ms ? '<span dir="ltr" style="font-size:11.5px;color:#22c55e">' + ms + ' ms</span>' : '') + sni + '</div>';
+  }).join('');
+  const apps = (opts.apps || []).map((a) =>
+    '<a class="btn" style="text-decoration:none;font-size:12.5px;padding:8px 12px" href="' + esc(a.href) + '">' + esc(a.label) + '</a>').join(' ');
+  const stats = opts.stats || '';
+  return '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + esc(title) + ' — ساب</title><style>body{background:#0b0714;color:#f5f3ff;font-family:system-ui,sans-serif;margin:0;padding:18px;max-width:680px;margin-inline:auto} ' +
+    '.card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:16px;margin-bottom:14px} ' +
+    '.btn{background:rgba(167,139,250,.18);border:1px solid rgba(167,139,250,.4);color:#ede9fe;border-radius:10px}' +
+    'h1{font-size:19px;margin:0 0 4px} h2{font-size:15px;margin:0 0 8px} .muted{opacity:.7;font-size:12.5px}</style></head><body>' +
+    '<div class="card"><h1>🐱 ' + esc(title) + '</h1><div class="muted">' + stats + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' + apps +
+    '<button class="btn" id="cp" style="font-size:12.5px;padding:8px 12px">کپی لینک ساب</button></div>' +
+    '<div style="margin-top:10px"><img alt="QR" src="/qr.svg?d=' + enc + '&size=6" style="width:150px;height:150px;border-radius:10px;background:#fff;padding:6px"></div>' +
+    '<div class="muted" dir="ltr" style="margin-top:8px;word-break:break-all;font-size:11px">' + esc(subUrl) + '</div></div>' +
+    '<div class="card"><h2>Clean IP ✅ <span class="muted">(' + entries.length + ' مورد تست‌شده)</span></h2>' +
+    (rows || '<div class="muted">هنوز IP ثبت نشده — در پنل یک اسکن بزن.</div>') +
+    (entries.length > shown.length ? '<div class="muted" style="margin-top:8px">… و ' + (entries.length - shown.length) + ' مورد دیگر</div>' : '') + '</div>' +
+    '<div class="card"><h2>فرمت‌های دیگر</h2><div style="display:flex;gap:8px;flex-wrap:wrap">' +
+    '<a class="btn" style="text-decoration:none;font-size:12.5px;padding:8px 12px" href="' + esc(subUrl + '/clash') + '">Clash</a>' +
+    '<a class="btn" style="text-decoration:none;font-size:12.5px;padding:8px 12px" href="' + esc(subUrl + '/singbox') + '">sing-box</a>' +
+    '<a class="btn" style="text-decoration:none;font-size:12.5px;padding:8px 12px" href="' + esc(subUrl + '/all') + '">JSON همه</a>' +
+    '<a class="btn" style="text-decoration:none;font-size:12.5px;padding:8px 12px" href="' + esc(subUrl + '?raw=1') + '">متن خام</a></div></div>' +
+    '<script>document.getElementById("cp").onclick=function(){navigator.clipboard.writeText(' + JSON.stringify(subUrl) + ').then(function(){this.textContent="کپی شد ✓"}.bind(this))};<' + '/script></body></html>';
+}
+
 async function handleUserSubscription(request, url, env, host, path, ctx) {
   const isInfo = path.startsWith('/info/');
   const rest = path.slice(isInfo ? '/info/'.length : '/u/'.length).split('/');
@@ -5544,6 +5588,22 @@ async function fetchHandler(request, env, ctx) {
     const settings = await readSettings(env);
     const options = configOptions(url, host, env, settings);
     let format = String(subMatch[3] || '').toLowerCase();
+    // A human opening the OWNER sub link gets the graphical page (clean-IP
+    // list + add-to-app + QR) — exactly like commercial sub services. Client
+    // apps keep the raw payload (wantsHtmlPage never matches tunnel UAs).
+    const wantsWebPage = url.searchParams.get('web') === '1' || wantsHtmlPage(request);
+    if ((!format || wantsWebPage) && url.searchParams.get('raw') !== '1' && url.searchParams.get('b64') !== '1' && wantsWebPage) {
+      const op = operatorDef(options.operator);
+      const stats = (options.entryLimit || DEFAULT_SUB_ENTRIES) + ' کانفیگ فعال · ' + options.protocols.join(' + ').toUpperCase() +
+        (op ? ' · اپراتور ' + op.fa : '');
+      return new Response(masterSubHtml({
+        title: String(env.PANEL_TITLE || 'Cat Panel'),
+        subUrl: 'https://' + host + path,
+        entries: options.verifiedEntries,
+        apps: appDeepLinks('https://' + host + path, String(env.PANEL_TITLE || 'Cat Panel')),
+        stats: stats,
+      }), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+    }
     if (kind === 'clash' || kind === 'mihomo') format = 'clash';
     if (kind === 'singbox' || kind === 'sing-box') format = 'singbox';
     if (kind === 'all') format = 'all';
@@ -6045,6 +6105,8 @@ export const _testing = {
   operatorChipsHtml,
   healthCheck,
   MAX_SUB_ENTRIES,
+  masterSubHtml,
+  wantsHtmlPage,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,
