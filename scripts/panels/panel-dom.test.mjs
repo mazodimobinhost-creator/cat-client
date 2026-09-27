@@ -154,6 +154,8 @@ check('drawer nav is translated', document.querySelector('#hmenu [data-nav-label
 click(document.querySelector('#hmenu [data-setlang="fa"]'));
 check('drawer lang pill back to FA', document.body.getAttribute('data-lang') === 'fa');
 check('drawer has its own lang pill + meta', document.querySelectorAll('#hmenu [data-setlang]').length === 2 && !!document.querySelector('#hmenu .drawer-foot'));
+check('BUGFIX: drawer + backdrop are body-level (not inside the sticky glass header)', !document.querySelector('#hmenu').closest('header.top') && !document.querySelector('#drawerBg').closest('header.top'));
+check('hero has the Aras-style connect pill', (document.querySelector('.hero-cta .cta-main')?.getAttribute('href') || '').startsWith('catclient://add-sub') && !!document.querySelector('.hero-cta [data-copy-sub]'));
 
 click(document.querySelector('.side-nav button[data-tab="scanner"]'));
 check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));

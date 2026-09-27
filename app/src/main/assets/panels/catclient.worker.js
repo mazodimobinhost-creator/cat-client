@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.3';
+const CAT_PANEL_VERSION = '5.23.4';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3728,7 +3728,7 @@ function css() {
     'body[data-lang="fa"] .hmenu{right:0;transform:translateX(110%)}',
     'body[data-lang="en"] .hmenu{left:0;transform:translateX(-110%)}',
     '.hmenu.show{transform:translateX(0)!important;visibility:visible}',
-    '.drawer-bg{position:fixed;inset:0;z-index:95;background:rgba(3,1,9,.6);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .24s}',
+    '.drawer-bg{position:fixed;inset:0;z-index:95;background:rgba(3,1,9,.62);opacity:0;pointer-events:none;transition:opacity .24s}',
     '.drawer-bg.show{opacity:1;pointer-events:auto}',
     '.drawer-foot{margin-top:auto;padding-top:14px;display:flex;flex-direction:column;gap:12px}',
     '.hmenu button{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;border:1px solid transparent;',
@@ -3815,6 +3815,13 @@ function css() {
     '.side-foot{margin-top:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 10px 2px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--dim)}',
     '.side-foot .lang-pill{flex-basis:100%;margin-bottom:2px}',
     '.side-meta{display:flex;align-items:center;gap:8px}',
+    '.hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}',
+    '.hero-cta .cta-main,.hero-cta .cta-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 26px;border-radius:999px;',
+    'font:inherit;font-size:14.5px;font-weight:800;cursor:pointer;text-decoration:none;transition:transform .16s,box-shadow .16s}',
+    '.hero-cta .cta-main{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 14px 34px var(--glow-a)}',
+    '.hero-cta .cta-main:hover{transform:translateY(-2px);box-shadow:0 18px 44px var(--glow-a)}',
+    '.hero-cta .cta-ghost{color:var(--text);background:var(--surface);border:1px solid var(--line)}',
+    '.hero-cta .cta-ghost:hover{background:var(--surface-2)}',
     '.section-head{display:flex;align-items:center;gap:12px;margin:4px 2px 14px}',
     '.sh-icon{width:44px;height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:21px;border-radius:15px;',
     'background:linear-gradient(135deg,var(--glow-a),var(--glow-b));border:1px solid var(--line);box-shadow:0 8px 22px var(--glow-a)}',
@@ -3989,10 +3996,6 @@ function panelShell(state) {
     '<div class="main">' +
     '<header class="top"><div class="top-inner">' +
     '<button class="icon-btn burger" id="burgerBtn" title="منو"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>' +
-    '<div class="hmenu" id="hmenu">' + navHtml +
-    '<div class="drawer-foot">' + langPillHtml() + '<div class="side-meta"><span class="pill ok" data-i18n="online">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div></div>' +
-    '</div>' +
-    '<div class="drawer-bg" id="drawerBg"></div>' +
     '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span><b id="brandName">' + esc(state.title) + '</b>' +
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
     '<span class="spacer"></span>' +
@@ -4006,6 +4009,11 @@ function panelShell(state) {
       dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
     '</div></div>' +
+
+    '<div class="drawer-bg" id="drawerBg"></div>' +
+    '<div class="hmenu" id="hmenu">' + navHtml +
+    '<div class="drawer-foot">' + langPillHtml() + '<div class="side-meta"><span class="pill ok" data-i18n="online">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div></div>' +
+    '</div>' +
 
     '<div class="toast" id="toast"><span id="toastText"></span></div>' +
     '<div class="modal" id="qrModal"><div class="box">' +
@@ -4065,6 +4073,10 @@ function homeTabHtml(state) {
     '<div style="flex:1;min-width:220px">' +
     '<h1 id="heroTitle">پنل فعال است</h1>' +
     '<p id="heroSub">این Worker روی شبکهٔ کلودفلر اجرا می‌شود؛ با یک لینک، همهٔ دستگاه‌هایت را وصل کن.</p>' +
+    '<div class="hero-cta">' +
+    '<a class="cta-main" href="' + esc(state.deepLink) + '">⚡ اتصال فوری در اپ</a>' +
+    '<button class="cta-ghost" type="button" data-copy-sub>کپی لینک ساب</button>' +
+    '</div>' +
     '<div class="row" style="margin-top:10px">' +
     '<span class="pill">v' + CAT_PANEL_VERSION + '</span>' +
     '<span class="pill">VLESS-WS</span><span class="pill">Trojan-WS</span>' +
@@ -4551,6 +4563,7 @@ function panelClientJs() {
     ' document.addEventListener("click",function(ev){var hm=$("#hmenu");if(hm&&hm.classList.contains("show")&&!ev.target.closest("#hmenu")&&ev.target.id!=="burgerBtn"){hm.classList.remove("show");var bg=$("#drawerBg");if(bg)bg.classList.remove("show")}});',
     'function doSetLang(l){lang=l;try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();}',
     '$("#langBtn").addEventListener("click",function(){doSetLang(lang==="fa"?"en":"fa")});',
+    ' $$(".hero-cta [data-copy-sub]").forEach(function(b){b.addEventListener("click",function(){copyText(CAT_STATE.subUrl)})});',
     '$$("#hmenu [data-setlang],.side-foot [data-setlang]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();doSetLang(b.getAttribute("data-setlang"))})});',
 
     'document.addEventListener("click",function(ev){',

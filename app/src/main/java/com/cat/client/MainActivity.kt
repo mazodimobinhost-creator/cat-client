@@ -2433,26 +2433,33 @@ class MainActivity : Activity() {
                 true
             }
         }
+        // Aras-style action capsule: a big 56dp pill. Filled purple gradient
+        // while the tunnel is up, state-tinted while switching, quiet glass
+        // otherwise (see applyConnectPillStyle). The globe stays the playful
+        // touch target; this is the clear one-tap switch under it.
         connectActionButton = MaterialButton(this).apply {
             setText(R.string.connect_action_connect)
             setAllCaps(false)
-            textSize = 15f
+            textSize = 16f
             typeface = CatClientBodyBoldTypeface
             minWidth = 0
             minimumWidth = 0
-            minHeight = dp(50)
-            minimumHeight = dp(50)
+            minHeight = dp(56)
+            minimumHeight = dp(56)
             insetTop = 0
             insetBottom = 0
-            cornerRadius = dp(18)
-            strokeWidth = dp(1)
-            setPadding(dp(22), 0, dp(22), 0)
-            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 48 else 30))
-            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 180))
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 48))
-            setTextColor(TEAL)
-            elevation = dp(3).toFloat()
+            setPadding(dp(30), 0, dp(30), 0)
+            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 60))
+            elevation = dp(4).toFloat()
             stateListAnimator = null
+            backgroundTintList = null
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(28).toFloat()
+                setColor(withAlpha(SURFACE, 235))
+                setStroke(dp(1), withAlpha(OUTLINE, 210))
+            }
+            setTextColor(TEAL)
             setOnClickListener { handleButtonClick() }
         }
         statusDot = View(this).apply {
@@ -2779,7 +2786,7 @@ class MainActivity : Activity() {
             )
             addView(
                 connectActionButton,
-                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2) },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) },
             )
             // Visible actions: ping through the ACTIVE config (like v2rayNG /
             // V2Box) and a manual IP re-check so the dashboard can be synced
@@ -7846,7 +7853,7 @@ class MainActivity : Activity() {
                     }
                     // Card-like background
                     row.background = GradientDrawable().apply {
-                        cornerRadius = dp(12).toFloat()
+                        cornerRadius = dp(16).toFloat()
                         setColor(SURFACE)
                     }
                     holder = ConnectionRowHolder(
@@ -10275,6 +10282,40 @@ class MainActivity : Activity() {
             ?: locationPreferenceStore.readSelectedCountryCode()?.let(ConnectionLocationPolicy::countryFromCode)
     }
 
+    /** Aras-style capsule painting: filled state gradient while the tunnel is
+     * up/transitioning/broken, quiet glass while idle. Purple = Cat identity. */
+    private fun connectPillGradient(state: VpnState): IntArray? = when {
+        state == VpnState.Started -> intArrayOf(palette.tealGradientStart, palette.tealGradientEnd)
+        state == VpnState.Starting || state == VpnState.Stopping ->
+            intArrayOf(withAlpha(palette.amberGradientStart, 240), withAlpha(palette.amberGradientEnd, 240))
+        state is VpnState.Error || state == VpnState.DailyLimitReached ->
+            intArrayOf(withAlpha(palette.redGradientStart, 240), withAlpha(palette.redGradientEnd, 240))
+        else -> null
+    }
+
+    private fun applyConnectPillStyle(state: VpnState) {
+        if (!::connectActionButton.isInitialized) return
+        val gradient = connectPillGradient(state)
+        connectActionButton.backgroundTintList = null
+        if (gradient != null) {
+            connectActionButton.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(28).toFloat()
+                orientation = GradientDrawable.Orientation.TL_BR
+                colors = gradient
+            }
+            connectActionButton.setTextColor(Color.WHITE)
+        } else {
+            connectActionButton.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(28).toFloat()
+                setColor(withAlpha(SURFACE, 235))
+                setStroke(dp(1), withAlpha(OUTLINE, 210))
+            }
+            connectActionButton.setTextColor(TEAL)
+        }
+    }
+
     private fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
@@ -10283,6 +10324,7 @@ class MainActivity : Activity() {
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
         connectActionButton.contentDescription = getString(buttonModel.labelRes())
+        applyConnectPillStyle(state)
         // Update status dot color based on state
         (statusDot.background as? GradientDrawable)?.setColor(
             when (state) {
