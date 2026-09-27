@@ -243,6 +243,14 @@
     <string name="tls_fragment_title">فرگمنت TLS (ByeDPI)</string>
     <string name="tls_fragment_description">ClientHello را تکه‌تکه می‌فرستد تا فیلترینگ نتواند SNI را بخواند — حالت Fragment اختصاصی Cat Client برای دامنه‌های فیلترشدهٔ workers.dev. اگر سرعت افت کرد خاموشش کن.</string>
     <string name="tls_fragment_enabled_toast">فرگمنت TLS روشن شد — اتصال دوباره</string>
+    <string name="dpi_preset_section">پریست فرگمنت بر اساس اپراتور</string>
+    <string name="dpi_preset_applied">پریست %1$s ذخیره شد — برای اعمال، اتصال را دوباره برقرار کن</string>
+    <string name="dpi_preset_default">پیش‌فرض</string>
+    <string name="dpi_preset_mci">همراه اول</string>
+    <string name="dpi_preset_irancell">ایرانسل</string>
+    <string name="dpi_preset_rightel">رایتل</string>
+    <string name="dpi_preset_tci">مخابرات</string>
+    <string name="dpi_preset_gaming">گیمینگ</string>
     <string name="tls_fragment_disabled_toast">فرگمنت TLS خاموش شد — اتصال دوباره</string>
     <string name="settings_warp_section">WARP Pro / Amnezia Noise</string>
     <string name="amnezia_noise_title">Amnezia Noise</string>

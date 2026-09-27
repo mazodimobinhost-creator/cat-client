@@ -242,6 +242,14 @@
     <string name="tls_fragment_title">TLS Fragment (ByeDPI)</string>
     <string name="tls_fragment_description">Splits the TLS ClientHello so filters cannot read the SNI — the Cat Client Fragment mode for filtered workers.dev domains. Turn off if connections get slower.</string>
     <string name="tls_fragment_enabled_toast">TLS Fragment on — reconnecting</string>
+    <string name="dpi_preset_section">Fragment preset by operator</string>
+    <string name="dpi_preset_applied">Preset %1$s saved — reconnect to apply</string>
+    <string name="dpi_preset_default">Default</string>
+    <string name="dpi_preset_mci">MCI</string>
+    <string name="dpi_preset_irancell">Irancell</string>
+    <string name="dpi_preset_rightel">Rightel</string>
+    <string name="dpi_preset_tci">TCI</string>
+    <string name="dpi_preset_gaming">Gaming</string>
     <string name="tls_fragment_disabled_toast">TLS Fragment off — reconnecting</string>
     <string name="settings_warp_section">WARP Pro / Amnezia Noise</string>
     <string name="amnezia_noise_title">Amnezia Noise</string>

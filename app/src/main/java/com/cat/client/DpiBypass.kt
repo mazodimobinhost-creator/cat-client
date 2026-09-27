@@ -10,16 +10,14 @@ object DpiBypassDefaults {
     const val FALLBACK_PROXY_PORT = 1080
     private const val PROTECT_PATH_PLACEHOLDER = "android-vpn-protect"
 
-    fun proxyArgs(port: Int): Array<String> {
+    fun proxyArgs(port: Int, preset: DpiFragmentPreset = DpiFragmentPreset.DEFAULT): Array<String> {
         require(port in 1..65_535) { "Invalid ByeByeDPI port: $port" }
         return arrayOf(
             "ciadpi",
             "-i$PROXY_HOST",
             "-p$port",
             "-P$PROTECT_PATH_PLACEHOLDER",
-            "-Kt,h",
-            "-d1",
-            "-f-1",
+            *preset.ciadpiArgs,
         )
     }
 }
@@ -30,8 +28,8 @@ object ByeDpiProxy {
         System.loadLibrary("core")
     }
 
-    fun start(port: Int, protect: TunInterface): Int {
-        return jniStartProxy(DpiBypassDefaults.proxyArgs(port), protect)
+    fun start(port: Int, protect: TunInterface, preset: DpiFragmentPreset = DpiFragmentPreset.DEFAULT): Int {
+        return jniStartProxy(DpiBypassDefaults.proxyArgs(port, preset), protect)
     }
 
     fun stop(): Int = jniStopProxy()
@@ -56,8 +54,38 @@ class DpiBypassPreferenceStore(context: Context) {
         preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
+    fun presetId(): String = preferences.getString(KEY_PRESET, null) ?: DpiFragmentPreset.DEFAULT.id
+
+    fun savePreset(id: String) {
+        preferences.edit().putString(KEY_PRESET, DpiFragmentPreset.byId(id).id).apply()
+    }
+
     private companion object {
         const val PREFERENCES = "cat_client_dpi_bypass"
         const val KEY_ENABLED = "enabled"
+        const val KEY_PRESET = "preset"
+    }
+}
+
+/**
+ * ISP-specific ByeDPI fragmentation presets — starting points tuned per Iranian
+ * carrier community feedback (the split position / disorder combination that
+ * usually gets ClientHello through that network's DPI). Carriers vary by region
+ * and change over time, so the UI presents them as "try one, keep what works".
+ */
+enum class DpiFragmentPreset(
+    val id: String,
+    val ciadpiArgs: Array<String>,
+) {
+    DEFAULT("default", arrayOf("-Kt,h", "-d1", "-f-1")),
+    MCI("mci", arrayOf("-Kt,h", "-d2", "-f3")),
+    IRANCELL("irancell", arrayOf("-Kt,h", "-d1", "-f5")),
+    RIGHTEL("rightel", arrayOf("-Kt,h", "-d3", "-f2")),
+    TCI("tci", arrayOf("-Kt", "-d2", "-f8")),
+    GAMING("gaming", arrayOf("-Kt,h", "-f-2")),
+    ;
+
+    companion object {
+        fun byId(id: String?): DpiFragmentPreset = entries.firstOrNull { it.id == id } ?: DEFAULT
     }
 }

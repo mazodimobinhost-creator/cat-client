@@ -3242,6 +3242,54 @@ class MainActivity : Activity() {
             ),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
+        // ISP-specific fragmentation presets (the one-click carriers row):
+        // each operator's DPI splits ClientHello differently, so the winning
+        // ByeDPI pattern differs too — try one, keep what works.
+        val presetChips = mutableListOf<Chip>()
+        val presetRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        listOf(
+            R.string.dpi_preset_default to DpiFragmentPreset.DEFAULT,
+            R.string.dpi_preset_mci to DpiFragmentPreset.MCI,
+            R.string.dpi_preset_irancell to DpiFragmentPreset.IRANCELL,
+            R.string.dpi_preset_rightel to DpiFragmentPreset.RIGHTEL,
+            R.string.dpi_preset_tci to DpiFragmentPreset.TCI,
+            R.string.dpi_preset_gaming to DpiFragmentPreset.GAMING,
+        ).forEach { (labelRes, preset) ->
+            val chip = Chip(this).apply {
+                text = getString(labelRes)
+                isCheckable = true
+                isChecked = dpiBypassPreferenceStore.presetId() == preset.id
+                textSize = 11f
+                setTextColor(TEXT_PRIMARY)
+                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
+                chipStrokeWidth = dp(1).toFloat()
+                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) {
+                        presetChips.filterNot { it === this }.forEach { it.isChecked = false }
+                        dpiBypassPreferenceStore.savePreset(preset.id)
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.dpi_preset_applied, getString(labelRes)),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+            presetChips += chip
+            presetRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        }
+        tlsIntegrityPanel.addView(
+            advancedSectionLabel(getString(R.string.dpi_preset_section)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        tlsIntegrityPanel.addView(
+            presetRow,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
         connectionSettings.addView(
             tlsIntegrityPanel,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },

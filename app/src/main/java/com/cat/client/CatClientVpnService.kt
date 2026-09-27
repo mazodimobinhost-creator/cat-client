@@ -3479,7 +3479,7 @@ class CatClientVpnService : VpnService() {
         }
         val job = scope.launch(Dispatchers.IO) {
             val result = runCatching {
-                ByeDpiProxy.start(port, protectCallback)
+                ByeDpiProxy.start(port, protectCallback, DpiFragmentPreset.byId(dpiBypassPreferenceStore.presetId()))
             }
             result
                 .onSuccess { exitCode ->
