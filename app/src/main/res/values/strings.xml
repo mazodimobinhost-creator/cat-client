@@ -352,6 +352,13 @@
     <string name="action_ping_test">Ping test</string>
     <string name="ip_refresh">Refresh IP</string>
     <string name="ip_refreshing">Fetching IP…</string>
+    <string name="action_ping_all">Ping all</string>
+    <string name="action_connect_best">Connect best</string>
+    <string name="ping_all_started">Pinging every config…</string>
+    <string name="ping_all_done">Best: %1$s (%2$d ms) · %3$d reachable</string>
+    <string name="ping_all_connecting">Connecting to the best: %1$s (%2$d ms)</string>
+    <string name="ping_all_none">No config answered the ping</string>
+    <string name="ping_all_empty">No configs to test yet</string>
     <string name="route_edge_fallback">Cloudflare edge · probe location unavailable</string>
     <string name="route_automatic">Output / automatic</string>
     <string name="route_selecting">Selecting route</string>

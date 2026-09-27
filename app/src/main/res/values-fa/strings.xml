@@ -351,6 +351,13 @@
     <string name="action_ping_test">تست پینگ</string>
     <string name="ip_refresh">بروزرسانی IP</string>
     <string name="ip_refreshing">در حال دریافت IP…</string>
+    <string name="action_ping_all">پینگ همه</string>
+    <string name="action_connect_best">اتصال به بهترین</string>
+    <string name="ping_all_started">در حال پینگ همهٔ کانفیگ‌ها…</string>
+    <string name="ping_all_done">بهترین: %1$s (%2$d میلی‌ثانیه) · %3$d کانفیگ پاسخ داد</string>
+    <string name="ping_all_connecting">اتصال به بهترین: %1$s (%2$d میلی‌ثانیه)</string>
+    <string name="ping_all_none">هیچ کانفیگی به پینگ جواب نداد</string>
+    <string name="ping_all_empty">هنوز کانفیگی برای تست نیست</string>
     <string name="route_edge_fallback">لبهٔ کلودفلر · موقعیت پاسخ‌دهنده نامشخص است</string>
     <string name="route_automatic">خروجی / خودکار</string>
     <string name="route_selecting">در حال انتخاب مسیر</string>

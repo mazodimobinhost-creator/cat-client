@@ -188,6 +188,7 @@ class MainActivity : Activity() {
     private var liveGeoDirectAttempted: Boolean = false
     private lateinit var connectionV6Text: TextView
     private var tunnelPingRunning: Boolean = false
+    private var pingAllRunning: Boolean = false
     private lateinit var connectActionButton: MaterialButton
     private lateinit var statusDot: View
     private lateinit var statusText: TextView
@@ -2811,6 +2812,37 @@ class MainActivity : Activity() {
                     addView(ghostButton(R.string.ip_refresh) { refreshDashboardIp() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
                 },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+            // Bulk actions: ping EVERY config (like v2rayNG Ping All) and
+            // connect straight to the fastest one.
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
+                        setText(textRes)
+                        setAllCaps(false)
+                        textSize = 11.5f
+                        typeface = CatClientBodyBoldTypeface
+                        minWidth = 0
+                        minimumWidth = 0
+                        minHeight = dp(34)
+                        minimumHeight = dp(34)
+                        insetTop = 0
+                        insetBottom = 0
+                        setPadding(dp(14), 0, dp(14), 0)
+                        cornerRadius = dp(12)
+                        strokeWidth = dp(1)
+                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
+                        setTextColor(TEAL)
+                        setOnClickListener { onClick() }
+                    }
+                    addView(ghostButton(R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(-2, -2))
+                    addView(ghostButton(R.string.action_connect_best) { runPingAll(autoConnect = true) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
             )
             addView(
                 LinearLayout(this@MainActivity).apply {
@@ -10089,6 +10121,80 @@ class MainActivity : Activity() {
         liveGeo = null
         beginLiveGeoCheck(force = true)
         Toast.makeText(this, R.string.ip_refreshing, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Ping EVERY profile of the active subscription through the running core
+     * (the service's own concurrent delay sweep) and, with [autoConnect],
+     * switch to the fastest one — v2rayNG 'Ping All' + best-connect. */
+    private fun runPingAll(autoConnect: Boolean) {
+        if (pingAllRunning) return
+        val profiles = connectionProfiles
+        if (profiles.isEmpty()) {
+            Toast.makeText(this, R.string.ping_all_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val subscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
+        val testId = android.os.SystemClock.elapsedRealtimeNanos().toString()
+        pingAllRunning = true
+        Toast.makeText(this, R.string.ping_all_started, Toast.LENGTH_LONG).show()
+        ConnectionDelayTestState.replace(
+            ConnectionDelayTestSession(
+                testId = testId,
+                subscriptionId = subscriptionId,
+                connectionTypes = emptySet(),
+                targetFingerprints = profiles.map(ConnectionProfile::fingerprint),
+                status = Actions.DELAY_TEST_PREPARING,
+                total = profiles.size,
+            ),
+        )
+        startForegroundService(
+            Intent(this, CatClientVpnService::class.java)
+                .setAction(Actions.TEST_CONNECTION_DELAYS)
+                .putExtra(Actions.EXTRA_APP_INITIATED, true)
+                .putExtra(Actions.EXTRA_DELAY_TEST_ID, testId)
+                .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, subscriptionId)
+                .putStringArrayListExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList<String>())
+                .putStringArrayListExtra(
+                    Actions.EXTRA_CONNECTION_FINGERPRINTS,
+                    ArrayList(profiles.map(ConnectionProfile::fingerprint)),
+                ),
+        )
+        activityScope.launch {
+            val deadline = android.os.SystemClock.elapsedRealtime() + 4 * 60_000L
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                kotlinx.coroutines.delay(700)
+                val snap = ConnectionDelayTestState.snapshot(subscriptionId) ?: continue
+                if (!snap.isRunning || snap.completed >= snap.total) break
+            }
+            val records = SubscriptionStore(this@MainActivity).readConnectionDelayRecords(subscriptionId, profiles)
+            val best = records.firstOrNull { it.status == ConnectionDelayStatus.Success }
+            val bestProfile = best?.let { r -> profiles.firstOrNull { it.fingerprint == r.fingerprint } }
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                pingAllRunning = false
+                if (bestProfile == null) {
+                    Toast.makeText(this@MainActivity, R.string.ping_all_none, Toast.LENGTH_LONG).show()
+                } else if (autoConnect) {
+                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, bestProfile)
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.ping_all_connecting, bestProfile.displayTag, best?.delayMs ?: 0),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    startVpnService(Actions.RECONNECT)
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(
+                            R.string.ping_all_done,
+                            bestProfile.displayTag,
+                            best?.delayMs ?: 0,
+                            records.count { it.status == ConnectionDelayStatus.Success },
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
     }
 
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
