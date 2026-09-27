@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.20.2';
+const CAT_PANEL_VERSION = '5.21.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -2568,7 +2568,12 @@ function configOptions(url, host, env, settings, allowedCountries) {
   const fromQuery = splitCsv(q.get('ips') || q.get('addresses'));
   const fromSettings = Array.isArray(cfg.addresses) ? cfg.addresses : [];
   const fromEnv = splitCsv(env.CF_IPS);
-  const verifiedEntries = normalizedVerifiedEntries(settings);
+  let verifiedEntries = normalizedVerifiedEntries(settings);
+  const opDef = operatorDef(q.get('op') || cfg.operator);
+  if (opDef) {
+    const bucket = operatorBucket(settings, opDef.id);
+    if (bucket.length) verifiedEntries = bucket;
+  }
   const ownerGate = Array.isArray(allowedCountries) ? allowedCountries : null;
   const savedCountryCodes = Array.isArray(cfg.countryCodes)
     ? cfg.countryCodes
@@ -2706,6 +2711,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
     addresses: addresses,
     ports: effPorts.length ? effPorts : [80, 443],
     gaming: gaming,
+    operator: opDef ? opDef.id : '',
     sni: sni,
     snis: snis,
     protocols: protocols.length ? protocols : ['vless'],
@@ -3262,6 +3268,45 @@ function communityIpsFrom(settings) {
   return list.filter((ip) => ip && isCloudflareIp(ip));
 }
 
+/**
+ * Iranian ISPs the panel can keep SEPARATE verified-IP pools for. The browser
+ * scanner always measures on the connection the user is currently on, so the
+ * operator tag they pick before scanning is what makes each bucket truthful:
+ * scan on Hamrah-e Aval → the mci bucket; switch SIM, scan again → irancell
+ * bucket. Subs then pick a bucket via ?op= or the saved default.
+ */
+const IR_OPERATORS = [
+  { id: 'mci', fa: 'همراه اول', en: 'MCI (Hamrah-e Aval)' },
+  { id: 'irancell', fa: 'ایرانسل', en: 'MTN Irancell' },
+  { id: 'rightel', fa: 'رایتل', en: 'Rightel' },
+  { id: 'saman', fa: 'سامانتل', en: 'SamanTel' },
+  { id: 'shatel', fa: 'شاتل', en: 'Shatel' },
+  { id: 'tci', fa: 'مخابرات', en: 'TCI (fixed)' },
+  { id: 'other', fa: 'سایر', en: 'Other' },
+];
+
+function operatorDef(id) {
+  const needle = String(id || '').trim().toLowerCase();
+  return IR_OPERATORS.find((o) => o.id === needle) || null;
+}
+
+/** Chip row for both the scanner and the config builder. */
+function operatorChipsHtml(activeId) {
+  const active = String(activeId || '').toLowerCase();
+  return IR_OPERATORS.map((o) =>
+    '<button class="chip' + (active === o.id ? ' active' : '') + '" type="button" data-op="' + o.id + '">' + esc(o.fa) + '</button>'
+  ).join('');
+}
+
+/** Saved verified entries for ONE operator (CF-gated by the normalizer). */
+function operatorBucket(settings, id) {
+  const def = operatorDef(id);
+  if (!def) return [];
+  const byOp = settings && settings.configs && settings.configs.verifiedByOp;
+  const list = byOp && Array.isArray(byOp[def.id]) ? byOp[def.id] : [];
+  return normalizedVerifiedEntries({ configs: { verified: list } });
+}
+
 const SCAN_RANGES = [
   '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '162.158.0.0/15',
   '131.0.72.0/22', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
@@ -3714,6 +3759,8 @@ function panelState(host, env, uuid, request, settings) {
     qrBase: 'https://' + host + '/qr.svg',
     scanTargets: scanTargets(env),
     communityTargets: communityIpsFrom(settings),
+    operators: IR_OPERATORS,
+    operator: options.operator,
     scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
@@ -3942,6 +3989,7 @@ function configsTabHtml(state) {
     '<label class="field"><span>SNI (خالی = دامنهٔ ورکر)</span><input id="cfgSni" dir="ltr" value="' + esc(o.sni === state.host ? '' : o.sni) + '" placeholder="' + esc(state.host) + '"></label>' +
     '<label class="field"><span>SNIهای بیشتر (با کاما — خالی بگذار تا خودکار از استخر ۲۵ SNI جهانی بین کانفیگ‌ها بچرخد)</span><input id="cfgSnis" dir="ltr" placeholder="خالی = چرخش خودکار از استخر"></label>' +
     '<label class="field"><span>پروتکل‌ها</span><div class="chips" id="cfgProtos" style="margin-top:6px">' +
+    '<label class="field"><span>اپراتور این ست (هر اپراتور استخر تست‌شدهٔ خودش را دارد)</span><div class="chips" id="cfgOps" style="margin-top:6px">' + operatorChipsHtml(String((state && state.operator) || '')) + '</div></label>' +
     '<button class="chip' + (o.protocols.includes('vless') ? ' active' : '') + '" data-proto="vless">VLESS</button>' +
     '<button class="chip' + (o.protocols.includes('trojan') ? ' active' : '') + '" data-proto="trojan">Trojan</button>' +
     '<button class="chip' + (o.includeHost !== false ? ' active' : '') + '" data-flag="host" title="خود دامنهٔ ورکر هم به‌عنوان آدرس اضافه شود">+ خود ورکر</button>' +
@@ -4045,6 +4093,7 @@ function scannerTabHtml(state) {
     '<button class="chip" id="commIpsBtn" type="button">🔄 دریافت IP تازهٔ انجمن</button>' +
     '<span id="commIpsStat" style="font-size:12.5px;opacity:.8">لیست تازه فقط «مکمل» استخر دستچین می‌شود — اسکن همیشه اول سراغ دستچین‌شده‌ها می‌رود</span>' +
     '</div></div>' +
+    '<div class="card" style="margin-top:10px"><b>اپراتور این اسکن:</b> <span class="muted" style="font-size:11.5px">همان که الان با آن وصل‌ای — با هر اسکن، استخر همان اپراتور تازه می‌شود</span><div class="chips" id="scanOps" style="margin-top:8px">' + operatorChipsHtml(String((state && state.operator) || '')) + '</div></div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>حالت اسکن مرورگر</span><select id="scanMode"><option value="http">HTTP :80 — دقیق‌ترین از مرورگر (پیشنهادی)</option><option value="https">HTTPS :443 — فقط دسترسی TCP/TLS</option></select></label>' +
     '<label class="field"><span>تعداد هم‌زمان</span><input id="scanConc" type="number" min="1" max="32" value="8"></label>' +
@@ -4333,8 +4382,8 @@ function panelClientJs() {
     ' var snis=($("#cfgSnis").value||"").split(/[;, ]+/).map(function(s){return s.trim().toLowerCase()}).filter(function(s){return s&&s.indexOf(".")>0&&s.indexOf(":")<0}).slice(0,4);',
     ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
     ' var gaming=$(\"#cfgProtos .chip[data-flag=gaming]\").classList.contains(\"active\");',
-    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean)};}',
-    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.gaming)q.push("gaming=1");if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
+    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean),op:(function(){var b=$("#cfgOps .chip.active[data-op]");return b?b.getAttribute("data-op"):""})()};}',
+    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.gaming)q.push("gaming=1");if(o.op)q.push("op="+o.op);if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
@@ -4397,7 +4446,7 @@ function panelClientJs() {
     'function applyOptions(){OPT=readOptions();cfgSavedInKv=false;CFG=allLinks();renderConfigs();refreshSubUrl();$("#cfgSaveState").textContent="";}',
     '$("#cfgApply").addEventListener("click",function(){applyOptions();toast(CFG.length+" کانفیگ ساخته شد — لینک ساب به‌روز شد");});',
     '$("#cfgSave").addEventListener("click",function(){applyOptions();var o=OPT;',
-    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,snis:(o.snis||[]).join(","),locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8}})})',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{addresses:o.addresses,ports:o.ports,protocols:o.protocols,includeHost:o.includeHost,includeIpv6:o.includeIpv6!==false,fingerprint:o.fingerprint||"chrome",sni:o.sni===S.host?"":o.sni,snis:(o.snis||[]).join(","),locations:o.locations||{},country:o.country||"",countryCodes:(o.countries||[]).join(","),entryLimit:o.entryLimit||8,operator:(o.op||"")}})})',
     ' .then(function(r){return r.json()}).then(function(j){if(j.ok&&j.persisted){cfgSavedInKv=true;refreshSubUrl();$("#cfgSaveState").textContent="ذخیره شد — لینک کوتاه فعال است ✅";toast("در KV ذخیره شد");}',
     '  else{$("#cfgSaveState").textContent=j.ok?"KV وصل نیست — لینک با تنظیمات داخلش استفاده می‌شود":"خطا: "+j.error;}}).catch(function(){$("#cfgSaveState").textContent="خطا در ذخیره";});});',
     'function ccFlag(cc){if(!cc||cc.length!==2)return"";return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1));}',
@@ -4412,6 +4461,7 @@ function panelClientJs() {
     'function snisQ(){var v=($("#scanSnis")||{}).value||"";v=v.trim();return v?"&snis="+encodeURIComponent(v):""}',
     'var cib=document.getElementById("commIpsBtn");if(cib)cib.addEventListener("click",function(){var st=document.getElementById("commIpsStat");cib.disabled=true;if(st)st.textContent="در حال دریافت از انجمن…";fetch("/api/community-ips",{method:"POST",headers:{"content-type":"application/json"}}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){if(st)st.textContent="+"+j.added+" IP تازه اضافه شد (کل "+j.total+") — حالا اسکن بزن";setTimeout(function(){location.reload()},1500)}else{if(st)st.textContent="دریافت ناموفق بود — استخر قبلی سر جایش است";cib.disabled=false}}).catch(function(){if(st)st.textContent="خطای شبکه — استخر قبلی سر جایش است";cib.disabled=false})});',
     'var ciStat=document.getElementById("commIpsStat");if(ciStat)fetch("/api/community-ips").then(function(r){return r.json()}).then(function(j){if(j&&j.ok&&j.total)ciStat.textContent=j.total+" IP انجمنی در استخر اسکن آماده است"}).catch(function(){})',
+    'var scanOp=S.operator||"";(function(){if(!scanOp)return;var b=$("#scanOps .chip[data-op=\'"+scanOp+"\']");if(b)b.classList.add("active");})();',
     'function pingAddr(addr,port,timeout){return new Promise(function(resolve){',
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;var started=performance.now();var done=false;',
     ' var timer=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();resolve(-1)}},timeout);',
@@ -4605,6 +4655,7 @@ function panelClientJs() {
     ' var msText=r.ms===null?"✗":(r.ms+" ms");var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
     ' var sniRow=(r.server&&r.server.snisOk)?Object.keys(r.server.snisOk).filter(function(s){return r.server.snisOk[s].ok}).map(function(s){return "✓ "+s}).join("<br>"):"";',
     ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+sniRow+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
+    ' var so=ev.target.closest("#scanOps .chip[data-op]");if(so){scanOp=so.getAttribute("data-op");$$("#scanOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===so)});return;} var co=ev.target.closest("#cfgOps .chip[data-op]");if(co){$$("#cfgOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===co)});return;}',
     ' $("#scanTable").innerHTML=rows||"<tr><td colspan=5>هنوز نتیجه‌ای نیست</td></tr>";',
     '}',
     'document.addEventListener("click",function(ev){',
@@ -4650,7 +4701,7 @@ function panelClientJs() {
     '$("#scanServerAll").addEventListener("click",function(){var btn=this;btn.disabled=true;',
     ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(Math.min(96,Number($("#scanLimit").value)||80),custom);',
     ' $("#scanStatus").textContent="اسکن از ورکر روی "+targets.length+" آی‌پی…";',
-    ' fetch("/api/scan?ips="+encodeURIComponent(targets.join(","))+"&timeout=4000&concurrency=16&save=1").then(function(r){return r.json()}).then(function(j){btn.disabled=false;',
+    ' fetch("/api/scan?ips="+encodeURIComponent(targets.join(","))+"&timeout=4000&concurrency=16&save=1"+(scanOp?"&op="+scanOp:"")).then(function(r){return r.json()}).then(function(j){btn.disabled=false;',
     '  if(!j.ok){$("#scanStatus").textContent="خطا: "+j.error;return;}',
     '  var existing={};scanResults.forEach(function(r){existing[r.ip]=r});',
     '  (j.results||[]).forEach(function(r){if(existing[r.ip]){existing[r.ip].server=r;}else{scanResults.push({ip:r.ip,ms:null,server:r,selected:r.ok});}});',
@@ -4670,6 +4721,7 @@ function panelClientJs() {
     '$("#copyBestIps").addEventListener("click",function(){var top=scanResults.filter(function(r){return r.server===undefined?r.ms!==null:r.server&&r.server.ok}).sort(function(a,b){return (a.server?a.server.ms:a.ms)-(b.server?b.server.ms:b.ms)}).slice(0,10).map(function(r){return r.ip});if(!top.length){toast("نتیجه‌ای نیست");return;}copyText(top.join("\\n"))});',
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
     ' ips.forEach(function(ip){var hit=scanResults.filter(function(r){return r.ip===ip})[0];if(hit&&hit.server&&hit.server.colo&&OPT.locations)OPT.locations[ip.toLowerCase()]=hit.server.colo});',
+    ' if(scanOp){var ents=ips.map(function(ip){var h=scanResults.filter(function(r){return r.ip===ip})[0]||{};return {ip:ip,ms:h.ms||0,sni:(h.server&&h.server.sni)||"",colo:(h.server&&h.server.colo)||"",checkedAt:Date.now()}});var bk={};bk[scanOp]=ents;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{operator:scanOp,verifiedByOp:bk}})})}',
     ' var cur=parseAddrList($("#cfgAddresses").value);ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");',
     ' if(ips.filter(function(ip){var h=scanResults.filter(function(r){return r.ip===ip})[0];return !(h&&h.server&&h.server.ok&&h.server.colo)}).length)verifyOnServer(ips);',
     ' applyOptions();showTab("configs");toast(ips.length+" آی‌پی به کانفیگ‌ها اضافه شد — لینک ساب به‌روز است");});',
@@ -5667,8 +5719,15 @@ async function fetchHandler(request, env, ctx) {
           checkedAt: Date.now(),
         };
       });
+      const scanOp = operatorDef(url.searchParams.get('op'));
       const persisted = await writeSettings(env, {
-        configs: { verified: verified, verifiedScanned: true, verifiedAt: Date.now() },
+        configs: scanOp
+          ? (function () {
+              const buckets = {};
+              buckets[scanOp.id] = verified;
+              return { verified: verified, verifiedScanned: true, verifiedAt: Date.now(), operator: scanOp.id, verifiedByOp: buckets };
+            })()
+          : { verified: verified, verifiedScanned: true, verifiedAt: Date.now() },
       });
       saved = persisted.persisted;
     }
@@ -5898,6 +5957,9 @@ export const _testing = {
   communityIpsFrom,
   normalizedVerifiedEntries,
   SCAN_RANGES,
+  IR_OPERATORS,
+  operatorBucket,
+  operatorChipsHtml,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,

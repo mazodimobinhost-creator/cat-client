@@ -1158,5 +1158,41 @@ async function subText(url, opts) {
   check('custom list still wins over both pools', src.includes('if(custom&&custom.length){return shuffleArr(custom.slice()).slice(0,limit||custom.length);}'));
 }
 
+// §43 — per-operator verified pools (MCI/Irancell/Rightel/SamanTel/…)
+{
+  const ops = T.IR_OPERATORS || [];
+  check('operator list has 6+ entries with unique ids', ops.length >= 6 && new Set(ops.map((o) => o.id)).size === ops.length);
+  check('SamanTel is in the operator list', ops.some((o) => o.id === 'saman' && o.fa.includes('سامانتل')));
+  const chips = T.operatorChipsHtml('mci');
+  check('operator chips render every operator + active class', ops.every((o) => chips.includes('data-op="' + o.id + '"')) && chips.includes('class="chip active"'));
+
+  const mem43 = new Map();
+  const kv43 = { get: async (k) => mem43.get(k) ?? null, put: async (k, v) => { mem43.set(k, v); }, delete: async (k) => { mem43.delete(k); } };
+  const env43 = { CAT_KV: kv43, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const globalEntries = [
+    { ip: '104.16.9.9', colo: 'FRA', countryName: 'Germany', sni: 'time.is', ms: 120 },
+    { ip: '172.64.9.9', colo: 'CDG', countryName: 'France', sni: 'api.ip.sb', ms: 150 },
+  ];
+  const samanEntries = [{ ip: '104.21.5.5', colo: 'FRA', countryName: 'Germany', sni: 'skk.moe', ms: 60 }];
+  const irancellEntries = [{ ip: '188.114.97.7', colo: 'WAW', countryName: 'Poland', sni: 'doi.org', ms: 80 }];
+  await T.writeSettings(env43, { configs: { verifiedScanned: true, verified: globalEntries, operator: 'saman', verifiedByOp: { saman: samanEntries, irancell: irancellEntries } } });
+  const settings43 = await T.readSettings(env43);
+  const co = (qs) => T.configOptions(new URL('https://x.test/sub' + qs), HOST, {}, settings43);
+  check('saved default operator picks its bucket', JSON.stringify(co('?verified=1').verifiedEntries.map((e) => e.ip)) === JSON.stringify(['104.21.5.5']));
+  check('?op= overrides the default bucket', JSON.stringify(co('?verified=1&op=irancell').verifiedEntries.map((e) => e.ip)) === JSON.stringify(['188.114.97.7']));
+  check('unknown op falls back to the global pool', co('?verified=1&op=nope').verifiedEntries.length === 2);
+  check('options expose the operator id', co('?verified=1').operator === 'saman' && co('?op=irancell').operator === 'irancell');
+  check('bucket entries keep sni+ms winners', co('?verified=1').verifiedEntries[0].sni === 'skk.moe' && co('?verified=1').verifiedEntries[0].ms === 60);
+  const empty43 = T.operatorBucket(settings43, 'rightel');
+  check('missing bucket is empty (falls back upstream)', empty43.length === 0);
+  const state43 = T.panelState(HOST, env43, '77777777-7777-7777-7777-777777777777', null, settings43);
+  check('panelState carries operators + active operator', Array.isArray(state43.operators) && state43.operators.length >= 6 && state43.operator === 'saman');
+  check('scanner UI has the operator chips card', src.includes('id="scanOps"') && src.includes('operatorChipsHtml'));
+  check('builder has operator chips + persists operator', src.includes('id="cfgOps"') && src.includes('operator:(o.op||"")'));
+  check('sub links carry ?op=', src.includes('if(o.op)q.push("op="+o.op);'));
+  check('server-scan save tags the operator bucket', src.includes('(scanOp?"&op="+scanOp:"")'));
+  check('browser-selected IPs save into the operator bucket', src.includes('verifiedByOp:bk'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
