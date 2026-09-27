@@ -147,6 +147,10 @@ object FreeConfigs {
             "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
             "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
         ),
+        githubSource(
+            "aras-free-warp", "Aras free WARP", "آراس (وارپ رایگان)",
+            "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
+        ),
     )
 
     const val DEFAULT_FREEVLESSNODE_BASE = "https://freevlessnode.github.io"

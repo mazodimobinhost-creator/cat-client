@@ -38,9 +38,12 @@ data class MihomoGroupSelection(
 
 object MihomoConfigParser {
     fun parse(
-        yaml: String,
+        rawYaml: String,
         fetchedAt: Long = System.currentTimeMillis(),
     ): MihomoSubscriptionSnapshot {
+        // Files saved by Windows editors (and some panels) carry a UTF-8 BOM
+        // that breaks "proxies:" top-level detection — strip it up front.
+        val yaml = rawYaml.removePrefix("\uFEFF")
         val summary = parseSummary(yaml)
         val profiles = summary.proxies
             .map { proxy -> proxy.toConnectionProfile() }
@@ -52,7 +55,8 @@ object MihomoConfigParser {
         )
     }
 
-    fun parseSummary(yaml: String): MihomoConfigSummary {
+    fun parseSummary(rawSummary: String): MihomoConfigSummary {
+        val yaml = rawSummary.removePrefix("\uFEFF")
         val proxies = mutableListOf<MihomoProxy>()
         val groups = mutableListOf<MihomoProxyGroup>()
         var section: String? = null
