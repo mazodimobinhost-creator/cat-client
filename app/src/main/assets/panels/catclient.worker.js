@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.1';
+const CAT_PANEL_VERSION = '5.23.2';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -926,6 +926,7 @@ async function writeSettings(env, patch) {
   const ok = await kvPut(env, KV_KEYS.settings, payload);
   if (ok) kvStoreRaw(kvBinding(env), KV_KEYS.settings, payload);
   else kvInvalidate(kvBinding(env), KV_KEYS.settings);
+  bumpSubMemo();
   return { settings: next, persisted: ok };
 }
 
@@ -1058,6 +1059,7 @@ async function writeUsers(env, users) {
   const store = kvBinding(env);
   if (ok) kvStoreRaw(store, KV_KEYS.users, payload);
   else kvInvalidate(store, KV_KEYS.users);
+  bumpSubMemo();
   return ok;
 }
 
@@ -1225,7 +1227,7 @@ async function flushTraffic(env) {
       user.lastSeenAt = Date.now();
       changed = true;
     });
-    if (changed) await writeUsers(env, users);
+    if (changed) { await writeUsers(env, users); bumpSubMemo(); }
     // Master (owner) config bytes: no user record → previously dropped.
     const settings = await readSettings(env);
     const masterKey = String(env.UUID || settings.masterUuid || '').toLowerCase();
@@ -1239,6 +1241,7 @@ async function flushTraffic(env) {
         masterHits.forEach((delta) => { rec.usedBytes += delta; rec.dayBytes += delta; });
         rec.lastSeenAt = Date.now();
         if (!(await writeMasterUsage(env, rec))) throw new Error('kv-put-failed');
+        bumpSubMemo();
       } catch (e2) {
         // Master write failed — put just the master bytes back into the buffer.
         masterHits.forEach((delta, key) => {
@@ -3084,6 +3087,35 @@ function buildAllConfigs(host, env, uuid, opts) {
     groups: Object.values(groups),
     links: entries.map((entry) => entry.link),
   };
+}
+
+/** Isolate-level memo for built subscription payloads. Client apps poll the
+ * sub link every few minutes; rebuilding up to 200 links + base64 each time
+ * burns CPU (10ms/request cap) for a byte-identical answer. Keyed by
+ * path+query+wantsWarp+version; the version bumps on ANY settings/users/
+ * traffic write, so a memo never outlives its data (plus a 60s hard TTL). */
+const subMemo = globalThis.__catSubMemo || (globalThis.__catSubMemo = { version: 0, map: new Map() });
+const SUB_MEMO_TTL_MS = 60000;
+const subMemoEnvIds = globalThis.__catSubMemoEnv || (globalThis.__catSubMemoEnv = new WeakMap());
+let subMemoNextEnv = 1;
+/** Per-KV-store stamp so parallel deployments (or tests) never share entries. */
+function subMemoEnvStamp(env) {
+  const store = kvBinding(env);
+  const keyObj = store || env || null;
+  if (!keyObj) return 'n';
+  let id = subMemoEnvIds.get(keyObj);
+  if (!id) { id = subMemoNextEnv; subMemoNextEnv += 1; subMemoEnvIds.set(keyObj, id); }
+  return 'e' + id;
+}
+function bumpSubMemo() { subMemo.version += 1; }
+function subMemoGet(key) {
+  const hit = subMemo.map.get(key);
+  if (!hit || Date.now() - hit.at > SUB_MEMO_TTL_MS) return null;
+  return hit;
+}
+function subMemoPut(key, payload, headers) {
+  subMemo.map.set(key, { at: Date.now(), payload: payload, headers: headers });
+  while (subMemo.map.size > 8) subMemo.map.delete(subMemo.map.keys().next().value);
 }
 
 function subUserInfoHeader(env) {
@@ -5365,12 +5397,14 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
   const token = decodeURIComponent(rest[0] || '');
   const format = (rest[1] || '').toLowerCase();
   // Make the number the app sees match the panel: write this isolate's buffer first.
-  await flushTraffic(env).catch(() => {});
   const users = await readUsers(env);
   const user = findUserByToken(users, token);
   if (!user) return new Response('Not Found', { status: 404, headers: CORS });
   const state = userState(user);
   const subUrl = 'https://' + host + '/u/' + user.token;
+  // Write diet: a force flush per visit is needless — buffered bytes already
+  // count toward usage; persist at most every 30s (close still force-flushes).
+  if (Date.now() - trafficState.lastFlush > 30000) await flushTraffic(env).catch(() => {});
   const title = String(env.PANEL_TITLE || 'Cat Panel');
 
   if (url.searchParams.get('stats') === '1') {
@@ -5386,7 +5420,9 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
     return Response.redirect('https://' + host + '/info/' + encodeURIComponent(user.token), 302);
   }
   const settings = await readSettings(env);
-  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(Promise.resolve(ensureVerifiedPool(env, host)).catch(() => {}));
+  if (settings.configs && settings.configs.verifiedScanned !== true && ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(Promise.resolve(ensureVerifiedPool(env, host)).catch(() => {}));
+  }
   const landingUrl = new URL(url.toString());
   landingUrl.searchParams.set('verified', '1');
   const landingOptions = configOptions(landingUrl, host, env, settings, userCountries);
@@ -5698,18 +5734,25 @@ async function fetchHandler(request, env, ctx) {
     }
     if (format === 'all') return jsonResponse(buildAllConfigs(host, env, subUuid, options), 200, headers);
     const wantsWarp = options.gaming === true || url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
-    const body = buildSubLinks(host, env, subUuid, options, wantsWarp).join('\n') + '\n';
     const wantsRaw = format === 'raw' || format === 'txt' || url.searchParams.get('raw') === '1';
+    const memoKey = subMemoEnvStamp(env) + '|' + path + '?' + url.search + '|w' + (wantsWarp ? 1 : 0) + '|r' + (wantsRaw ? 1 : 0) + '|v' + subMemo.version;
+    const memoHit = subMemoGet(memoKey);
+    if (memoHit) return new Response(memoHit.payload, { headers: memoHit.headers });
+    const body = buildSubLinks(host, env, subUuid, options, wantsWarp).join('\n') + '\n';
     // Default is base64 (every client accepts it; some reject plain text).
-    return new Response(wantsRaw ? body : b64encode(body), {
-      headers: Object.assign({ 'content-type': 'text/plain; charset=utf-8' }, headers),
-    });
+    const payload = wantsRaw ? body : b64encode(body);
+    const outHeaders = Object.assign({ 'content-type': 'text/plain; charset=utf-8' }, headers);
+    subMemoPut(memoKey, payload, outHeaders);
+    return new Response(payload, { headers: outHeaders });
   }
 
   /* QR codes */
   if (path === '/qr.svg' || path === '/qr') {
     const data = url.searchParams.get('d') || url.searchParams.get('data') || '';
     if (!data) return new Response('Missing ?d=', { status: 400, headers: CORS });
+    const qrKey = subMemoEnvStamp(env) + '|' + data + '|' + url.search;
+    const qrHit = subMemoGet('qr:' + qrKey);
+    if (qrHit) return new Response(qrHit.payload, { headers: qrHit.headers });
     const moduleSize = Math.max(2, Math.min(16, Number(url.searchParams.get('size') || 6)));
     let svg;
     try {
@@ -5722,12 +5765,12 @@ async function fetchHandler(request, env, ctx) {
     } catch (e) {
       return new Response('QR error: ' + (e && e.message ? e.message : e), { status: 400, headers: CORS });
     }
-    return new Response(svg, {
-      headers: Object.assign(
-        { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public, max-age=86400' },
-        CORS,
-      ),
-    });
+    const qrHeaders = Object.assign(
+      { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public, max-age=86400' },
+      CORS,
+    );
+    subMemoPut('qr:' + qrKey, svg, qrHeaders);
+    return new Response(svg, { headers: qrHeaders });
   }
 
   /* API */
@@ -6194,6 +6237,10 @@ export const _testing = {
   CF_PROBE_LIMIT,
   kvCacheClear,
   KV_READ_TTL_MS,
+  subMemo,
+  bumpSubMemo,
+  SUB_MEMO_TTL_MS,
+  trafficState,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,

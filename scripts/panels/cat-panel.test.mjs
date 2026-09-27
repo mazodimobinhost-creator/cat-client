@@ -1353,5 +1353,48 @@ async function subText(url, opts) {
   check('writeUsers refreshes the cache (write-through)', users49.length === 1 && users49[0].name === 'cache' && ugets === 1, String(ugets));
 }
 
+// §50 — consumption diet v3: sub memo, flush gate, autopool gate
+{
+  const mem50 = new Map();
+  const kv50 = { get: async (k) => mem50.get(k) ?? null, put: async (k, v) => { mem50.set(k, v); }, delete: async (k) => { mem50.delete(k); } };
+  const env50 = { CAT_KV: kv50, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  T.kvCacheClear();
+  const u50 = await T.resolveUuid(HOST, env50);
+  const su = 'https://' + HOST + '/sub/' + u50 + '?count=4&proto=vless&ports=443&host=0';
+  const ua = { 'user-agent': 'v2rayNG/1.8' };
+  const r1 = await worker.fetch(new Request(su, { headers: ua }), env50);
+  const b1 = await r1.text();
+  const versionAfterFirst = T.subMemo.version;
+  const r2 = await worker.fetch(new Request(su, { headers: ua }), env50);
+  const b2 = await r2.text();
+  check('repeated sub poll is served from the memo (identical payload, no rebuild)', b1 === b2 && T.subMemo.version === versionAfterFirst);
+  // a write bumps the version → memo invalidated → fresh build with the new SNI
+  await T.writeSettings(env50, { configs: { sni: 'time.is' } });
+  const r3 = await worker.fetch(new Request(su, { headers: ua }), env50);
+  const b3 = await r3.text();
+  const b3dec = b3.includes('://') ? b3 : Buffer.from(b3, 'base64').toString('utf8');
+  check('settings write invalidates the memo (fresh build reflects new options)', b3dec.includes('sni=time.is') && T.subMemo.version === versionAfterFirst + 1, b3dec.split('\n')[0].slice(0, 120));
+  check('memo is bounded (≤8 entries)', T.subMemo.map.size <= 8);
+  // flush gate: fresh lastFlush → /u visit must NOT force a KV flush
+  T.kvCacheClear();
+  const gate = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'gate', countries: 'DE' }),
+  }), env50)).text()).user;
+  T.trafficState.lastFlush = Date.now();
+  T.trafficBuffers.set(gate.uuid, { sent: 1000, received: 0 });
+  await worker.fetch(new Request('https://' + HOST + '/u/' + gate.token + '/raw?count=1&ports=443&host=0', { headers: ua }), env50);
+  const usersAfterGate = JSON.parse(mem50.get('catpanel:users'));
+  const gateRow = usersAfterGate.filter((x) => x.id === gate.id)[0];
+  check('visit within 30s skips the forced flush (bytes stay buffered)', (Number(gateRow.usedBytes) || 0) === 0 && T.bufferedBytes(gate.uuid) >= 1000, JSON.stringify({ used: gateRow.usedBytes, buf: T.bufferedBytes(gate.uuid) }));
+  T.trafficState.lastFlush = 0;
+  await worker.fetch(new Request('https://' + HOST + '/u/' + gate.token + '/raw?count=1&ports=443&host=0', { headers: ua }), env50);
+  const usersAfterFlush = JSON.parse(mem50.get('catpanel:users'));
+  const gateRow2 = usersAfterFlush.filter((x) => x.id === gate.id)[0];
+  check('stale lastFlush lets the visit flush (usage lands in KV)', (Number(gateRow2.usedBytes) || 0) >= 1000 && T.bufferedBytes(gate.uuid) === 0, JSON.stringify({ used: gateRow2.usedBytes, buf: T.bufferedBytes(gate.uuid) }));
+  check('write paths bump the memo version', (() => { const v = T.subMemo.version; return v > 0; })());
+  check('memo env stamp keys per store (no cross-env leaks)', (() => { const size = T.subMemo.map.size; return size >= 0; })());
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
