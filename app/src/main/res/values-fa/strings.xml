@@ -345,6 +345,9 @@
     <string name="route_real_ip_line">IP واقعی: %1$s %2$s</string>
     <string name="route_v6_line">IPv6: %1$s</string>
     <string name="route_ping_disconnected">برای تست پینگ اول وصل شو</string>
+    <string name="route_ping_testing">در حال تست پینگ از داخل تونل…</string>
+    <string name="route_ping_result">پینگ از داخل کانفیگ: %1$d میلی‌ثانیه</string>
+    <string name="route_ping_failed">پینگ ناموفق بود — کانفیگ جواب نمی‌دهد</string>
     <string name="action_ping_test">تست پینگ</string>
     <string name="ip_refresh">بروزرسانی IP</string>
     <string name="ip_refreshing">در حال دریافت IP…</string>

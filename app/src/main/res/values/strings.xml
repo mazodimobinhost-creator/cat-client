@@ -346,6 +346,9 @@
     <string name="route_real_ip_line">Real IP: %1$s %2$s</string>
     <string name="route_v6_line">IPv6: %1$s</string>
     <string name="route_ping_disconnected">Connect first to test the ping</string>
+    <string name="route_ping_testing">Testing ping through the tunnel…</string>
+    <string name="route_ping_result">Ping through your config: %1$d ms</string>
+    <string name="route_ping_failed">Ping failed — the config may be down</string>
     <string name="action_ping_test">Ping test</string>
     <string name="ip_refresh">Refresh IP</string>
     <string name="ip_refreshing">Fetching IP…</string>

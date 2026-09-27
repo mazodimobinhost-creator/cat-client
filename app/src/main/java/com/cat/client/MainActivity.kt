@@ -9985,8 +9985,17 @@ class MainActivity : Activity() {
                 PanelDeploymentStore(this@MainActivity).deployments()
                     .firstOrNull()?.workerUrl?.removePrefix("https://")?.trimEnd('/')
             }.getOrNull()
+            val tunnelProxy = if (tunneledAtFetch) {
+                runCatching {
+                    java.net.Proxy(
+                        java.net.Proxy.Type.HTTP,
+                        java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
+                    )
+                }.getOrNull()
+            } else null
             val info = runCatching {
                 IpGeolocation.locate(
+                    proxy = tunnelProxy,
                     workerHost = workerHost,
                     physicalNetwork = activePhysicalNetwork(),
                     includeReal = tunneledAtFetch,
@@ -10023,7 +10032,8 @@ class MainActivity : Activity() {
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
     /** Real ping THROUGH the active config: samples the local mihomo mixed
-     * proxy (the tunnel entry), exactly like v2rayNG/V2Box delay tests. */
+     * proxy (the exact tunnel path), like v2rayNG/V2Box delay tests — with an
+     * on-the-spot result toast so the feedback is never missed. */
     private fun runTunnelPing() {
         if (tunnelPingRunning) return
         if (!currentVpnStateIsStarted()) {
@@ -10032,17 +10042,21 @@ class MainActivity : Activity() {
         }
         tunnelPingRunning = true
         pingValueText.text = "…"
+        Toast.makeText(this, R.string.route_ping_testing, Toast.LENGTH_SHORT).show()
+        val started = currentVpnStateIsStarted()
         activityScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val proxy = java.net.Proxy(
+            val tunnelProxy = java.net.Proxy(
                 java.net.Proxy.Type.HTTP,
-                java.net.InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT),
+                java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
             )
-            val samples = mutableListOf<Long>()
-            repeat(3) {
+            fun sample(throughProxy: Boolean): Long? {
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 val ok = runCatching {
-                    val conn = java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(proxy)
-                        as java.net.HttpURLConnection
+                    val conn = (if (throughProxy) {
+                        java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(tunnelProxy)
+                    } else {
+                        java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection()
+                    }) as java.net.HttpURLConnection
                     conn.connectTimeout = 4_000
                     conn.readTimeout = 4_000
                     conn.instanceFollowRedirects = false
@@ -10051,11 +10065,18 @@ class MainActivity : Activity() {
                     conn.disconnect()
                     code
                 }.getOrNull()
-                if (ok != null && ok in 200..399) samples += android.os.SystemClock.elapsedRealtime() - t0
+                return if (ok != null && ok in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
             }
+            var samples = (1..3).mapNotNull { sample(true) }
+            if (samples.isEmpty() && started) samples = (1..3).mapNotNull { sample(false) }
             val best = samples.minOrNull()
-            launch(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
                 pingValueText.text = if (best != null) best.toString() + "ms" else "—"
+                Toast.makeText(
+                    this@MainActivity,
+                    if (best != null) getString(R.string.route_ping_result, best) else getString(R.string.route_ping_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
                 tunnelPingRunning = false
             }
         }
