@@ -1313,5 +1313,45 @@ async function subText(url, opts) {
   check('scanner explains the 40 cap + browser-scan escape', src.includes('سقف ۴۰ آی‌پی در هر بار اجرا'));
 }
 
+// §49 — KV read cache (second-pass optimization: reads & latency diet)
+{
+  check('read TTL is 3s and clear helper exported', T.KV_READ_TTL_MS === 3000 && typeof T.kvCacheClear === 'function');
+  const mem49 = new Map();
+  let gets = 0;
+  const kv49 = {
+    get: async (k) => { gets += 1; return mem49.get(k) ?? null; },
+    put: async (k, v) => { mem49.set(k, v); },
+    delete: async (k) => { mem49.delete(k); },
+  };
+  const env49 = { CAT_KV: kv49, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  T.kvCacheClear();
+  await T.readSettings(env49);
+  const afterFirst = gets;
+  await T.readSettings(env49);
+  await T.readSettings(env49);
+  check('repeated reads within TTL hit the cache, not KV', gets === afterFirst, gets + ' vs ' + afterFirst);
+  await T.writeSettings(env49, { title: 'Cached Cat' });
+  const fresh = await T.readSettings(env49);
+  check('write-through: fresh read sees the new value with ZERO extra reads', fresh.title === 'Cached Cat' && gets === afterFirst, gets + ' vs ' + afterFirst);
+  // per-store isolation: another env never sees this cache
+  const mem49b = new Map();
+  let getsB = 0;
+  const kv49b = { get: async (k) => { getsB += 1; return mem49b.get(k) ?? null; }, put: async (k, v) => { mem49b.set(k, v); }, delete: async (k) => { mem49b.delete(k); } };
+  const env49b = { CAT_KV: kv49b, OPEN_PANEL: 'true' };
+  const other = await T.readSettings(env49b);
+  check('cache is keyed per KV store (no cross-env leaks)', getsB === 1 && (other.title || '') !== 'Cached Cat');
+  // users path: read cached, write refreshes
+  T.kvCacheClear();
+  let ugets = 0;
+  const kv49c = { get: async (k) => { ugets += 1; return mem49.get(k) ?? null; }, put: async (k, v) => { mem49.set(k, v); }, delete: async (k) => { mem49.delete(k); } };
+  const env49c = { CAT_KV: kv49c, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await T.readUsers(env49c);
+  await T.readUsers(env49c);
+  check('users reads are cached too', ugets === 1, String(ugets));
+  await T.writeUsers(env49c, [{ id: 'u1', name: 'cache', token: 't1', uuid: 'uu1' }]);
+  const users49 = await T.readUsers(env49c);
+  check('writeUsers refreshes the cache (write-through)', users49.length === 1 && users49[0].name === 'cache' && ugets === 1, String(ugets));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

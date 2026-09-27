@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.0';
+const CAT_PANEL_VERSION = '5.23.1';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -868,8 +868,40 @@ function deepMerge(base, patch) {
 }
 
 /** Settings = built-in defaults + env overrides + KV overrides (KP last). */
+/** Per-isolate KV READ cache (3s TTL, raw strings, keyed per KV store).
+ * A busy request reads settings/users several times; the free KV tier allows
+ * 100k reads/day and this trims both read count and latency. Cached values
+ * are immutable raw STRINGS (aliasing-safe — every read re-parses); all
+ * write paths refresh or invalidate the cache entry (write-through). */
+let kvRawCache = globalThis.__catKvRawCache || (globalThis.__catKvRawCache = new WeakMap());
+const KV_READ_TTL_MS = 3000;
+function kvCachedRaw(store, key) {
+  if (!store) return undefined;
+  const entry = kvRawCache.get(store);
+  const hit = entry && entry[key];
+  if (!hit || Date.now() - hit.at > KV_READ_TTL_MS) return undefined;
+  return hit.raw;
+}
+function kvStoreRaw(store, key, raw) {
+  if (!store) return;
+  const entry = kvRawCache.get(store) || {};
+  entry[key] = { at: Date.now(), raw: raw || '' };
+  kvRawCache.set(store, entry);
+}
+function kvInvalidate(store, key) {
+  const entry = kvRawCache.get(store);
+  if (entry) delete entry[key];
+}
+function kvCacheClear() {
+  kvRawCache = new WeakMap();
+  globalThis.__catKvRawCache = kvRawCache;
+}
+
 async function readSettings(env) {
-  const stored = await kvGet(env, KV_KEYS.settings);
+  const settingsStore = kvBinding(env);
+  const cachedRaw = kvCachedRaw(settingsStore, KV_KEYS.settings);
+  const stored = cachedRaw !== undefined ? cachedRaw : await kvGet(env, KV_KEYS.settings);
+  if (cachedRaw === undefined) kvStoreRaw(settingsStore, KV_KEYS.settings, stored);
   let parsed = null;
   try {
     parsed = stored ? JSON.parse(stored) : null;
@@ -890,7 +922,10 @@ async function writeSettings(env, patch) {
   const current = await readSettings(env);
   const next = deepMerge(current, patch || {});
   next.updatedAt = Date.now();
-  const ok = await kvPut(env, KV_KEYS.settings, JSON.stringify(next));
+  const payload = JSON.stringify(next);
+  const ok = await kvPut(env, KV_KEYS.settings, payload);
+  if (ok) kvStoreRaw(kvBinding(env), KV_KEYS.settings, payload);
+  else kvInvalidate(kvBinding(env), KV_KEYS.settings);
   return { settings: next, persisted: ok };
 }
 
@@ -1004,7 +1039,10 @@ function normalizeUser(raw) {
 }
 
 async function readUsers(env) {
-  const raw = await kvGet(env, KV_KEYS.users);
+  const usersStore = kvBinding(env);
+  const cachedRaw = kvCachedRaw(usersStore, KV_KEYS.users);
+  const raw = cachedRaw !== undefined ? cachedRaw : await kvGet(env, KV_KEYS.users);
+  if (cachedRaw === undefined) kvStoreRaw(usersStore, KV_KEYS.users, raw);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -1015,7 +1053,12 @@ async function readUsers(env) {
 }
 
 async function writeUsers(env, users) {
-  return kvPut(env, KV_KEYS.users, JSON.stringify(users.map(normalizeUser)));
+  const payload = JSON.stringify(users.map(normalizeUser));
+  const ok = await kvPut(env, KV_KEYS.users, payload);
+  const store = kvBinding(env);
+  if (ok) kvStoreRaw(store, KV_KEYS.users, payload);
+  else kvInvalidate(store, KV_KEYS.users);
+  return ok;
 }
 
 function userQuotaBytes(user) {
@@ -6149,6 +6192,8 @@ export const _testing = {
   probeBudgetLeft,
   cfProbeBudget,
   CF_PROBE_LIMIT,
+  kvCacheClear,
+  KV_READ_TTL_MS,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,
