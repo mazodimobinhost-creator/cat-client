@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.18.0';
+const CAT_PANEL_VERSION = '5.19.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3144,6 +3144,59 @@ const IR_CLEAN_IPS = [
   '103.21.244.1', '103.22.200.1', '103.31.4.1', '131.0.72.1', '173.245.48.1',
 ];
 
+/**
+ * Community clean-IP sources the WORKER pulls itself — from the Cloudflare
+ * edge, never from the user's (often filtered) network, which is why this
+ * works where a browser-side fetch would not. Each source lists candidate
+ * URLs tried in order (jsDelivr edges first, then proxies, then raw).
+ * Every parsed candidate must be an IP inside an OFFICIAL Cloudflare range
+ * or it is dropped: a non-CF address can never reach the worker and would
+ * silently kill configs. Worst case (every source fails) the pools simply
+ * stay as they were — the feature can never make things worse.
+ */
+const MAX_COMMUNITY_IPS = 4000;
+const COMMUNITY_IP_SOURCES = [
+  {
+    name: 'XIU2 ip.txt (v4)',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/ip.txt',
+      'https://fastly.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/ip.txt',
+      'https://ghproxy.net/https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ip.txt',
+      'https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ip.txt',
+    ],
+  },
+  {
+    name: 'XIU2 ipv6.txt (v6)',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/ipv6.txt',
+      'https://fastly.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/ipv6.txt',
+      'https://ghproxy.net/https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ipv6.txt',
+      'https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ipv6.txt',
+    ],
+  },
+];
+
+/** Keep only tokens that are real Cloudflare IPs (v4 or v6), deduped. */
+function parseCommunityIps(text) {
+  const out = [];
+  const seen = new Set();
+  String(text || '').split(/[\s,;]+/).forEach((token) => {
+    const ip = String(token || '').trim().replace(/^\[/, '').replace(/\]$/, '');
+    if (!ip || seen.has(ip.toLowerCase())) return;
+    if (isCloudflareIp(ip)) { seen.add(ip.toLowerCase()); out.push(ip); }
+  });
+  return out;
+}
+
+/** Stored fresh-from-community candidates (scan pool only — the scan still
+ * gates what reaches the configs). */
+function communityIpsFrom(settings) {
+  const list = settings && settings.configs && Array.isArray(settings.configs.communityIps)
+    ? settings.configs.communityIps
+    : [];
+  return list.filter((ip) => ip && isCloudflareIp(ip));
+}
+
 const SCAN_RANGES = [
   '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '162.158.0.0/15',
   '131.0.72.0/22', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
@@ -3595,7 +3648,7 @@ function panelState(host, env, uuid, request, settings) {
     allUrl: 'https://' + host + '/sub/' + uuid + '/all',
     dohUrl: 'https://' + host + '/dns-query',
     qrBase: 'https://' + host + '/qr.svg',
-    scanTargets: scanTargets(env),
+    scanTargets: scanTargets(env).concat(communityIpsFrom(settings)),
     scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
@@ -3923,6 +3976,10 @@ function scannerTabHtml(state) {
   return '<section class="tab" data-tab-panel="scanner">' + sectionHead('🛰️', 'اسکنر آی‌پی', 'پیدا کردن IP سالم کلودفلر — IPv4 و IPv6 — و افزودن خودکار به کانفیگ‌ها') +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerTitle">اسکنر آی‌پی تمیز کلودفلر</span></h2>' +
     '<p>دو اسکنر داری: <b>«از مرورگر»</b> سرعت واقعی هر آی‌پی را روی اینترنت خودت می‌سنجد (همان چیزی که برای اپراتور تو مهم است). <b>«از ورکر»</b> می‌گوید آن آی‌پی برای دامنهٔ پنل جواب می‌دهد یا نه (از سمت کلودفلر). نتیجهٔ خوب = هردو سبز.</p>' +
+    '<div class="card" style="margin-top:10px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+    '<button class="chip" id="commIpsBtn" type="button">🔄 دریافت IP تازهٔ انجمن</button>' +
+    '<span id="commIpsStat" style="font-size:12.5px;opacity:.8">ورکر خودش لیست‌های تازه را می‌کشد و به استخر اسکن اضافه می‌کند</span>' +
+    '</div></div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>حالت اسکن مرورگر</span><select id="scanMode"><option value="http">HTTP :80 — دقیق‌ترین از مرورگر (پیشنهادی)</option><option value="https">HTTPS :443 — فقط دسترسی TCP/TLS</option></select></label>' +
     '<label class="field"><span>تعداد هم‌زمان</span><input id="scanConc" type="number" min="1" max="32" value="8"></label>' +
@@ -4288,6 +4345,8 @@ function panelClientJs() {
     ' toast("سلامت آی‌پی‌ها چک شد");applyOptions();}catch(e){$("#healthState").textContent="خطا: "+e.message;}b.disabled=false;});',
     '/* browser-side ping of every config address (TCP+TLS reachability from YOUR network) */',
     'function snisQ(){var v=($("#scanSnis")||{}).value||"";v=v.trim();return v?"&snis="+encodeURIComponent(v):""}',
+    'var cib=document.getElementById("commIpsBtn");if(cib)cib.addEventListener("click",function(){var st=document.getElementById("commIpsStat");cib.disabled=true;if(st)st.textContent="در حال دریافت از انجمن…";fetch("/api/community-ips",{method:"POST",headers:{"content-type":"application/json"}}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){if(st)st.textContent="+"+j.added+" IP تازه اضافه شد (کل "+j.total+") — حالا اسکن بزن";setTimeout(function(){location.reload()},1500)}else{if(st)st.textContent="دریافت ناموفق بود — استخر قبلی سر جایش است";cib.disabled=false}}).catch(function(){if(st)st.textContent="خطای شبکه — استخر قبلی سر جایش است";cib.disabled=false})});',
+    'var ciStat=document.getElementById("commIpsStat");if(ciStat)fetch("/api/community-ips").then(function(r){return r.json()}).then(function(j){if(j&&j.ok&&j.total)ciStat.textContent=j.total+" IP انجمنی در استخر اسکن آماده است"}).catch(function(){})',
     'function pingAddr(addr,port,timeout){return new Promise(function(resolve){',
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;var started=performance.now();var done=false;',
     ' var timer=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();resolve(-1)}},timeout);',
@@ -5331,7 +5390,8 @@ async function fetchHandler(request, env, ctx) {
     return jsonResponse(panelState(host, env, uuid, request, settings), 200, CORS);
   }
   if (path === '/api/scan-targets.json') {
-    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env), ranges: scanRanges(env) }, 200, CORS);
+    const scanSettings = await readSettings(env);
+    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env).concat(communityIpsFrom(scanSettings)), ranges: scanRanges(env) }, 200, CORS);
   }
   if (path === '/api/ping') {
     const ip = url.searchParams.get('ip') || '';
@@ -5571,6 +5631,59 @@ async function fetchHandler(request, env, ctx) {
     return jsonResponse(result, 200, CORS);
   }
 
+  /* Pull fresh community clean-IP candidates into the scan pool. The fetch
+   * runs on the Cloudflare edge (GitHub/jsDelivr are reachable from there),
+   * every candidate is validated against official CF ranges, and a total
+   * failure leaves the pools untouched — fail-soft by design. */
+  if (path === '/api/community-ips' && request.method === 'POST') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    const settings = await readSettings(env);
+    if (!settings.configs) settings.configs = {};
+    const merged = communityIpsFrom(settings).slice();
+    const seen = new Set(merged.map((ip) => ip.toLowerCase()));
+    const sources = [];
+    let added = 0;
+    for (const source of COMMUNITY_IP_SOURCES) {
+      let ok = false;
+      let count = 0;
+      let lastError = '';
+      for (const candidate of source.urls) {
+        try {
+          const response = await fetch(candidate, { cf: { cacheTtl: 3600, cacheEverything: true } });
+          if (!response.ok) { lastError = 'HTTP ' + response.status; continue; }
+          const text = await response.text();
+          const ips = parseCommunityIps(text);
+          if (!ips.length) { lastError = 'no valid CF IPs in body'; continue; }
+          for (const ip of ips) {
+            if (seen.has(ip.toLowerCase()) || merged.length >= MAX_COMMUNITY_IPS) continue;
+            seen.add(ip.toLowerCase());
+            merged.push(ip);
+            added += 1;
+            count += 1;
+          }
+          ok = true;
+          break;
+        } catch (error) {
+          lastError = String((error && error.message) || error);
+        }
+      }
+      sources.push({ name: source.name, ok, count, error: ok ? '' : lastError });
+    }
+    settings.configs.communityIps = merged.slice(0, MAX_COMMUNITY_IPS);
+    settings.configs.communityIpsAt = Date.now();
+    await writeSettings(env, settings);
+    return jsonResponse({ ok: true, added, total: settings.configs.communityIps.length, sources }, 200, CORS);
+  }
+
+  if (path === '/api/community-ips' && request.method === 'GET') {
+    const auth = await requirePanelAuth(request, env);
+    if (!auth.ok) return auth.response;
+    const settings = await readSettings(env);
+    const list = communityIpsFrom(settings);
+    return jsonResponse({ ok: true, total: list.length, at: (settings.configs && settings.configs.communityIpsAt) || 0 }, 200, CORS);
+  }
+
   if (path === '/api/health-check' && request.method === 'POST') {
     const auth = await requirePanelAuth(request, env);
     if (!auth.ok) return auth.response;
@@ -5618,7 +5731,7 @@ async function fetchHandler(request, env, ctx) {
       colo: cf.colo || null,
       locked: !!(await panelPassword(env, host)),
       proxyIps: proxyIpList(env, await readSettings(env)).length,
-      scanTargets: scanTargets(env).length,
+      scanTargets: scanTargets(env).length + communityIpsFrom(await readSettings(env)).length,
     }, 200, CORS);
   }
 
@@ -5689,6 +5802,9 @@ export const _testing = {
   PLAIN_PORTS,
   DEFAULT_CLEAN_ADDRESSES,
   DEFAULT_EXTRA_SNIS,
+  COMMUNITY_IP_SOURCES,
+  parseCommunityIps,
+  communityIpsFrom,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,

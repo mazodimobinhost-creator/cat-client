@@ -1033,5 +1033,51 @@ async function subText(url, opts) {
   check('empty sample is harmless', snap.length === 0);
 }
 
+// §39 — worker-pulled fresh community IPs (fail-soft, CF-range validated)
+{
+  check('community sources exist with mirror chains', T.COMMUNITY_IP_SOURCES.length >= 2 && T.COMMUNITY_IP_SOURCES.every((src) => src.urls.length >= 4 && src.urls[0].includes('jsdelivr')));
+  const mixed = ['104.16.1.7', '104.16.1.7', '8.8.8.8', '104.16.0.0/13', 'zula.ir', 'hello', '999.1.2.3', '172.64.80.9', '2606:4700::6810:84e5', '2606:4700:3030::ac43:b58a', '1.2.3.4'].join('\n');
+  const parsed = T.parseCommunityIps(mixed);
+  check('parser keeps ONLY official-CF-range IPs (v4+v6), deduped', JSON.stringify(parsed) === JSON.stringify(['104.16.1.7', '172.64.80.9', '2606:4700::6810:84e5', '2606:4700:3030::ac43:b58a']), JSON.stringify(parsed));
+  check('parser drops Google DNS, CIDRs, hostnames, junk', !parsed.includes('8.8.8.8') && !parsed.includes('1.2.3.4') && parsed.every((x) => !x.includes('/')));
+
+  const mem39 = new Map();
+  const kv39 = { get: async (k) => mem39.get(k) ?? null, put: async (k, v) => { mem39.set(k, v); }, delete: async (k) => { mem39.delete(k); } };
+  const env39 = { CAT_KV: kv39, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('ip.txt')) return { ok: true, status: 200, text: async () => mixed };
+    if (u.includes('ipv6.txt')) return { ok: true, status: 200, text: async () => '2606:4700::6810:84e5\n2606:4700::4400' };
+    return { ok: false, status: 404, text: async () => '' };
+  };
+  let report;
+  try {
+    report = await (await req('/api/community-ips', { env: env39, method: 'POST', headers: { 'content-type': 'application/json' }, raw: true })).json();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  check('POST /api/community-ips pulls from worker-side sources', report.ok === true && report.added === 5 && report.total === 5, JSON.stringify(report));
+  check('both sources answered through the mirror chain', report.sources.length === 2 && report.sources.every((x) => x.ok && x.count > 0));
+  const status = await (await req('/api/community-ips', { env: env39, raw: true })).json();
+  check('GET status reports the stored pool', status.ok && status.total === 5 && status.at > 0);
+  const settings39 = await T.readSettings(env39);
+  check('stored pool rejects non-CF and keeps fresh candidates', T.communityIpsFrom(settings39).length === 5 && !T.communityIpsFrom(settings39).includes('8.8.8.8'));
+  const uuid39 = '11111111-2222-3333-4444-555555555555';
+  const state39 = T.panelState(HOST, env39, uuid39, null, settings39);
+  check('scan pool (panelState) now includes the fresh IPs', ['104.16.1.7', '2606:4700::4400'].every((ip) => state39.scanTargets.includes(ip)));
+  // fail-soft: every source dead → ok:true, added:0, old pool untouched
+  globalThis.fetch = async () => { throw new Error('network dead'); };
+  let dead;
+  try {
+    dead = await (await req('/api/community-ips', { env: env39, method: 'POST', headers: { 'content-type': 'application/json' }, raw: true })).json();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  check('total source failure is fail-soft (pool untouched)', dead.ok === true && dead.added === 0 && dead.total === 5 && dead.sources.every((x) => !x.ok));
+  const after = T.communityIpsFrom(await T.readSettings(env39));
+  check('fail-soft POST preserves the previous pool', after.length === 5);
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
