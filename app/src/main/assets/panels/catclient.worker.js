@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.22.1';
+const CAT_PANEL_VERSION = '5.23.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -765,6 +765,7 @@ const KV_KEYS = {
   traffic: 'catpanel:traffic',
   quota: 'catpanel:quota',
   masterUsage: 'catpanel:master-usage',
+  autopool: 'catpanel:autopool-at',
 };
 
 function kvBinding(env) {
@@ -942,7 +943,8 @@ function noteRequest(env, ctx) {
     };
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(load());
   }
-  if (quotaCache.count % 25 === 0) flushQuota(env, ctx);
+  // Write diet: the free KV tier allows ~1k writes/day — flush rarely.
+  if (quotaCache.count % 150 === 0) flushQuota(env, ctx);
   if (quotaCache.count >= 50000) quotaThreshold(env, ctx, 't50', 50);
   if (quotaCache.count >= 80000) quotaThreshold(env, ctx, 't80', 80);
   if (quotaCache.count >= 95000) quotaThreshold(env, ctx, 't95', 95);
@@ -1083,8 +1085,8 @@ async function tunnelAuth(env, uuid, settings) {
  */
 const trafficBuffers = globalThis.__catTraffic || (globalThis.__catTraffic = new Map());
 const trafficState = globalThis.__catTrafficState || (globalThis.__catTrafficState = { busySince: 0, lastFlush: Date.now() });
-const TRAFFIC_FLUSH_INTERVAL_MS = 15000;
-const TRAFFIC_FLUSH_THRESHOLD = 5 * 1024 * 1024;
+const TRAFFIC_FLUSH_INTERVAL_MS = 45000;
+const TRAFFIC_FLUSH_THRESHOLD = 20 * 1024 * 1024;
 /** A flush older than this is assumed dead (its request context was torn down). */
 const TRAFFIC_FLUSH_STALE_MS = 5000;
 
@@ -2518,6 +2520,11 @@ async function ensureVerifiedPool(env, host) {
   try {
     const current = await readSettings(env);
     if (current.configs && current.configs.verifiedScanned === true) return;
+    // Daily marker: without it, EVERY recipient visit paid 24 probes until
+    // the owner ran a real scan — heavy on subrequests.
+    const marker = await kvGet(env, KV_KEYS.autopool);
+    if (marker && Date.now() - (Number(marker) || 0) < 24 * 3600 * 1000) return;
+    await kvPut(env, KV_KEYS.autopool, String(Date.now()));
     if (verifiedPoolJob) return verifiedPoolJob;
     verifiedPoolJob = (async () => {
       try {
@@ -3474,7 +3481,30 @@ function rangeForIp(ip, env) {
  * with `resolveOverride` — that proves the IP can front the worker domain.
  * Falls back to the trace endpoint for non-Cloudflare CDNs.
  */
+/* ------------------------------------------------------------------ */
+/* Cloudflare courtesy budget — stay under the per-invocation          */
+/* subrequest cap (50 on the free plan). Every probe fetch acquires    */
+/* from one window per request; exhausted probes are REPORTED as       */
+/* skipped instead of throwing hundreds of exceptions — the pattern    */
+/* that gets workers flagged.                                          */
+/* ------------------------------------------------------------------ */
+const CF_PROBE_LIMIT = 40;
+const cfProbeBudget = globalThis.__catProbeBudget || (globalThis.__catProbeBudget = { used: 0, limit: CF_PROBE_LIMIT });
+function beginProbeWindow(limit) {
+  cfProbeBudget.used = 0;
+  cfProbeBudget.limit = Math.max(1, Math.min(CF_PROBE_LIMIT, Number(limit) || CF_PROBE_LIMIT));
+}
+function acquireProbe() {
+  if (cfProbeBudget.used >= cfProbeBudget.limit) return false;
+  cfProbeBudget.used += 1;
+  return true;
+}
+function probeBudgetLeft() { return Math.max(0, cfProbeBudget.limit - cfProbeBudget.used); }
+
 async function probeIp(ip, timeoutMs = 4000, host, env = {}) {
+  if (!acquireProbe()) {
+    return { ip: ip, ok: false, skipped: true, ms: 0, status: 0, colo: '', countryCode: '', countryName: 'Cloudflare edge', range: '', error: 'probe-budget' };
+  }
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -4143,6 +4173,7 @@ function scannerTabHtml(state) {
     '<span id="commIpsStat" style="font-size:12.5px;opacity:.8">لیست تازه فقط «مکمل» استخر دستچین می‌شود — اسکن همیشه اول سراغ دستچین‌شده‌ها می‌رود</span>' +
     '</div></div>' +
     '<div class="card" style="margin-top:10px"><b>اپراتور این اسکن:</b> <span class="muted" style="font-size:11.5px">همان که الان با آن وصل‌ای — با هر اسکن، استخر همان اپراتور تازه می‌شود</span><div class="chips" id="scanOps" style="margin-top:8px">' + operatorChipsHtml(String((state && state.operator) || '')) + '</div></div>' +
+    '<p class="muted" style="margin-top:8px;font-size:11.5px">⚖️ اسکن «از ورکر» برای سلامت حساب کلادفلر با سقف ۴۰ آی‌پی در هر بار اجرا می‌شود (سقف ساب‌درخواست پلن رایگان). اسکن سنگین را «از مرورگر» بزن — آن یکی روی اینترنت خودت است و سقف ندارد.</p>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<div class="card" style="margin-top:10px"><b>🩺 سلامت کانفیگ‌ها</b> <span class="muted" style="font-size:11.5px">تست سروری همهٔ آی‌پی‌های ست‌شده؛ مُرده‌ها خودکار از همهٔ استخرها (و باکت اپراتورها) حذف می‌شوند</span>' +
     '<div class="row" style="margin-top:8px;align-items:center;flex-wrap:wrap">' +
@@ -4755,7 +4786,7 @@ function panelClientJs() {
     ' for(var k=0;k<conc;k++)next();',
     '});',
     '$("#scanServerAll").addEventListener("click",function(){var btn=this;btn.disabled=true;',
-    ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(Math.min(96,Number($("#scanLimit").value)||80),custom);',
+    ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(Math.min(40,Number($("#scanLimit").value)||40),custom);',
     ' $("#scanStatus").textContent="اسکن از ورکر روی "+targets.length+" آی‌پی…";',
     ' fetch("/api/scan?ips="+encodeURIComponent(targets.join(","))+"&timeout=4000&concurrency=16&save=1"+(scanOp?"&op="+scanOp:"")).then(function(r){return r.json()}).then(function(j){btn.disabled=false;',
     '  if(!j.ok){$("#scanStatus").textContent="خطا: "+j.error;return;}',
@@ -4949,7 +4980,8 @@ async function healthCheck(env, host) {
     });
   });
   // Bucket-only IPs must be PROBED, not silently pruned: include them.
-  const targets = unionAddresses(unionAddresses(manual, verified.map((entry) => entry.ip)), bucketIps).slice(0, 64);
+  // Courtesy cap: probing is one subrequest per IP — stay in budget.
+  const targets = unionAddresses(unionAddresses(manual, verified.map((entry) => entry.ip)), bucketIps).slice(0, CF_PROBE_LIMIT);
   const results = [];
   const batch = 12;
   for (let i = 0; i < targets.length; i += batch) {
@@ -5532,6 +5564,7 @@ async function fetchHandler(request, env, ctx) {
   const url = new URL(request.url);
   const host = (request.headers.get('Host') || url.hostname || '').toLowerCase();
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  beginProbeWindow();
   noteRequest(env, ctx);
 
   if (!sniAllowed(request, host, env)) {
@@ -5805,6 +5838,8 @@ async function fetchHandler(request, env, ctx) {
     if (!list.length) return jsonResponse({ ok: false, error: 'ips or ranges required' }, 400, CORS);
     const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
     const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
+    // Courtesy cap: never plan more probes than the per-request budget.
+    list.length = Math.min(list.length, CF_PROBE_LIMIT);
     const requestedSnis = splitCsv(url.searchParams.get('snis')).map((s) => s.trim().toLowerCase())
       .filter((s) => s && validAddress(s) && !isIpLiteral(s) && s !== String(host).toLowerCase())
       .slice(0, 3);
@@ -5820,6 +5855,7 @@ async function fetchHandler(request, env, ctx) {
         if (extraSnis.length && probe.ok) {
           enriched.snisOk = {};
           for (const altSni of extraSnis) {
+            if (probeBudgetLeft() === 0) break;
             const alt = await probeIp(list[index], timeout, altSni, env).catch(() => null);
             enriched.snisOk[altSni] = { ok: !!(alt && alt.ok), ms: alt ? alt.ms : 0 };
           }
@@ -5867,7 +5903,8 @@ async function fetchHandler(request, env, ctx) {
       });
       saved = persisted.persisted;
     }
-    return jsonResponse({ ok: true, count: sorted.length, alive: alive.length, saved: saved, results: sorted }, 200, CORS);
+    const skipped = sorted.filter((r) => r.skipped).length;
+    return jsonResponse({ ok: true, count: sorted.length, alive: alive.length, saved: saved, skipped: skipped, budget: { used: cfProbeBudget.used, limit: cfProbeBudget.limit }, results: sorted }, 200, CORS);
   }
 
   if (path === '/token' || path === '/api/token-url') {
@@ -6107,6 +6144,11 @@ export const _testing = {
   MAX_SUB_ENTRIES,
   masterSubHtml,
   wantsHtmlPage,
+  beginProbeWindow,
+  acquireProbe,
+  probeBudgetLeft,
+  cfProbeBudget,
+  CF_PROBE_LIMIT,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,

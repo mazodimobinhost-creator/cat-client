@@ -1286,5 +1286,32 @@ async function subText(url, opts) {
   check('?web=1 forces the page even for client UAs', (await web1.text()).includes('Clean IP ✅'));
 }
 
+// §48 — Cloudflare-safety governor (no more ban-pattern subrequest storms)
+{
+  check('probe budget: 40 per invocation, reset per request', T.CF_PROBE_LIMIT === 40);
+  // small window → probes beyond it must be SKIPPED, not thrown
+  T.beginProbeWindow(3);
+  const r1 = await T.probeIp('104.16.1.1', 500, HOST, {});
+  const r2 = await T.probeIp('104.16.1.2', 500, HOST, {});
+  const r3 = await T.probeIp('104.16.1.3', 500, HOST, {});
+  const r4 = await T.probeIp('104.16.1.4', 500, HOST, {});
+  check('exhausted budget returns skipped instead of throwing', r4 && r4.skipped === true && r4.ok === false && typeof r1.ms === 'number');
+  T.beginProbeWindow(40);
+  const always = T.probeBudgetLeft();
+  check('budget resets via beginProbeWindow', always === 40 && T.cfProbeBudget.used === 0);
+  check('KV write diet: quota flush every 150 requests (was 25)', src.includes('quotaCache.count % 150 === 0'));
+  check('traffic flush diet: 45s interval / 20MB threshold', src.includes('TRAFFIC_FLUSH_INTERVAL_MS = 45000') && src.includes('TRAFFIC_FLUSH_THRESHOLD = 20 * 1024 * 1024'));
+  check('health-check clamped to the budget', /unionAddresses\(unionAddresses\(manual, verified\.map\(\(entry\) => entry\.ip\)\), bucketIps\)\.slice\(0, CF_PROBE_LIMIT\)/.test(src));
+  check('server scan clamped to 40 + reports skipped/budget', /list\.length = Math\.min\(list\.length, CF_PROBE_LIMIT\);/.test(src) && src.includes('skipped: skipped, budget:'));
+  // daily marker for the auto pool
+  const mem48 = new Map();
+  const kv48 = { get: async (k) => mem48.get(k) ?? null, put: async (k, v) => { mem48.set(k, v); }, delete: async (k) => { mem48.delete(k); } };
+  const env48 = { CAT_KV: kv48, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const settings48 = await T.readSettings(env48);
+  await mod.default.fetch(new Request('https://' + HOST + '/info/nope-not-a-user'), env48).catch(() => {});
+  check('client scan asks for at most 40 from the server', src.includes('sampleTargets(Math.min(40,Number($("#scanLimit").value)||40),custom)'));
+  check('scanner explains the 40 cap + browser-scan escape', src.includes('سقف ۴۰ آی‌پی در هر بار اجرا'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
