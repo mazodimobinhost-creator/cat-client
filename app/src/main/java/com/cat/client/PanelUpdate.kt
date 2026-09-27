@@ -52,13 +52,27 @@ object PanelUpdate {
     }
 
     private suspend fun releasedPanel(): PanelScript {
-        val text = GitHubReleaseClient.releaseAsset(WORKER_ASSET_NAME, MAX_PANEL_SOURCE_BYTES)
-        val version = parseVersion(text)
-            ?: throw IOException("Released panel source has no version marker")
-        if (!text.contains("export default") && !text.contains("addEventListener")) {
-            throw IOException("Released panel source is not a worker module")
+        var lastError: IOException? = null
+        // 1) the GitHub release asset (with its mirror chain), 2) the committed
+        // panel on the main branch via jsDelivr — reachable where GitHub is not.
+        val sources = listOf(
+            suspend { GitHubReleaseClient.releaseAsset(WORKER_ASSET_NAME, MAX_PANEL_SOURCE_BYTES) },
+            suspend { GitHubReleaseClient.repositoryFile(BUNDLED_WORKER_PATH, MAX_PANEL_SOURCE_BYTES) },
+        )
+        for (source in sources) {
+            try {
+                val text = source()
+                val version = parseVersion(text)
+                    ?: throw IOException("Released panel source has no version marker")
+                if (!text.contains("export default") && !text.contains("addEventListener")) {
+                    throw IOException("Released panel source is not a worker module")
+                }
+                return PanelScript(version = version, text = text, fromRelease = true)
+            } catch (error: IOException) {
+                lastError = error
+            }
         }
-        return PanelScript(version = version, text = text, fromRelease = true)
+        throw (lastError ?: IOException("Panel source download failed"))
     }
 
     /**
@@ -99,6 +113,7 @@ object PanelUpdate {
     }
 
     private const val WORKER_ASSET_NAME = "catclient.worker.js"
+    private const val BUNDLED_WORKER_PATH = "app/src/main/assets/panels/catclient.worker.js"
     private const val MAX_PANEL_SOURCE_BYTES = 3_000_000
     private const val MAX_VERSION_RESPONSE_BYTES = 16_384
 }

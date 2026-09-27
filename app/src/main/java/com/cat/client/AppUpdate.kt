@@ -125,7 +125,30 @@ object GitHubReleaseClient {
         if (!name.matches(Regex("[A-Za-z0-9._-]{1,80}"))) {
             throw IOException("GitHub asset name is invalid")
         }
-        return readText("$LATEST_DOWNLOAD_BASE/$name", maxBytes, asset = true)
+        // github.com -> release-assets.githubusercontent.com is blocked on many
+        // Iranian networks, which silently killed the in-app panel update. Walk
+        // the same mirror chain the free-config sources use before giving up.
+        val direct = "$LATEST_DOWNLOAD_BASE/$name"
+        val candidates = buildList {
+            add(direct)
+            ASSET_MIRRORS.forEach { add(it + direct) }
+        }
+        var lastError: IOException? = null
+        for (candidate in candidates) {
+            try {
+                return readText(candidate, maxBytes, asset = true)
+            } catch (error: IOException) {
+                lastError = error
+            }
+        }
+        throw (lastError ?: IOException("GitHub asset download failed"))
+    }
+
+    /** A file straight from the repository main branch via jsDelivr — reachable
+     * on most Iranian networks and always the freshest committed copy. */
+    suspend fun repositoryFile(path: String, maxBytes: Int): String {
+        require(path.matches(Regex("[A-Za-z0-9/._-]{1,160}"))) { "Repository path is invalid" }
+        return readText("https://cdn.jsdelivr.net/gh/$GITHUB_OWNER/$GITHUB_REPOSITORY@main/$path", maxBytes, asset = true)
     }
 
     suspend fun expectedSha256(release: AppRelease): String = withContext(Dispatchers.IO) {
@@ -231,7 +254,7 @@ object GitHubReleaseClient {
             coroutineContext.ensureActive()
             val uri = checkedUri(url)
             if (asset) {
-                if (uri.host !in setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")) {
+                if (uri.host !in ASSET_HOSTS) {
                     throw IOException("GitHub asset redirected to an invalid host")
                 }
             } else if (url != LATEST_RELEASE_URL) {
@@ -278,4 +301,15 @@ object GitHubReleaseClient {
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest"
     private const val LATEST_DOWNLOAD_BASE =
         "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest/download"
+
+    private val ASSET_HOSTS = setOf(
+        "github.com",
+        "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "ghproxy.net",
+        "gh-proxy.com",
+        "cdn.jsdelivr.net",
+    )
+
+    private val ASSET_MIRRORS = listOf("https://ghproxy.net/", "https://gh-proxy.com/")
 }
