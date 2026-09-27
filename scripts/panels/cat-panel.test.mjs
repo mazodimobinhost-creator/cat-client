@@ -1208,5 +1208,26 @@ async function subText(url, opts) {
   check('parser still accepts plain lists', T.parseCommunityIps('104.16.0.1\n188.114.96.1 junk').length === 2);
 }
 
+// §45 — SNI spoofing from the Spoof tab (cfg.sni settable with one click)
+{
+  const mem45 = new Map();
+  const kv45 = { get: async (k) => mem45.get(k) ?? null, put: async (k, v) => { mem45.set(k, v); }, delete: async (k) => { mem45.delete(k); } };
+  const env45 = { CAT_KV: kv45, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  check('spoof tab renders the SNI-spoof card', src.includes('id="sniSpoofChips"') && src.includes('data-snisp=') && src.includes('id="sniSpoofSave"'));
+  check('suggestions come from the verified pool + a no-spoof option', src.includes('DEFAULT_EXTRA_SNIS.slice(0, 10).map') && src.includes('بدون جعل (هاست خودم)'));
+  // saved cfg.sni must flow into every new link (that IS SNI spoofing)
+  await T.writeSettings(env45, { configs: { sni: 'time.is' } });
+  const sub45 = await subText('/sub?count=2&proto=vless&ports=443&host=0&ips=104.16.1.1', { env: env45, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true });
+  check('saved spoof SNI appears in new links', sub45.body.includes('sni=time.is'));
+  check('host header stays the worker (routing untouched)', sub45.body.includes('host=' + HOST));
+  // clearing the spoof returns to the host
+  await T.writeSettings(env45, { configs: { sni: '' } });
+  const sub45b = await subText('/sub?count=1&proto=vless&ports=443&host=0&ips=104.16.1.1', { env: env45, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true });
+  check('clearing the spoof removes the pinned SNI (back to pool rotation)', !sub45b.body.includes('sni=time.is') && /&sni=/.test(sub45b.body));
+  // worker gate accepts spoofed SNIs on the data path
+  const allowed45 = T.allowedSnis(HOST, {});
+  check('spoofed SNIs pass the X-Forwarded-Sni gate', allowed45.has('time.is') && allowed45.has('gateway.discord.gg'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

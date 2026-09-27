@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.21.2';
+const CAT_PANEL_VERSION = '5.21.3';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3994,12 +3994,23 @@ function spoofTabHtml(state) {
   const current = (state.configOptions && state.configOptions.fingerprint) || 'chrome';
   const fps = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'];
   const chips = fps.map((f) => '<button class="chip' + (current === f ? ' active' : '') + '" type="button" data-fp="' + f + '">' + f + (f === current ? ' ✓' : '') + '</button>').join(' ');
+  const hostSni = String(state.sni || '');
+  const sniCurrent = String((state.configOptions && state.configOptions.sni) || hostSni);
+  const sniSpoofed = sniCurrent && sniCurrent !== hostSni;
+  const sniChips = ['<button class="chip' + (sniSpoofed ? '' : ' active') + '" type="button" data-snisp="">بدون جعل (هاست خودم)</button>']
+    .concat(DEFAULT_EXTRA_SNIS.slice(0, 10).map((d) =>
+      '<button class="chip' + (sniCurrent === d ? ' active' : '') + '" type="button" data-snisp="' + d + '" dir="ltr">' + d + '</button>'))
+    .join(' ');
   return '<section class="tab" data-tab-panel="spoof">' + sectionHead('🎭', 'Spoof — جعل اثر انگشت TLS', 'اثر انگشت ClientHello که همهٔ کانفیگ‌ها با آن ساخته می‌شوند') +
     '<div class="card"><h2><span class="dot"></span>Fingerprint فعال</h2>' +
     '<p class="muted">هر کلاینت موقع دست‌دادن TLS اثر انگشت خاصی می‌فرستد که فیلترترافیک می‌بیند. با عوض‌کردنش الگوی اتصال شبیه مرورگر یا گوشی دیگری می‌شود — اگر اپراتورت یک اثر انگشت را شناخته، یکی دیگر را امتحان کن. ذخیره که کنی همهٔ کانفیگ‌های جدید با همین اثر ساخته می‌شوند.</p>' +
     '<div class="chips" id="spoofChips" style="margin-top:10px">' + chips + '</div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="spoofSave">ذخیره برای همهٔ کانفیگ‌ها</button><span class="muted" id="spoofStatus"></span></div>' +
     '<p class="muted" style="margin-top:8px">randomized فقط در Xray و sing-box پشتیبانی می‌شود؛ برای v2rayNG و V2Box همان chrome یا ios امن‌تر است.</p></div>' +
+    '<div class="card" style="margin-top:10px"><h2><span class="dot"></span>جعل SNI — همه فکر کنند جای دیگری هستند</h2>' +
+    '<p class="muted">در دست‌دادن TLS، کانفیگ‌ها الان SNI را از خودت نشان می‌دهند. یک دامنهٔ سالم کلادفلری انتخاب کن تا همهٔ کانفیگ‌های جدید TLS را با آن باز کنند — فیلترچی همان دامنه را می‌بیند ولی ترافیک به ورکر خودت می‌رسد (مسیر همانِ همیشگی است، فقط برچسب عوض می‌شود). اگر برای یک IP برندهٔ اندازه‌گیری‌شده ثبت شده باشد، همان برنده برای آن IP می‌ماند. هر SNI هم از قبل تأیید شده که واقعاً پشت کلادفلر است.</p>' +
+    '<div class="chips" id="sniSpoofChips" style="margin-top:10px">' + sniChips + '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="sniSpoofSave">ذخیرهٔ SNI برای همهٔ کانفیگ‌ها</button><span class="muted" id="sniSpoofStatus"></span></div></div>' +
     '</section>';
 }
 
@@ -4630,6 +4641,8 @@ function panelClientJs() {
     '  reader.readAsText(f);});}',
     '$$("#spoofChips .chip").forEach(function(c){c.addEventListener("click",function(){$$("#spoofChips .chip").forEach(function(x){x.classList.remove("active")});c.classList.add("active");});});' +
     'if($("#spoofSave"))$("#spoofSave").addEventListener("click",function(){var a=$("#spoofChips .chip.active");if(!a)return;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{fingerprint:a.getAttribute("data-fp")}})}).then(function(r){return r.json()}).then(function(j){$(\"#spoofStatus\").textContent=j.ok?\"ذخیره شد\":\"خطا: \"+j.error;if(j.ok)toast(\"Spoof ذخیره شد\");});});',
+    '$$("#sniSpoofChips .chip").forEach(function(c){c.addEventListener("click",function(){$$("#sniSpoofChips .chip").forEach(function(x){x.classList.remove("active")});c.classList.add("active");});});',
+    'if($("#sniSpoofSave"))$("#sniSpoofSave").addEventListener("click",function(){var a=$("#sniSpoofChips .chip.active");if(!a)return;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{sni:a.getAttribute("data-snisp")||""}})}).then(function(r){return r.json()}).then(function(j){$("#sniSpoofStatus").textContent=j.ok?"ذخیره شد — ساب را بروز کن":"خطا: "+j.error;if(j.ok)toast("جعل SNI ذخیره شد");});});',
     'function loadQuota(){fetch("/api/quota").then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var pct=Math.min(100,Math.round(j.requests*100/j.limit));$("#quotaBar").style.width=pct+"%";$("#quotaText").textContent="درخواست‌های امروز (تقریبی): "+j.requests+" از "+j.limit+" ("+pct+"%)";}).catch(function(){$("#quotaText").textContent="سهمیه در دسترس نیست";});}' +
     'loadQuota();var sr=$("#selfReload");if(sr)sr.addEventListener("click",loadQuota);' +
     'function tgPayload(){var t=$("#tgToken").value.trim();var p={telegram:{enabled:$("#tgOn").checked,chat:$("#tgChat").value.trim()}};if(t&&t.indexOf("•")<0)p.telegram.token=t;return p;}' +
