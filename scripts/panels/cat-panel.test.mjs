@@ -968,5 +968,41 @@ async function subText(url, opts) {
   check('worker counts every request at the fetch entry', src2.includes('noteRequest(env, ctx);'));
 }
 
+// 37. v5.17.0 — ping-sorted subs, gaming mode (low-latency ports + WARP for
+// real UDP) and the Spoof tab in the hamburger menu.
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const fastIp = '104.16.7.7', slowIp = '104.16.8.8';
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { verified: [
+      { ip: slowIp, colo: 'FRA', countryCode: 'DE', countryName: 'Germany', ms: 900 },
+      { ip: fastIp, colo: 'CDG', countryCode: 'FR', countryName: 'France', ms: 80 },
+    ], verifiedScanned: true } }),
+  }), env);
+  const su = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'fast', countries: 'DE,FR' }),
+  }), env)).text()).user;
+  const all = await (await req('/u/' + su.token + '/all?count=4&proto=vless&ports=443&host=0', { env, raw: true })).json();
+  const addrs = all.entries.filter((e) => e.tls).map((e) => e.addr);
+  const fi = addrs.indexOf(fastIp), si = addrs.indexOf(slowIp);
+  check('subs lead with the FASTEST measured IP (ping-sorted)', fi !== -1 && si !== -1 && fi < si);
+  const g = await (await req('/u/' + su.token + '/all?count=6&proto=vless&ports=443,8080,2053&host=0&gaming=1', { env, raw: true })).json();
+  check('gaming mode keeps only low-latency ports (80/443)', g.entries.length > 0 && g.entries.every((e) => e.port === 80 || e.port === 443));
+  const raw = await (await req('/u/' + su.token + '/raw?gaming=1', { env, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true })).text();
+  check('gaming sub appends the WARP entry (the UDP path)', raw.includes('warp://'));
+  const shell = await (await req('/', { env, raw: true })).text();
+  check('hamburger has the Spoof tab with fingerprint chips', shell.includes('data-tab="spoof"') && shell.includes('spoofChips') && shell.includes('data-fp="randomized"'));
+  check('config builder exposes the gaming toggle', src.includes('data-flag="gaming"') && src.includes('gaming=1'));
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { fingerprint: 'ios' } }),
+  }), env);
+  const iosSub = await (await req('/u/' + su.token + '/raw?count=1&proto=vless&ports=443&host=0', { env, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true })).text();
+  check('spoof fingerprint flows into new config links', iosSub.includes('fp=ios'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

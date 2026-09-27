@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.16.0';
+const CAT_PANEL_VERSION = '5.17.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -2373,6 +2373,7 @@ function normalizedVerifiedEntries(settings) {
       countryName: String(item && item.countryName || location.country || 'Cloudflare edge'),
       checkedAt: Number(item && item.checkedAt) || 0,
       sni: String(item && item.sni || '').trim().toLowerCase(),
+      ms: Math.max(0, Math.round(Number(item && item.ms) || 0)),
     };
   }).filter(Boolean);
 }
@@ -2582,6 +2583,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
   const fpRaw = String(q.get('fp') || cfg.fingerprint || env.FINGERPRINT || 'chrome').toLowerCase();
   const fingerprint = /^(chrome|firefox|safari|ios|android|edge|360|qq|random|randomized)$/.test(fpRaw) ? fpRaw : 'chrome';
   const includeV6 = q.has('v6') ? q.get('v6') !== '0' : cfg.includeIpv6 !== false;
+  const gaming = q.get('gaming') === '1';
   const pathName = url && url.pathname ? String(url.pathname) : '';
   const recipientPath = pathName === '/u' || pathName.startsWith('/u/') || pathName.startsWith('/info/');
   if (ownerGate) {
@@ -2602,9 +2604,11 @@ function configOptions(url, host, env, settings, allowedCountries) {
   }
   const requestedCount = Number(q.get('count') || cfg.entryLimit || (recipientPath ? DEFAULT_SUB_ENTRIES : MAX_SUB_ENTRIES));
   const entryLimit = Number.isFinite(requestedCount) ? Math.max(1, Math.min(MAX_SUB_ENTRIES, Math.floor(requestedCount))) : DEFAULT_SUB_ENTRIES;
+  const effPorts = gaming ? ports.filter((prt) => prt === 80 || prt === 443) : ports;
   return {
     addresses: addresses,
-    ports: ports,
+    ports: effPorts.length ? effPorts : [80, 443],
+    gaming: gaming,
     sni: sni,
     snis: snis,
     protocols: protocols.length ? protocols : ['vless'],
@@ -2688,6 +2692,10 @@ function buildConfigEntries(host, env, uuid, opts) {
   (options.verifiedEntries || []).forEach((e) => {
     if (e && e.ip && e.sni) sniByAddr[String(e.ip).toLowerCase()] = e.sni;
   });
+  const msByAddr = {};
+  (options.verifiedEntries || []).forEach((e) => {
+    if (e && e.ip) msByAddr[String(e.ip).toLowerCase()] = Number(e.ms) || 0;
+  });
   const addresses = [];
   const seen = new Set();
   const push = (a) => {
@@ -2705,6 +2713,12 @@ function buildConfigEntries(host, env, uuid, opts) {
     (v6.length ? v6 : (options.verifiedOnly ? [] : DEFAULT_CLEAN_IPV6)).forEach(push);
   }
   names.forEach(push);
+  // Fastest measured IPs first — every sub leads with the lowest ping.
+  const known = addresses.filter((a) => msByAddr[a.toLowerCase()] > 0);
+  const unknown = addresses.filter((a) => !(msByAddr[a.toLowerCase()] > 0));
+  known.sort((a, b) => (msByAddr[a.toLowerCase()] || 1e9) - (msByAddr[b.toLowerCase()] || 1e9));
+  addresses.length = 0;
+  known.concat(unknown).forEach((a) => addresses.push(a));
   const entries = [];
   const entryLimit = Math.min(MAX_SUB_ENTRIES, Number(options.entryLimit) || DEFAULT_SUB_ENTRIES);
   let index = 0;
@@ -3603,6 +3617,7 @@ function panelShell(state) {
     '<nav class="side-nav">' +
     sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
     sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
+    sideButton('spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>') +
     sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
     sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
     sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
@@ -3617,6 +3632,7 @@ function panelShell(state) {
     '<div class="hmenu" id="hmenu">' +
     sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
     sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
+    sideButton('spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>') +
     sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
     sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
     sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
@@ -3632,7 +3648,7 @@ function panelShell(state) {
     '<div class="theme-menu" id="themeMenu">' + themeMenuHtml() + '</div>' +
     '</div></header>' +
 
-    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + scannerTabHtml(state) +
+    '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + spoofTabHtml(state) + scannerTabHtml(state) +
       dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
     '</div></div>' +
@@ -3734,6 +3750,19 @@ function statCard(key, value) {
   return '<div class="stat"><div class="k">' + esc(key) + '</div><div class="v" dir="ltr">' + esc(value) + '</div></div>';
 }
 
+function spoofTabHtml(state) {
+  const current = (state.configOptions && state.configOptions.fingerprint) || 'chrome';
+  const fps = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'];
+  const chips = fps.map((f) => '<button class="chip' + (current === f ? ' active' : '') + '" type="button" data-fp="' + f + '">' + f + (f === current ? ' ✓' : '') + '</button>').join(' ');
+  return '<section class="tab" data-tab-panel="spoof">' + sectionHead('🎭', 'Spoof — جعل اثر انگشت TLS', 'اثر انگشت ClientHello که همهٔ کانفیگ‌ها با آن ساخته می‌شوند') +
+    '<div class="card"><h2><span class="dot"></span>Fingerprint فعال</h2>' +
+    '<p class="muted">هر کلاینت موقع دست‌دادن TLS اثر انگشت خاصی می‌فرستد که فیلترترافیک می‌بیند. با عوض‌کردنش الگوی اتصال شبیه مرورگر یا گوشی دیگری می‌شود — اگر اپراتورت یک اثر انگشت را شناخته، یکی دیگر را امتحان کن. ذخیره که کنی همهٔ کانفیگ‌های جدید با همین اثر ساخته می‌شوند.</p>' +
+    '<div class="chips" id="spoofChips" style="margin-top:10px">' + chips + '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="spoofSave">ذخیره برای همهٔ کانفیگ‌ها</button><span class="muted" id="spoofStatus"></span></div>' +
+    '<p class="muted" style="margin-top:8px">randomized فقط در Xray و sing-box پشتیبانی می‌شود؛ برای v2rayNG و V2Box همان chrome یا ios امن‌تر است.</p></div>' +
+    '</section>';
+}
+
 function configsTabHtml(state) {
   const o = state.configOptions || { addresses: [], ports: [443], sni: state.sni, protocols: ['vless', 'trojan'], includeHost: true };
   const portChip = (p, tls) => '<button class="chip' + (o.ports.includes(p) ? ' active' : '') + '" data-port="' + p + '" data-tls="' + (tls ? 1 : 0) + '">' + p + (tls ? '' : ' <small>http</small>') + '</button>';
@@ -3759,6 +3788,7 @@ function configsTabHtml(state) {
     '<button class="chip' + (o.protocols.includes('vless') ? ' active' : '') + '" data-proto="vless">VLESS</button>' +
     '<button class="chip' + (o.protocols.includes('trojan') ? ' active' : '') + '" data-proto="trojan">Trojan</button>' +
     '<button class="chip' + (o.includeHost !== false ? ' active' : '') + '" data-flag="host" title="خود دامنهٔ ورکر هم به‌عنوان آدرس اضافه شود">+ خود ورکر</button>' +
+    '<button class="chip" data-flag="gaming" title="فقط پورت‌های کم‌تأخیر 80/443 + افزودن WARP (مسیر UDP واقعی برای بازی)">🎮 گیمینگ</button>' +
     '<button class="chip' + (o.includeIpv6 !== false ? ' active' : '') + '" data-flag="v6" title="آی‌پی‌های IPv6 کلودفلر هم اضافه شود">+ IPv6</button>' +
     '</div></label>' +
     '<label class="field"><span>Fingerprint (uTLS)</span><select id="cfgFp">' +
@@ -4138,8 +4168,9 @@ function panelClientJs() {
     ' var sni=($("#cfgSni").value||"").trim().toLowerCase()||S.host;',
     ' var snis=($("#cfgSnis").value||"").split(/[;, ]+/).map(function(s){return s.trim().toLowerCase()}).filter(function(s){return s&&s.indexOf(".")>0&&s.indexOf(":")<0}).slice(0,4);',
     ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
+    ' var gaming=$(\"#cfgProtos .chip[data-flag=gaming]\").classList.contains(\"active\");',
     ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean)};}',
-    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
+    'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.gaming)q.push("gaming=1");if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
     'function refreshSubUrl(){var u=subUrlFor(cfgFmt);$("#cfgSubUrl").textContent=u;$("#subUrlText").textContent=subUrlFor("");',
@@ -4342,6 +4373,8 @@ function panelClientJs() {
     '  reader.onload=function(){fetch("/api/backup",{method:"POST",headers:{"content-type":"application/json"},body:String(reader.result)})',
     '   .then(function(r){return r.json()}).then(function(j){toast(j.ok?"بازیابی شد":"خطا");loadUsers();loadSettings();});};',
     '  reader.readAsText(f);});}',
+    '$$("#spoofChips .chip").forEach(function(c){c.addEventListener("click",function(){$$("#spoofChips .chip").forEach(function(x){x.classList.remove("active")});c.classList.add("active");});});' +
+    'if($("#spoofSave"))$("#spoofSave").addEventListener("click",function(){var a=$("#spoofChips .chip.active");if(!a)return;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{fingerprint:a.getAttribute("data-fp")}})}).then(function(r){return r.json()}).then(function(j){$(\"#spoofStatus\").textContent=j.ok?\"ذخیره شد\":\"خطا: \"+j.error;if(j.ok)toast(\"Spoof ذخیره شد\");});});',
     'function loadQuota(){fetch("/api/quota").then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var pct=Math.min(100,Math.round(j.requests*100/j.limit));$("#quotaBar").style.width=pct+"%";$("#quotaText").textContent="درخواست‌های امروز (تقریبی): "+j.requests+" از "+j.limit+" ("+pct+"%)";}).catch(function(){$("#quotaText").textContent="سهمیه در دسترس نیست";});}' +
     'loadQuota();var sr=$("#selfReload");if(sr)sr.addEventListener("click",loadQuota);' +
     'function tgPayload(){var t=$("#tgToken").value.trim();var p={telegram:{enabled:$("#tgOn").checked,chat:$("#tgChat").value.trim()}};if(t&&t.indexOf("•")<0)p.telegram.token=t;return p;}' +
@@ -4983,7 +5016,7 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
   if (format === 'all') {
     return jsonResponse(Object.assign({ ok: true, user: { name: user.name, token: user.token }, usage: state }, buildAllConfigs(host, env, uuid, options)), 200, headers);
   }
-  const wantsWarp = url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
+  const wantsWarp = options.gaming === true || url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
   const links = buildSubLinks(host, env, uuid, options, wantsWarp).join('\n') + '\n';
   if (format !== 'raw' && format !== 'txt') {
     return new Response(b64encode(links), {
@@ -5215,7 +5248,7 @@ async function fetchHandler(request, env, ctx) {
       });
     }
     if (format === 'all') return jsonResponse(buildAllConfigs(host, env, subUuid, options), 200, headers);
-    const wantsWarp = url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
+    const wantsWarp = options.gaming === true || url.searchParams.get('warp') === '1' || /catclient/i.test(request.headers.get('User-Agent') || '');
     const body = buildSubLinks(host, env, subUuid, options, wantsWarp).join('\n') + '\n';
     const wantsRaw = format === 'raw' || format === 'txt' || url.searchParams.get('raw') === '1';
     // Default is base64 (every client accepts it; some reject plain text).
@@ -5441,6 +5474,7 @@ async function fetchHandler(request, env, ctx) {
           countryName: result.countryName || 'Cloudflare edge',
           range: result.range || '',
           sni: bestSni,
+          ms: Math.max(0, Math.round(result.ms || 0)),
           checkedAt: Date.now(),
         };
       });
