@@ -42,6 +42,24 @@ object MihomoRuntimeDefaults {
     )
     val HEALTH_URL = HEALTH_URLS.first()
     const val EGRESS_TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
+    /** Domains the app itself measures through (exit-IP echoes, delay tests).
+     * Their rules are injected FIRST so subscription rule sets can never send
+     * them DIRECT — the dashboard must measure the tunnel, not the carrier. */
+    val MEASUREMENT_DOMAINS = listOf(
+        "api4.ipify.org",
+        "api6.ipify.org",
+        "ipv4.icanhazip.com",
+        "ipv6.icanhazip.com",
+        "ipv4.ident.me",
+        "ipv6.ident.me",
+        "api-ipv4.ip.sb",
+        "api-ipv6.ip.sb",
+        "www.cloudflare.com",
+        "cloudflare.com",
+        "speed.cloudflare.com",
+        "www.gstatic.com",
+        "connectivitycheck.gstatic.com",
+    )
     const val SPEED_TEST_BYTES = 1_000_000L
     const val SPEED_TEST_URL_PREFIX = "https://speed.cloudflare.com/__down?bytes="
 }
@@ -772,6 +790,29 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     RoutingMode.GlobalProxy -> {
                         append("rules:\n")
                         append("  - ${yamlSingleQuoted("MATCH,$requiredRoutingTarget")}\n\n")
+                    }
+                }
+                // Measurement integrity: ip/echo/ping domains used by the app
+                // must ALWAYS ride the tunnel. Subscription rule sets may route
+                // arbitrary domains DIRECT, which would make the dashboard's
+                // exit-IP probe and the ping button measure the wrong path.
+                // Injected at the TOP of the rules list so nothing shadows them.
+                val measureTarget = when (routingMode) {
+                    RoutingMode.Subscription -> routingTarget(subscriptionYaml)
+                    else -> requiredRoutingTarget
+                }
+                if (measureTarget != null) {
+                    val measurementRules = MEASUREMENT_DOMAINS.joinToString("") { domain ->
+                        "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
+                    }
+                    val rulesHeader = "rules:\n"
+                    val at = indexOf(rulesHeader)
+                    if (at >= 0) {
+                        val insertAt = at + rulesHeader.length
+                        insert(insertAt, measurementRules)
+                    } else {
+                        append(rulesHeader)
+                        append(measurementRules)
                     }
                 }
                 append("# CatClient Android runtime overrides\n")
