@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.21.3';
+const CAT_PANEL_VERSION = '5.22.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3797,6 +3797,8 @@ function panelState(host, env, uuid, request, settings) {
     communityTargets: communityIpsFrom(settings),
     operators: IR_OPERATORS,
     operator: options.operator,
+    autoHeal: !!(settings && settings.configs && settings.configs.autoHeal),
+    lastHealthAt: (settings && settings.configs && settings.configs.lastHealth && settings.configs.lastHealth.at) || 0,
     scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
@@ -4029,7 +4031,7 @@ function configsTabHtml(state) {
     '<button class="btn ghost tiny" id="cfgClearAddr">پاک کردن</button>' +
     '</div>' +
     '<div class="grid two" style="margin-top:10px">' +
-    '<label class="field"><span>تعداد کانفیگ — خودت انتخاب کن (پیش‌فرض ۸، نه صدتا!)</span><select id="cfgCount"><option value="3">۳ کانفیگ</option><option value="6">۶ کانفیگ</option><option value="8" selected>۸ کانفیگ</option><option value="12">۱۲ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option></select></label>' +
+    '<label class="field"><span>تعداد کانفیگ — ۳ تا ۲۰۰ (پیش‌فرض ۸)</span><select id="cfgCount"><option value="3">۳ کانفیگ</option><option value="6">۶ کانفیگ</option><option value="8" selected>۸ کانفیگ</option><option value="10">۱۰ کانفیگ</option><option value="12">۱۲ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option><option value="50">۵۰ کانفیگ</option><option value="100">۱۰۰ کانفیگ</option><option value="200">۲۰۰ کانفیگ</option></select></label>' +
     '<div class="field"><span>لوکیشن — فقط از همین کشورها کانفیگ بساز (IP از استخر همان کشور می‌آید و پرچم واقعی‌اش روی کانفیگ می‌نشیند)</span><div class="chips" id="cfgCountries"><button class="chip active" type="button" data-cc="">همه</button>' + ((state && state.countryPools) || []).filter((p) => p.code).map((p) => '<button class="chip" type="button" data-cc="' + esc(p.code) + '">' + esc(p.flag + ' ' + p.name + ' · ' + p.count) + '</button>').join('') + '</div></div>' +
     '</div>' +
     '<div class="grid two" style="margin-top:12px">' +
@@ -4142,6 +4144,11 @@ function scannerTabHtml(state) {
     '</div></div>' +
     '<div class="card" style="margin-top:10px"><b>اپراتور این اسکن:</b> <span class="muted" style="font-size:11.5px">همان که الان با آن وصل‌ای — با هر اسکن، استخر همان اپراتور تازه می‌شود</span><div class="chips" id="scanOps" style="margin-top:8px">' + operatorChipsHtml(String((state && state.operator) || '')) + '</div></div>' +
     '<div class="grid two" style="margin-top:12px">' +
+    '<div class="card" style="margin-top:10px"><b>🩺 سلامت کانفیگ‌ها</b> <span class="muted" style="font-size:11.5px">تست سروری همهٔ آی‌پی‌های ست‌شده؛ مُرده‌ها خودکار از همهٔ استخرها (و باکت اپراتورها) حذف می‌شوند</span>' +
+    '<div class="row" style="margin-top:8px;align-items:center;flex-wrap:wrap">' +
+    '<button class="btn" id="healthRun">تست و پاکسازی الان</button>' +
+    '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="healthAuto" style="width:auto"> تعمیر خودکار هر ۶ ساعت</label>' +
+    '</div><div id="healthStat" class="muted" style="margin-top:8px;font-size:12.5px">' + ((state && state.lastHealthAt) ? ('آخرین تست: ' + new Date(state.lastHealthAt).toLocaleString('fa-IR')) : 'هنوز تست نشده') + '</div></div>' +
     '<label class="field"><span>حالت اسکن مرورگر</span><select id="scanMode"><option value="http">HTTP :80 — دقیق‌ترین از مرورگر (پیشنهادی)</option><option value="https">HTTPS :443 — فقط دسترسی TCP/TLS</option></select></label>' +
     '<label class="field"><span>تعداد هم‌زمان</span><input id="scanConc" type="number" min="1" max="32" value="8"></label>' +
     '<label class="field"><span>تایم‌اوت هر تست (ms)</span><input id="scanTimeout" type="number" min="500" max="8000" value="2000"></label>' +
@@ -4764,8 +4771,11 @@ function panelClientJs() {
 'function mergePools(results){var map={};(S.countryPools||[]).forEach(function(p){map[p.code||"-"]=p});' +
 ' results.forEach(function(r){if(!r.ok||!r.ip)return;var code=String(r.countryCode||"").toUpperCase();var key=code||"-";var p=map[key]||(map[key]={code:code,name:r.countryName||"Cloudflare edge",flag:flagOf(code),count:0,ips:[]});if(!p.flag)p.flag=code?flagOf(code):"";if(p.ips.indexOf(r.ip)<0){p.ips.push(r.ip);p.count+=1}});' +
 ' S.countryPools=Object.keys(map).map(function(k){return map[k]}).sort(function(a,b){return b.count-a.count});}' +
-    'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[]; if(el){el.innerHTML=pools.length?pools.map(function(p){return `<div class="config-group"><h3><span>`+(p.flag||"")+" "+p.name+`</span><span class="cnt">`+p.count+` IP</span></h3><div class="tags">`+p.ips.map(function(ip){return `<span class="pill" dir="ltr">`+ip+`</span>`}).join("")+(p.count>p.ips.length?`<span class="pill">…</span>`:"")+`</div></div>`}).join(""):`<p class="muted">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>`;} var box=$("#cfgCountries");if(box){var chips=`<button class="chip active" type="button" data-cc="">همه</button>`+pools.filter(function(p){return p.code}).map(function(p){return `<button class="chip" type="button" data-cc="`+p.code+`">`+(p.flag||"")+" "+p.name+" · "+p.count+`</button>`}).join("");box.innerHTML=chips;}}',
+    'function renderPoolUi(){var el=$("#countryPools");var pools=S.countryPools||[]; if(el){el.innerHTML=pools.length?pools.map(function(p){return `<div class="config-group"><h3><span>`+(p.flag||"")+" "+p.name+`</span><span class="cnt">`+p.count+` IP</span><button class="btn tiny" data-pick-country="`+p.code+`">انتخاب</button></h3><div class="tags">`+p.ips.map(function(ip){return `<span class="pill" dir="ltr">`+ip+`</span>`}).join("")+(p.count>p.ips.length?`<span class="pill">…</span>`:"")+`</div></div>`}).join(""):`<p class="muted">هنوز IPای دسته‌بندی نشده — یک بار «اسکن از ورکر» را بزن.</p>`;} var box=$("#cfgCountries");if(box){var chips=`<button class="chip active" type="button" data-cc="">همه</button>`+pools.filter(function(p){return p.code}).map(function(p){return `<button class="chip" type="button" data-cc="`+p.code+`">`+(p.flag||"")+" "+p.name+" · "+p.count+`</button>`}).join("");box.innerHTML=chips;}}',
     'function updateSelCount(){var el=$("#scanSelCount");if(el)el.textContent=selectedIps().length+" انتخاب";}',
+    'var cpl=$("#countryPools");if(cpl)cpl.addEventListener("click",function(ev){var b=ev.target.closest("[data-pick-country]");if(!b)return;var p=(S.countryPools||[]).filter(function(x){return x.code===b.getAttribute("data-pick-country")})[0];if(!p||!p.ips||!p.ips.length){toast("برای این کشور IP ثبت نشده — اول اسکن بزن");return;}var cur=parseAddrList($("#cfgAddresses").value);p.ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");toast(p.ips.length+" آی‌پی "+p.name+" به کانفیگ‌ها اضافه شد — «اعمال» را بزن");});',
+    'var hcRun=$("#healthRun");if(hcRun)hcRun.addEventListener("click",function(){hcRun.disabled=true;$("#healthStat").textContent="در حال تست سروری…";fetch("/api/health-check",{method:"POST",headers:{"content-type":"application/json"}}).then(function(r){return r.json()}).then(function(j){hcRun.disabled=false;if(!j.ok){$("#healthStat").textContent="خطا: "+(j.error||"");return;}var dead=j.dead||[];$("#healthStat").textContent=j.alive+" سالم از "+j.checked+(dead.length?" — "+dead.length+" مُرده از همهٔ استخرها حذف شد: "+dead.join("، "):" — همه سالم بودن");}).catch(function(){hcRun.disabled=false;$("#healthStat").textContent="خطای شبکه"});});',
+    'var hcAuto=$("#healthAuto");if(hcAuto){hcAuto.checked=!!S.autoHeal;hcAuto.addEventListener("change",function(){fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{autoHeal:hcAuto.checked}})}).catch(function(){});});}',
 'function selectedIps(){return scanResults.filter(function(r){return r.selected&&(r.server===undefined?r.ms!==null:r.server&&r.server.ok)}).map(function(r){return r.ip})}',
     '$("#copyBestIps").addEventListener("click",function(){var top=scanResults.filter(function(r){return r.server===undefined?r.ms!==null:r.server&&r.server.ok}).sort(function(a,b){return (a.server?a.server.ms:a.ms)-(b.server?b.server.ms:b.ms)}).slice(0,10).map(function(r){return r.ip});if(!top.length){toast("نتیجه‌ای نیست");return;}copyText(top.join("\\n"))});',
     '$("#useIpsInConfigs").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را تیک بزن");return;}',
@@ -4931,7 +4941,15 @@ async function healthCheck(env, host) {
   const cfg = settings.configs || {};
   const manual = Array.isArray(cfg.addresses) ? cfg.addresses : [];
   const verified = normalizedVerifiedEntries(settings);
-  const targets = unionAddresses(manual, verified.map((entry) => entry.ip)).slice(0, 64);
+  const buckets = cfg.verifiedByOp && typeof cfg.verifiedByOp === 'object' ? cfg.verifiedByOp : {};
+  const bucketIps = [];
+  Object.keys(buckets).forEach((key) => {
+    (Array.isArray(buckets[key]) ? buckets[key] : []).forEach((entry) => {
+      if (entry && entry.ip) bucketIps.push(entry.ip);
+    });
+  });
+  // Bucket-only IPs must be PROBED, not silently pruned: include them.
+  const targets = unionAddresses(unionAddresses(manual, verified.map((entry) => entry.ip)), bucketIps).slice(0, 64);
   const results = [];
   const batch = 12;
   for (let i = 0; i < targets.length; i += batch) {
@@ -4950,9 +4968,17 @@ async function healthCheck(env, host) {
   }
   const aliveSet = new Set(results.filter((r) => r.ok).map((r) => r.ip.toLowerCase()));
   const dead = results.filter((r) => !r.ok).map((r) => r.ip);
+  // Per-operator buckets are pruned with the same verdicts — a dead IP must
+  // not survive in any operator pool.
+  const prunedBuckets = {};
+  Object.keys(buckets).forEach((key) => {
+    if (!Array.isArray(buckets[key])) return;
+    prunedBuckets[key] = buckets[key].filter((entry) => entry && aliveSet.has(String(entry.ip || '').toLowerCase()));
+  });
   await writeSettings(env, { configs: {
     addresses: manual.filter((ip) => aliveSet.has(String(ip).toLowerCase())),
     verified: verified.filter((entry) => aliveSet.has(String(entry.ip).toLowerCase())),
+    verifiedByOp: prunedBuckets,
     lastHealth: { at: Date.now(), results: results },
   } });
   return jsonResponse({
@@ -4960,6 +4986,7 @@ async function healthCheck(env, host) {
     checked: results.length,
     alive: results.length - dead.length,
     dead: dead,
+    removed: dead,
     results: results,
   }, 200, CORS);
 }
@@ -5381,7 +5408,7 @@ function userInfoHtml(d) {
     '<p class="muted">مالک پنل هنوز کشوری برای حساب تو انتخاب نکرده است. به او بگو در تب «کاربران»، کشورهای دلخواهت را (مثلاً 🇳🇱 هلند یا 🇩🇪 آلمان) برایت تعیین کند؛ بعد از آن همین صفحه هم تعداد کانفیگ و هم لوکیشن را از تو می‌پرسد و فقط از همان کشورها کانفیگ می‌سازد.</p></section>'
     : '<section class="card" id="recipientConfigs"><h2><span class="dot"></span>انتخاب کانفیگ‌ها</h2>' +
     '<p>تعداد کانفیگ و کشورهای دلخواهت را انتخاب کن. خروجی فقط از IPهایی ساخته می‌شود که آخرین اسکن پنل با موفقیت به آن‌ها پاسخ داده؛ هر کشور در گروه خودش نمایش داده می‌شود.</p>' +
-    '<div class="grid two" style="margin-top:12px"><label class="field"><span>تعداد کانفیگ</span><select id="configCount"><option value="3">۳ کانفیگ</option><option value="6">۶ کانفیگ</option><option value="10">۱۰ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option><option value="80">۸۰ کانفیگ</option><option value="100" selected>همه</option></select></label>' +
+    '<div class="grid two" style="margin-top:12px"><label class="field"><span>تعداد کانفیگ</span><select id="configCount"><option value="3">۳ کانفیگ</option><option value="6">۶ کانفیگ</option><option value="10">۱۰ کانفیگ</option><option value="20">۲۰ کانفیگ</option><option value="40">۴۰ کانفیگ</option><option value="80">۸۰ کانفیگ</option><option value="100">۱۰۰ کانفیگ</option><option value="200" selected>همه (تا ۲۰۰)</option></select></label>' +
     '<div class="field"><span>کشورها</span><div class="country-choices" id="countryChoices">' + countryControls + '</div></div></div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="loadRecipientConfigs">نمایش کانفیگ‌های انتخابی</button><span class="muted" id="recipientStatus"></span></div>' +
     '<div class="link-row" style="margin-top:10px"><span class="grow mono" id="selectedSubUrl">' + esc(d.allUrl || d.subUrl) + '</span><button class="btn tiny" id="copySelectedSub">کپی لینک انتخابی</button><a class="btn ghost tiny" id="addSelectedSub" href="' + esc('catclient://add-sub?url=' + encodeURIComponent(d.subUrl) + '&name=' + encodeURIComponent(st.name)) + '">افزودن به Cat Client</a></div>' +
@@ -5931,6 +5958,13 @@ async function fetchHandler(request, env, ctx) {
 
   if (path === '/' || path === '/index.html' || path === '/panel') {
     const settings = await readSettings(env);
+    // Self-healing: with autoHeal on, opening the panel triggers a server-side
+    // probe + prune of every configured address at most once every 6 hours.
+    const hcInfo = settings.configs && settings.configs.lastHealth;
+    if (settings.configs && settings.configs.autoHeal && ctx && typeof ctx.waitUntil === 'function'
+        && (!hcInfo || !hcInfo.at || Date.now() - hcInfo.at > 6 * 3600 * 1000)) {
+      ctx.waitUntil(healthCheck(env, host).catch(() => {}));
+    }
     const state = panelState(host, env, uuid, request, settings);
     return handlePanelRequest(request, url, env, host, uuid, state);
   }
@@ -6009,6 +6043,8 @@ export const _testing = {
   IR_OPERATORS,
   operatorBucket,
   operatorChipsHtml,
+  healthCheck,
+  MAX_SUB_ENTRIES,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,

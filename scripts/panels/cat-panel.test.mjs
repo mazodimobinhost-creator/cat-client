@@ -931,7 +931,7 @@ async function subText(url, opts) {
     body: JSON.stringify({ configs: { verified: [{ ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' }], verifiedScanned: true } }),
   }), env);
   const info = await (await req('/info/' + su.token, { env, raw: true })).text();
-  check('recipient page defaults to ALL configs', info.includes('<option value="100" selected>همه</option>'));
+  check('recipient page defaults to ALL configs (up to 200)', info.includes('value="200" selected>همه (تا ۲۰۰)'));
   check('recipient page has a per-config QR button wired to the modal', info.includes('data-qr-config') && info.includes('data-qr-config')); 
   check('recipient page still carries the sub QR + copy + deep-links', info.includes('id="qrSub"') && info.includes('data-copy-config') && info.includes('catclient://add-sub'));
   const browserRes = await worker.fetch(new Request('https://' + HOST + '/u/' + su.token, {
@@ -1227,6 +1227,36 @@ async function subText(url, opts) {
   // worker gate accepts spoofed SNIs on the data path
   const allowed45 = T.allowedSnis(HOST, {});
   check('spoofed SNIs pass the X-Forwarded-Sni gate', allowed45.has('time.is') && allowed45.has('gateway.discord.gg'));
+}
+
+// §46 — auto-heal, dead-IP manager, counts to 200, country picker
+{
+  check('count select offers 8/10/40/50/100/200 (cap 200 enforced)', src.includes('<option value="200">۲۰۰ کانفیگ</option>') && src.includes('<option value="50">۵۰ کانفیگ</option>') && (T.MAX_SUB_ENTRIES || 0) === 200);
+  check('recipient count select reaches 200', src.includes('value="200" selected>همه (تا ۲۰۰)'));
+  check('health card renders with run button + auto checkbox', src.includes('id="healthRun"') && src.includes('id="healthAuto"') && src.includes('تست و پاکسازی الان'));
+  check('auto-heal runs from the panel shell every 6h', src.includes("Date.now() - hcInfo.at > 6 * 3600 * 1000") && src.includes('ctx.waitUntil(healthCheck(env, host)'));
+  check('country pools have a per-country انتخاب button', src.includes('data-pick-country') && src.includes('به کانفیگ‌ها اضافه شد'));
+
+  // real health-check run: every target fails in the sandbox → everything prunes
+  const mem46 = new Map();
+  const kv46 = { get: async (k) => mem46.get(k) ?? null, put: async (k, v) => { mem46.set(k, v); }, delete: async (k) => { mem46.delete(k); } };
+  const env46 = { CAT_KV: kv46, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await T.writeSettings(env46, { configs: {
+    addresses: ['127.0.0.1'],
+    verified: [{ ip: '104.16.1.1' }, { ip: '104.16.1.2' }],
+    verifiedByOp: { saman: [{ ip: '104.16.1.3' }, { ip: '104.16.1.4' }] },
+    autoHeal: true,
+  } });
+  const hc = await (await req('/api/health-check', { env: env46, method: 'POST', headers: { 'content-type': 'application/json' }, raw: true })).json();
+  check('health-check probes and reports dead+removed', hc.ok === true && hc.checked === 5 && hc.dead.length === 5 && hc.removed.length === 5, JSON.stringify({ checked: hc.checked, dead: (hc.dead || []).length }));
+  const after46 = await T.readSettings(env46);
+  check('dead IPs pruned from manual + global + OPERATOR buckets', after46.configs.addresses.length === 0 && after46.configs.verified.length === 0 && after46.configs.verifiedByOp.saman.length === 0);
+  check('lastHealth written for the 6h auto-heal gate', after46.configs.lastHealth && after46.configs.lastHealth.at > 0 && after46.configs.lastHealth.results.length === 5);
+  const state46 = T.panelState(HOST, env46, '66666666-6666-6666-6666-666666666666', null, after46);
+  check('panelState carries autoHeal + lastHealthAt', state46.autoHeal === true && state46.lastHealthAt > 0);
+  const cfg46 = T.configOptions(new URL('https://x.test/sub?count=200'), HOST, {}, await T.readSettings(env46));
+  const entries200 = T.buildConfigEntries(HOST, env46, '66666666-6666-6666-6666-666666666666', Object.assign({}, cfg46, { entryLimit: 200, addresses: ['104.16.1.1'], includeHost: false }));
+  check('200-entry builds actually emit up to the cap', entries200.length > 40, String(entries200.length));
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
