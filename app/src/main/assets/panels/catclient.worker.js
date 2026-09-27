@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.17.0';
+const CAT_PANEL_VERSION = '5.18.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -206,6 +206,7 @@ function allowedSnis(host, env) {
   set.add(String(host).toLowerCase());
   set.add(effectiveSni(host, env));
   splitCsv(env.SNI_LIST).forEach((s) => set.add(s.toLowerCase()));
+  DEFAULT_EXTRA_SNIS.forEach((s) => set.add(s.toLowerCase()));
   return set;
 }
 
@@ -1896,6 +1897,37 @@ const DEFAULT_CLEAN_ADDRESSES = [
   'www.shopify.com', 'discord.com', 'icook.tw', 'www.wto.org',
   '104.16.132.229', '172.67.181.32', '188.114.96.1', '162.159.192.1', '104.17.148.22', '172.64.80.1',
 ];
+/**
+ * SNI rotation pool — Cloudflare-fronted hostnames from many countries and
+ * services. Every entry below was DNS-verified to sit on Cloudflare anycast
+ * (2026-09): a non-Cloudflare SNI can never reach the worker, so it would
+ * silently kill the config. The pool is used in three places: the scanner
+ * probes a random sample against every clean IP and keeps the fastest winner
+ * per IP, config building rotates through the pool when no measured winner
+ * exists, and allowedSnis() accepts them so clean-IP connections that present
+ * one of these SNIs pass the gate. If an ISP throttles one of them, clients
+ * simply fall through to the next entry.
+ */
+const DEFAULT_EXTRA_SNIS = [
+  'www.cloudflare.com', 'skk.moe', 'time.is', 'doi.org', 'api.ip.sb',
+  'cdn.discordapp.com', 'gateway.discord.gg', 'www.icook.tw', 'nodejs.org',
+  'gitlab.com', 'about.gitlab.com', 'openai.com', 'chatgpt.com', 'signal.org',
+  'cdn.jsdelivr.net', 'www.ecosia.org', 'www.udemy.com', 'www.okx.com',
+  'www.coinbase.com', 'kraken.com', 'www.digitalocean.com', 'www.w3.org',
+  'www.iana.org', 'www.rfc-editor.org', 'www.pcmag.com',
+];
+
+/** Random sample from the pool — each scan tries different SNIs, so across
+ * scans every clean IP finds the SNI that suits it best. */
+function sampleDefaultSnis(count) {
+  const pool = DEFAULT_EXTRA_SNIS.slice();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+  }
+  return pool.slice(0, Math.max(0, Math.min(count, pool.length)));
+}
+
 const TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
 const PLAIN_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 /**
@@ -2732,7 +2764,14 @@ function buildConfigEntries(host, env, uuid, opts) {
         const addr = options.recipient ? pivel2 : pivel;
         if (entries.length >= entryLimit) return;
         index += 1;
-        const snis = (options.snis && options.snis.length) ? options.snis : [options.sni];
+        // configOptions always returns options.snis = [primary]; only EXTRA
+        // entries are an explicit rotation. An explicitly pinned primary SNI
+        // (env.SNI / ?sni= / cfg.sni ≠ host) keeps the old single-SNI behaviour;
+        // the untouched default rotates the global pool.
+        const primarySni = String(options.sni || '').toLowerCase();
+        const explicitSnis = (options.snis || []).filter((v) => v && v !== options.sni);
+        const pinned = explicitSnis.length > 0 || (primarySni && primarySni !== String(host).toLowerCase());
+        const snis = pinned ? (options.snis.length ? options.snis : [primarySni]) : DEFAULT_EXTRA_SNIS;
         const sni = sniByAddr[String(addr).toLowerCase()] || snis[index % snis.length];
         const name = configName(kind, addr, port, index, host, options);
         const overrides = { port: port, sni: sni, fingerprint: options.fingerprint };
@@ -3783,7 +3822,7 @@ function configsTabHtml(state) {
     '</div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>SNI (خالی = دامنهٔ ورکر)</span><input id="cfgSni" dir="ltr" value="' + esc(o.sni === state.host ? '' : o.sni) + '" placeholder="' + esc(state.host) + '"></label>' +
-    '<label class="field"><span>SNIهای بیشتر (با کاما — بین کانفیگ‌ها می‌چرخند و دسترسی را بهتر می‌کنند)</span><input id="cfgSnis" dir="ltr" placeholder="speed.cloudflare.com,cdn.jsdelivr.net"></label>' +
+    '<label class="field"><span>SNIهای بیشتر (با کاما — خالی بگذار تا خودکار از استخر ۲۵ SNI جهانی بین کانفیگ‌ها بچرخد)</span><input id="cfgSnis" dir="ltr" placeholder="خالی = چرخش خودکار از استخر"></label>' +
     '<label class="field"><span>پروتکل‌ها</span><div class="chips" id="cfgProtos" style="margin-top:6px">' +
     '<button class="chip' + (o.protocols.includes('vless') ? ' active' : '') + '" data-proto="vless">VLESS</button>' +
     '<button class="chip' + (o.protocols.includes('trojan') ? ' active' : '') + '" data-proto="trojan">Trojan</button>' +
@@ -3870,11 +3909,14 @@ function scannerTabHtml(state) {
   const ranges = (state && state.scanRanges) || SCAN_RANGES;
   const sniSuggestions = Array.from(new Set([
     String((state && state.sni) || (state && state.host) || '').trim(),
-    'skk.moe',
+    DEFAULT_EXTRA_SNIS[1],
+    DEFAULT_EXTRA_SNIS[2],
+    DEFAULT_EXTRA_SNIS[3],
+    DEFAULT_EXTRA_SNIS[14],
     'www.speedtest.net',
     'cdnjs.cloudflare.com',
     'speed.cloudflare.com',
-  ].filter(Boolean))).slice(0, 6);
+  ].filter(Boolean))).slice(0, 8);
   const sniChips = sniSuggestions.map((value) =>
     '<button class="chip" type="button" data-sni-suggestion="' + esc(value) + '">' + esc(value) + '</button>',
   ).join('');
@@ -5431,9 +5473,10 @@ async function fetchHandler(request, env, ctx) {
     if (!list.length) return jsonResponse({ ok: false, error: 'ips or ranges required' }, 400, CORS);
     const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
     const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
-    const extraSnis = splitCsv(url.searchParams.get('snis')).map((s) => s.trim().toLowerCase())
+    const requestedSnis = splitCsv(url.searchParams.get('snis')).map((s) => s.trim().toLowerCase())
       .filter((s) => s && validAddress(s) && !isIpLiteral(s) && s !== String(host).toLowerCase())
       .slice(0, 3);
+    const extraSnis = requestedSnis.length ? requestedSnis : sampleDefaultSnis(3);
     const results = [];
     let cursor = 0;
     const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
@@ -5645,6 +5688,9 @@ export const _testing = {
   TLS_PORTS,
   PLAIN_PORTS,
   DEFAULT_CLEAN_ADDRESSES,
+  DEFAULT_EXTRA_SNIS,
+  sampleDefaultSnis,
+  allowedSnis,
   buildClashYaml,
   buildSingboxConfig,
   buildAllConfigs,

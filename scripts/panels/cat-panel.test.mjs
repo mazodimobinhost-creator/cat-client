@@ -63,7 +63,7 @@ async function subText(url, opts) {
   check('remarks are Cat edge/country labels with no IP', /#%F0%9F%90%B1%20Cat%20%C2%B7%20Cloudflare%20edge%20%C2%B7%20VLESS%20%C2%B7%2080%20%C2%B7%20%F0%9F%8C%90%20%C2%B7%20%23\d+/.test(body) && !decodeURIComponent(lines[0]).includes('104.16.'), lines[0]);
   const noV6 = await subText('/sub?v6=0&ports=443&fp=ios');
   check('?v6=0 drops IPv6 entries and ?fp= is honoured', !/@\[2606/.test(noV6.body) && noV6.body.includes('fp=ios'));
-  check('/sub has sni param', body.includes('sni=catpanel-demo.workers.dev'));
+  check('/sub TLS links carry rotation-pool SNIs (default primary is the host)', /&sni=[a-z0-9.-]+\.[a-z]{2,}/.test(body) && !body.includes('sni=catpanel-demo.workers.dev'));
   check('/sub has host param', body.includes('host=catpanel-demo.workers.dev'));
   check('/sub subscription-userinfo header', (res.headers.get('subscription-userinfo') || '').includes('total='));
   const m = body.match(/vless:\/\/([0-9a-f-]{36})@/);
@@ -94,7 +94,7 @@ async function subText(url, opts) {
   check('clean-IP vless variant (v4)', body.includes('@104.16.1.1:443'));
   check('clean-IP trojan variant', body.includes('@104.16.1.1:443') && /trojan:\/\/[0-9a-f-]+@104\.16\.1\.1:443/.test(body));
   check('clean-IP v6 bracketed', body.includes('@[2606:4700:4700::1111]:443'));
-  check('clean-IP variants keep sni', (body.match(/sni=catpanel-demo\.workers\.dev/g) || []).length >= 6);
+  check('clean-IP variants keep sni= (rotated from the pool)', (body.match(/&sni=/g) || []).length >= 6);
 }
 
 // 4. custom SNI
@@ -1002,6 +1002,35 @@ async function subText(url, opts) {
   }), env);
   const iosSub = await (await req('/u/' + su.token + '/raw?count=1&proto=vless&ports=443&host=0', { env, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true })).text();
   check('spoof fingerprint flows into new config links', iosSub.includes('fp=ios'));
+}
+
+// §38 — global SNI rotation pool (all countries, DNS-verified Cloudflare)
+{
+  const pool = T.DEFAULT_EXTRA_SNIS || [];
+  check('SNI pool has 20+ entries', pool.length >= 20, 'got ' + pool.length);
+  check('every pool entry is a clean hostname (no IPs, no paths)', pool.every((s) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(s) && !/^\d/.test(s)));
+  check('pool has no duplicates', new Set(pool).size === pool.length);
+  check('pool never suggests filtered-first-party hosts', !pool.some((s) => s.endsWith('workers.dev') || s.endsWith('pages.dev')));
+  const sample = T.sampleDefaultSnis(3);
+  check('scanner default probe is a 3-SNI sample of the pool', sample.length === 3 && sample.every((s) => pool.includes(s)));
+  check('sample clamps to pool size and honours zero', T.sampleDefaultSnis(99).length === pool.length && T.sampleDefaultSnis(0).length === 0);
+  const allowed = T.allowedSnis('panel.example.workers.dev', {});
+  check('SNI gate accepts the whole pool', pool.every((s) => allowed.has(s)));
+  // Builder rotation: no cfg snis, no verified winners → links must carry pool SNIs
+  const mem38 = new Map();
+  const kv38 = { get: async (k) => mem38.get(k) ?? null, put: async (k, v) => { mem38.set(k, v); }, delete: async (k) => { mem38.delete(k); } };
+  const env38 = { CAT_KV: kv38, OPEN_SUB: 'true', OPEN_PANEL: 'true' };
+  const su38 = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'sni38', countries: 'DE' }),
+  }), env38)).text()).user;
+  const rot = await subText('/u/' + su38.token + '/raw?proto=vless&ports=443&host=0&count=3&ips=103.21.244.10,104.16.132.229', { env: env38, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true });
+  const rotDec = rot.body;
+  const sniVals = (rotDec.match(/[?&]sni=([^&]+)/g) || []).map((x) => decodeURIComponent(x.replace(/[?&]sni=/, '')));
+  check('configs rotate through the pool when no snis are set', sniVals.length >= 2 && sniVals.some((v) => pool.includes(v)), sniVals.join(','));
+  check('rotation keeps the panel host OUT of the sni= field when a pool winner exists', sniVals.every((v) => pool.includes(v)));
+  const snap = T.sampleDefaultSnis(0);
+  check('empty sample is harmless', snap.length === 0);
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
