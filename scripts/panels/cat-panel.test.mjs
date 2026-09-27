@@ -892,5 +892,30 @@ async function subText(url, opts) {
   const handler = src.slice(src.indexOf("path === '/api/geo'"), src.indexOf("path === '/api/scan'"));
   check('/api/geo never egress-traces from the worker (exit is measured on the phone)', !handler.includes('cdn-cgi/trace') && !handler.includes('ipwho.is'));
 }
+// 34. v5.15.0 — per-IP BEST SNI: the scanner save keeps the fastest OK sni
+// per address and the subscription bakes it in instead of rotating blindly.
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { verified: [
+      { ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany', sni: 'winner.example.com' },
+      { ip: '172.67.1.1', colo: 'CDG', countryCode: 'FR', countryName: 'France' },
+    ], verifiedScanned: true } }),
+  }), env);
+  const su = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'bsni', countries: 'DE,FR' }),
+  }), env)).text()).user;
+  const all = await (await req('/u/' + su.token + '/all?count=6&proto=vless&host=0&sni=base.example.com', { env, raw: true })).json();
+  const winner = all.entries.find((e) => e.addr === '104.16.1.1' && e.tls);
+  const plain = all.entries.find((e) => e.addr === '172.67.1.1' && e.tls);
+  check('entries use the per-IP BEST sni when one is stored', winner && winner.link.includes('sni=winner.example.com'));
+  check('addresses without a measured sni fall back to the rotation', plain && plain.link.includes('sni=base.example.com'));
+  const saveCode = src.slice(src.indexOf("searchParams.get('save')"), src.indexOf("return jsonResponse({ ok: true, count: sorted.length"));
+  check('scan save keeps the fastest OK sni per IP', saveCode.includes('bestSni') && saveCode.includes('sni: bestSni'));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

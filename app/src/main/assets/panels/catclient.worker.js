@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.14.4';
+const CAT_PANEL_VERSION = '5.15.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -2293,6 +2293,7 @@ function normalizedVerifiedEntries(settings) {
       countryCode: code || countryCodeFromFlag(location.flag),
       countryName: String(item && item.countryName || location.country || 'Cloudflare edge'),
       checkedAt: Number(item && item.checkedAt) || 0,
+      sni: String(item && item.sni || '').trim().toLowerCase(),
     };
   }).filter(Boolean);
 }
@@ -2603,6 +2604,11 @@ function trojanLink(host, env, uuid, addr, name, overrides = {}) {
  */
 function buildConfigEntries(host, env, uuid, opts) {
   const options = opts || defaultConfigOptions(host, env);
+  // Per-IP BEST SNI (measured by the scanner) wins over the rotation.
+  const sniByAddr = {};
+  (options.verifiedEntries || []).forEach((e) => {
+    if (e && e.ip && e.sni) sniByAddr[String(e.ip).toLowerCase()] = e.sni;
+  });
   const addresses = [];
   const seen = new Set();
   const push = (a) => {
@@ -2634,7 +2640,7 @@ function buildConfigEntries(host, env, uuid, opts) {
         if (entries.length >= entryLimit) return;
         index += 1;
         const snis = (options.snis && options.snis.length) ? options.snis : [options.sni];
-        const sni = snis[index % snis.length];
+        const sni = sniByAddr[String(addr).toLowerCase()] || snis[index % snis.length];
         const name = configName(kind, addr, port, index, host, options);
         const overrides = { port: port, sni: sni, fingerprint: options.fingerprint };
         const link = kind === 'vless'
@@ -5296,14 +5302,24 @@ async function fetchHandler(request, env, ctx) {
     if (url.searchParams.get('save') === '1') {
       const auth = await requirePanelAuth(request, env);
       if (!auth.ok) return auth.response;
-      const verified = alive.map((result) => ({
-        ip: result.ip,
-        colo: result.colo || '',
-        countryCode: result.countryCode || '',
-        countryName: result.countryName || 'Cloudflare edge',
-        range: result.range || '',
-        checkedAt: Date.now(),
-      }));
+      const verified = alive.map((result) => {
+        let bestSni = '';
+        let bestMs = result.ms || 99999;
+        if (result.snisOk) {
+          for (const [cand, probe2] of Object.entries(result.snisOk)) {
+            if (probe2 && probe2.ok && probe2.ms && probe2.ms < bestMs) { bestMs = probe2.ms; bestSni = cand; }
+          }
+        }
+        return {
+          ip: result.ip,
+          colo: result.colo || '',
+          countryCode: result.countryCode || '',
+          countryName: result.countryName || 'Cloudflare edge',
+          range: result.range || '',
+          sni: bestSni,
+          checkedAt: Date.now(),
+        };
+      });
       const persisted = await writeSettings(env, {
         configs: { verified: verified, verifiedScanned: true, verifiedAt: Date.now() },
       });

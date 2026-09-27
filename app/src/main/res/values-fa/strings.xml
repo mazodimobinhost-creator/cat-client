@@ -343,6 +343,8 @@
     <string name="route_location">%1$s  %2$s</string>
     <string name="route_direct_state">بدون فیلترشکن</string>
     <string name="route_real_ip_line">IP واقعی: %1$s %2$s</string>
+    <string name="route_v6_line">IPv6: %1$s</string>
+    <string name="route_ping_disconnected">برای تست پینگ اول وصل شو</string>
     <string name="route_edge_fallback">لبهٔ کلودفلر · موقعیت پاسخ‌دهنده نامشخص است</string>
     <string name="route_automatic">خروجی / خودکار</string>
     <string name="route_selecting">در حال انتخاب مسیر</string>
@@ -631,6 +633,9 @@
     <string name="ip_health_auto">جایگزینی خودکار IPها</string>
     <string name="ip_health_auto_on">چرخش خودکار IP روشن شد</string>
     <string name="ip_health_auto_off">چرخش خودکار IP خاموش شد</string>
+    <string name="ip_health_pin">IP ثابت</string>
+    <string name="ip_health_pin_on">IP ثابت فعال شد — تعویض خودکار خاموش است</string>
+    <string name="ip_health_pin_off">تعویض خودکار برگشت</string>
     <string name="ip_health_interval">هر %1$d دقیقه</string>
     <string name="ip_health_rotate_now">همین حالا بررسی و جایگزینی</string>
     <string name="ip_health_sweeping">در حال بررسی مجموعهٔ IP…</string>

@@ -36,9 +36,40 @@ object IpGeolocation {
         val realIp: String? = null,
         val realCountryCode: String? = null,
         val realCountryName: String? = null,
+        val v6: String? = null,
+        val realV6: String? = null,
     ) {
         val flag: String get() = countryCode.toFlagEmoji()
         val realFlag: String? get() = realCountryCode?.toFlagEmoji()
+    }
+
+    /** Family-forced echo endpoints: A-only / AAAA-only DNS+service, so the
+     * answer is guaranteed to be THAT family (what dual-stack "my ip" pages do). */
+    private val V4_SOURCES = listOf(
+        "https://api4.ipify.org",
+        "https://api-ipv4.ip.sb/ip",
+        "https://ipv4.icanhazip.com",
+    )
+    private val V6_SOURCES = listOf(
+        "https://api6.ipify.org",
+        "https://api-ipv6.ip.sb/ip",
+        "https://ipv6.icanhazip.com",
+    )
+
+    private fun isV4Literal(ip: String) = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(ip)
+    private fun isV6Literal(ip: String) = ip.contains(':') && !isV4Literal(ip)
+
+    /** First working source of ONE family, over the given network (null =
+     * default routing → the TUN while connected) with an optional proxy. */
+    private fun familyIp(v4: Boolean, network: android.net.Network?, proxy: java.net.Proxy?): String? {
+        val sources = if (v4) V4_SOURCES else V6_SOURCES
+        for (url in sources) {
+            val body = runCatching { fetchRaw(url, proxy, timeoutMs = 5_000, network = network) }.getOrNull() ?: continue
+            val ip = body.trim().lineSequence().firstOrNull().orEmpty().trim()
+            if (v4 && isV4Literal(ip)) return ip
+            if (!v4 && isV6Literal(ip)) return ip
+        }
+        return null
     }
 
     /** Geo-DB answer for one address. */
@@ -57,34 +88,55 @@ object IpGeolocation {
         includeReal: Boolean = false,
     ): Info? = withContext(Dispatchers.IO) {
         // 1. EXIT — default routing: while connected the TUN captures this.
-        val exit = runCatching { traceRaw(null, proxy) }.getOrNull()
-            ?: return@withContext detect(proxy)
-        val exitGeo = runCatching { geoLookup(exit.ip, workerHost, proxy) }.getOrNull()
+        //    v4 and v6 are probed SEPARATELY on family-forced services, so both
+        //    answers are real regardless of which family the trace would pick.
+        val exit4 = runCatching { familyIp(v4 = true, null, proxy) }.getOrNull()
+        val exit6 = runCatching { familyIp(v4 = false, null, proxy) }.getOrNull()
+        val primary = exit4 ?: exit6
+        val exitTrace = runCatching { traceRaw(null, proxy) }.getOrNull()
+        if (primary == null && exitTrace == null) return@withContext detect(proxy)
+        val exitIp = primary ?: exitTrace!!.ip
+        val exitGeo = runCatching { geoLookup(exitIp, workerHost, proxy) }.getOrNull()
         // 2. REAL — bound to the physical network, outside the tunnel.
         var realIp: String? = null
         var realCc: String? = null
         var realCountry: String? = null
+        var realV6: String? = null
         if (includeReal && physicalNetwork != null) {
+            val r4 = runCatching { familyIp(v4 = true, physicalNetwork, null) }.getOrNull()
+            val r6 = runCatching { familyIp(v4 = false, physicalNetwork, null) }.getOrNull()
+            if (r4 != null && r4 != exitIp) {
+                val g = runCatching { geoLookup(r4, workerHost, proxy) }.getOrNull()
+                realIp = r4
+                realCc = g?.cc
+                realCountry = g?.country
+            }
+            if (r6 != null && r6 != r4 && r6 != exitIp) realV6 = r6
+        }
+        if (realIp == null && exitTrace != null && physicalNetwork != null && includeReal) {
             val real = runCatching { traceRaw(physicalNetwork, null) }.getOrNull()
-            if (real != null && real.ip.isNotBlank() && real.ip != exit.ip) {
-                val g = runCatching { geoLookup(real.ip, workerHost, proxy) }.getOrNull()
+            if (real != null && real.ip.isNotBlank() && real.ip != exitIp) {
                 realIp = real.ip
-                realCc = (g?.cc ?: real.countryCode).takeIf { it.length == 2 }
-                realCountry = g?.country?.takeIf { it.isNotBlank() } ?: real.countryName
+                realCc = real.countryCode
+                realCountry = real.countryName
             }
         }
-        val cc = (exitGeo?.cc ?: exit.countryCode).uppercase()
+        val fallbackCc = exitTrace?.countryCode.orEmpty()
+        val fallbackName = exitTrace?.countryName.orEmpty()
+        val cc = (exitGeo?.cc ?: fallbackCc).uppercase()
         Info(
-            ip = exit.ip,
-            countryCode = cc.ifBlank { exit.countryCode },
+            ip = exitIp,
+            countryCode = cc.ifBlank { fallbackCc },
             countryName = exitGeo?.country?.takeIf { it.isNotBlank() }
-                ?: exit.countryName,
-            city = exitGeo?.city ?: exit.city,
-            isp = exitGeo?.isp ?: exit.isp,
-            colo = exit.colo,
+                ?: fallbackName.ifBlank { exitIp },
+            city = exitGeo?.city ?: exitTrace?.city,
+            isp = exitGeo?.isp ?: exitTrace?.isp,
+            colo = exitTrace?.colo,
             realIp = realIp,
             realCountryCode = realCc,
             realCountryName = realCountry,
+            v6 = exit6?.takeIf { it != exitIp },
+            realV6 = realV6,
         )
     }
 

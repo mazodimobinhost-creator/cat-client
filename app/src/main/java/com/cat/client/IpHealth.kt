@@ -109,6 +109,13 @@ class IpHealthStore(context: Context) {
         get() = prefs.getBoolean("auto", false)
         set(value) = prefs.edit().putBoolean("auto", value).apply()
 
+    /** Static-IP pin: while set, NO automatic sweep/eviction ever runs — the
+     * pool (and therefore the exit IP) only changes when the user presses
+     * "replace now". */
+    var pinned: Boolean
+        get() = prefs.getBoolean("pinned", false)
+        set(value) = prefs.edit().putBoolean("pinned", value).apply()
+
     var intervalMinutes: Int
         get() = prefs.getInt("interval", 15).coerceIn(1, 240)
         set(value) = prefs.edit().putInterval(value).apply()
@@ -169,6 +176,7 @@ object IpHealthMonitor {
         sni: String,
         port: Int,
         onProgress: (String) -> Unit = {},
+        failFast: Boolean = false,
     ): IpSweepResult = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val entries = store.entries()
@@ -191,7 +199,7 @@ object IpHealthMonitor {
                 val (entry, result) = deferred.await()
                 val nowStamp = System.currentTimeMillis()
                 if (result != null && result.tlsOk && result.pingMs <= SLOW_MS) {
-                    kept += entry.copy(
+                    var best = entry.copy(
                         pingMs = result.pingMs,
                         tlsMs = result.tlsMs,
                         colo = result.colo,
@@ -200,14 +208,26 @@ object IpHealthMonitor {
                             ?: EdgeLocationCatalog.fromColo(result.colo)?.country,
                         checkedAt = nowStamp,
                         fails = 0,
+                        sni = entry.sni.ifBlank { sni },
                     )
+                    // Multi-SNI: try a few alternatives and KEEP THE FASTEST one —
+                    // the winning SNI is what this IP's config will carry.
+                    var bestMs = result.pingMs
+                    for (alt in IpScanner.RECOMMENDED_SNIS.filter { it != best.sni }.take(3)) {
+                        val altResult = IpScanner.probe(entry.ip, options.copy(sni = alt))
+                        if (altResult != null && altResult.tlsOk && altResult.pingMs < bestMs) {
+                            bestMs = altResult.pingMs
+                            best = best.copy(sni = alt, pingMs = altResult.pingMs, tlsMs = altResult.tlsMs)
+                        }
+                    }
+                    kept += best
                 } else {
                     val reason = when {
                         result == null -> "tcp"
                         else -> if (result.tlsOk) "slow" else "tls"
                     }
                     val fails = entry.fails + 1
-                    if (fails >= MAX_FAILS) {
+                    if (fails >= MAX_FAILS || failFast) {
                         removed += IpRotationEvent(nowStamp, entry.ip, null, reason)
                         onProgress(entry.ip)
                     } else {

@@ -186,6 +186,8 @@ class MainActivity : Activity() {
     private lateinit var connectionRealIpText: TextView
     @Volatile private var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
+    private lateinit var connectionV6Text: TextView
+    private var tunnelPingRunning: Boolean = false
     private lateinit var connectActionButton: MaterialButton
     private lateinit var statusDot: View
     private lateinit var statusText: TextView
@@ -2519,6 +2521,16 @@ class MainActivity : Activity() {
             includeFontPadding = false
             visibility = View.GONE
         }
+        connectionV6Text = TextView(this).apply {
+            gravity = Gravity.START
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+            textSize = 11f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+            visibility = View.GONE
+        }
         connectionCountryText = TextView(this).apply {
             setText(R.string.output_automatic)
             gravity = Gravity.START
@@ -2670,7 +2682,11 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.HORIZONTAL
                     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
                     addView(
-                        kpiCard(getString(R.string.home_ping_label), pingValueText, false),
+                        kpiCard(getString(R.string.home_ping_label), pingValueText, false).apply {
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { runTunnelPing() }
+                        },
                         LinearLayout.LayoutParams(0, -2, 1f),
                     )
                     addView(
@@ -2773,6 +2789,7 @@ class MainActivity : Activity() {
                     addView(statusText, LinearLayout.LayoutParams(-2, -2))
                     addView(connectionCountryText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
                     addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+                    addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
                 },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) },
             )
@@ -4452,14 +4469,34 @@ class MainActivity : Activity() {
             strokeWidth = dp(1)
             strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
             setTextColor(TEAL)
-            setOnClickListener { runIpHealthSweep() }
+            setOnClickListener { runIpHealthSweep(failFast = true) }
         }
         val healthRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
+        val pinChip = Chip(this@MainActivity).apply {
+            setText(R.string.ip_health_pin)
+            isCheckable = true
+            isChecked = ipHealthStore.pinned
+            textSize = 12f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                ipHealthStore.pinned = checked
+                if (checked) startIpHealthLoop() // no-op while pinned; kills a running loop
+                Toast.makeText(
+                    this@MainActivity,
+                    if (checked) R.string.ip_health_pin_on else R.string.ip_health_pin_off,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
         healthRow.addView(autoChip, LinearLayout.LayoutParams(-2, -2))
+        healthRow.addView(pinChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthRow.addView(rotateButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthCard.addView(healthRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         val intervalRow = LinearLayout(this).apply {
@@ -5055,7 +5092,8 @@ class MainActivity : Activity() {
     private fun startIpHealthLoop() {
         ipHealthJob?.cancel()
         ipHealthJob = null
-        if (!IpHealthStore(this).autoEnabled) return
+        // Static-IP pin: nothing is ever swapped automatically.
+        if (!IpHealthStore(this).autoEnabled || IpHealthStore(this).pinned) return
         ipHealthJob = activityScope.launch {
             while (true) {
                 runIpHealthSweep(silent = true)
@@ -5064,7 +5102,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun runIpHealthSweep(silent: Boolean = false) {
+    private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
         if (ipHealthSweeping) return
         ipHealthSweeping = true
         val store = IpHealthStore(this)
@@ -5073,7 +5111,7 @@ class MainActivity : Activity() {
         if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
         activityScope.launch {
             try {
-                val result = IpHealthMonitor.sweep(store, sni, port)
+                val result = IpHealthMonitor.sweep(store, sni, port, failFast = failFast)
                 renderScannerIpHealth()
                 if (!silent) {
                     if (result.removed.isEmpty() && result.added.isEmpty()) {
@@ -9952,15 +9990,61 @@ class MainActivity : Activity() {
 
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
+    /** Real ping THROUGH the active config: samples the local mihomo mixed
+     * proxy (the tunnel entry), exactly like v2rayNG/V2Box delay tests. */
+    private fun runTunnelPing() {
+        if (tunnelPingRunning) return
+        if (!currentVpnStateIsStarted()) {
+            Toast.makeText(this, R.string.route_ping_disconnected, Toast.LENGTH_SHORT).show()
+            return
+        }
+        tunnelPingRunning = true
+        pingValueText.text = "…"
+        activityScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val proxy = java.net.Proxy(
+                java.net.Proxy.Type.HTTP,
+                java.net.InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT),
+            )
+            val samples = mutableListOf<Long>()
+            repeat(3) {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val ok = runCatching {
+                    val conn = java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(proxy)
+                        as java.net.HttpURLConnection
+                    conn.connectTimeout = 4_000
+                    conn.readTimeout = 4_000
+                    conn.instanceFollowRedirects = false
+                    val code = conn.responseCode
+                    runCatching { conn.inputStream.close() }
+                    conn.disconnect()
+                    code
+                }.getOrNull()
+                if (ok != null && ok in 200..399) samples += android.os.SystemClock.elapsedRealtime() - t0
+            }
+            val best = samples.minOrNull()
+            launch(kotlinx.coroutines.Dispatchers.Main) {
+                pingValueText.text = if (best != null) best.toString() + "ms" else "—"
+                tunnelPingRunning = false
+            }
+        }
+    }
+
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
         if (!::connectionRealIpText.isInitialized) return
         val show = info != null && tunneled && !info.realIp.isNullOrBlank() && info.realIp != info.ip
         if (!show) {
             connectionRealIpText.visibility = View.GONE
+            connectionV6Text.visibility = View.GONE
             return
         }
         connectionRealIpText.text = getString(R.string.route_real_ip_line, info.realIp, info.realFlag ?: "")
         connectionRealIpText.visibility = View.VISIBLE
+        if (!info.v6.isNullOrBlank() && tunneled) {
+            connectionV6Text.text = getString(R.string.route_v6_line, info.v6)
+            connectionV6Text.visibility = View.VISIBLE
+        } else {
+            connectionV6Text.visibility = View.GONE
+        }
     }
 
     private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted

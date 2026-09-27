@@ -344,6 +344,8 @@
     <string name="route_location">%1$s  %2$s</string>
     <string name="route_direct_state">No VPN</string>
     <string name="route_real_ip_line">Real IP: %1$s %2$s</string>
+    <string name="route_v6_line">IPv6: %1$s</string>
+    <string name="route_ping_disconnected">Connect first to test the ping</string>
     <string name="route_edge_fallback">Cloudflare edge · probe location unavailable</string>
     <string name="route_automatic">Output / automatic</string>
     <string name="route_selecting">Selecting route</string>
@@ -632,6 +634,9 @@
     <string name="ip_health_auto">Auto-replace IPs</string>
     <string name="ip_health_auto_on">Automatic IP rotation is on</string>
     <string name="ip_health_auto_off">Automatic IP rotation is off</string>
+    <string name="ip_health_pin">Static IP</string>
+    <string name="ip_health_pin_on">Static IP on — no automatic swap</string>
+    <string name="ip_health_pin_off">Automatic swap restored</string>
     <string name="ip_health_interval">every %1$d min</string>
     <string name="ip_health_rotate_now">Check &amp; replace now</string>
     <string name="ip_health_sweeping">Checking the IP pool…</string>
