@@ -47,13 +47,15 @@ object IpGeolocation {
      * answer is guaranteed to be THAT family (what dual-stack "my ip" pages do). */
     private val V4_SOURCES = listOf(
         "https://api4.ipify.org",
-        "https://api-ipv4.ip.sb/ip",
         "https://ipv4.icanhazip.com",
+        "https://ipv4.ident.me",
+        "https://api-ipv4.ip.sb/ip",
     )
     private val V6_SOURCES = listOf(
         "https://api6.ipify.org",
-        "https://api-ipv6.ip.sb/ip",
         "https://ipv6.icanhazip.com",
+        "https://ipv6.ident.me",
+        "https://api-ipv6.ip.sb/ip",
     )
 
     private fun isV4Literal(ip: String) = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(ip)

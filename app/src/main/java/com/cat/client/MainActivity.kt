@@ -2780,6 +2780,38 @@ class MainActivity : Activity() {
                 connectActionButton,
                 LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2) },
             )
+            // Visible actions: ping through the ACTIVE config (like v2rayNG /
+            // V2Box) and a manual IP re-check so the dashboard can be synced
+            // with any "what is my ip" site at a glance.
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
+                        setText(textRes)
+                        setAllCaps(false)
+                        textSize = 11.5f
+                        typeface = CatClientBodyBoldTypeface
+                        minWidth = 0
+                        minimumWidth = 0
+                        minHeight = dp(34)
+                        minimumHeight = dp(34)
+                        insetTop = 0
+                        insetBottom = 0
+                        setPadding(dp(14), 0, dp(14), 0)
+                        cornerRadius = dp(12)
+                        strokeWidth = dp(1)
+                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
+                        setTextColor(TEAL)
+                        setOnClickListener { onClick() }
+                    }
+                    addView(ghostButton(R.string.action_ping_test) { runTunnelPing() }, LinearLayout.LayoutParams(-2, -2))
+                    addView(ghostButton(R.string.ip_refresh) { refreshDashboardIp() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
             addView(
                 LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -10027,6 +10059,15 @@ class MainActivity : Activity() {
                 tunnelPingRunning = false
             }
         }
+    }
+
+    /** Manual "sync with the site" — forces a fresh family-forced probe so
+     * the dashboard can be compared against whatismyipaddress right away. */
+    private fun refreshDashboardIp() {
+        liveGeoDirectAttempted = false
+        liveGeo = null
+        beginLiveGeoCheck(force = true)
+        Toast.makeText(this, R.string.ip_refreshing, Toast.LENGTH_SHORT).show()
     }
 
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {

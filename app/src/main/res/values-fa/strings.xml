@@ -345,6 +345,9 @@
     <string name="route_real_ip_line">IP واقعی: %1$s %2$s</string>
     <string name="route_v6_line">IPv6: %1$s</string>
     <string name="route_ping_disconnected">برای تست پینگ اول وصل شو</string>
+    <string name="action_ping_test">تست پینگ</string>
+    <string name="ip_refresh">بروزرسانی IP</string>
+    <string name="ip_refreshing">در حال دریافت IP…</string>
     <string name="route_edge_fallback">لبهٔ کلودفلر · موقعیت پاسخ‌دهنده نامشخص است</string>
     <string name="route_automatic">خروجی / خودکار</string>
     <string name="route_selecting">در حال انتخاب مسیر</string>
