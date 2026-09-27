@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.20.1';
+const CAT_PANEL_VERSION = '5.20.2';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3712,7 +3712,8 @@ function panelState(host, env, uuid, request, settings) {
     allUrl: 'https://' + host + '/sub/' + uuid + '/all',
     dohUrl: 'https://' + host + '/dns-query',
     qrBase: 'https://' + host + '/qr.svg',
-    scanTargets: scanTargets(env).concat(communityIpsFrom(settings)),
+    scanTargets: scanTargets(env),
+    communityTargets: communityIpsFrom(settings),
     scanRanges: scanRanges(env),
     deepLink: 'catclient://add-sub?url=' + encodeURIComponent('https://' + host + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
   };
@@ -4042,7 +4043,7 @@ function scannerTabHtml(state) {
     '<p>دو اسکنر داری: <b>«از مرورگر»</b> سرعت واقعی هر آی‌پی را روی اینترنت خودت می‌سنجد (همان چیزی که برای اپراتور تو مهم است). <b>«از ورکر»</b> می‌گوید آن آی‌پی برای دامنهٔ پنل جواب می‌دهد یا نه (از سمت کلودفلر). نتیجهٔ خوب = هردو سبز.</p>' +
     '<div class="card" style="margin-top:10px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
     '<button class="chip" id="commIpsBtn" type="button">🔄 دریافت IP تازهٔ انجمن</button>' +
-    '<span id="commIpsStat" style="font-size:12.5px;opacity:.8">ورکر خودش لیست‌های تازه را می‌کشد و به استخر اسکن اضافه می‌کند</span>' +
+    '<span id="commIpsStat" style="font-size:12.5px;opacity:.8">لیست تازه فقط «مکمل» استخر دستچین می‌شود — اسکن همیشه اول سراغ دستچین‌شده‌ها می‌رود</span>' +
     '</div></div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>حالت اسکن مرورگر</span><select id="scanMode"><option value="http">HTTP :80 — دقیق‌ترین از مرورگر (پیشنهادی)</option><option value="https">HTTPS :443 — فقط دسترسی TCP/TLS</option></select></label>' +
@@ -4557,9 +4558,12 @@ function panelClientJs() {
     'if($("#irIpsUse"))$("#irIpsUse").addEventListener("click",function(){',
     ' $("#cfgAddresses").value=(S.irIps||[]).slice(0,24).join("\\n");applyOptions();showTab("configs");toast("کتابخانهٔ ایران داخل کانفیگ‌ها گذاشته شد");});',
     '/* ---- scanner ---- */',
-    'function sampleTargets(limit,custom){var list=(custom&&custom.length?custom:(S.scanTargets||[])).slice();',
-    ' for(var i=list.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=list[i];list[i]=list[j];list[j]=t;}',
-    ' return limit&&list.length>limit?list.slice(0,limit):list;}',
+    'function shuffleArr(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}',
+    'function sampleTargets(limit,custom){if(custom&&custom.length){return shuffleArr(custom.slice()).slice(0,limit||custom.length);}',
+    ' var curated=shuffleArr((S.scanTargets||[]).slice());var comm=shuffleArr((S.communityTargets||[]).slice());',
+    ' var out=(!limit||limit>=curated.length)?curated:curated.slice(0,limit);',
+    ' if(limit&&out.length<limit&&comm.length)out=out.concat(comm.slice(0,Math.min(comm.length,limit-out.length)));',
+    ' return out;}',
     'function perRange(){return Math.max(1,Math.min(64,Number($("#scanPerRange")&&$("#scanPerRange").value)||8));}',
     '/* Range-first expansion: every CIDR is split into `per` equal slices and one',
     '   random host is drawn from each slice, so each run tests fresh addresses. */',
@@ -5471,7 +5475,7 @@ async function fetchHandler(request, env, ctx) {
   }
   if (path === '/api/scan-targets.json') {
     const scanSettings = await readSettings(env);
-    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env).concat(communityIpsFrom(scanSettings)), ranges: scanRanges(env) }, 200, CORS);
+    return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env), community: communityIpsFrom(scanSettings), ranges: scanRanges(env) }, 200, CORS);
   }
   if (path === '/api/ping') {
     const ip = url.searchParams.get('ip') || '';

@@ -1065,7 +1065,7 @@ async function subText(url, opts) {
   check('stored pool rejects non-CF and keeps fresh candidates', T.communityIpsFrom(settings39).length === 5 && !T.communityIpsFrom(settings39).includes('8.8.8.8'));
   const uuid39 = '11111111-2222-3333-4444-555555555555';
   const state39 = T.panelState(HOST, env39, uuid39, null, settings39);
-  check('scan pool (panelState) now includes the fresh IPs', ['104.16.1.7', '2606:4700::4400'].every((ip) => state39.scanTargets.includes(ip)));
+  check('fresh IPs ride along as the community top-up pool', ['104.16.1.7', '2606:4700::4400'].every((ip) => (state39.communityTargets || []).includes(ip)));
   // fail-soft: every source dead → ok:true, added:0, old pool untouched
   globalThis.fetch = async () => { throw new Error('network dead'); };
   let dead;
@@ -1140,6 +1140,22 @@ async function subText(url, opts) {
   check('normalizedVerifiedEntries keeps only CF addresses', norms.length === 1 && norms[0].ip === '162.159.192.1');
   const state41 = T.panelState(HOST, env41, '99999999-9999-9999-9999-999999999999', null, await T.readSettings(env41));
   check('default scan pool has no 92.223.x / 89.187.x seeds', state41.scanTargets.every((t) => !String(t).startsWith('92.223.') && !String(t).startsWith('89.187.')));
+}
+
+// §42 — scanner sampling: curated-first, community only as top-up
+{
+  const mem42 = new Map();
+  const kv42 = { get: async (k) => mem42.get(k) ?? null, put: async (k, v) => { mem42.set(k, v); }, delete: async (k) => { mem42.delete(k); } };
+  const env42 = { CAT_KV: kv42, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await T.writeSettings(env42, { configs: { communityIps: ['104.16.1.50', '172.64.80.50', '188.114.96.50'], communityIpsAt: Date.now() } });
+  const state42 = T.panelState(HOST, env42, '88888888-8888-8888-8888-888888888888', null, await T.readSettings(env42));
+  const st42 = state42.scanTargets, cm42 = state42.communityTargets;
+  check('panel scan pool stays CURATED (community no longer mixed in)', st42.length > 0 && !st42.includes('104.16.1.50'));
+  check('community pool arrives as its own field', cm42.length === 3 && cm42.includes('104.16.1.50'));
+  const targetsJson = await (await req('/api/scan-targets.json', { env: env42, raw: true })).json();
+  check('scan-targets.json splits targets vs community', Array.isArray(targetsJson.targets) && targetsJson.targets.length > 0 && Array.isArray(targetsJson.community) && targetsJson.community.length === 3 && !targetsJson.targets.includes('172.64.80.50'));
+  check('client sampler is curated-first (community only fills the remainder)', src.includes('function shuffleArr') && src.includes('var curated=shuffleArr((S.scanTargets||[]).slice())') && src.includes('comm.slice(0,Math.min(comm.length,limit-out.length))'));
+  check('custom list still wins over both pools', src.includes('if(custom&&custom.length){return shuffleArr(custom.slice()).slice(0,limit||custom.length);}'));
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
