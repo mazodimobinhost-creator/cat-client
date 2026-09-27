@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.21.0';
+const CAT_PANEL_VERSION = '5.21.1';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -4421,6 +4421,7 @@ function panelClientJs() {
     ' $("#cfgAllText").textContent=CFG.map(function(c){return c.link}).join("\\n");',
     '}',
     'document.addEventListener("click",function(ev){var c=ev.target.closest("[data-copy]");if(c){copyText(decodeURIComponent(c.getAttribute("data-copy")));return;}',
+    ' var so=ev.target.closest("#scanOps .chip[data-op]");if(so){scanOp=so.getAttribute("data-op");$$("#scanOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===so)});return;} var co=ev.target.closest("#cfgOps .chip[data-op]");if(co){$$("#cfgOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===co)});return;}',
     ' var q=ev.target.closest("[data-qr]");if(q){openQr(decodeURIComponent(q.getAttribute("data-qr")));}});',
     '$("#cfgSearch").addEventListener("input",renderConfigs);',
     'function download(name,text){var b=new Blob([text],{type:"text/plain;charset=utf-8"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},2000);}',
@@ -4655,7 +4656,6 @@ function panelClientJs() {
     ' var msText=r.ms===null?"✗":(r.ms+" ms");var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
     ' var sniRow=(r.server&&r.server.snisOk)?Object.keys(r.server.snisOk).filter(function(s){return r.server.snisOk[s].ok}).map(function(s){return "✓ "+s}).join("<br>"):"";',
     ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+sniRow+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
-    ' var so=ev.target.closest("#scanOps .chip[data-op]");if(so){scanOp=so.getAttribute("data-op");$$("#scanOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===so)});return;} var co=ev.target.closest("#cfgOps .chip[data-op]");if(co){$$("#cfgOps .chip").forEach(function(c2){c2.classList.toggle("active",c2===co)});return;}',
     ' $("#scanTable").innerHTML=rows||"<tr><td colspan=5>هنوز نتیجه‌ای نیست</td></tr>";',
     '}',
     'document.addEventListener("click",function(ev){',

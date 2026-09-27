@@ -71,7 +71,8 @@ const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: tr
 const realErrors = errors.filter((e) => !e.includes('scrollTo'));
 check('no script errors', realErrors.length === 0, realErrors.join(' | '));
 check('state injected', win.CAT_STATE?.host === HOST);
-check('seven tabs render', document.querySelectorAll('.side-nav button').length === 7, String(document.querySelectorAll('nav.tabs button').length));
+check('eight tabs render (spoof included)', document.querySelectorAll('.side-nav button').length === 8, String(document.querySelectorAll('.side-nav button').length));
+check('operator chips render in scanner + builder', document.querySelectorAll('#scanOps .chip[data-op]').length >= 6 && document.querySelectorAll('#cfgOps .chip[data-op]').length >= 6, String(document.querySelectorAll('#scanOps .chip[data-op]').length) + '/' + String(document.querySelectorAll('#cfgOps .chip[data-op]').length));
 check('users tab exists', !!document.querySelector('[data-tab-panel="users"]'));
 check('tools tab exists', !!document.querySelector('[data-tab-panel="tools"]'));
 check('home tab active by default', document.querySelector('[data-tab-panel="home"]').classList.contains('active'));
