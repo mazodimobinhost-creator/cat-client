@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.21.1';
+const CAT_PANEL_VERSION = '5.21.2';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3228,6 +3228,36 @@ const IR_CLEAN_IPS = [
 const MAX_COMMUNITY_IPS = 4000;
 const COMMUNITY_IP_SOURCES = [
   {
+    // Iranian, 203★, auto-updated several times a day; each entry is
+    // MEASURED (colo + latency) — list/ipv4.json + list/ipv6.json.
+    name: 'ircfspace cf2dns (v4, اندازه‌گیری‌شده)',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/ircfspace/cf2dns@master/list/ipv4.json',
+      'https://fastly.jsdelivr.net/gh/ircfspace/cf2dns@master/list/ipv4.json',
+      'https://ghproxy.net/https://raw.githubusercontent.com/ircfspace/cf2dns/master/list/ipv4.json',
+      'https://raw.githubusercontent.com/ircfspace/cf2dns/master/list/ipv4.json',
+    ],
+  },
+  {
+    name: 'ircfspace cf2dns (v6, اندازه‌گیری‌شده)',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/ircfspace/cf2dns@master/list/ipv6.json',
+      'https://fastly.jsdelivr.net/gh/ircfspace/cf2dns@master/list/ipv6.json',
+      'https://ghproxy.net/https://raw.githubusercontent.com/ircfspace/cf2dns/master/list/ipv6.json',
+      'https://raw.githubusercontent.com/ircfspace/cf2dns/master/list/ipv6.json',
+    ],
+  },
+  {
+    // The classic Chinese 优选 repo — hand-picked best CF IPs, auto-committed.
+    name: 'ymyuuu IPDB bestcf (پرچم‌دار)',
+    urls: [
+      'https://cdn.jsdelivr.net/gh/ymyuuu/IPDB@main/bestcf.txt',
+      'https://fastly.jsdelivr.net/gh/ymyuuu/IPDB@main/bestcf.txt',
+      'https://ghproxy.net/https://raw.githubusercontent.com/ymyuuu/IPDB/main/bestcf.txt',
+      'https://raw.githubusercontent.com/ymyuuu/IPDB/main/bestcf.txt',
+    ],
+  },
+  {
     name: 'XIU2 ip.txt (v4)',
     urls: [
       'https://cdn.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/ip.txt',
@@ -3247,15 +3277,21 @@ const COMMUNITY_IP_SOURCES = [
   },
 ];
 
-/** Keep only tokens that are real Cloudflare IPs (v4 or v6), deduped. */
+/** Keep only tokens that are real Cloudflare IPs (v4 or v6), deduped.
+ * Understands plain lists AND JSON shapes by also harvesting "ip":"…"
+ * fields (ircfspace/cf2dns publishes {colo, ip, latency} objects). */
 function parseCommunityIps(text) {
   const out = [];
   const seen = new Set();
-  String(text || '').split(/[\s,;]+/).forEach((token) => {
+  const accept = (token) => {
     const ip = String(token || '').trim().replace(/^\[/, '').replace(/\]$/, '');
     if (!ip || seen.has(ip.toLowerCase())) return;
     if (isCloudflareIp(ip)) { seen.add(ip.toLowerCase()); out.push(ip); }
-  });
+  };
+  const body = String(text || '');
+  const jsonIps = body.match(/"ip"\s*:\s*"([^"]+)"/g) || [];
+  jsonIps.forEach((m) => accept(m.replace(/"ip"\s*:\s*"/, '').replace(/"$/, '')));
+  body.split(/[\s,;]+/).forEach(accept);
   return out;
 }
 

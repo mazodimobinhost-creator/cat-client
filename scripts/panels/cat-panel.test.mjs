@@ -1047,8 +1047,8 @@ async function subText(url, opts) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes('ip.txt')) return { ok: true, status: 200, text: async () => mixed };
-    if (u.includes('ipv6.txt')) return { ok: true, status: 200, text: async () => '2606:4700::6810:84e5\n2606:4700::4400' };
+    if (u.includes('ipv6.txt') || u.includes('ipv6.json')) return { ok: true, status: 200, text: async () => '2606:4700::6810:84e5\n2606:4700::4400' };
+    if (u.includes('ip.txt') || u.includes('ipv4.json') || u.includes('bestcf.txt')) return { ok: true, status: 200, text: async () => mixed };
     return { ok: false, status: 404, text: async () => '' };
   };
   let report;
@@ -1058,7 +1058,7 @@ async function subText(url, opts) {
     globalThis.fetch = realFetch;
   }
   check('POST /api/community-ips pulls from worker-side sources', report.ok === true && report.added === 5 && report.total === 5, JSON.stringify(report));
-  check('both sources answered through the mirror chain', report.sources.length === 2 && report.sources.every((x) => x.ok && x.count > 0));
+  check('all five verified sources answered through the mirror chain', report.sources.length === 5 && report.sources.every((x) => x.ok));
   const status = await (await req('/api/community-ips', { env: env39, raw: true })).json();
   check('GET status reports the stored pool', status.ok && status.total === 5 && status.at > 0);
   const settings39 = await T.readSettings(env39);
@@ -1192,6 +1192,20 @@ async function subText(url, opts) {
   check('sub links carry ?op=', src.includes('if(o.op)q.push("op="+o.op);'));
   check('server-scan save tags the operator bucket', src.includes('(scanOp?"&op="+scanOp:"")'));
   check('browser-selected IPs save into the operator bucket', src.includes('verifiedByOp:bk'));
+}
+
+// §44 — verified community IP repositories (researched + validated)
+{
+  const sources = T.COMMUNITY_IP_SOURCES || [];
+  check('5+ verified community sources wired', sources.length >= 5);
+  check('ircfspace/cf2dns (Iranian, measured, auto-updated) is first', sources[0].name.includes('ircfspace') && sources[0].urls[0].includes('cf2dns@master/list/ipv4.json'));
+  check('ymyuuu/IPDB bestcf is wired', sources.some((x) => x.name.includes('ymyuuu')));
+  check('every source keeps a 4-mirror chain (jsdelivr→ghproxy→raw)', sources.every((x) => x.urls.length === 4 && x.urls[0].includes('cdn.jsdelivr.net') && x.urls[2].includes('ghproxy.net') && x.urls[3].includes('raw.githubusercontent.com')));
+  check('parser harvests JSON "ip" fields (cf2dns shape)', (() => {
+    const ips = T.parseCommunityIps('[{"colo":"FRA","ip":"104.16.1.9","latency":80},{"ip":"8.8.8.8"},{"ip":"172.64.80.9"}]');
+    return ips.length === 2 && ips.includes('104.16.1.9') && ips.includes('172.64.80.9');
+  })());
+  check('parser still accepts plain lists', T.parseCommunityIps('104.16.0.1\n188.114.96.1 junk').length === 2);
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');

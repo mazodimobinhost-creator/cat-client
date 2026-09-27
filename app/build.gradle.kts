@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 47
-        versionName = "1.9.31"
+        versionCode = 48
+        versionName = "1.9.32"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
