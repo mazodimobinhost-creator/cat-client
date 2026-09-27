@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.19.0';
+const CAT_PANEL_VERSION = '5.20.0';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -764,6 +764,7 @@ const KV_KEYS = {
   users: 'catpanel:users',
   traffic: 'catpanel:traffic',
   quota: 'catpanel:quota',
+  masterUsage: 'catpanel:master-usage',
 };
 
 function kvBinding(env) {
@@ -980,6 +981,8 @@ const USER_DEFAULTS = {
   note: '',
   createdAt: 0,
   lastSeenAt: 0,
+  day: '',
+  dayBytes: 0,
 };
 
 function normalizeUser(raw) {
@@ -989,6 +992,8 @@ function normalizeUser(raw) {
     : (user.countries ? String(user.countries).split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)) : []);
   user.quotaGb = Number(user.quotaGb) || 0;
   user.usedBytes = Number(user.usedBytes) || 0;
+  user.day = typeof user.day === 'string' ? user.day : '';
+  user.dayBytes = Number(user.dayBytes) || 0;
   user.usedRequests = Number(user.usedRequests) || 0;
   user.expireAt = Number(user.expireAt) || 0;
   user.deviceLimit = Number(user.deviceLimit) || 0;
@@ -1114,6 +1119,38 @@ function accountTraffic(env, uuid, sentBytes, receivedBytes, force) {
  * later caller. Instead a busy flag skips overlapping flushes — the bytes
  * simply stay buffered (and still count via `userLiveUsed`) until the next one.
  */
+/** UTC calendar day key (YYYY-MM-DD) — the "today" bucket for usage. */
+function todayKey(now) {
+  return new Date(now || Date.now()).toISOString().slice(0, 10);
+}
+
+/**
+ * The owner's own config (master UUID) has no user record, so its tunnel bytes
+ * used to be silently dropped in flushTraffic — the panel then showed no usage
+ * at all for the one config the owner actually uses. They now live here.
+ */
+function normalizeMasterUsage(raw) {
+  const rec = raw && typeof raw === 'object' ? raw : {};
+  const today = todayKey();
+  return {
+    usedBytes: Math.max(0, Number(rec.usedBytes) || 0),
+    day: today,
+    dayBytes: rec.day === today ? Math.max(0, Number(rec.dayBytes) || 0) : 0,
+    lastSeenAt: Number(rec.lastSeenAt) || 0,
+  };
+}
+
+async function readMasterUsage(env) {
+  const raw = await kvGet(env, KV_KEYS.masterUsage);
+  let parsed = null;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
+  return normalizeMasterUsage(parsed);
+}
+
+async function writeMasterUsage(env, rec) {
+  return kvPut(env, KV_KEYS.masterUsage, JSON.stringify(normalizeMasterUsage(rec)));
+}
+
 async function flushTraffic(env) {
   const now = Date.now();
   if (trafficState.busySince && now - trafficState.busySince < TRAFFIC_FLUSH_STALE_MS) return false;
@@ -1130,6 +1167,7 @@ async function flushTraffic(env) {
     const entry = trafficBuffers.get(key);
     if (entry) { entry.sent = 0; entry.received = 0; }
   });
+  const today = todayKey(now);
   try {
     const users = await readUsers(env);
     let changed = false;
@@ -1137,10 +1175,34 @@ async function flushTraffic(env) {
       const user = findUserByUuid(users, key);
       if (!user) return;
       user.usedBytes = (Number(user.usedBytes) || 0) + delta;
+      if (user.day !== today) { user.day = today; user.dayBytes = 0; }
+      user.dayBytes = (Number(user.dayBytes) || 0) + delta;
       user.lastSeenAt = Date.now();
       changed = true;
     });
     if (changed) await writeUsers(env, users);
+    // Master (owner) config bytes: no user record → previously dropped.
+    const settings = await readSettings(env);
+    const masterKey = String(env.UUID || settings.masterUuid || '').toLowerCase();
+    const masterHits = new Map();
+    if (masterKey && snapshot.has(masterKey) && !findUserByUuid(users, masterKey)) {
+      masterHits.set(masterKey, snapshot.get(masterKey));
+    }
+    if (masterHits.size) {
+      try {
+        const rec = await readMasterUsage(env);
+        masterHits.forEach((delta) => { rec.usedBytes += delta; rec.dayBytes += delta; });
+        rec.lastSeenAt = Date.now();
+        if (!(await writeMasterUsage(env, rec))) throw new Error('kv-put-failed');
+      } catch (e2) {
+        // Master write failed — put just the master bytes back into the buffer.
+        masterHits.forEach((delta, key) => {
+          const entry = trafficBuffers.get(key) || { sent: 0, received: 0 };
+          entry.received += delta;
+          trafficBuffers.set(key, entry);
+        });
+      }
+    }
     trafficState.lastFlush = Date.now();
     return true;
   } catch (e) {
@@ -4088,7 +4150,7 @@ function usersTabHtml(state) {
     '<label class="field" style="margin:0;flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="uAuto" checked style="width:auto"><span style="margin:0">تازه‌سازی خودکار هر ۲۰ ثانیه</span></label></div></div>' +
     '<div class="grid three" style="margin-top:12px"><div class="stat"><div class="k">کاربران</div><div class="v" id="uCount">—</div></div>' +
     '<div class="stat"><div class="k">اتصال‌های زنده</div><div class="v" id="uOnline">—</div></div>' +
-    '<div class="stat"><div class="k">مصرف کل</div><div class="v" id="uTotalUsed">—</div></div></div>' +
+    '<div class="stat"><div class="k">مصرف کل</div><div class="v" id="uTotalUsed">—<div class="stat"><div class="k">مصرف امروز</div><div class="v" id="uTodayUsed">—</div></div></div></div>' +
     '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>#</th><th>کاربر</th><th>مصرف</th><th>انقضا</th><th>وضعیت</th><th>عملیات</th></tr></thead>' +
     '<tbody id="userTable"><tr><td colspan="6">در حال بارگذاری…</td></tr></tbody></table></div>' +
     '<p class="muted" style="margin-top:8px">«صفحهٔ کاربر» یک صفحهٔ عمومی است (بدون رمز پنل) که کاربر در آن مصرف، انقضا و دکمه‌های افزودن به v2rayNG / V2Box / Hiddify / Streisand را می‌بیند — لینک همان را برایش بفرست.</p>' +
@@ -4387,6 +4449,7 @@ function panelClientJs() {
     ' var st=u.state||{};var gb=1073741824;var total=u.quotaGb>0?u.quotaGb*gb:0;var used=st.used!==undefined?st.used:(u.usedBytes||0);var pct=total>0?Math.min(100,Math.round(used/total*100)):0;',
     ' var exp=u.expireAt?new Date(u.expireAt).toLocaleDateString("fa-IR")+(st.daysLeft>=0?" ("+st.daysLeft+" روز)":""):"نامحدود";',
     ' var usage="<div dir=ltr style=\'font-size:11.5px\'>"+fmtB(used)+(total>0?" / "+u.quotaGb+" GB":" · ∞")+"</div><div class=\'bar\' style=\'margin-top:4px;min-width:90px\'><i style=\'width:"+pct+"%"+(pct>=90?";background:var(--bad)":"")+"\'></i></div>";',
+    ' if(st.today>0)usage+="<div dir=ltr style=\'font-size:10.5px;opacity:.75\'>امروز: "+fmtB(st.today)+"</div>";',
     ' var status=st.status||(u.enabled===false?"disabled":"active");var badge=status==="active"?"<span class=\'pill ok\'>فعال</span>":(status==="expired"?"<span class=\'pill warn\'>منقضی</span>":(status==="quota-exceeded"?"<span class=\'pill warn\'>حجم تمام</span>":"<span class=\'pill\'>غیرفعال</span>"));',
     ' var online=st.online?"<div class=\'muted\' style=\'font-size:11px\'>🟢 "+st.online+" اتصال زنده</div>":"";',
     ' return "<tr><td>"+(i+1)+"</td><td><b>"+escHtml(u.name||"user")+"</b><div class=\'muted\' style=\'font-size:11px;direction:ltr\'>"+String(u.uuid).slice(0,18)+"…</div>"+online+"</td>"+',
@@ -4405,7 +4468,8 @@ function panelClientJs() {
     '  if(!j.ok){tb.innerHTML="<tr><td colspan=6>"+(j.error==="kv-required"?"بدون KV نمی‌شود کاربر ساخت — یک Namespace بساز و با نام CAT_KV بایند کن.":"خطا: "+j.error)+"</td></tr>";return;}',
     '  USERS=j.users||[];tb.innerHTML=USERS.length?USERS.map(userRow).join(""):"<tr><td colspan=6>هنوز کاربری نساخته‌ای</td></tr>";',
     '  var tot=0;USERS.forEach(function(u){tot+=(u.state&&u.state.used)||u.usedBytes||0});',
-    '  if($("#uCount"))$("#uCount").textContent=USERS.length;if($("#uOnline"))$("#uOnline").textContent=j.online||0;if($("#uTotalUsed"))$("#uTotalUsed").textContent=fmtB(tot);',
+    '  var tr=j.traffic||{};var mU=(tr.master&&tr.master.used)||0;tot+=mU;',
+    '  if($("#uCount"))$("#uCount").textContent=USERS.length;if($("#uOnline"))$("#uOnline").textContent=j.online||0;if($("#uTotalUsed"))$("#uTotalUsed").textContent=fmtB(tot);if($("#uTodayUsed"))$("#uTodayUsed").textContent=fmtB((tr.today||0)+((tr.master&&tr.master.today)||0));',
     ' }).catch(function(){tb.innerHTML="<tr><td colspan=6>دریافت لیست ناموفق بود</td></tr>"});}',
     'setInterval(function(){var a=$("#uAuto");if(a&&a.checked&&!document.hidden&&$("#userTable")&&document.querySelector(".tab.active[data-tab-panel=users]"))loadUsers(true)},20000);',
     'function userPut(id,body){return fetch(S.usersApi+"/"+id,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json()});}',
@@ -4885,7 +4949,20 @@ async function handleUsersApi(request, url, env, path) {
       const user = users.find((item) => item.id === id || item.token === id);
       return user ? jsonResponse({ ok: true, user: withState(user) }, 200, CORS) : jsonResponse({ ok: false, error: 'not-found' }, 404, CORS);
     }
-    return jsonResponse({ ok: true, count: users.length, users: users.map(withState), online: Array.from(liveConnections.entries()).reduce((a, e) => a + e[1], 0) }, 200, CORS);
+    const trafficSettings = await readSettings(env);
+    const masterKey = String(env.UUID || trafficSettings.masterUuid || '').toLowerCase();
+    const masterRec = await readMasterUsage(env);
+    const today = todayKey();
+    const traffic = {
+      master: {
+        used: masterRec.usedBytes + bufferedBytes(masterKey),
+        today: masterRec.dayBytes,
+        online: liveConnections.get(masterKey) || 0,
+      },
+      today: users.reduce((acc, u) => acc + (u.day === today ? Number(u.dayBytes) || 0 : 0), 0),
+      buffered: bufferedTotal(),
+    };
+    return jsonResponse({ ok: true, count: users.length, users: users.map(withState), online: Array.from(liveConnections.entries()).reduce((a, e) => a + e[1], 0), traffic: traffic }, 200, CORS);
   }
 
   if (request.method === 'POST' && id && action === 'regenerate') {
@@ -4989,6 +5066,7 @@ function userState(user, now) {
     deviceLimit: Number(user.deviceLimit) || 0,
     online: liveConnections.get(String(user.uuid || '').toLowerCase()) || 0,
     lastSeenAt: Number(user.lastSeenAt) || 0,
+    today: user.day === todayKey() ? Math.max(0, Number(user.dayBytes) || 0) : 0,
   };
 }
 
@@ -5785,6 +5863,11 @@ export const _testing = {
   userTrafficLeft,
   userLiveUsed,
   bufferedBytes,
+  trafficBuffers,
+  todayKey,
+  readMasterUsage,
+  writeMasterUsage,
+  normalizeMasterUsage,
   accountTraffic,
   flushTraffic,
   userReasonBlocked,

@@ -1079,5 +1079,42 @@ async function subText(url, opts) {
   check('fail-soft POST preserves the previous pool', after.length === 5);
 }
 
+// §40 — usage accounting: master traffic + per-user "today" + panel totals
+{
+  const mem40 = new Map();
+  const kv40 = { get: async (k) => mem40.get(k) ?? null, put: async (k, v) => { mem40.set(k, v); }, delete: async (k) => { mem40.delete(k); } };
+  const MASTER = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const env40 = { CAT_KV: kv40, OPEN_PANEL: 'true', OPEN_SUB: 'true', UUID: MASTER };
+  const created = await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'usage', quotaGb: 10 }),
+  }), env40);
+  const u = JSON.parse(await created.text()).user;
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  // seed yesterday's state for user and master
+  u.usedBytes = 1000; u.day = yesterday; u.dayBytes = 400;
+  await T.writeUsers(env40, [u]);
+  await T.writeMasterUsage(env40, { usedBytes: 5000, day: yesterday, dayBytes: 700, lastSeenAt: 1 });
+  // simulate tunnel bytes: master + user + an unknown uuid
+  T.trafficBuffers.set(MASTER, { sent: 1500, received: 2500 });
+  T.trafficBuffers.set(u.uuid, { sent: 300, received: 700 });
+  T.trafficBuffers.set('unknown-uuid-xyz', { sent: 40, received: 80 });
+  const okFlush = await T.flushTraffic(env40);
+  check('flush succeeds with master+user mix', okFlush === true);
+  const usersNow = await T.readUsers(env40);
+  const uNow = usersNow.find((x) => x.id === u.id);
+  check('user usage written + daily bucket rolled over to today', uNow.usedBytes === 2000 && uNow.dayBytes === 1000 && uNow.day === today, JSON.stringify({ used: uNow.usedBytes, day: uNow.day, dayB: uNow.dayBytes }));
+  const m = await T.readMasterUsage(env40);
+  check('MASTER config usage is counted (was silently dropped before)', m.usedBytes === 9000 && m.dayBytes === 4000, JSON.stringify(m));
+  check('unknown-uuid bytes are dropped, attributed to nobody', T.bufferedBytes('unknown-uuid-xyz') === 0 && m.usedBytes === 9000);
+  const list = await (await req('/api/users?sync=1', { env: env40, raw: true })).json();
+  check('users API exposes the traffic summary', !!list.traffic && list.traffic.master.used === 9000 && list.traffic.master.today === 4000 && list.traffic.today === 1000, JSON.stringify(list.traffic));
+  const row = list.users.find((x) => x.id === u.id);
+  check('per-user state carries today', row && row.state && row.state.today === 1000);
+  check('panel renders مصرف امروز stat + master total line', src.includes('uTodayUsed') && src.includes('مصرف امروز') && src.includes('tr.master&&tr.master.used'));
+  check('master usage normalizer resets stale days', (() => { const n = T.normalizeMasterUsage({ usedBytes: 10, day: '2020-01-01', dayBytes: 9 }); return n.dayBytes === 0 && n.usedBytes === 10; })());
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
