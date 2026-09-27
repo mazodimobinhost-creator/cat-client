@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.2';
+const CAT_PANEL_VERSION = '5.23.3';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3723,9 +3723,14 @@ function css() {
     '/* v5.14 hamburger menu (replaces the bottom tab bar) */',
     '.burger{display:inline-flex;align-items:center;justify-content:center}',
     '.burger svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}',
-    '.hmenu{position:absolute;top:54px;inset-inline-start:12px;z-index:70;display:none;flex-direction:column;gap:4px;min-width:250px;padding:8px;',
-    'background:var(--bg-soft);border:1px solid var(--line);border-radius:18px;box-shadow:0 26px 70px rgba(0,0,0,.55)}',
-    '.hmenu.show{display:flex}',
+    '.hmenu{position:fixed;top:0;bottom:0;z-index:96;width:min(322px,86vw);display:flex;flex-direction:column;gap:4px;padding:20px 14px calc(16px + env(safe-area-inset-bottom));overflow-y:auto;',
+    'background:linear-gradient(180deg,color-mix(in srgb,var(--bg-soft) 94%,transparent),var(--bg));backdrop-filter:blur(22px);transition:transform .28s cubic-bezier(.2,.7,.2,1),visibility .28s;visibility:hidden}',
+    'body[data-lang="fa"] .hmenu{right:0;transform:translateX(110%)}',
+    'body[data-lang="en"] .hmenu{left:0;transform:translateX(-110%)}',
+    '.hmenu.show{transform:translateX(0)!important;visibility:visible}',
+    '.drawer-bg{position:fixed;inset:0;z-index:95;background:rgba(3,1,9,.6);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .24s}',
+    '.drawer-bg.show{opacity:1;pointer-events:auto}',
+    '.drawer-foot{margin-top:auto;padding-top:14px;display:flex;flex-direction:column;gap:12px}',
     '.hmenu button{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;border:1px solid transparent;',
     'background:none;color:var(--muted);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;text-align:start}',
     '.hmenu button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}',
@@ -3789,16 +3794,27 @@ function css() {
     'body{padding-bottom:28px}',
     '.wrap{max-width:1120px}',
     '}',
-    '.side-brand{display:flex;align-items:center;gap:10px;padding:4px 10px 14px;font-weight:800;font-size:16.5px}',
-    '.side-brand small{display:block;font-weight:600;font-size:10.5px;color:var(--muted);letter-spacing:.4px}',
-    '.side-nav{display:flex;flex-direction:column;gap:4px}',
-    '.side-nav button{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;border:1px solid transparent;',
-    'background:none;color:var(--muted);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;text-align:start;transition:background .16s,color .16s}',
+    '.side-brand{display:flex;align-items:center;gap:12px;padding:6px 10px 16px;font-weight:800;font-size:17px}',
+    '.side-avatar{width:46px;height:46px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:16px;',
+    'background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 10px 26px var(--glow-a),inset 0 0 0 1px rgba(255,255,255,.22)}',
+    '.side-avatar svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}',
+    '.side-brand small{display:block;font-weight:600;font-size:10.5px;color:var(--muted);letter-spacing:.4px;margin-top:2px}',
+    '.side-nav{display:flex;flex-direction:column;gap:5px}',
+    '.side-nav button{position:relative;display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:16px;border:1px solid transparent;',
+    'background:none;color:var(--muted);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;text-align:start;transition:background .16s,color .16s,transform .16s}',
     '.side-nav button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}',
-    '.side-nav button:hover{background:var(--surface);color:var(--text)}',
-    '.side-nav button.active{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 10px 26px var(--glow-a)}',
+    '.side-nav button:hover{background:var(--surface);color:var(--text);transform:translateY(-1px)}',
+    '.side-nav button.active{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 10px 26px var(--glow-a),inset 0 0 0 1px rgba(255,255,255,.18)}',
+    '.nav-badge{margin-inline-start:auto;min-width:23px;height:20px;padding:0 7px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;',
+    'font-size:10.5px;font-weight:800;background:var(--surface-2);border:1px solid var(--line-soft);color:var(--muted)}',
+    '.side-nav button.active .nav-badge,.hmenu button.active .nav-badge{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.28);color:var(--on-accent)}',
+    '.lang-pill{display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--surface);border:1px solid var(--line-soft)}',
+    '.lang-pill button{flex:1;border:0;background:none;color:var(--muted);font:inherit;font-size:12.5px;font-weight:800;padding:7px 10px;border-radius:999px;cursor:pointer;transition:background .16s,color .16s}',
+    '.lang-pill button.active{color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-3));box-shadow:0 6px 16px var(--glow-a)}',
     '.side-txt small{display:block;font-weight:500;font-size:10.5px;opacity:.75;margin-top:1px}',
-    '.side-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 10px 2px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--dim)}',
+    '.side-foot{margin-top:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 10px 2px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--dim)}',
+    '.side-foot .lang-pill{flex-basis:100%;margin-bottom:2px}',
+    '.side-meta{display:flex;align-items:center;gap:8px}',
     '.section-head{display:flex;align-items:center;gap:12px;margin:4px 2px 14px}',
     '.sh-icon{width:44px;height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:21px;border-radius:15px;',
     'background:linear-gradient(135deg,var(--glow-a),var(--glow-b));border:1px solid var(--line);box-shadow:0 8px 22px var(--glow-a)}',
@@ -3950,6 +3966,12 @@ function loginHtml(title, error, userRequired) {
 
 function panelShell(state) {
   const safeState = JSON.stringify(state).replace(/</g, '\\u003c');
+  const navBadges = {
+    configs: (state.cleanIps || []).length,
+    spoof: (state.sniList || []).length,
+    scanner: (state.countryPools || []).reduce((a, c) => a + (c.count || 0), 0),
+  };
+  const navHtml = navButtonsHtml(navBadges);
   return '<!doctype html><html data-theme="dark" data-lang="fa"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
     '<meta name="theme-color" content="#06030c">' +
@@ -3960,32 +3982,17 @@ function panelShell(state) {
     '<body data-lang="fa">' +
     '<div class="shell">' +
     '<aside class="side">' +
-    '<div class="side-brand"><span class="cat">' + catLogo(26) + '</span><span><b>' + esc(state.title) + '</b><small>پنل مدیریت Cat</small></span></div>' +
-    '<nav class="side-nav">' +
-    sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
-    sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
-    sideButton('spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>') +
-    sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
-    sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
-    sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
-    sideButton('tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
-    sideButton('help', 'راهنما', 'نصب و رفع اشکال', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
-    '</nav>' +
-    '<div class="side-foot"><span class="pill ok">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div>' +
+    '<div class="side-brand"><span class="side-avatar">' + catLogo(28) + '</span><span class="side-brand-txt"><b>' + esc(state.title) + '</b><small id="sideSub">مرکز کنترل Cat</small></span></div>' +
+    '<nav class="side-nav">' + navHtml + '</nav>' +
+    '<div class="side-foot">' + langPillHtml() + '<div class="side-meta"><span class="pill ok">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div></div>' +
     '</aside>' +
     '<div class="main">' +
     '<header class="top"><div class="top-inner">' +
     '<button class="icon-btn burger" id="burgerBtn" title="منو"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>' +
-    '<div class="hmenu" id="hmenu">' +
-    sideButton('home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>') +
-    sideButton('configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>') +
-    sideButton('spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>') +
-    sideButton('scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') +
-    sideButton('users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>') +
-    sideButton('dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>') +
-    sideButton('tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>') +
-    sideButton('help', 'راهنما', 'نصب و رفع اشکال', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>') +
+    '<div class="hmenu" id="hmenu">' + navHtml +
+    '<div class="drawer-foot">' + langPillHtml() + '<div class="side-meta"><span class="pill ok" data-i18n="online">آنلاین</span><span dir="ltr">v' + CAT_PANEL_VERSION + '</span></div></div>' +
     '</div>' +
+    '<div class="drawer-bg" id="drawerBg"></div>' +
     '<div class="brand"><span class="cat">' + catLogo(26) + '</span><span><b id="brandName">' + esc(state.title) + '</b>' +
     '<small id="brandSub">پنل کلودفلر شخصی شما</small></span></div>' +
     '<span class="spacer"></span>' +
@@ -4020,10 +4027,31 @@ function navButton(id, label, path) {
     '<span data-nav-label="' + id + '">' + esc(label) + '</span></button>';
 }
 
-function sideButton(id, label, desc, path) {
+function sideButton(id, label, desc, path, badge) {
   return '<button data-tab="' + id + '" class="' + (id === 'home' ? 'active' : '') + '">' +
     '<svg viewBox="0 0 24 24">' + path + '</svg>' +
-    '<span class="side-txt"><span data-nav-label="' + id + '">' + esc(label) + '</span><small>' + esc(desc) + '</small></span></button>';
+    '<span class="side-txt"><span data-nav-label="' + id + '">' + esc(label) + '</span><small>' + esc(desc) + '</small></span>' +
+    (badge === 0 || badge ? '<span class="nav-badge">' + Number(badge) + '</span>' : '') +
+    '</button>';
+}
+
+const NAV_ITEMS = [
+  ['home', 'خانه', 'وضعیت و لینک‌ها', '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>'],
+  ['configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>'],
+  ['spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>'],
+  ['scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'],
+  ['users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>'],
+  ['dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>'],
+  ['tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>'],
+  ['help', 'راهنما', 'نصب و رفع اشکال', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>'],
+];
+
+function navButtonsHtml(badgeById) {
+  return NAV_ITEMS.map(function (n) { return sideButton(n[0], n[1], n[2], n[3], badgeById ? badgeById[n[0]] : undefined); }).join('');
+}
+
+function langPillHtml() {
+  return '<div class="lang-pill"><button type="button" data-setlang="fa">فا</button><button type="button" data-setlang="en">EN</button></div>';
 }
 
 function sectionHead(icon, title, sub) {
@@ -4487,6 +4515,8 @@ function panelClientJs() {
     ' $$("[data-nav-label=dns]").forEach(function(el){el.textContent="DNS";});',
     ' $$("[data-nav-label=help]").forEach(function(el){el.textContent=lang==="fa"?"راهنما":"Help";});',
     ' $("#brandSub").textContent=lang==="fa"?"پنل کلودفلر شخصی شما":"Your personal Cloudflare panel";',
+    ' var ss=$("#sideSub");if(ss)ss.textContent=lang==="fa"?"مرکز کنترل Cat":"Cat Control Center";',
+    ' $$("#hmenu [data-setlang],.side-foot [data-setlang]").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-setlang")===lang)});',
     ' $("#heroTitle").textContent=lang==="fa"?"پنل فعال است":"Panel is live";',
     ' $("#heroSub").textContent=lang==="fa"?"این Worker روی شبکهٔ کلودفلر اجرا می‌شود؛ با یک لینک، همهٔ دستگاه‌هایت را وصل کن.":"This worker runs on Cloudflare edge; connect every device with one link.";',
     ' $("#onlinePill").textContent=d.online;',
@@ -4515,10 +4545,13 @@ function panelClientJs() {
     ' if(name==="scanner"){}',
     ' try{window.scrollTo({top:0,behavior:"smooth"})}catch(e){try{window.scrollTo(0,0)}catch(e2){}}',
     '}',
-    '$$("[data-tab]").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"));var hm=$("#hmenu");if(hm)hm.classList.remove("show")});});',
-    ' $("#burgerBtn").addEventListener("click",function(ev){ev.stopPropagation();$("#hmenu").classList.toggle("show")});',
-    ' document.addEventListener("click",function(ev){var hm=$("#hmenu");if(hm&&hm.classList.contains("show")&&!ev.target.closest("#hmenu")&&ev.target.id!=="burgerBtn")hm.classList.remove("show")});',
-    '$("#langBtn").addEventListener("click",function(){lang=lang==="fa"?"en":"fa";try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();});',
+    '$$("[data-tab]").forEach(function(btn){btn.addEventListener("click",function(){showTab(btn.getAttribute("data-tab"));var hm=$("#hmenu");if(hm)hm.classList.remove("show");var bg=$("#drawerBg");if(bg)bg.classList.remove("show")});});',
+    ' $("#burgerBtn").addEventListener("click",function(ev){ev.stopPropagation();var open=$("#hmenu").classList.toggle("show");$("#drawerBg").classList.toggle("show",open)});',
+    ' var dbg=$("#drawerBg");if(dbg)dbg.addEventListener("click",function(){$("#hmenu").classList.remove("show");$("#drawerBg").classList.remove("show")});',
+    ' document.addEventListener("click",function(ev){var hm=$("#hmenu");if(hm&&hm.classList.contains("show")&&!ev.target.closest("#hmenu")&&ev.target.id!=="burgerBtn"){hm.classList.remove("show");var bg=$("#drawerBg");if(bg)bg.classList.remove("show")}});',
+    'function doSetLang(l){lang=l;try{localStorage.setItem("catpanel.lang",lang)}catch(e){}applyLang();renderConfigs();renderDns();}',
+    '$("#langBtn").addEventListener("click",function(){doSetLang(lang==="fa"?"en":"fa")});',
+    '$$("#hmenu [data-setlang],.side-foot [data-setlang]").forEach(function(b){b.addEventListener("click",function(ev){ev.stopPropagation();doSetLang(b.getAttribute("data-setlang"))})});',
 
     'document.addEventListener("click",function(ev){',
     ' var t=ev.target.closest("[data-copy-target]");',

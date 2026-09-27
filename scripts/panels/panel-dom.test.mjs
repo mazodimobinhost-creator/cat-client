@@ -139,6 +139,22 @@ check('nav labels translated', document.querySelector('[data-nav-label="home"]')
 click(document.querySelector('#langBtn'));
 check('language toggles back to FA', document.body.getAttribute('data-lang') === 'fa');
 
+// --- §52 control-center drawer ---
+check('nav badge shows clean-ip count', document.querySelector('.side-nav button[data-tab="configs"] .nav-badge')?.textContent === '2');
+check('nav badges are numeric', Array.from(document.querySelectorAll('.side-nav .nav-badge')).every((b) => /^\d+$/.test(b.textContent)));
+check('side brand shows control-center subtitle', document.querySelector('#sideSub')?.textContent.includes('مرکز کنترل'));
+click(document.querySelector('#burgerBtn'));
+check('burger opens the drawer + backdrop', document.querySelector('#hmenu').classList.contains('show') && document.querySelector('#drawerBg').classList.contains('show'));
+click(document.querySelector('#drawerBg'));
+check('backdrop click closes the drawer', !document.querySelector('#hmenu').classList.contains('show') && !document.querySelector('#drawerBg').classList.contains('show'));
+click(document.querySelector('#burgerBtn'));
+click(document.querySelector('#hmenu [data-setlang="en"]'));
+check('drawer lang pill switches to EN + active sync', document.body.getAttribute('data-lang') === 'en' && document.querySelector('#hmenu [data-setlang="en"]').classList.contains('active'));
+check('drawer nav is translated', document.querySelector('#hmenu [data-nav-label="home"]').textContent === 'Home');
+click(document.querySelector('#hmenu [data-setlang="fa"]'));
+check('drawer lang pill back to FA', document.body.getAttribute('data-lang') === 'fa');
+check('drawer has its own lang pill + meta', document.querySelectorAll('#hmenu [data-setlang]').length === 2 && !!document.querySelector('#hmenu .drawer-foot'));
+
 click(document.querySelector('.side-nav button[data-tab="scanner"]'));
 check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));
 
