@@ -1116,5 +1116,31 @@ async function subText(url, opts) {
   check('master usage normalizer resets stale days', (() => { const n = T.normalizeMasterUsage({ usedBytes: 10, day: '2020-01-01', dayBytes: 9 }); return n.dayBytes === 0 && n.usedBytes === 10; })());
 }
 
+// §41 — scanner can never emit non-Cloudflare IPs (dead-config purge)
+{
+  const cfRanges = T.SCAN_RANGES || [];
+  check('scan ranges are only official Cloudflare CIDRs (92.223/89.187 purged)', cfRanges.length > 0 && cfRanges.every((r) => !r.startsWith('92.223.') && !r.startsWith('89.187.')));
+  const mem41 = new Map();
+  const kv41 = { get: async (k) => mem41.get(k) ?? null, put: async (k, v) => { mem41.set(k, v); }, delete: async (k) => { mem41.delete(k); } };
+  const env41 = { CAT_KV: kv41, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  await T.writeSettings(env41, { configs: { verifiedScanned: true, verified: [
+    { ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany', sni: 'time.is', ms: 90 },
+    { ip: '89.187.163.119', colo: 'FRA', countryName: 'GCore', ms: 50 },
+    { ip: '92.223.71.55', colo: 'WAW', countryName: 'GCore', ms: 40 },
+  ] } });
+  const su41 = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'cfonly', countries: 'DE' }),
+  }), env41)).text()).user;
+  const strict = await (await req('/u/' + su41.token + '/all?verified=1&count=6&proto=vless&ports=443', { env: env41, raw: true })).json();
+  const addrs = strict.entries.map((e) => e.addr);
+  check('strict verified sub contains the CF IP', addrs.includes('104.16.1.1'));
+  check('strict verified sub DROPS the saved non-CF junk (read gate)', !addrs.includes('89.187.163.119') && !addrs.includes('92.223.71.55'), addrs.join(','));
+  const norms = T.normalizedVerifiedEntries({ configs: { verified: [{ ip: '8.8.8.8' }, { ip: '162.159.192.1' }] } });
+  check('normalizedVerifiedEntries keeps only CF addresses', norms.length === 1 && norms[0].ip === '162.159.192.1');
+  const state41 = T.panelState(HOST, env41, '99999999-9999-9999-9999-999999999999', null, await T.readSettings(env41));
+  check('default scan pool has no 92.223.x / 89.187.x seeds', state41.scanTargets.every((t) => !String(t).startsWith('92.223.') && !String(t).startsWith('89.187.')));
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

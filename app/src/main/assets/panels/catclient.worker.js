@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.20.0';
+const CAT_PANEL_VERSION = '5.20.1';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -2457,6 +2457,9 @@ function normalizedVerifiedEntries(settings) {
   return raw.map((item) => {
     const ip = String(item && (item.ip || item.address) || '').trim().replace(/^\[|\]$/g, '');
     if (!validAddress(ip) || seen.has(ip.toLowerCase())) return null;
+    // Hard law: an address outside the official Cloudflare ranges can never
+    // reach the worker, so a saved entry for one only poisons the sub.
+    if (isIpLiteral(ip) && !isCloudflareIp(ip)) return null;
     const location = locationFromColo(item && (item.colo || item.location || ''));
     const code = String(item && (item.countryCode || '') || '').trim().toUpperCase();
     seen.add(ip.toLowerCase());
@@ -3264,8 +3267,7 @@ const SCAN_RANGES = [
   '131.0.72.0/22', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
   '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
   '197.234.240.0/22', '198.41.128.0/17', '173.245.48.0/20', '162.159.192.0/24',
-  '162.159.0.0/16', '199.27.128.0/21',
-  '92.223.0.0/16', '89.187.163.0/24',
+  '162.159.0.0/16',
 ];
 
 function ipToLong(ip) {
@@ -5640,7 +5642,9 @@ async function fetchHandler(request, env, ctx) {
     if (url.searchParams.get('save') === '1') {
       const auth = await requirePanelAuth(request, env);
       if (!auth.ok) return auth.response;
-      const verified = alive.map((result) => {
+      const verified = alive
+        .filter((result) => isCloudflareIp(result.ip))
+        .map((result) => {
         let bestSni = '';
         let bestMs = result.ms || 99999;
         if (result.snisOk) {
@@ -5888,6 +5892,8 @@ export const _testing = {
   COMMUNITY_IP_SOURCES,
   parseCommunityIps,
   communityIpsFrom,
+  normalizedVerifiedEntries,
+  SCAN_RANGES,
   sampleDefaultSnis,
   allowedSnis,
   buildClashYaml,
