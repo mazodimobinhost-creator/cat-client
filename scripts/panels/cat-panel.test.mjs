@@ -917,5 +917,33 @@ async function subText(url, opts) {
   check('scan save keeps the fastest OK sni per IP', saveCode.includes('bestSni') && saveCode.includes('sni: bestSni'));
 }
 
+// 35. v5.15.1 — the recipient sub page shows EVERYTHING: all configs by
+// default and a QR for every single config (plus the sub QR that existed).
+{
+  const mem = new Map();
+  const kv = { get: async (k) => mem.get(k) ?? null, put: async (k, v) => { mem.set(k, v); }, delete: async (k) => { mem.delete(k); } };
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
+  const su = JSON.parse(await (await worker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'page', countries: 'DE' }),
+  }), env)).text()).user;
+  await worker.fetch(new Request('https://' + HOST + '/api/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configs: { verified: [{ ip: '104.16.1.1', colo: 'FRA', countryCode: 'DE', countryName: 'Germany' }], verifiedScanned: true } }),
+  }), env);
+  const info = await (await req('/info/' + su.token, { env, raw: true })).text();
+  check('recipient page defaults to ALL configs', info.includes('<option value="100" selected>همه</option>'));
+  check('recipient page has a per-config QR button wired to the modal', info.includes('data-qr-config') && info.includes('data-qr-config')); 
+  check('recipient page still carries the sub QR + copy + deep-links', info.includes('id="qrSub"') && info.includes('data-copy-config') && info.includes('catclient://add-sub'));
+  const browserRes = await worker.fetch(new Request('https://' + HOST + '/u/' + su.token, {
+    headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 14) Chrome/126 Mobile Safari/537.36', accept: 'text/html' },
+    redirect: 'manual',
+  }), env);
+  check('browser /u/<token> still redirects to the info page', browserRes.status === 302);
+  const appRes = await worker.fetch(new Request('https://' + HOST + '/u/' + su.token, {
+    headers: { 'user-agent': 'v2rayNG/1.8.14' },
+  }), env);
+  check('client apps still get the raw base64 subscription', appRes.status === 200 && (await appRes.text()).length > 40);
+}
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);
