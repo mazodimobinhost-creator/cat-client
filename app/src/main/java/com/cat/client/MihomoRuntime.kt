@@ -802,7 +802,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     else -> requiredRoutingTarget
                 }
                 if (measureTarget != null) {
-                    val measurementRules = MEASUREMENT_DOMAINS.joinToString("") { domain ->
+                    val measurementRules = MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
                         "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
                     }
                     val rulesHeader = "rules:\n"
