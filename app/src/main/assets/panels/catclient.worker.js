@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.4';
+const CAT_PANEL_VERSION = '5.23.5';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -3822,6 +3822,9 @@ function css() {
     '.hero-cta .cta-main:hover{transform:translateY(-2px);box-shadow:0 18px 44px var(--glow-a)}',
     '.hero-cta .cta-ghost{color:var(--text);background:var(--surface);border:1px solid var(--line)}',
     '.hero-cta .cta-ghost:hover{background:var(--surface-2)}',
+    '.builder-hint{margin-top:12px;padding:11px 14px;border-radius:14px;font-size:12.5px;line-height:1.9;',
+    'background:color-mix(in srgb,var(--surface-2) 70%,transparent);border:1px solid var(--line-soft);color:var(--muted)}',
+    '.builder-hint b{color:var(--text)}',
     '.section-head{display:flex;align-items:center;gap:12px;margin:4px 2px 14px}',
     '.sh-icon{width:44px;height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:21px;border-radius:15px;',
     'background:linear-gradient(135deg,var(--glow-a),var(--glow-b));border:1px solid var(--line);box-shadow:0 8px 22px var(--glow-a)}',
@@ -4167,6 +4170,7 @@ function configsTabHtml(state) {
   return '<section class="tab" data-tab-panel="configs">' + sectionHead('⚙️', 'کانفیگ‌ها', 'ساخت کانفیگ با انتخاب کشور، تعداد و پورت') +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="cfgBuilderTitle">تنظیم کانفیگ‌های Cat</span></h2>' +
     '<p>این‌جا تعیین می‌کنی کانفیگ‌های سابسکریپشن با <b>چه آدرس‌هایی</b> (آی‌پی تمیز / دامنه)، <b>چه پورت‌هایی</b> و <b>چه SNI‌ای</b> ساخته شوند. هر ترکیبِ آدرس × پورت × پروتکل یک کانفیگ می‌شود؛ اپ همه را می‌گیرد و خودش سریع‌ترین را انتخاب می‌کند.</p>' +
+    '<p class="builder-hint" data-i18n="builderSniHint">💡 اکثر کانفیگ‌ها پینگ نگرفتند؟ روی خیلی از اپراتورها <b>SNI دامنهٔ workers.dev فیلتر است</b> — همهٔ کانفیگ‌های TLS بی‌پینگ می‌شوند و فقط پورت‌های بدون رمز (80/8080) روی IP تمیز زنده می‌مانند. راه: در تب <b>Spoof</b> یک SNI تمیز یک‌کلیکی انتخاب کن؛ IPv6 را فقط وقتی فعال کن که سیم‌کارتت واقعاً IPv6 بدهد؛ اگر DNS دامنهٔ ورکر هم فیلتر است، host را از ساب حذف کن؛ راه‌حل ریشه‌ای: یک <b>دامنهٔ شخصی</b> به ورکر وصل کن.</p>' +
     '<label class="field" style="margin-top:12px"><span>آدرس‌های تمیز (آی‌پی یا دامنه — هر خط یا با کاما)</span>' +
     '<textarea id="cfgAddresses" rows="4" dir="ltr" placeholder="104.16.132.229&#10;www.speedtest.net">' + esc(o.addresses.join('\n')) + '</textarea></label>' +
     '<div class="row" style="margin-top:6px">' +
@@ -4508,8 +4512,8 @@ function panelClientJs() {
     'var $=function(s,r){return (r||document).querySelector(s)};',
     'var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};',
     'var I18N={',
-    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",cfgBuilderTitle:"تنظیم کانفیگ‌های Cat",connectHowTitle:"چرا وصل نمی‌شود؟ راهنمای اتصال Cat",usersTitle:"کاربران پنل",toolsTitle:"ابزارها و تنظیمات",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد"},',
-    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",cfgBuilderTitle:"Cat config builder",connectHowTitle:"Why does Cat connection fail?",usersTitle:"Panel users",toolsTitle:"Tools & settings",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished"}',
+    ' fa:{subTitle:"لینک سابسکریپشن",stepsTitle:"سه قدم تا اتصال",infoTitle:"اطلاعات اتصال",configsTitle:"همهٔ کانفیگ‌های آماده",singleTitle:"ساخت کانفیگ تکی",cfgBuilderTitle:"تنظیم کانفیگ‌های Cat",connectHowTitle:"چرا وصل نمی‌شود؟ راهنمای اتصال Cat",usersTitle:"کاربران پنل",toolsTitle:"ابزارها و تنظیمات",scannerTitle:"اسکنر آی‌پی تمیز",scannerHowto:"راهنمای نتیجه",dnsTitle:"DNS رمزنگاری‌شده (DoH)",dnsUpstreamTitle:"سرورهای بالادستی",dnsUseTitle:"چطور استفاده کنم؟",dnsCustomTitle:"DoH و DoT سفارشی",dotTitle:"هاست‌های DoT پیشنهادی",helpTitle:"راهنمای پنل",envTitle:"متغیرهای پنل",faqTitle:"پرسش‌های پرتکرار",online:"آنلاین",copied:"کپی شد",scanReady:"آماده.",scanning:"در حال اسکن…",done:"تمام شد",builderSniHint:"💡 اکثر کانفیگ‌ها پینگ نگرفتند؟ روی خیلی از اپراتورها <b>SNI دامنهٔ workers.dev فیلتر است</b> — همهٔ کانفیگ‌های TLS بی‌پینگ می‌شوند و فقط پورت‌های بدون رمز (80/8080) روی IP تمیز زنده می‌مانند. راه: در تب <b>Spoof</b> یک SNI تمیز یک‌کلیکی انتخاب کن؛ IPv6 را فقط وقتی فعال کن که سیم‌کارتت واقعاً IPv6 بدهد؛ اگر DNS دامنهٔ ورکر هم فیلتر است، host را از ساب حذف کن؛ راه‌حل ریشه‌ای: یک <b>دامنهٔ شخصی</b> به ورکر وصل کن."},',
+    ' en:{subTitle:"Subscription link",stepsTitle:"Three steps to connect",infoTitle:"Connection details",configsTitle:"Ready-made configs",singleTitle:"Build a single config",cfgBuilderTitle:"Cat config builder",connectHowTitle:"Why does Cat connection fail?",usersTitle:"Panel users",toolsTitle:"Tools & settings",scannerTitle:"Clean-IP scanner",scannerHowto:"How to use the results",dnsTitle:"Encrypted DNS (DoH)",dnsUpstreamTitle:"Upstream resolvers",dnsUseTitle:"How to use it",dnsCustomTitle:"Custom DoH & DoT",dotTitle:"Suggested DoT hosts",helpTitle:"Panel guide",envTitle:"Panel variables",faqTitle:"FAQ",online:"online",copied:"Copied",scanReady:"Ready.",scanning:"Scanning…",done:"Finished",builderSniHint:"💡 Most configs get no ping? Many ISPs <b>filter the workers.dev SNI</b> — every TLS config dies and only plain ports (80/8080) on clean IPv4 survive. Fix: pick a clean SNI in the <b>Spoof</b> tab; enable IPv6 only if your SIM really has it; drop the host entry when its DNS is filtered; permanent fix: attach a <b>personal domain</b> to the worker."}',
     '};',
     'var lang="fa",theme="dark";',
     'try{lang=localStorage.getItem("catpanel.lang")||"fa";theme=localStorage.getItem("catpanel.theme")||"dark";}catch(e){}',

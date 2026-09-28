@@ -156,6 +156,10 @@ check('drawer lang pill back to FA', document.body.getAttribute('data-lang') ===
 check('drawer has its own lang pill + meta', document.querySelectorAll('#hmenu [data-setlang]').length === 2 && !!document.querySelector('#hmenu .drawer-foot'));
 check('BUGFIX: drawer + backdrop are body-level (not inside the sticky glass header)', !document.querySelector('#hmenu').closest('header.top') && !document.querySelector('#drawerBg').closest('header.top'));
 check('hero has the Aras-style connect pill', (document.querySelector('.hero-cta .cta-main')?.getAttribute('href') || '').startsWith('catclient://add-sub') && !!document.querySelector('.hero-cta [data-copy-sub]'));
+check('builder shows the SNI-filter diagnosis hint (FA)', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.includes('workers.dev'));
+click(document.querySelector('#langBtn'));
+check('builder hint translated to EN', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.startsWith('💡 Most configs get no ping'));
+click(document.querySelector('#langBtn'));
 
 click(document.querySelector('.side-nav button[data-tab="scanner"]'));
 check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));
