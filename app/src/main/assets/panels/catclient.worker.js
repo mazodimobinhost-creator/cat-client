@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.10';
+const CAT_PANEL_VERSION = '5.23.11';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -6399,7 +6399,6 @@ export const _testing = {
   sendHttpError,
   sniAllowed,
   effectiveSni,
-  allowedSnis,
   resolveUuid,
   deriveUuid,
   qrEncode,
@@ -6431,7 +6430,6 @@ export const _testing = {
   redactSettings,
   IR_CLEAN_IPS,
   DNS_PRESETS,
-  SCAN_RANGES,
   DEFAULT_SETTINGS,
   deepMerge,
   panelPassword,

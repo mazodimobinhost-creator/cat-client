@@ -5507,6 +5507,16 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2),
         )
 
+        // The no-app path (v1.9.48): share the official one-click Deploy-to-
+        // Cloudflare link — the same button as the README — with anyone. The
+        // recipient deploys their own panel straight from their browser.
+        catPanelCard.addView(
+            cloudActionButton(R.string.cloud_share_deploy_link, R.drawable.ic_cloud_tab, accent = false) {
+                shareDeployButtonLink()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
         val workerNameInput = TextInputEditText(this).apply {
             setSingleLine(true)
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -6348,6 +6358,26 @@ class MainActivity : Activity() {
             }
         }
         Toast.makeText(this, R.string.cloud_get_token_toast, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * Copies the official one-click Deploy-to-Cloudflare link and opens the
+     * system share sheet — the recipient needs neither Cat Client nor an API
+     * token, just a (free) Cloudflare account.
+     */
+    private fun shareDeployButtonLink() {
+        val url = CloudflareWorker.DEPLOY_BUTTON_URL
+        runCatching {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-deploy-link", url))
+        }
+        Toast.makeText(this, R.string.cloud_share_deploy_copied, Toast.LENGTH_SHORT).show()
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.cloud_share_deploy_subject))
+            putExtra(Intent.EXTRA_TEXT, getString(R.string.cloud_share_deploy_text, url))
+        }
+        runCatching { startActivity(Intent.createChooser(send, getString(R.string.cloud_share_deploy_subject))) }
     }
 
     private fun showWizardDeployedDialog(result: CloudflareWorker.WizardDeploymentResult) {
