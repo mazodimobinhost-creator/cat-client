@@ -180,6 +180,9 @@ click(document.querySelector('#useIpsInConfigs'));
 await wait(50);
 check('scan → configs moves ips into the builder', document.querySelector('[data-tab-panel="configs"]').classList.contains('active') && (document.querySelector('#cfgAddresses')?.value || '').split('\n').length >= 2);
 check('scan → configs rebuilt the sub url', (document.querySelector('#cfgSubUrl')?.textContent || '').includes('ips='));
+const activePorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
+check('scan → configs syncs the ALIVE port chips (80+443)', activePorts.includes('80') && activePorts.includes('443'), 'chips=' + activePorts.join(','));
+check('sub url carries only the proven ports', /ports=(80(%2C|,)443|443(%2C|,)80)/.test(document.querySelector('#cfgSubUrl')?.textContent || ''), document.querySelector('#cfgSubUrl')?.textContent.slice(0, 120));
 
 // --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
 const payload = 'https://' + HOST + '/sub';
