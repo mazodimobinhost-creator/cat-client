@@ -6194,7 +6194,7 @@ class MainActivity : Activity() {
                     ).show()
                     // The saved token can no longer upload (expired/revoked/scopes) —
                     // offer the inline token prompt so the recovery continues here.
-                    presentPanelTokenPrompt(deployment, deployed, newest)
+                    presentPanelTokenPrompt(deployment, deployed, script)
                     return@launch
                 }
                 PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
