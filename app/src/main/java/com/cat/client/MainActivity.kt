@@ -6219,9 +6219,18 @@ class MainActivity : Activity() {
                 activityScope.launch {
                     val authorized = CloudflareWorker.verifyPanelLogin(deployment.workerUrl, user, pass)
                     if (!authorized) {
-                        panelUpdateInProgress = false
-                        Toast.makeText(this@MainActivity, R.string.cloud_panel_login_failed, Toast.LENGTH_LONG).show()
-                        return@launch
+                        // The password check is answered BY the panel itself. When the
+                        // deployed panel is dead (erroring/unreachable — e.g. CF 1101),
+                        // a wrong-password verdict is impossible to obtain; the CF token
+                        // already proves ownership, so force the redeploy instead of
+                        // permanently bricking the panel behind a login that can't answer.
+                        val panelAlive = PanelUpdate.deployedVersion(deployment.workerUrl) != null
+                        if (panelAlive) {
+                            panelUpdateInProgress = false
+                            Toast.makeText(this@MainActivity, R.string.cloud_panel_login_failed, Toast.LENGTH_LONG).show()
+                            return@launch
+                        }
+                        Toast.makeText(this@MainActivity, R.string.cloud_panel_dead_forced_update, Toast.LENGTH_LONG).show()
                     }
                     runPanelUpdate(deployment, savedToken, deployed, newest)
                 }

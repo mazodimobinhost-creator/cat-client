@@ -634,6 +634,7 @@
     <string name="cloud_panel_password_hint">رمز پنل</string>
     <string name="cloud_panel_password_required">رمز پنل را وارد کن</string>
     <string name="cloud_panel_login_failed">ورود به پنل نشد — نام کاربری یا رمز اشتباه است.</string>
+    <string name="cloud_panel_dead_forced_update">پنل پاسخ نمی‌دهد — بروزرسانی اجباری اعمال می‌شود.</string>
     <string name="cloud_update_done">پنل به نسخهٔ v%1$s بروزرسانی شد</string>
     <string name="cloud_update_failed">بروزرسانی پنل ناموفق بود: %1$s</string>
     <string name="cloud_update_blocked">این نصب رمزهای محافظت‌شدهٔ (%1$s) دارد که هیچ اپی نمی‌تواند بخواند. برای حفظشان مقدار هر کدام را وارد کن — یا ورکر را از داشبورد کلودفلر بروزرسانی کن.</string>

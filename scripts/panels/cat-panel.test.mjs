@@ -1358,6 +1358,39 @@ async function subText(url, opts) {
   check('writeUsers refreshes the cache (write-through)', users49.length === 1 && users49[0].name === 'cache' && ugets === 1, String(ugets));
 }
 
+// §51 — anti-brick: /api/health answers even on a hostile KV; any route crash
+// becomes a friendly fa 500 page + /api/last-crash telemetry (never CF 1101).
+{
+  const mem = new Map();
+  const hostile = {
+    get: async () => { throw new Error('kv-get-boom'); },
+    put: async (k, v) => { mem.set(k, v); },
+    delete: async (k) => { mem.delete(k); },
+  };
+  const hostileEnv = { CAT_KV: hostile, OPEN_PANEL: 'true' };
+  const health = await worker.fetch(new Request('https://' + HOST + '/api/health'), hostileEnv);
+  const healthJson = await health.json();
+  check('health endpoint answers even when KV throws', health.status === 200 && healthJson.ok === true && typeof healthJson.version === 'string');
+  // A route-level crash (env getter that throws mid-render) must surface as a
+  // friendly fa 500 page — never Cloudflare's bare 1101.
+  const boomEnv = { CAT_KV: hostile, OPEN_PANEL: 'true', get CF_IPS() { throw new Error('cfg-boom'); } };
+  const crashed = await worker.fetch(new Request('https://' + HOST + '/', { headers: { Host: HOST } }), boomEnv);
+  const crashBody = await crashed.text();
+  check('route crash becomes a friendly fa page (never 1101)', crashed.status === 500 && crashBody.includes('پنل موقتاً خطا داد') && crashBody.includes('cfg-boom'));
+  // With a usable KV the crash is stashed and readable at /api/last-crash.
+  const memOk = new Map();
+  const storeOk = {
+    get: async (k) => memOk.get(k) ?? null,
+    put: async (k, v) => { memOk.set(k, v); },
+    delete: async (k) => { memOk.delete(k); },
+  };
+  const boomStoreEnv = { CAT_KV: storeOk, OPEN_PANEL: 'true', get CF_IPS() { throw new Error('cfg-boom'); } };
+  await worker.fetch(new Request('https://' + HOST + '/', { headers: { Host: HOST } }), boomStoreEnv);
+  const lastCrash = await worker.fetch(new Request('https://' + HOST + '/api/last-crash'), boomStoreEnv);
+  const crashes = (await lastCrash.json()).crashes;
+  check('crash telemetry stores message + stack in KV', Array.isArray(crashes) && crashes.length >= 1 && crashes[0].message === 'cfg-boom' && typeof crashes[0].stack === 'string' && crashes[0].stack.length > 0);
+}
+
 // §50 — consumption diet v3: sub memo, flush gate, autopool gate
 {
   const mem50 = new Map();

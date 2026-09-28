@@ -635,6 +635,7 @@
     <string name="cloud_panel_password_hint">Panel password</string>
     <string name="cloud_panel_password_required">Enter the panel password</string>
     <string name="cloud_panel_login_failed">Panel sign-in failed — wrong username or password.</string>
+    <string name="cloud_panel_dead_forced_update">Panel is not responding — forced update will be applied.</string>
     <string name="cloud_update_done">Panel updated to v%1$s</string>
     <string name="cloud_update_failed">Panel update failed: %1$s</string>
     <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. Enter their values to keep them through the update — or update the worker from the Cloudflare dashboard instead.</string>

@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.9';
+const CAT_PANEL_VERSION = '5.23.10';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -760,6 +760,7 @@ function handleDataWebSocket(ws, env, options = {}) {
 /* ------------------------------------------------------------------ */
 
 const KV_KEYS = {
+  lastCrash: 'catpanel:last-crash',
   settings: 'catpanel:settings',
   users: 'catpanel:users',
   traffic: 'catpanel:traffic',
@@ -771,6 +772,35 @@ const KV_KEYS = {
 function kvBinding(env) {
   return env && (env.CAT_KV || env.CATCLIENT_KV || env.PANEL_KV || env.KV || env.BK_KV) || null;
 }
+
+/** Crash telemetry: keep the last few uncaught exceptions so the owner (or the
+ * app) can fetch /api/last-crash and actually SEE what broke — 1101 with no
+ * details helps nobody. Best-effort: never throws. */
+async function readCrashes(env) {
+  try {
+    const store = kvBinding(env);
+    if (!store) return [];
+    const raw = await store.get(KV_KEYS.lastCrash);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (e) { return []; }
+}
+
+async function stashCrash(env, url, error) {
+  try {
+    const store = kvBinding(env);
+    if (!store) return;
+    const entry = {
+      at: Date.now(),
+      version: CAT_PANEL_VERSION,
+      url: String(url || '').slice(0, 300),
+      message: String((error && error.message) || error).slice(0, 300),
+      stack: String((error && error.stack) || '').split('\n').slice(0, 6).join('\n').slice(0, 900),
+    };
+    const list = (await readCrashes(env)).filter((c) => c && c.message !== entry.message).slice(0, 2);
+    list.unshift(entry);
+    await store.put(KV_KEYS.lastCrash, JSON.stringify(list));
+  } catch (e) { /* telemetry must never break the response */ }}
 
 function hasKv(env) {
   return kvBinding(env) !== null;
@@ -5732,6 +5762,16 @@ async function fetchHandler(request, env, ctx) {
   const url = new URL(request.url);
   const host = (request.headers.get('Host') || url.hostname || '').toLowerCase();
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  // Anti-brick liveness: answers with ZERO work so the app can always see the
+  // panel version — even when KV, settings or any later route is broken.
+  if (url.pathname === '/api/health') {
+    let kvOk = false;
+    try { kvOk = hasKv(env); } catch (e) { kvOk = false; }
+    return jsonResponse({ ok: true, panel: 'cat-panel', version: CAT_PANEL_VERSION, kv: kvOk, ts: Date.now() }, 200, Object.assign({ 'cache-control': 'no-store' }, CORS));
+  }
+  if (url.pathname === '/api/last-crash') {
+    return jsonResponse({ ok: true, crashes: await readCrashes(env) }, 200, Object.assign({ 'cache-control': 'no-store' }, CORS));
+  }
   beginProbeWindow();
   noteRequest(env, ctx);
 
@@ -6244,15 +6284,35 @@ async function fetchHandler(request, env, ctx) {
   return notFoundResponse();
 }
 
+const esc500 = (t) => String(t).replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+
 export default {
   async fetch(request, env, ctx) {
+    let crashUrl = '';
+    try { crashUrl = request && request.url ? String(request.url) : ''; } catch (e) {}
     try {
       return await fetchHandler(request, env || {}, ctx);
     } catch (e) {
-      return new Response('Cat Panel error: ' + (e && e.message ? e.message : e), {
-        status: 500,
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      });
+      // Never leak Cloudflare's 1101 page: answer with a real page and keep a
+      // copy of the crash in KV (/api/last-crash) for diagnosis.
+      try { console.error('[cat-panel] 500', crashUrl, (e && e.stack) || e); } catch (e2) {}
+      try { await stashCrash(env, crashUrl, e); } catch (e3) {}
+      const msg = esc500(String((e && e.message) || e).slice(0, 200));
+      const top = esc500(String((e && e.stack) || '').split('\n').slice(1, 3).join('<br>').slice(0, 300));
+      return new Response('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Cat Panel — خطا</title></head>' +
+        '<body style="font-family:system-ui,sans-serif;background:#06030c;color:#ede9fe;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh">' +
+        '<div style="max-width:540px;padding:30px;text-align:center">' +
+        '<div style="font-size:46px">🐱</div>' +
+        '<h1 style="font-size:19px;margin:12px 0 6px">پنل موقتاً خطا داد</h1>' +
+        '<p style="opacity:.75;font-size:13px;line-height:2">یک بار دیگر امتحان کن. اگر تکرار شد، از اپ «بروزرسانی پنل» را بزن — نسخهٔ جدید خودش را ترمیم می‌کند.</p>' +
+        '<p dir="ltr" style="text-align:left;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;font-size:11px;line-height:1.7;word-break:break-all">' +
+        msg + (top ? '<br>' + top : '') + '</p>' +
+        '<p style="opacity:.5;font-size:11px;margin-top:14px">گزارش کامل: <span dir="ltr">/api/last-crash</span></p>' +
+        '</div></body></html>', {
+          status: 500,
+          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+        });
     }
   },
 };
