@@ -627,9 +627,14 @@ async function subText(url, opts) {
   const gatedCreate = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'nogeo' }) }), env);
   const gatedUser = JSON.parse(await gatedCreate.text()).user;
   const gatedSub = b64dec(await (await req('/u/' + gatedUser.token, { env, raw: true })).text());
-  check('per-user gate: no countries chosen -> no configs', !gatedSub.includes('vless://') && !gatedSub.includes('trojan://'));
+  check('user WITHOUT countries serves the owner set (sub adds everywhere)', gatedSub.includes('vless://') && gatedSub.length > 100);
   const gatedInfo = await (await req('/info/' + gatedUser.token, { env, raw: true })).text();
-  check('per-user gate page asks the owner to pick countries', gatedInfo.includes('کشوری برای حساب تو انتخاب نکرده'));
+  check('info page for a country-less user shows the chooser (never a dead end)', gatedInfo.includes('recipientConfigs') && gatedInfo.includes('countryChoices'));
+  const restrictedSub = b64dec(await (await req('/u/' + token, { env, raw: true })).text());
+  check('user WITH countries stays restricted to the picked set', restrictedSub.includes('@104.16.1.1:') && restrictedSub.includes('@104.16.1.2:'));
+  const catClientSub = await req('/u/' + gatedUser.token, { env, raw: true, headers: { 'User-Agent': 'CatClient/1.9.44 (+android)', Accept: 'text/yaml,application/json,text/plain,*/*;q=0.1' } });
+  const catClientBody = b64dec(await catClientSub.text());
+  check('regression: Cat Client UA on a fresh user sub gets a non-empty payload', catClientSub.status === 200 && catClientBody.includes('vless://'), 'len=' + catClientBody.length);
 
   // quota exceeded → tunnel and sub blocked (Trojan too)
   const r2 = new Request('https://' + HOST + '/api/users/' + body.user.id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usedBytes: 3 * 1024 * 1024 * 1024 }) });

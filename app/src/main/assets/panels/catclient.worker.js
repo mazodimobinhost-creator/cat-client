@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.8';
+const CAT_PANEL_VERSION = '5.23.9';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -4394,7 +4394,7 @@ function dnsTabHtml(state) {
 }
 
 function usersTabHtml(state) {
-  return '<section class="tab" data-tab-panel="users">' + sectionHead('👥', 'کاربران', 'برای هر نفر کشور انتخاب کن و لینک اختصاصی بگیر') +
+  return '<section class="tab" data-tab-panel="users">' + sectionHead('👥', 'کاربران', 'ساب هر نفر آماده است — بدون انتخاب کشور همان ست تو را می‌گیرد؛ با انتخاب کشور محدودش کن') +
     '<div class="card glow"><h2><span class="dot"></span><span data-i18n="usersTitle">کاربران پنل</span></h2>' +
     '<p>هر کاربر لینک سابسکریپشن، UUID و رمز Trojan مستقل خودش را دارد؛ حجم، تاریخ انقضا و تعداد دستگاه هم قابل تنظیم است. برای ذخیره‌سازی به بایندینگ KV نیاز است.</p>' +
     '<p class="muted" id="kvState">' + (state.hasKv ? '✅ KV متصل است — کاربران ذخیره می‌شوند.' : '⚠️ KV وصل نیست — فقط UUID اصلی کار می‌کند. یک Namespace بساز و با نام <code>CAT_KV</code> به ورکر بایند کن.') + '</p>' +
@@ -5499,7 +5499,11 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
   // fallback address list. It shows only the successful worker-probe set saved
   // by the owner, then lets the recipient choose a count and countries.
   const userCountries = Array.isArray(user.countries) ? user.countries : [];
-  const gated = userCountries.length === 0;
+  // Countries RESTRICT when the owner picks them; unset = the owner's full set.
+  // (The old zero-configs-by-default made every fresh user's sub silently
+  // empty — nothing could be added from it in any client.)
+  const restricted = userCountries.length > 0;
+  const gated = false;
   if (!isInfo && !format && wantsHtmlPage(request)) {
     // A human opening the subscription link gets the chooser page (count + countries).
     return Response.redirect('https://' + host + '/info/' + encodeURIComponent(user.token), 302);
@@ -5510,7 +5514,7 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
   }
   const landingUrl = new URL(url.toString());
   landingUrl.searchParams.set('verified', '1');
-  const landingOptions = configOptions(landingUrl, host, env, settings, userCountries);
+  const landingOptions = configOptions(landingUrl, host, env, settings, restricted ? userCountries : null);
   const landingCatalog = buildAllConfigs(host, env, user.uuid, landingOptions);
   const landingCountries = landingOptions.verifiedEntries
     .map((entry) => {
@@ -5537,7 +5541,7 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
       apps: appDeepLinks(subUrl, title + ' | ' + state.name),
       allUrl: subUrl + '/all?verified=1',
       catalog: landingCatalog,
-      countries: gated ? [] : landingCountries,
+      countries: landingCountries,
       userCountries: userCountries,
       gated: gated,
       verifiedScanned: settings.configs && settings.configs.verifiedScanned === true,
@@ -5547,7 +5551,7 @@ async function handleUserSubscription(request, url, env, host, path, ctx) {
     return new Response('Cat Panel: ' + state.status, { status: 403, headers: CORS });
   }
   const uuid = user.uuid;
-  const options = configOptions(url, host, env, settings, userCountries);
+  const options = configOptions(url, host, env, settings, restricted ? userCountries : null);
   const headers = Object.assign({}, CORS, {
     'subscription-userinfo': subscriptionUserinfo(state),
     'profile-title': 'base64:' + b64encode(title + ' | ' + state.name),
