@@ -193,10 +193,22 @@ click(document.querySelector('#useIpsInConfigs'));
 await wait(50);
 const ports2 = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
 check('applied configs keep 80+443 and gain 8080 when it answers', ['80', '443', '8080'].every((x) => ports2.includes(x)), ports2.join(','));
+
 const activePorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
 check('scan → configs syncs the ALIVE port chips (80+443)', activePorts.includes('80') && activePorts.includes('443'), 'chips=' + activePorts.join(','));
 const portsParam = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
 check('sub url keeps the proven ports on', portsParam.includes('80') && portsParam.includes('443'), portsParam.join(','));
+
+// --- quick build (recommended recipe, 5.23.8): env SNI prefill 'cdn.example.ir' -> TLS recipe ---
+click(document.querySelector('#cfgQuickBuild'));
+await wait(50);
+const qbPorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
+check('quick build picks the TLS recipe (clean SNI present)', ['443', '2053', '2083', '8443'].every((x) => qbPorts.includes(x)) && !qbPorts.includes('80'), qbPorts.join(','));
+const qbAddr = (document.querySelector('#cfgAddresses')?.value || '').split('\n').filter(Boolean);
+check('quick build fills ≤10 verified/default IPs', qbAddr.length >= 1 && qbAddr.length <= 10, 'rows=' + qbAddr.length);
+check('quick build drops host + v6 entries', !document.querySelector('#cfgProtos .chip[data-flag="host"]').classList.contains('active') && !document.querySelector('#cfgProtos .chip[data-flag="v6"]').classList.contains('active'));
+const qbUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
+check('quick build sub: no host, no v6, TLS ports on', qbUrl.includes('host=0') && qbUrl.includes('v6=0') && qbUrl.includes('443'), qbUrl.slice(0, 130));
 
 // --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
 const payload = 'https://' + HOST + '/sub';

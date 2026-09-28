@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.7';
+const CAT_PANEL_VERSION = '5.23.8';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -4174,6 +4174,7 @@ function configsTabHtml(state) {
     '<label class="field" style="margin-top:12px"><span>آدرس‌های تمیز (آی‌پی یا دامنه — هر خط یا با کاما)</span>' +
     '<textarea id="cfgAddresses" rows="4" dir="ltr" placeholder="104.16.132.229&#10;www.speedtest.net">' + esc(o.addresses.join('\n')) + '</textarea></label>' +
     '<div class="row" style="margin-top:6px">' +
+    '<button class="btn tiny" id="cfgQuickBuild">⚡ ساخت سریع — ریکامند شده</button>' +
     '<button class="btn ghost tiny" id="cfgUseDefaults">آدرس‌های پیش‌فرض</button>' +
     '<button class="btn ghost tiny" id="cfgUseIr">کتابخانهٔ ایران</button>' +
     '<button class="btn ghost tiny" id="cfgFromScan">از نتیجهٔ اسکنر</button>' +
@@ -4653,6 +4654,20 @@ function panelClientJs() {
     '$$("#cfgPorts .chip, #cfgProtos .chip").forEach(function(chip){chip.addEventListener("click",function(){chip.classList.toggle("active")});});',
     '$("#cfgCountries").addEventListener("click",function(ev2){var chip=ev2.target.closest(".chip");if(!chip||!this.contains(chip))return;var box=chip.parentNode;var isAll=chip.getAttribute("data-cc")==="";$$("#cfgCountries .chip").forEach(function(c){if(isAll){c.classList.toggle("active",c===chip)}else if(c!==chip&&c.getAttribute("data-cc")===""){c.classList.remove("active")}});if(!isAll)chip.classList.toggle("active");if(!box.querySelector(".chip.active"))box.querySelector("[data-cc]").classList.add("active")});',
     '$("#cfgCount").addEventListener("change",applyOptions);',
+    '$("#cfgQuickBuild").addEventListener("click",function(){',
+    ' var pool=[];(S.countryPools||[]).forEach(function(c){(c.ips||[]).forEach(function(ip){if(pool.indexOf(ip)<0)pool.push(ip)})});',
+    ' if(pool.length<6)pool=pool.concat((S.defaultAddresses||[]).filter(function(a){return pool.indexOf(a)<0}));',
+    ' var ips=pool.slice(0,10);',
+    ' var sni=($("#cfgSni").value||"").trim();',
+    ' var hostChip=$("#cfgProtos .chip[data-flag=host]");if(hostChip)hostChip.classList.remove("active");',
+    ' var v6Chip=$("#cfgProtos .chip[data-flag=v6]");if(v6Chip)v6Chip.classList.remove("active");',
+    ' var ports=sni?[443,2053,2083,8443]:[80,8080];',
+    ' $$("#cfgPorts .chip").forEach(function(c){c.classList.toggle("active",ports.indexOf(Number(c.getAttribute("data-port")))>=0)});',
+    ' OPT.locations={};',
+    ' if(!ips.length){toast("هیچ منبعی برای IP نیست — اول اسکنر را بزن");showTab("scanner");return;}',
+    ' $("#cfgAddresses").value=ips.join("\\n");',
+    ' $("#cfgSave").click();',
+    ' toast((lang==="fa")?(ips.length+" IP"+(sni?" × TLS 443/2053/2083/8443 با SNI تمیز":" × پورت 80/8080 بدون رمز")+" — ساب ذخیره شد ✅"+(sni?"":" (برای TLS اول از تب Spoof یک SNI تمیز بزن)")):(ips.length+" verified IPs"+(sni?" × TLS 443/2053/2083/8443 with clean SNI":" × plain 80/8080")+" — sub saved ✅"));});',
     '$("#cfgUseDefaults").addEventListener("click",function(){$("#cfgAddresses").value=(S.defaultAddresses||[]).join("\\n")});',
     '$("#cfgUseIr").addEventListener("click",function(){$("#cfgAddresses").value=(S.irIps||[]).slice(0,24).join("\\n")});',
     '$("#cfgClearAddr").addEventListener("click",function(){$("#cfgAddresses").value=""});',
