@@ -26,6 +26,21 @@ function check(name, cond, extra) {
   else { failures++; console.error('✗ ' + name + (extra ? ' — ' + extra : '')); }
 }
 
+// --- duplicate-key guard (wrangler "duplicate-object-key" warnings) ---
+// The one-click Deploy-to-Cloudflare button runs `wrangler deploy` against this
+// file; duplicate keys in an object literal make the deploy console warn (and
+// silently shadow the earlier value). Keep the bundle warning-free.
+{
+  const testingBlock = src.match(/export const _testing = \{([\s\S]*?)\n\};/);
+  check('_testing export block exists', !!testingBlock);
+  if (testingBlock) {
+    const keys = [...testingBlock[1].matchAll(/(?:^|\n)\s{2}([A-Za-z_$][\w$]*),\s*(?=\n)/g)].map((k) => k[1]);
+    const uniq = new Set();
+    const dups = keys.filter((k) => (uniq.has(k) ? true : (uniq.add(k), false)));
+    check('_testing export keys are unique (' + keys.length + ' keys)', dups.length === 0, 'duplicates: ' + dups.join(', '));
+  }
+}
+
 const HOST = 'catpanel-demo.workers.dev';
 // v5: subscriptions need the UUID in the path (BPB-style) and the panel is
 // locked by default. Tests that exercise the content use OPEN_* to keep the

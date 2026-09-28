@@ -582,6 +582,10 @@
     <string name="cloud_copy_code">📋 Copy Worker code (paste into Cloudflare)</string>
     <string name="cloud_code_copied">Worker code copied — paste it into your Cloudflare Worker</string>
     <string name="cloud_code_failed">Could not read the worker code</string>
+    <string name="cloud_share_deploy_link">🔗 Share one-click deploy link (no app needed)</string>
+    <string name="cloud_share_deploy_copied">Deploy link copied — anyone with it can install their own panel</string>
+    <string name="cloud_share_deploy_subject">Cat Panel — one-click deploy</string>
+    <string name="cloud_share_deploy_text">Cat Panel — your own VPN panel on your own Cloudflare account, one click and no app needed:\n%1$s</string>
     <string name="cloud_worker_name_hint">Worker name (letters, numbers, -)</string>
     <string name="cloud_token_required">Paste a Cloudflare API token first</string>
     <string name="cloud_verifying">Checking token…</string>

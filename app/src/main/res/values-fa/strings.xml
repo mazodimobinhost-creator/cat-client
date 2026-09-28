@@ -581,6 +581,10 @@
     <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
     <string name="cloud_code_copied">کد Worker کپی شد — داخل Worker کلادفلر بچسبانید</string>
     <string name="cloud_code_failed">خواندن کد Worker ممکن نشد</string>
+    <string name="cloud_share_deploy_link">🔗 اشتراک لینک نصب یک‌کلیکی (بدون نیاز به اپ)</string>
+    <string name="cloud_share_deploy_copied">لینک نصب کپی شد — هر کسی این لینک را داشته باشد پنل خودش را نصب می‌کند</string>
+    <string name="cloud_share_deploy_subject">Cat Panel — نصب یک‌کلیکی</string>
+    <string name="cloud_share_deploy_text">Cat Panel — پنل VPN شخصی روی اکانت کلادفلر خودت، فقط با یک کلیک و بدون نصب هیچ اپی:\n%1$s</string>
     <string name="cloud_worker_name_hint">نام Worker (حرف، عدد، -)</string>
     <string name="cloud_token_required">اول توکن API کلادفلر را وارد کنید</string>
     <string name="cloud_verifying">در حال بررسی توکن…</string>
