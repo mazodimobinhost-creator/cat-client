@@ -180,9 +180,23 @@ click(document.querySelector('#useIpsInConfigs'));
 await wait(50);
 check('scan → configs moves ips into the builder', document.querySelector('[data-tab-panel="configs"]').classList.contains('active') && (document.querySelector('#cfgAddresses')?.value || '').split('\n').length >= 2);
 check('scan → configs rebuilt the sub url', (document.querySelector('#cfgSubUrl')?.textContent || '').includes('ips='));
+
+// --- scanner multi-port (5.23.7): add 8080 to the scan set ---
+document.querySelector('#scanClear').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+click(document.querySelector('#scanPortChips .chip[data-port="8080"]'));
+document.querySelector('#scanLimit').value = '8';
+click(document.querySelector('#scanStart'));
+await wait(600);
+check('scanner probes user-added ports (8080) from the browser', pings.some((u) => u.includes(':8080/')));
+check('added-port results render in the row', (document.querySelector('#scanTable')?.textContent || '').includes('8080:'));
+click(document.querySelector('#useIpsInConfigs'));
+await wait(50);
+const ports2 = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
+check('applied configs keep 80+443 and gain 8080 when it answers', ['80', '443', '8080'].every((x) => ports2.includes(x)), ports2.join(','));
 const activePorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
 check('scan → configs syncs the ALIVE port chips (80+443)', activePorts.includes('80') && activePorts.includes('443'), 'chips=' + activePorts.join(','));
-check('sub url carries only the proven ports', /ports=(80(%2C|,)443|443(%2C|,)80)/.test(document.querySelector('#cfgSubUrl')?.textContent || ''), document.querySelector('#cfgSubUrl')?.textContent.slice(0, 120));
+const portsParam = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
+check('sub url keeps the proven ports on', portsParam.includes('80') && portsParam.includes('443'), portsParam.join(','));
 
 // --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
 const payload = 'https://' + HOST + '/sub';

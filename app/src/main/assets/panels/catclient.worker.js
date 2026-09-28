@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.6';
+const CAT_PANEL_VERSION = '5.23.7';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -4299,7 +4299,11 @@ function scannerTabHtml(state) {
     '<button class="btn" id="healthRun">تست و پاکسازی الان</button>' +
     '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="healthAuto" style="width:auto"> تعمیر خودکار هر ۶ ساعت</label>' +
     '</div><div id="healthStat" class="muted" style="margin-top:8px;font-size:12.5px">' + ((state && state.lastHealthAt) ? ('آخرین تست: ' + new Date(state.lastHealthAt).toLocaleString('fa-IR')) : 'هنوز تست نشده') + '</div></div>' +
-    '<label class="field"><span>پورت‌های اسکن مرورگر</span><select id="scanMode"><option value="both">80 + 443 — هر دو (پیشنهادی)</option><option value="http">فقط 80 (بدون رمز)</option><option value="https">فقط 443 (TLS)</option></select></label>' +
+    '<label class="field"><span>پورت‌های اسکن مرورگر</span><div id="scanPortChips" style="display:flex;flex-wrap:wrap;gap:6px">' +
+    [80, 443, 2053, 2083, 2087, 2096, 8443, 8080, 8880, 2052, 2082, 2086, 2095].map(function (p) {
+      return '<button type="button" class="chip' + (p === 80 || p === 443 ? ' active' : '') + '" data-port="' + p + '">' + p + (p === 80 ? ' <small>http</small>' : (p === 443 ? ' <small>tls</small>' : '')) + '</button>';
+    }).join('') +
+    '</div><small class="muted">هر پورتی اضافه کنی در همان پاس و از خط خودت تست می‌شود — TLS یا بدون‌رمز بودنش خودکار تشخیص داده می‌شود.</small></label>' +
     '<label class="field"><span>تعداد هم‌زمان</span><input id="scanConc" type="number" min="1" max="32" value="8"></label>' +
     '<label class="field"><span>تایم‌اوت هر تست (ms)</span><input id="scanTimeout" type="number" min="500" max="8000" value="2000"></label>' +
     '<label class="field"><span>تعداد آی‌پی برای اسکن</span><input id="scanLimit" type="number" min="8" max="400" value="80"></label>' +
@@ -4654,9 +4658,9 @@ function panelClientJs() {
     '$("#cfgClearAddr").addEventListener("click",function(){$("#cfgAddresses").value=""});',
     '$("#cfgFromScan").addEventListener("click",function(){function pick(r){var b=scanBest(r);if(b===null&&r.server&&r.server.ok&&r.server.ms!=null)b=r.server.ms;return b===null?99999:b;}var picked=scanResults.filter(function(r){return scanBest(r)!==null||(r.server&&r.server.ok)}).sort(function(a,b){return pick(a)-pick(b)}).slice(0,12);var ips=picked.map(function(r){return r.ip});',
     ' if(!ips.length){toast("اول در تب اسکنر اسکن کن");showTab("scanner");return;}OPT.locations={};picked.forEach(function(r){var code=r.server&&r.server.colo;if(code)OPT.locations[r.ip.toLowerCase()]=code;});',
-    ' var plain=picked.some(function(r){return r.ms!==null});var tls=picked.some(function(r){return r.tls!==null});',
-    ' if(plain||tls){$$("#cfgPorts .chip").forEach(function(c){var p=c.getAttribute("data-port");var on=(p==="80"&&plain)||(p==="443"&&tls);c.classList.toggle("active",on);});}',
-    ' $("#cfgAddresses").value=ips.join("\\n");toast(ips.length+" آی‌پی"+((plain&&tls)?" با پورت‌های 80+443":(tls?" با پورت TLS 443":" با پورت 80 (بدون رمز)"))+" از اسکنر آمد ✅"+(plain&&!tls?(lang==="fa"?" — 443 بسته بود؛ برای TLS بعداً از تب Spoof یک SNI تمیز بزن":" — :443 was blocked; enable a clean SNI in the Spoof tab later for TLS"):""));});',
+    ' var scannedU={},alive={};picked.forEach(function(r){(r.scanned||[]).forEach(function(p){scannedU[p]=1;if(p===80?r.ms!==null:(p===443?r.tls!==null:!!(r.extra&&r.extra[p]!==null)))alive[p]=1;});});var aliveList=Object.keys(alive);',
+    ' if(aliveList.length){$$("#cfgPorts .chip").forEach(function(c){var p=c.getAttribute("data-port");if(scannedU[p]!==undefined)c.classList.toggle("active",alive[p]===1);});}',
+    ' $("#cfgAddresses").value=ips.join("\\n");toast(ips.length+" آی‌پی"+(aliveList.length?" با پورت‌های "+aliveList.join("+"):"")+" از اسکنر آمد ✅"+(alive[80]===1&&alive[443]!==1?(lang==="fa"?" — 443 بسته بود؛ برای TLS بعداً از تب Spoof یک SNI تمیز بزن":" — :443 was blocked; enable a clean SNI in the Spoof tab later for TLS"):""));});',
     'function applyOptions(){OPT=readOptions();cfgSavedInKv=false;CFG=allLinks();renderConfigs();refreshSubUrl();$("#cfgSaveState").textContent="";}',
     '$("#cfgApply").addEventListener("click",function(){applyOptions();toast(CFG.length+" کانفیگ ساخته شد — لینک ساب به‌روز شد");});',
     '$("#cfgSave").addEventListener("click",function(){applyOptions();var o=OPT;',
@@ -4856,20 +4860,23 @@ function panelClientJs() {
     '   /cdn-cgi/trace on plain HTTP). HTTPS:443 only proves TCP+TLS reachability because',
     '   the certificate never matches a bare IP. TypeError => unreachable; anything else',
     '   (opaque response, CORS error) => the edge answered. */',
-    'function pingIp(ip,timeout,mode){return new Promise(function(resolve){',
+    'function pingIp(ip,timeout,mode,port){return new Promise(function(resolve){',
     ' var ctrl=typeof AbortController!=="undefined"?new AbortController():null;',
     ' var started=(performance&&performance.now)?performance.now():Date.now();',
     ' var done=false;var timer=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();resolve(null)}},timeout);',
-    ' var url=(mode==="https"?"https://"+(ip.indexOf(":")>=0?"["+ip+"]":ip)+":443":"http://"+(ip.indexOf(":")>=0?"["+ip+"]":ip)+":80")+"/cdn-cgi/trace?ts="+Math.random().toString(36).slice(2);',
+    ' var url=(mode==="https"?"https://":"http://")+(ip.indexOf(":")>=0?"["+ip+"]":ip)+":"+(port||(mode==="https"?443:80))+"/cdn-cgi/trace?ts="+Math.random().toString(36).slice(2);',
     ' fetch(url,{mode:"no-cors",cache:"no-store",credentials:"omit",redirect:"manual",signal:ctrl?ctrl.signal:undefined})',
     ' .then(function(){if(done)return;done=true;clearTimeout(timer);resolve(Math.round(((performance&&performance.now)?performance.now():Date.now())-started))})',
     ' .catch(function(err){if(done)return;done=true;clearTimeout(timer);',
     '  if(err&&err.name==="AbortError"){resolve(null);return;}',
     '  if(err&&err.name==="TypeError"){resolve(null);return;}',
     '  resolve(Math.round(((performance&&performance.now)?performance.now():Date.now())-started));});});}',
-    'function scanBest(r){if(r.ms!==null&&r.tls!==null)return Math.min(r.ms,r.tls);if(r.ms!==null)return r.ms;if(r.tls!==null)return r.tls;return null;}',
+    'function scanBest(r){var arr=[r.ms,r.tls];if(r.extra)Object.keys(r.extra).forEach(function(k){arr.push(r.extra[k])});var m=arr.filter(function(v){return v!==null&&v!==undefined});return m.length?Math.min.apply(null,m):null;}',
+    'function activeScanPorts(){var ps=$$("#scanPortChips .chip.active").map(function(c){return Number(c.getAttribute("data-port"))}).filter(function(v){return v>0});if(!ps.length)ps=[80,443];try{localStorage.setItem("catpanel.scanPorts",JSON.stringify(ps))}catch(e){}return ps;}',
+    'try{var sp=JSON.parse(localStorage.getItem("catpanel.scanPorts")||"[]");if(sp&&sp.length){$$("#scanPortChips .chip").forEach(function(c){c.classList.toggle("active",sp.indexOf(Number(c.getAttribute("data-port")))>=0)});}}catch(e){}',
+    '$$("#scanPortChips .chip").forEach(function(c){c.addEventListener("click",function(){c.classList.toggle("active")});});',
     'function renderScan(){var rows=scanResults.map(function(r,i){var best=scanBest(r);var cls=best===null?"bad":(best<300?"good":(best<700?"mid":"bad"));',
-    ' var msText="80: "+(r.ms===null?"✗":(r.ms+" ms"))+" · 443: "+(r.tls===null?"✗":(r.tls+" ms"));var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
+    ' var msText="80: "+(r.ms===null?"✗":(r.ms+" ms"))+" · 443: "+(r.tls===null?"✗":(r.tls+" ms"));if(r.extra)Object.keys(r.extra).forEach(function(p){msText+=" · "+p+": "+(r.extra[p]===null?"✗":(r.extra[p]+" ms"))});var loc=r.server&&r.server.location?(r.server.location.flag+" "+r.server.location.city+", "+r.server.location.country):(r.server&&r.server.colo?r.server.colo:"🌐 Auto");var srv=r.server===undefined?"—":(r.server&&r.server.ok?("✓ "+(r.server.ms||"")+"ms"):"✗");',
     ' var sniRow=(r.server&&r.server.snisOk)?Object.keys(r.server.snisOk).filter(function(s){return r.server.snisOk[s].ok}).map(function(s){return "✓ "+s}).join("<br>"):"";',
     ' return `<tr><td><input type="checkbox" style="width:auto" data-ip-check="`+r.ip+`"${r.selected?" checked":""}></td><td dir="ltr"><b>`+r.ip+`</b><br><small>`+loc+`</small>${sniRow?"<small>"+sniRow+"</small>":""}</td><td class="ms ${cls}">${msText}</td><td class="ms ${r.server&&r.server.ok?"good":(r.server===undefined?"":"bad")}">${srv}</td><td><button class="btn ghost tiny" data-copy-ip="`+r.ip+`">کپی</button> <button class="btn tiny" data-use-ip="`+r.ip+`">انتخاب</button></td></tr>`;}).join("");',
     ' $("#scanTable").innerHTML=rows||"<tr><td colspan=5>هنوز نتیجه‌ای نیست</td></tr>";',
@@ -4887,9 +4894,9 @@ function panelClientJs() {
     'function finishScan(){scanRunning=false;$("#scanStart").disabled=false;$("#scanStop").disabled=true;',
     ' scanResults.sort(function(a,b){var x=scanBest(a),y=scanBest(b);if(x===null&&y===null)return 0;if(x===null)return 1;if(y===null)return -1;return x-y});renderScan();',
     ' var alive=scanResults.filter(function(r){return scanBest(r)!==null});',
-    ' var n80=scanResults.filter(function(r){return r.ms!==null}).length;var n443=scanResults.filter(function(r){return r.tls!==null}).length;',
+    ' var n80=scanResults.filter(function(r){return r.ms!==null}).length;var n443=scanResults.filter(function(r){return r.tls!==null}).length;var others=0;scanResults.forEach(function(r){if(r.extra)Object.keys(r.extra).forEach(function(p){if(r.extra[p]!==null)others++});});',
     ' var verdict=(lang==="fa")?(n80>0&&n443===0?" ⚠️ 443 از خط تو جواب نداد — TLS روی اپراتورت بسته است؛ پورت 80 کافی است؛ برای TLS اول یک SNI تمیز در تب Spoof فعال کن.":""):(n80>0&&n443===0?" ⚠️ :443 did not answer from your line — TLS looks blocked on your ISP; port 80 is enough; enable a clean SNI in the Spoof tab first.":"");',
-    ' $("#scanStatus").textContent=I18N[lang].done+" · "+alive.length+"/"+scanResults.length+" زنده (80: "+n80+" · 443: "+n443+")"+(alive.length?" — حالا «گذاشتن داخل کانفیگ‌ها» را بزن":" — رنج دلخواه بده")+verdict;',
+    ' $("#scanStatus").textContent=I18N[lang].done+" · "+alive.length+"/"+scanResults.length+" زنده (80: "+n80+" · 443: "+n443+(others?" · سایر: "+others:"")+")"+(alive.length?" — حالا «گذاشتن داخل کانفیگ‌ها» را بزن":" — رنج دلخواه بده")+verdict;',
     ' if(alive.length)verifyOnServer(alive.slice(0,24).map(function(r){return r.ip}));}',
     'function verifyOnServer(ips){if(!ips.length)return;',
     ' fetch("/api/scan?ips="+encodeURIComponent(ips.join(","))+"&timeout=4000&concurrency=12").then(function(r){return r.json()}).then(function(j){',
@@ -4897,7 +4904,7 @@ function panelClientJs() {
     '  scanResults.forEach(function(r){if(map[r.ip])r.server=map[r.ip]});renderScan();}).catch(function(){});}',
     '$("#scanStart").addEventListener("click",function(){',
     ' if(scanRunning)return;',
-    ' var mode=$("#scanMode").value||"both";var conc=Math.max(1,Math.min(32,Number($("#scanConc").value)||8));',
+    ' var conc=Math.max(1,Math.min(32,Number($("#scanConc").value)||8));',
     ' var timeout=Math.max(500,Math.min(8000,Number($("#scanTimeout").value)||2000));var limit=Math.max(4,Math.min(400,Number($("#scanLimit").value)||60));',
     ' var custom=expandCustom($("#scanCustom").value,null,(($("#scanV6")||{}).checked===true));var targets=sampleTargets(limit,custom);',
     ' if(!targets.length){toast("آی‌پی‌ای برای اسکن نیست");return;}',
@@ -4908,13 +4915,14 @@ function panelClientJs() {
     '  if(!scanRunning)return;',
     '  if(index>=targets.length){if(done>=targets.length)finishScan();return;}',
     '  var ip=targets[index++];',
-    '  var modes=mode==="both"?["http","https"]:[mode];',
-    '  Promise.all(modes.map(function(m){return pingIp(ip,timeout,m)})).then(function(both){if(!scanRunning)return;done++;',
-    '   var h=mode==="https"?null:both[modes.indexOf("http")];var t=mode==="http"?null:both[modes.indexOf("https")];',
-    '   var best=(h!==null&&t!==null)?Math.min(h,t):(h!==null?h:t);',
-    '   scanResults.push({ip:ip,ms:h,tls:t,selected:best!==null&&best<400});',
+    '  var ports=activeScanPorts();',
+    '  Promise.all(ports.map(function(p){return pingIp(ip,timeout,(S.tlsPorts.indexOf(p)>=0?"https":"http"),p)})).then(function(res){if(!scanRunning)return;done++;',
+    '   var row={ip:ip,ms:null,tls:null,extra:{},scanned:ports,selected:false};',
+    '   ports.forEach(function(p,i){var v=res[i];if(p===80)row.ms=v;else if(p===443)row.tls=v;else row.extra[p]=v;});',
+    '   var best=scanBest(row);row.selected=best!==null&&best<400;',
+    '   scanResults.push(row);',
     '   var pct=Math.round(done/targets.length*100);$("#scanBar").style.width=pct+"%";',
-    '   var alive=scanResults.filter(function(r){return r.ms!==null||r.tls!==null});var best=alive.length?Math.min.apply(null,alive.map(function(r){return scanBest(r)})):null;',
+    '   var alive=scanResults.filter(function(r){return scanBest(r)!==null});var best=alive.length?Math.min.apply(null,alive.map(function(r){return scanBest(r)})):null;',
     '   $("#scanStatus").textContent=(lang==="fa"?"در حال اسکن… ":"Scanning… ")+done+"/"+targets.length+" ("+pct+"%)"+" · "+alive.length+" سالم"+(best!==null?(" · "+(lang==="fa"?"بهترین: ":"best: ")+best+"ms"):"");',
     '   if(done%4===0||done===targets.length)renderScan();next();});',
     ' }',
@@ -4948,10 +4956,10 @@ function panelClientJs() {
     ' ips.forEach(function(ip){var hit=scanResults.filter(function(r){return r.ip===ip})[0];if(hit&&hit.server&&hit.server.colo&&OPT.locations)OPT.locations[ip.toLowerCase()]=hit.server.colo});',
     ' if(scanOp){var ents=ips.map(function(ip){var h=scanResults.filter(function(r){return r.ip===ip})[0]||{};return {ip:ip,ms:h.ms||0,sni:(h.server&&h.server.sni)||"",colo:(h.server&&h.server.colo)||"",checkedAt:Date.now()}});var bk={};bk[scanOp]=ents;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{operator:scanOp,verifiedByOp:bk}})})}',
     ' var cur=parseAddrList($("#cfgAddresses").value);ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip)});$("#cfgAddresses").value=cur.slice(0,40).join("\\n");',
-    ' var sel=ips.map(function(ip){return scanResults.filter(function(r){return r.ip===ip})[0]||{}});var plain=sel.some(function(r){return r.ms!==null});var tls=sel.some(function(r){return r.tls!==null});',
-    ' if(plain||tls){$$("#cfgPorts .chip").forEach(function(c){var p=c.getAttribute("data-port");var on=(p==="80"&&plain)||(p==="443"&&tls);c.classList.toggle("active",on);});}',
+    ' var sel=ips.map(function(ip){return scanResults.filter(function(r){return r.ip===ip})[0]||{}});var scannedU={},alive={};sel.forEach(function(r){(r.scanned||[]).forEach(function(p){scannedU[p]=1;if(p===80?r.ms!==null:(p===443?r.tls!==null:!!(r.extra&&r.extra[p]!==null)))alive[p]=1;});});var aliveList=Object.keys(alive);',
+    ' if(aliveList.length){$$("#cfgPorts .chip").forEach(function(c){var p=c.getAttribute("data-port");if(scannedU[p]!==undefined)c.classList.toggle("active",alive[p]===1);});}',
     ' if(ips.filter(function(ip){var h=scanResults.filter(function(r){return r.ip===ip})[0];return !(h&&h.server&&h.server.ok&&h.server.colo)}).length)verifyOnServer(ips);',
-    ' applyOptions();showTab("configs");toast(ips.length+" آی‌پی"+((plain&&tls)?" با پورت‌های 80+443":(tls?" با پورت TLS 443":(plain?" با پورت 80 (بدون رمز)":"")))+" به کانفیگ‌ها آمد — لینک ساب به‌روز است"+(plain&&!tls?(lang==="fa"?" 💡 443 بسته بود؛ برای TLS از تب Spoof SNI تمیز بزن":" 💡 :443 was blocked; enable a clean SNI in Spoof for TLS"):""));});',
+    ' applyOptions();showTab("configs");toast(ips.length+" آی‌پی"+(aliveList.length?" با پورت‌های "+aliveList.join("+"):"")+" به کانفیگ‌ها آمد — لینک ساب به‌روز است"+(alive[80]===1&&alive[443]!==1?(lang==="fa"?" 💡 443 بسته بود؛ برای TLS از تب Spoof SNI تمیز بزن":" 💡 :443 was blocked; enable a clean SNI in Spoof for TLS"):""));});',
     '$("#buildFromIps").addEventListener("click",function(){var ips=selectedIps();if(!ips.length){toast("اول چند آی‌پی را انتخاب کن");return;}',
     ' var lines=[];ips.forEach(function(ip){var loc=locationForAddr(ip);OPT.ports.forEach(function(p){if(OPT.protocols.indexOf("vless")>=0)lines.push(vlessLink(ip,"🐱 Cat · "+loc.country+" · VLESS · "+p+" · "+loc.flag,OPT.sni,p));if(OPT.protocols.indexOf("trojan")>=0)lines.push(trojanLink(ip,"🐱 Cat · "+loc.country+" · Trojan · "+p+" · "+loc.flag,OPT.sni,p));})});',
     ' copyText(lines.join("\\n"));toast(lines.length+" کانفیگ کپی شد");',
