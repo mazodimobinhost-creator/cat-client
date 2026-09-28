@@ -1234,7 +1234,7 @@ async function subText(url, opts) {
   const kv45 = { get: async (k) => mem45.get(k) ?? null, put: async (k, v) => { mem45.set(k, v); }, delete: async (k) => { mem45.delete(k); } };
   const env45 = { CAT_KV: kv45, OPEN_PANEL: 'true', OPEN_SUB: 'true' };
   check('spoof tab renders the SNI-spoof card', src.includes('id="sniSpoofChips"') && src.includes('data-snisp=') && src.includes('id="sniSpoofSave"'));
-  check('suggestions come from the verified pool + a no-spoof option', src.includes('DEFAULT_EXTRA_SNIS.slice(0, 10).map') && src.includes('بدون جعل (هاست خودم)'));
+  check('suggestions come from the verified pool + a no-spoof option', src.includes('DEFAULT_EXTRA_SNIS.filter') && src.includes('.slice(0, 10).map') && src.includes('بدون جعل (هاست خودم)'));
   // saved cfg.sni must flow into every new link (that IS SNI spoofing)
   await T.writeSettings(env45, { configs: { sni: 'time.is' } });
   const sub45 = await subText('/sub?count=2&proto=vless&ports=443&host=0&ips=104.16.1.1', { env: env45, headers: { 'user-agent': 'v2rayNG/1.8' }, raw: true });
@@ -1322,7 +1322,7 @@ async function subText(url, opts) {
   check('KV write diet: quota flush every 150 requests (was 25)', src.includes('quotaCache.count % 150 === 0'));
   check('traffic flush diet: 45s interval / 20MB threshold', src.includes('TRAFFIC_FLUSH_INTERVAL_MS = 45000') && src.includes('TRAFFIC_FLUSH_THRESHOLD = 20 * 1024 * 1024'));
   check('health-check clamped to the budget', /unionAddresses\(unionAddresses\(manual, verified\.map\(\(entry\) => entry\.ip\)\), bucketIps\)\.slice\(0, CF_PROBE_LIMIT\)/.test(src));
-  check('server scan clamped to 40 + reports skipped/budget', /list\.length = Math\.min\(list\.length, CF_PROBE_LIMIT\);/.test(src) && src.includes('skipped: skipped, budget:'));
+  check('server scan clamped to 40 + reports skipped/budget', /list\.length = Math\.min\(list\.length, .*CF_PROBE_LIMIT/.test(src) && src.includes('skipped: skipped, budget:'));
   // daily marker for the auto pool
   const mem48 = new Map();
   const kv48 = { get: async (k) => mem48.get(k) ?? null, put: async (k, v) => { mem48.set(k, v); }, delete: async (k) => { mem48.delete(k); } };
@@ -1447,6 +1447,81 @@ async function subText(url, opts) {
   check('stale lastFlush lets the visit flush (usage lands in KV)', (Number(gateRow2.usedBytes) || 0) >= 1000 && T.bufferedBytes(gate.uuid) === 0, JSON.stringify({ used: gateRow2.usedBytes, buf: T.bufferedBytes(gate.uuid) }));
   check('write paths bump the memo version', (() => { const v = T.subMemo.version; return v > 0; })());
   check('memo env stamp keys per store (no cross-env leaks)', (() => { const size = T.subMemo.map.size; return size >= 0; })());
+}
+
+
+// §51 — v1.9.51 / panel 5.23.13: egress session-gating, precise (MLM) scanner,
+// operator-SNI suggestions at every level, cipherSuites edit + cs= links
+{
+  const mem51 = new Map();
+  const kv51 = { get: async (k) => mem51.get(k) ?? null, put: async (k, v) => { mem51.set(k, v); }, delete: async (k) => { mem51.delete(k); } };
+  const envL = { CAT_KV: kv51, PANEL_PASSWORD: 'x' }; // locked worker (no OPEN)
+  const envO = { CAT_KV: kv51, OPEN_PANEL: 'true', OPEN_SUB: 'true' }; // open (same KV)
+
+  // (a) every worker-EGRESS API is session-gated — 401 before any work happens
+  const egress = ['/api/ping?ip=not-an-ip', '/api/resolve?host=example.com', '/api/dns-probe?u=https%3A%2F%2F1.1.1.1%2Fdns-query', '/api/geo?ip=1.1.1.1', '/api/scan?ips=1.2.3.4'];
+  for (const ep of egress) {
+    const r = await req(ep, { raw: true, env: envL });
+    check('egress gated (locked): ' + ep.split('?')[0] + ' → 401', r.status === 401, String(r.status));
+  }
+  check('exactly the five egress APIs carry the session gate', (src.match(/= await requireEgressAuth\(request, env, url, uuid\)/g) || []).length === 5, String((src.match(/= await requireEgressAuth\(request, env, url, uuid\)/g) || []).length));
+
+  // (b) the master uuid acts as bearer (same rule as /api/config.json)
+  const uuid51 = await T.resolveUuid(HOST, envL);
+  const viaUuid = await req('/api/ping?ip=not-an-ip&uuid=' + uuid51, { raw: true, env: envL });
+  check('master uuid bearer unlocks egress (past the gate → 400)', viaUuid.status === 400, String(viaUuid.status));
+
+  // (c) the panel session cookie unlocks egress
+  const cookie51 = 'catpanel_auth=' + (await T.sha256Hex('x'));
+  const viaCookie = await req('/api/ping?ip=not-an-ip', { raw: true, env: envL, headers: { cookie: cookie51 } });
+  check('panel cookie unlocks egress', viaCookie.status === 400, String(viaCookie.status));
+
+  // (d) an open panel keeps working untouched
+  const openGate = await req('/api/scan?ips=999.999.999.999', { raw: true, env: envO });
+  check('open panel egress stays open (no 401)', openGate.status !== 401 && openGate.status === 400, String(openGate.status));
+
+  // (e) precise (MLM) mode: multi-shot samples, jitter, budget-scaled cap
+  check('precise mode: shots + jitter + budget-scaled cap',
+    src.includes('const shots = Math.max(1, Math.min(5') &&
+    src.includes('jitter: samples.length > 1') &&
+    /Math\.floor\(CF_PROBE_LIMIT \/ perIpCost\)/.test(src));
+  const sc51 = JSON.parse(await (await req('/api/scan?ips=1.1.1.1&shots=2&timeout=1500', { env: envO })).text());
+  check('multi-shot scan answers with samples + jitter', sc51.ok === true && Array.isArray(sc51.results) && sc51.results.length === 1 &&
+    (!sc51.results[0].ok || (Array.isArray(sc51.results[0].shots) && typeof sc51.results[0].jitter === 'number')), JSON.stringify(sc51).slice(0, 200));
+
+  // (f) operator SNI winners surface at every suggestion level
+  await T.writeSettings(envO, { configs: {
+    verifiedByOp: {
+      mci: [{ ip: '104.16.6.62', sni: 'op-sni-a.test', ms: 44, checkedAt: 1 }, { ip: '104.16.6.63', sni: 'op-sni-b.test', ms: 55, checkedAt: 1 }],
+      irancell: [{ ip: '172.67.181.32', sni: 'op-sni-c.test', ms: 60, checkedAt: 1 }],
+    },
+    verified: [{ ip: '104.16.6.62', sni: 'op-sni-a.test', ms: 44, checkedAt: 1 }],
+  } });
+  const st51 = JSON.parse(await (await req('/api/config.json', { env: envO })).text());
+  check('panelState.opSnis exposes verified operator SNIs', Array.isArray(st51.opSnis) &&
+    st51.opSnis.includes('op-sni-a.test') && st51.opSnis.includes('op-sni-b.test') && st51.opSnis.includes('op-sni-c.test'), JSON.stringify(st51.opSnis));
+  const page51 = await (await req('/', { env: envO })).text();
+  check('spoof chips carry operator SNI winners', page51.includes('data-snisp="op-sni-a.test"'));
+  check('scanner suggestions carry operator SNI winners', page51.includes('data-sni-suggestion="op-sni-a.test"'));
+  check('builder has op-SNI chips', page51.includes('data-cfgsni="op-sni-c.test"'));
+  check('precise tab in nav (both menus) + shell', page51.includes('data-tab-panel="precise"') && (page51.match(/data-tab="precise"/g) || []).length === 2 && page51.includes('اسکنر دقیق'));
+
+  // (g) cipherSuites: edit → saved → cs= in TLS links, sing-box cipher_suites, never on plain HTTP
+  await T.writeSettings(envO, { configs: { cipherSuites: 'TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256' } });
+  const st51b = JSON.parse(await (await req('/api/config.json', { env: envO })).text());
+  check('cipherSuites flows into configOptions', st51b.configOptions && st51b.configOptions.cipherSuites === 'TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256', String(st51b.configOptions && st51b.configOptions.cipherSuites));
+  const sub51 = await subText('/sub?count=1&proto=vless&ports=443&host=0&ips=104.16.6.62', { env: envO });
+  check('TLS share links carry cs=', sub51.body.includes('cs=TLS_AES_256_GCM_SHA384%3ATLS_AES_128_GCM_SHA256'), sub51.body.slice(0, 220));
+  const sub51b = await subText('/sub?count=1&proto=vless&ports=80&host=0&ips=104.16.6.62', { env: envO });
+  check('plain-HTTP links never carry cs=', !sub51b.body.includes('cs=TLS_AES'));
+  const sb51 = JSON.parse(await (await req('/singbox?count=1&ports=443&host=0&ips=104.16.6.62', { env: envO })).text());
+  const sb51json = JSON.stringify(sb51);
+  check('sing-box export carries tls.cipher_suites', sb51json.includes('"cipher_suites"') && sb51json.includes('TLS_AES_256_GCM_SHA384'));
+
+  // (h) clearing the setting removes cs= again
+  await T.writeSettings(envO, { configs: { cipherSuites: '' } });
+  const sub51c = await subText('/sub?count=1&proto=vless&ports=443&host=0&ips=104.16.6.62', { env: envO });
+  check('cleared cipherSuites → no cs= in links', !sub51c.body.includes('cs=TLS_AES'));
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : '\n' + failures + ' TEST(S) FAILED');

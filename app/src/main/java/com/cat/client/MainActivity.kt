@@ -4931,9 +4931,9 @@ class MainActivity : Activity() {
         }
 
     private fun recommendedScannerSnis(): List<String> = buildList {
-        detectPanelSniFromSubscriptions()?.let(::add)
+        addAll(detectPanelSnisFromSubscriptions())
         addAll(IpScanner.RECOMMENDED_SNIS)
-    }.map(String::lowercase).filter { it.isNotBlank() }.distinct().take(6)
+    }.map(String::lowercase).filter { it.isNotBlank() }.distinct().take(8)
 
     private fun scannerSniPreference(): String {
         val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
@@ -4963,6 +4963,29 @@ class MainActivity : Activity() {
             pattern.find(yaml)?.groupValues?.get(1)?.lowercase(Locale.US)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * Every distinct SNI baked into the user's subscriptions — the panel writes
+     * its operator-verified winners (verifiedByOp) into each config, so this is
+     * the operator-verified SNI pool surfaced in scanner suggestions + health
+     * sweeps. Panel-host names (workers.dev/pages.dev) sort first.
+     */
+    private fun detectPanelSnisFromSubscriptions(): List<String> {
+        val store = SubscriptionStore(this)
+        val ids = buildList {
+            add(store.readSelectedSubscriptionId())
+            userSubscriptionManager.list().forEach { add(it.id) }
+        }.filter { it.isNotBlank() }.distinct()
+        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
+        val out = LinkedHashSet<String>()
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            pattern.findAll(yaml).forEach { out.add(it.groupValues[1].lowercase(Locale.US)) }
+        }
+        return out
+            .sortedByDescending { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
+            .toList()
     }
 
     /** Detected panel identity (uuid + WS paths) for rebuilding configs with new IPs. */
@@ -5230,7 +5253,13 @@ class MainActivity : Activity() {
         if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
         activityScope.launch {
             try {
-                val result = IpHealthMonitor.sweep(store, sni, port, failFast = failFast)
+                val result = IpHealthMonitor.sweep(
+                    store,
+                    sni,
+                    port,
+                    failFast = failFast,
+                    extraSnis = detectPanelSnisFromSubscriptions(),
+                )
                 renderScannerIpHealth()
                 if (!silent) {
                     if (result.removed.isEmpty() && result.added.isEmpty()) {

@@ -51,7 +51,7 @@
  *  makes clean-IP fronting safe.
  */
 
-const CAT_PANEL_VERSION = '5.23.12';
+const CAT_PANEL_VERSION = '5.23.13';
 /* ipwho.is lookups for /api/geo — cached 10 min so the dashboard's 45s
  * refresh never trips the free-tier rate limit. */
 const GEO_CACHE = new Map();
@@ -863,6 +863,9 @@ const DEFAULT_SETTINGS = {
     includeHost: true,
     includeIpv6: true,  // add Cloudflare IPv6 anycast entries (the panel does)
     fingerprint: 'chrome',
+    // Xray/sing-box clients read this as tlsSettings.cipherSuites / cipher_suites
+    // (colon-separated Go names) via the `cs=` share-link param; '' = do not emit.
+    cipherSuites: '',
     // Successful worker probes are the only safe source for anycast country labels.
     // `verifiedScanned` distinguishes an empty scan from an unconfigured panel.
     verified: [],
@@ -2100,6 +2103,10 @@ const DEFAULT_EXTRA_SNIS = [
   'xn--69-6tia3cb.com', 'zedge.net', 'zoominfo.com',
 ];
 
+/** Ready-made cipherSuites list (Free-Configs VARIANTS preset) — one click to
+ * paste into the Spoof card; Xray-salient TLS 1.2 suite order for `cs=` links. */
+const DEFAULT_CIPHER_SUITES = 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256';
+
 /** Random sample from the pool — each scan tries different SNIs, so across
  * scans every clean IP finds the SNI that suits it best. */
 function sampleDefaultSnis(count) {
@@ -2692,6 +2699,8 @@ function configOptions(url, host, env, settings, allowedCountries) {
   const cfg = (settings && settings.configs) || {};
   const q = url && url.searchParams ? url.searchParams : new URLSearchParams();
   const fromQuery = splitCsv(q.get('ips') || q.get('addresses'));
+  const csFromQuery = typeof q.get('cs') === 'string' ? q.get('cs').trim() : '';
+  const cipherSuites = csFromQuery || (typeof cfg.cipherSuites === 'string' ? cfg.cipherSuites.trim() : (Array.isArray(cfg.cipherSuites) ? cfg.cipherSuites.join(':') : ''));
   const fromSettings = Array.isArray(cfg.addresses) ? cfg.addresses : [];
   const fromEnv = splitCsv(env.CF_IPS);
   let verifiedEntries = normalizedVerifiedEntries(settings);
@@ -2823,7 +2832,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
         protocols: ['vless', 'trojan'], includeHost: false, fragment: false,
         fingerprint: 'chrome', includeIpv6: false, locations: {},
         country: '', countryCodes: [], verifiedEntries: [],
-        entryLimit: 0, count: 0, max: MAX_SUB_ENTRIES,
+        entryLimit: 0, count: 0, max: MAX_SUB_ENTRIES, cipherSuites: cipherSuites,
       };
     }
     requestedCountryCodes = requestedCountryCodes.length
@@ -2852,6 +2861,7 @@ function configOptions(url, host, env, settings, allowedCountries) {
     recipient: recipientPath,
     verifiedOnly: useVerified,
     verifiedEntries: verifiedEntries,
+    cipherSuites: cipherSuites,
   };
 }
 
@@ -2866,7 +2876,8 @@ function linkParams(host, env, opts, port, kind) {
   const common = '&type=ws&path=' + encodeURIComponent(path) + '&host=' + encodeURIComponent(String(host));
   if (!tls) return 'security=none' + common;
   // chrome is widely understood by current clients; randomized is Xray-only.
-  return 'security=tls&sni=' + encodeURIComponent(opts.sni) + '&fp=' + encodeURIComponent(opts.fingerprint || 'chrome') + '&alpn=' + encodeURIComponent('http/1.1') + common;
+  const cs = opts.cipherSuites ? '&cs=' + encodeURIComponent(opts.cipherSuites) : '';
+  return 'security=tls&sni=' + encodeURIComponent(opts.sni) + '&fp=' + encodeURIComponent(opts.fingerprint || 'chrome') + '&alpn=' + encodeURIComponent('http/1.1') + cs + common;
 }
 
 function addrKind(addr, host) {
@@ -2887,7 +2898,7 @@ function configName(kind, addr, port, index, host, options) {
 
 /** Build a VLESS-WS share link (used for the host itself and for clean IPs). */
 function vlessLink(host, env, uuid, addr, name, overrides = {}) {
-  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {});
+  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {}, overrides.cipherSuites ? { cipherSuites: overrides.cipherSuites } : {});
   const port = Number(overrides.port || panelPaths(env).port);
   const hostHeader = overrides.hostHeader || String(host);
   const params = overrides.path
@@ -2898,7 +2909,7 @@ function vlessLink(host, env, uuid, addr, name, overrides = {}) {
 
 /** Build a Trojan-WS share link. */
 function trojanLink(host, env, uuid, addr, name, overrides = {}) {
-  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {});
+  const opts = Object.assign(defaultConfigOptions(host, env), overrides.sni ? { sni: String(overrides.sni).toLowerCase() } : {}, overrides.fingerprint ? { fingerprint: overrides.fingerprint } : {}, overrides.cipherSuites ? { cipherSuites: overrides.cipherSuites } : {});
   const port = Number(overrides.port || panelPaths(env).port);
   const hostHeader = overrides.hostHeader || String(host);
   const pass = String(env.TROJAN_PASS || uuid);
@@ -2971,7 +2982,7 @@ function buildConfigEntries(host, env, uuid, opts) {
         const snis = pinned ? (options.snis.length ? options.snis : [primarySni]) : DEFAULT_EXTRA_SNIS;
         const sni = sniByAddr[String(addr).toLowerCase()] || snis[index % snis.length];
         const name = configName(kind, addr, port, index, host, options);
-        const overrides = { port: port, sni: sni, fingerprint: options.fingerprint };
+        const overrides = { port: port, sni: sni, fingerprint: options.fingerprint, cipherSuites: options.cipherSuites || '' };
         const link = kind === 'vless'
           ? vlessLink(host, env, uuid, addr, name, overrides)
           : trojanLink(host, env, uuid, addr, name, overrides);
@@ -3079,7 +3090,10 @@ function buildSingboxConfig(host, env, uuid, opts) {
   const tags = [];
   buildConfigEntries(host, env, uuid, options).forEach((e) => {
     const tls = e.tls
-      ? { enabled: true, server_name: options.sni, alpn: ['http/1.1'], utls: { enabled: true, fingerprint: options.fingerprint === 'randomized' ? 'random' : (options.fingerprint || 'chrome') } }
+      ? Object.assign(
+          { enabled: true, server_name: options.sni, alpn: ['http/1.1'], utls: { enabled: true, fingerprint: options.fingerprint === 'randomized' ? 'random' : (options.fingerprint || 'chrome') } },
+          options.cipherSuites ? { cipher_suites: String(options.cipherSuites).split(':').map((s) => s.trim()).filter(Boolean) } : {},
+        )
       : { enabled: false };
     const transport = {
       type: 'ws',
@@ -3496,6 +3510,29 @@ function operatorBucket(settings, id) {
   const byOp = settings && settings.configs && settings.configs.verifiedByOp;
   const list = byOp && Array.isArray(byOp[def.id]) ? byOp[def.id] : [];
   return normalizedVerifiedEntries({ configs: { verified: list } });
+}
+
+/** Distinct SNI winners measured per operator — current bucket first, then the
+ *  other operators, then the global verified pool. Every suggestion surface
+ *  (spoof chips, scanner chips, builder chips, precise scanner) draws from this. */
+function operatorSniSuggestions(settings, currentOperator) {
+  const byOp = settings && settings.configs && settings.configs.verifiedByOp;
+  const order = [];
+  if (currentOperator) order.push(currentOperator);
+  Object.keys(byOp && typeof byOp === 'object' ? byOp : {}).forEach((id) => {
+    if (order.indexOf(id) < 0) order.push(id);
+  });
+  const out = [];
+  const seen = new Set();
+  const push = (sni) => {
+    const s = String(sni || '').trim().toLowerCase();
+    if (!s || seen.has(s) || isIpLiteral(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+  order.forEach((id) => operatorBucket(settings, id).forEach((entry) => push(entry.sni)));
+  normalizedVerifiedEntries(settings).forEach((entry) => push(entry.sni));
+  return out;
 }
 
 const SCAN_RANGES = [
@@ -4001,6 +4038,7 @@ function panelState(host, env, uuid, request, settings) {
     communityTargets: communityIpsFrom(settings),
     operators: IR_OPERATORS,
     operator: options.operator,
+    opSnis: operatorSniSuggestions(settings, options.operator),
     autoHeal: !!(settings && settings.configs && settings.configs.autoHeal),
     lastHealthAt: (settings && settings.configs && settings.configs.lastHealth && settings.configs.lastHealth.at) || 0,
     scanRanges: scanRanges(env),
@@ -4082,7 +4120,7 @@ function panelShell(state) {
     '</div></header>' +
 
     '<div class="wrap">' + homeTabHtml(state) + configsTabHtml(state) + spoofTabHtml(state) + scannerTabHtml(state) +
-      dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
+      preciseTabHtml(state) + dnsTabHtml(state) + usersTabHtml(state) + toolsTabHtml(state) + helpTabHtml(state) + '</div>' +
 
     '</div></div>' +
 
@@ -4124,6 +4162,7 @@ const NAV_ITEMS = [
   ['configs', 'کانفیگ‌ها', 'ساخت و خروجی کانفیگ', '<path d="M4 6h16M4 12h16M4 18h10"/>'],
   ['spoof', 'Spoof', 'جعل اثر انگشت TLS', '<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4Z"/><path d="M9.5 12.5l1.8 1.8 3.4-3.6"/>'],
   ['scanner', 'اسکنر', 'IP سالم کلودفلر', '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'],
+  ['precise', 'اسکنر دقیق', 'روش MLM — چندنمونه‌ای', '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3"/><path d="M12 1.5v3.5M12 19v3.5M1.5 12H5M19 12h3.5"/>'],
   ['users', 'کاربران', 'اشتراک اختصاصی هر نفر', '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5S15.5 16.4 15.5 20"/><path d="M17 8.5a3 3 0 1 0 0-6"/><path d="M17.5 14.2c2.6.5 4 2.3 4 5.3"/>'],
   ['dns', 'DNS', 'DNS رمزنگاری‌شده', '<path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>'],
   ['tools', 'ابزارها', 'تنظیمات و بکاپ', '<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.6 2.6"/>'],
@@ -4220,8 +4259,11 @@ function spoofTabHtml(state) {
   const hostSni = String(state.sni || '');
   const sniCurrent = String((state.configOptions && state.configOptions.sni) || hostSni);
   const sniSpoofed = sniCurrent && sniCurrent !== hostSni;
+  const opSnis = ((state && state.opSnis) || []).slice(0, 6);
   const sniChips = ['<button class="chip' + (sniSpoofed ? '' : ' active') + '" type="button" data-snisp="">بدون جعل (هاست خودم)</button>']
-    .concat(DEFAULT_EXTRA_SNIS.slice(0, 10).map((d) =>
+    .concat(opSnis.map((d) =>
+      '<button class="chip' + (sniCurrent === d ? ' active' : '') + '" type="button" data-snisp="' + esc(d) + '" dir="ltr" title="SNI برندهٔ اندازه‌گیری‌شدهٔ اپراتور">✅ ' + esc(d) + '</button>'))
+    .concat(DEFAULT_EXTRA_SNIS.filter((d) => opSnis.indexOf(d) < 0).slice(0, 10).map((d) =>
       '<button class="chip' + (sniCurrent === d ? ' active' : '') + '" type="button" data-snisp="' + d + '" dir="ltr">' + d + '</button>'))
     .join(' ');
   return '<section class="tab" data-tab-panel="spoof">' + sectionHead('🎭', 'Spoof — جعل اثر انگشت TLS', 'اثر انگشت ClientHello که همهٔ کانفیگ‌ها با آن ساخته می‌شوند') +
@@ -4234,6 +4276,14 @@ function spoofTabHtml(state) {
     '<p class="muted">در دست‌دادن TLS، کانفیگ‌ها الان SNI را از خودت نشان می‌دهند. یک دامنهٔ سالم کلادفلری انتخاب کن تا همهٔ کانفیگ‌های جدید TLS را با آن باز کنند — فیلترچی همان دامنه را می‌بیند ولی ترافیک به ورکر خودت می‌رسد (مسیر همانِ همیشگی است، فقط برچسب عوض می‌شود). اگر برای یک IP برندهٔ اندازه‌گیری‌شده ثبت شده باشد، همان برنده برای آن IP می‌ماند. هر SNI هم از قبل تأیید شده که واقعاً پشت کلادفلر است.</p>' +
     '<div class="chips" id="sniSpoofChips" style="margin-top:10px">' + sniChips + '</div>' +
     '<div class="row" style="margin-top:12px"><button class="btn" id="sniSpoofSave">ذخیرهٔ SNI برای همهٔ کانفیگ‌ها</button><span class="muted" id="sniSpoofStatus"></span></div></div>' +
+    '<div class="card" style="margin-top:10px"><h2><span class="dot"></span><span dir="ltr">CipherSuites — ترتیب رمزهای TLS</span></h2>' +
+    '<p class="muted">لیست رمزهای TLS 1.2 که کلاینت در دست‌دادن پیشنهاد می‌کند. در لینک‌های کانفیگ با پارامتر <code dir="ltr">cs=</code> می‌رود و کلاینت‌های Xray-محور (مثل PattNG) و خروجی sing-box (<code dir="ltr">cipher_suites</code>) آن را اعمال می‌کنند؛ mihomo/v2rayNG/V2Box این فیلد را ندارند و نادیده می‌گیرند. خالی بگذاری چیزی به لینک‌ها اضافه نمی‌شود. مقدار را وارد کن و «ذخیره» بزن — برای همهٔ کانفیگ‌های جدید اعمال می‌شود.</p>' +
+    '<label class="field" style="margin-top:10px"><span>لیست cipherSuites (با دونقطه جدا کن)</span>' +
+    '<textarea id="spoofCipherSuites" rows="3" dir="ltr" placeholder="TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:…">' + esc(String((state.configOptions && state.configOptions.cipherSuites) || '')) + '</textarea></label>' +
+    '<div class="row" style="margin-top:8px"><button class="btn" id="cipherSuitesSave">ذخیره برای همهٔ کانفیگ‌ها</button>' +
+    '<button class="btn ghost tiny" id="cipherSuitesDefault" type="button">درج لیست پیشنهادی</button>' +
+    '<button class="btn ghost tiny" id="cipherSuitesClear" type="button">خالی کردن</button>' +
+    '<span class="muted" id="cipherSuitesStatus"></span></div></div>' +
     '</section>';
 }
 
@@ -4259,6 +4309,11 @@ function configsTabHtml(state) {
     '</div>' +
     '<div class="grid two" style="margin-top:12px">' +
     '<label class="field"><span>SNI (خالی = دامنهٔ ورکر)</span><input id="cfgSni" dir="ltr" value="' + esc(o.sni === state.host ? '' : o.sni) + '" placeholder="' + esc(state.host) + '"></label>' +
+    '<div class="field"><span>SNIهای تأییدشدهٔ اپراتور — یکی بزن داخل فیلد SNI</span><div class="chips" id="cfgOpSniChips" style="margin-top:6px">' +
+    (((state && state.opSnis) || []).length
+      ? (state.opSnis).slice(0, 8).map((d) => '<button class="chip" type="button" data-cfgsni="' + esc(d) + '" dir="ltr">' + esc(d) + '</button>').join('')
+      : '<span class="muted" style="font-size:11.5px">هنوز SNI برنده‌ای ثبت نشده — یک بار اسکن اپراتور را بزن</span>') +
+    '</div></div>' +
     '<label class="field"><span>SNIهای بیشتر (با کاما — خالی بگذار تا خودکار از استخر ۲۵ SNI جهانی بین کانفیگ‌ها بچرخد)</span><input id="cfgSnis" dir="ltr" placeholder="خالی = چرخش خودکار از استخر"></label>' +
     '<label class="field"><span>پروتکل‌ها</span><div class="chips" id="cfgProtos" style="margin-top:6px">' +
     '<label class="field"><span>اپراتور این ست (هر اپراتور استخر تست‌شدهٔ خودش را دارد)</span><div class="chips" id="cfgOps" style="margin-top:6px">' + operatorChipsHtml(String((state && state.operator) || '')) + '</div></label>' +
@@ -4347,6 +4402,7 @@ function scannerTabHtml(state) {
   const ranges = (state && state.scanRanges) || SCAN_RANGES;
   const sniSuggestions = Array.from(new Set([
     String((state && state.sni) || (state && state.host) || '').trim(),
+    ...(((state && state.opSnis) || []).slice(0, 6)),
     DEFAULT_EXTRA_SNIS[1],
     DEFAULT_EXTRA_SNIS[2],
     DEFAULT_EXTRA_SNIS[3],
@@ -4354,7 +4410,7 @@ function scannerTabHtml(state) {
     'www.speedtest.net',
     'cdnjs.cloudflare.com',
     'speed.cloudflare.com',
-  ].filter(Boolean))).slice(0, 8);
+  ].filter(Boolean))).slice(0, 10);
   const sniChips = sniSuggestions.map((value) =>
     '<button class="chip" type="button" data-sni-suggestion="' + esc(value) + '">' + esc(value) + '</button>',
   ).join('');
@@ -4421,6 +4477,45 @@ function scannerTabHtml(state) {
     '</div>' +
     '<div class="card"><h2><span class="dot"></span><span data-i18n="scannerHowto">راهنمای نتیجه</span></h2>' +
     '<p>• مرورگر زیر ۳۰۰ms = عالی · ۳۰۰–۷۰۰ = قابل قبول · ✗ = از شبکهٔ تو بسته است.<br>• ستون «ورکر» ✓ یعنی آن آی‌پی برای دامنهٔ پنل تو جواب می‌دهد.<br>• قبل از اسکن، VPN را خاموش کن تا نتیجه مال اپراتور خودت باشد.</p>' +
+    '</div></section>';
+}
+
+
+/** New tab v5.23.13 — «اسکنر دقیق»: the MLM method (CIDR sweep → repeated warm
+ *  samples per IP → keep only what survives a real health test). Server does the
+ *  probing through /api/scan?shots=N (min RTT + jitter + per-SNI checks). */
+function preciseTabHtml(state) {
+  const ranges = (state && state.scanRanges) || SCAN_RANGES;
+  const opSnis = ((state && state.opSnis) || []).slice(0, 6);
+  const sniSeed = String((state && state.sni) || (state && state.host) || '');
+  const seedDefaults = ['www.speedtest.net', 'cdnjs.cloudflare.com', 'speed.cloudflare.com'];
+  const chipsHtml = opSnis.concat(seedDefaults.filter((d) => opSnis.indexOf(d) < 0))
+    .slice(0, 9)
+    .map((d) => '<button class="chip" type="button" data-precise-sni="' + esc(d) + '" dir="ltr">' + esc(d) + '</button>')
+    .join('');
+  return '<section class="tab" data-tab-panel="precise">' + sectionHead('🎯', 'اسکنر دقیق — روش MLM', 'چند نمونهٔ تکرار روی هر IP + بررسی سلامت واقعی؛ فقط پایدارترین‌ها می‌مانند') +
+    '<div class="card"><h2><span class="dot"></span>روش MLM چیست؟</h2>' +
+    '<p class="muted">همان روش اسکنر MLM/میل‌وی‌پی‌ان: به‌جای یک تست سریع، هر آی‌پی چند بار پشت‌سر هم تست می‌شود (نمونهٔ گرم — دقیق‌ترین تأخیر همان است که کلاینت واقعاً می‌بیند)، نوسان (jitter) بین نمونه‌ها حساب می‌شود، بعد همان آی‌پی با SNIهای انتخابی سلامت‌سنجی واقعی می‌شود. آی‌پی‌ای که حتی یک نمونه پایدار ندهد، رد می‌شود. خروجی: «کمینهٔ تأخیر + نوسان + کلو» برای هر آی‌پی — همان چیزی که برای انتخاب فرانت تمیز مهم است.</p>' +
+    '<p class="muted">⚖️ سقف ۴۰ ساب‌درخواست در هر اجرا (پلن رایگان کلودفلر) بین نمونه‌ها تقسیم می‌شود؛ تعداد رنج/آی‌پی را کم و نمونه‌ها را زیاد بگذار تا نتیجهٔ دقیق‌تری بگیری.</p>' +
+    '<div class="grid two" style="margin-top:12px">' +
+    '<label class="field" style="grid-column:1/-1"><span>رنج‌های CIDR — هر بار از داخل هر رنج آی‌پی تصادفی</span><textarea id="preciseRanges" rows="3" dir="ltr" placeholder="104.16.0.0/13, 172.64.0.0/13">' + esc(ranges.join(', ')) + '</textarea></label>' +
+    '<label class="field"><span>نمونه‌ها برای هر آی‌پی (چندنمونه‌ای)</span><select id="preciseShots"><option value="2">۲ نمونه</option><option value="3" selected>۳ نمونه</option><option value="5">۵ نمونه (دقیق)</option></select></label>' +
+    '<label class="field"><span>تعداد آی‌پی از هر رنج</span><input id="precisePer" type="number" min="1" max="32" value="4"></label>' +
+    '<label class="field"><span>تایم‌اوت هر نمونه (ms)</span><input id="preciseTimeout" type="number" min="1000" max="8000" value="3000"></label>' +
+    '<label class="field"><span>SNI سلامت‌سنجی (زیر هر آی‌پی تست می‌شود)</span><input id="preciseSni" dir="ltr" value="' + esc(sniSeed) + '" placeholder="' + esc(state.host) + '"></label>' +
+    '</div>' +
+    '<div class="chips" id="preciseSniChips" style="margin-top:8px">' + chipsHtml + '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="preciseStart">🎯 شروع اسکن دقیق</button>' +
+    '<button class="btn ghost" id="preciseStop" disabled>توقف</button>' +
+    '<button class="btn ghost tiny" id="preciseCopy">کپی انتخابی‌ها</button></div>' +
+    '<div class="bar" style="margin-top:12px"><i id="preciseBar"></i></div>' +
+    '<p class="muted" id="preciseStatus" style="margin-top:8px">آماده — رنج‌ها و SNI از تنظیمات پیش‌پر شده‌اند.</p>' +
+    '<div class="table-wrap" style="margin-top:12px"><table><thead><tr>' +
+    '<th><input type="checkbox" id="preciseAll" style="width:auto"></th><th>آی‌پی</th><th>کمینه (ms)</th><th>نوسان</th><th>کلو</th><th>کشور</th><th>SNI سالم</th><th>عملیات</th>' +
+    '</tr></thead><tbody id="preciseTable"></tbody></table></div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn" id="preciseAddCfg">📥 گذاشتن انتخابی‌ها داخل کانفیگ‌ها</button>' +
+    '<span class="pill" id="preciseCount">0 انتخاب</span></div>' +
+    '<p class="muted" style="margin-top:8px">نتیجه‌های سبز را داخل کانفیگ‌ها ببر، در تب «کانفیگ‌ها» «اعمال» بزن و لینک ساب را در اپ بروزرسانی کن. SNIهای ✅ از اندازه‌گیری اپراتور خودت می‌آیند.</p>' +
     '</div></section>';
 }
 
@@ -4604,6 +4699,7 @@ function panelClientJs() {
     ' $$("[data-nav-label=home]").forEach(function(el){el.textContent=lang==="fa"?"خانه":"Home";});',
     ' $$("[data-nav-label=configs]").forEach(function(el){el.textContent=lang==="fa"?"کانفیگ‌ها":"Configs";});',
     ' $$("[data-nav-label=scanner]").forEach(function(el){el.textContent=lang==="fa"?"اسکنر":"Scanner";});',
+    ' $$("[data-nav-label=precise]").forEach(function(el){el.textContent=lang==="fa"?"اسکنر دقیق":"Precise Scan";});',
     ' $$("[data-nav-label=users]").forEach(function(el){el.textContent=lang==="fa"?"کاربران":"Users";});',
     ' $$("[data-nav-label=tools]").forEach(function(el){el.textContent=lang==="fa"?"ابزارها":"Tools";});',
     ' $$("[data-nav-label=dns]").forEach(function(el){el.textContent="DNS";});',
@@ -4670,7 +4766,7 @@ function panelClientJs() {
     ' var snis=($("#cfgSnis").value||"").split(/[;, ]+/).map(function(s){return s.trim().toLowerCase()}).filter(function(s){return s&&s.indexOf(".")>0&&s.indexOf(":")<0}).slice(0,4);',
     ' var fp=($("#cfgFp")&&$("#cfgFp").value)||"chrome";var v6=!$("#cfgProtos .chip[data-flag=v6]")||$("#cfgProtos .chip[data-flag=v6]").classList.contains("active");',
     ' var gaming=$(\"#cfgProtos .chip[data-flag=gaming]\").classList.contains(\"active\");',
-    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean),op:(function(){var b=$("#cfgOps .chip.active[data-op]");return b?b.getAttribute("data-op"):""})()};}',
+    ' return {addresses:parseAddrList($("#cfgAddresses").value),ports:ports,protocols:protos,includeHost:host,sni:sni,snis:snis,fingerprint:fp,includeIpv6:v6,cipherSuites:(OPT&&OPT.cipherSuites)||(S.configOptions&&S.configOptions.cipherSuites)||"",locations:OPT.locations||{},country:OPT.country||"",entryLimit:Number($("#cfgCount")&&$("#cfgCount").value)||8,countries:$$("#cfgCountries .chip.active[data-cc]").map(function(c){return c.getAttribute("data-cc")}).filter(Boolean),op:(function(){var b=$("#cfgOps .chip.active[data-op]");return b?b.getAttribute("data-op"):""})()};}',
     'function subQuery(o){var q=[];if(o.addresses.length)q.push("ips="+encodeURIComponent(o.addresses.join(",")));q.push("ports="+o.ports.join(","));q.push("proto="+o.protocols.join(","));if(o.gaming)q.push("gaming=1");if(o.op)q.push("op="+o.op);if(o.sni&&o.sni!==S.host)q.push("sni="+encodeURIComponent(o.sni));if(!o.includeHost)q.push("host=0");if(o.fingerprint&&o.fingerprint!=="chrome")q.push("fp="+o.fingerprint);if(o.includeIpv6===false)q.push("v6=0");if(o.snis&&o.snis.length>1)q.push("snis="+encodeURIComponent(o.snis.join(",")));q.push("count="+(o.entryLimit||8));if(o.countries&&o.countries.length)q.push("countries="+o.countries.join(","));var locs=Object.keys(o.locations||{}).map(function(k){return k+"="+o.locations[k]}).join(",");if(locs)q.push("locs="+encodeURIComponent(locs));return "?"+q.join("&");}',
     'var cfgFmt="",cfgSavedInKv=false;',
     'function subUrlFor(fmt){var base="https://"+S.host+"/sub/"+S.uuid+(fmt||"");return cfgSavedInKv?base:base+subQuery(OPT);}',
@@ -4682,7 +4778,7 @@ function panelClientJs() {
     'function refreshApps(sub){var L=appLinks(sub);$$(".apps a[data-app]").forEach(function(a){var k=a.getAttribute("data-app");if(L[k])a.setAttribute("href",L[k]);});}',
     'function linkParams(port,kind,sni){var tls=TLS_PORTS.indexOf(Number(port))>=0;var path=kind==="vless"?S.vlessPath:S.trojanPath;',
     ' var common="&type=ws&path="+encodeURIComponent(path)+"&host="+encodeURIComponent(S.host);',
-    ' return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp="+encodeURIComponent(OPT.fingerprint||"chrome")+"&alpn="+encodeURIComponent("http/1.1")+common):("security=none"+common);}',
+    ' var cs=OPT.cipherSuites?"&cs="+encodeURIComponent(OPT.cipherSuites):"";return tls?("security=tls&sni="+encodeURIComponent(sni||OPT.sni||S.sni)+"&fp="+encodeURIComponent(OPT.fingerprint||"chrome")+"&alpn="+encodeURIComponent("http/1.1")+cs+common):("security=none"+common);}',
     'function isV4(a){return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(a)}function isV6(a){return a.indexOf(":")>=0}',
     'function addrKind(a){if(a.toLowerCase()===S.host.toLowerCase())return "Domain";if(isV4(a))return "IPv4";if(isV6(a))return "IPv6";return "CDN";}',
     'function locationForAddr(a){var code=(OPT.locations||{})[String(a).toLowerCase()]||OPT.country||"";var x=(S.edgeLocations||{})[String(code).toUpperCase()];if(x)return x;var up=String(code).toUpperCase(),ev=S.edgeLocations||{};for(var ek in ev){if(ev[ek]&&String(ev[ek].iso||"").toUpperCase()===up)return ev[ek]}var countries={DE:["Germany","🇩🇪"],NL:["Netherlands","🇳🇱"],FR:["France","🇫🇷"],GB:["United Kingdom","🇬🇧"],TR:["Turkey","🇹🇷"],US:["United States","🇺🇸"],SG:["Singapore","🇸🇬"],JP:["Japan","🇯🇵"],KR:["South Korea","🇰🇷"],AE:["United Arab Emirates","🇦🇪"]};var c=countries[String(code).toUpperCase()]||["Cloudflare edge","🌐"];return {city:"Auto edge",country:c[0],flag:c[1]};}',
@@ -4901,6 +4997,13 @@ function panelClientJs() {
     'if($("#spoofSave"))$("#spoofSave").addEventListener("click",function(){var a=$("#spoofChips .chip.active");if(!a)return;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{fingerprint:a.getAttribute("data-fp")}})}).then(function(r){return r.json()}).then(function(j){$(\"#spoofStatus\").textContent=j.ok?\"ذخیره شد\":\"خطا: \"+j.error;if(j.ok)toast(\"Spoof ذخیره شد\");});});',
     '$$("#sniSpoofChips .chip").forEach(function(c){c.addEventListener("click",function(){$$("#sniSpoofChips .chip").forEach(function(x){x.classList.remove("active")});c.classList.add("active");});});',
     'if($("#sniSpoofSave"))$("#sniSpoofSave").addEventListener("click",function(){var a=$("#sniSpoofChips .chip.active");if(!a)return;fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{sni:a.getAttribute("data-snisp")||""}})}).then(function(r){return r.json()}).then(function(j){$("#sniSpoofStatus").textContent=j.ok?"ذخیره شد — ساب را بروز کن":"خطا: "+j.error;if(j.ok)toast("جعل SNI ذخیره شد");});});',
+    'if($("#cipherSuitesSave"))$("#cipherSuitesSave").addEventListener("click",function(){var v=($("#spoofCipherSuites").value||"").trim().split(" ").join("");',
+    ' fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({configs:{cipherSuites:v}})}).then(function(r){return r.json()}).then(function(j){',
+    '  $("#cipherSuitesStatus").textContent=j.ok?"ذخیره شد":"خطا: "+j.error;',
+    '  if(j.ok){OPT.cipherSuites=v;if(S.configOptions)S.configOptions.cipherSuites=v;applyOptions();toast(v?"cipherSuites ذخیره شد — در لینک‌های جدید cs= می‌آید":"cipherSuites خالی شد");}}).catch(function(){$("#cipherSuitesStatus").textContent="خطا در ذخیره";});});',
+    'if($("#cipherSuitesDefault"))$("#cipherSuitesDefault").addEventListener("click",function(){$("#spoofCipherSuites").value="' + DEFAULT_CIPHER_SUITES + '";});',
+    'if($("#cipherSuitesClear"))$("#cipherSuitesClear").addEventListener("click",function(){$("#spoofCipherSuites").value="";});',
+    'document.addEventListener("click",function(ev){var b=ev.target.closest("[data-cfgsni]");if(!b)return;var v=b.getAttribute("data-cfgsni")||"";var input=$("#cfgSni");if(input&&v){input.value=v;toast("SNI اپراتور در فیلد SNI گذاشته شد — «اعمال» را بزن");}});',
     'function loadQuota(){fetch("/api/quota").then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var pct=Math.min(100,Math.round(j.requests*100/j.limit));$("#quotaBar").style.width=pct+"%";$("#quotaText").textContent="درخواست‌های امروز (تقریبی): "+j.requests+" از "+j.limit+" ("+pct+"%)";}).catch(function(){$("#quotaText").textContent="سهمیه در دسترس نیست";});}' +
     'loadQuota();var sr=$("#selfReload");if(sr)sr.addEventListener("click",loadQuota);' +
     'function tgPayload(){var t=$("#tgToken").value.trim();var p={telegram:{enabled:$("#tgOn").checked,chat:$("#tgChat").value.trim()}};if(t&&t.indexOf("•")<0)p.telegram.token=t;return p;}' +
@@ -5052,6 +5155,66 @@ function panelClientJs() {
     ' var lines=[];ips.forEach(function(ip){var loc=locationForAddr(ip);OPT.ports.forEach(function(p){if(OPT.protocols.indexOf("vless")>=0)lines.push(vlessLink(ip,"🐱 Cat · "+loc.country+" · VLESS · "+p+" · "+loc.flag,OPT.sni,p));if(OPT.protocols.indexOf("trojan")>=0)lines.push(trojanLink(ip,"🐱 Cat · "+loc.country+" · Trojan · "+p+" · "+loc.flag,OPT.sni,p));})});',
     ' copyText(lines.join("\\n"));toast(lines.length+" کانفیگ کپی شد");',
     ' if(confirm("این آی‌پی‌ها را به‌عنوان فرانتینگ در اپ Cat Client هم اعمال کنم؟")){location.href="catclient://scan?sni="+encodeURIComponent(S.host)+"&ip="+encodeURIComponent(ips.join(","));}});',
+    '/* ---- Precise scanner (MLM method) — tab اسکنر دقیق ---- */',
+    'var preciseResults=[],preciseAbort=null;',
+    'function renderPrecise(){',
+    ' var tb=$("#preciseTable"); if(!tb)return;',
+    ' var rows=preciseResults.slice().sort(function(a,b){',
+    '  var ax=a.ok?1:0,bx=b.ok?1:0; if(ax!==bx)return bx-ax;',
+    '  return (a.ok?(a.ms||99999):99999)-(b.ok?(b.ms||99999):99999);',
+    ' });',
+    ' tb.innerHTML=rows.map(function(r){',
+    '  var okN=0,tot=0; if(r.snisOk){Object.keys(r.snisOk).forEach(function(k){tot++;if(r.snisOk[k]&&r.snisOk[k].ok)okN++;});}',
+    '  var jitter=(r.jitter===undefined||r.jitter===null)?"—":Math.round(r.jitter);',
+    '  var loc=r.location||{};',
+    '  var q=String.fromCharCode(34);',
+    '  var tr="<tr"+(r.ok?"":" style="+q+"opacity:.55"+q)+">";',
+    '  tr+="<td><input type="+q+"checkbox"+q+" data-pip="+q+r.ip+q+" style="+q+"width:auto"+q+(r.ok?" checked":"")+"></td>";',
+    '  tr+="<td dir="+q+"ltr"+q+">"+r.ip+"</td>";',
+    '  tr+="<td>"+(r.ok?Math.round(r.ms):"—")+"</td>";',
+    '  tr+="<td>"+(r.ok?(jitter+" ms"):"—")+"</td>";',
+    '  tr+="<td>"+(r.colo||"—")+"</td>";',
+    '  tr+="<td>"+((loc.flag||"")+" "+(loc.country||r.countryName||""))+"</td>";',
+    '  tr+="<td>"+(tot?(okN+"/"+tot):"—")+"</td>";',
+    '  tr+="<td><button class="+q+"btn ghost tiny"+q+" data-pcopy="+q+r.ip+q+">کپی</button></td></tr>";',
+    '  return tr;',
+    ' }).join("");',
+    ' updatePreciseCount();',
+    '}',
+    'function preciseSelected(){return $$("#preciseTable [data-pip]").filter(function(c){return c.checked}).map(function(c){return c.getAttribute("data-pip")});}',
+    'function updatePreciseCount(){var el=$("#preciseCount");if(el)el.textContent=preciseSelected().length+" انتخاب";}',
+    'document.addEventListener("click",function(ev){',
+    ' var pc=ev.target.closest("[data-pcopy]"); if(pc){copyText(pc.getAttribute("data-pcopy")); toast("آی‌پی کپی شد");return;}',
+    ' var chip=ev.target.closest("[data-precise-sni]"); if(chip&&$("#preciseSni")){$("#preciseSni").value=chip.getAttribute("data-precise-sni")||"";}',
+    '});',
+    'document.addEventListener("change",function(ev){',
+    ' if(ev.target&&ev.target.id==="preciseAll"){$$("#preciseTable [data-pip]").forEach(function(c){c.checked=$("#preciseAll").checked});updatePreciseCount();}',
+    ' if(ev.target&&ev.target.getAttribute&&ev.target.getAttribute("data-pip"))updatePreciseCount();',
+    '});',
+    'if($("#preciseStop"))$("#preciseStop").addEventListener("click",function(){ if(preciseAbort){try{preciseAbort.abort();}catch(e){}} });',
+    'if($("#preciseStart"))$("#preciseStart").addEventListener("click",function(){',
+    ' var btn=this; var ranges=($("#preciseRanges").value||"").trim(); var per=Math.max(1,Math.min(32,Number($("#precisePer").value)||4));',
+    ' var shots=Math.max(1,Math.min(5,Number($("#preciseShots")&&$("#preciseShots").value)||3)); var timeout=Math.max(1000,Math.min(8000,Number($("#preciseTimeout")&&$("#preciseTimeout").value)||3000));',
+    ' var sni=(($("#preciseSni")&&$("#preciseSni").value)||"").trim().toLowerCase();',
+    ' var url="/api/scan?"+(ranges?"ranges="+encodeURIComponent(ranges)+"&":"")+"per="+per+"&shots="+shots+"&timeout="+timeout+"&concurrency=8"+(sni&&sni!==S.host?"&snis="+encodeURIComponent(sni):"");',
+    ' preciseResults=[]; renderPrecise(); btn.disabled=true; if($("#preciseStop"))$("#preciseStop").disabled=false;',
+    ' $("#preciseStatus").textContent="در حال اسکن دقیق… هر آی‌پی "+shots+" نمونه می‌شود"; if($("#preciseBar"))$("#preciseBar").style.width="35%";',
+    ' preciseAbort=new AbortController();',
+    ' fetch(url,{signal:preciseAbort.signal}).then(function(r){return r.json()}).then(function(j){',
+    '  btn.disabled=false; if($("#preciseStop"))$("#preciseStop").disabled=true; if($("#preciseBar"))$("#preciseBar").style.width="100%";',
+    '  if(!j.ok){$("#preciseStatus").textContent="خطا: "+j.error;return;}',
+    '  preciseResults=j.results||[]; renderPrecise();',
+    '  var alive=preciseResults.filter(function(r){return r.ok}).length;',
+    '  $("#preciseStatus").textContent="تمام شد — "+alive+" آی‌پی پایدار از "+preciseResults.length+" تست‌شده"+(j.skipped&&j.skipped>0?(" · "+j.skipped+" نمونه خارج از س ساب‌درخواست"):"")+". برای سرعت واقعیِ خط خودت، اسکن مرورگر را هم بزن.";',
+    ' }).catch(function(e){ btn.disabled=false; if($("#preciseStop"))$("#preciseStop").disabled=true; if($("#preciseBar"))$("#preciseBar").style.width="0%"; $("#preciseStatus").textContent=(e&&e.name==="AbortError")?"متوقف شد.":"اسکن ناموفق بود";});',
+    '});',
+    'if($("#preciseCopy"))$("#preciseCopy").addEventListener("click",function(){var ips=preciseSelected(); if(!ips.length){toast("اول چند آی‌پی تیک بزن");return;} copyText(ips.join("\\n")); toast(ips.length+" آی‌پی کپی شد");});',
+    'if($("#preciseAddCfg"))$("#preciseAddCfg").addEventListener("click",function(){',
+    ' var ips=preciseSelected(); if(!ips.length){toast("اول چند آی‌پی تیک بزن");return;}',
+    ' var cur=parseAddrList($("#cfgAddresses").value); ips.forEach(function(ip){if(cur.indexOf(ip)<0)cur.push(ip);});',
+    ' $("#cfgAddresses").value=cur.slice(0,40).join("\\n");',
+    ' applyOptions(); showTab("configs"); toast(ips.length+" آی‌پی دقیق به کانفیگ‌ها آمد — «اعمال» را بزن");',
+    '});',
     '/* ---- DNS ---- */',
     'function renderDns(){var d=I18N[lang];var rows=(S.dnsPresets||[]).map(function(p){',
     ' var current=p.url===S.dnsUpstream?" <span class=pill>پیش‌فرض</span>":"";',
@@ -5197,6 +5360,20 @@ async function requirePanelAuth(request, env) {
     open: false,
     response: jsonResponse({ ok: false, error: 'unauthorized', login: '/login' }, 401, CORS),
   };
+}
+
+/**
+ * Session gate for worker-EGRESS APIs (scan / ping / resolve / dns-probe / geo):
+ * the panel cookie, or the master `?uuid=` bearer that already unlocks
+ * /api/config.json. Stops the worker being used as an open scanner/prober
+ * from the outside while the app and logged-in panel keep working.
+ */
+async function requireEgressAuth(request, env, url, uuid) {
+  const auth = await requirePanelAuth(request, env);
+  if (auth.ok) return auth;
+  const given = (url.searchParams.get('uuid') || '').trim().toLowerCase();
+  if (given && given === String(uuid || '').trim().toLowerCase()) return { ok: true, open: false };
+  return auth;
 }
 
 /** Probe every configured address from the panel edge; prune the dead ones. */
@@ -5957,15 +6134,21 @@ async function fetchHandler(request, env, ctx) {
     return jsonResponse({ sni: effectiveSni(host, env), port: paths.port, targets: scanTargets(env), community: communityIpsFrom(scanSettings), ranges: scanRanges(env) }, 200, CORS);
   }
   if (path === '/api/ping') {
+    const gate = await requireEgressAuth(request, env, url, uuid);
+    if (!gate.ok) return gate.response;
     const ip = url.searchParams.get('ip') || '';
     if (!isIpLiteral(ip)) return jsonResponse({ ok: false, error: 'ip required' }, 400, CORS);
     return jsonResponse(await probeIp(ip, Number(url.searchParams.get('timeout') || 4000), host, env), 200, CORS);
   }
   if (path === '/api/resolve') {
+    const gate = await requireEgressAuth(request, env, url, uuid);
+    if (!gate.ok) return gate.response;
     const target = url.searchParams.get('host') || '';
     return jsonResponse(await resolveHost(target, env), 200, CORS);
   }
   if (path === '/api/dns-probe') {
+    const gate = await requireEgressAuth(request, env, url, uuid);
+    if (!gate.ok) return gate.response;
     const upstream = url.searchParams.get('u') || dohUpstream(env);
     const name = url.searchParams.get('name') || DNS_QUERY_NAME;
     return jsonResponse(await probeDnsUpstream(upstream, name), 200, CORS);
@@ -6079,6 +6262,8 @@ async function fetchHandler(request, env, ctx) {
   }
 
   if (path === '/api/geo') {
+    const gate = await requireEgressAuth(request, env, url, uuid);
+    if (!gate.ok) return gate.response;
     const caller = (request.headers.get('cf-connecting-ip') || '').trim();
     const entryColo = (request.cf && request.cf.colo) || '';
     const wanted = splitCsv(url.searchParams.get('ip')).slice(0, 8);
@@ -6091,30 +6276,52 @@ async function fetchHandler(request, env, ctx) {
   }
 
   if (path === '/api/scan') {
+    const gate = await requireEgressAuth(request, env, url, uuid);
+    if (!gate.ok) return gate.response;
     const perRange = Math.max(1, Math.min(32, Number(url.searchParams.get('per') || 8)));
     const list = expandRanges([url.searchParams.get('ips'), url.searchParams.get('ranges')].filter(Boolean).join(','), perRange, true).slice(0, 96);
     if (!list.length) return jsonResponse({ ok: false, error: 'ips or ranges required' }, 400, CORS);
     const timeout = Math.max(1000, Math.min(8000, Number(url.searchParams.get('timeout') || 4000)));
     const concurrency = Math.max(1, Math.min(32, Number(url.searchParams.get('concurrency') || 16)));
-    // Courtesy cap: never plan more probes than the per-request budget.
-    list.length = Math.min(list.length, CF_PROBE_LIMIT);
+    // Precise (MLM) mode: shots>1 = repeated warm samples per IP → min RTT + jitter.
+    const shots = Math.max(1, Math.min(5, Number(url.searchParams.get('shots') || 1)));
     const requestedSnis = splitCsv(url.searchParams.get('snis')).map((s) => s.trim().toLowerCase())
       .filter((s) => s && validAddress(s) && !isIpLiteral(s) && s !== String(host).toLowerCase())
       .slice(0, 3);
     const extraSnis = requestedSnis.length ? requestedSnis : sampleDefaultSnis(3);
+    // Courtesy cap: never plan more probes than the per-request budget —
+    // multi-sample runs reserve room for the per-IP SNI checks too.
+    const perIpCost = shots + (shots > 1 ? Math.min(3, extraSnis.length) : 0);
+    list.length = Math.min(list.length, shots === 1 ? CF_PROBE_LIMIT : Math.max(1, Math.floor(CF_PROBE_LIMIT / perIpCost)));
     const results = [];
     let cursor = 0;
     const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
       for (;;) {
         const index = cursor++;
         if (index >= list.length) return;
-        const probe = await probeIp(list[index], timeout, host, env);
+        let probe = await probeIp(list[index], timeout, host, env);
+        if (shots > 1 && probe.ok) {
+          // Warm two-shot minimum (the method v2rayN/mlmvpn use): repeat on the
+          // same IP+SNI, keep the fastest sample and the spread as jitter.
+          const samples = [probe.ms];
+          for (let s = 1; s < shots; s++) {
+            if (probeBudgetLeft() === 0) break;
+            const again = await probeIp(list[index], timeout, host, env).catch(() => null);
+            if (again && again.ok && !again.skipped) samples.push(again.ms);
+          }
+          probe = Object.assign({}, probe, {
+            shots: samples,
+            ms: Math.min.apply(null, samples),
+            jitter: samples.length > 1 ? Math.max.apply(null, samples) - Math.min.apply(null, samples) : 0,
+          });
+        }
         const enriched = Object.assign({}, probe, { location: locationFromColo(probe.colo) });
-        if (extraSnis.length && probe.ok) {
+        if (extraSnis.length && probe.ok && probeBudgetLeft() > 0) {
           enriched.snisOk = {};
           for (const altSni of extraSnis) {
             if (probeBudgetLeft() === 0) break;
             const alt = await probeIp(list[index], timeout, altSni, env).catch(() => null);
+            if (alt && alt.skipped) continue;
             enriched.snisOk[altSni] = { ok: !!(alt && alt.ok), ms: alt ? alt.ms : 0 };
           }
         }
