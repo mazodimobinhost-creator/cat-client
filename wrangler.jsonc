@@ -1,0 +1,18 @@
+// Cat Panel — one-file Cloudflare Worker.
+// This config powers the official "Deploy to Cloudflare" button (README):
+// anyone can deploy their own panel on their own account in one click,
+// no app required. KV is auto-provisioned and bound as CAT_KV.
+{
+  "name": "cat-panel",
+  "main": "app/src/main/assets/panels/catclient.worker.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "kv_namespaces": [
+    { "binding": "CAT_KV", "name": "cat-panel-kv" }
+  ],
+  "vars": {
+    // Fresh installs start open; set a panel password in Tools → settings.
+    "OPEN_PANEL": "true",
+    "OPEN_SUB": "true"
+  }
+}
