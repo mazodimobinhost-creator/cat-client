@@ -1033,7 +1033,7 @@ async function subText(url, opts) {
   check('pool never suggests filtered-first-party hosts', !pool.some((s) => s.endsWith('workers.dev') || s.endsWith('pages.dev')));
   const sample = T.sampleDefaultSnis(3);
   check('scanner default probe is a 3-SNI sample of the pool', sample.length === 3 && sample.every((s) => pool.includes(s)));
-  check('sample clamps to pool size and honours zero', T.sampleDefaultSnis(99).length === pool.length && T.sampleDefaultSnis(0).length === 0);
+  check('sample clamps to pool size and honours zero', T.sampleDefaultSnis(pool.length + 9).length === pool.length && T.sampleDefaultSnis(0).length === 0);
   const allowed = T.allowedSnis('panel.example.workers.dev', {});
   check('SNI gate accepts the whole pool', pool.every((s) => allowed.has(s)));
   // Builder rotation: no cfg snis, no verified winners → links must carry pool SNIs
