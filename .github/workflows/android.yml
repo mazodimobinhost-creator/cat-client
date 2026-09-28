@@ -1,0 +1,323 @@
+name: Cat Client Android Build
+
+on:
+  push:
+    branches: [main, 'arena/*']
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # The core build script pins its exact toolchain with GOTOOLCHAIN
+      # (auto-downloaded by Go), so any recent Go bootstrap works here.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android toolchain
+        run: |
+          set -x
+          yes | sdkmanager --licenses > sdk-licenses.log 2>&1 || true
+          # Two NDKs: the AGP default (27.x) is what the :app module's CMake build
+          # asks for, and 29.x is what scripts/build-flclash-core.sh targets via
+          # ANDROID_NDK. New runner images no longer preinstall 27.x, so install it
+          # here instead of letting AGP auto-download it mid-build.
+          if ! sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'ndk;29.0.14206865' 'cmake;3.22.1' 2>&1 | tee sdk-install.log; then
+            echo "=== sdkmanager --list (installed) ===" >> sdk-install.log
+            sdkmanager --list_installed >> sdk-install.log 2>&1 || true
+            tail -n 40 sdk-install.log
+            exit 1
+          fi
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - name: Upload SDK toolchain log (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-toolchain-log
+          path: sdk-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cache FlClash core
+        uses: actions/cache@v5
+        with:
+          path: |
+            app/src/main/jniLibs
+            app/src/main/cpp/includes
+          key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch') }}
+
+      - name: Read app version
+        id: app_version
+        run: |
+          set -euo pipefail
+          version="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n 1)"
+          code="$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -n 1)"
+          [[ -n "$version" && -n "$code" ]] || { echo "Cannot read app version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release signing
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.CATCLIENT_RELEASE_KEYSTORE_B64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.CATCLIENT_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.CATCLIENT_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.CATCLIENT_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/catclient-release.jks"
+          configured_count=0
+          for value in "$RELEASE_KEYSTORE_B64" "$RELEASE_STORE_PASSWORD" "$RELEASE_KEY_ALIAS" "$RELEASE_KEY_PASSWORD"; do
+            [[ -n "$value" ]] && configured_count=$((configured_count + 1))
+          done
+          if [[ "$configured_count" -eq 4 ]]; then
+            printf '%s' "$RELEASE_KEYSTORE_B64" | base64 --decode > "$key_path"
+            chmod 600 "$key_path"
+            store_password="$RELEASE_STORE_PASSWORD"
+            key_alias="$RELEASE_KEY_ALIAS"
+            key_password="$RELEASE_KEY_PASSWORD"
+            echo "Using the repository release-signing key."
+          elif [[ "$configured_count" -eq 0 ]]; then
+            # Stable public CI key: shared by every release so in-app updates can
+            # upgrade between CI builds. The update channel is pinned to this
+            # repository's GitHub releases (URLs + SHA-256 checksums), so a public
+            # signing key does not weaken the threat model.
+            base64 --decode scripts/ci/catclient-ci-release.p12.b64 > "$key_path"
+            chmod 600 "$key_path"
+            store_password=catclient
+            key_alias=catclient
+            key_password=catclient
+            echo "Using the stable public CI signing key (in-app updates work between releases)."
+          else
+            echo "Configure all four CATCLIENT_RELEASE_* signing secrets, or remove all of them." >&2
+            exit 1
+          fi
+          {
+            echo "CATCLIENT_RELEASE_STORE_FILE=$key_path"
+            echo "CATCLIENT_RELEASE_STORE_PASSWORD=$store_password"
+            echo "CATCLIENT_RELEASE_KEY_ALIAS=$key_alias"
+            echo "CATCLIENT_RELEASE_KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Panel worker tests (data plane, subscriptions, auth)
+        run: |
+          node --version
+          node scripts/panels/cat-panel.test.mjs
+          node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/wizard.test.mjs
+
+      - name: Pre-check Kotlin compile (fail fast)
+        run: |
+          chmod +x gradlew
+          # Surface Kotlin errors in ~3 min instead of after the ~10 min native core build.
+          set +e
+          ./gradlew :app:compileDebugKotlin --console=plain 2>&1 | tee kotlin-precheck.log
+          STATUS=${PIPESTATUS[0]}
+          # A restored Gradle cache can contain a truncated/corrupted artifact
+          # ("Archive is not a ZIP archive"); one refresh-dependencies retry clears it.
+          if [[ "$STATUS" != "0" ]] && grep -qE "not a ZIP archive|Could not (resolve|download)" kotlin-precheck.log; then
+            echo "=== corrupt cache artifact detected; retrying with --refresh-dependencies ==="
+            ./gradlew :app:compileDebugKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
+            STATUS=${PIPESTATUS[0]}
+          fi
+          set -e
+          if [[ "$STATUS" != "0" ]]; then
+            # Promote compiler diagnostics to GitHub annotations so they remain
+            # visible even when the raw Actions log service is unavailable.
+            grep -nE "^e: " kotlin-precheck.log | head -n 40 | while IFS= read -r line; do
+              printf '::error title=Kotlin compile::%s\n' "$line"
+            done
+            exit "$STATUS"
+          fi
+
+      - name: Build Mihomo core
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        run: chmod +x gradlew scripts/build-flclash-core.sh && ./scripts/build-flclash-core.sh
+
+      - name: Build debug APK
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew assembleDebug --stacktrace --console=plain 2>&1 | tee build-log.txt
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== FAILURE DIAGNOSTICS ==="
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "JAVA_HOME=$JAVA_HOME"
+            java -version 2>&1 | head -n 1
+            ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+            ls "$ANDROID_HOME/ndk" 2>/dev/null || true
+            tail -n 80 build-log.txt
+          fi
+          exit "$STATUS"
+
+      - name: Build release APK
+        if: success()
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        run: chmod +x gradlew && ./gradlew assembleRelease
+
+      - name: Validate and package release APKs
+        if: success()
+        env:
+          APP_VERSION: ${{ steps.app_version.outputs.version }}
+          APP_CODE: ${{ steps.app_version.outputs.code }}
+        run: |
+          set -euo pipefail
+          build_tools="$ANDROID_HOME/build-tools/35.0.0"
+          apksigner="$build_tools/apksigner"
+          zipalign="$build_tools/zipalign"
+          aapt2="$build_tools/aapt2"
+          release_dir="$RUNNER_TEMP/catclient-release"
+          mkdir -p "$release_dir"
+          rm -f "$release_dir"/*
+          expected=(armeabi-v7a arm64-v8a x86 x86_64 universal)
+          found=()
+          for apk in app/build/outputs/apk/release/*.apk; do
+            [[ -f "$apk" ]] || continue
+            base="$(basename "$apk")"
+            variant=""
+            case "$base" in
+              *armeabi-v7a*) variant=armeabi-v7a ;;
+              *arm64-v8a*) variant=arm64-v8a ;;
+              *x86_64*) variant=x86_64 ;;
+              *x86*) variant=x86 ;;
+              *universal*) variant=universal ;;
+            esac
+            [[ -n "$variant" ]] || { echo "Unexpected APK output: $base" >&2; exit 1; }
+            destination="$release_dir/CatClient-V${APP_VERSION}-${variant}.apk"
+            cp "$apk" "$destination"
+            echo "Checking $destination"
+            "$apksigner" verify --verbose --print-certs "$destination"
+            "$zipalign" -c -p 4 "$destination"
+            "$aapt2" dump badging "$destination" | grep -F "package: name='com.cat.client' versionCode='${APP_CODE}' versionName='${APP_VERSION}'"
+            found+=("$variant")
+          done
+          for variant in "${expected[@]}"; do
+            printf '%s\n' "${found[@]}" | grep -Fx "$variant" >/dev/null || {
+              echo "Missing release APK variant: $variant" >&2
+              exit 1
+            }
+          done
+          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk > SHA256SUMS)
+          echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
+
+      - name: Upload debug APKs
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: catclient-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload release APKs and checksums
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: catclient-release-${{ github.sha }}
+          path: ${{ runner.temp }}/catclient-release/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload build log (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-log-${{ github.sha }}
+          path: |
+            build-log.txt
+            kotlin-precheck.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report build failure (issue)
+        if: failure() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG=""
+          for f in build-log.txt kotlin-precheck.log sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
+          if [[ -z "$LOG" ]]; then exit 0; fi
+          {
+            echo "Failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Commit: ${GITHUB_SHA:0:7} (log source: ${LOG})"
+            echo '```'
+            # The actually-actionable lines: compiler errors, failed task, root cause.
+            grep -nE "^(e: |w: .*error|\* What went wrong|> Task .* FAILED|> A failure occurred|Caused by: |FAILURE: Build failed in)" "$LOG" | head -n 120
+            # The "What went wrong" section names the failing task + dependency.
+            awk '/^\* What went wrong:/{f=1} f{print; if (/^Try:/) exit}' "$LOG" | head -n 30
+            # Context around archive/zip failures (corrupted cache artifacts).
+            grep -n -B6 -A4 "not a ZIP archive\|Could not resolve\|Could not download" "$LOG" | head -n 60
+            # Fallback context when no pattern matched at all (e.g. infra failure).
+            if ! grep -qE "^e: |not a ZIP archive|What went wrong" "$LOG" 2>/dev/null; then
+              echo '--- no known error patterns found; last 80 lines ---'
+              tail -n 80 "$LOG"
+            fi
+            echo '```'
+          } > ci-failure-body.md
+          ISSUE="$(gh issue list --state open --search "in:title CI-LOG" --json number --jq '.[0].number // empty' || true)"
+          if [[ -n "$ISSUE" ]]; then
+            gh issue comment "$ISSUE" --body-file ci-failure-body.md || true
+          else
+            gh issue create --title "[CI-LOG] Android build failure ${GITHUB_SHA:0:7}" --body-file ci-failure-body.md || true
+          fi
+
+      - name: Create GitHub Release and attach APKs
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APP_VERSION="${{ steps.app_version.outputs.version }}"
+          APP_CODE="${{ steps.app_version.outputs.code }}"
+          TAG="v${APP_VERSION}"
+          release_dir="$RUNNER_TEMP/catclient-release"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" 2>/dev/null || true
+          git push origin "$TAG" || true
+          # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
+          cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          release_assets=(
+            "$release_dir"/CatClient-V${APP_VERSION}-*.apk
+            "$release_dir"/SHA256SUMS
+            app/build/outputs/apk/debug/*.apk
+            catclient.worker.js
+            catclient.wizard.js
+          )
+          notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${release_assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${release_assets[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
+          fi

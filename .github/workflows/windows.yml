@@ -1,0 +1,64 @@
+name: windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Freeze with PyInstaller
+        working-directory: windows/CatClientWin
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pyinstaller --onefile --windowed --name CatClient `
+            --add-data "colo.py;." --add-data "ips.txt;." `
+            --icon assets/cat.ico main.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package | Out-Null
+          Copy-Item windows/CatClientWin/dist/CatClient.exe package/
+          Copy-Item windows/run.bat package/
+          Copy-Item windows/README.md package/
+          Copy-Item windows/CatClientWin/ips.txt package/
+          Compress-Archive -Path package/* -DestinationPath CatClient-Windows.zip -Force
+          Get-ChildItem package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CatClient-Windows
+          path: CatClient-Windows.zip
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v" + (Select-String -Path app/build.gradle.kts -Pattern 'versionName\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $deadline = (Get-Date).AddMinutes(20)
+          while ((Get-Date) -lt $deadline) {
+            gh release view $tag | Out-Null
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Host "release $tag not published yet - waiting 30s..."
+            Start-Sleep -Seconds 30
+          }
+          gh release upload $tag CatClient-Windows.zip --clobber
