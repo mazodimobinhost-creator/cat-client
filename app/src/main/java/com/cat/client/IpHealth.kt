@@ -177,6 +177,7 @@ object IpHealthMonitor {
         port: Int,
         onProgress: (String) -> Unit = {},
         failFast: Boolean = false,
+        extraSnis: List<String> = emptyList(),
     ): IpSweepResult = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val entries = store.entries()
@@ -213,7 +214,7 @@ object IpHealthMonitor {
                     // Multi-SNI: try a few alternatives and KEEP THE FASTEST one —
                     // the winning SNI is what this IP's config will carry.
                     var bestMs = result.pingMs
-                    for (alt in IpScanner.RECOMMENDED_SNIS.filter { it != best.sni }.take(3)) {
+                    for (alt in (extraSnis + IpScanner.RECOMMENDED_SNIS).distinct().filter { it != best.sni }.take(3)) {
                         val altResult = IpScanner.probe(entry.ip, options.copy(sni = alt))
                         if (altResult != null && altResult.tlsOk && altResult.pingMs < bestMs) {
                             bestMs = altResult.pingMs
