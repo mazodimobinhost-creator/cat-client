@@ -6080,6 +6080,16 @@ class MainActivity : Activity() {
             presentPanelUpdatePasswordDialog(deployment, deployed, newest, hasUpdate, savedToken)
             return
         }
+        presentPanelTokenPrompt(deployment, deployed, newest)
+    }
+
+    /** Inline Cloudflare-token prompt (also the recovery path for an expired token). */
+    private fun presentPanelTokenPrompt(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+    ) {
+        val hasUpdate = deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed)
         val tokenInput = TextInputEditText(this).apply {
             setSingleLine(true)
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -6148,11 +6158,22 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Update confirmation with the saved Cloudflare token: the owner proves
-     * they manage this panel by signing in with its username + password, then
-     * the saved token performs the upload.
+     * Update confirmation. The saved Cloudflare token IS the ownership proof —
+     * it performs the upload — so the panel password never gates a redeploy.
+     * (A crashed panel cannot answer a login challenge; asking for a password
+     * first is what used to brick the recovery path.)
      */
     private fun presentPanelUpdatePasswordDialog(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+        hasUpdate: Boolean,
+        savedToken: String,
+    ) {
+        runPanelUpdate(deployment, savedToken, deployed, newest)
+    }
+
+    private fun presentPanelUpdatePasswordDialogLegacy(
         deployment: PanelDeploymentRecord,
         deployed: String?,
         newest: PanelUpdate.PanelScript,
@@ -6217,21 +6238,8 @@ class MainActivity : Activity() {
                 }
                 dialog.dismiss()
                 activityScope.launch {
-                    val authorized = CloudflareWorker.verifyPanelLogin(deployment.workerUrl, user, pass)
-                    if (!authorized) {
-                        // The password check is answered BY the panel itself. When the
-                        // deployed panel is dead (erroring/unreachable — e.g. CF 1101),
-                        // a wrong-password verdict is impossible to obtain; the CF token
-                        // already proves ownership, so force the redeploy instead of
-                        // permanently bricking the panel behind a login that can't answer.
-                        val panelAlive = PanelUpdate.deployedVersion(deployment.workerUrl) != null
-                        if (panelAlive) {
-                            panelUpdateInProgress = false
-                            Toast.makeText(this@MainActivity, R.string.cloud_panel_login_failed, Toast.LENGTH_LONG).show()
-                            return@launch
-                        }
-                        Toast.makeText(this@MainActivity, R.string.cloud_panel_dead_forced_update, Toast.LENGTH_LONG).show()
-                    }
+                    // The CF token authorizes this upload; the panel's own login is
+                    // deliberately NOT consulted (a crashed panel cannot answer).
                     runPanelUpdate(deployment, savedToken, deployed, newest)
                 }
             }
@@ -6253,11 +6261,15 @@ class MainActivity : Activity() {
                 val permissions = CloudflareWorker.verifyToken(token)
                 val accountId = permissions.accountId
                 if (!permissions.valid || accountId == null) {
+                    panelUpdateInProgress = false
                     Toast.makeText(
                         this@MainActivity,
                         getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
                         Toast.LENGTH_LONG,
                     ).show()
+                    // The saved token can no longer upload (expired/revoked/scopes) —
+                    // offer the inline token prompt so the recovery continues here.
+                    presentPanelTokenPrompt(deployment, deployed, newest)
                     return@launch
                 }
                 PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
