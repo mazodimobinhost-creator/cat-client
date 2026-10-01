@@ -105,6 +105,11 @@ class IpHealthStore(context: Context) {
         prefs.edit().putString("events", array.toString()).apply()
     }
 
+    /** Country lock for the pool (empty = follow the active IP's country). */
+    var preferredCountry: String
+        get() = prefs.getString("country", "").orEmpty()
+        set(value) = prefs.edit().putString("country", value.uppercase()).apply()
+
     var autoEnabled: Boolean
         get() = prefs.getBoolean("auto", false)
         set(value) = prefs.edit().putBoolean("auto", value).apply()
@@ -284,7 +289,14 @@ object IpHealthMonitor {
                     } else {
                         null
                     }
-                }.take(need)
+                }
+            }.let { fresh ->
+                // Replacements from the same country as the pool's dominant / preferred country first.
+                val wanted = store.preferredCountry.ifBlank {
+                    kept.groupingBy { it.countryCode.orEmpty() }.eachCount().filterKeys { it.isNotBlank() }.maxByOrNull { it.value }?.key.orEmpty()
+                }
+                if (wanted.isBlank()) fresh.take(need)
+                else (fresh.filter { it.countryCode.equals(wanted, true) } + fresh.filterNot { it.countryCode.equals(wanted, true) }).take(need)
             }
             added += fresh
             // Pair each replacement with the oldest eviction for the log.

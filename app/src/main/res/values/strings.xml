@@ -816,4 +816,6 @@
     <string name="engine_active_line">Active %1$s · median %2$d ms · p95 %3$d ms · success %4$d%% · confidence %5$d%%</string>
     <string name="engine_stats_line">Engine: %1$d observations · probe success %2$d%% · failovers %3$d · last recovery %4$.1fs · prediction accuracy %5$d%% · network %6$s</string>
     <string name="engine_last_failover">Last failover: %1$s → %2$s — %3$s</string>
+    <string name="ip_health_country_auto">Auto (follow active)</string>
+    <string name="engine_failover_country_toast">Switched %1$s → %2$s to another country — none healthy left in yours (%3$s)</string>
 </resources>

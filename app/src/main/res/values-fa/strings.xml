@@ -815,4 +815,6 @@
     <string name="engine_active_line">فعال %1$s · میانه %2$d ms · p95 %3$d ms · موفقیت %4$d%% · اطمینان %5$d%%</string>
     <string name="engine_stats_line">موتور: %1$d مشاهده · موفقیت probe %2$d%% · failover %3$d · آخرین recovery %4$.1fs · دقت پیش‌بینی %5$d%% · شبکه %6$s</string>
     <string name="engine_last_failover">آخرین failover: %1$s ← %2$s — %3$s</string>
+    <string name="ip_health_country_auto">خودکار (کشور IP فعال)</string>
+    <string name="engine_failover_country_toast">سوییچ %1$s ← %2$s به کشور دیگر — در کشور خودت IP سالمی نمانده بود (%3$s)</string>
 </resources>

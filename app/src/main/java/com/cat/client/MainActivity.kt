@@ -48,6 +48,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ProgressBar
@@ -4886,6 +4887,11 @@ class MainActivity : Activity() {
             setLineSpacing(dp(3).toFloat(), 1f)
         }
         healthCard.addView(ipHealthStatusView, LinearLayout.LayoutParams(-1, -2))
+        ipHealthCountryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        healthCard.addView(ipHealthCountryRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val intervalChips = mutableListOf<Chip>()
         val autoChip = Chip(this@MainActivity).apply {
             setText(R.string.ip_health_auto)
@@ -5580,12 +5586,67 @@ class MainActivity : Activity() {
     private var ipHealthJob: Job? = null
     private var ipHealthSweeping = false
     private var ipHealthStatusView: TextView? = null
+    private var ipHealthCountryRow: LinearLayout? = null
+
+    /** Pool grouped by location: one chip per country (tap = lock failover/replacements to it), IPs listed under the lock. */
+    private fun renderIpHealthCountries(entries: List<IpHealthEntry>) {
+        val row = ipHealthCountryRow ?: return
+        row.removeAllViews()
+        if (entries.isEmpty()) return
+        val store = IpHealthStore(this)
+        val active = frontingIps.firstOrNull()
+        val groups = entries.groupBy { it.countryCode?.uppercase().orEmpty() }
+            .entries.sortedWith(compareByDescending<Map.Entry<String, List<IpHealthEntry>>> { it.value.size }.thenBy { it.key })
+        val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        fun chip(label: String, selected: Boolean, onClick: () -> Unit) = Chip(this@MainActivity).apply {
+            text = label
+            isCheckable = true
+            isChecked = selected
+            textSize = 11.5f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(if (selected) TEAL else OUTLINE, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(if (selected) withAlpha(TEAL, 40) else withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnClickListener { onClick() }
+        }
+        chips.addView(chip(getString(R.string.ip_health_country_auto), store.preferredCountry.isBlank()) {
+            store.preferredCountry = ""
+            renderScannerIpHealth()
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        groups.forEach { (cc, list) ->
+            val flag = if (cc.length == 2) cc.toFlagEmoji() else "🌐"
+            val name = list.firstNotNullOfOrNull { it.countryName } ?: cc.ifBlank { "?" }
+            val hasActive = active != null && list.any { it.ip == active }
+            chips.addView(chip("$flag $name (${list.size})" + if (hasActive) " ●" else "", store.preferredCountry.equals(cc, true) && cc.isNotBlank()) {
+                store.preferredCountry = if (store.preferredCountry.equals(cc, true)) "" else cc
+                renderScannerIpHealth()
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        }
+        row.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, LinearLayout.LayoutParams(-1, -2))
+        val shown = groups.firstOrNull { it.key.equals(store.preferredCountry, true) && it.key.isNotBlank() }
+            ?: groups.firstOrNull { g -> active != null && g.value.any { it.ip == active } }
+            ?: groups.firstOrNull()
+        if (shown != null) {
+            row.addView(TextView(this).apply {
+                textSize = 11.5f
+                typeface = CatClientDataTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                setLineSpacing(dp(2).toFloat(), 1f)
+                text = shown.value.sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }.joinToString("\n") { e ->
+                    (if (e.ip == active) "● " else "   ") + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") + (if (e.fails > 0) "  ✗${e.fails}" else "")
+                }
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }
+    }
 
     private fun renderScannerIpHealth() {
         val view = ipHealthStatusView ?: return
         val store = IpHealthStore(this)
         val entries = store.entries()
         val last = store.events().firstOrNull()
+        renderIpHealthCountries(entries)
         view.text = buildString {
             append(getString(R.string.ip_health_pool, entries.size))
             val best = entries.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }
@@ -5644,7 +5705,7 @@ class MainActivity : Activity() {
         val active = frontingIps.firstOrNull() ?: return
         val plan = withContext(Dispatchers.IO) {
             val options = IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)
-            CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network) { candidate ->
+            CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network, country = IpHealthStore(this@MainActivity).preferredCountry) { candidate ->
                 val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }))
                 val ok = r != null && r.tlsOk && r.pingMs <= IpHealthMonitor.SLOW_MS
                 genomes.record(candidate.ip, Observation(System.currentTimeMillis(), network, r?.pingMs ?: -1L, r?.tlsMs ?: -1L, ok, if (ok) FailureClass.OK else CognitiveEngine.classify(r, IpHealthMonitor.SLOW_MS, genomes.genome(candidate.ip))))
@@ -5669,7 +5730,7 @@ class MainActivity : Activity() {
             )
         }
         renderScannerIpHealth()
-        Toast.makeText(this, getString(R.string.engine_failover_toast, plan.from, plan.to.ip, plan.reason), Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(if (plan.countryChanged) R.string.engine_failover_country_toast else R.string.engine_failover_toast, plan.from, plan.to.ip, plan.reason), Toast.LENGTH_LONG).show()
     }
 
     private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {

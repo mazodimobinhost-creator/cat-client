@@ -287,7 +287,7 @@ object CognitiveEngine {
             if (g != null && g.count >= 2) g.score(weights) else (if (e.pingMs > 0) 1.0 / (1.0 + e.pingMs / 150.0) * 0.5 else 0.0)
         }
 
-    data class MigrationPlan(val from: String, val to: IpHealthEntry, val reason: String, val predicted: Boolean)
+    data class MigrationPlan(val from: String, val to: IpHealthEntry, val reason: String, val predicted: Boolean, val countryChanged: Boolean = false)
 
     /**
      * Zero-downtime migration: the active address is replaced only when its own history
@@ -298,6 +298,8 @@ object CognitiveEngine {
         pool: List<IpHealthEntry>,
         genomes: Map<String, EndpointGenome>,
         network: String?,
+        /** Country constraint (bend 4): stay in this country; other countries only when it has no healthy standby. */
+        country: String? = null,
         verify: (IpHealthEntry) -> Boolean,
     ): MigrationPlan? {
         if (active.isNullOrBlank()) return null
@@ -305,9 +307,20 @@ object CognitiveEngine {
         val anomaly = g.anomaly() ?: return null
         val gone = anomaly.type == FailureClass.LOSS_BURST || anomaly.type == FailureClass.TCP || anomaly.type == FailureClass.TIMEOUT || anomaly.type == FailureClass.TLS
         if (!gone && anomaly.confidence < 0.5) return null
-        val ranked = rank(pool.filter { it.ip != active && it.fails == 0 }, genomes, network)
-        for (candidate in ranked.take(3)) {
-            if (verify(candidate) && verify(candidate)) return MigrationPlan(active, candidate, anomaly.type + " (" + anomaly.detail + ")", predicted = !gone)
+        val wanted = country?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: pool.firstOrNull { it.ip == active }?.countryCode?.uppercase()
+        val healthy = pool.filter { it.ip != active && it.fails == 0 }
+        val sameCountry = if (wanted == null) healthy else healthy.filter { it.countryCode.equals(wanted, ignoreCase = true) }
+        val otherCountries = healthy - sameCountry.toSet()
+        // Same country first (up to 4 tries), then — only as a last resort — anywhere else.
+        val tiers = listOf(rank(sameCountry, genomes, network).take(4), rank(otherCountries, genomes, network).take(3))
+        tiers.forEachIndexed { tier, candidates ->
+            for (candidate in candidates) {
+                if (verify(candidate) && verify(candidate)) {
+                    val note = if (tier == 1 && wanted != null) " · no standby in $wanted" else ""
+                    return MigrationPlan(active, candidate, anomaly.type + " (" + anomaly.detail + ")" + note, predicted = !gone, countryChanged = tier == 1 && wanted != null)
+                }
+            }
         }
         return null
     }
