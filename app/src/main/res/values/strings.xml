@@ -141,6 +141,7 @@
     <string name="metric_download">Download</string>
     <string name="metric_upload">Upload</string>
     <string name="location_label">Location</string>
+    <string name="location_fallback_notice">No live server in %1$s right now — connected via Automatic. Your location choice is kept.</string>
     <string name="connection_label">Connection</string>
     <string name="connection_selector_title">Select connection</string>
     <string name="connection_testing_page_title">Connection testing</string>

@@ -194,5 +194,38 @@ let user;
   let threw = false; try { await T.dialTarget('example.org', 443, envChain, T.normalizeSettings({ chain: 'socks5://relay.example.net:1080', chainStrict: true }), null); } catch (e) { threw = true; }
   check('chainStrict: no fallback when relay is down', threw);
 }
+
+// countries: tags, preferred country first, strict filter, Clash fallback group, sing-box default
+{
+  T.kvCacheClear();
+  const r = await (await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['5.5.5.5#DE','6.6.6.6|TR','7.7.7.7'], replace:true } })).json();
+  check('ips accept country tags, addresses stay clean', r.ips.join()==='5.5.5.5,6.6.6.6,7.7.7.7');
+  const cs = await (await req('/api/countries', { headers: auth })).json();
+  check('country summary groups addresses', cs.countries.map(c=>c.code).join()==='DE,TR' && cs.untagged.includes('7.7.7.7') && cs.countries[0].flag==='🇩🇪');
+  const set = await (await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'tr', countryFallback:'auto', ipCountries:{ '7.7.7.7':'nl' } } })).json();
+  check('preferred country saved + manual tag', set.preferred==='TR' && set.countries.map(c=>c.code).join()==='DE,NL,TR');
+  const sub = (await (await req('/sub/' + MASTER + '?limit=12')).text()).trim().split('\n');
+  check('preferred country entries come first with flag names', sub[0].includes('@6.6.6.6:') && decodeURIComponent(sub[0].split('#')[1]).startsWith('🇹🇷'));
+  check('other countries follow as fallback', sub.some(l=>l.includes('@5.5.5.5:')));
+  const de = (await (await req('/sub/' + MASTER + '?country=DE&strict=1')).text()).trim().split('\n');
+  check('?country=DE&strict=1 → only Germany', de.length>0 && de.every(l=>l.includes('@5.5.5.5:')));
+  const y = await (await req('/clash/' + MASTER)).text();
+  check('clash root = fallback [preferred country, Auto]', /name: "🐱 Cat"\n    type: fallback\n[\s\S]*?- "🇹🇷 Turkey"\n      - "⚡ Auto"/.test(y));
+  check('clash has url-test group per country', y.includes('- name: "🇩🇪 Germany"\n    type: url-test') && y.includes('- name: "🇳🇱 Netherlands"'));
+  const sb = await (await req('/singbox/' + MASTER)).json(); const sel = sb.outbounds.find(o=>o.tag==='🐱 Cat');
+  check('singbox selector defaults to preferred country urltest', sel.default==='🇹🇷 Turkey' && sb.outbounds.some(o=>o.type==='urltest' && o.tag==='🇹🇷 Turkey'));
+  await req('/api/countries', { method:'PUT', headers: auth, body:{ countryFallback:'none' } });
+  const only = (await (await req('/sub/' + MASTER + '?limit=20')).text()).trim().split('\n');
+  check('countryFallback=none → sub contains only preferred country', only.every(l=>l.includes('@6.6.6.6:')));
+  const y2 = await (await req('/clash/' + MASTER)).text();
+  check('countryFallback=none → clash root is select (no auto-leave)', /name: "🐱 Cat"\n    type: select/.test(y2));
+  // proxy ip order honours preferred country
+  const st = T.normalizeSettings({ country:'TR', proxyIps:['a.example','b.example'], proxyCountries:{ 'b.example':'TR' } });
+  check('proxyIpList puts preferred-country proxy first', T.proxyIpList({}, st)[0]==='b.example');
+  const colo = await req('/api/colo'); check('/api/colo is public JSON', colo.status===200 && (await colo.json()).ok===true);
+  check('helpers', T.splitAddrTag('1.2.3.4#de').cc==='DE' && T.normalizeCountry('xx')==='' && T.countryLabel('')==='🌐 Other');
+  await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'', countryFallback:'auto' } });
+  await req('/api/ips', { method:'POST', headers: auth, body:{ ips:[], replace:true } });
+}
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

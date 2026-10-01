@@ -142,6 +142,7 @@
     <string name="metric_download">دریافت</string>
     <string name="metric_upload">ارسال</string>
     <string name="location_label">موقعیت</string>
+    <string name="location_fallback_notice">الان هیچ سرور زنده‌ای در %1$s نیست — به‌صورت خودکار وصل شد. انتخاب کشورت حفظ شده.</string>
     <string name="connection_label">اتصال</string>
     <string name="connection_selector_title">انتخاب اتصال</string>
     <string name="connection_testing_page_title">آزمایش اتصال‌ها</string>

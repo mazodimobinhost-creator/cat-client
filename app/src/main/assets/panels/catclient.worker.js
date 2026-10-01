@@ -60,7 +60,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.1.0';
+const CAT_PANEL_VERSION = '6.2.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -299,6 +299,10 @@ function defaultSettings() {
     sni: '',
     fingerprint: 'chrome',
     proxyIps: [],
+    ipCountries: {},     // addr → ISO-2 (where this entry address lands for YOU)
+    proxyCountries: {},  // proxy ip → ISO-2 (exit for Cloudflare-hosted sites)
+    country: '',         // preferred exit country ('' = automatic)
+    countryFallback: 'auto', // 'auto' = fastest other country when preferred is dead, 'none' = never leave it
     chain: '',          // socks5://user:pass@host:port or http://host:port — fixed egress
     chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
     chainStrict: false, // true = never fall back to direct when the chain is down
@@ -326,6 +330,10 @@ function normalizeSettings(raw) {
   s.sni = String(s.sni || '').trim().toLowerCase().slice(0, 253);
   s.fingerprint = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'].includes(s.fingerprint) ? s.fingerprint : 'chrome';
   s.proxyIps = uniq(Array.isArray(s.proxyIps) ? s.proxyIps : splitCsv(s.proxyIps)).slice(0, 32);
+  s.ipCountries = normalizeCountryMap(s.ipCountries, 500);
+  s.proxyCountries = normalizeCountryMap(s.proxyCountries, 64);
+  s.country = normalizeCountry(s.country) || '';
+  s.countryFallback = s.countryFallback === 'none' ? 'none' : 'auto';
   s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
   s.chainMode = s.chainMode === 'cf' ? 'cf' : 'all';
   s.chainStrict = s.chainStrict === true;
@@ -1103,7 +1111,69 @@ function proxyIpList(env, settings) {
   const fromSettings = settings && Array.isArray(settings.proxyIps) ? settings.proxyIps : [];
   const fromEnv = splitCsv(env.PROXY_IPS || env.PROXYIP || env.PROXY_IP);
   const list = fromSettings.length ? fromSettings : fromEnv;
-  return (list.length ? list : DEFAULT_PROXY_IPS).map((e) => String(e).trim()).filter(Boolean);
+  const all = (list.length ? list : DEFAULT_PROXY_IPS).map((e) => String(e).trim()).filter(Boolean);
+  // Preferred country first: Cloudflare-hosted destinations exit through the
+  // proxy ip, so its country is what ip-check sites show for those sites.
+  const pref = settings && settings.country;
+  if (!pref) return all;
+  const tags = (settings && settings.proxyCountries) || {};
+  return all.filter((p) => tags[p] === pref).concat(all.filter((p) => tags[p] !== pref));
+}
+
+/* ---- countries ------------------------------------------------------- */
+const COUNTRY_NAMES = { DE: 'Germany', NL: 'Netherlands', FR: 'France', GB: 'United Kingdom', US: 'United States', TR: 'Turkey', AE: 'UAE', FI: 'Finland', SE: 'Sweden', PL: 'Poland', AT: 'Austria', CH: 'Switzerland', IT: 'Italy', ES: 'Spain', CZ: 'Czechia', RO: 'Romania', BG: 'Bulgaria', HU: 'Hungary', UA: 'Ukraine', RU: 'Russia', AM: 'Armenia', GE: 'Georgia', KZ: 'Kazakhstan', IN: 'India', SG: 'Singapore', JP: 'Japan', KR: 'Korea', HK: 'Hong Kong', TW: 'Taiwan', AU: 'Australia', CA: 'Canada', BR: 'Brazil', IR: 'Iran', IQ: 'Iraq', OM: 'Oman', QA: 'Qatar', SA: 'Saudi Arabia', BH: 'Bahrain', KW: 'Kuwait', IE: 'Ireland', NO: 'Norway', DK: 'Denmark', BE: 'Belgium', PT: 'Portugal', GR: 'Greece', RS: 'Serbia', LT: 'Lithuania', LV: 'Latvia', EE: 'Estonia', MD: 'Moldova', CY: 'Cyprus', IL: 'Israel', EG: 'Egypt', ZA: 'South Africa', MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', ID: 'Indonesia', PH: 'Philippines', MX: 'Mexico', AR: 'Argentina', CL: 'Chile', PK: 'Pakistan', AZ: 'Azerbaijan', UZ: 'Uzbekistan' };
+
+function normalizeCountry(code) {
+  const c = String(code || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(c) && c !== 'XX' ? c : '';
+}
+
+function normalizeCountryMap(raw, max) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  let n = 0;
+  for (const k of Object.keys(raw)) {
+    const addr = String(k).trim().replace(/^\[|\]$/g, '');
+    const cc = normalizeCountry(raw[k]);
+    if (!addr || !cc || n >= max) continue;
+    out[addr] = cc; n++;
+  }
+  return out;
+}
+
+function flagOf(cc) {
+  cc = normalizeCountry(cc);
+  if (!cc) return '';
+  return String.fromCodePoint(0x1f1e6 + cc.charCodeAt(0) - 65, 0x1f1e6 + cc.charCodeAt(1) - 65);
+}
+
+function countryLabel(cc) {
+  cc = normalizeCountry(cc);
+  return cc ? flagOf(cc) + ' ' + (COUNTRY_NAMES[cc] || cc) : '🌐 Other';
+}
+
+/** "1.2.3.4#DE" / "1.2.3.4|DE" / "1.2.3.4=DE" → { addr, cc }. */
+function splitAddrTag(raw) {
+  const m = String(raw || '').trim().match(/^(.*?)[#|=]([A-Za-z]{2})$/);
+  if (m) return { addr: m[1].trim(), cc: normalizeCountry(m[2]) };
+  return { addr: String(raw || '').trim(), cc: '' };
+}
+
+function countryOfAddr(addr, env, settings) {
+  const a = String(addr).replace(/^\[|\]$/g, '');
+  if (settings.ipCountries && settings.ipCountries[a]) return settings.ipCountries[a];
+  for (const raw of splitCsv(env.CF_IPS)) { const t = splitAddrTag(raw); if (t.addr === a && t.cc) return t.cc; }
+  return '';
+}
+
+/** Country summary used by the panel + /api/countries. */
+function countrySummary(host, env, settings) {
+  const by = {};
+  for (const a of addressList(host, env, settings)) { const cc = countryOfAddr(a, env, settings) || '??'; (by[cc] = by[cc] || []).push(a); }
+  const proxies = {};
+  for (const p of proxyIpList(env, settings)) proxies[p] = (settings.proxyCountries && settings.proxyCountries[p]) || '';
+  const countries = Object.keys(by).filter((c) => c !== '??').sort().map((cc) => ({ code: cc, label: countryLabel(cc), flag: flagOf(cc), addresses: by[cc], proxies: Object.keys(proxies).filter((p) => proxies[p] === cc) }));
+  return { preferred: settings.country || '', fallback: settings.countryFallback, countries, untagged: by['??'] || [], proxies };
 }
 
 /* ---- chain outbound: SOCKS5 / HTTP CONNECT over cloudflare:sockets ----
@@ -1433,15 +1503,17 @@ function effectiveSni(host, env, settings) {
 
 function addressList(host, env, settings) {
   const own = settings.ips || [];
-  const fromEnv = splitCsv(env.CF_IPS);
+  const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter(Boolean);
   const defaults = settings.useDefaults ? DEFAULT_CLEAN_ADDRESSES : [];
   const list = uniq(own.concat(fromEnv, defaults));
   if (settings.includeHost && !list.some((a) => a.toLowerCase() === String(host).toLowerCase())) list.push(String(host));
   return list;
 }
 
-function configName(proto, addr, port, tls) {
-  return '🐱 ' + (proto === 'vless' ? 'VL' : 'TR') + ' ' + addr + ':' + port + (tls ? '' : ' ⚡');
+function configName(proto, addr, port, tls, cc) {
+  // A leading flag lets every client (Cat Client, V2Box, Clash, sing-box) group
+  // and pick by country; untagged entries keep the 🐱 prefix.
+  return (cc ? flagOf(cc) : '🐱') + ' ' + (proto === 'vless' ? 'VL' : 'TR') + ' ' + addr + ':' + port + (tls ? '' : ' ⚡');
 }
 
 function wsParams(hostHeader, path, sni, fp, tls) {
@@ -1459,14 +1531,14 @@ function wsParams(hostHeader, path, sni, fp, tls) {
   return params.join('&');
 }
 
-function vlessLink(ctx, addr, port, tls) {
+function vlessLink(ctx, addr, port, tls, cc) {
   return 'vless://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
-    wsParams(ctx.host, ctx.paths.vlessPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('vless', addr, port, tls));
+    wsParams(ctx.host, ctx.paths.vlessPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('vless', addr, port, tls, cc));
 }
 
-function trojanLink(ctx, addr, port, tls) {
+function trojanLink(ctx, addr, port, tls, cc) {
   return 'trojan://' + encodeURIComponent(ctx.trojanPass) + '@' + formatAddr(addr) + ':' + port + '?' +
-    wsParams(ctx.host, ctx.paths.trojanPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('trojan', addr, port, tls));
+    wsParams(ctx.host, ctx.paths.trojanPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('trojan', addr, port, tls, cc));
 }
 
 /** Link context for one identity (master or a panel user). */
@@ -1496,6 +1568,15 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // ONE address → one Cloudflare entry point → a stable exit.
   let addresses = addressList(host, env, settings);
   if (q.addr && q.addr.length) addresses = uniq(q.addr);
+  // Country: ?country=DE (link) beats the panel's preferred country. Entries of
+  // that country come FIRST; with ?strict=1 (or countryFallback=none) nothing
+  // else is emitted, otherwise the other countries follow as fallback.
+  const ccOf = (a) => countryOfAddr(a, env, settings);
+  const wantCc = normalizeCountry(q.country) || settings.country || '';
+  const strict = q.strict || (wantCc && settings.countryFallback === 'none');
+  const wantedAddrs = wantCc ? addresses.filter((a) => ccOf(a) === wantCc) : [];
+  if (wantCc && wantedAddrs.length) addresses = strict ? wantedAddrs : wantedAddrs.concat(addresses.filter((a) => ccOf(a) !== wantCc));
+  const preferredCc = wantedAddrs.length ? wantCc : '';
   if (q.proto === 'vless') ctx.protocols.trojan = false;
   if (q.proto === 'trojan') ctx.protocols.vless = false;
   if (q.port && q.port.length) {
@@ -1522,12 +1603,13 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // many addresses on 443/80 rather than every port of one address.
   for (const { port, tls } of ports) {
     for (const addr of addresses) {
-      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr, port, tls, link: vlessLink(ctx, addr, port, tls), name: configName('vless', addr, port, tls) });
-      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr, port, tls, link: trojanLink(ctx, addr, port, tls), name: configName('trojan', addr, port, tls) });
-      if (entries.length >= limit) return { ctx, entries };
+      const cc = ccOf(addr);
+      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc), name: configName('vless', addr, port, tls, cc) });
+      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc), name: configName('trojan', addr, port, tls, cc) });
+      if (entries.length >= limit) return { ctx, entries, preferredCc };
     }
   }
-  return { ctx, entries };
+  return { ctx, entries, preferredCc };
 }
 
 function subscriptionHeaders(user, title) {
@@ -1552,11 +1634,21 @@ function subQuery(url) {
     port: splitCsv(q.get('port') || q.get('ports') || '').map(Number).filter((p) => p > 0),
     proto: String(q.get('proto') || '').toLowerCase(),
     limit: Number(q.get('limit') || q.get('count') || 0) || 0,
+    country: normalizeCountry(q.get('country') || q.get('cc') || ''),
+    strict: q.get('strict') === '1' || q.get('strict') === 'true',
   };
 }
 
+/** Country groups shared by Clash + sing-box: [{ cc, name, entries }], preferred first. */
+function countryGroups(entries, preferredCc) {
+  const by = new Map();
+  for (const e of entries) { const k = e.cc || ''; if (!by.has(k)) by.set(k, []); by.get(k).push(e); }
+  const keys = Array.from(by.keys()).sort((a, b) => (a === preferredCc ? -1 : b === preferredCc ? 1 : (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b))));
+  return keys.map((cc) => ({ cc, name: countryLabel(cc), entries: by.get(cc) }));
+}
+
 function buildClashYaml(host, env, settings, uuid, user, q) {
-  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
+  const { ctx, entries, preferredCc } = buildConfigEntries(host, env, settings, uuid, user, q);
   const proxies = entries.map((e) => {
     const base = [
       '  - name: ' + yamlStr(e.name),
@@ -1582,7 +1674,26 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
     }
     return base.join('\n');
   }).filter(Boolean);
-  const names = entries.filter((e) => e.tls || e.proto === 'vless').map((e) => '      - ' + yamlStr(e.name)).join('\n');
+  const usable = entries.filter((e) => e.tls || e.proto === 'vless');
+  const names = usable.map((e) => '      - ' + yamlStr(e.name)).join('\n');
+  const groups = countryGroups(usable, preferredCc);
+  const tagged = groups.some((g) => g.cc);
+  const groupYaml = [];
+  if (tagged) {
+    // One url-test group per country (fastest server INSIDE that country) …
+    for (const g of groups) groupYaml.push('  - name: ' + yamlStr(g.name), '    type: url-test', '    url: https://www.gstatic.com/generate_204', '    interval: 300', '    tolerance: 150', '    proxies:', g.entries.map((e) => '      - ' + yamlStr(e.name)).join('\n'));
+  }
+  const groupNames = groups.map((g) => '      - ' + yamlStr(g.name)).join('\n');
+  let root;
+  if (tagged && preferredCc && settings.countryFallback !== 'none') {
+    // … and the root is a FALLBACK: stay in the preferred country while any of
+    // its servers is alive, otherwise jump to the fastest of the rest (⚡ Auto).
+    root = ['  - name: "🐱 Cat"', '    type: fallback', '    url: https://www.gstatic.com/generate_204', '    interval: 120', '    proxies:', '      - ' + yamlStr(countryLabel(preferredCc)), '      - "⚡ Auto"'];
+  } else if (tagged) {
+    root = ['  - name: "🐱 Cat"', '    type: select', '    proxies:', groupNames, '      - "⚡ Auto"'];
+  } else {
+    root = ['  - name: "🐱 Cat"', '    type: select', '    proxies:', names, '      - "⚡ Auto"'];
+  }
   return [
     '# 🐱 Cat Panel ' + CAT_PANEL_VERSION + ' — Mihomo / Clash Meta',
     'mixed-port: 7890',
@@ -1606,15 +1717,13 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
     'proxies:',
     proxies.join('\n'),
     'proxy-groups:',
-    '  - name: "🐱 Cat"',
-    '    type: select',
-    '    proxies:',
-    names,
-    '      - "⚡ Auto"',
+    root.join('\n'),
+    groupYaml.join('\n'),
     '  - name: "⚡ Auto"',
-    '    type: fallback',
+    '    type: ' + (tagged ? 'url-test' : 'fallback'),
     '    url: https://www.gstatic.com/generate_204',
     '    interval: 300',
+    '    tolerance: 150',
     '    proxies:',
     names,
     'rules:',
@@ -1627,7 +1736,7 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
 }
 
 function buildSingboxConfig(host, env, settings, uuid, user, q) {
-  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
+  const { ctx, entries, preferredCc } = buildConfigEntries(host, env, settings, uuid, user, q);
   const outbounds = entries.map((e) => {
     const out = {
       type: e.proto,
@@ -1645,6 +1754,12 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
     return out;
   }).filter(Boolean);
   const tags = outbounds.map((o) => o.tag);
+  const usable = entries.filter((e) => e.tls || e.proto === 'vless');
+  const groups = countryGroups(usable, preferredCc);
+  const tagged = groups.some((g) => g.cc);
+  const groupOutbounds = tagged ? groups.map((g) => ({ type: 'urltest', tag: g.name, outbounds: g.entries.map((e) => e.name), url: 'https://www.gstatic.com/generate_204', interval: '5m', tolerance: 150 })) : [];
+  const rootList = tagged ? groups.map((g) => g.name).concat(['⚡ Auto']) : tags.concat(['⚡ Auto']);
+  const rootDefault = tagged ? (preferredCc ? countryLabel(preferredCc) : groups[0].name) : (tags[0] || '⚡ Auto');
   return {
     log: { level: 'warn' },
     dns: {
@@ -1663,9 +1778,11 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
     outbounds: [
       // Default = the FIRST entry (pinned exit), not auto-select: auto picks a
       // different Cloudflare entry on every start → different exit country.
-      { type: 'selector', tag: '🐱 Cat', outbounds: tags.concat(['⚡ Auto']), default: tags[0] || '⚡ Auto' },
+      // sing-box has no "fallback" group type: the selector defaults to the
+      // preferred country's url-test; switch to ⚡ Auto by hand if it dies.
+      { type: 'selector', tag: '🐱 Cat', outbounds: rootList, default: rootDefault },
       { type: 'urltest', tag: '⚡ Auto', outbounds: tags, url: 'https://www.gstatic.com/generate_204', interval: '10m', tolerance: 300 },
-    ].concat(outbounds, [{ type: 'direct', tag: 'direct' }]),
+    ].concat(groupOutbounds, outbounds, [{ type: 'direct', tag: 'direct' }]),
     route: {
       rules: [
         { action: 'sniff' },
@@ -1825,6 +1942,14 @@ async function handleApi(request, url, env, ctx) {
   if (path === '/api/health' || path === '/health') return json({ ok: true, version: CAT_PANEL_VERSION, kv: !!kvBinding(env) });
   if (path === '/api/version') return json({ ok: true, version: CAT_PANEL_VERSION, repo: REPO_URL });
   if (path === '/api/scan-targets.json') return json({ ok: true, ranges: SCAN_RANGES, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS, sni: effectiveSni(host, env, settings), host });
+  if (path === '/api/colo') {
+    // Public + free (no KV, no subrequest): which Cloudflare datacenter THIS
+    // connection landed in. Cat Client's scanner calls it through each entry
+    // address with the panel SNI to tag that address with a country.
+    const cf = request.cf || {};
+    return json({ ok: true, colo: cf.colo || '', country: cf.country || '', ip: request.headers.get('cf-connecting-ip') || '' }, 200, { 'access-control-allow-origin': '*' });
+  }
+
   if (path === '/api/geo') {
     const ip = url.searchParams.get('ip') || request.headers.get('cf-connecting-ip') || '';
     if (!ip) return json({ ok: false, error: 'missing ip' }, 400);
@@ -1865,6 +1990,7 @@ async function handleApi(request, url, env, ctx) {
         paths: tunnelPaths(env),
         sni: effectiveSni(host, env, settings),
         chain: (() => { const c = parseChain(settings.chain); return c ? { type: c.type, host: c.host, port: c.port, auth: !!(c.user || c.pass) } : null; })(),
+        countries: countrySummary(host, env, settings),
         userCount: users.length,
         env: { hasUuid: isUuid(env.UUID), hasPanelPassword: !!env.PANEL_PASSWORD, hasProxyIp: !!(env.PROXYIP || env.PROXY_IPS), hasCfIps: !!env.CF_IPS },
       });
@@ -1890,9 +2016,13 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/ips' && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
-    const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((s) => String(s).trim()).filter((s) => isIpv4(s) || isIpv6(s) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)));
+    // Entries may carry a country tag: "1.2.3.4#DE" (what Cat Client's scanner
+    // saw via /cdn-cgi/trace) → stored in ipCountries, address stays clean.
+    const tags = Object.assign({}, settings.ipCountries);
+    const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((s) => isIpv4(s) || isIpv6(s) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)));
+    if (body.countries && typeof body.countries === 'object') Object.assign(tags, normalizeCountryMap(body.countries, 500));
     const next = body.replace ? incoming : uniq(incoming.concat(settings.ips));
-    const saved = await writeSettings(env, { ips: next });
+    const saved = await writeSettings(env, { ips: next, ipCountries: tags });
     return json({ ok: true, persisted: saved.persisted, count: saved.settings.ips.length, ips: saved.settings.ips });
   }
 
@@ -1962,6 +2092,34 @@ async function handleApi(request, url, env, ctx) {
       if (Array.isArray(body.users)) persisted = (await writeUsers(env, body.users)).persisted && persisted;
       return json({ ok: true, persisted });
     }
+  }
+
+  if (path === '/api/countries' && method === 'GET') {
+    return json(Object.assign({ ok: true }, countrySummary(host, env, settings)));
+  }
+
+  if (path === '/api/countries' && (method === 'PUT' || method === 'POST')) {
+    // { country, countryFallback, ipCountries?, proxyCountries? } — ONE KV write.
+    const body = (await readJsonBody(request)) || {};
+    const patch = {};
+    if ('country' in body) patch.country = normalizeCountry(body.country) || '';
+    if ('countryFallback' in body) patch.countryFallback = body.countryFallback === 'none' ? 'none' : 'auto';
+    if (body.ipCountries && typeof body.ipCountries === 'object') patch.ipCountries = Object.assign({}, settings.ipCountries, normalizeCountryMap(body.ipCountries, 500));
+    if (body.proxyCountries && typeof body.proxyCountries === 'object') patch.proxyCountries = Object.assign({}, settings.proxyCountries, normalizeCountryMap(body.proxyCountries, 64));
+    if (body.clearIp) { patch.ipCountries = Object.assign({}, settings.ipCountries); for (const a of splitCsv(body.clearIp)) delete patch.ipCountries[a]; }
+    const saved = await writeSettings(env, patch);
+    return json(Object.assign({ ok: true, persisted: saved.persisted }, countrySummary(host, env, saved.settings)));
+  }
+
+  if (path === '/api/proxy-geo' && method === 'POST') {
+    // Owner click: geo-locate the proxy ips (≤32 cached lookups) and tag them.
+    const list = proxyIpList(env, settings).slice(0, 32);
+    const found = {};
+    for (const p of list) {
+      try { const g = await geoLookup(splitHostPort(p, 443).hostname); const cc = normalizeCountry(g && (g.country_code || g.countryCode)); if (cc) found[p] = cc; } catch (e) { /* skip */ }
+    }
+    const saved = await writeSettings(env, { proxyCountries: Object.assign({}, settings.proxyCountries, found) });
+    return json({ ok: true, persisted: saved.persisted, proxyCountries: saved.settings.proxyCountries, found });
   }
 
   if (path === '/api/chain-test' && method === 'POST') {
@@ -2406,11 +2564,21 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
  <div class="card sec">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
-  <textarea id="ipPaste" placeholder="104.16.1.1&#10;172.67.2.3&#10;www.example.com"></textarea>
+  <textarea id="ipPaste" placeholder="104.16.1.1#DE&#10;172.67.2.3#TR&#10;www.example.com"></textarea>
   <div class="row" style="margin-top:10px">
    <button class="btn p" id="btnIpAppend" data-i="ip_append"></button>
    <button class="btn a" id="btnIpReplace" data-i="ip_replace"></button>
   </div>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">🌍</span><span data-i="cc_title"></span> <span class="chip" id="ccState"></span></h2>
+  <div class="note i small" data-i="cc_why"></div>
+  <div class="ipl" id="ccList" style="margin-top:10px"></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="cc_fallback"></label><select id="ccFallback"><option value="auto" data-i="cc_fb_auto"></option><option value="none" data-i="cc_fb_none"></option></select></div>
+   <div><label data-i="cc_proxy"></label><div class="row"><button class="btn sm" id="btnProxyGeo" data-i="cc_proxy_btn"></button><span class="small mute" id="proxyGeoOut"></span></div></div>
+  </div>
+  <div class="small dim" style="margin-top:8px" data-i="cc_hint"></div>
  </div>
  <div class="card sec">
   <h2><span class="ic">🧹</span><span data-i="ip_list"></span> <span class="chip v" id="ipCount">0</span></h2>
@@ -2539,7 +2707,7 @@ master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات ات
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_status:'وضعیت',h_act:'عملیات',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
 scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن',ip_import_hint:'آی‌پی‌ها یا دامنه‌های تمیز را (هر خط یکی، یا با کاما) اینجا بچسبان. از Cat Client، اسکنر ircf، CFScanner یا هر ابزار دیگری.',
-ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',
+ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
@@ -2560,7 +2728,7 @@ master_links:'Master subscription links',self:'My connection info',users:'Users'
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_status:'Status',h_act:'Actions',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
 scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated) from Cat Client, ircf scanner, CFScanner or any other tool.',
-ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',
+ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
@@ -2631,6 +2799,10 @@ $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
+document.addEventListener('click',function(e){var b=e.target.closest('[data-cc]');if(!b)return;api('/api/countries',{method:'PUT',body:{country:b.getAttribute('data-cc')}}).then(function(){toast(t('saved'));return load()}).catch(function(){toast('error',true)})});
+document.addEventListener('change',function(e){var sel=e.target.closest('[data-ipcc]');if(!sel)return;var ip=sel.getAttribute('data-ipcc'),cc=sel.value;var body=cc?{ipCountries:{}}:{clearIp:ip};if(cc)body.ipCountries[ip]=cc;api('/api/countries',{method:'PUT',body:body}).then(function(){return load()}).catch(function(){toast('error',true)})});
+$('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
+$('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
 $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms':'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
 
 /* ---------- users ---------- */
@@ -2684,9 +2856,16 @@ $('#btnRefresh').addEventListener('click',function(){load().then(function(){toas
 $('#btnSelf').addEventListener('click',function(){var b=$('#selfBox');b.textContent=t('self_wait');api('/api/self').then(function(j){b.innerHTML='<span class="chip mono">'+esc(j.ip)+'</span> <span class="chip">'+esc(j.country)+(j.city?' · '+esc(j.city):'')+'</span> <span class="chip">colo '+esc(j.colo)+'</span> <span class="chip">AS'+esc(j.asn)+' '+esc(j.asOrganization)+'</span> <span class="chip">'+esc(j.httpProtocol)+' / '+esc(j.tlsVersion)+'</span>'})});
 
 /* ---------- clean IP ---------- */
-function renderIps(){var ips=CFG.settings.ips;$('#ipCount').textContent=ips.length;$('#ipList').innerHTML=ips.length?ips.map(function(ip){return '<span class="chip mono" data-ipdel="'+esc(ip)+'" title="remove">'+esc(ip)+' ✕</span>'}).join(''):'<span class="dim small">—</span>';
+var CC_LIST=['','DE','NL','FR','GB','US','TR','AE','FI','SE','PL','AT','CH','IT','ES','CZ','RO','BG','HU','UA','RU','AM','GE','KZ','IN','SG','JP','KR','HK','TW','AU','CA','BR','IQ','OM','QA','SA','BH','KW','IE','NO','DK','BE','PT','GR','RS','LT','LV','EE','MD','CY','IL','EG','ZA','MY','TH','VN','ID','PH','MX','AR','CL','PK','AZ','UZ'];
+function flag(cc){return cc?String.fromCodePoint(0x1f1e6+cc.charCodeAt(0)-65,0x1f1e6+cc.charCodeAt(1)-65):'🌐'}
+function ccSelect(ip,cur){return '<select data-ipcc="'+esc(ip)+'" title="country" style="width:auto;padding:0 4px;height:22px;font-size:12px">'+CC_LIST.map(function(c){return '<option value="'+c+'"'+(c===cur?' selected':'')+'>'+flag(c)+(c?' '+c:'')+'</option>'}).join('')+'</select>'}
+function renderCountries(){var S=CFG.countries||{countries:[],untagged:[]};var st=$('#ccState');st.textContent=S.preferred?flag(S.preferred)+' '+S.preferred:t('cc_auto');st.className='chip '+(S.preferred?'ok':'');$('#ccFallback').value=S.fallback||'auto';
+ var h='<span class="chip'+(S.preferred?'':' ok')+'" data-cc="" style="cursor:pointer">'+t('cc_auto')+'</span>';
+ S.countries.forEach(function(c){h+='<span class="chip'+(c.code===S.preferred?' ok':'')+'" data-cc="'+c.code+'" style="cursor:pointer">'+esc(c.label)+' · '+c.addresses.length+(c.proxies.length?' · P'+c.proxies.length:'')+'</span><button class="ib" data-copy="'+esc(CFG.links.sub+'?country='+c.code+'&strict=1')+'" title="'+t('cc_link')+'">🔗</button>'});
+ if(S.untagged.length)h+='<span class="chip">🌐 '+t('cc_untagged')+' · '+S.untagged.length+'</span>';$('#ccList').innerHTML=h}
+function renderIps(){var ips=CFG.settings.ips,tags=CFG.settings.ipCountries||{};$('#ipCount').textContent=ips.length;$('#ipList').innerHTML=ips.length?ips.map(function(ip){return '<span class="chip mono">'+ccSelect(ip,tags[ip]||'')+' '+esc(ip)+' <b data-ipdel="'+esc(ip)+'" title="remove" style="cursor:pointer">✕</b></span>'}).join(''):'<span class="dim small">—</span>';renderCountries();
  $('#btnScanApp').href='catclient://scan?sni='+encodeURIComponent(CFG.host)+'&panel='+encodeURIComponent(location.origin)}
-function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){return s.trim().replace(/^\\[|\\]$/g,'')}).filter(function(s){return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(s)||/^[0-9a-f:]+$/i.test(s)&&s.indexOf(':')>=0||/^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(s)});
+function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){return s.trim().replace(/^\\[|\\]$/g,'')}).filter(function(s){s=s.replace(/[#|=][A-Za-z]{2}$/,'');return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(s)||/^[0-9a-f:]+$/i.test(s)&&s.indexOf(':')>=0||/^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(s)});
  if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,replace:!!replace}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
 $('#btnIpAppend').addEventListener('click',function(){importIps(false)});$('#btnIpReplace').addEventListener('click',function(){importIps(true)});
 $('#btnIpClear').addEventListener('click',function(){if(!confirm('?'))return;api('/api/ips',{method:'POST',body:{ips:[],replace:true}}).then(function(){return load()})});
@@ -2738,7 +2917,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,

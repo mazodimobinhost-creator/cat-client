@@ -207,6 +207,24 @@ show a different country each time you reconnect. Two fixes, both built in:
   the first concrete proxy with `⚡ Auto` as a `fallback` group; sing-box's selector
   defaults to the first outbound. Pick one server in V2Box instead of "Auto".
 
+**Countries (v6.2) — pick an exit country, auto-fallback only when it is dead**
+
+- Tag each entry address with the country it lands in *for you*: paste
+  `ip#DE` lines (the Cat Client scanner reads the colo from `/cdn-cgi/trace`) or
+  use the flag menu next to each ip in 📡 → *Countries*. `CF_IPS` accepts the same
+  `ip#CC` form. Config names start with the flag, so every client groups them.
+- Click a country → it becomes the preferred exit: its entries come first in
+  `/sub`, Clash gets a `url-test` group per country and a root **`fallback`**
+  group `[🇩🇪 Germany, ⚡ Auto]` (stays in Germany while any German ip answers,
+  otherwise the fastest other country), sing-box's selector defaults to that
+  country's `urltest`. *Fallback = never* keeps only that country.
+- `?country=DE` (`&strict=1` for that country only) works on every sub URL.
+- `🌍 Detect proxy-IP countries` tags the proxy ips (`POST /api/proxy-geo`); the
+  preferred country's proxy ip is tried first for Cloudflare-hosted sites.
+- `GET /api/colo` (public, free) tells a client which colo/country it reached.
+- Cat Client app: when the chosen location has no live server at start, it now
+  connects via Automatic and shows a notice instead of failing; the choice is kept.
+
 **Worker environment variables (all optional)**
 
 | Var | Default | Meaning |
@@ -230,7 +248,7 @@ show a different country each time you reconnect. Two fixes, both built in:
 `/singbox/<uuid>`, `/u/<token>[/clash|/singbox|/64]`, `/info/<token>`,
 `/qr.svg?text=…`, `/dns-query`, `/health`, `/api/login`, `/api/settings`,
 `/api/users`, `/api/ips`, `/api/backup`, `/api/self`, `/api/geo?ip=`,
-`/api/scan-targets.json`, `/api/chain-test`, plus the VLESS/Trojan WebSocket paths.
+`/api/scan-targets.json`, `/api/chain-test`, `/api/countries`, `/api/proxy-geo`, `/api/colo`, plus the VLESS/Trojan WebSocket paths.
 
 **Panel → app deep links**: `catclient://add-sub?url=…&name=…` imports a
 subscription, `catclient://scan?sni=<panel host>` opens the app's Scanner tab.

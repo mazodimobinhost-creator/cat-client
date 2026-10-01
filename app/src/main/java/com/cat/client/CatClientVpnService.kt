@@ -1484,6 +1484,76 @@ class CatClientVpnService : VpnService() {
                     )
                 },
             ) { sourceId ->
+                // Country-sticky startup: try the selected country first; if every
+                // server of that country is dead, fall back to Automatic (fastest of the
+                // rest) instead of failing — the user's choice stays saved for next time.
+                try {
+                    startRuntimeForSource(
+                        sourceId = sourceId,
+                        snapshots = snapshots,
+                        eventPrefix = eventPrefix,
+                        explicitProfile = explicitProfile,
+                        selectedSubscriptionId = selectedSubscriptionId,
+                        selectedAutomaticTypes = selectedAutomaticTypes,
+                        selectedCountryCode = selectedCountryCode,
+                        splitTunnelPlan = splitTunnelPlan,
+                        frontingIps = frontingIps,
+                        exclusion = exclusion,
+                        quickSpeedRequested = quickSpeedRequested,
+                    )
+                } catch (error: Throwable) {
+                    if (error is CancellationException || selectedCountryCode == null) throw error
+                    DiagnosticLogger.warn(
+                        this,
+                        "location.fallback.auto",
+                        "country=$selectedCountryCode reason=${error.message.orEmpty()}",
+                        error,
+                    )
+                    ensureStartupActive(eventPrefix)
+                    val (runtime, notice, showServer) = startRuntimeForSource(
+                        sourceId = sourceId,
+                        snapshots = snapshots,
+                        eventPrefix = eventPrefix,
+                        explicitProfile = explicitProfile,
+                        selectedSubscriptionId = selectedSubscriptionId,
+                        selectedAutomaticTypes = selectedAutomaticTypes,
+                        selectedCountryCode = null,
+                        splitTunnelPlan = splitTunnelPlan,
+                        frontingIps = frontingIps,
+                        exclusion = exclusion,
+                        quickSpeedRequested = quickSpeedRequested,
+                    )
+                    val countryLabel = ConnectionLocationPolicy
+                        .countryFromCode(selectedCountryCode)
+                        ?.let { "${it.flag} ${it.country}" } ?: selectedCountryCode
+                    Triple(
+                        runtime,
+                        notice ?: getString(R.string.location_fallback_notice, countryLabel),
+                        showServer,
+                    )
+                }
+            }
+        applyStartedRuntime(
+            startedRuntimeCandidate = startedRuntime,
+            eventPrefix = eventPrefix,
+            notice = startupNotice,
+            showServer = showServer,
+        )
+    }
+
+    private suspend fun startRuntimeForSource(
+        sourceId: String,
+        snapshots: Map<String, MihomoSubscriptionSnapshot>,
+        eventPrefix: String,
+        explicitProfile: ConnectionProfile?,
+        selectedSubscriptionId: String,
+        selectedAutomaticTypes: Set<String>,
+        selectedCountryCode: String?,
+        splitTunnelPlan: SplitTunnelRuntimePlan,
+        frontingIps: List<String>,
+        exclusion: ConnectionStartupExclusion,
+        quickSpeedRequested: Boolean,
+    ): Triple<StartedMihomoRuntime, String?, Boolean> {
                 val snapshot = snapshots[sourceId]
                     ?: configRepository.fetchOrCachedMihomoConfig(sourceId)
                 ensureStartupActive(eventPrefix)
@@ -1541,18 +1611,11 @@ class CatClientVpnService : VpnService() {
                         ) to null
                     }
                 }
-                Triple(
+                return Triple(
                     startedRuntime,
                     startupNotice,
                     !SubscriptionStore.isBuiltInSubscription(sourceId),
                 )
-            }
-        applyStartedRuntime(
-            startedRuntimeCandidate = startedRuntime,
-            eventPrefix = eventPrefix,
-            notice = startupNotice,
-            showServer = showServer,
-        )
     }
 
     private fun captureSessionPlanPreferences(
