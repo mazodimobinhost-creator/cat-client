@@ -33,3 +33,18 @@ A new card at the top of the Cloud tab walks a first-time user through the whole
 
 The final screen offers **Import & connect** (opens the subscription dialog pre-filled),
 **Scan clean IPs** (switches to the scanner with the panel host as SNI) and **Open panel**.
+
+## ZedSecure-style redesign (phases 1–4)
+
+- **Theme** — ZedSecure palette: `#131318` canvas, tonal surface containers, lime `#C7F24E` accent on
+  dark text, violet → pink hero gradient (`DashboardViews.kt`, `colors.xml`).
+- **Dock** — floating 4-cell capsule: Home · Servers · Cloud · Settings; active cell is a lime pill
+  with label. The IP scanner lives under Cloud behind a segmented switch.
+- **Home** — status chip + log action + app name header; location pill (flag · country · exit IP · ping);
+  morphing blob hero (`ZedBlobView.kt`) with the elapsed time inside and a big state word under it;
+  two round quick actions (ping all · reconnect); DOWNLOAD/UPLOAD tiles with rate bars and session totals;
+  full-width lime Connect pill; violet → cyan page backdrop while connected.
+- **Servers** — "Servers · N servers" header with ping-all / list / add actions, "Auto · All servers"
+  bolt row, lime selected card with ✓ and per-row ⋮ menu, floating "+" FAB. Server rows in the picker
+  show latency on the trailing edge coloured lime / amber / red.
+- **Settings / Cloud / Scanner** — tonal 22 dp cards without outlines, accent-coloured section labels.
