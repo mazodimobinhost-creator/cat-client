@@ -33,6 +33,19 @@ enum class AppAccent(
     companion object {
         fun fromWireName(value: String?): AppAccent = entries.firstOrNull { it.wireName == value } ?: Lavender
     }
+
+    /** XML theme overlay so framework/Material widgets (dialogs, switches, inputs, ripples) follow the preset too. */
+    val overlayStyleRes: Int
+        get() = when (this) {
+            Lavender -> R.style.ThemeOverlay_CatClient_Lavender
+            Aurora -> R.style.ThemeOverlay_CatClient_Aurora
+            Ember -> R.style.ThemeOverlay_CatClient_Ember
+            Midnight -> R.style.ThemeOverlay_CatClient_Midnight
+            Lime -> R.style.ThemeOverlay_CatClient_Lime
+            Pink -> R.style.ThemeOverlay_CatClient_Pink
+            Amber -> R.style.ThemeOverlay_CatClient_Amber
+            Mono -> R.style.ThemeOverlay_CatClient_Mono
+        }
 }
 
 class AppAccentPreferenceStore(context: Context) {

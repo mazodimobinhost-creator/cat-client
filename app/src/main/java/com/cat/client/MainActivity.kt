@@ -374,6 +374,7 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        theme.applyStyle(AppAccentPreferenceStore(this).read().overlayStyleRes, true)
         super.onCreate(savedInstanceState)
         appLanguagePreferenceStore = AppLanguagePreferenceStore(this)
         appThemePreferenceStore = AppThemePreferenceStore(this)
@@ -3314,7 +3315,15 @@ class MainActivity : Activity() {
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }
         }
-        listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow).forEachIndexed { index, row ->
+        val hapticSwitch = MaterialSwitch(this).apply {
+            isChecked = connectHapticEnabled()
+            setOnCheckedChangeListener { _, checked ->
+                getSharedPreferences("cat_client_theme", MODE_PRIVATE).edit().putBoolean("haptic_connect", checked).apply()
+                if (checked) connectHaptic()
+            }
+        }
+        val hapticRow = advancedToggleRow(getString(R.string.haptic_connect_title), getString(R.string.haptic_connect_detail), hapticSwitch)
+        listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow, hapticRow).forEachIndexed { index, row ->
             if (index > 0 && row !== swatchStrip) {
                 appearancePanel.addView(
                     View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
@@ -4827,6 +4836,33 @@ class MainActivity : Activity() {
                 topMargin = dp(8)
                 bottomMargin = dp(18)
             },
+        )
+        body.addView(
+            advancedSettingsPanel().apply {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showProxyScannerPage() }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(14), dp(16), dp(14))
+                        addView(TextView(this@MainActivity).apply { text = "🛰"; textSize = 22f }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(14) })
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(TextView(this@MainActivity).apply { setText(R.string.scanner_proxy_entry); textSize = 15f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false })
+                                addView(TextView(this@MainActivity).apply { setText(R.string.scanner_proxy_entry_detail); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                        addView(TextView(this@MainActivity).apply { text = "›"; textSize = 22f; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
         )
 
         // ---- live IP health: auto-refresh the pool and replace broken IPs ----
@@ -7136,6 +7172,10 @@ class MainActivity : Activity() {
 
     private fun showSpeedTestPage() {
         SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
+    }
+
+    private fun showProxyScannerPage() {
+        ProxyScannerPage(this, palette, activityScope) { link -> showAddSubscriptionDialog(link, "") }.show()
     }
 
     /* ------------------------------------------------------------------ */
@@ -11208,8 +11248,31 @@ class MainActivity : Activity() {
         }
     }
 
+    private var lastHapticState: VpnState? = null
+
+    private fun connectHapticEnabled(): Boolean =
+        getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("haptic_connect", true)
+
+    private fun connectHaptic() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+            } else {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(25L, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        }
+    }
+
     private fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
+        if (state == VpnState.Started && lastHapticState != null && lastHapticState != VpnState.Started && connectHapticEnabled()) connectHaptic()
+        lastHapticState = state
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
