@@ -260,6 +260,9 @@ class MainActivity : Activity() {
     private lateinit var activeConfigTitle: TextView
     private lateinit var homeLocationPill: View
     private lateinit var heroPingAction: View
+    private var homeHeroFrame: FrameLayout? = null
+    private var heroClusterParams: FrameLayout.LayoutParams? = null
+    private var homeStageFitting = false
     @Volatile private var livePingMs: Long? = null
     private var lastQuietPingAtMs: Long = 0L
     private var liveBackdrop: ZedLiveBackdropDrawable? = null
@@ -2833,14 +2836,12 @@ class MainActivity : Activity() {
                 connectionBlob,
                 FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.CENTER },
             )
-            addView(
-                heroCluster,
-                FrameLayout.LayoutParams(-2, -2).apply {
-                    gravity = Gravity.END or Gravity.TOP
-                    marginEnd = dp(14)
-                    topMargin = dp(205)
-                },
-            )
+            heroClusterParams = FrameLayout.LayoutParams(-2, -2).apply {
+                gravity = Gravity.END or Gravity.TOP
+                marginEnd = dp(14)
+                topMargin = dp(205)
+            }
+            addView(heroCluster, heroClusterParams)
         }
         val signalSection = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3175,6 +3176,11 @@ class MainActivity : Activity() {
             addView(homeUsageCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         }
         homeBackdrop = scrollView
+        scrollView.isVerticalScrollBarEnabled = false
+        scrollView.overScrollMode = View.OVER_SCROLL_NEVER
+        homeHeroFrame = heroFrame
+        scrollView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitHomeStage(scrollView) }
+        dashboardContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitHomeStage(scrollView) }
         applyHomeBackdrop(VpnState.Stopped)
         renderHomeUsageCard()
         viewport.addView(
@@ -6898,21 +6904,28 @@ class MainActivity : Activity() {
     private fun showMapPage() {
         val connected = buttonModel.state == VpnState.Started
         val live = liveGeo
-        val tunneled = liveGeoTunneled && connected
+        val vpnOn = connected || deviceVpnActive()
         val prefs = getSharedPreferences("cat_client_map", MODE_PRIVATE)
-        // Origin = the real location, remembered from the last lookup made with the tunnel down.
+        // Origin = the real location: the panel worker's "real IP" view when available, otherwise
+        // the last lookup made while NO VPN (ours or another app's) was up.
         var originCode = prefs.getString("origin_code", "").orEmpty()
         var originLabel = prefs.getString("origin_label", "").orEmpty()
-        if (!tunneled && live != null) {
+        if (!live?.realCountryCode.isNullOrBlank()) {
+            originCode = live!!.realCountryCode!!.uppercase()
+            originLabel = live.realCountryName.orEmpty()
+            prefs.edit().putString("origin_code", originCode).putString("origin_label", originLabel).apply()
+        } else if (!vpnOn && live != null) {
             originCode = live.countryCode.uppercase()
             originLabel = listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
             prefs.edit().putString("origin_code", originCode).putString("origin_label", originLabel).apply()
-        } else if (tunneled && !live?.realCountryCode.isNullOrBlank() && originCode.isBlank()) {
-            originCode = live!!.realCountryCode!!.uppercase()
-            originLabel = live.realCountryName.orEmpty()
         }
-        val exitCode = if (tunneled && live != null) live.countryCode.uppercase() else ""
-        val exitLabel = if (tunneled && live != null) listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ") else ""
+        val exitCode = if (connected && live != null) live.countryCode.uppercase() else ""
+        val exitLabel = if (connected && live != null) listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ") else ""
+        if (connected && originCode.isNotBlank() && originCode == exitCode && originLabel == exitLabel) {
+            // A lookup recorded through the tunnel is not an origin — drop it (Zed asks for one VPN-off run).
+            originCode = ""; originLabel = ""
+            prefs.edit().remove("origin_code").remove("origin_label").apply()
+        }
         val originTint = ZedBlobView.ZED_HOT_PINK
 
         val map = ZedWorldMapView(this).apply {
@@ -7024,7 +7037,7 @@ class MainActivity : Activity() {
         val overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(20), dp(28), dp(20), dp(18))
+            setPadding(dp(20), dp(12), dp(20), dp(18))
             addView(TextView(this@MainActivity).apply {
                 setText(R.string.map_title); textSize = 28f; typeface = CatClientDisplayTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false
             })
@@ -7043,6 +7056,13 @@ class MainActivity : Activity() {
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
         dialog.show()
     }
+
+    /** True when any VPN (ours or another app's) owns the default route — Zed's deviceVpnActive(). */
+    private fun deviceVpnActive(): Boolean = runCatching {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+    }.getOrDefault(false)
 
     private fun showSpeedTestPage() {
         SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
@@ -10856,7 +10876,7 @@ class MainActivity : Activity() {
                     }
                 }
                 withContext(kotlinx.coroutines.Dispatchers.Main) { measureTunnelPingQuietly() }
-            } else {
+            } else if (!currentVpnStateIsStarted() && !deviceVpnActive()) {
                 getSharedPreferences("cat_client_map", MODE_PRIVATE).edit()
                     .putString("origin_code", info.countryCode.uppercase())
                     .putString("origin_label", listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName).joinToString(", "))
@@ -11350,6 +11370,33 @@ class MainActivity : Activity() {
         val live = currentVpnStateIsStarted()
         downloadBarFill.setRate(rxPerSecond, live)
         uploadBarFill.setRate(txPerSecond, live)
+    }
+
+    /**
+     * Zed StageColumn: the hero stage takes whatever height is left so the Home never scrolls;
+     * it only shrinks (down to 210 dp, blob down to 180 dp) when the viewport is short.
+     */
+    private fun fitHomeStage(scrollView: ScrollView) {
+        val hero = homeHeroFrame ?: return
+        if (homeStageFitting || scrollView.height == 0) return
+        val content = scrollView.getChildAt(0) ?: return
+        val viewport = scrollView.height - scrollView.paddingTop - scrollView.paddingBottom
+        val overflow = content.height - viewport
+        val current = hero.layoutParams.height
+        val full = dp(300)
+        val minStage = dp(210)
+        val target = when {
+            overflow > 0 -> (current - overflow).coerceAtLeast(minStage)
+            overflow < 0 -> (current - overflow).coerceAtMost(full)
+            else -> current
+        }
+        if (target == current) return
+        homeStageFitting = true
+        hero.layoutParams = hero.layoutParams.apply { height = target }
+        val blob = (dp(250) * target / full.toFloat()).toInt().coerceIn(dp(180), dp(250))
+        connectionBlob.layoutParams = (connectionBlob.layoutParams as FrameLayout.LayoutParams).apply { width = blob; height = blob }
+        heroClusterParams?.topMargin = target - dp(95)
+        hero.post { homeStageFitting = false }
     }
 
     /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
