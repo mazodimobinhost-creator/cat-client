@@ -233,6 +233,8 @@ let user;
   T.kvCacheClear();
   const y0 = await (await req('/clash/' + MASTER)).text();
   check('defaults: bypass Iran on, ads off', y0.includes('GEOIP,IR,DIRECT') && y0.includes('GEOSITE,category-ir,DIRECT') && !y0.includes('category-ads-all'));
+  const sb0 = await (await req('/singbox/' + MASTER)).json(); check('fragment is opt-in (off by default)', !sb0.outbounds.some(o=>o.tls_fragment));
+  const x0 = (await (await req('/xray/' + MASTER + '?raw=1&limit=1')).json())[0]; check('xray: no fragment outbound by default', !x0.outbounds.some(o=>o.tag==='fragment') && !x0.outbounds[0].streamSettings.sockopt.dialerProxy);
   const sv = await (await req('/api/settings', { method:'PUT', headers: auth, body:{ blockAds:true, bypassIran:false, fragment:{ enabled:true, packets:'1-3', length:'5-50', interval:'1-2' }, alpn:'h2', cipherSuites:'TLS_AES_128_GCM_SHA256:bad chars!' } })).json();
   check('settings normalise fragment/alpn/ciphers', sv.settings.fragment.packets==='1-3' && sv.settings.fragment.length==='5-50' && sv.settings.alpn==='h2' && sv.settings.cipherSuites==='TLS_AES_128_GCM_SHA256:badchars');
   const y1 = await (await req('/clash/' + MASTER)).text();
@@ -252,6 +254,34 @@ let user;
   const xr2 = (await (await req('/xray/' + MASTER + '?raw=1&limit=1')).json())[0];
   check('xray: iran bypass rules when on', xr2.routing.rules.some(r=>(r.ip||[]).includes('geoip:ir')) && xr2.routing.rules.some(r=>(r.domain||[]).includes('geosite:category-ir')));
   const links = (await (await req('/api/settings', { headers: auth })).json()).links; check('links expose xray', /\/xray\//.test(links.xray));
+}
+
+// telegram bot: webhook secret + admin gate + commands (fetch to Telegram is stubbed)
+{
+  T.kvCacheClear();
+  const token = '123456789:AAHfakeTokenForTestsOnly_abcdefghijk';
+  const sv = await (await req('/api/settings', { method:'PUT', headers: auth, body:{ tgToken: token, tgAdmins: ['42', 'junk'] } })).json();
+  check('tg settings normalised, token masked in response', sv.settings.tgAdmins.join()==='42' && sv.settings.tgToken.startsWith('••••'));
+  const masked = await (await req('/api/settings', { method:'PUT', headers: auth, body:{ tgToken: '••••hijk' } })).json();
+  check('masked token echo does not wipe the real token', masked.settings.tgToken.startsWith('••••'));
+  const secret = await T.tgSecret(token);
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, o) => { if (String(u).includes('api.telegram.org')) { sent.push(JSON.parse(o.body)); return new Response(JSON.stringify({ ok: true, result: { username: 'catbot' } })); } return realFetch(u, o); };
+  const hook = async (text, from, hdr = secret) => req('/tg/' + secret, { method:'POST', headers: { 'x-telegram-bot-api-secret-token': hdr }, body:{ message: { chat: { id: 42 }, from: { id: from }, text } } });
+  check('wrong secret header → 403', (await hook('/users', 42, 'nope')).status === 403);
+  await hook('/users', 7); check('non-admin is refused', sent.pop().text.includes('not allowed'));
+  await hook('/add tguser 30', 42); const added = sent.pop(); check('/add creates user and returns links', added.text.includes('created') && added.text.includes('/u/'));
+  await hook('/users', 42); check('/users lists tguser', sent.pop().text.includes('tguser'));
+  await hook('/renew tguser 10', 42); check('/renew answers', sent.pop().text.includes('🔁'));
+  await hook('/country de', 42); check('/country sets preferred', sent.pop().text.includes('DE') && (await (await req('/api/countries', { headers: auth })).json()).preferred === 'DE');
+  await hook('/del tguser', 42); check('/del removes', sent.pop().text.includes('deleted'));
+  const wh = await (await req('/api/telegram/webhook', { method:'POST', headers: auth })).json();
+  check('webhook registration posts setWebhook with secret', wh.ok && wh.bot==='catbot' && sent.some(b => b.url && b.url.endsWith('/tg/' + secret) && b.secret_token === secret));
+  globalThis.fetch = realFetch;
+  await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'' } });
+  await req('/api/settings', { method:'PUT', headers: auth, body:{ tgToken: '', tgAdmins: [] } });
+  check('tg can be switched off', !(await (await req('/api/telegram', { headers: auth })).json()).configured);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

@@ -5156,8 +5156,12 @@ class MainActivity : Activity() {
         )
         scannerProgressBar.progress = 0
         scannerJob = activityScope.launch {
+            // Dual-stack: probe once whether v6 really works here; if so the v6
+            // ranges join the walk and results of both families are ranked together.
+            val ipv6 = withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
+            if (ipv6) mainHandler.post { scannerStatusText.setText(R.string.scanner_ipv6_detected) }
             val found = runCatching {
-                IpScanner.scan(this@MainActivity, options) { done, total, result ->
+                IpScanner.scan(this@MainActivity, options.copy(includeIpv6 = ipv6)) { done, total, result ->
                     // Called from an IO thread for every finished candidate.
                     mainHandler.post {
                         if (!scannerRunning) return@post
@@ -5496,7 +5500,16 @@ class MainActivity : Activity() {
             return
         }
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip).joinToString(","))
+        // Dual-stack apply: when nothing specific was tapped, take the best v4 AND
+        // the best v6 so the tunnel survives either family dropping.
+        val companions = if (result == null) {
+            val pool = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()).filter { it.tlsOk }
+            val otherFamily = pool.firstOrNull { IpScanner.isIpv6(it.ip) != IpScanner.isIpv6(target.ip) }
+            listOfNotNull(otherFamily?.ip)
+        } else {
+            emptyList()
+        }
+        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip + companions).joinToString(","))
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(

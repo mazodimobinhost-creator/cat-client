@@ -49,6 +49,9 @@ object IpScanner {
         val perRange: Int = DEFAULT_PER_RANGE,
         /** Draw a random host from each slice of the range so repeated scans discover new IPs. */
         val randomSample: Boolean = true,
+        /** Walk IPv6 ranges too. The UI sets this from [hasIpv6Connectivity] so v6
+         * candidates are only spent when the carrier actually routes v6. */
+        val includeIpv6: Boolean = false,
     )
 
     const val DEFAULT_PER_RANGE = 24
@@ -86,10 +89,19 @@ object IpScanner {
         "190.93.240.0/20",
         "197.234.240.0/22",
         "199.27.128.0/21",
-        // IPv6 — only useful when the carrier hands out v6; failures are instant.
-        "2606:4700::/32",
-        "2a06:98c0::/29",
     )
+
+    /** Cloudflare IPv6 blocks; scanned only when the device has working v6. */
+    val IPV6_RANGES: List<String> = listOf("2606:4700::/32", "2a06:98c0::/29")
+
+    /**
+     * True when the device can actually open a v6 TCP connection to Cloudflare —
+     * a routable v6 address on an interface is not enough on many Iranian carriers.
+     */
+    fun hasIpv6Connectivity(timeoutMs: Int = 1200): Boolean =
+        tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null || tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null
+
+    fun isIpv6(value: String): Boolean = value.contains(':')
 
     fun defaultRangesText(): String = DEFAULT_RANGES.joinToString(", ")
 
@@ -400,6 +412,12 @@ object IpScanner {
             BUILTIN_RANGES.forEach { cidr ->
                 ips += expandSubnet(cidr, perRange, options.randomSample)
             }
+        }
+        if (options.includeIpv6) {
+            IPV6_RANGES.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
+        } else {
+            // No usable v6 on this network → drop v6 literals/ranges the user typed too.
+            ips.removeAll { isIpv6(it) }
         }
         if (options.includeIranLibrary) {
             ips += IRAN_LIBRARY

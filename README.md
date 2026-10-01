@@ -239,6 +239,18 @@ show a different country each time you reconnect. Two fixes, both built in:
   scanner now also walks **IPv6 ranges** (`2606:4700::/32`) and **host names**,
   and *Send to Cat Panel* opens the panel with the results pre-filled as `ip#CC`.
 
+**Telegram bot (v6.4) — run the panel from chat**
+
+Settings → *Telegram bot*: paste a @BotFather token + your numeric id(s), Save,
+then *Connect bot* (registers `<origin>/tg/<secret>` as webhook, verified by
+Telegram's secret-token header). Admin-only commands: `/users`, `/add <name> [days]`,
+`/renew <name> [days]`, `/toggle`, `/del`, `/link [name]`, `/ips`, `/country DE|off`,
+`/status`. Nothing runs until you message it; each command is one KV write.
+`TG_BOT_TOKEN` / `TG_ADMIN_ID` env vars work too. Fragment is now opt-in (off by
+default, confirmed in the UI before it is applied). The app scanner probes real
+IPv6 connectivity first and, when present, scans v6 ranges and applies the best
+v4 + v6 pair as fronting.
+
 **Worker environment variables (all optional)**
 
 | Var | Default | Meaning |
@@ -248,6 +260,7 @@ show a different country each time you reconnect. Two fixes, both built in:
 | `PANEL_USER` | — | optional username the login form must match |
 | `CAT_KV` | — | KV binding; without it users/settings live only in memory |
 | `PROXYIP` | built-in list | proxy IPs for Cloudflare-hosted destinations |
+| `TG_BOT_TOKEN` / `TG_ADMIN_ID` | — | Telegram bot token + admin ids (UI settings win) |
 | `CHAIN` | — | `socks5://` / `http://` relay for a fixed exit IP (UI setting wins) |
 | `SNI` | worker host | SNI / Host written into links |
 | `CF_IPS` | — | extra clean IPs / domains for every subscription |
@@ -262,7 +275,7 @@ show a different country each time you reconnect. Two fixes, both built in:
 `/singbox/<uuid>`, `/xray/<uuid>`, `/u/<token>[/clash|/singbox|/xray|/64]`, `/info/<token>`,
 `/qr.svg?text=…`, `/dns-query`, `/health`, `/api/login`, `/api/settings`,
 `/api/users`, `/api/ips`, `/api/backup`, `/api/self`, `/api/geo?ip=`,
-`/api/scan-targets.json`, `/api/chain-test`, `/api/countries`, `/api/proxy-geo`, `/api/colo`, plus the VLESS/Trojan WebSocket paths.
+`/api/scan-targets.json`, `/api/chain-test`, `/api/countries`, `/api/proxy-geo`, `/api/colo`, `/api/telegram[/webhook]`, `/tg/<secret>`, plus the VLESS/Trojan WebSocket paths.
 
 **Panel → app deep links**: `catclient://add-sub?url=…&name=…` imports a
 subscription, `catclient://scan?sni=<panel host>` opens the app's Scanner tab.

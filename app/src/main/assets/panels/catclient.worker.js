@@ -60,7 +60,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.3.0';
+const CAT_PANEL_VERSION = '6.4.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -303,8 +303,10 @@ function defaultSettings() {
     proxyCountries: {},  // proxy ip → ISO-2 (exit for Cloudflare-hosted sites)
     country: '',         // preferred exit country ('' = automatic)
     bypassIran: true,    // Iranian sites/apps go DIRECT (looks like no VPN to them)
+    tgToken: '',         // Telegram bot token (or TG_BOT_TOKEN env)
+    tgAdmins: [],        // Telegram user ids allowed to drive the bot (or TG_ADMIN_ID env)
     blockAds: false,     // ad networks → REJECT (geosite category-ads-all)
-    fragment: { enabled: true, packets: 'tlshello', length: '10-100', interval: '10-20' }, // Xray + sing-box only
+    fragment: { enabled: false, packets: 'tlshello', length: '10-100', interval: '10-20' }, // opt-in; Xray + sing-box only
     alpn: 'http/1.1',    // WS over Cloudflare needs http/1.1; h2 would break the upgrade
     cipherSuites: '',    // Xray tlsSettings.cipherSuites (colon separated), '' = default
     countryFallback: 'auto', // 'auto' = fastest other country when preferred is dead, 'none' = never leave it
@@ -340,10 +342,12 @@ function normalizeSettings(raw) {
   s.country = normalizeCountry(s.country) || '';
   s.countryFallback = s.countryFallback === 'none' ? 'none' : 'auto';
   s.bypassIran = s.bypassIran !== false;
+  s.tgToken = /^\d{6,}:[A-Za-z0-9_-]{20,}$/.test(String(s.tgToken || '').trim()) ? String(s.tgToken).trim() : '';
+  s.tgAdmins = uniq((Array.isArray(s.tgAdmins) ? s.tgAdmins : splitCsv(s.tgAdmins)).map((v) => String(v).trim()).filter((v) => /^-?\d{1,20}$/.test(v))).slice(0, 10);
   s.blockAds = s.blockAds === true;
   const fr = s.fragment && typeof s.fragment === 'object' ? s.fragment : {};
   const rng = (v, dflt) => (/^\d{1,5}(-\d{1,5})?$/.test(String(v || '').trim()) ? String(v).trim() : dflt);
-  s.fragment = { enabled: fr.enabled !== false, packets: ['tlshello', '1-1', '1-2', '1-3', '1-5'].includes(fr.packets) ? fr.packets : 'tlshello', length: rng(fr.length, '10-100'), interval: rng(fr.interval, '10-20') };
+  s.fragment = { enabled: fr.enabled === true, packets: ['tlshello', '1-1', '1-2', '1-3', '1-5'].includes(fr.packets) ? fr.packets : 'tlshello', length: rng(fr.length, '10-100'), interval: rng(fr.interval, '10-20') };
   s.alpn = ['http/1.1', 'h2,http/1.1', 'h2', 'h3,h2,http/1.1'].includes(s.alpn) ? s.alpn : 'http/1.1';
   s.cipherSuites = String(s.cipherSuites || '').replace(/[^A-Za-z0-9_:,]/g, '').slice(0, 2000);
   s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
@@ -2004,6 +2008,110 @@ function blockedSubResponse(reason) {
   return text('subscription ' + reason, 403);
 }
 
+/* ------------------------------------------------------------------ */
+/* Telegram bot — manage the panel from chat (admins only)              */
+/* Costs nothing while idle: Telegram only calls the webhook when YOU    */
+/* send a message; each command = the same single KV write the UI does. */
+/* ------------------------------------------------------------------ */
+
+function tgConfig(env, settings) {
+  const token = (settings && settings.tgToken) || String(env.TG_BOT_TOKEN || '').trim();
+  const admins = ((settings && settings.tgAdmins) || []).concat(splitCsv(env.TG_ADMIN_ID || env.TG_ADMINS));
+  return token ? { token, admins: uniq(admins.map(String)) } : null;
+}
+
+async function tgSecret(token) { return (await sha256Hex('cat-tg:' + token)).slice(0, 32); }
+
+async function tgApi(token, method, body) {
+  const res = await fetch('https://api.telegram.org/bot' + token + '/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+  return res.json().catch(() => ({ ok: false }));
+}
+
+function tgEsc(t) { return String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+/** Executes one bot command; returns HTML text to answer with. */
+async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
+  const parts = String(text || '').trim().split(/\s+/);
+  const cmd = (parts[0] || '').toLowerCase().replace(/@.*$/, '');
+  const arg = parts.slice(1);
+  const users = await readUsers(env);
+  const byName = (q) => { q = String(q || '').toLowerCase(); return users.find((u) => u.id === q || u.id.startsWith(q) || u.name.toLowerCase() === q); };
+  const userLine = (u) => { const r = userBlockedReason(u); const left = u.expiresAt ? Math.ceil((u.expiresAt - Date.now()) / 86400000) + 'd' : '∞'; return (r ? (r === 'expired' ? '⏰' : '⛔') : '🟢') + ' <b>' + tgEsc(u.name) + '</b> · ' + left + ' · <code>' + u.id.slice(0, 8) + '</code>'; };
+  const links = (u) => { const l = subLinks(origin, masterUuid, u); return '🔗 <code>' + tgEsc(l.sub) + '</code>\n🧩 Clash: <code>' + tgEsc(l.clash) + '</code>\n📦 Xray: <code>' + tgEsc(l.xray) + '</code>' + (u ? '\nℹ️ ' + tgEsc(l.info) : ''); };
+  switch (cmd) {
+    case '/start': case '/help':
+      return '🐱 <b>' + tgEsc(panelTitle(env, settings)) + '</b> ' + CAT_PANEL_VERSION + '\n\n' +
+        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info';
+    case '/status': {
+      const c = countrySummary(host, env, settings);
+      return '🌐 ' + tgEsc(host) + '\n👥 users: ' + users.length + '\n🧹 ips: ' + settings.ips.length + '\n🌍 country: ' + (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n🔗 chain: ' + (settings.chain ? 'on' : 'off') + '\n🛡 ads: ' + (settings.blockAds ? 'blocked' : 'off') + ' · iran: ' + (settings.bypassIran ? 'direct' : 'via vpn') + '\n💾 kv: ' + (kvBinding(env) ? 'on' : 'OFF');
+    }
+    case '/users':
+      return users.length ? users.map(userLine).join('\n') : 'no users yet — /add <name> [days]';
+    case '/add': {
+      if (!arg[0]) return 'usage: /add <name> [days]';
+      if (byName(arg[0])) return 'exists: ' + tgEsc(arg[0]);
+      const days = Number(arg[1]) || 0;
+      const user = normalizeUser({ name: arg[0], expiresAt: days ? Date.now() + days * 86400000 : 0 });
+      await writeUsers(env, users.concat([user]));
+      return '✅ created ' + userLine(user) + '\n\n' + links(user);
+    }
+    case '/renew': {
+      const u = byName(arg[0]); if (!u) return 'not found';
+      const days = Number(arg[1]) || 30;
+      const base = u.expiresAt && u.expiresAt > Date.now() ? u.expiresAt : Date.now();
+      const next = normalizeUser(Object.assign({}, u, { expiresAt: base + days * 86400000, enabled: true }));
+      await writeUsers(env, users.map((x) => (x.id === u.id ? next : x)));
+      return '🔁 ' + userLine(next);
+    }
+    case '/toggle': {
+      const u = byName(arg[0]); if (!u) return 'not found';
+      const next = normalizeUser(Object.assign({}, u, { enabled: !u.enabled }));
+      await writeUsers(env, users.map((x) => (x.id === u.id ? next : x)));
+      return (next.enabled ? '▶️ enabled ' : '⏸ disabled ') + userLine(next);
+    }
+    case '/del': {
+      const u = byName(arg[0]); if (!u) return 'not found';
+      await writeUsers(env, users.filter((x) => x.id !== u.id));
+      return '🗑 deleted ' + tgEsc(u.name);
+    }
+    case '/link': {
+      if (!arg[0]) return '👑 master\n' + links(null);
+      const u = byName(arg[0]); if (!u) return 'not found';
+      return userLine(u) + '\n' + links(u);
+    }
+    case '/ips':
+      return settings.ips.length ? settings.ips.map((ip) => '<code>' + tgEsc(ip) + '</code>' + (settings.ipCountries[ip] ? ' ' + flagOf(settings.ipCountries[ip]) : '')).join('\n') : 'empty — paste ip#CC lines in the panel or send: /ips add 1.2.3.4#DE';
+    case '/country': {
+      if (!arg[0]) { const c = countrySummary(host, env, settings); return (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n' + c.countries.map((x) => x.label + ' · ' + x.addresses.length).join('\n'); }
+      const cc = arg[0].toLowerCase() === 'off' ? '' : normalizeCountry(arg[0]);
+      if (arg[0].toLowerCase() !== 'off' && !cc) return 'usage: /country DE  |  /country off';
+      await writeSettings(env, { country: cc });
+      return cc ? '🌍 preferred country → ' + flagOf(cc) + ' ' + cc : '🌍 country → auto';
+    }
+    default:
+      return 'unknown command — /help';
+  }
+}
+
+async function handleTelegramWebhook(request, url, env, settings, masterUuid) {
+  const cfg = tgConfig(env, settings);
+  if (!cfg) return json({ ok: false, error: 'telegram not configured' }, 404);
+  const secret = await tgSecret(cfg.token);
+  if (url.pathname !== '/tg/' + secret || request.headers.get('x-telegram-bot-api-secret-token') !== secret) return json({ ok: false }, 403);
+  const update = (await readJsonBody(request)) || {};
+  const msg = update.message || update.edited_message || {};
+  const chatId = msg.chat && msg.chat.id;
+  const fromId = msg.from && String(msg.from.id);
+  if (!chatId || !msg.text) return json({ ok: true, ignored: true });
+  let reply;
+  if (!cfg.admins.length) reply = '⚠️ no admin configured. Your id: <code>' + tgEsc(fromId) + '</code> — put it in panel → Telegram → admins.';
+  else if (!cfg.admins.includes(fromId)) reply = '⛔ not allowed';
+  else reply = await tgCommand(msg.text, { origin: url.origin, host: url.hostname, env, settings, masterUuid });
+  await tgApi(cfg.token, 'sendMessage', { chat_id: chatId, text: reply, parse_mode: 'HTML', disable_web_page_preview: true });
+  return json({ ok: true });
+}
+
 async function handleApi(request, url, env, ctx) {
   const path = url.pathname;
   const method = request.method.toUpperCase();
@@ -2056,7 +2164,8 @@ async function handleApi(request, url, env, ctx) {
         kv: !!kvBinding(env),
         open: panelIsOpen(env, settings),
         passwordSource: (await panelPassword(env, settings, masterUuid)).source,
-        settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash }),
+        settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '' }),
+        telegram: { configured: !!tgConfig(env, settings) },
         defaults: { addresses: DEFAULT_CLEAN_ADDRESSES, proxyIps: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
         links: subLinks(origin, masterUuid, null),
         paths: tunnelPaths(env),
@@ -2071,6 +2180,7 @@ async function handleApi(request, url, env, ctx) {
       const body = (await readJsonBody(request)) || {};
       const patch = Object.assign({}, body);
       delete patch.passwordHash;
+      if (typeof patch.tgToken === 'string' && /^•/.test(patch.tgToken)) delete patch.tgToken;
       if (typeof body.password === 'string') {
         patch.passwordHash = body.password.trim() ? await sha256Hex(body.password.trim()) : '';
       }
@@ -2081,7 +2191,7 @@ async function handleApi(request, url, env, ctx) {
         // Password changed → old sessions die; hand back a fresh one.
         extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid));
       }
-      return json({ ok: true, persisted: saved.persisted, settings: Object.assign({}, saved.settings, { passwordHash: undefined, hasPassword: !!saved.settings.passwordHash }) }, 200, extra);
+      return json({ ok: true, persisted: saved.persisted, settings: Object.assign({}, saved.settings, { passwordHash: undefined, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '' }) }, 200, extra);
     }
     return json({ ok: false, error: 'method' }, 405);
   }
@@ -2194,6 +2304,20 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, persisted: saved.persisted, proxyCountries: saved.settings.proxyCountries, found });
   }
 
+  if (path === '/api/telegram' && method === 'GET') {
+    const cfg = tgConfig(env, settings);
+    return json({ ok: true, configured: !!cfg, admins: cfg ? cfg.admins : [], fromEnv: !settings.tgToken && !!env.TG_BOT_TOKEN });
+  }
+  if (path === '/api/telegram/webhook' && method === 'POST') {
+    // Owner click: register <origin>/tg/<secret> with Telegram (one subrequest).
+    const cfg = tgConfig(env, settings);
+    if (!cfg) return json({ ok: false, error: 'set the bot token first' }, 400);
+    const secret = await tgSecret(cfg.token);
+    const r = await tgApi(cfg.token, 'setWebhook', { url: origin + '/tg/' + secret, secret_token: secret, allowed_updates: ['message'], drop_pending_updates: true });
+    const me = r.ok ? await tgApi(cfg.token, 'getMe', {}) : null;
+    return json({ ok: !!r.ok, description: r.description || '', bot: me && me.ok ? me.result.username : '' }, r.ok ? 200 : 502);
+  }
+
   if (path === '/api/chain-test' && method === 'POST') {
     // One outbound connection through the chain; reports whether the handshake
     // works. Costs the owner one click, never runs on its own.
@@ -2265,6 +2389,7 @@ async function handleRequest(request, env, ctx) {
 
   if (path === '/dns-query') return handleDoh(request, env);
   if (path === '/robots.txt') return text('User-agent: *\nDisallow: /\n');
+  if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) return handleApi(request, url, env, ctx);
 
   if (path === '/qr.svg' || path === '/qr') {
@@ -2710,6 +2835,14 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </div>
   <div class="small dim" data-i="s_frag_hint"></div>
   <div class="hr"></div>
+  <label><span data-i="s_tg"></span> <span class="chip" id="tgState"></span></label>
+  <div class="two">
+   <div><label>Bot token</label><input name="tgToken" class="mono" dir="ltr" placeholder="123456:ABC…"></div>
+   <div><label data-i="s_tg_admins"></label><input name="tgAdmins" class="mono" dir="ltr" placeholder="123456789, 987654321"></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnTgHook" data-i="s_tg_hook"></button><span class="small mute" id="tgHookOut"></span></div>
+  <div class="small dim" data-i="s_tg_hint"></div>
+  <div class="hr"></div>
   <label><span data-i="s_chain"></span> <span class="chip" id="chainState"></span></label>
   <input name="chain" class="mono" dir="ltr" data-ph="s_chain_ph">
   <div class="small dim" data-i="s_chain_hint"></div>
@@ -2800,7 +2933,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در 
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
-s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
+s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
@@ -2821,7 +2954,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guid
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
-s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
+s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
@@ -2870,7 +3003,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');f.elements.chain.value=s.chain||'';$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -2886,12 +3019,14 @@ $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('chang
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
 document.addEventListener('click',function(e){var b=e.target.closest('[data-cc]');if(!b)return;api('/api/countries',{method:'PUT',body:{country:b.getAttribute('data-cc')}}).then(function(){toast(t('saved'));return load()}).catch(function(){toast('error',true)})});
 document.addEventListener('change',function(e){var sel=e.target.closest('[data-ipcc]');if(!sel)return;var ip=sel.getAttribute('data-ipcc'),cc=sel.value;var body=cc?{ipCountries:{}}:{clearIp:ip};if(cc)body.ipCountries[ip]=cc;api('/api/countries',{method:'PUT',body:body}).then(function(){return load()}).catch(function(){toast('error',true)})});
+$('#btnTgHook').addEventListener('click',function(){var o=$('#tgHookOut');o.textContent='…';api('/api/telegram/webhook',{method:'POST'}).then(function(j){o.textContent=j.ok?'🟢 @'+j.bot:'🔴 '+(j.error||j.description||'');return load()}).catch(function(){o.textContent='🔴'})});
+$('#swFrag').addEventListener('click',function(){if($('#swFrag').classList.contains('on')&&!confirm(t('s_frag_confirm'))){$('#swFrag').classList.remove('on')}});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
 $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms':'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
@@ -3008,7 +3143,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,

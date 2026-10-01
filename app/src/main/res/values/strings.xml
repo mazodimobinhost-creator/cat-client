@@ -615,6 +615,7 @@
     <string name="scanner_build_no_panel">No panel subscription matches SNI “%1$s”. Import your panel’s /sub/UUID link first (Cloud tab → Import), or apply the fastest IP as a fronting address instead.</string>
     <string name="scanner_build_apply_fronting">Apply as fronting</string>
     <string name="scanner_build_sub_name">Cat Scan · %1$s</string>
+    <string name="scanner_ipv6_detected">IPv6 works on this network — scanning IPv4 + IPv6…</string>
     <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
     <string name="scanner_sent_panel">%1$d addresses sent to the panel — press “Append” there</string>
     <string name="scanner_copied_panel">%1$d addresses copied as addr#CC — paste them into the panel’s IP box</string>
