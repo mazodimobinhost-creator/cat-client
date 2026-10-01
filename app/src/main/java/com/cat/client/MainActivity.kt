@@ -255,6 +255,15 @@ class MainActivity : Activity() {
     private lateinit var frontingIpInputLayout: TextInputLayout
     private lateinit var frontingIpErrorText: TextView
     private lateinit var refreshActionButton: MaterialButton
+    private lateinit var connectionBlob: ZedBlobView
+    private lateinit var heroStateText: TextView
+    private lateinit var downloadBarFill: View
+    private lateinit var uploadBarFill: View
+    private lateinit var downloadTotalText: TextView
+    private lateinit var uploadTotalText: TextView
+    private var homeBackdrop: View? = null
+    private var sessionRxStartBytes = -1L
+    private var sessionTxStartBytes = -1L
     private lateinit var subscriptionsList: LinearLayout
     private lateinit var vpnTabContent: View
     private lateinit var subscriptionsTabContent: View
@@ -2365,27 +2374,66 @@ class MainActivity : Activity() {
             }
         }
 
-        // Centered product header
+        // ZedSecure brand header: status chip · log icon · spacer · app name.
+        statusDot = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(palette.neutral)
+            }
+        }
+        statusText = TextView(this).apply {
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+        }
+        val statusChip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(withAlpha(palette.surfaceElevated2, 230))
+            }
+            addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(8) })
+            addView(statusText, LinearLayout.LayoutParams(-2, -2))
+        }
+        fun headerIconButton(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: () -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(withAlpha(palette.surfaceElevated2, 230))
+            }
+            setOnClickListener { onClick() }
+        }
         val headerBlock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            gravity = Gravity.CENTER
-            setPadding(dp(9), dp(4), dp(9), dp(4))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            addView(statusChip, LinearLayout.LayoutParams(-2, -2))
+            addView(
+                headerIconButton(R.drawable.ic_connection_test, R.string.diagnostics_copy) { copyDiagnosticsToClipboard() },
+                LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginStart = dp(8) },
+            )
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f))
             addView(TextView(this@MainActivity).apply {
                 text = "Cat Client"
-                textSize = 14.5f
+                textSize = 17f
                 typeface = CatClientDisplayTypeface
                 setTextColor(TEXT_PRIMARY)
                 includeFontPadding = false
                 letterSpacing = -0.01f
             })
-            addView(TextView(this@MainActivity).apply {
-                text = BuildConfig.VERSION_NAME
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(palette.textTertiary)
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(9) })
         }
 
         // New segmented tab switcher with rounded corners
@@ -2489,42 +2537,26 @@ class MainActivity : Activity() {
         connectActionButton = MaterialButton(this).apply {
             setText(R.string.connect_action_connect)
             setAllCaps(false)
-            textSize = 16f
+            textSize = 17f
             typeface = CatClientBodyBoldTypeface
             minWidth = 0
             minimumWidth = 0
-            minHeight = dp(56)
-            minimumHeight = dp(56)
+            minHeight = dp(64)
+            minimumHeight = dp(64)
             insetTop = 0
             insetBottom = 0
             setPadding(dp(30), 0, dp(30), 0)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 60))
-            elevation = dp(4).toFloat()
+            rippleColor = ColorStateList.valueOf(withAlpha(palette.onAccent, 40))
+            elevation = 0f
             stateListAnimator = null
             backgroundTintList = null
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(28).toFloat()
-                setColor(withAlpha(SURFACE, 235))
-                setStroke(dp(1), withAlpha(OUTLINE, 210))
+                cornerRadius = dp(30).toFloat()
+                setColor(TEAL)
             }
-            setTextColor(TEAL)
+            setTextColor(palette.onAccent)
             setOnClickListener { handleButtonClick() }
-        }
-        statusDot = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(palette.neutral)
-            }
-        }
-        statusText = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            textSize = 13f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
         }
         publicServerNotice = TextView(this).apply {
             setText(R.string.notification_connected_public)
@@ -2542,30 +2574,31 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
             text = "00:00:00"
-            textSize = 15f
+            textSize = 13f
             letterSpacing = 0.02f
             typeface = CatClientDataTypeface
             setTextColor(TEXT_SECONDARY)
             includeFontPadding = false
+            visibility = View.GONE // the elapsed time is rendered inside the hero blob
         }
         downloadSpeedText = TextView(this).apply {
             text = "0 B/s"
-            gravity = Gravity.END
+            gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
+            textSize = 24f
             typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
+            setTextColor(TEAL)
             includeFontPadding = false
         }
         uploadSpeedText = TextView(this).apply {
             text = "0 B/s"
-            gravity = Gravity.END
+            gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
+            textSize = 24f
             typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
+            setTextColor(TEAL)
             includeFontPadding = false
         }
         connectionRealIpText = TextView(this).apply {
@@ -2635,68 +2668,6 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
 
-        // Animated arrow icons for download/upload
-        downloadArrowIcon = AnimatedArrowIcon(this, isDownload = true)
-        uploadArrowIcon = AnimatedArrowIcon(this, isDownload = false)
-
-        // Speed stats row with animated arrow icons - matching the design
-        fun speedStatRow(label: String, value: TextView, isDownload: Boolean, arrowIcon: AnimatedArrowIcon): View = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            // Arrow icon + label on left
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                // Animated arrow icon
-                addView(arrowIcon, LinearLayout.LayoutParams(dp(13), dp(13)))
-                addView(TextView(this@MainActivity).apply {
-                    text = label
-                    textSize = 11.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            // Value on right
-            addView(value, LinearLayout.LayoutParams(-2, -2))
-        }
-        fun kpiCard(label: String, value: TextView, accent: Boolean): LinearLayout =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                gravity = Gravity.CENTER_VERTICAL
-                background = glassSurfaceDrawable(radiusDp = 14)
-                clipToOutline = true
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 11f
-                        typeface = CatClientBodyTypeface
-                        setTextColor(TEXT_SECONDARY)
-                        includeFontPadding = false
-                    },
-                    LinearLayout.LayoutParams(-2, -2),
-                )
-                addView(
-                    value,
-                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-                )
-                if (accent) {
-                    addView(
-                        View(this@MainActivity).apply {
-                            background = GradientDrawable().apply {
-                                shape = GradientDrawable.RECTANGLE
-                                cornerRadius = dp(2).toFloat()
-                                setColor(withAlpha(TEAL, 140))
-                            }
-                        },
-                        LinearLayout.LayoutParams(dp(28), dp(3)).apply { topMargin = dp(8) },
-                    )
-                }
-            }
         pingValueText = TextView(this).apply {
             text = "—"
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -2715,212 +2686,235 @@ class MainActivity : Activity() {
             setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
-        // 2 x 2 KPI grid: download / upload / ping / uptime
-        val speedStatsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.metric_download), downloadSpeedText, true),
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.metric_upload), uploadSpeedText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.home_ping_label), pingValueText, false).apply {
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { runTunnelPing() }
-                        },
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.home_uptime_label), uptimeValueText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-            )
-        }
-
         // Reconnect button - initialize before signalSection
         refreshActionButton = MaterialButton(this).apply {
-            setText(R.string.action_reconnect)
-            textSize = 11f
-            typeface = CatClientBodyBoldTypeface
-            minHeight = dp(44)
-            minimumHeight = dp(44)
+            text = ""
+            minHeight = 0
+            minimumHeight = 0
             minWidth = 0
             minimumWidth = 0
             insetTop = 0
             insetBottom = 0
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            cornerRadius = dp(12)
+            setPadding(0, 0, 0, 0)
+            cornerRadius = dp(26)
             strokeWidth = 0
             elevation = 0f
             stateListAnimator = null
-            setAllCaps(false)
             setIconResource(R.drawable.ic_refresh)
-            iconSize = dp(14)
+            iconSize = dp(22)
+            iconPadding = 0
             iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            iconPadding = dp(4)
             visibility = View.INVISIBLE  // Use INVISIBLE to preserve space and prevent UI jump
             setOnClickListener { handleRefreshClick() }
         }
 
-        // Row with reconnect button on left and timer on right
-        val timerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            // Reconnect button on left
-            addView(
-                refreshActionButton,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-            // Spacer
-            addView(
-                View(this@MainActivity),
-                LinearLayout.LayoutParams(0, 0, 1f),
-            )
-            // Timer on right
-            addView(
-                timerText,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-        }
-
-        val statusCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(withAlpha(SURFACE, 200))
-                setStroke(dp(1), withAlpha(OUTLINE, 180))
+        // ---- ZedSecure hero: blob core with the elapsed time inside, big state word under it,
+        // two round quick actions floating at the right edge (ping all · reconnect).
+        connectionBlob = ZedBlobView(this).apply {
+            setOnClickListener { handleButtonClick() }
+            setOnLongClickListener {
+                copyDiagnosticsToClipboard()
+                true
             }
-            addView(timerRow, LinearLayout.LayoutParams(-1, dp(44)))
+        }
+        heroStateText = TextView(this).apply {
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textSize = 34f
+            typeface = CatClientDisplayTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            letterSpacing = -0.02f
+        }
+        fun roundAction(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: () -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(13), dp(13), dp(13), dp(13))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(withAlpha(palette.surfaceElevated2, 235))
+            }
+            setOnClickListener { onClick() }
+        }
+        val heroCluster = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             addView(
-                View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    topMargin = dp(8)
-                    bottomMargin = dp(8)
+                roundAction(R.drawable.ic_speedometer, R.string.action_ping_all) { runPingAll(autoConnect = false) },
+                LinearLayout.LayoutParams(dp(52), dp(52)),
+            )
+            addView(refreshActionButton, LinearLayout.LayoutParams(dp(52), dp(52)).apply { topMargin = dp(10) })
+        }
+        val heroFrame = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+            addView(
+                connectionBlob,
+                FrameLayout.LayoutParams(dp(232), dp(232)).apply { gravity = Gravity.CENTER },
+            )
+            addView(
+                heroCluster,
+                FrameLayout.LayoutParams(-2, -2).apply {
+                    gravity = Gravity.END or Gravity.BOTTOM
+                    marginEnd = dp(4)
+                    bottomMargin = dp(14)
                 },
             )
-            addView(speedStatsRow, LinearLayout.LayoutParams(-1, dp(44)))
         }
-
         val signalSection = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            // Allow particles to extend beyond this layout's bounds
             clipChildren = false
             clipToPadding = false
-            // Route globe first; the connect action now lives below it rather than inside the orb.
-            addView(
-                connectionGlobe,
-                LinearLayout.LayoutParams(-1, dp(238)),
-            )
-            addView(
-                connectActionButton,
-                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) },
-            )
-            // Visible actions: ping through the ACTIVE config (like v2rayNG /
-            // V2Box) and a manual IP re-check so the dashboard can be synced
-            // with any "what is my ip" site at a glance.
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_test) { runTunnelPing() }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.ip_refresh) { refreshDashboardIp() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Bulk actions: ping EVERY config (like v2rayNG Ping All) and
-            // connect straight to the fastest one.
+            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(272)))
+            addView(heroStateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+
+        // ---- Location pill (ZedSecure ConnectionInfoPill): flag · city/country · exit IP · ping · chevron.
+        connectionCountryText.textSize = 14f
+        connectionCountryText.typeface = CatClientBodyBoldTypeface
+        connectionCountryText.setTextColor(TEXT_PRIMARY)
+        connectionCountryText.maxLines = 1
+        connectionCountryText.ellipsize = TextUtils.TruncateAt.END
+        pingValueText.textSize = 12f
+        pingValueText.setTextColor(TEAL)
+        val locationPill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(22).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 235))
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { refreshDashboardIp() }
             addView(
                 LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
+                    orientation = LinearLayout.VERTICAL
                     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.action_connect_best) { runPingAll(autoConnect = true) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                    addView(connectionCountryText, LinearLayout.LayoutParams(-1, -2))
+                    addView(
+                        LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                            addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2))
+                            addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                        },
+                        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
+                    )
                 },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+                LinearLayout.LayoutParams(0, -2, 1f),
             )
+            addView(pingValueText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(7) })
-                    addView(statusText, LinearLayout.LayoutParams(-2, -2))
-                    addView(connectionCountryText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+                TextView(this@MainActivity).apply {
+                    text = "›"
+                    textSize = 22f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_SECONDARY)
+                    includeFontPadding = false
                 },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) },
+            )
+        }
+
+        // ---- Traffic tiles (ZedSecure CardsTrafficPanel): label · big rate · bar · session total.
+        fun trafficTile(labelRes: Int, glyph: String, value: TextView, total: TextView, bar: View): LinearLayout =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(22).toFloat()
+                    setColor(withAlpha(palette.surfaceElevated1, 235))
+                }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = glyph
+                                textSize = 11f
+                                gravity = Gravity.CENTER
+                                typeface = CatClientBodyBoldTypeface
+                                setTextColor(TEAL)
+                                includeFontPadding = false
+                                background = GradientDrawable().apply {
+                                    shape = GradientDrawable.RECTANGLE
+                                    cornerRadius = dp(6).toFloat()
+                                    setColor(withAlpha(TEAL, 46))
+                                }
+                            },
+                            LinearLayout.LayoutParams(dp(20), dp(20)),
+                        )
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = getString(labelRes).uppercase(Locale.getDefault())
+                                textSize = 11f
+                                letterSpacing = 0.06f
+                                typeface = CatClientBodyBoldTypeface
+                                setTextColor(TEXT_SECONDARY)
+                                includeFontPadding = false
+                            },
+                            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+                        )
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+                addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+                addView(
+                    FrameLayout(this@MainActivity).apply {
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = dp(3).toFloat()
+                            setColor(withAlpha(palette.outline, 150))
+                        }
+                        addView(bar, FrameLayout.LayoutParams(dp(6), -1))
+                    },
+                    LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(12) },
+                )
+                addView(total, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            }
+        fun barFill() = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(3).toFloat()
+                setColor(TEAL)
+            }
+        }
+        fun totalText() = TextView(this).apply {
+            text = "0 B"
+            textSize = 12f
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+        }
+        downloadBarFill = barFill()
+        uploadBarFill = barFill()
+        downloadTotalText = totalText()
+        uploadTotalText = totalText()
+        val trafficRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                trafficTile(R.string.metric_download, "↓", downloadSpeedText, downloadTotalText, downloadBarFill),
+                LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
-                publicServerNotice,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Connection status and traffic metrics
-            addView(
-                statusCard,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
+                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill),
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) },
             )
         }
 
@@ -3027,28 +3021,17 @@ class MainActivity : Activity() {
         homeUsageCard = buildHomeUsageCard()
 
         dashboardContent.apply {
-            addView(
-                headerBlock,
-                contentParams(dp(34)),
-            )
-            addView(
-                signalSection,
-                contentParams(dp(24)),
-            )
-            // VPN/Proxy tab switcher
-            addView(
-                connectionModeGroup,
-                contentParams(dp(16)),
-            )
-            addView(
-                dataRows,
-                contentParams(dp(16)),
-            )
-            addView(
-                homeUsageCard,
-                contentParams(dp(16)),
-            )
+            addView(headerBlock, contentParams(dp(12)))
+            addView(locationPill, contentParams(dp(14)))
+            addView(signalSection, contentParams(dp(10)))
+            addView(trafficRow, contentParams(dp(14)))
+            addView(dataRows, contentParams(dp(14)))
+            addView(connectActionButton, contentParams(dp(14)))
+            addView(connectionModeGroup, contentParams(dp(14)))
+            addView(homeUsageCard, contentParams(dp(14)))
         }
+        homeBackdrop = scrollView
+        applyHomeBackdrop(VpnState.Stopped)
         renderHomeUsageCard()
         viewport.addView(
             dashboardContent,
@@ -10634,6 +10617,12 @@ class MainActivity : Activity() {
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
+        if (::connectionBlob.isInitialized) {
+            connectionBlob.setVpnState(state)
+            if (state != VpnState.Started) connectionBlob.setCenterText("C")
+        }
+        if (::heroStateText.isInitialized) heroStateText.text = getString(presentation.titleRes)
+        applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
         connectActionButton.contentDescription = getString(buttonModel.labelRes())
@@ -10648,7 +10637,7 @@ class MainActivity : Activity() {
             }
         )
         statusText.text = getString(presentation.titleRes)
-        statusText.setTextColor(TEXT_SECONDARY)
+        statusText.setTextColor(TEXT_PRIMARY)
         timerText.setTextColor(if (state == VpnState.Started) TEXT_PRIMARY else TEXT_SECONDARY)
         val live = liveGeo?.takeIf { state == VpnState.Started }
         connectionCountryText.text = when {
@@ -10727,14 +10716,12 @@ class MainActivity : Activity() {
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
         // Glass reconnect action with the Cat accent.
-        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 34 else 24))
-        refreshActionButton.strokeWidth = dp(1)
-        refreshActionButton.strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 120))
-        refreshActionButton.elevation = dp(1).toFloat()
+        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 235))
+        refreshActionButton.strokeWidth = 0
+        refreshActionButton.elevation = 0f
         refreshActionButton.stateListAnimator = null
         refreshActionButton.rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
-        refreshActionButton.setTextColor(ColorStateList.valueOf(TEAL))
-        refreshActionButton.iconTint = ColorStateList.valueOf(TEAL)
+        refreshActionButton.iconTint = ColorStateList.valueOf(TEXT_PRIMARY)
         val settingsEnabled = state != VpnState.Starting && state != VpnState.Stopping
         locationSelectorRow.isEnabled = settingsEnabled
         connectionSelectorRow.isEnabled = settingsEnabled
@@ -10791,6 +10778,9 @@ class MainActivity : Activity() {
         val isActive = buttonModel.state == VpnState.Started && sessionStartedAtElapsedMs > 0L
         timerText.setTextColor(if (isActive) TEXT_PRIMARY else TEXT_SECONDARY)
         timerText.text = formatDuration(elapsedMs)
+        if (::connectionBlob.isInitialized && buttonModel.state == VpnState.Started) {
+            connectionBlob.setCenterText(formatDuration(elapsedMs).removePrefix("00:"))
+        }
     }
 
     private fun toggleAppTheme() {
@@ -10816,23 +10806,71 @@ class MainActivity : Activity() {
 
         if (lastTransferSampleElapsedMs > 0L && nowElapsedMs > lastTransferSampleElapsedMs) {
             val elapsedMs = nowElapsedMs - lastTransferSampleElapsedMs
-            downloadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs))
-            uploadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs))
+            val rx = bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs)
+            val tx = bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs)
+            downloadSpeedText.text = formatTransferSpeed(rx)
+            uploadSpeedText.text = formatTransferSpeed(tx)
+            renderTrafficBars(rx, tx)
         } else {
+            if (sessionRxStartBytes < 0L) {
+                sessionRxStartBytes = rxBytes
+                sessionTxStartBytes = txBytes
+            }
             downloadSpeedText.text = formatTransferSpeed(0L)
             uploadSpeedText.text = formatTransferSpeed(0L)
         }
         lastTransferRxBytes = rxBytes
         lastTransferTxBytes = txBytes
         lastTransferSampleElapsedMs = nowElapsedMs
+        if (::downloadTotalText.isInitialized && sessionRxStartBytes >= 0L) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes((rxBytes - sessionRxStartBytes).coerceAtLeast(0L))
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes((txBytes - sessionTxStartBytes).coerceAtLeast(0L))
+        }
+    }
+
+    /** Bar length grows logarithmically with the rate (ZedSecure rateFraction): 1 KB/s → ~0, 10 MB/s → full. */
+    private fun renderTrafficBars(rxPerSecond: Long, txPerSecond: Long) {
+        if (!::downloadBarFill.isInitialized) return
+        fun fraction(bytesPerSecond: Long): Float {
+            if (bytesPerSecond <= 1_024L) return 0.04f
+            val log = kotlin.math.log10(bytesPerSecond.toDouble() / 1_024.0) // 0 at 1 KB/s, 4 at 10 MB/s
+            return (0.04 + 0.96 * (log / 4.0)).coerceIn(0.04, 1.0).toFloat()
+        }
+        fun apply(bar: View, fraction: Float) {
+            val parentWidth = (bar.parent as? View)?.width ?: return
+            val target = (parentWidth * fraction).toInt().coerceAtLeast(dp(6))
+            val lp = bar.layoutParams
+            if (lp.width != target) {
+                lp.width = target
+                bar.layoutParams = lp
+            }
+        }
+        apply(downloadBarFill, fraction(rxPerSecond))
+        apply(uploadBarFill, fraction(txPerSecond))
+    }
+
+    /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
+    private fun applyHomeBackdrop(state: VpnState) {
+        val backdrop = homeBackdrop ?: return
+        val colors = when (state) {
+            VpnState.Started -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), 0xFF1F6F7A.toInt(), ZedBlobView.ZED_CYAN)
+            VpnState.Starting, VpnState.Stopping -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), BACKGROUND, BACKGROUND)
+            else -> null
+        }
+        backdrop.background = if (colors == null) null else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors)
     }
 
     private fun resetTransferSpeeds() {
         lastTransferRxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferTxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferSampleElapsedMs = 0L
+        sessionRxStartBytes = -1L
+        sessionTxStartBytes = -1L
+        if (::downloadBarFill.isInitialized) renderTrafficBars(0L, 0L)
+        if (::downloadTotalText.isInitialized) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+        }
         if (::downloadSpeedText.isInitialized) {
             downloadSpeedText.text = formatTransferSpeed(0L)
             uploadSpeedText.text = formatTransferSpeed(0L)
