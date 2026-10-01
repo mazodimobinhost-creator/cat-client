@@ -741,7 +741,7 @@
     <string name="accent_lavender">بنفش روشن</string>
     <string name="accent_lime">لیمویی</string>
     <string name="accent_cyan">فیروزه‌ای</string>
-    <string name="accent_pink">صورتی</string>
+    <string name="accent_theme_pink">صورتی</string>
     <string name="accent_amber">کهربایی</string>
     <string name="accent_sky">آبی</string>
     <string name="dock_home">خانه</string>

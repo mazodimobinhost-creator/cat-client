@@ -742,7 +742,7 @@
     <string name="accent_lavender">Lavender</string>
     <string name="accent_lime">Lime</string>
     <string name="accent_cyan">Cyan</string>
-    <string name="accent_pink">Pink</string>
+    <string name="accent_theme_pink">Pink</string>
     <string name="accent_amber">Amber</string>
     <string name="accent_sky">Sky</string>
     <string name="dock_home">Home</string>
