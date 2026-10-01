@@ -2429,6 +2429,7 @@ class CatClientVpnService : VpnService() {
                     lastSelectedProfile = scanStateStore.readLastSelectedProfile(candidates),
                     excludedFingerprint = excludedProfileFingerprint,
                     limit = CleanIpDefaults.STARTUP_RUNTIME_ATTEMPTS.coerceAtLeast(1),
+                    sticky = getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("sticky_location", true),
                 )
                 var lastFailure: Throwable? = null
                 for ((index, candidate) in orderedCandidates.withIndex()) {

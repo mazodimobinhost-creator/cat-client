@@ -81,6 +81,9 @@ import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.Size
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
@@ -4866,6 +4869,12 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
         )
 
+        // ---- Static IP: exactly one fronting address, never rotated / failed-over / re-ranked ----
+        body.addView(buildStaticIpCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
+        // ---- SNI scanner: which SNI works best (fastest TLS) with the active IP ----
+        body.addView(buildSniScannerCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
         // ---- live IP health: auto-refresh the pool and replace broken IPs ----
         val ipHealthStore = IpHealthStore(this)
         val healthCard = advancedSettingsPanel()
@@ -5626,6 +5635,16 @@ class MainActivity : Activity() {
         val shown = groups.firstOrNull { it.key.equals(store.preferredCountry, true) && it.key.isNotBlank() }
             ?: groups.firstOrNull { g -> active != null && g.value.any { it.ip == active } }
             ?: groups.firstOrNull()
+        if (shown != null && shown.key.isNotBlank()) {
+            row.addView(MaterialButton(this).apply {
+                text = getString(R.string.multi_location_use, shown.key.toFlagEmoji(), shown.value.firstNotNullOfOrNull { it.countryName } ?: shown.key)
+                setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(34); minimumHeight = dp(34)
+                insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34)); strokeWidth = dp(1); strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130)); setTextColor(TEAL)
+                isEnabled = !staticIpEnabled()
+                setOnClickListener { useCountryIps(shown.key) }
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+        }
         if (shown != null) {
             row.addView(TextView(this).apply {
                 textSize = 11.5f
@@ -7311,6 +7330,193 @@ class MainActivity : Activity() {
         val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
         caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
     }.getOrDefault(false)
+
+
+    /* ------------------------------------------------------------------ */
+    /* Static IP + multi-location + SNI scanner (Scanner tab)               */
+    /* ------------------------------------------------------------------ */
+
+    private fun staticIpEnabled(): Boolean = IpHealthStore(this).pinned && frontingIps.size == 1
+
+    private fun applyStaticIp(ip: String): Boolean {
+        val normalized = runCatching { FrontingIpPolicy.normalizeIps(ip) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return false
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = normalized.take(1)
+        IpHealthStore(this).pinned = true
+        NetworkGenomeStore(this).autoFailover = false
+        startIpHealthLoop() // no-op while pinned; stops a running loop
+        renderFrontingIpChips()
+        return saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
+    }
+
+    private fun clearStaticIp() {
+        IpHealthStore(this).pinned = false
+        NetworkGenomeStore(this).autoFailover = true
+        startIpHealthLoop()
+    }
+
+    private fun buildStaticIpCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(advancedSectionLabel(getString(R.string.static_ip_title)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(6) })
+        card.addView(advancedSectionDetail(getString(R.string.static_ip_desc)), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        val input = scannerInput(getString(R.string.static_ip_hint), if (staticIpEnabled()) frontingIps.first() else "")
+        card.addView(scannerFieldLayout(getString(R.string.static_ip_label), input), LinearLayout.LayoutParams(-1, -2))
+        val status = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(dp(8), dp(8), dp(8), 0)
+        }
+        fun renderStatus() {
+            status.text = if (staticIpEnabled()) getString(R.string.static_ip_on, frontingIps.first()) else getString(R.string.static_ip_off)
+        }
+        renderStatus()
+        card.addView(status, LinearLayout.LayoutParams(-1, -2))
+        val toggle = MaterialSwitch(this).apply {
+            isChecked = staticIpEnabled()
+            setOnCheckedChangeListener { _, checked ->
+                if (checked) {
+                    val value = input.text?.toString()?.trim().orEmpty().ifBlank { frontingIps.firstOrNull().orEmpty() }
+                    if (value.isBlank() || !applyStaticIp(value)) {
+                        isChecked = false
+                        Toast.makeText(this@MainActivity, R.string.static_ip_invalid, Toast.LENGTH_SHORT).show()
+                    } else {
+                        input.setText(frontingIps.first())
+                        Toast.makeText(this@MainActivity, getString(R.string.static_ip_on, frontingIps.first()), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    clearStaticIp()
+                }
+                renderStatus()
+                renderScannerIpHealth()
+            }
+        }
+        card.addView(advancedToggleRow(getString(R.string.static_ip_switch), getString(R.string.static_ip_switch_detail), toggle), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        val pickRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE; setPadding(dp(8), dp(4), dp(8), 0) }
+        fun smallButton(label: String, onClick: () -> Unit) = MaterialButton(this).apply {
+            text = label; setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(36); minimumHeight = dp(36)
+            insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34)); strokeWidth = dp(1); strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130)); setTextColor(TEAL)
+            setOnClickListener { onClick() }
+        }
+        pickRow.addView(smallButton(getString(R.string.static_ip_pick_pool)) {
+            val pool = IpHealthStore(this).entries().sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }
+            if (pool.isEmpty()) { Toast.makeText(this, R.string.static_ip_pool_empty, Toast.LENGTH_SHORT).show(); return@smallButton }
+            val labels = pool.map { e -> (e.countryCode?.toFlagEmoji() ?: "🌐") + " " + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") }.toTypedArray()
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.static_ip_pick_pool)
+                .setItems(labels) { _, which -> input.setText(pool[which].ip); if (toggle.isChecked) { applyStaticIp(pool[which].ip); renderStatus(); renderScannerIpHealth() } else toggle.isChecked = true }
+                .show()
+        }, LinearLayout.LayoutParams(-2, -2))
+        pickRow.addView(smallButton(getString(R.string.static_ip_use_current)) {
+            val current = frontingIps.firstOrNull()
+            if (current == null) Toast.makeText(this, R.string.static_ip_no_current, Toast.LENGTH_SHORT).show()
+            else { input.setText(current); if (!toggle.isChecked) toggle.isChecked = true }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        card.addView(pickRow, LinearLayout.LayoutParams(-1, -2))
+        // Sticky location: reconnects keep the last working server instead of hopping to the fastest one.
+        val stickySwitch = MaterialSwitch(this).apply {
+            isChecked = getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("sticky_location", true)
+            setOnCheckedChangeListener { _, checked -> getSharedPreferences("cat_client_theme", MODE_PRIVATE).edit().putBoolean("sticky_location", checked).apply() }
+        }
+        card.addView(advancedToggleRow(getString(R.string.sticky_location_title), getString(R.string.sticky_location_detail), stickySwitch), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        return card
+    }
+
+    /** Multi-location: make a whole country the active fronting set (best-ranked first) and reconnect. */
+    private fun useCountryIps(countryCode: String) {
+        val store = IpHealthStore(this)
+        val entries = store.entries().filter { it.countryCode.equals(countryCode, true) && it.fails == 0 }
+        if (entries.isEmpty()) { Toast.makeText(this, R.string.multi_location_empty, Toast.LENGTH_SHORT).show(); return }
+        val genomes = NetworkGenomeStore(this)
+        val ranked = CognitiveEngine.rank(entries, genomes.genomes(entries.map { it.ip }), NetworkContext.key(this))
+        store.preferredCountry = countryCode
+        store.pinned = false
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = FrontingIpPolicy.normalizeIps(ranked.map { it.ip }.take(6).joinToString(","))
+        renderFrontingIpChips()
+        if (saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) {
+            Toast.makeText(this, getString(R.string.multi_location_applied, countryCode.toFlagEmoji(), ranked.size), Toast.LENGTH_SHORT).show()
+        }
+        renderScannerIpHealth()
+    }
+
+    private fun buildSniScannerCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(advancedSectionLabel(getString(R.string.sni_scanner_title)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(6) })
+        card.addView(advancedSectionDetail(getString(R.string.sni_scanner_desc)), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        val targetInput = scannerInput(getString(R.string.sni_scanner_target_hint), frontingIps.firstOrNull() ?: IpHealthStore(this).entries().firstOrNull()?.ip.orEmpty())
+        card.addView(scannerFieldLayout(getString(R.string.sni_scanner_target), targetInput), LinearLayout.LayoutParams(-1, -2))
+        val listInput = TextInputEditText(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            minLines = 3; maxLines = 8
+            gravity = Gravity.TOP or Gravity.START
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY); setHintTextColor(TEXT_SECONDARY)
+            setHint(getString(R.string.sni_scanner_list_hint))
+            setText((detectPanelSnisFromSubscriptions() + IpScanner.RECOMMENDED_SNIS).distinct().joinToString("\n"))
+        }
+        card.addView(scannerFieldLayout(getString(R.string.sni_scanner_list), listInput), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE; setPadding(dp(8), dp(6), dp(8), 0) }
+        val progress = TextView(this).apply { textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); setPadding(dp(8), dp(6), dp(8), 0) }
+        var running = false
+        val run = MaterialButton(this).apply {
+            setText(R.string.sni_scanner_run); setAllCaps(false); textSize = 12f; minHeight = dp(40); insetTop = 0; insetBottom = 0; cornerRadius = dp(16)
+            backgroundTintList = ColorStateList.valueOf(TEAL); setTextColor(palette.onAccent)
+        }
+        run.setOnClickListener {
+            if (running) return@setOnClickListener
+            val target = targetInput.text?.toString()?.trim().orEmpty()
+            if (target.isBlank()) { Toast.makeText(this, R.string.sni_scanner_no_target, Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            val snis = listInput.text?.toString().orEmpty().split('\n', ',', ' ', ';').map { it.trim().lowercase().removePrefix("https://").trimEnd('/') }.filter { it.contains('.') }.distinct()
+            if (snis.isEmpty()) return@setOnClickListener
+            running = true; run.isEnabled = false; results.removeAllViews()
+            val port = scannerPortPreference()
+            activityScope.launch {
+                val done = java.util.concurrent.atomic.AtomicInteger()
+                progress.text = getString(R.string.sni_scanner_progress, 0, snis.size)
+                val rows = withContext(Dispatchers.IO) {
+                    val gate = kotlinx.coroutines.sync.Semaphore(8)
+                    snis.map { sni ->
+                        async {
+                            gate.withPermit {
+                                val best = (1..2).mapNotNull { IpScanner.probe(target, IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)) }.minByOrNull { it.pingMs }
+                                val n = done.incrementAndGet()
+                                withContext(Dispatchers.Main) { progress.text = getString(R.string.sni_scanner_progress, n, snis.size) }
+                                sni to best
+                            }
+                        }
+                    }.awaitAll()
+                }.sortedWith(compareByDescending<Pair<String, IpScanner.ScanResult?>> { it.second?.tlsOk == true }.thenBy { it.second?.pingMs ?: Long.MAX_VALUE })
+                running = false; run.isEnabled = true
+                val okCount = rows.count { it.second?.tlsOk == true }
+                progress.text = getString(R.string.sni_scanner_done, okCount, snis.size)
+                rows.forEach { (sni, r) ->
+                    val ok = r?.tlsOk == true
+                    results.addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LTR; gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(10), dp(8), dp(10), dp(8))
+                        background = glassSurfaceDrawable(radiusDp = 12); clipToOutline = true
+                        isClickable = ok; isFocusable = ok
+                        if (ok) setOnClickListener {
+                            saveScannerSni(sni)
+                            if (::scannerSniInput.isInitialized) scannerSniInput.setText(sni)
+                            Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
+                        }
+                        addView(TextView(this@MainActivity).apply { text = if (ok) "TLS ✓" else "✗"; textSize = 10.5f; typeface = CatClientBodyBoldTypeface; setTextColor(if (ok) TEAL else TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
+                        addView(TextView(this@MainActivity).apply { text = sni; textSize = 13f; typeface = CatClientDataTypeface; setTextColor(TEXT_PRIMARY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(TextView(this@MainActivity).apply { text = if (ok) "${r!!.pingMs} ms" + (r.tlsMs?.let { " · tls $it" } ?: ""); textSize = 11.5f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }
+            }
+        }
+        card.addView(LinearLayout(this).apply { setPadding(dp(8), dp(10), dp(8), 0); addView(run, LinearLayout.LayoutParams(-1, -2)) }, LinearLayout.LayoutParams(-1, -2))
+        card.addView(progress, LinearLayout.LayoutParams(-1, -2))
+        card.addView(results, LinearLayout.LayoutParams(-1, -2))
+        return card
+    }
 
     private fun showSpeedTestPage() {
         SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
