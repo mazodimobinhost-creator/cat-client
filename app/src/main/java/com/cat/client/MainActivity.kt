@@ -122,7 +122,7 @@ class MainActivity : Activity() {
                     if (available) ", ${getString(R.string.update_available_title)}" else ""
             }
             if (::appTabs.isInitialized) {
-                appTabs.getTabAt(0)?.let { tab ->
+                appTabs.getTabAt(DOCK_SETTINGS)?.let { tab ->
                     tab.contentDescription = getString(R.string.tab_settings)
                     if (available) {
                         tab.orCreateBadge.apply {
@@ -391,7 +391,7 @@ class MainActivity : Activity() {
             )
             if (chainSlot != ConnectionChainSlot.Before) {
                 if (chainSlot != null) {
-                    appTabs.getTabAt(0)?.select()
+                    openScreen(SCREEN_SETTINGS)
                     openConnectionChainSettingsPage?.invoke()
                 }
                 mainHandler.post {
@@ -431,7 +431,7 @@ class MainActivity : Activity() {
                 if (source.isEmpty()) return
                 val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
                 mainHandler.post {
-                    showAppTab(0)
+                    openScreen(SCREEN_SERVERS)
                     showAddSubscriptionDialog(source, name)
                 }
             }
@@ -443,7 +443,7 @@ class MainActivity : Activity() {
                         scannerSniInput.setText(sni)
                         saveScannerSni(sni)
                     }
-                    showAppTab(4)
+                    openScreen(SCREEN_SCANNER)
                     val tokens = ips.split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
                     if (tokens.isNotEmpty()) {
                         val previousValue = frontingIpPreferenceStore.readFrontingIp()
@@ -497,14 +497,15 @@ class MainActivity : Activity() {
         val tabs = TabLayout(this).apply {
             appTabsPending = this
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            minimumHeight = dp(72)
+            minimumHeight = dp(64)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24).toFloat()
-                setColor(withAlpha(SURFACE, 220))
+                cornerRadius = dp(32).toFloat()
+                setColor(palette.surfaceElevated1)
+                setStroke(dp(1), withAlpha(palette.outline, 110))
             }
-            elevation = 0f
-            setSelectedTabIndicatorHeight(dp(3))
+            elevation = dp(6).toFloat()
+            setSelectedTabIndicatorHeight(0)
             setSelectedTabIndicatorColor(TEAL)
             setSelectedTabIndicatorGravity(TabLayout.INDICATOR_GRAVITY_BOTTOM)
             setTabIndicatorFullWidth(false)
@@ -516,29 +517,25 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // Dock style: each tab is a custom icon+label cell that paints itself as a
-            // filled violet pill when selected (v2box-style bottom dock).
-            // Tab order (visual): settings, VPN (center), subscriptions, cloud panel, IP scanner
-            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
+            // ZedSecure-style floating capsule: four cells, the active one expands into a
+            // lime pill with icon + label, inactive cells show the icon only.
+            // Visual order: Home, Servers, Cloud (panel + IP scanner), Settings.
             addDockTab(R.string.tab_vpn, R.drawable.ic_vpn_tab, selected = true)
             addDockTab(R.string.tab_subscriptions, R.drawable.ic_subscriptions_tab, selected = false)
-            addDockTab(R.string.tab_scanner, R.drawable.ic_speedometer, selected = false)
             addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
-            post { renderDockSelection(1) }
+            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
+            post { renderDockSelection(DOCK_HOME) }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
-                    // Visual order maps onto the content screens:
-                    // 0=Settings(2) 1=VPN(1) 2=Subscriptions(0) 3=Scanner(4) 4=Cloud(3)
-                    // Keep these explicit: the old mapping swapped Settings and Cloud.
-                    val mappedPosition = when (tab.position) {
-                        0 -> 2  // Settings
-                        1 -> 1  // VPN
-                        2 -> 0  // Subscriptions
-                        3 -> 4  // IP scanner
-                        4 -> 3  // Cloud panel
-                        else -> tab.position
-                    }
-                    showAppTab(mappedPosition)
+                    showAppTab(
+                        when (tab.position) {
+                            DOCK_HOME -> SCREEN_HOME
+                            DOCK_SERVERS -> SCREEN_SERVERS
+                            DOCK_CLOUD -> if (cloudDockShowsScanner) SCREEN_SCANNER else SCREEN_CLOUD
+                            DOCK_SETTINGS -> SCREEN_SETTINGS
+                            else -> SCREEN_HOME
+                        },
+                    )
                     renderDockSelection(tab.position)
                 }
 
@@ -551,11 +548,11 @@ class MainActivity : Activity() {
         val tabsHost = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(18), 0, dp(18), dp(18))
-            addView(tabs, FrameLayout.LayoutParams(-1, dp(72)))
+            addView(tabs, FrameLayout.LayoutParams(-1, dp(64)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         }
         ViewCompat.setOnApplyWindowInsetsListener(tabsHost) { view, insets ->
             val navigationBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(18), 0, dp(18), navigationBottom + dp(18))
+            view.setPadding(dp(28), 0, dp(28), navigationBottom + dp(14))
             insets
         }
         shell.addView(tabsHost, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -656,23 +653,25 @@ class MainActivity : Activity() {
         }
         val label = TextView(context).apply {
             setText(labelRes)
-            textSize = 10f
+            textSize = 13f
             typeface = CatClientBodyBoldTypeface
-            setTextColor(if (selected) TEAL else TEXT_SECONDARY)
+            setTextColor(if (selected) palette.onAccent else TEXT_SECONDARY)
             gravity = Gravity.CENTER
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
+            visibility = if (selected) View.VISIBLE else View.GONE
         }
         val pill = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(7), dp(6), dp(7))
+            setPadding(dp(14), dp(10), dp(14), dp(10))
             background = dockPillBackground(selected)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
-            addView(label, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+            addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         }
+        icon.setColorFilter(if (selected) palette.onAccent else TEXT_SECONDARY)
         dockTabs += DockTab(pill, icon, label)
         val tab = appTabsPending.newTab()
         tab.customView = pill
@@ -681,18 +680,67 @@ class MainActivity : Activity() {
 
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(16).toFloat()
-        setColor(if (selected) withAlpha(TEAL, if (palette.isDark) 52 else 32) else Color.TRANSPARENT)
-        if (selected) setStroke(dp(1), withAlpha(TEAL, 90))
+        cornerRadius = dp(24).toFloat()
+        setColor(if (selected) TEAL else Color.TRANSPARENT)
     }
 
-    /** Repaints every dock cell so only the active one is filled. */
+    /** Repaints every dock cell so only the active one is the filled lime pill with a label. */
     private fun renderDockSelection(activeIndex: Int) {
         dockTabs.forEachIndexed { index, tab ->
             val active = index == activeIndex
             tab.pill.background = dockPillBackground(active)
-            tab.icon.setColorFilter(if (active) TEAL else TEXT_SECONDARY)
-            tab.label.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+            tab.icon.setColorFilter(if (active) palette.onAccent else TEXT_SECONDARY)
+            tab.label.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            tab.label.visibility = if (active) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** Remembers whether the Cloud dock cell last showed the panel or the IP scanner. */
+    private var cloudDockShowsScanner = false
+
+    /** Jump to a content screen and keep the dock in sync (Cloud cell covers panel + scanner). */
+    private fun openScreen(screen: Int) {
+        if (screen == SCREEN_SCANNER || screen == SCREEN_CLOUD) cloudDockShowsScanner = screen == SCREEN_SCANNER
+        val dockIndex = when (screen) {
+            SCREEN_HOME -> DOCK_HOME
+            SCREEN_SERVERS -> DOCK_SERVERS
+            SCREEN_SETTINGS -> DOCK_SETTINGS
+            else -> DOCK_CLOUD
+        }
+        showAppTab(screen)
+        if (::appTabs.isInitialized) {
+            val tab = appTabs.getTabAt(dockIndex)
+            if (tab != null && !tab.isSelected) tab.select() else renderDockSelection(dockIndex)
+        }
+    }
+
+    /** Segmented header shared by the Cloud and Scanner screens (ZedSecure-style pill switch). */
+    private fun cloudScannerSwitch(scannerActive: Boolean): View {
+        fun chip(@StringRes labelRes: Int, active: Boolean, onClick: () -> Unit) = TextView(this).apply {
+            setText(labelRes)
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(9), dp(16), dp(9))
+            setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(if (active) TEAL else Color.TRANSPARENT)
+            }
+            setOnClickListener { onClick() }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(palette.surfaceElevated1)
+            }
+            addView(chip(R.string.tab_cloud, !scannerActive) { openScreen(SCREEN_CLOUD) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(chip(R.string.tab_scanner, scannerActive) { openScreen(SCREEN_SCANNER) }, LinearLayout.LayoutParams(0, -2, 1f))
         }
     }
 
@@ -4528,6 +4576,7 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(28), dp(24), dp(104))
         }
 
+        body.addView(cloudScannerSwitch(scannerActive = true), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
         body.addView(
             TextView(this).apply {
                 setText(R.string.scanner_title)
@@ -5560,6 +5609,8 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(104))
         }
 
+        body.addView(cloudScannerSwitch(scannerActive = false), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+
         // Wizard card (BPB/Zeus-style): token → deploy → import → scan, step by step.
         val setupWizardCard = advancedSettingsPanel()
         setupWizardCard.addView(
@@ -5936,8 +5987,7 @@ class MainActivity : Activity() {
         )
         scannerLinkCard.addView(
             cloudActionButton(R.string.cloud_open_scanner, R.drawable.ic_speedometer, accent = false) {
-                // Visual tab 3 is the scanner (see the tab mapping in buildAppShell)
-                appTabs.getTabAt(3)?.select()
+                openScreen(SCREEN_SCANNER)
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
@@ -6674,7 +6724,7 @@ class MainActivity : Activity() {
                     scannerSniInput.setText(host)
                     saveScannerSni(host)
                 }
-                showAppTab(4)
+                openScreen(SCREEN_SCANNER)
                 Toast.makeText(this, R.string.wizard_scan_hint, Toast.LENGTH_LONG).show()
             }
             .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
@@ -6720,7 +6770,7 @@ class MainActivity : Activity() {
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-sub", result.subscriptionUrl))
                     Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
-                    appTabs.getTabAt(2)?.select()
+                    openScreen(SCREEN_SERVERS)
                 }
             }
             .show()
@@ -7062,7 +7112,7 @@ class MainActivity : Activity() {
     }
 
     private fun openConnectionChainSettingsFromHome() {
-        appTabs.getTabAt(0)?.select()
+        openScreen(SCREEN_SETTINGS)
         openConnectionChainSettingsPage?.invoke()
     }
 
@@ -10969,6 +11019,16 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        // Dock cell indices (visual order) and content screen indices (fixed, used all over).
+        const val DOCK_HOME = 0
+        const val DOCK_SERVERS = 1
+        const val DOCK_CLOUD = 2
+        const val DOCK_SETTINGS = 3
+        const val SCREEN_SERVERS = 0
+        const val SCREEN_HOME = 1
+        const val SCREEN_SETTINGS = 2
+        const val SCREEN_CLOUD = 3
+        const val SCREEN_SCANNER = 4
         const val REQUEST_VPN_PERMISSION = 10
         const val REQUEST_NOTIFICATION_PERMISSION = 11
         const val TIMER_TICK_MS = 1_000L
