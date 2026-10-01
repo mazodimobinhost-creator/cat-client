@@ -769,4 +769,6 @@
     <string name="speedtest_via_direct">اتصال مستقیم</string>
     <string name="speedtest_data_used">حجم مصرف‌شده: %1$s مگابایت</string>
     <string name="speedtest_data_note">در هر اجرا تا %1$d مگابایت مصرف می‌کند</string>
+    <string name="settings_category_appearance">ظاهر و تم</string>
+    <string name="settings_category_appearance_detail">تم روشن/تاریک، رنگ تم، زبان</string>
 </resources>

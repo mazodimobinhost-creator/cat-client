@@ -770,4 +770,6 @@
     <string name="speedtest_via_direct">Direct connection</string>
     <string name="speedtest_data_used">Data used: %1$s MB</string>
     <string name="speedtest_data_note">Uses up to %1$d MB per run</string>
+    <string name="settings_category_appearance">Appearance</string>
+    <string name="settings_category_appearance_detail">Theme, accent colour, language</string>
 </resources>

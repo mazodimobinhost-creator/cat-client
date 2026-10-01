@@ -3264,8 +3264,53 @@ class MainActivity : Activity() {
             R.string.language_setting_title,
             getString(appLanguagePreferenceStore.read().labelRes),
         ) { showLanguageSelector() }
+        // ---- Appearance (ZedSecure "Appearance"): theme mode, inline accent swatches, language.
+        val appearanceSettings = settingsContent()
+        val appearancePanel = advancedSettingsPanel()
+        val swatchStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(16))
+            val store = AppAccentPreferenceStore(this@MainActivity)
+            val selected = store.read()
+            AppAccent.entries.forEach { accent ->
+                val tone = if (palette.isDark) accent.dark else accent.light
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = if (accent == selected) "✓" else ""
+                        gravity = Gravity.CENTER
+                        textSize = 16f
+                        typeface = CatClientBodyBoldTypeface
+                        setTextColor(if (palette.isDark) accent.onDark else accent.onLight)
+                        contentDescription = getString(accent.labelRes)
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(tone)
+                            if (accent == selected) setStroke(dp(3), TEXT_PRIMARY)
+                        }
+                        isClickable = true; isFocusable = true
+                        setOnClickListener {
+                            if (accent != selected) { store.save(accent); recreate() }
+                        }
+                    },
+                    LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4); marginEnd = dp(4) },
+                )
+            }
+        }
+        listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow).forEachIndexed { index, row ->
+            if (index > 0 && row !== swatchStrip) {
+                appearancePanel.addView(
+                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
+                    LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(16); marginEnd = dp(16) },
+                )
+            }
+            appearancePanel.addView(row, LinearLayout.LayoutParams(-1, -2))
+        }
+        appearanceSettings.addView(appearancePanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+
         val appPreferencesPanel = advancedSettingsPanel()
-        listOf(settingsSubscriptionSelectorRow, themeSelectorRow, accentSelectorRow, languageSelectorRow)
+        listOf(settingsSubscriptionSelectorRow)
             .forEachIndexed { index, row ->
                 if (index > 0) {
                     appPreferencesPanel.addView(
@@ -4461,6 +4506,7 @@ class MainActivity : Activity() {
                     }
                     // ZedSecure SettingsItem: tinted rounded-square leading icon.
                     val glyph = when (titleRes) {
+                        R.string.settings_category_appearance -> "🎨"
                         R.string.settings_category_app_preferences -> "✦"
                         R.string.settings_category_testing -> "⏱"
                         R.string.settings_category_connections -> "⇄"
@@ -4544,6 +4590,11 @@ class MainActivity : Activity() {
                 )
             }
         }
+        addCategory(
+            R.string.settings_category_appearance,
+            R.string.settings_category_appearance_detail,
+            appearanceSettings,
+        )
         addCategory(
             R.string.settings_category_app_preferences,
             R.string.settings_category_app_preferences_detail,
