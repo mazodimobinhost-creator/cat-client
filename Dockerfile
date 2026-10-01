@@ -31,7 +31,7 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
 
 WORKDIR /src
 COPY . .
-RUN npm ci --no-audit --no-fund
+RUN npm install --no-audit --no-fund
 
 # Build debug APK by default; override the command for other tasks.
 CMD ["sh", "-c", "./gradlew --no-daemon :app:assembleDebug && mkdir -p /out && cp app/build/outputs/apk/debug/*.apk /out/"]

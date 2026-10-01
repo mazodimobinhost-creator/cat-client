@@ -7,14 +7,12 @@ on:
       - 'app/src/main/assets/panels/**'
       - 'scripts/panels/**'
       - 'package.json'
-      - 'package-lock.json'
       - '.github/workflows/panel.yml'
   pull_request:
     paths:
       - 'app/src/main/assets/panels/**'
       - 'scripts/panels/**'
       - 'package.json'
-      - 'package-lock.json'
       - '.github/workflows/panel.yml'
   workflow_dispatch:
 
@@ -34,8 +32,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - name: Syntax check (Worker must stay a single valid script)
         run: |
           node --check app/src/main/assets/panels/catclient.worker.js
