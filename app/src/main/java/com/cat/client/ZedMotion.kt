@@ -179,8 +179,8 @@ class ZedLiveBackdropDrawable(density: Float) : Drawable() {
  */
 class ZedWavyProgressView(context: Context) : View(context) {
     var color: Int = 0xFFC7BFFF.toInt()
-    var trackColor: Int = 0x40FFFFFF
-    var idleColor: Int = 0x80FFFFFF
+    var trackColor: Int = 0x40FFFFFF.toInt()
+    var idleColor: Int = 0x80FFFFFF.toInt()
 
     private var progress = 0f
     private var amplitude = 0f
