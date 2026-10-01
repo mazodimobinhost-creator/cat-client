@@ -11433,11 +11433,12 @@ class MainActivity : Activity() {
     private fun fitHomeStage(scrollView: ScrollView) {
         val hero = homeHeroFrame ?: return
         if (homeStageFitting || scrollView.height == 0) return
-        val content = scrollView.getChildAt(0) ?: return
+        val wrapper = scrollView.getChildAt(0) as? ViewGroup ?: return
+        val content = wrapper.getChildAt(0) ?: return // dashboardContent (wrap_content; the wrapper is fillViewport)
         if (content.height == 0) return
         val viewport = scrollView.height - scrollView.paddingTop - scrollView.paddingBottom
-        val current = hero.layoutParams.height
-        val fixed = content.height - current // everything except the stage (incl. dock padding)
+        val current = hero.height.takeIf { it > 0 } ?: hero.layoutParams.height
+        val fixed = content.height - current + wrapper.paddingTop + wrapper.paddingBottom // everything except the stage (incl. dock padding)
         val full = dp(300)
         val minStage = dp(210)
         val target = (viewport - fixed).coerceIn(minStage, full)

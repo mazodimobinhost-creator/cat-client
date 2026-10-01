@@ -131,7 +131,7 @@ class ZedBlobView(context: Context) : View(context) {
         val cx = width / 2f
         val cy = height / 2f
         val outer = min(width, height) / 2f
-        val r = outer * 0.80f
+        val r = outer * 0.84f
 
         if (fillPaint.shader == null) {
             fillPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), shaderColors, null, Shader.TileMode.CLAMP)
