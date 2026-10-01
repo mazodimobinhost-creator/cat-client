@@ -746,4 +746,27 @@
     <string name="accent_sky">آبی</string>
     <string name="dock_home">خانه</string>
     <string name="dock_servers">سرورها</string>
-    <string name="map_you">شما</string>\n    <string name="map_you_saved">شما · ثبت‌شده بدون VPN</string>\n    <string name="map_no_origin">یک بار قطع کنید تا نقشه موقعیت واقعی شما را یاد بگیرد</string>\n    <string name="map_ping">پینگ</string>\n    <string name="map_server">سرور</string>\n    <string name="map_offline_here">الان مستقیم از همین‌جا آنلاین هستید — برای دیدن مسیر وصل شوید.</string>\n</resources>
+    <string name="map_you">شما</string>\n    <string name="map_you_saved">شما · ثبت‌شده بدون VPN</string>\n    <string name="map_no_origin">یک بار قطع کنید تا نقشه موقعیت واقعی شما را یاد بگیرد</string>\n    <string name="map_ping">پینگ</string>\n    <string name="map_server">سرور</string>\n    <string name="map_offline_here">الان مستقیم از همین‌جا آنلاین هستید — برای دیدن مسیر وصل شوید.</string>\n    <string name="speedtest_title">تست سرعت</string>
+    <string name="speedtest_subtitle">سرعت واقعی تونل را اندازه بگیرید</string>
+    <string name="speedtest_start">شروع</string>
+    <string name="speedtest_restart">دوباره</string>
+    <string name="speedtest_stop">توقف</string>
+    <string name="speedtest_ping">پینگ</string>
+    <string name="speedtest_jitter">جیتر</string>
+    <string name="speedtest_download">دانلود</string>
+    <string name="speedtest_upload">آپلود</string>
+    <string name="speedtest_mbps">Mbps</string>
+    <string name="speedtest_ms">ms</string>
+    <string name="speedtest_phase_idle">آماده</string>
+    <string name="speedtest_phase_ping">در حال سنجش تأخیر…</string>
+    <string name="speedtest_phase_download">تست دانلود…</string>
+    <string name="speedtest_phase_upload">تست آپلود…</string>
+    <string name="speedtest_phase_done">تمام شد</string>
+    <string name="speedtest_phase_stopped">متوقف شد</string>
+    <string name="speedtest_phase_error">ناموفق</string>
+    <string name="speedtest_not_connected">متصل نیستید — این تست اتصال مستقیم شما را می‌سنجد. برای تست تونل، یک کانفیگ را وصل کنید.</string>
+    <string name="speedtest_via_tunnel">از طریق تونل</string>
+    <string name="speedtest_via_direct">اتصال مستقیم</string>
+    <string name="speedtest_data_used">حجم مصرف‌شده: %1$s مگابایت</string>
+    <string name="speedtest_data_note">در هر اجرا تا %1$d مگابایت مصرف می‌کند</string>
+</resources>

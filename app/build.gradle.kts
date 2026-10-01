@@ -179,6 +179,7 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation(libs.material)
+    implementation("com.caverock:androidsvg-aar:1.4")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 

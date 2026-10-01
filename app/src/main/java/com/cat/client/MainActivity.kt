@@ -39,6 +39,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
@@ -262,7 +263,7 @@ class MainActivity : Activity() {
     @Volatile private var livePingMs: Long? = null
     private var lastQuietPingAtMs: Long = 0L
     private var liveBackdrop: ZedLiveBackdropDrawable? = null
-    private lateinit var homeFlagBadge: TextView
+    private lateinit var homeFlagBadge: FlagBadgeView
     private var homeExtrasSection: View? = null
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
@@ -2805,22 +2806,24 @@ class MainActivity : Activity() {
             contentDescription = getString(descriptionRes)
             isClickable = true
             isFocusable = true
-            setPadding(dp(13), dp(13), dp(13), dp(13))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            elevation = dp(6).toFloat()
+            outlineProvider = ViewOutlineProvider.BACKGROUND
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(withAlpha(palette.surfaceElevated2, 235))
+                setColor(selectedRowColor())
             }
             setOnClickListener { onClick() }
         }
         val heroCluster = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(
-                roundAction(R.drawable.ic_cloud_tab, R.string.map_title) { showMapPage() },
-                LinearLayout.LayoutParams(dp(60), dp(60)),
+                roundAction(R.drawable.ic_map, R.string.map_title) { showMapPage() },
+                LinearLayout.LayoutParams(dp(54), dp(54)),
             )
-            heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.connection_speed_test_label) { runTunnelPing() }
-            addView(heroPingAction, LinearLayout.LayoutParams(dp(60), dp(60)).apply { topMargin = dp(10) })
-            addView(refreshActionButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { topMargin = dp(10) })
+            heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.speedtest_title) { showSpeedTestPage() }
+            addView(heroPingAction, LinearLayout.LayoutParams(dp(54), dp(54)).apply { topMargin = dp(10) })
+            refreshActionButton.visibility = View.GONE
         }
         val heroFrame = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -2833,9 +2836,9 @@ class MainActivity : Activity() {
             addView(
                 heroCluster,
                 FrameLayout.LayoutParams(-2, -2).apply {
-                    gravity = Gravity.END or Gravity.BOTTOM
-                    marginEnd = dp(4)
-                    bottomMargin = dp(14)
+                    gravity = Gravity.END or Gravity.TOP
+                    marginEnd = dp(14)
+                    topMargin = dp(205)
                 },
             )
         }
@@ -2871,17 +2874,8 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { refreshDashboardIp() }
-            homeFlagBadge = TextView(this@MainActivity).apply {
-                text = "🌐"
-                textSize = 24f
-                gravity = Gravity.CENTER
-                includeFontPadding = false
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(withAlpha(palette.surfaceElevated2, 255))
-                }
-            }
-            addView(homeFlagBadge, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(14) })
+            homeFlagBadge = FlagBadgeView(this@MainActivity).apply { fallbackColor = palette.surfaceElevated2 }
+            addView(homeFlagBadge, LinearLayout.LayoutParams(dp(42), dp(30)).apply { marginEnd = dp(12) })
             addView(
                 LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
@@ -7012,9 +7006,9 @@ class MainActivity : Activity() {
             fun endpoint(code: String, label: String, tint: Int, hollow: Boolean) = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                addView(TextView(this@MainActivity).apply {
-                    text = code.toFlagEmoji(); textSize = 18f; gravity = Gravity.CENTER; includeFontPadding = false
-                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(if (hollow) 1 else 2), tint) }
+                addView(FlagBadgeView(this@MainActivity).apply {
+                    circle = true; ringColor = tint; ringWidthDp = if (hollow) 1.5f else 2f; fallbackColor = palette.surfaceElevated2
+                    setCountryCode(code)
                 }, LinearLayout.LayoutParams(dp(34), dp(34)))
                 if (label.isNotBlank()) addView(TextView(this@MainActivity).apply {
                     text = label.substringBefore(',').trim(); textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); maxLines = 1
@@ -7048,6 +7042,10 @@ class MainActivity : Activity() {
         dialog.setContentView(page)
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
         dialog.show()
+    }
+
+    private fun showSpeedTestPage() {
+        SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
     }
 
     /* ------------------------------------------------------------------ */
@@ -11062,22 +11060,16 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
         if (!::connectionRealIpText.isInitialized) return
-        val show = info != null && tunneled && !info.realIp.isNullOrBlank() && info.realIp != info.ip
-        if (!show) {
+        connectionV6Text.visibility = View.GONE
+        if (info == null || !tunneled || info.ip.isBlank()) {
             connectionRealIpText.visibility = View.GONE
-            connectionV6Text.visibility = View.GONE
             return
         }
-        connectionRealIpText.text = getString(R.string.route_real_ip_line, info.realIp, info.realFlag ?: "")
+        connectionRealIpText.text = info.ip
         connectionRealIpText.visibility = View.VISIBLE
-        if (!info.v6.isNullOrBlank() && tunneled) {
-            connectionV6Text.text = getString(R.string.route_v6_line, info.v6)
-            connectionV6Text.visibility = View.VISIBLE
-        } else {
-            connectionV6Text.visibility = View.GONE
-        }
     }
 
     private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
@@ -11171,11 +11163,14 @@ class MainActivity : Activity() {
         }
         connectionCountryText.setTextColor(TEXT_PRIMARY)
         if (::homeFlagBadge.isInitialized) {
-            homeFlagBadge.text = when {
-                state == VpnState.Started && live != null -> live.flag
-                state == VpnState.Started && connectionCountryFlag.isNotBlank() -> connectionCountryFlag
-                else -> "🌐"
-            }
+            homeFlagBadge.setCountryCode(
+                when {
+                    state == VpnState.Started && live != null -> live.countryCode
+                    state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                        ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.code
+                    else -> null
+                },
+            )
         }
         val pendingCountry = pendingGlobeCountry()
         val liveLabel = live?.let { info ->
@@ -11229,7 +11224,7 @@ class MainActivity : Activity() {
             uptimeValueText.text = timerText.text
         }
         if (::homeUsageCard.isInitialized) renderHomeUsageCard()
-        refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
         // Glass reconnect action with the Cat accent.

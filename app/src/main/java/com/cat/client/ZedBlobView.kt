@@ -235,7 +235,7 @@ class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawabl
         if (paint.shader == null) {
             paint.shader = LinearGradient(
                 cx - r, cy - r, cx + r * 0.2f, cy + r,
-                intArrayOf(0xFF5646D6.toInt(), ZedBlobView.ZED_VIOLET, 0xFFB2479A.toInt()),
+                intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, ZedBlobView.ZED_VIOLET, (ZedBlobView.ZED_HOT_PINK and 0x00FFFFFF) or (0xB3 shl 24)),
                 null, Shader.TileMode.CLAMP,
             )
         }
@@ -244,7 +244,7 @@ class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawabl
         val segments = 140
         for (i in 0..segments) {
             val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
-            val wave = 1f + 0.07f * cos(5f * a) + 0.04f * sin(3f * a + 1f)
+            val wave = 1f + 0.075f * cos(7f * a)
             val x = cx + r * wave * cos(a)
             val y = cy + r * wave * sin(a)
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)

@@ -234,17 +234,27 @@ class ZedWorldMapView(context: Context) : View(context) {
         fill.color = withAlpha(color, 56); canvas.drawCircle(p.x, p.y, px(16f), fill)
     }
 
+    private val markerClip = Path()
+    private val markerRect = android.graphics.RectF()
+
     private fun marker(canvas: Canvas, p: Point, ring: Int) {
         if (p.code.length != 2) return
         val x = offX + p.x * scale; val y = offY + p.y * scale
         val r = 13f * resources.displayMetrics.density
         if (x < -r * 2 || y < -r * 2 || x > width + r * 2 || y > height + r * 2) return
         fill.color = withAlpha(ring, 77); canvas.drawCircle(x, y, r, fill)
+        val pic = FlagAssets.picture(context, p.code)
+        if (pic != null) {
+            markerRect.set(x - r, y - r, x + r, y + r)
+            markerClip.rewind(); markerClip.addCircle(x, y, r, Path.Direction.CW)
+            FlagAssets.draw(canvas, pic, markerRect, markerClip)
+        } else {
+            flagPaint.textSize = r * 0.9f
+            flagPaint.color = Color.WHITE
+            val fm = flagPaint.fontMetrics
+            canvas.drawText(p.code, x, y - (fm.ascent + fm.descent) / 2f, flagPaint)
+        }
         stroke.color = ring; stroke.strokeWidth = 2f * resources.displayMetrics.density; canvas.drawCircle(x, y, r, stroke)
-        flagPaint.textSize = r * 1.25f
-        flagPaint.color = Color.WHITE
-        val fm = flagPaint.fontMetrics
-        canvas.drawText(p.code.toFlagEmoji(), x, y - (fm.ascent + fm.descent) / 2f, flagPaint)
     }
 
     private fun appendRing(path: Path, ring: FloatArray) {
