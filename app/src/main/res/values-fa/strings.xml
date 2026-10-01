@@ -721,4 +721,8 @@
     <string name="wizard_import_connect">وارد کردن و اتصال</string>
     <string name="wizard_scan_now">اسکن آی‌پی تمیز</string>
     <string name="wizard_scan_hint">اسکنر با هاست پنلت به‌عنوان SNI باز شد — «شروع» را بزن، بعد «ارسال به Cat Panel».</string>
+    <string name="servers_title">سرورها</string>
+    <string name="servers_auto_title">خودکار · همهٔ سرورها</string>
+    <string name="servers_auto_detail">سریع‌ترین سرورِ تو. اگر یکی از کار بیفتد، اتصال به‌سرعت سراغ بعدی می‌رود.</string>
+    <string name="servers_open_list">سرورها و پینگ</string>
 </resources>

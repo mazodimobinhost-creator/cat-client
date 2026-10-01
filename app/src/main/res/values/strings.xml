@@ -722,4 +722,8 @@
     <string name="wizard_import_connect">Import &amp; connect</string>
     <string name="wizard_scan_now">Scan clean IPs</string>
     <string name="wizard_scan_hint">Scanner opened with your panel host as SNI — press Start, then “Send to Cat Panel”.</string>
+    <string name="servers_title">Servers</string>
+    <string name="servers_auto_title">Auto · All servers</string>
+    <string name="servers_auto_detail">Fastest of your servers. If one fails, connections move on in a moment.</string>
+    <string name="servers_open_list">Servers &amp; ping</string>
 </resources>

@@ -256,6 +256,7 @@ class MainActivity : Activity() {
     private lateinit var frontingIpErrorText: TextView
     private lateinit var refreshActionButton: MaterialButton
     private lateinit var connectionBlob: ZedBlobView
+    private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
     private lateinit var downloadBarFill: View
     private lateinit var uploadBarFill: View
@@ -790,85 +791,166 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(34), dp(24), dp(104))
         }
+        serversCountText = TextView(this).apply {
+            setText(R.string.subscriptions_description)
+            textSize = 14f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+            gravity = Gravity.START
+        }
         val subscriptionsHeaderCopy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(TextView(this@MainActivity).apply {
-                setText(R.string.subscriptions_title)
-                textSize = 28f
+                setText(R.string.servers_title)
+                textSize = 30f
                 typeface = CatClientDisplayTypeface
                 setTextColor(TEXT_PRIMARY)
                 includeFontPadding = false
                 gravity = Gravity.START
             })
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.subscriptions_description)
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    gravity = Gravity.START
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+            addView(serversCountText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        }
+        // ZedSecure header actions: ping all · add (menu) · more.
+        fun headerAction(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: (View) -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) },
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) },
             )
+            setOnClickListener { onClick(this) }
         }
-        val addSubscriptionButton = MaterialButton(this).apply {
-            setText(R.string.subscription_add)
+        val headerActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            setAllCaps(false)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            isSingleLine = true
-            setPadding(dp(8), 0, dp(8), 0)
-            minWidth = 0
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(TEAL)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 24))
-            setTextColor(TEAL)
-            setOnClickListener { showAddSubscriptionMenu(this) }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(headerAction(R.drawable.ic_speedometer, R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(headerAction(R.drawable.ic_connection_test, R.string.subscription_action_test) { showConnectionTestingPage() }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(headerAction(R.drawable.ic_more_vert, R.string.subscription_add) { showAddSubscriptionMenu(it) }, LinearLayout.LayoutParams(dp(42), dp(42)))
         }
-        val compactHeader = resources.configuration.screenWidthDp < 360
         content.addView(LinearLayout(this).apply {
-            orientation = if (compactHeader) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = if (compactHeader) Gravity.START else Gravity.CENTER_VERTICAL
-            if (compactHeader) {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(-1, -2),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(-2, dp(44)).apply { topMargin = dp(16) },
-                )
-            } else {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(0, -2, 1f),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(dp(84), dp(44)).apply { marginStart = dp(16) },
-                )
-            }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(subscriptionsHeaderCopy, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(headerActions, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         })
+        // "Auto · All servers" — ZedSecure's first row: bolt badge + connect to the fastest server.
+        content.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER_VERTICAL
+                setPaddingRelative(dp(14), dp(14), dp(14), dp(14))
+                isClickable = true
+                isFocusable = true
+                background = RippleDrawable(
+                    ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                    GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(22).toFloat()
+                        setColor(palette.surfaceElevated1)
+                    },
+                    null,
+                )
+                setOnClickListener { runPingAll(autoConnect = true) }
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "⚡"
+                        textSize = 18f
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(withAlpha(TEAL, 56))
+                            setStroke(dp(1), withAlpha(TEAL, 140))
+                        }
+                    },
+                    LinearLayout.LayoutParams(dp(44), dp(44)),
+                )
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        addView(TextView(this@MainActivity).apply {
+                            setText(R.string.servers_auto_title)
+                            textSize = 16f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(TEXT_PRIMARY)
+                            includeFontPadding = false
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            setText(R.string.servers_auto_detail)
+                            textSize = 12.5f
+                            typeface = CatClientBodyTypeface
+                            setTextColor(TEXT_SECONDARY)
+                            includeFontPadding = false
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                    },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) },
+        )
         subscriptionsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         content.addView(
             buildFreeConfigsSection(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28) },
         )
         scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
         renderSubscriptions()
-        return scroll
+        // Floating "+" like ZedSecure's Servers FAB (opens the add-server menu).
+        val fab = MaterialButton(this).apply {
+            text = "+"
+            textSize = 26f
+            typeface = CatClientBodyBoldTypeface
+            setAllCaps(false)
+            includeFontPadding = false
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding(0, 0, 0, dp(2))
+            cornerRadius = dp(20)
+            strokeWidth = 0
+            elevation = dp(6).toFloat()
+            backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
+            setTextColor(TEXT_PRIMARY)
+            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
+            contentDescription = getString(R.string.subscription_add)
+            setOnClickListener { showAddSubscriptionMenu(this) }
+        }
+        val root = FrameLayout(this)
+        root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        root.addView(
+            fab,
+            FrameLayout.LayoutParams(dp(60), dp(60)).apply {
+                gravity = Gravity.END or Gravity.BOTTOM
+                marginEnd = dp(20)
+                bottomMargin = dp(104)
+            },
+        )
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val navigationBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            (fab.layoutParams as FrameLayout.LayoutParams).bottomMargin = navigationBottom + dp(104)
+            fab.requestLayout()
+            insets
+        }
+        return root
     }
 
     /* ------------------------------------------------------------------ */
@@ -1478,6 +1560,11 @@ class MainActivity : Activity() {
                     selectedName,
                 )
         }
+        if (::serversCountText.isInitialized) {
+            val total = SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.sumOf { store.readCatalog(it)?.profiles?.size ?: 0 } +
+                userSubscriptionManager.list().sumOf { it.connectionCount }
+            serversCountText.text = connectionCountLabel(total)
+        }
         SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.forEachIndexed { index, subscriptionId ->
             val name = builtInSubscriptionName(subscriptionId)
             val count = store.readCatalog(subscriptionId)?.profiles?.size ?: 0
@@ -1563,8 +1650,8 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         gravity = Gravity.START
-        minimumHeight = dp(112)
-        setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+        minimumHeight = dp(72)
+        setPaddingRelative(dp(16), dp(14), dp(12), dp(14))
         elevation = 0f
         val selectAction = actions.firstOrNull { it.first == R.string.subscription_action_select }
         val overflowActions = actions.filterNot { it.first == R.string.subscription_action_select }
@@ -1574,15 +1661,19 @@ class MainActivity : Activity() {
         contentDescription = "$title, ${getString(
             if (selected) R.string.subscription_selected_badge else R.string.subscription_action_select,
         )}"
-        background = if (selected) {
-            glassSurfaceDrawable(radiusDp = 12, highlighted = true)
-        } else {
-            RippleDrawable(
-                ColorStateList.valueOf(withAlpha(TEAL, 28)),
-                glassSurfaceDrawable(radiusDp = 12),
-                null,
-            )
-        }
+        // ZedSecure row: the selected server is a solid lime card with dark text; the rest sit on
+        // the low surface container.
+        val rowPrimary = if (selected) palette.onAccent else TEXT_PRIMARY
+        val rowSecondary = if (selected) withAlpha(palette.onAccent, 190) else TEXT_SECONDARY
+        background = RippleDrawable(
+            ColorStateList.valueOf(withAlpha(if (selected) palette.onAccent else TEAL, 36)),
+            GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(22).toFloat()
+                setColor(if (selected) TEAL else palette.surfaceElevated1)
+            },
+            null,
+        )
         clipToOutline = true
         if (canSelect) {
             setOnClickListener { selectAction?.second?.invoke() }
@@ -1598,7 +1689,7 @@ class MainActivity : Activity() {
                         text = title
                         textSize = 16f
                         typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEXT_PRIMARY)
+                        setTextColor(rowPrimary)
                         includeFontPadding = false
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
@@ -1610,22 +1701,41 @@ class MainActivity : Activity() {
                 )
                 if (selected) addView(
                     TextView(this@MainActivity).apply {
-                        setText(R.string.subscription_selected_badge)
-                        textSize = 12f
+                        text = "✓"
+                        textSize = 14f
                         typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEAL)
+                        setTextColor(palette.onAccent)
                         includeFontPadding = false
                         gravity = Gravity.CENTER
-                        isSingleLine = true
-                        setPaddingRelative(dp(8), dp(4), dp(8), dp(4))
                         background = GradientDrawable().apply {
-                            shape = GradientDrawable.RECTANGLE
-                            cornerRadius = dp(12).toFloat()
-                            setColor(withAlpha(TEAL, if (palette.isDark) 34 else 22))
-                            setStroke(dp(1), withAlpha(TEAL, 92))
+                            shape = GradientDrawable.OVAL
+                            setStroke(dp(1), withAlpha(palette.onAccent, 150))
                         }
                     },
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
+                    LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(12) },
+                )
+                // ⋮ overflow (edit · refresh · share · delete …), like Zed's per-row menu.
+                addView(
+                    ImageView(this@MainActivity).apply {
+                        setImageResource(R.drawable.ic_more_vert)
+                        setColorFilter(rowSecondary)
+                        contentDescription = getString(R.string.subscription_action_options)
+                        isClickable = true
+                        isFocusable = true
+                        setPadding(dp(6), dp(6), dp(6), dp(6))
+                        setOnClickListener { view ->
+                            catClientPopupMenu(view).apply {
+                                overflowActions.forEachIndexed { index, (labelRes, _) ->
+                                    menu.add(0, index, index, labelRes)
+                                }
+                                setOnMenuItemClickListener { item ->
+                                    overflowActions[item.itemId].second()
+                                    true
+                                }
+                            }.show()
+                        }
+                    },
+                    LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginStart = dp(6) },
                 )
             },
             LinearLayout.LayoutParams(-1, -2),
@@ -1634,7 +1744,7 @@ class MainActivity : Activity() {
             text = detail
             textSize = 12f
             typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
+            setTextColor(rowSecondary)
             includeFontPadding = false
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -1678,71 +1788,19 @@ class MainActivity : Activity() {
             gravity = Gravity.START
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        fun actionButton(
-            @StringRes labelRes: Int,
-            @DrawableRes iconRes: Int,
-            accent: Boolean,
-            action: (View) -> Unit,
-        ): MaterialButton = MaterialButton(this@MainActivity).apply {
-            setText(labelRes)
-            setIconResource(iconRes)
-            iconTint = ColorStateList.valueOf(if (accent) TEAL else TEXT_SECONDARY)
-            iconSize = dp(18)
-            iconPadding = dp(8)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            setAllCaps(false)
-            isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            setPaddingRelative(dp(12), 0, dp(12), 0)
-            backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 150) else OUTLINE)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 26))
-            setTextColor(if (accent) TEAL else TEXT_PRIMARY)
-            setOnClickListener(action)
-        }
-
         addView(
-            LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_test,
-                        iconRes = R.drawable.ic_connection_test,
-                        accent = true,
-                    ) { onTestConnections() },
-                    LinearLayout.LayoutParams(0, dp(48), 1f),
-                )
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_options,
-                        iconRes = R.drawable.ic_more_vert,
-                        accent = false,
-                    ) { view ->
-                        catClientPopupMenu(view).apply {
-                            overflowActions.forEachIndexed { index, (labelRes, _) ->
-                                menu.add(0, index, index, labelRes)
-                            }
-                            setOnMenuItemClickListener { item ->
-                                overflowActions[item.itemId].second()
-                                true
-                            }
-                        }.show()
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) },
-                )
+            TextView(this@MainActivity).apply {
+                text = getString(R.string.servers_open_list) + "  ›"
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(if (selected) palette.onAccent else TEAL)
+                includeFontPadding = false
+                isClickable = true
+                isFocusable = true
+                setPaddingRelative(0, dp(6), dp(8), 0)
+                setOnClickListener { onTestConnections() }
             },
-            LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) },
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
         )
     }
 
