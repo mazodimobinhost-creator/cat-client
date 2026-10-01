@@ -225,6 +225,20 @@ show a different country each time you reconnect. Two fixes, both built in:
 - Cat Client app: when the chosen location has no live server at start, it now
   connects via Automatic and shows a notice instead of failing; the choice is kept.
 
+**Routing, fragment & full-Xray output (v6.3)**
+
+- Settings → *Routing*: **Iranian sites/apps direct** (default on — banking,
+  Snapp, Digikala behave as if no VPN) and **Block ads** (geosite
+  `category-ads-all` → REJECT). Applied to Clash, sing-box and Xray output.
+- Settings → *Fragment & advanced TLS*: Xray `fragment` (packets / length /
+  interval, Zeus-style), ALPN and cipher suites. Share links cannot carry these,
+  so there is a new **`/xray/<uuid>`** (and `/u/<token>/xray`) subscription:
+  a base64 list of full Xray JSON configs for v2rayNG / V2Box / Hiddify
+  (`?raw=1` for plain JSON). sing-box output gets `tls_fragment: true`.
+- Cat Client app: *Block ads* switch under Routing (bundled GEOSITE.dat), the
+  scanner now also walks **IPv6 ranges** (`2606:4700::/32`) and **host names**,
+  and *Send to Cat Panel* opens the panel with the results pre-filled as `ip#CC`.
+
 **Worker environment variables (all optional)**
 
 | Var | Default | Meaning |
@@ -245,7 +259,7 @@ show a different country each time you reconnect. Two fixes, both built in:
 | `PANEL_TITLE` | `Cat Panel` | header title |
 
 **Endpoints**: `/` (panel), `/sub/<uuid>`, `/sub64/<uuid>`, `/clash/<uuid>`,
-`/singbox/<uuid>`, `/u/<token>[/clash|/singbox|/64]`, `/info/<token>`,
+`/singbox/<uuid>`, `/xray/<uuid>`, `/u/<token>[/clash|/singbox|/xray|/64]`, `/info/<token>`,
 `/qr.svg?text=…`, `/dns-query`, `/health`, `/api/login`, `/api/settings`,
 `/api/users`, `/api/ips`, `/api/backup`, `/api/self`, `/api/geo?ip=`,
 `/api/scan-targets.json`, `/api/chain-test`, `/api/countries`, `/api/proxy-geo`, `/api/colo`, plus the VLESS/Trojan WebSocket paths.

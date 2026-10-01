@@ -306,8 +306,16 @@ class RoutingModePreferenceStore(context: Context) {
         prefs.edit().putString(KEY_MODE, mode.wireName).apply()
     }
 
+    /** Ad networks (GEOSITE category-ads-all) → REJECT, independent of the routing mode. */
+    fun isAdBlockEnabled(): Boolean = prefs.getBoolean(KEY_AD_BLOCK, false)
+
+    fun saveAdBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AD_BLOCK, enabled).apply()
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
+        const val KEY_AD_BLOCK = "ad_block"
     }
 }
 
@@ -583,6 +591,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 dnsPrivacyMode = document.dns.mode,
                 dohUrl = document.dns.dohUrl,
                 dotEndpoint = document.dns.dotEndpoint,
+                adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
             ),
         )
         patchFinal.writeText(
@@ -736,6 +745,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             dnsPrivacyMode: DnsPrivacyMode = DnsPrivacyMode.Automatic,
             dohUrl: String = DnsPrivacyPolicy.DEFAULT_DOH_URL,
             dotEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT,
+            adBlock: Boolean = false,
         ): String {
             val routingTarget = routingTarget(rawYaml)
             val requiredRoutingTarget = if (routingMode == RoutingMode.Subscription) {
@@ -801,10 +811,18 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     RoutingMode.Subscription -> routingTarget(subscriptionYaml)
                     else -> requiredRoutingTarget
                 }
-                if (measureTarget != null) {
-                    val measurementRules = MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
-                        "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
-                    }
+                // Ad blocking rides on the bundled GEOSITE.dat (category-ads-all);
+                // injected right after the measurement rules so it wins over any
+                // subscription rule but never hides the app's own probes.
+                val adBlockRules = if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else ""
+                if (measureTarget != null || adBlock) {
+                    val measurementRules = if (measureTarget != null) {
+                        MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
+                        }
+                    } else {
+                        ""
+                    } + adBlockRules
                     val rulesHeader = "rules:\n"
                     val at = indexOf(rulesHeader)
                     if (at >= 0) {

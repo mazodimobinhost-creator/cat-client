@@ -292,6 +292,9 @@
     <string name="routing_mode_subscription">Subscription rules</string>
     <string name="routing_mode_subscription_detail">Use the rules included in the active subscription.</string>
     <string name="routing_mode_iran">Iran bypass</string>
+    <string name="ad_block_title">Block ads</string>
+    <string name="ad_block_description">Reject known ad networks (GEOSITE category-ads-all) inside the tunnel. Fewer banners in apps and sites; takes effect on the next connect.</string>
+    <string name="ad_block_toast">Ad blocking will apply on the next connection</string>
     <string name="routing_mode_iran_detail">Connect to Iranian domains and IP addresses directly. Route everything else through the VPN.</string>
     <string name="routing_mode_global">Global proxy</string>
     <string name="routing_mode_global_detail">Route all traffic through the selected VPN connection.</string>
@@ -612,6 +615,9 @@
     <string name="scanner_build_no_panel">No panel subscription matches SNI “%1$s”. Import your panel’s /sub/UUID link first (Cloud tab → Import), or apply the fastest IP as a fronting address instead.</string>
     <string name="scanner_build_apply_fronting">Apply as fronting</string>
     <string name="scanner_build_sub_name">Cat Scan · %1$s</string>
+    <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
+    <string name="scanner_sent_panel">%1$d addresses sent to the panel — press “Append” there</string>
+    <string name="scanner_copied_panel">%1$d addresses copied as addr#CC — paste them into the panel’s IP box</string>
     <string name="scanner_build_done">✓ %1$d configs built with your clean IPs — connecting…</string>
     <string name="cloud_get_token">🔑 Get a Cloudflare token (1 tap, permissions pre-filled)</string>
     <string name="cloud_get_token_steps">Cloudflare opens with the exact permissions already selected → scroll down → Continue to summary → Create Token → Copy. Paste it below. No Cloudflare account? Create a free one on that page first.</string>

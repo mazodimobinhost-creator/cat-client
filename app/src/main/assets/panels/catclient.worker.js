@@ -60,7 +60,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.2.0';
+const CAT_PANEL_VERSION = '6.3.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -302,6 +302,11 @@ function defaultSettings() {
     ipCountries: {},     // addr → ISO-2 (where this entry address lands for YOU)
     proxyCountries: {},  // proxy ip → ISO-2 (exit for Cloudflare-hosted sites)
     country: '',         // preferred exit country ('' = automatic)
+    bypassIran: true,    // Iranian sites/apps go DIRECT (looks like no VPN to them)
+    blockAds: false,     // ad networks → REJECT (geosite category-ads-all)
+    fragment: { enabled: true, packets: 'tlshello', length: '10-100', interval: '10-20' }, // Xray + sing-box only
+    alpn: 'http/1.1',    // WS over Cloudflare needs http/1.1; h2 would break the upgrade
+    cipherSuites: '',    // Xray tlsSettings.cipherSuites (colon separated), '' = default
     countryFallback: 'auto', // 'auto' = fastest other country when preferred is dead, 'none' = never leave it
     chain: '',          // socks5://user:pass@host:port or http://host:port — fixed egress
     chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
@@ -334,6 +339,13 @@ function normalizeSettings(raw) {
   s.proxyCountries = normalizeCountryMap(s.proxyCountries, 64);
   s.country = normalizeCountry(s.country) || '';
   s.countryFallback = s.countryFallback === 'none' ? 'none' : 'auto';
+  s.bypassIran = s.bypassIran !== false;
+  s.blockAds = s.blockAds === true;
+  const fr = s.fragment && typeof s.fragment === 'object' ? s.fragment : {};
+  const rng = (v, dflt) => (/^\d{1,5}(-\d{1,5})?$/.test(String(v || '').trim()) ? String(v).trim() : dflt);
+  s.fragment = { enabled: fr.enabled !== false, packets: ['tlshello', '1-1', '1-2', '1-3', '1-5'].includes(fr.packets) ? fr.packets : 'tlshello', length: rng(fr.length, '10-100'), interval: rng(fr.interval, '10-20') };
+  s.alpn = ['http/1.1', 'h2,http/1.1', 'h2', 'h3,h2,http/1.1'].includes(s.alpn) ? s.alpn : 'http/1.1';
+  s.cipherSuites = String(s.cipherSuites || '').replace(/[^A-Za-z0-9_:,]/g, '').slice(0, 2000);
   s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
   s.chainMode = s.chainMode === 'cf' ? 'cf' : 'all';
   s.chainStrict = s.chainStrict === true;
@@ -1728,11 +1740,11 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
     names,
     'rules:',
     '  - GEOIP,private,DIRECT,no-resolve',
-    '  - DOMAIN-SUFFIX,ir,DIRECT',
-    '  - GEOIP,IR,DIRECT',
+    settings.blockAds ? '  - GEOSITE,category-ads-all,REJECT' : null,
+    settings.bypassIran ? '  - DOMAIN-SUFFIX,ir,DIRECT\n  - GEOSITE,category-ir,DIRECT\n  - GEOIP,IR,DIRECT' : null,
     '  - MATCH,🐱 Cat',
     '',
-  ].join('\n');
+  ].filter((l) => l !== null).join('\n');
 }
 
 function buildSingboxConfig(host, env, settings, uuid, user, q) {
@@ -1747,7 +1759,8 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
     };
     if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx.trojanPass;
     if (e.tls) {
-      out.tls = { enabled: true, server_name: ctx.sni, insecure: false, utls: { enabled: true, fingerprint: ctx.fp } };
+      out.tls = { enabled: true, server_name: ctx.sni, insecure: false, alpn: settings.alpn.split(','), utls: { enabled: true, fingerprint: ctx.fp } };
+      if (settings.fragment.enabled) out.tls_fragment = true; // sing-box ≥1.12 TLS record fragmentation (DPI evasion)
     } else if (e.proto === 'trojan') {
       return null;
     }
@@ -1767,7 +1780,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
         { tag: 'dns-remote', address: 'https://1.1.1.1/dns-query', detour: '🐱 Cat' },
         { tag: 'dns-direct', address: 'https://8.8.8.8/dns-query', detour: 'direct' },
       ],
-      rules: [{ domain_suffix: ['.ir'], server: 'dns-direct' }],
+      rules: [].concat(settings.blockAds ? [{ rule_set: ['geosite-ads'], action: 'reject' }] : [], settings.bypassIran ? [{ domain_suffix: ['.ir'], server: 'dns-direct' }, { rule_set: ['geosite-ir'], server: 'dns-direct' }] : []),
       final: 'dns-remote',
       independent_cache: true,
     },
@@ -1788,12 +1801,63 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
         { action: 'sniff' },
         { protocol: 'dns', action: 'hijack-dns' },
         { ip_is_private: true, outbound: 'direct' },
-        { domain_suffix: ['.ir'], outbound: 'direct' },
-      ],
+      ].concat(
+        settings.blockAds ? [{ rule_set: ['geosite-ads'], action: 'reject' }] : [],
+        settings.bypassIran ? [{ domain_suffix: ['.ir'], outbound: 'direct' }, { rule_set: ['geosite-ir', 'geoip-ir'], outbound: 'direct' }] : [],
+      ),
+      rule_set: [].concat(
+        settings.blockAds ? [{ tag: 'geosite-ads', type: 'remote', format: 'binary', url: 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs', download_detour: '🐱 Cat' }] : [],
+        settings.bypassIran ? [
+          { tag: 'geosite-ir', type: 'remote', format: 'binary', url: 'https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set/geosite-ir.srs', download_detour: '🐱 Cat' },
+          { tag: 'geoip-ir', type: 'remote', format: 'binary', url: 'https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set/geoip-ir.srs', download_detour: '🐱 Cat' },
+        ] : [],
+      ),
       final: '🐱 Cat',
       auto_detect_interface: true,
     },
   };
+}
+
+/** Full Xray JSON configs (v2rayNG / V2Box / Hiddify): fragment + TLS extras
+ * + routing. Share links cannot carry these, so this endpoint exists. */
+function buildXrayConfigs(host, env, settings, uuid, user, q) {
+  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
+  const usable = entries.filter((e) => e.tls || e.proto === 'vless');
+  const frag = settings.fragment;
+  const rules = [{ type: 'field', ip: ['geoip:private'], outboundTag: 'direct' }];
+  if (settings.blockAds) rules.push({ type: 'field', domain: ['geosite:category-ads-all'], outboundTag: 'block' });
+  if (settings.bypassIran) rules.push({ type: 'field', domain: ['geosite:category-ir', 'domain:ir'], outboundTag: 'direct' }, { type: 'field', ip: ['geoip:ir'], outboundTag: 'direct' });
+  rules.push({ type: 'field', port: '0-65535', outboundTag: 'proxy' });
+  const one = (e) => {
+    const stream = {
+      network: 'ws',
+      security: e.tls ? 'tls' : 'none',
+      wsSettings: { path: e.proto === 'vless' ? ctx.paths.vlessPath : ctx.paths.trojanPath, headers: { Host: ctx.host } },
+      sockopt: frag.enabled ? { dialerProxy: 'fragment', tcpKeepAliveIdle: 100, tcpNoDelay: true } : { tcpKeepAliveIdle: 100, tcpNoDelay: true },
+    };
+    if (e.tls) {
+      stream.tlsSettings = { serverName: ctx.sni, fingerprint: ctx.fp, alpn: settings.alpn.split(','), allowInsecure: false };
+      if (settings.cipherSuites) stream.tlsSettings.cipherSuites = settings.cipherSuites;
+    }
+    const proxy = e.proto === 'vless'
+      ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
+      : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx.trojanPass, level: 8 }] }, streamSettings: stream };
+    const outbounds = [proxy];
+    if (frag.enabled) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
+    outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
+    return {
+      remarks: e.name,
+      log: { loglevel: 'warning' },
+      dns: { servers: ['https://1.1.1.1/dns-query', settings.bypassIran ? { address: '8.8.8.8', domains: ['geosite:category-ir', 'domain:ir'], skipFallback: true } : 'https://8.8.8.8/dns-query'].filter(Boolean), queryStrategy: 'UseIP' },
+      inbounds: [
+        { tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { auth: 'noauth', udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+        { tag: 'http-in', port: 10809, listen: '127.0.0.1', protocol: 'http', sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+      ],
+      outbounds,
+      routing: { domainStrategy: 'IPIfNonMatch', rules },
+    };
+  };
+  return usable.map(one);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1891,6 +1955,7 @@ function subLinks(origin, uuid, user) {
       sub64: origin + '/u/' + user.id + '/64',
       clash: origin + '/u/' + user.id + '/clash',
       singbox: origin + '/u/' + user.id + '/singbox',
+      xray: origin + '/u/' + user.id + '/xray',
       info: origin + '/info/' + user.id,
     };
   }
@@ -1899,6 +1964,7 @@ function subLinks(origin, uuid, user) {
     sub64: origin + '/sub64/' + uuid,
     clash: origin + '/clash/' + uuid,
     singbox: origin + '/singbox/' + uuid,
+    xray: origin + '/xray/' + uuid,
     info: origin + '/info/' + uuid,
   };
 }
@@ -1915,6 +1981,12 @@ function subResponse(kind, host, env, settings, uuid, user, url) {
     return new Response(buildClashYaml(host, env, settings, uuid, user, q), {
       headers: Object.assign({ 'content-type': 'text/yaml; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }, headers),
     });
+  }
+  if (kind === 'xray') {
+    const cfgs = buildXrayConfigs(host, env, settings, uuid, user, q);
+    const body = JSON.stringify(cfgs, null, 2);
+    // v2rayNG wants the JSON list base64'd like any subscription; ?raw=1 for humans.
+    return text(url && url.searchParams.get('raw') === '1' ? body : b64encode(body), 200, Object.assign({ 'content-type': 'text/plain; charset=utf-8' }, headers));
   }
   if (kind === 'singbox') {
     return new Response(JSON.stringify(buildSingboxConfig(host, env, settings, uuid, user, q), null, 2), {
@@ -2205,7 +2277,7 @@ async function handleRequest(request, env, ctx) {
   const masterUuid = await resolveUuid(host, env);
 
   /* master subscriptions: /sub/<uuid> /sub64/<uuid> /clash/<uuid> /singbox/<uuid> */
-  const master = path.match(/^\/(sub|sub64|clash|singbox)(?:\/([^/]+))?\/?$/);
+  const master = path.match(/^\/(sub|sub64|clash|singbox|xray)(?:\/([^/]+))?\/?$/);
   if (master) {
     const kind = master[1];
     const key = (master[2] || '').toLowerCase();
@@ -2222,7 +2294,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   /* user subscriptions: /u/<token>[/clash|/singbox|/64] */
-  const per = path.match(/^\/u\/([^/]+)(?:\/(clash|singbox|64))?\/?$/);
+  const per = path.match(/^\/u\/([^/]+)(?:\/(clash|singbox|xray|64))?\/?$/);
   if (per) {
     const token = decodeURIComponent(per[1]).toLowerCase();
     const kind = per[2] === '64' ? 'sub64' : (per[2] || 'sub');
@@ -2343,10 +2415,10 @@ function userInfoPage(origin, host, env, settings, token, user) {
   const expires = user && user.expiresAt ? new Date(user.expiresAt) : null;
   const daysLeft = expires ? Math.ceil((expires.getTime() - Date.now()) / 86400000) : null;
   const t = fa ? {
-    sub: 'لینک اشتراک (همهٔ کلاینت‌ها)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', copy: 'کپی', qr: 'QR', open: 'باز کردن در Cat Client',
+    sub: 'لینک اشتراک (همهٔ کلاینت‌ها)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', xray: 'Xray کامل (v2rayNG / V2Box — با Fragment)', copy: 'کپی', qr: 'QR', open: 'باز کردن در Cat Client',
     never: 'بدون انقضا', left: 'روز مانده', expired: 'منقضی شده', disabled: 'غیرفعال', active: 'فعال', apps: 'باز کردن در', hint: 'لینک را کپی کن و در کلاینت از بخش «افزودن اشتراک» وارد کن.',
   } : {
-    sub: 'Subscription link (all clients)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', copy: 'Copy', qr: 'QR', open: 'Open in Cat Client',
+    sub: 'Subscription link (all clients)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', xray: 'Full Xray (v2rayNG / V2Box — with fragment)', copy: 'Copy', qr: 'QR', open: 'Open in Cat Client',
     never: 'never expires', left: 'days left', expired: 'expired', disabled: 'disabled', active: 'active', apps: 'Open in', hint: 'Copy the link and add it as a subscription in your client.',
   };
   const status = blocked === 'expired' ? ['bad', t.expired] : blocked === 'disabled' ? ['bad', t.disabled] : ['ok', t.active];
@@ -2370,6 +2442,7 @@ function userInfoPage(origin, host, env, settings, token, user) {
 ${linkRow(t.sub, links.sub)}
 ${linkRow(t.clash, links.clash)}
 ${linkRow(t.singbox, links.singbox)}
+${linkRow(t.xray, links.xray)}
 </div>
 <div class="card" style="margin-top:14px"><div class="small mute" style="padding:12px 14px 0">${t.apps}</div><div class="apps">
 <a class="btn p" href="${escapeHtml(catLink)}">🐱 Cat Client</a>
@@ -2620,6 +2693,23 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   <textarea name="proxyIps" style="min-height:70px" data-ph="s_proxy_ph"></textarea>
   <div class="small dim" data-i="s_proxy_hint"></div>
   <div class="hr"></div>
+  <label data-i="s_route"></label>
+  <div class="row small" style="margin-top:6px"><span class="sw" id="swIran"></span><span data-i="s_iran"></span></div>
+  <div class="row small" style="margin-top:8px"><span class="sw" id="swAds"></span><span data-i="s_ads"></span></div>
+  <div class="small dim" data-i="s_route_hint"></div>
+  <div class="hr"></div>
+  <label data-i="s_frag"></label>
+  <div class="row small" style="margin-top:6px"><span class="sw" id="swFrag"></span><span data-i="s_frag_on"></span></div>
+  <div class="two" style="margin-top:8px">
+   <div><label>packets</label><select name="fragPackets"><option>tlshello</option><option>1-1</option><option>1-2</option><option>1-3</option><option>1-5</option></select></div>
+   <div><label>length / interval</label><div class="row"><input name="fragLength" class="mono" placeholder="10-100" style="flex:1"><input name="fragInterval" class="mono" placeholder="10-20" style="flex:1"></div></div>
+  </div>
+  <div class="two" style="margin-top:8px">
+   <div><label>ALPN</label><select name="alpn"><option>http/1.1</option><option>h2,http/1.1</option><option>h2</option><option>h3,h2,http/1.1</option></select></div>
+   <div><label>Cipher suites (Xray)</label><input name="cipherSuites" class="mono" dir="ltr" placeholder="TLS_ECDHE_..:TLS_.."></div>
+  </div>
+  <div class="small dim" data-i="s_frag_hint"></div>
+  <div class="hr"></div>
   <label><span data-i="s_chain"></span> <span class="chip" id="chainState"></span></label>
   <input name="chain" class="mono" dir="ltr" data-ph="s_chain_ph">
   <div class="small dim" data-i="s_chain_hint"></div>
@@ -2710,7 +2800,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در 
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
-s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
+s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
@@ -2731,7 +2821,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guid
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
-s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
+s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
@@ -2769,6 +2859,7 @@ function show(v){$$('.view').forEach(function(s){s.classList.toggle('on',s.id===
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'))})});
 
 /* ---------- load ---------- */
+(function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="scan"]');if(n)n.click();toast(t('ip_import'))},300)}}catch(e){}})();
 function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats()})}
 function renderStats(){var active=USERS.filter(function(u){return statusOf(u)==='active'}).length;
  $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;
@@ -2779,7 +2870,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');f.elements.chain.value=s.chain||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');f.elements.chain.value=s.chain||'';$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -2795,7 +2886,7 @@ $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('chang
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
@@ -2810,7 +2901,7 @@ function protoChips(u){var h='';if(u.protocols.vless)h+='<span class="chip v">VL
 function timeCell(u){var d=daysLeft(u);if(d===null)return '<span class="chip">♾️ '+t('unlimited')+'</span>';var total=Math.max(1,Math.round((u.expiresAt-u.createdAt)/86400000));var pct=Math.max(0,Math.min(100,Math.round(d/total*100)));
  var cls=d<=0?'d':d<=5?'w':'';return '<div class="small">'+(d>0?d+' '+t('days')+' '+t('left'):t('expired'))+' <span class="dim">· '+fmtDate(u.expiresAt)+'</span></div><div class="bar '+cls+'" style="margin-top:4px;width:120px"><i style="width:'+pct+'%"></i></div>'}
 function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':'⛔')+' '+t(s)+'</span>'}
-function linkBtns(u){return '<div class="act"><button class="btn sm g" data-copy="'+esc(u.links.sub)+'">🔗 '+t('sub')+'</button><button class="btn sm c" data-copy="'+esc(u.links.clash)+'">'+t('clash')+'</button><button class="btn sm" data-copy="'+esc(u.links.singbox)+'">'+t('singbox')+'</button><button class="btn sm" data-qr="'+esc(u.links.sub)+'" data-qrl="'+esc(u.name)+'">▦</button><a class="btn sm" href="'+esc(u.links.info)+'" target="_blank" rel="noopener">↗</a></div>'}
+function linkBtns(u){return '<div class="act"><button class="btn sm g" data-copy="'+esc(u.links.sub)+'">🔗 '+t('sub')+'</button><button class="btn sm c" data-copy="'+esc(u.links.clash)+'">'+t('clash')+'</button><button class="btn sm" data-copy="'+esc(u.links.singbox)+'">'+t('singbox')+'</button><button class="btn sm" data-copy="'+esc(u.links.xray)+'">Xray</button><button class="btn sm" data-qr="'+esc(u.links.sub)+'" data-qrl="'+esc(u.name)+'">▦</button><a class="btn sm" href="'+esc(u.links.info)+'" target="_blank" rel="noopener">↗</a></div>'}
 function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button><button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'">🗑</button></div>'}
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
@@ -2917,7 +3008,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,

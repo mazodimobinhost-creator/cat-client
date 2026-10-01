@@ -37,6 +37,20 @@ class MihomoRuntimeConfigBuilderTest {
     }
 
     @Test
+    fun adBlockInjectsRejectRuleAheadOfSubscriptionRules() {
+        val raw = """
+            proxies: [{name: example, type: socks5, server: 127.0.0.1, port: 1080}]
+            rules: ['GEOIP,IR,DIRECT', 'MATCH,example']
+        """.trimIndent()
+        val off = MihomoRuntimeConfigBuilder.flClashRuntimeYaml(rawYaml = raw, secret = "t")
+        assertFalse(off.contains("category-ads-all"))
+        val on = MihomoRuntimeConfigBuilder.flClashRuntimeYaml(rawYaml = raw, secret = "t", adBlock = true)
+        val reject = on.indexOf("GEOSITE,category-ads-all,REJECT")
+        assertTrue(reject >= 0)
+        assertTrue(reject < on.indexOf("GEOIP,IR,DIRECT"))
+    }
+
+    @Test
     fun bundledGeoDataIsInstalledOnceBeforeCoreSetup() {
         val baseDir = Files.createTempDirectory("mihomo-geodata").toFile()
         val existing = File(baseDir, "GeoSite.dat").apply { writeText("newer-data") }

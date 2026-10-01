@@ -227,5 +227,31 @@ let user;
   await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'', countryFallback:'auto' } });
   await req('/api/ips', { method:'POST', headers: auth, body:{ ips:[], replace:true } });
 }
+
+// routing toggles, fragment/TLS extras, full-Xray subscription
+{
+  T.kvCacheClear();
+  const y0 = await (await req('/clash/' + MASTER)).text();
+  check('defaults: bypass Iran on, ads off', y0.includes('GEOIP,IR,DIRECT') && y0.includes('GEOSITE,category-ir,DIRECT') && !y0.includes('category-ads-all'));
+  const sv = await (await req('/api/settings', { method:'PUT', headers: auth, body:{ blockAds:true, bypassIran:false, fragment:{ enabled:true, packets:'1-3', length:'5-50', interval:'1-2' }, alpn:'h2', cipherSuites:'TLS_AES_128_GCM_SHA256:bad chars!' } })).json();
+  check('settings normalise fragment/alpn/ciphers', sv.settings.fragment.packets==='1-3' && sv.settings.fragment.length==='5-50' && sv.settings.alpn==='h2' && sv.settings.cipherSuites==='TLS_AES_128_GCM_SHA256:badchars');
+  const y1 = await (await req('/clash/' + MASTER)).text();
+  check('clash: ads REJECT rule, no Iran rules when off', y1.includes('GEOSITE,category-ads-all,REJECT') && !y1.includes('GEOIP,IR,DIRECT'));
+  const sb = await (await req('/singbox/' + MASTER)).json();
+  check('singbox: ads rule_set + reject, tls_fragment, alpn', sb.route.rule_set.some(r=>r.tag==='geosite-ads') && sb.route.rules.some(r=>r.action==='reject') && sb.outbounds.some(o=>o.tls && o.tls_fragment===true && o.tls.alpn[0]==='h2'));
+  const xr = await req('/xray/' + MASTER + '?raw=1&limit=2'); const cfgs = await xr.json();
+  check('xray: full JSON configs list', Array.isArray(cfgs) && cfgs.length===2 && cfgs[0].outbounds[0].protocol==='vless' && cfgs[0].remarks);
+  const o = cfgs[0].outbounds; const frag = o.find(x=>x.tag==='fragment');
+  check('xray: fragment outbound + dialerProxy', frag && frag.settings.fragment.packets==='1-3' && o[0].streamSettings.sockopt.dialerProxy==='fragment');
+  check('xray: tls extras + ws host', o[0].streamSettings.tlsSettings.cipherSuites.startsWith('TLS_AES') && o[0].streamSettings.wsSettings.headers.Host && o[0].streamSettings.tlsSettings.alpn[0]==='h2');
+  check('xray: ads blocked, iran not bypassed', cfgs[0].routing.rules.some(r=>r.outboundTag==='block') && !cfgs[0].routing.rules.some(r=>(r.ip||[]).includes('geoip:ir')));
+  const b64 = await (await req('/xray/' + MASTER + '?limit=1')).text();
+  check('xray default body is base64 (v2rayNG import)', JSON.parse(Buffer.from(b64,'base64').toString()).length===1);
+  const ux = await req('/u/' + MASTER + '/xray?raw=1&limit=1'); check('/u/<token>/xray works', ux.status===200);
+  await req('/api/settings', { method:'PUT', headers: auth, body:{ blockAds:false, bypassIran:true, fragment:{ enabled:true }, alpn:'http/1.1', cipherSuites:'' } });
+  const xr2 = (await (await req('/xray/' + MASTER + '?raw=1&limit=1')).json())[0];
+  check('xray: iran bypass rules when on', xr2.routing.rules.some(r=>(r.ip||[]).includes('geoip:ir')) && xr2.routing.rules.some(r=>(r.domain||[]).includes('geosite:category-ir')));
+  const links = (await (await req('/api/settings', { headers: auth })).json()).links; check('links expose xray', /\/xray\//.test(links.xray));
+}
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

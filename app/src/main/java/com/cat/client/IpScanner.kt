@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import javax.net.ssl.SNIHostName
@@ -84,6 +86,9 @@ object IpScanner {
         "190.93.240.0/20",
         "197.234.240.0/22",
         "199.27.128.0/21",
+        // IPv6 — only useful when the carrier hands out v6; failures are instant.
+        "2606:4700::/32",
+        "2a06:98c0::/29",
     )
 
     fun defaultRangesText(): String = DEFAULT_RANGES.joinToString(", ")
@@ -104,6 +109,9 @@ object IpScanner {
         val sourceRange: String? = null,
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
+
+        /** `addr#CC` — the form Cat Panel's IP list understands (country tag per address). */
+        val panelLine: String get() = if (countryCode != null) "$ip#$countryCode" else ip
 
         /** Colour band used by the UI: green < 300 ms, amber < 700 ms, red above. */
         val band: Int get() = when {
@@ -166,8 +174,13 @@ object IpScanner {
     /** Two-stage probe: TCP connect, then TLS + optional HTTP trace. */
     internal fun probe(ip: String, options: ScanOptions): ScanResult? {
         val tcpMs = tcpConnect(ip, options.port, options.connectTimeoutMs) ?: return null
-        val sourceRange = (parseRangeList(options.customSubnets) + DEFAULT_RANGES)
-            .firstOrNull { cidrContains(ip, it) }
+        val sourceRange = if (isValidIpv4(ip)) {
+            (parseRangeList(options.customSubnets) + DEFAULT_RANGES).firstOrNull { cidrContains(ip, it) }
+        } else if (isValidHostname(ip)) {
+            "domain"
+        } else {
+            "ipv6"
+        }
         if (!options.verifyHttp && options.sni.isBlank()) {
             return ScanResult(
                 ip = ip,
@@ -299,8 +312,9 @@ object IpScanner {
     fun expandSubnet(cidr: String, limitPerSubnet: Int = 80, random: Boolean = false): List<String> {
         val trimmed = cidr.trim()
         if (!trimmed.contains("/")) {
-            return if (isValidIpv4(trimmed)) listOf(trimmed) else emptyList()
+            return if (isValidIpv4(trimmed) || isValidIpv6(trimmed) || isValidHostname(trimmed)) listOf(trimmed) else emptyList()
         }
+        if (trimmed.contains(':')) return expandIpv6Subnet(trimmed, limitPerSubnet, random)
         val (ipPart, prefixPart) = trimmed.split("/", limit = 2)
         val prefix = prefixPart.toIntOrNull() ?: return emptyList()
         val ipBytes = ipPart.split(".").map { it.toIntOrNull() ?: return emptyList() }
@@ -325,12 +339,53 @@ object IpScanner {
         return out.toList()
     }
 
-    /** Splits a free-form "ip, cidr, cidr" string into the entries the scanner walks. */
+    /**
+     * IPv6 CIDR → up to [limitPerSubnet] random hosts inside the prefix. Cloudflare's
+     * v6 blocks (2606:4700::/32, 2a06:98c0::/29) answer on every address, so random
+     * sampling is as good as walking and finds fresh ones on each run.
+     */
+    internal fun expandIpv6Subnet(cidr: String, limitPerSubnet: Int, random: Boolean): List<String> {
+        val (ipPart, prefixPart) = cidr.split("/", limit = 2)
+        val prefix = prefixPart.toIntOrNull() ?: return emptyList()
+        if (prefix !in 16..128) return emptyList()
+        val base = runCatching { InetAddress.getByName(ipPart) as? Inet6Address }.getOrNull()?.address ?: return emptyList()
+        if (prefix == 128) return listOf(InetAddress.getByAddress(base).hostAddress ?: return emptyList())
+        val rnd = java.util.Random(if (random) System.nanoTime() else 0x6CA7L)
+        val out = LinkedHashSet<String>()
+        var guard = 0
+        while (out.size < limitPerSubnet.coerceIn(1, 256) && guard++ < limitPerSubnet * 4) {
+            val bytes = base.copyOf()
+            for (bit in prefix until 128) {
+                val byteIndex = bit / 8
+                val mask = (0x80 ushr (bit % 8)).toByte()
+                val set = rnd.nextBoolean()
+                bytes[byteIndex] = if (set) (bytes[byteIndex].toInt() or mask.toInt()).toByte() else (bytes[byteIndex].toInt() and mask.toInt().inv()).toByte()
+            }
+            // Avoid the all-zero host part (subnet-router anycast) for short prefixes.
+            if (prefix <= 64 && bytes.drop(8).all { it == 0.toByte() }) bytes[15] = 1
+            InetAddress.getByAddress(bytes).hostAddress?.let { out += it }
+        }
+        return out.toList()
+    }
+
+    fun isValidIpv6(value: String): Boolean =
+        value.contains(':') && !value.contains('/') &&
+            runCatching { InetAddress.getByName(value) is Inet6Address }.getOrDefault(false)
+
+    /** A bare host name such as `www.visa.com` (scanned by resolving it on the device). */
+    fun isValidHostname(value: String): Boolean =
+        value.length in 4..253 && !value.contains(':') && !value.contains('/') &&
+            value.contains('.') && !value.endsWith('.') &&
+            !isValidIpv4(value) &&
+            value.split('.').all { label -> label.isNotEmpty() && label.length <= 63 && label.all { it.isLetterOrDigit() || it == '-' } && !label.startsWith('-') && !label.endsWith('-') } &&
+            value.substringAfterLast('.').let { tld -> tld.length >= 2 && tld.all(Char::isLetter) }
+
+    /** Splits a free-form "ip, cidr, host, 2606:4700::/32" string into the entries the scanner walks. */
     fun parseRangeList(text: String): List<String> =
         text.split(",", "\n", " ", ";", "\t")
-            .map { it.trim() }
+            .map { it.trim().removePrefix("[").removeSuffix("]") }
             .filter { it.isNotEmpty() }
-            .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) }
+            .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) || isValidIpv6(part) || isValidHostname(part) }
 
     internal fun buildCandidateList(options: ScanOptions): List<String> {
         val ips = linkedSetOf<String>()

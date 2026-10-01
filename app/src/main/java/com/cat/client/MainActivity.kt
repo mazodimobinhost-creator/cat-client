@@ -215,6 +215,7 @@ class MainActivity : Activity() {
     private lateinit var dashboardConnectionMetadataSection: View
     private lateinit var tlsIntegrityCheckbox: MaterialSwitch
     private lateinit var tlsFragmentCheckbox: MaterialSwitch
+    private lateinit var adBlockCheckbox: MaterialSwitch
     private lateinit var alwaysOnStatusText: TextView
     private lateinit var amneziaNoiseCheckbox: MaterialSwitch
     private lateinit var amneziaNoiseFields: LinearLayout
@@ -3728,6 +3729,19 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
+        adBlockCheckbox = MaterialSwitch(this).apply {
+            isChecked = routingModePreferenceStore.isAdBlockEnabled()
+            contentDescription = getString(R.string.ad_block_title)
+            setOnClickListener { saveAdBlockEnabled(isChecked) }
+        }
+        routingPanel.addView(
+            advancedToggleRow(
+                title = getString(R.string.ad_block_title),
+                detail = getString(R.string.ad_block_description),
+                toggle = adBlockCheckbox,
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         connectionSettings.addView(
             advancedSectionLabel(getString(R.string.dns_privacy_section)),
             LinearLayout.LayoutParams(
@@ -4892,6 +4906,22 @@ class MainActivity : Activity() {
             }
         }
         body.addView(scannerBuildButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // Hand the verified rows to Cat Panel as `addr#CC` lines: copied to the
+        // clipboard AND opened in the panel (its import box pre-fills from ?ips=),
+        // so the panel learns which address lands in which country for THIS user.
+        val scannerPanelButton = MaterialButton(this).apply {
+            setText(R.string.scanner_send_panel)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 120))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { sendScanToPanel() }
+        }
+        body.addView(scannerPanelButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5421,6 +5451,32 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
         )
         return row
+    }
+
+    private fun sendScanToPanel() {
+        val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
+        val verified = source.filter { it.tlsOk }.ifEmpty { source }
+        if (verified.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val lines = verified.take(60).map { it.panelLine }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", lines.joinToString("\n")))
+        val sni = scannerSniInput.text?.toString()?.trim().orEmpty()
+        val opened = sni.isNotBlank() && IpScanner.isValidHostname(sni) && runCatching {
+            startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://$sni/?ips=" + Uri.encode(lines.joinToString(","))),
+                ),
+            )
+        }.isSuccess
+        Toast.makeText(
+            this,
+            getString(if (opened) R.string.scanner_sent_panel else R.string.scanner_copied_panel, lines.size),
+            Toast.LENGTH_LONG,
+        ).show()
     }
 
     private fun copyScannerIp(result: IpScanner.ScanResult) {
@@ -9524,6 +9580,13 @@ class MainActivity : Activity() {
         if (!enabled) CatClientScanStateStore(this).clearTlsQuarantine()
         DiagnosticLogger.info(this, "activity.tlsIntegrity.saved", "enabled=$enabled")
         reconnectForConnectionOptionChange()
+    }
+
+    private fun saveAdBlockEnabled(enabled: Boolean) {
+        if (routingModePreferenceStore.isAdBlockEnabled() == enabled) return
+        routingModePreferenceStore.saveAdBlockEnabled(enabled)
+        DiagnosticLogger.info(this, "activity.adBlock.saved", "enabled=$enabled")
+        Toast.makeText(this, R.string.ad_block_toast, Toast.LENGTH_SHORT).show()
     }
 
     private fun saveTlsFragmentEnabled(enabled: Boolean) {

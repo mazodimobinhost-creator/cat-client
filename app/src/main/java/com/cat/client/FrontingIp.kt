@@ -53,7 +53,7 @@ object FrontingIpPolicy {
             else -> endpoint to null
         }
 
-        require(isValidIpv4(ip) || isValidIpv6(ip)) { "IP Fronting باید یک آدرس معتبر IPv4 یا IPv6 باشد" }
+        require(isValidIpv4(ip) || isValidIpv6(ip) || IpScanner.isValidHostname(ip)) { "IP Fronting باید یک آدرس معتبر IPv4، IPv6 یا دامنه باشد" }
         val port = portText?.let {
             require(it.all(Char::isDigit)) { "پورت IP Fronting باید عددی بین 1 تا 65535 باشد" }
             it.toIntOrNull()?.also { parsed ->
