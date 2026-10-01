@@ -2842,7 +2842,7 @@ class MainActivity : Activity() {
             heroClusterParams = FrameLayout.LayoutParams(-2, -2).apply {
                 gravity = Gravity.END or Gravity.TOP
                 marginEnd = dp(14)
-                topMargin = dp(205)
+                topMargin = dp(243)
             }
             addView(heroCluster, heroClusterParams)
         }
@@ -3117,7 +3117,7 @@ class MainActivity : Activity() {
                 GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(26).toFloat()
-                    setColor(withAlpha(palette.brandPillBackground, if (palette.isDark) 150 else 255))
+                    setColor(selectedRowColor())
                 },
                 null,
             )
@@ -11434,23 +11434,24 @@ class MainActivity : Activity() {
         val hero = homeHeroFrame ?: return
         if (homeStageFitting || scrollView.height == 0) return
         val content = scrollView.getChildAt(0) ?: return
+        if (content.height == 0) return
         val viewport = scrollView.height - scrollView.paddingTop - scrollView.paddingBottom
-        val overflow = content.height - viewport
         val current = hero.layoutParams.height
+        val fixed = content.height - current // everything except the stage (incl. dock padding)
         val full = dp(300)
         val minStage = dp(210)
-        val target = when {
-            overflow > 0 -> (current - overflow).coerceAtLeast(minStage)
-            overflow < 0 -> (current - overflow).coerceAtMost(full)
-            else -> current
-        }
+        val target = (viewport - fixed).coerceIn(minStage, full)
         if (target == current) return
         homeStageFitting = true
-        hero.layoutParams = hero.layoutParams.apply { height = target }
         val blob = (dp(250) * target / full.toFloat()).toInt().coerceIn(dp(180), dp(250))
+        // Zed HomeFabCluster: anchored at the blob's lower-right, running down past the state label.
+        heroClusterParams?.topMargin = target / 2 + blob / 2 - dp(32)
         connectionBlob.layoutParams = (connectionBlob.layoutParams as FrameLayout.LayoutParams).apply { width = blob; height = blob }
-        heroClusterParams?.topMargin = target - dp(95)
-        hero.post { homeStageFitting = false }
+        hero.layoutParams = hero.layoutParams.apply { height = target }
+        hero.post {
+            homeStageFitting = false
+            fitHomeStage(scrollView)
+        }
     }
 
     /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
