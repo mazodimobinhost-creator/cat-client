@@ -7507,7 +7507,7 @@ class MainActivity : Activity() {
                         }
                         addView(TextView(this@MainActivity).apply { text = if (ok) "TLS ✓" else "✗"; textSize = 10.5f; typeface = CatClientBodyBoldTypeface; setTextColor(if (ok) TEAL else TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
                         addView(TextView(this@MainActivity).apply { text = sni; textSize = 13f; typeface = CatClientDataTypeface; setTextColor(TEXT_PRIMARY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f))
-                        addView(TextView(this@MainActivity).apply { text = if (ok) "${r!!.pingMs} ms" + (r.tlsMs?.let { " · tls $it" } ?: ""); textSize = 11.5f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                        addView(TextView(this@MainActivity).apply { text = if (ok) "${r!!.pingMs} ms" + (r.tlsMs?.let { " · tls $it" } ?: "") else "—"; textSize = 11.5f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
                     }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
                 }
             }
