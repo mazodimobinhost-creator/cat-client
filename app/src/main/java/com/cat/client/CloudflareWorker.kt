@@ -29,6 +29,13 @@ object CloudflareWorker {
     const val WIZARD_ASSET_PATH = "panels/catclient.wizard.js"
 
     /**
+     * Official "Deploy to Cloudflare" button for the repo (README): deploys Cat
+     * Panel on any Cloudflare account in one click — no app, no token pasting.
+     * Sharing this link is the no-app path for friends who do not have Cat Client.
+     */
+    const val DEPLOY_BUTTON_URL = "https://deploy.workers.cloudflare.com/?url=$REPO_URL"
+
+    /**
      * Cloudflare "API token template" URL: opens dash.cloudflare.com with the exact
      * permissions pre-selected (Workers Scripts edit, Workers KV edit, Account Settings
      * read, User Details read). The user only taps Continue to summary → Create Token.
