@@ -5561,8 +5561,8 @@ class MainActivity : Activity() {
         }
 
         // Wizard card (BPB/Zeus-style): token → deploy → import → scan, step by step.
-        val wizardCard = advancedSettingsPanel()
-        wizardCard.addView(
+        val setupWizardCard = advancedSettingsPanel()
+        setupWizardCard.addView(
             TextView(this).apply {
                 setText(R.string.wizard_title)
                 textSize = 16f
@@ -5572,7 +5572,7 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2),
         )
-        wizardCard.addView(
+        setupWizardCard.addView(
             TextView(this).apply {
                 setText(R.string.wizard_subtitle)
                 textSize = 12.5f
@@ -5582,11 +5582,11 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
         )
-        wizardCard.addView(
+        setupWizardCard.addView(
             cloudActionButton(R.string.wizard_start, R.drawable.ic_cloud_tab, accent = true) { showPanelWizard() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
-        body.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(setupWizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         body.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
