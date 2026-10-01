@@ -808,4 +808,11 @@
     <string name="scanner_proxy_entry_detail">SOCKS5 / SOCKS4 / HTTP از لیست‌های عمومی یا رنج خودت</string>
     <string name="haptic_connect_title">لرزش هنگام اتصال</string>
     <string name="haptic_connect_detail">یک ویبره کوتاه وقتی تونل وصل می‌شود</string>
+    <string name="engine_auto_failover">خودترمیمی</string>
+    <string name="engine_auto_failover_on">خودترمیمی روشن: خروجیِ در حال افت، با یک جایگزین تأییدشده عوض می‌شود</string>
+    <string name="engine_auto_failover_off">خودترمیمی خاموش</string>
+    <string name="engine_failover_toast">سوییچ %1$s ← %2$s (%3$s)</string>
+    <string name="engine_active_line">فعال %1$s · میانه %2$d ms · p95 %3$d ms · موفقیت %4$d%% · اطمینان %5$d%%</string>
+    <string name="engine_stats_line">موتور: %1$d مشاهده · موفقیت probe %2$d%% · failover %3$d · آخرین recovery %4$.1fs · دقت پیش‌بینی %5$d%% · شبکه %6$s</string>
+    <string name="engine_last_failover">آخرین failover: %1$s ← %2$s — %3$s</string>
 </resources>

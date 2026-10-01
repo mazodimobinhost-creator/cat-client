@@ -4947,7 +4947,23 @@ class MainActivity : Activity() {
                 ).show()
             }
         }
+        val genomeStoreUi = NetworkGenomeStore(this)
+        val failoverChip = Chip(this@MainActivity).apply {
+            setText(R.string.engine_auto_failover)
+            isCheckable = true
+            isChecked = genomeStoreUi.autoFailover
+            textSize = 12f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                genomeStoreUi.autoFailover = checked
+                Toast.makeText(this@MainActivity, if (checked) R.string.engine_auto_failover_on else R.string.engine_auto_failover_off, Toast.LENGTH_SHORT).show()
+            }
+        }
         healthRow.addView(autoChip, LinearLayout.LayoutParams(-2, -2))
+        healthRow.addView(failoverChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthRow.addView(pinChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthRow.addView(rotateButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthCard.addView(healthRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
@@ -5581,6 +5597,26 @@ class MainActivity : Activity() {
                 append('\n')
                 append(getString(R.string.ip_health_last_event, last.removedIp, last.addedIp ?: "—"))
             }
+            val genomes = NetworkGenomeStore(this@MainActivity)
+            val stats = genomes.stats()
+            val network = NetworkContext.key(this@MainActivity)
+            val active = frontingIps.firstOrNull()
+            if (active != null) {
+                val g = genomes.genome(active).forNetwork(network)
+                if (g.count > 0) {
+                    append('\n')
+                    append(getString(R.string.engine_active_line, active, g.median, g.p95, (g.successRate * 100).toInt(), (g.confidence * 100).toInt()))
+                    g.anomaly()?.let { append("  ⚠ ").append(it.type).append(' ').append(it.detail) }
+                }
+            }
+            if (stats.probes > 0) {
+                append('\n')
+                append(getString(R.string.engine_stats_line, stats.observations, (stats.probeSuccessRate * 100).toInt(), stats.failovers, stats.lastRecoveryMs / 1000.0, (stats.predictionAccuracy * 100).toInt(), network))
+                if (stats.lastFailoverTo.isNotBlank()) {
+                    append('\n')
+                    append(getString(R.string.engine_last_failover, stats.lastFailoverFrom, stats.lastFailoverTo, stats.lastFailoverReason))
+                }
+            }
         }
     }
 
@@ -5597,6 +5633,45 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Self-healing control plane: DETECT (anomaly on the active fronting address from its
+     * own history) → SELECT (best-ranked standby) → WARM/VERIFY (two fresh probes) →
+     * PROMOTE (move to the front of the fronting list, reconnect) → LEARN (stats).
+     */
+    private suspend fun runCognitiveFailover(pool: List<IpHealthEntry>, genomes: NetworkGenomeStore, network: String, sni: String, port: Int) {
+        if (!genomes.autoFailover || IpHealthStore(this).pinned) return
+        if (!currentVpnStateIsStarted()) return
+        val active = frontingIps.firstOrNull() ?: return
+        val plan = withContext(Dispatchers.IO) {
+            val options = IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)
+            CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network) { candidate ->
+                val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }))
+                val ok = r != null && r.tlsOk && r.pingMs <= IpHealthMonitor.SLOW_MS
+                genomes.record(candidate.ip, Observation(System.currentTimeMillis(), network, r?.pingMs ?: -1L, r?.tlsMs ?: -1L, ok, if (ok) FailureClass.OK else CognitiveEngine.classify(r, IpHealthMonitor.SLOW_MS, genomes.genome(candidate.ip))))
+                ok
+            }
+        } ?: return
+        val started = System.currentTimeMillis()
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = FrontingIpPolicy.normalizeIps((listOf(plan.to.ip) + frontingIps.filter { it != plan.to.ip }).joinToString(","))
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        genomes.updateStats {
+            it.copy(
+                failovers = it.failovers + 1,
+                predictedDegradations = it.predictedDegradations + if (plan.predicted) 1 else 0,
+                predictionsConfirmed = it.predictionsConfirmed + if (plan.predicted) 1 else 0,
+                lastRecoveryMs = System.currentTimeMillis() - started,
+                lastFailoverAt = started,
+                lastFailoverFrom = plan.from,
+                lastFailoverTo = plan.to.ip,
+                lastFailoverReason = plan.reason,
+            )
+        }
+        renderScannerIpHealth()
+        Toast.makeText(this, getString(R.string.engine_failover_toast, plan.from, plan.to.ip, plan.reason), Toast.LENGTH_LONG).show()
+    }
+
     private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
         if (ipHealthSweeping) return
         ipHealthSweeping = true
@@ -5606,14 +5681,20 @@ class MainActivity : Activity() {
         if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
         activityScope.launch {
             try {
+                val genomeStore = NetworkGenomeStore(this@MainActivity)
+                val network = NetworkContext.key(this@MainActivity)
                 val result = IpHealthMonitor.sweep(
                     store,
                     sni,
                     port,
                     failFast = failFast,
                     extraSnis = detectPanelSnisFromSubscriptions(),
+                    genomes = genomeStore,
+                    network = network,
+                    baseIntervalMinutes = store.intervalMinutes,
                 )
                 renderScannerIpHealth()
+                runCognitiveFailover(result.kept, genomeStore, network, sni, port)
                 if (!silent) {
                     if (result.removed.isEmpty() && result.added.isEmpty()) {
                         Toast.makeText(this@MainActivity, R.string.ip_health_all_ok, Toast.LENGTH_SHORT).show()

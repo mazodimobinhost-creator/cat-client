@@ -809,4 +809,11 @@
     <string name="scanner_proxy_entry_detail">SOCKS5 / SOCKS4 / HTTP from public lists or your ranges</string>
     <string name="haptic_connect_title">Vibrate on connect</string>
     <string name="haptic_connect_detail">A short tick when the tunnel comes up</string>
+    <string name="engine_auto_failover">Self-healing</string>
+    <string name="engine_auto_failover_on">Self-healing on: a degrading exit is replaced by a verified standby</string>
+    <string name="engine_auto_failover_off">Self-healing off</string>
+    <string name="engine_failover_toast">Switched %1$s → %2$s (%3$s)</string>
+    <string name="engine_active_line">Active %1$s · median %2$d ms · p95 %3$d ms · success %4$d%% · confidence %5$d%%</string>
+    <string name="engine_stats_line">Engine: %1$d observations · probe success %2$d%% · failovers %3$d · last recovery %4$.1fs · prediction accuracy %5$d%% · network %6$s</string>
+    <string name="engine_last_failover">Last failover: %1$s → %2$s — %3$s</string>
 </resources>
