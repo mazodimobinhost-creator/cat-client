@@ -225,7 +225,7 @@ let first;
 
 /* 9. the panel itself advertises the wizard permissions */
 {
-  check('panel help links to a wizard/token template', panelSrc.includes('permissionGroupKeys') || panelSrc.includes('/wizard'));
+  check('panel deep-links back into Cat Client', panelSrc.includes('catclient://add-sub') && panelSrc.includes('catclient://scan'));
 }
 
 console.log(failures === 0 ? '\nWIZARD TESTS PASSED' : '\n' + failures + ' WIZARD TEST(S) FAILED');
