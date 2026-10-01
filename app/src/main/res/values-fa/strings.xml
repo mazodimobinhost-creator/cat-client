@@ -698,4 +698,27 @@
     <string name="scanner_port_label">پورت تست</string>
     <string name="scanner_port_hint">اول ۴۴۳ را امتحان کن؛ ۲۰۵۳، ۲۰۸۳ و ۸۴۴۳ گاهی با اپراتور متفاوت بهتر جواب می‌دهند.</string>
     <string name="scanner_port_selected">پورت %1$d</string>
+    <string name="wizard_title">ویزارد راه‌اندازی — پنل خودت در ۳ دقیقه</string>
+    <string name="wizard_subtitle">بدون نیاز به بلد بودن کلودفلر: توکن → پنل → اشتراک → آی‌پی تمیز، قدم‌به‌قدم.</string>
+    <string name="wizard_start">شروع ویزارد</string>
+    <string name="wizard_step">قدم %1$d از %2$d</string>
+    <string name="wizard_next">بعدی</string>
+    <string name="wizard_intro">این ویزارد: ۱) با هم یک توکن API کلودفلر می‌سازیم، ۲) Cat Panel را روی حساب رایگان کلودفلرِ خودت بالا می‌آورد، ۳) اشتراک را داخل همین اپ وارد می‌کند، ۴) برای اپراتورت آی‌پی تمیز اسکن می‌کند.</string>
+    <string name="wizard_intro_note">همه‌چیز روی حساب کلودفلر خودت اجرا می‌شود. هیچ‌چیز برای کس دیگری فرستاده نمی‌شود.</string>
+    <string name="wizard_token_title">توکن کلودفلر</string>
+    <string name="wizard_token_help">روی «گرفتن توکن» بزن: کلودفلر با دسترسی‌های درست از قبل انتخاب‌شده باز می‌شود. «Continue to summary» → «Create Token»، توکن را کپی کن و اینجا بچسبان.</string>
+    <string name="wizard_get_token">گرفتن توکن (باز کردن کلودفلر)</string>
+    <string name="wizard_token_privacy">توکن فقط روی همین گوشی می‌ماند (برای ساخت و به‌روزرسانی بعدی پنل).</string>
+    <string name="wizard_options_title">تنظیمات پنل</string>
+    <string name="wizard_options_help">یک نام برای ورکر انتخاب کن (آدرس پنل می‌شود) و اگر خواستی رمز پنل. رمز را خالی بگذاری با UUID وارد می‌شوی.</string>
+    <string name="wizard_options_note">همه‌چیز را بعداً داخل پنل می‌توانی عوض کنی.</string>
+    <string name="wizard_deploy">پنلم را بساز</string>
+    <string name="wizard_deploying_title">در حال ساخت…</string>
+    <string name="wizard_failed_title">ساخت پنل ناموفق بود</string>
+    <string name="wizard_retry">تلاش دوباره</string>
+    <string name="wizard_done_title">🎉 پنلت آماده است</string>
+    <string name="wizard_done_help">قدم بعد: اشتراک را وارد کن و وصل شو. بعد برای اپراتورت آی‌پی تمیز اسکن کن و با برچسب کشور به پنل بفرست.</string>
+    <string name="wizard_import_connect">وارد کردن و اتصال</string>
+    <string name="wizard_scan_now">اسکن آی‌پی تمیز</string>
+    <string name="wizard_scan_hint">اسکنر با هاست پنلت به‌عنوان SNI باز شد — «شروع» را بزن، بعد «ارسال به Cat Panel».</string>
 </resources>

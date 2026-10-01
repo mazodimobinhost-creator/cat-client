@@ -699,4 +699,27 @@
     <string name="scanner_port_label">Probe port</string>
     <string name="scanner_port_hint">Use 443 first; 2053, 2083 and 8443 can work when an ISP treats ports differently.</string>
     <string name="scanner_port_selected">Port %1$d</string>
+    <string name="wizard_title">Setup wizard — your own panel in 3 minutes</string>
+    <string name="wizard_subtitle">No Cloudflare experience needed: token → panel → subscription → clean IPs, one step at a time.</string>
+    <string name="wizard_start">Start the wizard</string>
+    <string name="wizard_step">Step %1$d of %2$d</string>
+    <string name="wizard_next">Next</string>
+    <string name="wizard_intro">This wizard will: 1) create a Cloudflare API token with you, 2) deploy Cat Panel on your free Cloudflare account, 3) import the subscription into this app, 4) scan clean IPs for your carrier.</string>
+    <string name="wizard_intro_note">Everything runs on your own Cloudflare account. Nothing is sent to anyone else.</string>
+    <string name="wizard_token_title">Cloudflare token</string>
+    <string name="wizard_token_help">Tap “Get token”: Cloudflare opens with the right permissions pre-selected. Press “Continue to summary” → “Create Token”, copy it and paste it here.</string>
+    <string name="wizard_get_token">Get token (opens Cloudflare)</string>
+    <string name="wizard_token_privacy">The token stays on this phone (used to deploy and to update the panel later).</string>
+    <string name="wizard_options_title">Panel options</string>
+    <string name="wizard_options_help">Choose a name for your worker (it becomes the address) and, optionally, a panel password. Leave the password empty to log in with the UUID.</string>
+    <string name="wizard_options_note">You can change everything later inside the panel.</string>
+    <string name="wizard_deploy">Build my panel</string>
+    <string name="wizard_deploying_title">Deploying…</string>
+    <string name="wizard_failed_title">Deployment failed</string>
+    <string name="wizard_retry">Retry</string>
+    <string name="wizard_done_title">🎉 Your panel is ready</string>
+    <string name="wizard_done_help">Next: import the subscription and connect. Then scan clean IPs for your carrier and send them to the panel with the country tags.</string>
+    <string name="wizard_import_connect">Import &amp; connect</string>
+    <string name="wizard_scan_now">Scan clean IPs</string>
+    <string name="wizard_scan_hint">Scanner opened with your panel host as SNI — press Start, then “Send to Cat Panel”.</string>
 </resources>

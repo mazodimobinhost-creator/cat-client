@@ -5560,9 +5560,37 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(104))
         }
 
+        // Wizard card (BPB/Zeus-style): token → deploy → import → scan, step by step.
+        val wizardCard = advancedSettingsPanel()
+        wizardCard.addView(
+            TextView(this).apply {
+                setText(R.string.wizard_title)
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        wizardCard.addView(
+            TextView(this).apply {
+                setText(R.string.wizard_subtitle)
+                textSize = 12.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        wizardCard.addView(
+            cloudActionButton(R.string.wizard_start, R.drawable.ic_cloud_tab, accent = true) { showPanelWizard() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         body.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
         )
 
         val catPanelCard = advancedSettingsPanel()
@@ -6498,6 +6526,160 @@ class MainActivity : Activity() {
                 }
             }
             .setNegativeButton(android.R.string.ok, null)
+            .show()
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Panel wizard — the "I have nothing yet" path                          */
+    /* ------------------------------------------------------------------ */
+
+    private fun wizardField(hint: String, password: Boolean = false, initial: String = ""): Pair<TextInputLayout, TextInputEditText> {
+        val edit = TextInputEditText(this).apply {
+            setText(initial)
+            inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            textDirection = View.TEXT_DIRECTION_LTR
+            typeface = CatClientBodyTypeface
+        }
+        val layout = TextInputLayout(this).apply {
+            this.hint = hint
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            addView(edit, LinearLayout.LayoutParams(-1, -2))
+        }
+        return layout to edit
+    }
+
+    private fun wizardBody(vararg views: View): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        setPadding(dp(24), dp(12), dp(24), dp(4))
+        views.forEach { addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }) }
+    }
+
+    private fun wizardText(text: CharSequence, secondary: Boolean = false) = TextView(this).apply {
+        this.text = text
+        textSize = if (secondary) 12.5f else 14f
+        typeface = CatClientBodyTypeface
+        setTextColor(if (secondary) TEXT_SECONDARY else TEXT_PRIMARY)
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+
+    /** Step 1/4 — what is about to happen. */
+    private fun showPanelWizard() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 1, 4) + " · " + getString(R.string.wizard_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_intro)), wizardText(getString(R.string.wizard_intro_note), secondary = true)))
+            .setPositiveButton(R.string.wizard_next) { _, _ -> showPanelWizardToken() }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .show()
+    }
+
+    /** Step 2/4 — Cloudflare API token (verified before moving on). */
+    private fun showPanelWizardToken(prefill: String = "", error: String? = null) {
+        val (tokenLayout, tokenEdit) = wizardField(getString(R.string.cloud_token_hint), initial = prefill)
+        if (error != null) tokenLayout.error = error
+        val getToken = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.wizard_get_token)
+            isAllCaps = false
+            typeface = CatClientBodyBoldTypeface
+            setOnClickListener { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.CF_TOKEN_TEMPLATE_URL))) } }
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 2, 4) + " · " + getString(R.string.wizard_token_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_token_help)), getToken, tokenLayout, wizardText(getString(R.string.wizard_token_privacy), secondary = true)))
+            .setPositiveButton(R.string.wizard_next, null)
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val token = tokenEdit.text?.toString()?.trim().orEmpty()
+                if (token.isEmpty()) { tokenLayout.error = getString(R.string.cloud_token_required); return@setOnClickListener }
+                tokenLayout.error = null
+                tokenLayout.isEnabled = false
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                activityScope.launch {
+                    val permissions = runCatching { CloudflareWorker.verifyToken(token) }.getOrNull()
+                    val accountId = permissions?.accountId
+                    if (permissions == null || !permissions.valid || accountId == null) {
+                        dialog.dismiss()
+                        showPanelWizardToken(token, getString(R.string.cloud_token_invalid, permissions?.missingScopes?.joinToString(" + ") ?: "network"))
+                    } else {
+                        dialog.dismiss()
+                        showPanelWizardOptions(token, accountId)
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    /** Step 3/4 — name + password, then deploy with a progress dialog. */
+    private fun showPanelWizardOptions(token: String, accountId: String) {
+        val (nameLayout, nameEdit) = wizardField(getString(R.string.cloud_worker_name_hint), initial = "catpanel")
+        val (passLayout, passEdit) = wizardField(getString(R.string.cloud_panel_password_hint), password = true)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 3, 4) + " · " + getString(R.string.wizard_options_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_options_help)), nameLayout, passLayout, wizardText(getString(R.string.wizard_options_note), secondary = true)))
+            .setPositiveButton(R.string.wizard_deploy) { _, _ ->
+                val workerName = nameEdit.text?.toString()?.trim()?.lowercase(Locale.US)
+                    ?.replace(Regex("[^a-z0-9-]"), "-")?.replace(Regex("-{2,}"), "-")?.trim('-')?.ifEmpty { "catpanel" } ?: "catpanel"
+                val password = passEdit.text?.toString()?.trim().orEmpty()
+                val progress = MaterialAlertDialogBuilder(this)
+                    .setTitle(getString(R.string.wizard_step, 4, 4) + " · " + getString(R.string.wizard_deploying_title))
+                    .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_deploying, workerName))))
+                    .setCancelable(false)
+                    .show()
+                activityScope.launch {
+                    try {
+                        val result = CloudflareWorker.deployBuiltIn(this@MainActivity, token, accountId, workerName, panelPassword = password)
+                        PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                        PanelDeploymentStore(this@MainActivity).rememberLast(result.workerUrl, result.uuid)
+                        renderCloudDeploymentHistory()
+                        progress.dismiss()
+                        showPanelWizardDone(result)
+                    } catch (e: Exception) {
+                        progress.dismiss()
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.wizard_failed_title)
+                            .setMessage(getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName))
+                            .setPositiveButton(R.string.wizard_retry) { _, _ -> showPanelWizardOptions(token, accountId) }
+                            .setNegativeButton(R.string.split_tunnel_cancel, null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .show()
+    }
+
+    /** Step 4/4 — done: import + connect, scan clean IPs, open the panel. */
+    private fun showPanelWizardDone(result: CloudflareWorker.DeploymentResult) {
+        val host = Uri.parse(result.workerUrl).host.orEmpty()
+        val status = if (result.verifiedOnline) getString(R.string.cloud_verified_online) else getString(R.string.cloud_verify_pending)
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.wizard_done_title)
+            .setView(
+                wizardBody(
+                    wizardText(status + "\n" + kvLine),
+                    wizardText(getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl, secondary = true),
+                    wizardText(getString(R.string.cloud_uuid_is_password, result.uuid), secondary = true),
+                    wizardText(getString(R.string.wizard_done_help)),
+                ),
+            )
+            .setPositiveButton(R.string.wizard_import_connect) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
+            }
+            .setNeutralButton(R.string.wizard_scan_now) { _, _ ->
+                if (::scannerSniInput.isInitialized && host.isNotEmpty()) {
+                    scannerSniInput.setText(host)
+                    saveScannerSni(host)
+                }
+                showAppTab(4)
+                Toast.makeText(this, R.string.wizard_scan_hint, Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
             .show()
     }
 

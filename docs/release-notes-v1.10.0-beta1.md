@@ -18,3 +18,18 @@
 
 ## ناسازگاری
 - پنل v6 داده‌های پنل v5 (کلیدهای KV قدیمی) را نمی‌خواند؛ کاربران را دوباره بساز یا از Backup/Restore v6 استفاده کن. ویژگی‌های سمت ورکر v5 مثل «اسکنر دقیق» عمداً حذف شدند (اسکن روی گوشی انجام می‌شود).
+
+## Setup wizard (Cloud tab)
+
+A new card at the top of the Cloud tab walks a first-time user through the whole
+"I have nothing yet" path in four dialogs:
+
+1. **Welcome** — what will happen, and that everything runs on the user's own Cloudflare account.
+2. **Token** — one tap opens Cloudflare's token-template page with the right scopes pre-selected;
+   the pasted token is verified (`verifyToken`) before moving on, with inline errors on failure.
+3. **Options** — worker name (sanitised to `[a-z0-9-]`) and an optional panel password.
+4. **Deploy** — progress dialog → `deployBuiltIn` (worker + KV binding) → token remembered for
+   future one-tap panel updates → the deployment appears in the history list.
+
+The final screen offers **Import & connect** (opens the subscription dialog pre-filled),
+**Scan clean IPs** (switches to the scanner with the panel host as SNI) and **Open panel**.
