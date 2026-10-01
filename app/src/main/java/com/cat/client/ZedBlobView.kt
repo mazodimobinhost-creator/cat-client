@@ -213,3 +213,45 @@ class ZedBlobView(context: Context) : View(context) {
         const val ZED_CYAN = 0xFF37E0D8.toInt()
     }
 }
+
+/**
+ * ZedSecure DecorativeBackdrop: one big soft gradient blob bleeding in from the top-right corner.
+ * Drawn as a plain Drawable so it can sit behind any scrolling content.
+ */
+class ZedDecorDrawable(private val alpha: Float = 1f) : android.graphics.drawable.Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        if (b.isEmpty) return
+        val w = b.width().toFloat()
+        val cx = b.right + w * 0.02f
+        val cy = b.top - w * 0.10f
+        val r = w * 0.52f
+        if (paint.shader == null) {
+            paint.shader = LinearGradient(
+                cx - r, cy - r, cx + r * 0.2f, cy + r,
+                intArrayOf(0xFF5646D6.toInt(), ZedBlobView.ZED_VIOLET, 0xFFB2479A.toInt()),
+                null, Shader.TileMode.CLAMP,
+            )
+        }
+        paint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+        path.reset()
+        val segments = 140
+        for (i in 0..segments) {
+            val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
+            val wave = 1f + 0.07f * cos(5f * a) + 0.04f * sin(3f * a + 1f)
+            val x = cx + r * wave * cos(a)
+            val y = cy + r * wave * sin(a)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        canvas.drawPath(path, paint)
+    }
+
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+}

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Primary colors — Purple on black (OLED-friendly) -->
-    <color name="catclient_primary">#C7F24E</color>
-    <color name="catclient_on_primary">#1A2200</color>
+    <color name="catclient_primary">#C7BFFF</color>
+    <color name="catclient_on_primary">#2A0A93</color>
     <color name="catclient_primary_container">#3E2FB0</color>
     <color name="catclient_on_primary_container">#E5DEFF</color>
 

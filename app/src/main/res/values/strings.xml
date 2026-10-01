@@ -726,4 +726,16 @@
     <string name="servers_auto_title">Auto · All servers</string>
     <string name="servers_auto_detail">Fastest of your servers. If one fails, connections move on in a moment.</string>
     <string name="servers_open_list">Servers &amp; ping</string>
+    <string name="map_title">Map</string>
+    <string name="map_subtitle">Where you connect from, and where you come out</string>
+    <string name="map_real_location">Your real location · recorded with no VPN</string>
+    <string name="map_exit">Exit</string>
+    <string name="map_unknown">Unknown yet — connect once to find out</string>
+    <string name="home_tap_change_server">Tap to change server</string>
+    <string name="servers_add_title">Add server</string>
+    <string name="servers_add_import">Import</string>
+    <string name="servers_add_clipboard">Import from clipboard</string>
+    <string name="servers_add_qr">Scan QR from camera</string>
+    <string name="servers_add_manual">Add manually (paste a link or subscription)</string>
+    <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links as well as subscription URLs.</string>
 </resources>

@@ -128,14 +128,14 @@ object CatClientDesignTokens {
         textTertiary = 0xFF928F9A.toInt(),
         neutral = 0xFF928F9A.toInt(),
         outline = 0xFF47464F.toInt(),
-        teal = 0xFFC7F24E.toInt(),
+        teal = 0xFFC7BFFF.toInt(),
         amber = 0xFFFFB74D.toInt(),
         red = 0xFFFFB4AB.toInt(),
-        onAccent = 0xFF1A2200.toInt(),
-        onProminent = 0xFF1A2200.toInt(),
+        onAccent = 0xFF2A0A93.toInt(),
+        onProminent = 0xFF2A0A93.toInt(),
         onStateFill = 0xFFFFFFFF.toInt(),
-        brandPillBackground = 0xFF2A1361.toInt(),
-        brandPillOutline = 0xFF7A5CFF.toInt(),
+        brandPillBackground = 0xFF3E2FB0.toInt(),
+        brandPillOutline = 0xFFC7BFFF.toInt(),
         amberTrack = 0xFF3F2903.toInt(),
         redTrack = 0xFF93000A.toInt(),
         idleRing = 0xFF2A2930.toInt(),
@@ -463,9 +463,9 @@ class SignalArcView(context: Context) : View(context) {
 class DashboardDataRowView(context: Context) : LinearLayout(context) {
     private val palette = CatClientDesignTokens.forContext(context)
     private val labelText = TextView(context).apply {
-        textSize = 12f
-        typeface = CatClientBodyTypeface
-        setTextColor(palette.textSecondary)
+        textSize = 16f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(palette.textPrimary)
         includeFontPadding = false
         isSingleLine = true
         ellipsize = TextUtils.TruncateAt.END
@@ -473,35 +473,35 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
     }
     private val valueText = TextView(context).apply {
-        textSize = 14f
-        typeface = CatClientBodyBoldTypeface
-        setTextColor(palette.textPrimary)
+        textSize = 13f
+        typeface = CatClientBodyTypeface
+        setTextColor(palette.textSecondary)
         includeFontPadding = false
-        isSingleLine = true
+        maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
-        gravity = Gravity.END
-        textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+        gravity = Gravity.START
+        textAlignment = View.TEXT_ALIGNMENT_VIEW_START
         textDirection = View.TEXT_DIRECTION_FIRST_STRONG
     }
     private val chevronText = TextView(context).apply {
         text = context.getString(R.string.chevron_forward)
-        textSize = 16f
+        textSize = 20f
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         textDirection = View.TEXT_DIRECTION_LTR
-        typeface = CatClientBodyTypeface
-        setTextColor(palette.textTertiary)
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(palette.teal)
         includeFontPadding = false
         isSingleLine = true
         gravity = Gravity.CENTER
     }
 
     init {
+        // ZedSecure SettingsItem: title over subtitle, accent chevron, full-row ripple.
         orientation = HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(48)
-        setPadding(dp(16), dp(12), dp(16), dp(12))
-        // Rounded ripple effect to match container
+        minimumHeight = dp(64)
+        setPadding(dp(16), dp(14), dp(16), dp(14))
         val rippleMask = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = dp(22).toFloat()
@@ -511,20 +511,18 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
             (palette.teal and 0x00FFFFFF) or (0x20 shl 24)  // 12% opacity
         )
         background = android.graphics.drawable.RippleDrawable(rippleColor, null, rippleMask)
-        // Label on left
         addView(
-            labelText,
-            LayoutParams(dp(104), ViewGroup.LayoutParams.WRAP_CONTENT),
-        )
-        // Value on right (takes remaining space)
-        addView(
-            valueText,
-            LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12)
-                marginEnd = dp(8)
+            LinearLayout(context).apply {
+                orientation = VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                addView(labelText, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                addView(
+                    valueText,
+                    LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) },
+                )
             },
+            LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) },
         )
-        // Chevron
         addView(
             chevronText,
             LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
@@ -532,7 +530,7 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
     }
 
     fun setRow(label: String, value: CharSequence) {
-        labelText.text = label.uppercase()
+        labelText.text = label
         setValue(value)
     }
 

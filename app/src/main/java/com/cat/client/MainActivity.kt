@@ -256,6 +256,9 @@ class MainActivity : Activity() {
     private lateinit var frontingIpErrorText: TextView
     private lateinit var refreshActionButton: MaterialButton
     private lateinit var connectionBlob: ZedBlobView
+    private lateinit var activeConfigTitle: TextView
+    private lateinit var homeLocationPill: View
+    private var homeExtrasSection: View? = null
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
     private lateinit var downloadBarFill: View
@@ -833,7 +836,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             addView(headerAction(R.drawable.ic_speedometer, R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(dp(42), dp(42)))
             addView(headerAction(R.drawable.ic_connection_test, R.string.subscription_action_test) { showConnectionTestingPage() }, LinearLayout.LayoutParams(dp(42), dp(42)))
-            addView(headerAction(R.drawable.ic_more_vert, R.string.subscription_add) { showAddSubscriptionMenu(it) }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(headerAction(R.drawable.ic_more_vert, R.string.subscription_add) { showAddServerSheet() }, LinearLayout.LayoutParams(dp(42), dp(42)))
         }
         content.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -905,6 +908,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
         content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        homeExtrasSection?.let { extras ->
+            (extras.parent as? ViewGroup)?.removeView(extras)
+            content.addView(extras, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+        }
         content.addView(
             buildFreeConfigsSection(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28) },
@@ -932,7 +939,7 @@ class MainActivity : Activity() {
             setTextColor(TEXT_PRIMARY)
             rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
             contentDescription = getString(R.string.subscription_add)
-            setOnClickListener { showAddSubscriptionMenu(this) }
+            setOnClickListener { showAddServerSheet() }
         }
         val root = FrameLayout(this)
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
@@ -2644,9 +2651,9 @@ class MainActivity : Activity() {
             gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 24f
+            textSize = 26f
             typeface = CatClientDataTypeface
-            setTextColor(TEAL)
+            setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
         uploadSpeedText = TextView(this).apply {
@@ -2654,9 +2661,9 @@ class MainActivity : Activity() {
             gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 24f
+            textSize = 26f
             typeface = CatClientDataTypeface
-            setTextColor(TEAL)
+            setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
         connectionRealIpText = TextView(this).apply {
@@ -2800,17 +2807,17 @@ class MainActivity : Activity() {
         val heroCluster = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(
-                roundAction(R.drawable.ic_speedometer, R.string.action_ping_all) { runPingAll(autoConnect = false) },
-                LinearLayout.LayoutParams(dp(52), dp(52)),
+                roundAction(R.drawable.ic_cloud_tab, R.string.map_title) { showMapPage() },
+                LinearLayout.LayoutParams(dp(60), dp(60)),
             )
-            addView(refreshActionButton, LinearLayout.LayoutParams(dp(52), dp(52)).apply { topMargin = dp(10) })
+            addView(refreshActionButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { topMargin = dp(10) })
         }
         val heroFrame = FrameLayout(this).apply {
             clipChildren = false
             clipToPadding = false
             addView(
                 connectionBlob,
-                FrameLayout.LayoutParams(dp(232), dp(232)).apply { gravity = Gravity.CENTER },
+                FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.CENTER },
             )
             addView(
                 heroCluster,
@@ -2826,8 +2833,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
             clipToPadding = false
-            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(272)))
-            addView(heroStateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(300)))
+            addView(heroStateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
@@ -2909,11 +2916,11 @@ class MainActivity : Activity() {
                                 includeFontPadding = false
                                 background = GradientDrawable().apply {
                                     shape = GradientDrawable.RECTANGLE
-                                    cornerRadius = dp(6).toFloat()
-                                    setColor(withAlpha(TEAL, 46))
+                                    cornerRadius = dp(10).toFloat()
+                                    setColor(withAlpha(TEAL, 40))
                                 }
                             },
-                            LinearLayout.LayoutParams(dp(20), dp(20)),
+                            LinearLayout.LayoutParams(dp(36), dp(36)),
                         )
                         addView(
                             TextView(this@MainActivity).apply {
@@ -3078,15 +3085,90 @@ class MainActivity : Activity() {
 
         homeUsageCard = buildHomeUsageCard()
 
+        // ZedSecure ActiveConfigCard: round badge · server name · "Tap to change server" · chevron.
+        activeConfigTitle = TextView(this).apply {
+            text = getString(R.string.option_automatic)
+            textSize = 16f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+        }
+        val activeConfigCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(14), dp(12), dp(16), dp(12))
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(26).toFloat()
+                    setColor(withAlpha(palette.brandPillBackground, if (palette.isDark) 150 else 255))
+                },
+                null,
+            )
+            setOnClickListener {
+                if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else showConnectionTestingPage()
+            }
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = "🌍"
+                    textSize = 22f
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(TEAL)
+                    }
+                },
+                LinearLayout.LayoutParams(dp(56), dp(56)),
+            )
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(activeConfigTitle, LinearLayout.LayoutParams(-1, -2))
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.home_tap_change_server)
+                        textSize = 13f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(TEXT_SECONDARY)
+                        includeFontPadding = false
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+            )
+            addView(TextView(this@MainActivity).apply {
+                text = "›"
+                textSize = 24f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(-2, -2))
+        }
+        homeLocationPill = locationPill
+        locationPill.visibility = View.GONE
+        connectActionButton.visibility = View.GONE // Zed: the blob itself is the switch
         dashboardContent.apply {
             addView(headerBlock, contentParams(dp(12)))
             addView(locationPill, contentParams(dp(14)))
-            addView(signalSection, contentParams(dp(10)))
-            addView(trafficRow, contentParams(dp(14)))
-            addView(dataRows, contentParams(dp(14)))
+            addView(signalSection, contentParams(dp(4)))
+            addView(trafficRow, contentParams(dp(18)))
+            addView(activeConfigCard, contentParams(dp(14)))
             addView(connectActionButton, contentParams(dp(14)))
-            addView(connectionModeGroup, contentParams(dp(14)))
-            addView(homeUsageCard, contentParams(dp(14)))
+        }
+        // Cat-specific controls (routing rows, VPN/Proxy mode, quota graph) move to the Servers screen.
+        homeExtrasSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(dataRows, LinearLayout.LayoutParams(-1, -2))
+            addView(connectionModeGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(homeUsageCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         }
         homeBackdrop = scrollView
         applyHomeBackdrop(VpnState.Stopped)
@@ -4247,7 +4329,7 @@ class MainActivity : Activity() {
             addView(
                 TextView(this@MainActivity).apply {
                     setText(R.string.settings_title)
-                    textSize = 28f
+                    textSize = 30f
                     typeface = CatClientDisplayTypeface
                     setTextColor(TEXT_PRIMARY)
                     includeFontPadding = false
@@ -4360,6 +4442,33 @@ class MainActivity : Activity() {
                         showCategory(titleRes, content)
                         onOpen?.invoke()
                     }
+                    // ZedSecure SettingsItem: tinted rounded-square leading icon.
+                    val glyph = when (titleRes) {
+                        R.string.settings_category_app_preferences -> "✦"
+                        R.string.settings_category_testing -> "⏱"
+                        R.string.settings_category_connections -> "⇄"
+                        R.string.connection_chain_title -> "⛓"
+                        R.string.split_tunnel_label -> "▦"
+                        R.string.settings_category_sharing -> "⇪"
+                        R.string.settings_category_system -> "⚙"
+                        R.string.update_settings_title -> "⬆"
+                        else -> "•"
+                    }
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = glyph
+                            textSize = 18f
+                            gravity = Gravity.CENTER
+                            includeFontPadding = false
+                            setTextColor(TEAL)
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dp(14).toFloat()
+                                setColor(withAlpha(TEAL, 40))
+                            }
+                        },
+                        LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(14) },
+                    )
                     addView(
                         LinearLayout(this@MainActivity).apply {
                             orientation = LinearLayout.VERTICAL
@@ -4410,9 +4519,9 @@ class MainActivity : Activity() {
             )
             if (addDivider) {
                 categoriesPanel.addView(
-                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
+                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 90)) },
                     LinearLayout.LayoutParams(-1, dp(1)).apply {
-                        marginStart = dp(16)
+                        marginStart = dp(74)
                         marginEnd = dp(16)
                     },
                 )
@@ -6774,6 +6883,140 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Map page (ZedSecure MapScreen): real location → exit                 */
+    /* ------------------------------------------------------------------ */
+
+    private fun showMapPage() {
+        val live = liveGeo
+        val tunneled = liveGeoTunneled && buttonModel.state == VpnState.Started
+        val realLabel = when {
+            tunneled && !live?.realCountryName.isNullOrBlank() -> listOfNotNull(live?.realCountryName).joinToString()
+            !tunneled && live != null -> listOfNotNull(live.city, live.countryName).joinToString(", ")
+            else -> getString(R.string.map_unknown)
+        }
+        val exitLabel = when {
+            tunneled && live != null -> listOfNotNull(live.city, live.countryName).joinToString(", ")
+            else -> getString(R.string.map_unknown)
+        }
+        (connectionGlobe.parent as? ViewGroup)?.removeView(connectionGlobe)
+        fun legendRow(dotColor: Int, caption: String, value: String) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            addView(View(this@MainActivity).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(dotColor)
+                }
+            }, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(14) })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                addView(wizardText(caption, secondary = true))
+                addView(TextView(this@MainActivity).apply {
+                    text = value
+                    textSize = 17f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_PRIMARY)
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        val legend = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(26).toFloat()
+                setColor(palette.surfaceElevated1)
+            }
+            addView(legendRow(ZedBlobView.ZED_HOT_PINK, getString(R.string.map_real_location), realLabel))
+            addView(legendRow(TEAL, getString(R.string.map_exit), exitLabel), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        }
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setBackgroundColor(BACKGROUND)
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            addView(TextView(this@MainActivity).apply {
+                setText(R.string.map_title)
+                textSize = 30f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            })
+            addView(wizardText(getString(R.string.map_subtitle), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(connectionGlobe, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12) })
+            addView(legend, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        }
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(page)
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
+        dialog.setOnDismissListener { (connectionGlobe.parent as? ViewGroup)?.removeView(connectionGlobe) }
+        dialog.show()
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Add server sheet (ZedSecure "Add server")                             */
+    /* ------------------------------------------------------------------ */
+
+    private fun showAddServerSheet() {
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        fun item(glyph: String, labelRes: Int, onClick: () -> Unit) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(ColorStateList.valueOf(withAlpha(TEAL, 40)), null, GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(16).toFloat() })
+            setOnClickListener { sheet.dismiss(); onClick() }
+            addView(TextView(this@MainActivity).apply {
+                text = glyph
+                textSize = 18f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setTextColor(TEAL)
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(TextView(this@MainActivity).apply {
+                setText(labelRes)
+                textSize = 16f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(16), dp(20), dp(28))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(dp(28).toFloat(), dp(28).toFloat(), dp(28).toFloat(), dp(28).toFloat(), 0f, 0f, 0f, 0f)
+                setColor(palette.surfaceElevated1)
+            }
+            addView(TextView(this@MainActivity).apply {
+                setText(R.string.servers_add_title)
+                textSize = 26f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            })
+            addView(advancedSectionLabel(getString(R.string.servers_add_import)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            addView(item("📋", R.string.servers_add_clipboard) { addSubscriptionFromClipboard() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+                addView(item("▣", R.string.servers_add_qr) { startSubscriptionQrScan() }, LinearLayout.LayoutParams(-1, -2))
+            }
+            addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
+            addView(wizardText(getString(R.string.servers_add_file_hint), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }
+        sheet.setContentView(body)
+        (body.parent as? View)?.setBackgroundColor(Color.TRANSPARENT)
+        sheet.show()
+    }
+
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
         PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
         renderCloudDeploymentHistory()
@@ -9050,6 +9293,7 @@ class MainActivity : Activity() {
         } ?: configuredValue
         connectionSelectorRow.setValue(value)
         connectionSelectorRow.contentDescription = getString(R.string.connection_content_description, value)
+        if (::activeConfigTitle.isInitialized) activeConfigTitle.text = value
         renderHomeConnectionRows()
     }
 
@@ -10676,6 +10920,7 @@ class MainActivity : Activity() {
             if (state != VpnState.Started) connectionBlob.setCenterText("C")
         }
         if (::heroStateText.isInitialized) heroStateText.text = getString(presentation.titleRes)
+        if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
@@ -10911,7 +11156,10 @@ class MainActivity : Activity() {
             VpnState.Starting, VpnState.Stopping -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), BACKGROUND, BACKGROUND)
             else -> null
         }
-        backdrop.background = if (colors == null) null else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors)
+        val gradient = if (colors == null) null else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors)
+        // Zed's DecorativeBackdrop: a soft gradient blob peeking in from the top-right corner.
+        val decor = ZedDecorDrawable(if (state == VpnState.Started) 0.55f else 1f)
+        backdrop.background = if (gradient == null) decor else android.graphics.drawable.LayerDrawable(arrayOf(gradient, decor))
     }
 
     private fun resetTransferSpeeds() {

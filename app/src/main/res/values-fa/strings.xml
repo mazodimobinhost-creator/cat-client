@@ -725,4 +725,16 @@
     <string name="servers_auto_title">خودکار · همهٔ سرورها</string>
     <string name="servers_auto_detail">سریع‌ترین سرورِ تو. اگر یکی از کار بیفتد، اتصال به‌سرعت سراغ بعدی می‌رود.</string>
     <string name="servers_open_list">سرورها و پینگ</string>
+    <string name="map_title">نقشه</string>
+    <string name="map_subtitle">از کجا وصل می‌شوی و از کجا بیرون می‌آیی</string>
+    <string name="map_real_location">موقعیت واقعی تو · بدون VPN ثبت شده</string>
+    <string name="map_exit">خروجی</string>
+    <string name="map_unknown">هنوز معلوم نیست — یک بار وصل شو</string>
+    <string name="home_tap_change_server">برای تغییر سرور بزن</string>
+    <string name="servers_add_title">افزودن سرور</string>
+    <string name="servers_add_import">وارد کردن</string>
+    <string name="servers_add_clipboard">از کلیپ‌بورد</string>
+    <string name="servers_add_qr">اسکن QR با دوربین</string>
+    <string name="servers_add_manual">دستی (چسباندن لینک یا اشتراک)</string>
+    <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard و همین‌طور آدرس اشتراک پشتیبانی می‌شود.</string>
 </resources>
