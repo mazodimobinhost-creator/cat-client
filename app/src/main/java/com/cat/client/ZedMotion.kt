@@ -58,6 +58,8 @@ class ZedLiveBackdropDrawable(density: Float) : Drawable() {
         }
     }
 
+    fun setThemeColors(primary: Int, secondary: Int, isDefault: Boolean) = decor.setThemeColors(primary, secondary, isDefault)
+
     fun start() { if (!ticker.isStarted) ticker.start() }
     fun stop() { ticker.cancel(); intensityAnimator?.cancel() }
 

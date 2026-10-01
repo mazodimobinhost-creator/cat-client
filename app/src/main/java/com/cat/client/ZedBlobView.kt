@@ -192,7 +192,21 @@ class ZedBlobView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun idleColors() = intArrayOf(ZED_DEEP_VIOLET, ZED_VIOLET, withAlpha(ZED_HOT_PINK, 180))
+    private var themePrimary: Int? = null
+    private var themeSecondary: Int? = null
+
+    /** Theme preset colours: the idle/connecting blob follows the preset instead of Zed's violet. */
+    fun setThemeColors(primary: Int, secondary: Int, isDefault: Boolean) {
+        themePrimary = if (isDefault) null else primary
+        themeSecondary = if (isDefault) null else secondary
+        if (state != VpnState.Started) { shaderColors = if (state == VpnState.Stopped) idleColors() else shaderColors; fillPaint.shader = null; invalidate() }
+    }
+
+    private fun idleColors(): IntArray {
+        val p = themePrimary ?: return intArrayOf(ZED_DEEP_VIOLET, ZED_VIOLET, withAlpha(ZED_HOT_PINK, 180))
+        val sec = themeSecondary ?: ZED_HOT_PINK
+        return intArrayOf(androidx.core.graphics.ColorUtils.blendARGB(p, 0xFF000000.toInt(), 0.55f), p, withAlpha(sec, 190))
+    }
 
     private fun connectedColors(seed: Int): IntArray {
         val sets = arrayOf(
@@ -226,6 +240,14 @@ class ZedBlobView(context: Context) : View(context) {
  */
 class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawable.Drawable() {
     fun setFraction(fraction: Float) { alpha = fraction.coerceIn(0f, 1f) }
+    private var colors: IntArray? = null
+    fun setThemeColors(primary: Int, secondary: Int, isDefault: Boolean) {
+        colors = if (isDefault) null else intArrayOf(
+            androidx.core.graphics.ColorUtils.blendARGB(primary, 0xFF000000.toInt(), 0.5f), primary, (secondary and 0x00FFFFFF) or (0xB3 shl 24),
+        )
+        paint.shader = null
+        invalidateSelf()
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
@@ -240,7 +262,7 @@ class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawabl
         if (paint.shader == null) {
             paint.shader = LinearGradient(
                 cx - r, cy - r, cx + r * 0.2f, cy + r,
-                intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, ZedBlobView.ZED_VIOLET, (ZedBlobView.ZED_HOT_PINK and 0x00FFFFFF) or (0xB3 shl 24)),
+                colors ?: intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, ZedBlobView.ZED_VIOLET, (ZedBlobView.ZED_HOT_PINK and 0x00FFFFFF) or (0xB3 shl 24)),
                 null, Shader.TileMode.CLAMP,
             )
         }

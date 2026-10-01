@@ -738,7 +738,7 @@
     <string name="servers_add_qr">Scan QR from camera</string>
     <string name="servers_add_manual">Add manually (paste a link or subscription)</string>
     <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links as well as subscription URLs.</string>
-    <string name="accent_setting_title">Accent colour</string>
+    <string name="accent_setting_title">Theme preset</string>
     <string name="accent_lavender">Lavender</string>
     <string name="accent_lime">Lime</string>
     <string name="accent_cyan">Cyan</string>
@@ -772,4 +772,8 @@
     <string name="speedtest_data_note">Uses up to %1$d MB per run</string>
     <string name="settings_category_appearance">Appearance</string>
     <string name="settings_category_appearance_detail">Theme, accent colour, language</string>
+    <string name="accent_aurora">Aurora</string>
+    <string name="accent_ember">Ember</string>
+    <string name="accent_midnight">Midnight</string>
+    <string name="accent_mono">Mono</string>
 </resources>

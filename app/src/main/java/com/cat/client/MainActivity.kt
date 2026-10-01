@@ -2791,6 +2791,7 @@ class MainActivity : Activity() {
         // ---- ZedSecure hero: blob core with the elapsed time inside, big state word under it,
         // two round quick actions floating at the right edge (ping all · reconnect).
         connectionBlob = ZedBlobView(this).apply {
+            AppAccentPreferenceStore(this@MainActivity).read().let { setThemeColors(palette.teal, palette.secondary, it == AppAccent.Lavender) }
             setOnClickListener { handleButtonClick() }
             setOnLongClickListener {
                 copyDiagnosticsToClipboard()
@@ -2978,7 +2979,7 @@ class MainActivity : Activity() {
             includeFontPadding = false
         }
         downloadBarFill = barFill(TEAL)
-        uploadBarFill = barFill(ZedBlobView.ZED_CYAN)
+        uploadBarFill = barFill(palette.secondary)
         downloadTotalText = totalText()
         uploadTotalText = totalText()
         val trafficRow = LinearLayout(this).apply {
@@ -2989,7 +2990,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
-                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill, ZedBlobView.ZED_CYAN),
+                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill, palette.secondary),
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) },
             )
         }
@@ -3271,34 +3272,46 @@ class MainActivity : Activity() {
         val appearanceSettings = settingsContent()
         val appearancePanel = advancedSettingsPanel()
         val swatchStrip = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(16))
+            setPadding(dp(12), dp(6), dp(12), dp(14))
             val store = AppAccentPreferenceStore(this@MainActivity)
             val selected = store.read()
-            AppAccent.entries.forEach { accent ->
-                val tone = if (palette.isDark) accent.dark else accent.light
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = if (accent == selected) "✓" else ""
-                        gravity = Gravity.CENTER
-                        textSize = 16f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(if (palette.isDark) accent.onDark else accent.onLight)
-                        contentDescription = getString(accent.labelRes)
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.OVAL
-                            setColor(tone)
-                            if (accent == selected) setStroke(dp(3), TEXT_PRIMARY)
-                        }
-                        isClickable = true; isFocusable = true
-                        setOnClickListener {
-                            if (accent != selected) { store.save(accent); recreate() }
-                        }
-                    },
-                    LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4); marginEnd = dp(4) },
-                )
+            AppAccent.entries.chunked(4).forEach { rowItems ->
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    rowItems.forEach { preset ->
+                        val preview = CatClientDesignTokens.themed(CatClientDesignTokens.palette(palette.isDark), preset, palette.isDark)
+                        addView(LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER_HORIZONTAL
+                            setPadding(dp(6), dp(8), dp(6), dp(8))
+                            isClickable = true; isFocusable = true
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE; cornerRadius = dp(18).toFloat()
+                                setColor(preview.surface)
+                                setStroke(dp(if (preset == selected) 2 else 1), if (preset == selected) preview.teal else withAlpha(OUTLINE, 150))
+                            }
+                            setOnClickListener { if (preset != selected) { store.save(preset); recreate() } }
+                            // mini "screen": accent dot, secondary chip, button bar
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(preview.teal) } }, LinearLayout.LayoutParams(dp(26), dp(26)))
+                            addView(LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(4).toFloat(); setColor(preview.surfaceElevated2) } }, LinearLayout.LayoutParams(0, dp(12), 1f).apply { marginEnd = dp(3) })
+                                addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(4).toFloat(); setColor(preview.secondary) } }, LinearLayout.LayoutParams(0, dp(12), 1f).apply { marginStart = dp(3) })
+                            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(preview.brandPillBackground) } }, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(5) })
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(preview.teal) } }, LinearLayout.LayoutParams(-1, dp(12)).apply { topMargin = dp(5) })
+                            addView(TextView(this@MainActivity).apply {
+                                setText(preset.labelRes); textSize = 11f; gravity = Gravity.CENTER; maxLines = 1
+                                typeface = if (preset == selected) CatClientBodyBoldTypeface else CatClientBodyTypeface
+                                setTextColor(TEXT_PRIMARY)
+                            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+                        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    }
+                    repeat(4 - rowItems.size) { addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = dp(4); marginEnd = dp(4) }) }
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }
         }
         listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow).forEachIndexed { index, row ->
@@ -11463,7 +11476,10 @@ class MainActivity : Activity() {
 
     /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
     private fun applyHomeBackdrop(state: VpnState) {
-        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also { liveBackdrop = it }
+        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also {
+            liveBackdrop = it
+            it.setThemeColors(palette.teal, palette.secondary, AppAccentPreferenceStore(this).read() == AppAccent.Lavender)
+        }
         drawable.setVpnState(state)
         syncShellBackdrop()
     }

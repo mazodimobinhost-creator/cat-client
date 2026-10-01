@@ -737,7 +737,7 @@
     <string name="servers_add_qr">اسکن QR با دوربین</string>
     <string name="servers_add_manual">دستی (چسباندن لینک یا اشتراک)</string>
     <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard و همین‌طور آدرس اشتراک پشتیبانی می‌شود.</string>
-    <string name="accent_setting_title">رنگ تم</string>
+    <string name="accent_setting_title">تم رنگی</string>
     <string name="accent_lavender">بنفش روشن</string>
     <string name="accent_lime">لیمویی</string>
     <string name="accent_cyan">فیروزه‌ای</string>
@@ -771,4 +771,8 @@
     <string name="speedtest_data_note">در هر اجرا تا %1$d مگابایت مصرف می‌کند</string>
     <string name="settings_category_appearance">ظاهر و تم</string>
     <string name="settings_category_appearance_detail">تم روشن/تاریک، رنگ تم، زبان</string>
+    <string name="accent_aurora">شفق</string>
+    <string name="accent_ember">اخگر</string>
+    <string name="accent_midnight">نیمه‌شب</string>
+    <string name="accent_mono">تک‌رنگ</string>
 </resources>

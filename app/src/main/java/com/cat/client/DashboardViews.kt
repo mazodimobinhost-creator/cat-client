@@ -78,6 +78,8 @@ data class CatClientPalette(
     val amberGradientEnd: Int,
     val redGradientStart: Int,
     val redGradientEnd: Int,
+    /** Secondary accent (Zed tertiary): upload tile, second gradient stop. */
+    val secondary: Int = tealGradientEnd,
 )
 
 object CatClientDesignTokens {
@@ -153,15 +155,40 @@ object CatClientDesignTokens {
     fun forContext(context: Context): CatClientPalette {
         val nightMode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         val night = nightMode == Configuration.UI_MODE_NIGHT_YES
-        val accent = AppAccentPreferenceStore(context).read()
-        val base = palette(night)
-        val tone = if (night) accent.dark else accent.light
-        val onTone = if (night) accent.onDark else accent.onLight
+        return themed(palette(night), AppAccentPreferenceStore(context).read(), night)
+    }
+
+    /**
+     * Zed "Theme presets": one preset re-colours the whole scheme — primary, secondary, the tonal
+     * surfaces (tinted toward the preset's surface hue), outlines, containers and gradients.
+     */
+    fun themed(base: CatClientPalette, preset: AppAccent, night: Boolean): CatClientPalette {
+        val tone = if (night) preset.dark else preset.light
+        val onTone = if (night) preset.onDark else preset.onLight
+        val secondary = if (night) preset.secondaryDark else preset.secondaryLight
+        val tint = if (night) preset.surfaceTintDark else preset.surfaceTintLight
+        val k = preset.tintStrength
+        fun mix(c: Int, amount: Float = k) = androidx.core.graphics.ColorUtils.blendARGB(c, tint, amount)
         return base.copy(
+            background = mix(base.background),
+            surface = mix(base.surface),
+            surfaceElevated1 = mix(base.surfaceElevated1),
+            surfaceElevated2 = mix(base.surfaceElevated2),
+            surfaceVariant = mix(base.surfaceVariant),
+            outline = mix(base.outline, k * 0.8f),
+            idleRing = mix(base.idleRing),
+            majorTick = mix(base.majorTick),
+            textSecondary = mix(base.textSecondary, k * 0.5f),
+            textTertiary = mix(base.textTertiary, k * 0.5f),
+            neutral = mix(base.neutral, k * 0.5f),
             teal = tone,
             onAccent = onTone,
             onProminent = onTone,
             brandPillOutline = tone,
+            brandPillBackground = androidx.core.graphics.ColorUtils.blendARGB(mix(base.surfaceElevated2), tone, if (night) 0.35f else 0.45f),
+            tealGradientStart = tone,
+            tealGradientEnd = secondary,
+            secondary = secondary,
         )
     }
 }
