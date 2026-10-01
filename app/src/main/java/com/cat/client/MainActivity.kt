@@ -275,6 +275,7 @@ class MainActivity : Activity() {
     private lateinit var downloadTotalText: TextView
     private lateinit var uploadTotalText: TextView
     private var homeBackdrop: View? = null
+    private var appRootView: FrameLayout? = null
     private var sessionRxStartBytes = -1L
     private var sessionTxStartBytes = -1L
     private lateinit var subscriptionsList: LinearLayout
@@ -496,6 +497,7 @@ class MainActivity : Activity() {
             setBackgroundColor(BACKGROUND)
             setPadding(tvInsetX, tvInsetY, tvInsetX, tvInsetY)
         }
+        appRootView = root
 
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -785,6 +787,7 @@ class MainActivity : Activity() {
             renderConnectionSelection()
             renderHomeUsageCard()
         }
+        syncShellBackdrop()
         if (position == 2) renderAdvancedControls()
     }
 
@@ -3119,7 +3122,7 @@ class MainActivity : Activity() {
                 null,
             )
             setOnClickListener {
-                if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else showConnectionTestingPage()
+                if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else openScreen(SCREEN_SERVERS)
             }
             addView(
                 TextView(this@MainActivity).apply {
@@ -11404,12 +11407,24 @@ class MainActivity : Activity() {
 
     /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
     private fun applyHomeBackdrop(state: VpnState) {
-        val backdrop = homeBackdrop ?: return
-        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also {
-            liveBackdrop = it
-            backdrop.background = it
-        }
+        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also { liveBackdrop = it }
         drawable.setVpnState(state)
+        syncShellBackdrop()
+    }
+
+    /** Zed paints the Home gradient edge to edge — behind the status bar and under the floating dock. */
+    private fun syncShellBackdrop() {
+        val root = appRootView
+        val drawable = liveBackdrop
+        if (root == null || drawable == null) { homeBackdrop?.background = drawable; return }
+        val home = ::vpnTabContent.isInitialized && vpnTabContent.visibility == View.VISIBLE
+        homeBackdrop?.background = null
+        if (home) {
+            if (root.background !== drawable) root.background = drawable
+            drawable.start()
+        } else if (root.background === drawable) {
+            root.setBackgroundColor(BACKGROUND)
+        }
     }
 
     private fun resetTransferSpeeds() {
@@ -11509,8 +11524,13 @@ class MainActivity : Activity() {
     private fun configureSystemBars() {
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         window.decorView.textDirection = View.TEXT_DIRECTION_LOCALE
-        window.statusBarColor = BACKGROUND
-        window.navigationBarColor = SURFACE
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         var flags = window.decorView.systemUiVisibility
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags = if (palette.isDark) {

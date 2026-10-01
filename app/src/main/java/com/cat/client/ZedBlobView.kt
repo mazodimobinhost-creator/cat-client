@@ -1,6 +1,7 @@
 package com.cat.client
 
 import android.animation.ValueAnimator
+import kotlin.math.abs
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -165,16 +166,20 @@ class ZedBlobView(context: Context) : View(context) {
      */
     private fun buildPath(cx: Float, cy: Float, r: Float) {
         path.reset()
-        val segments = 180
-        val cookieAmp = 0.06f
-        val burstAmp = 0.21f
+        val segments = 240
+        val cookieAmp = 0.055f
+        val burstAmp = 0.13f
         val rot = breathePhase * 0.15f
         for (i in 0..segments) {
             val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
+            // Cookie9Sided: gentle 9-lobe scallop. SoftBurst: 10 rounded tips — the cosine is pushed
+            // through a soft-clip so the tips are blunt and the valleys stay shallow, like M3's shape.
             val cookie = cos(9f * a + rot) * cookieAmp
-            val burst = cos(10f * a - rot) * burstAmp
+            val c = cos(10f * a - rot)
+            val soft = Math.signum(c) * Math.pow(abs(c).toDouble(), 0.72).toFloat()
+            val burst = soft * burstAmp
             val wave = cookie * (1f - morph) + burst * morph
-            val rr = r * (1f + wave)
+            val rr = r * (1f + wave) * (1f + 0.04f * morph)
             val x = cx + rr * cos(a)
             val y = cy + rr * sin(a)
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
