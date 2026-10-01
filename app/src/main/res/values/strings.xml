@@ -747,4 +747,4 @@
     <string name="accent_sky">Sky</string>
     <string name="dock_home">Home</string>
     <string name="dock_servers">Servers</string>
-</resources>
+    <string name="map_you">You</string>\n    <string name="map_you_saved">You · recorded without VPN</string>\n    <string name="map_no_origin">Disconnect once so the map can learn your real location</string>\n    <string name="map_ping">Ping</string>\n    <string name="map_server">Server</string>\n    <string name="map_offline_here">You are browsing directly from here — connect to see the route.</string>\n</resources>

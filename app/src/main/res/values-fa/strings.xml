@@ -746,4 +746,4 @@
     <string name="accent_sky">آبی</string>
     <string name="dock_home">خانه</string>
     <string name="dock_servers">سرورها</string>
-</resources>
+    <string name="map_you">شما</string>\n    <string name="map_you_saved">شما · ثبت‌شده بدون VPN</string>\n    <string name="map_no_origin">یک بار قطع کنید تا نقشه موقعیت واقعی شما را یاد بگیرد</string>\n    <string name="map_ping">پینگ</string>\n    <string name="map_server">سرور</string>\n    <string name="map_offline_here">الان مستقیم از همین‌جا آنلاین هستید — برای دیدن مسیر وصل شوید.</string>\n</resources>

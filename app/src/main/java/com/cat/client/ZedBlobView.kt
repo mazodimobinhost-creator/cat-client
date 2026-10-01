@@ -219,7 +219,9 @@ class ZedBlobView(context: Context) : View(context) {
  * ZedSecure DecorativeBackdrop: one big soft gradient blob bleeding in from the top-right corner.
  * Drawn as a plain Drawable so it can sit behind any scrolling content.
  */
-class ZedDecorDrawable(private val alpha: Float = 1f) : android.graphics.drawable.Drawable() {
+class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawable.Drawable() {
+    fun setFraction(fraction: Float) { alpha = fraction.coerceIn(0f, 1f) }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
 

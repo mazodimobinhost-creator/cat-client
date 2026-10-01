@@ -259,12 +259,15 @@ class MainActivity : Activity() {
     private lateinit var activeConfigTitle: TextView
     private lateinit var homeLocationPill: View
     private lateinit var heroPingAction: View
+    @Volatile private var livePingMs: Long? = null
+    private var lastQuietPingAtMs: Long = 0L
+    private var liveBackdrop: ZedLiveBackdropDrawable? = null
     private lateinit var homeFlagBadge: TextView
     private var homeExtrasSection: View? = null
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
-    private lateinit var downloadBarFill: View
-    private lateinit var uploadBarFill: View
+    private lateinit var downloadBarFill: ZedWavyProgressView
+    private lateinit var uploadBarFill: ZedWavyProgressView
     private lateinit var downloadTotalText: TextView
     private lateinit var uploadTotalText: TextView
     private var homeBackdrop: View? = null
@@ -2910,7 +2913,7 @@ class MainActivity : Activity() {
         }
 
         // ---- Traffic tiles (ZedSecure CardsTrafficPanel): label · big rate · bar · session total.
-        fun trafficTile(labelRes: Int, glyph: String, value: TextView, total: TextView, bar: View): LinearLayout =
+        fun trafficTile(labelRes: Int, glyph: String, value: TextView, total: TextView, bar: View, tint: Int): LinearLayout =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -2931,12 +2934,12 @@ class MainActivity : Activity() {
                                 textSize = 11f
                                 gravity = Gravity.CENTER
                                 typeface = CatClientBodyBoldTypeface
-                                setTextColor(TEAL)
+                                setTextColor(tint)
                                 includeFontPadding = false
                                 background = GradientDrawable().apply {
                                     shape = GradientDrawable.RECTANGLE
                                     cornerRadius = dp(10).toFloat()
-                                    setColor(withAlpha(TEAL, 40))
+                                    setColor(withAlpha(tint, 40))
                                 }
                             },
                             LinearLayout.LayoutParams(dp(36), dp(36)),
@@ -2956,25 +2959,13 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(-1, -2),
                 )
                 addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-                addView(
-                    FrameLayout(this@MainActivity).apply {
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.RECTANGLE
-                            cornerRadius = dp(3).toFloat()
-                            setColor(withAlpha(palette.outline, 150))
-                        }
-                        addView(bar, FrameLayout.LayoutParams(dp(6), -1))
-                    },
-                    LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(12) },
-                )
+                addView(bar, LinearLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(8) })
                 addView(total, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             }
-        fun barFill() = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(3).toFloat()
-                setColor(TEAL)
-            }
+        fun barFill(tint: Int) = ZedWavyProgressView(this).apply {
+            color = tint
+            trackColor = withAlpha(palette.outline, 110)
+            idleColor = withAlpha(palette.outline, 200)
         }
         fun totalText() = TextView(this).apply {
             text = "0 B"
@@ -2985,19 +2976,19 @@ class MainActivity : Activity() {
             setTextColor(TEXT_SECONDARY)
             includeFontPadding = false
         }
-        downloadBarFill = barFill()
-        uploadBarFill = barFill()
+        downloadBarFill = barFill(TEAL)
+        uploadBarFill = barFill(ZedBlobView.ZED_CYAN)
         downloadTotalText = totalText()
         uploadTotalText = totalText()
         val trafficRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
-                trafficTile(R.string.metric_download, "↓", downloadSpeedText, downloadTotalText, downloadBarFill),
+                trafficTile(R.string.metric_download, "↓", downloadSpeedText, downloadTotalText, downloadBarFill, TEAL),
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
-                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill),
+                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill, ZedBlobView.ZED_CYAN),
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) },
             )
         }
@@ -6911,73 +6902,151 @@ class MainActivity : Activity() {
     /* ------------------------------------------------------------------ */
 
     private fun showMapPage() {
+        val connected = buttonModel.state == VpnState.Started
         val live = liveGeo
-        val tunneled = liveGeoTunneled && buttonModel.state == VpnState.Started
-        val realLabel = when {
-            tunneled && !live?.realCountryName.isNullOrBlank() -> listOfNotNull(live?.realCountryName).joinToString()
-            !tunneled && live != null -> listOfNotNull(live.city, live.countryName).joinToString(", ")
-            else -> getString(R.string.map_unknown)
+        val tunneled = liveGeoTunneled && connected
+        val prefs = getSharedPreferences("cat_client_map", MODE_PRIVATE)
+        // Origin = the real location, remembered from the last lookup made with the tunnel down.
+        var originCode = prefs.getString("origin_code", "").orEmpty()
+        var originLabel = prefs.getString("origin_label", "").orEmpty()
+        if (!tunneled && live != null) {
+            originCode = live.countryCode.uppercase()
+            originLabel = listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
+            prefs.edit().putString("origin_code", originCode).putString("origin_label", originLabel).apply()
+        } else if (tunneled && !live?.realCountryCode.isNullOrBlank() && originCode.isBlank()) {
+            originCode = live!!.realCountryCode!!.uppercase()
+            originLabel = live.realCountryName.orEmpty()
         }
-        val exitLabel = when {
-            tunneled && live != null -> listOfNotNull(live.city, live.countryName).joinToString(", ")
-            else -> getString(R.string.map_unknown)
+        val exitCode = if (tunneled && live != null) live.countryCode.uppercase() else ""
+        val exitLabel = if (tunneled && live != null) listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ") else ""
+        val originTint = ZedBlobView.ZED_HOT_PINK
+
+        val map = ZedWorldMapView(this).apply {
+            accent = TEAL
+            originColor = originTint
+            landColor = TEXT_PRIMARY
         }
-        (connectionGlobe.parent as? ViewGroup)?.removeView(connectionGlobe)
-        fun legendRow(dotColor: Int, caption: String, value: String) = LinearLayout(this).apply {
+        activityScope.launch {
+            val list = withContext(kotlinx.coroutines.Dispatchers.IO) { WorldMap.countries(this@MainActivity) }
+            map.setCountries(list)
+            val o = WorldMap.anchorOf(list, originCode)?.let { ZedWorldMapView.Point(it.first, it.second, originLabel, originCode) }
+            val e = WorldMap.anchorOf(list, exitCode)?.let { ZedWorldMapView.Point(it.first, it.second, exitLabel, exitCode) }
+            map.setRoute(o, e)
+        }
+
+        fun endpointRow(dot: Int, hollow: Boolean, caption: String, value: String) = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER_VERTICAL
             addView(View(this@MainActivity).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(dotColor)
+                    if (hollow) setStroke(dp(2), dot) else setColor(dot)
                 }
-            }, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(14) })
+            }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(12) })
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                addView(wizardText(caption, secondary = true))
                 addView(TextView(this@MainActivity).apply {
-                    text = value
-                    textSize = 17f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    text = caption; textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = value; textSize = 16f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY)
+                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END; includeFontPadding = false
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             }, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        val legend = LinearLayout(this).apply {
+        fun stat(caption: String, value: String) = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply { text = caption; textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY) })
+            addView(TextView(this@MainActivity).apply {
+                text = value; textSize = 14f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR; textDirection = View.TEXT_DIRECTION_LTR
+            })
+        }
+        val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(20), dp(18), dp(20), dp(18))
+            setPadding(dp(18), dp(18), dp(18), dp(18))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(26).toFloat()
-                setColor(palette.surfaceElevated1)
+                cornerRadius = dp(24).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 225))
             }
-            addView(legendRow(ZedBlobView.ZED_HOT_PINK, getString(R.string.map_real_location), realLabel))
-            addView(legendRow(TEAL, getString(R.string.map_exit), exitLabel), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+            addView(endpointRow(
+                originTint, true,
+                getString(if (connected && originCode.isNotBlank()) R.string.map_you_saved else R.string.map_you),
+                originLabel.ifBlank { getString(if (connected) R.string.map_no_origin else R.string.map_unknown) },
+            ))
+            if (connected) {
+                addView(endpointRow(TEAL, false, getString(R.string.map_exit), exitLabel.ifBlank { getString(R.string.map_unknown) }),
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+                val ping = livePingMs
+                val server = activeConfigTitle.text?.toString()?.takeIf { it.isNotBlank() }
+                if (ping != null || server != null) {
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        ping?.let { addView(stat(getString(R.string.map_ping), "$it ms"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(18) }) }
+                        server?.let { addView(stat(getString(R.string.map_server), it), LinearLayout.LayoutParams(0, -2, 1f)) }
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+                }
+            } else {
+                addView(TextView(this@MainActivity).apply {
+                    setText(R.string.map_offline_here); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY)
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            }
         }
-        val page = LinearLayout(this).apply {
+        // Route badge (Zed RouteBadge): origin flag ─ dotted connector with travelling dot ─ exit flag.
+        val badge = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(40).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 230))
+                setStroke(dp(1), withAlpha(OUTLINE, 150))
+            }
+            fun endpoint(code: String, label: String, tint: Int, hollow: Boolean) = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(TextView(this@MainActivity).apply {
+                    text = code.toFlagEmoji(); textSize = 18f; gravity = Gravity.CENTER; includeFontPadding = false
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(if (hollow) 1 else 2), tint) }
+                }, LinearLayout.LayoutParams(dp(34), dp(34)))
+                if (label.isNotBlank()) addView(TextView(this@MainActivity).apply {
+                    text = label.substringBefore(',').trim(); textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); maxLines = 1
+                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+            }
+            if (originCode.isNotBlank()) addView(endpoint(originCode, originLabel, originTint, true))
+            if (connected && exitCode.isNotBlank()) {
+                addView(ZedRouteConnectorView(this@MainActivity).apply { color = TEAL }, LinearLayout.LayoutParams(dp(38), dp(34)).apply { marginStart = dp(10); marginEnd = dp(10) })
+                addView(endpoint(exitCode, exitLabel, TEAL, false))
+            }
+            visibility = if (originCode.isNotBlank() || exitCode.isNotBlank()) View.VISIBLE else View.GONE
+        }
+        val overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setBackgroundColor(BACKGROUND)
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            setPadding(dp(20), dp(28), dp(20), dp(18))
             addView(TextView(this@MainActivity).apply {
-                setText(R.string.map_title)
-                textSize = 30f
-                typeface = CatClientDisplayTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
+                setText(R.string.map_title); textSize = 28f; typeface = CatClientDisplayTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false
             })
             addView(wizardText(getString(R.string.map_subtitle), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-            addView(connectionGlobe, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12) })
-            addView(legend, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(badge, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(12) })
+            addView(card, LinearLayout.LayoutParams(-1, -2))
+        }
+        val page = FrameLayout(this).apply {
+            setBackgroundColor(BACKGROUND)
+            addView(map, FrameLayout.LayoutParams(-1, -1))
+            addView(overlay, FrameLayout.LayoutParams(-1, -1))
         }
         val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         dialog.setContentView(page)
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
-        dialog.setOnDismissListener { (connectionGlobe.parent as? ViewGroup)?.removeView(connectionGlobe) }
         dialog.show()
     }
 
@@ -10781,6 +10850,20 @@ class MainActivity : Activity() {
             if (info == null) return@launch
             liveGeo = info
             liveGeoTunneled = tunneledAtFetch
+            if (tunneledAtFetch) {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).let { prefs ->
+                    if (!info.realCountryCode.isNullOrBlank() && prefs.getString("origin_code", "").isNullOrBlank()) {
+                        prefs.edit().putString("origin_code", info.realCountryCode.uppercase())
+                            .putString("origin_label", info.realCountryName.orEmpty()).apply()
+                    }
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { measureTunnelPingQuietly() }
+            } else {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).edit()
+                    .putString("origin_code", info.countryCode.uppercase())
+                    .putString("origin_label", listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName).joinToString(", "))
+                    .apply()
+            }
             val label = buildString {
                 if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
@@ -10807,6 +10890,43 @@ class MainActivity : Activity() {
 
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
+    /** Zed ConnectionInfoPill ping: lime when < 250 ms, error-red otherwise, "—" while unknown. */
+    private fun renderPingValue() {
+        if (!::pingValueText.isInitialized) return
+        val ping = livePingMs
+        pingValueText.text = if (ping != null) "$ping ms" else "—"
+        pingValueText.setTextColor(if (ping == null) TEXT_SECONDARY else if (ping < 250) ZedBlobView.ZED_LIME else ERROR)
+    }
+
+    /** Silent background ping through the tunnel (feeds the Home pill and the Map card). */
+    private fun measureTunnelPingQuietly() {
+        if (tunnelPingRunning || !currentVpnStateIsStarted()) return
+        tunnelPingRunning = true
+        activityScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val tunnelProxy = java.net.Proxy(
+                java.net.Proxy.Type.HTTP,
+                java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
+            )
+            val samples = (1..2).mapNotNull {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val code = runCatching {
+                    val conn = java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(tunnelProxy) as java.net.HttpURLConnection
+                    conn.connectTimeout = 4_000; conn.readTimeout = 4_000; conn.instanceFollowRedirects = false
+                    val c = conn.responseCode
+                    runCatching { conn.inputStream.close() }
+                    conn.disconnect()
+                    c
+                }.getOrNull()
+                if (code != null && code in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
+            }
+            if (samples.isNotEmpty()) livePingMs = samples.min()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                tunnelPingRunning = false
+                renderPingValue()
+            }
+        }
+    }
+
     /** Real ping THROUGH the active config: samples the local mihomo mixed
      * proxy (the exact tunnel path), like v2rayNG/V2Box delay tests — with an
      * on-the-spot result toast so the feedback is never missed. */
@@ -10846,8 +10966,9 @@ class MainActivity : Activity() {
             var samples = (1..3).mapNotNull { sample(true) }
             if (samples.isEmpty() && started) samples = (1..3).mapNotNull { sample(false) }
             val best = samples.minOrNull()
+            livePingMs = best
             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                pingValueText.text = if (best != null) best.toString() + "ms" else "—"
+                renderPingValue()
                 Toast.makeText(
                     this@MainActivity,
                     if (best != null) getString(R.string.route_ping_result, best) else getString(R.string.route_ping_failed),
@@ -11102,12 +11223,8 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
         ) View.VISIBLE else View.GONE
         renderConnectionDetails(state)
-        if (::pingValueText.isInitialized) {
-            pingValueText.text = connectionDetails
-                .takeIf { state == VpnState.Started }
-                ?.let { details -> Regex("(\\d+\\s?ms)").find(details)?.value }
-                ?: "—"
-        }
+        if (state != VpnState.Started) livePingMs = null
+        renderPingValue()
         if (::uptimeValueText.isInitialized && ::timerText.isInitialized) {
             uptimeValueText.text = timerText.text
         }
@@ -11222,6 +11339,10 @@ class MainActivity : Activity() {
         lastTransferRxBytes = rxBytes
         lastTransferTxBytes = txBytes
         lastTransferSampleElapsedMs = nowElapsedMs
+        if (currentVpnStateIsStarted() && nowElapsedMs - lastQuietPingAtMs > 30_000L) {
+            lastQuietPingAtMs = nowElapsedMs
+            measureTunnelPingQuietly()
+        }
         if (::downloadTotalText.isInitialized && sessionRxStartBytes >= 0L) {
             downloadTotalText.text = SubscriptionUsagePolicy.formatBytes((rxBytes - sessionRxStartBytes).coerceAtLeast(0L))
             uploadTotalText.text = SubscriptionUsagePolicy.formatBytes((txBytes - sessionTxStartBytes).coerceAtLeast(0L))
@@ -11231,22 +11352,9 @@ class MainActivity : Activity() {
     /** Bar length grows logarithmically with the rate (ZedSecure rateFraction): 1 KB/s → ~0, 10 MB/s → full. */
     private fun renderTrafficBars(rxPerSecond: Long, txPerSecond: Long) {
         if (!::downloadBarFill.isInitialized) return
-        fun fraction(bytesPerSecond: Long): Float {
-            if (bytesPerSecond <= 1_024L) return 0.04f
-            val log = kotlin.math.log10(bytesPerSecond.toDouble() / 1_024.0) // 0 at 1 KB/s, 4 at 10 MB/s
-            return (0.04 + 0.96 * (log / 4.0)).coerceIn(0.04, 1.0).toFloat()
-        }
-        fun apply(bar: View, fraction: Float) {
-            val parentWidth = (bar.parent as? View)?.width ?: return
-            val target = (parentWidth * fraction).toInt().coerceAtLeast(dp(6))
-            val lp = bar.layoutParams
-            if (lp.width != target) {
-                lp.width = target
-                bar.layoutParams = lp
-            }
-        }
-        apply(downloadBarFill, fraction(rxPerSecond))
-        apply(uploadBarFill, fraction(txPerSecond))
+        val live = currentVpnStateIsStarted()
+        downloadBarFill.setRate(rxPerSecond, live)
+        uploadBarFill.setRate(txPerSecond, live)
     }
 
     /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
@@ -11255,15 +11363,11 @@ class MainActivity : Activity() {
     /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
     private fun applyHomeBackdrop(state: VpnState) {
         val backdrop = homeBackdrop ?: return
-        val colors = when (state) {
-            VpnState.Started -> intArrayOf(0xFF2A1A6E.toInt(), 0xFF5A48D6.toInt(), 0xFF2EB8D0.toInt(), 0xFF8FD35A.toInt(), 0xFFC7F24E.toInt())
-            VpnState.Starting, VpnState.Stopping -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), BACKGROUND, BACKGROUND)
-            else -> null
+        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also {
+            liveBackdrop = it
+            backdrop.background = it
         }
-        val gradient = if (colors == null) null else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors)
-        // Zed's DecorativeBackdrop: a soft gradient blob peeking in from the top-right corner.
-        val decor = ZedDecorDrawable(if (state == VpnState.Started) 0.55f else 1f)
-        backdrop.background = if (gradient == null) decor else android.graphics.drawable.LayerDrawable(arrayOf(gradient, decor))
+        drawable.setVpnState(state)
     }
 
     private fun resetTransferSpeeds() {
