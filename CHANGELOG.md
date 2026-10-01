@@ -4,11 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta2] — 2026-10-01
+
 ### Added
 - Network Cognitive Engine (phase A): per-endpoint × network observation history (median/p95/jitter/success/trend/confidence), failure forensics classes, adaptive probing intervals, multi-objective ranking of the clean-IP pool, anomaly-driven zero-downtime failover (verify standby twice → promote → reconnect) with a "Self-healing" toggle, and engine observability in the Scanner tab.
 - Public proxy scanner (Scanner tab): collects candidates from public lists (monosans, proxifly), pasted IPs/`IP:Port`/CIDR ranges × port set; real SOCKS5 / SOCKS4 / HTTP CONNECT handshake probes with thread + timeout budget; country flags, protocol/country filters, copy / TXT / JSON export; one-tap import of healthy SOCKS5 proxies as configs.
 - Theme presets (Lavender, Aurora, Ember, Midnight, Lime, Pink, Amber, Mono) applied to the whole app, including Material widgets and dialogs via per-preset theme overlays.
 - "Vibrate on connect" toggle (Settings → Appearance).
+- Country-aware self-healing: failover and pool replacements stay in the active (or locked) country; pool grouped by location with country-lock chips.
 - Repository hygiene: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `.editorconfig`, Dependabot, panel test workflow, Dockerfile for reproducible builds.
 
 ### Changed
@@ -18,6 +21,8 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 ### Fixed
 - Second FAB (Speed Test) clipped on the Home screen.
 - RTL issues: round button jumping, dock label truncation, location pill shown while disconnected.
+
+See [docs/release-notes-v1.10.0-beta2.md](docs/release-notes-v1.10.0-beta2.md).
 
 ## [1.10.0-beta1] — 2026-09
 
@@ -33,5 +38,6 @@ See [docs/release-notes-v1.10.0-beta1.md](docs/release-notes-v1.10.0-beta1.md).
 
 1.1.0 → 1.9.51: see the per-version notes in [`docs/`](docs/).
 
-[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta1...HEAD
+[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta2...HEAD
+[1.10.0-beta2]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta2
 [1.10.0-beta1]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta1
