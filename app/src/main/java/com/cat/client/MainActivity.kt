@@ -2837,12 +2837,16 @@ class MainActivity : Activity() {
             clipToPadding = false
             addView(
                 connectionBlob,
-                FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.CENTER },
+                FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6) },
+            )
+            addView(
+                heroStateText,
+                FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; topMargin = dp(266) },
             )
             heroClusterParams = FrameLayout.LayoutParams(-2, -2).apply {
                 gravity = Gravity.END or Gravity.TOP
                 marginEnd = dp(14)
-                topMargin = dp(243)
+                topMargin = dp(228)
             }
             addView(heroCluster, heroClusterParams)
         }
@@ -2851,8 +2855,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
             clipToPadding = false
-            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(300)))
-            addView(heroStateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(350)))
             addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
@@ -3182,8 +3185,8 @@ class MainActivity : Activity() {
         scrollView.isVerticalScrollBarEnabled = false
         scrollView.overScrollMode = View.OVER_SCROLL_NEVER
         homeHeroFrame = heroFrame
-        scrollView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitHomeStage(scrollView) }
-        dashboardContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitHomeStage(scrollView) }
+        dashboardContent.clipChildren = false
+        dashboardContent.clipToPadding = false
         applyHomeBackdrop(VpnState.Stopped)
         renderHomeUsageCard()
         viewport.addView(
