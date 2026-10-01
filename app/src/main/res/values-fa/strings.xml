@@ -737,4 +737,13 @@
     <string name="servers_add_qr">اسکن QR با دوربین</string>
     <string name="servers_add_manual">دستی (چسباندن لینک یا اشتراک)</string>
     <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard و همین‌طور آدرس اشتراک پشتیبانی می‌شود.</string>
+    <string name="accent_setting_title">رنگ تم</string>
+    <string name="accent_lavender">بنفش روشن</string>
+    <string name="accent_lime">لیمویی</string>
+    <string name="accent_cyan">فیروزه‌ای</string>
+    <string name="accent_pink">صورتی</string>
+    <string name="accent_amber">کهربایی</string>
+    <string name="accent_sky">آبی</string>
+    <string name="dock_home">خانه</string>
+    <string name="dock_servers">سرورها</string>
 </resources>

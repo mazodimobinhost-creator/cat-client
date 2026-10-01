@@ -167,7 +167,7 @@ class ZedBlobView(context: Context) : View(context) {
         path.reset()
         val segments = 180
         val cookieAmp = 0.06f
-        val burstAmp = 0.17f
+        val burstAmp = 0.21f
         val rot = breathePhase * 0.15f
         for (i in 0..segments) {
             val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
@@ -191,6 +191,7 @@ class ZedBlobView(context: Context) : View(context) {
 
     private fun connectedColors(seed: Int): IntArray {
         val sets = arrayOf(
+            intArrayOf(0xFF5B8CFF.toInt(), ZED_CYAN, ZED_LIME),
             intArrayOf(ZED_VIOLET, ZED_HOT_PINK, ZED_LIME),
             intArrayOf(ZED_DEEP_VIOLET, ZED_VIOLET, ZED_CYAN),
             intArrayOf(ZED_HOT_PINK, ZED_VIOLET, ZED_CYAN),

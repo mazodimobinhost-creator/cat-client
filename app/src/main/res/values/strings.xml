@@ -738,4 +738,13 @@
     <string name="servers_add_qr">Scan QR from camera</string>
     <string name="servers_add_manual">Add manually (paste a link or subscription)</string>
     <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links as well as subscription URLs.</string>
+    <string name="accent_setting_title">Accent colour</string>
+    <string name="accent_lavender">Lavender</string>
+    <string name="accent_lime">Lime</string>
+    <string name="accent_cyan">Cyan</string>
+    <string name="accent_pink">Pink</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_sky">Sky</string>
+    <string name="dock_home">Home</string>
+    <string name="dock_servers">Servers</string>
 </resources>

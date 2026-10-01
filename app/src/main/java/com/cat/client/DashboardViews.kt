@@ -152,7 +152,17 @@ object CatClientDesignTokens {
 
     fun forContext(context: Context): CatClientPalette {
         val nightMode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        return palette(nightMode == Configuration.UI_MODE_NIGHT_YES)
+        val night = nightMode == Configuration.UI_MODE_NIGHT_YES
+        val accent = AppAccentPreferenceStore(context).read()
+        val base = palette(night)
+        val tone = if (night) accent.dark else accent.light
+        val onTone = if (night) accent.onDark else accent.onLight
+        return base.copy(
+            teal = tone,
+            onAccent = onTone,
+            onProminent = onTone,
+            brandPillOutline = tone,
+        )
     }
 }
 

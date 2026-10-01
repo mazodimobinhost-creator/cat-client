@@ -258,6 +258,8 @@ class MainActivity : Activity() {
     private lateinit var connectionBlob: ZedBlobView
     private lateinit var activeConfigTitle: TextView
     private lateinit var homeLocationPill: View
+    private lateinit var heroPingAction: View
+    private lateinit var homeFlagBadge: TextView
     private var homeExtrasSection: View? = null
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
@@ -533,8 +535,9 @@ class MainActivity : Activity() {
             // ZedSecure-style floating capsule: four cells, the active one expands into a
             // lime pill with icon + label, inactive cells show the icon only.
             // Visual order: Home, Servers, Cloud (panel + IP scanner), Settings.
-            addDockTab(R.string.tab_vpn, R.drawable.ic_vpn_tab, selected = true)
-            addDockTab(R.string.tab_subscriptions, R.drawable.ic_subscriptions_tab, selected = false)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR // Zed keeps the dock order fixed in RTL too
+            addDockTab(R.string.dock_home, R.drawable.ic_vpn_tab, selected = true)
+            addDockTab(R.string.dock_servers, R.drawable.ic_subscriptions_tab, selected = false)
             addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
             addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
             post { renderDockSelection(DOCK_HOME) }
@@ -679,15 +682,17 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             background = dockPillBackground(selected)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
-            addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+            addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
         icon.setColorFilter(if (selected) palette.onAccent else TEXT_SECONDARY)
         dockTabs += DockTab(pill, icon, label)
         val tab = appTabsPending.newTab()
         tab.customView = pill
+        tab.view.setPadding(dp(2), 0, dp(2), 0)
+        tab.view.minimumWidth = 0
         appTabsPending.addTab(tab, selected)
     }
 
@@ -935,7 +940,7 @@ class MainActivity : Activity() {
             cornerRadius = dp(20)
             strokeWidth = 0
             elevation = dp(6).toFloat()
-            backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
+            backgroundTintList = ColorStateList.valueOf(selectedRowColor())
             setTextColor(TEXT_PRIMARY)
             rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
             contentDescription = getString(R.string.subscription_add)
@@ -1670,14 +1675,14 @@ class MainActivity : Activity() {
         )}"
         // ZedSecure row: the selected server is a solid lime card with dark text; the rest sit on
         // the low surface container.
-        val rowPrimary = if (selected) palette.onAccent else TEXT_PRIMARY
-        val rowSecondary = if (selected) withAlpha(palette.onAccent, 190) else TEXT_SECONDARY
+        val rowPrimary = TEXT_PRIMARY
+        val rowSecondary = TEXT_SECONDARY
         background = RippleDrawable(
-            ColorStateList.valueOf(withAlpha(if (selected) palette.onAccent else TEAL, 36)),
+            ColorStateList.valueOf(withAlpha(TEAL, 36)),
             GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(22).toFloat()
-                setColor(if (selected) TEAL else palette.surfaceElevated1)
+                setColor(if (selected) selectedRowColor() else palette.surfaceElevated1)
             },
             null,
         )
@@ -1711,15 +1716,15 @@ class MainActivity : Activity() {
                         text = "✓"
                         textSize = 14f
                         typeface = CatClientBodyBoldTypeface
-                        setTextColor(palette.onAccent)
+                        setTextColor(TEAL)
                         includeFontPadding = false
                         gravity = Gravity.CENTER
                         background = GradientDrawable().apply {
                             shape = GradientDrawable.OVAL
-                            setStroke(dp(1), withAlpha(palette.onAccent, 150))
+                            setStroke(dp(2), TEAL)
                         }
                     },
-                    LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(12) },
+                    LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(12) },
                 )
                 // ⋮ overflow (edit · refresh · share · delete …), like Zed's per-row menu.
                 addView(
@@ -1800,7 +1805,7 @@ class MainActivity : Activity() {
                 text = getString(R.string.servers_open_list) + "  ›"
                 textSize = 13f
                 typeface = CatClientBodyBoldTypeface
-                setTextColor(if (selected) palette.onAccent else TEAL)
+                setTextColor(TEAL)
                 includeFontPadding = false
                 isClickable = true
                 isFocusable = true
@@ -2483,7 +2488,7 @@ class MainActivity : Activity() {
         }
         val headerBlock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             addView(statusChip, LinearLayout.LayoutParams(-2, -2))
             addView(
@@ -2810,9 +2815,12 @@ class MainActivity : Activity() {
                 roundAction(R.drawable.ic_cloud_tab, R.string.map_title) { showMapPage() },
                 LinearLayout.LayoutParams(dp(60), dp(60)),
             )
+            heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.connection_speed_test_label) { runTunnelPing() }
+            addView(heroPingAction, LinearLayout.LayoutParams(dp(60), dp(60)).apply { topMargin = dp(10) })
             addView(refreshActionButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { topMargin = dp(10) })
         }
         val heroFrame = FrameLayout(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             clipToPadding = false
             addView(
@@ -2860,6 +2868,17 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { refreshDashboardIp() }
+            homeFlagBadge = TextView(this@MainActivity).apply {
+                text = "🌐"
+                textSize = 24f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(withAlpha(palette.surfaceElevated2, 255))
+                }
+            }
+            addView(homeFlagBadge, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(14) })
             addView(
                 LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
@@ -3243,12 +3262,16 @@ class MainActivity : Activity() {
             R.string.theme_dialog_title,
             getString(appThemePreferenceStore.read().labelRes),
         ) { showThemeSelector() }
+        val accentSelectorRow = appPreferenceRow(
+            R.string.accent_setting_title,
+            getString(AppAccentPreferenceStore(this).read().labelRes),
+        ) { showAccentSelector() }
         val languageSelectorRow = appPreferenceRow(
             R.string.language_setting_title,
             getString(appLanguagePreferenceStore.read().labelRes),
         ) { showLanguageSelector() }
         val appPreferencesPanel = advancedSettingsPanel()
-        listOf(settingsSubscriptionSelectorRow, themeSelectorRow, languageSelectorRow)
+        listOf(settingsSubscriptionSelectorRow, themeSelectorRow, accentSelectorRow, languageSelectorRow)
             .forEachIndexed { index, row ->
                 if (index > 0) {
                     appPreferencesPanel.addView(
@@ -8475,11 +8498,11 @@ class MainActivity : Activity() {
 
                 // Update selection state
                 holder.checkIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
-                (holder.checkIcon.background as? GradientDrawable)?.setColor(palette.onAccent)
-                (row.background as? GradientDrawable)?.setColor(if (isSelected) TEAL else palette.surfaceElevated1)
+                (holder.checkIcon.background as? GradientDrawable)?.setColor(TEAL)
+                (row.background as? GradientDrawable)?.setColor(if (isSelected) selectedRowColor() else palette.surfaceElevated1)
                 (row.background as? GradientDrawable)?.setStroke(0, Color.TRANSPARENT)
-                holder.title.setTextColor(if (isSelected) palette.onAccent else TEXT_PRIMARY)
-                holder.detail.setTextColor(if (isSelected) withAlpha(palette.onAccent, 190) else TEXT_SECONDARY)
+                holder.title.setTextColor(TEXT_PRIMARY)
+                holder.detail.setTextColor(TEXT_SECONDARY)
                 row.isSelected = isSelected
                 var protocolDescription: String? = null
 
@@ -8566,9 +8589,9 @@ class MainActivity : Activity() {
                     // Latency colour like ZedSecure: lime when quick, amber when sluggish, red when slow/failed.
                     val badgeColor = when {
                         isTesting -> AMBER
-                        delayMs != null && delayMs <= 200 -> if (isSelected) palette.onAccent else TEAL
-                        delayMs != null && delayMs <= 500 -> if (isSelected) palette.onAccent else AMBER
-                        delayMs != null -> if (isSelected) palette.onAccent else ERROR
+                        delayMs != null && delayMs <= 200 -> ZedBlobView.ZED_LIME
+                        delayMs != null && delayMs <= 500 -> AMBER
+                        delayMs != null -> ERROR
                         delayRecord?.status == ConnectionDelayStatus.Failure -> ERROR
                         else -> TEXT_SECONDARY
                     }
@@ -9457,6 +9480,78 @@ class MainActivity : Activity() {
                 VpnWidgetProvider.refresh(this)
                 recreate()
             }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+        dialog.showCatClientDialog()
+    }
+
+    /** Accent colour picker (ZedSecure appearance): swatches in a grid, applied with a recreate. */
+    private fun showAccentSelector() {
+        val store = AppAccentPreferenceStore(this)
+        val selected = store.read()
+        val night = palette.isDark
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        var dialog: AlertDialog? = null
+        AppAccent.entries.chunked(3).forEach { rowItems ->
+            grid.addView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    rowItems.forEach { accent ->
+                        val tone = if (night) accent.dark else accent.light
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER_HORIZONTAL
+                                setPadding(dp(6), dp(10), dp(6), dp(10))
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    dialog?.dismiss()
+                                    if (accent != selected) {
+                                        store.save(accent)
+                                        recreate()
+                                    }
+                                }
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = if (accent == selected) "✓" else ""
+                                        gravity = Gravity.CENTER
+                                        textSize = 20f
+                                        typeface = CatClientBodyBoldTypeface
+                                        setTextColor(if (night) accent.onDark else accent.onLight)
+                                        background = GradientDrawable().apply {
+                                            shape = GradientDrawable.OVAL
+                                            setColor(tone)
+                                            if (accent == selected) setStroke(dp(3), TEXT_PRIMARY)
+                                        }
+                                    },
+                                    LinearLayout.LayoutParams(dp(52), dp(52)),
+                                )
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        setText(accent.labelRes)
+                                        textSize = 12f
+                                        typeface = CatClientBodyTypeface
+                                        setTextColor(TEXT_SECONDARY)
+                                        gravity = Gravity.CENTER
+                                    },
+                                    LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
+                                )
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                    }
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+        dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.accent_setting_title)
+            .setView(grid)
             .setNegativeButton(R.string.split_tunnel_cancel, null)
             .create()
         dialog.showCatClientDialog()
@@ -10921,6 +11016,7 @@ class MainActivity : Activity() {
         }
         if (::heroStateText.isInitialized) heroStateText.text = getString(presentation.titleRes)
         if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        if (::heroPingAction.isInitialized) heroPingAction.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
@@ -10941,12 +11037,10 @@ class MainActivity : Activity() {
         val live = liveGeo?.takeIf { state == VpnState.Started }
         connectionCountryText.text = when {
             state == VpnState.Started && live != null ->
-                getString(R.string.route_location, live.flag, live.countryName)
-            state == VpnState.Started && connectionCountryFlag.isNotBlank() -> {
-                val country = ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
+                listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
+            state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
                     ?: getString(R.string.route_edge_fallback)
-                getString(R.string.route_location, connectionCountryFlag, country)
-            }
             state == VpnState.Started -> getString(R.string.route_edge_fallback)
             state == VpnState.Starting -> getString(R.string.route_selecting)
             state == VpnState.Stopping -> getString(R.string.route_closing)
@@ -10954,7 +11048,14 @@ class MainActivity : Activity() {
             state == VpnState.DailyLimitReached -> getString(R.string.state_daily_limit)
             else -> getString(R.string.route_automatic)
         }
-        connectionCountryText.setTextColor(if (state == VpnState.Started) accent else TEXT_SECONDARY)
+        connectionCountryText.setTextColor(TEXT_PRIMARY)
+        if (::homeFlagBadge.isInitialized) {
+            homeFlagBadge.text = when {
+                state == VpnState.Started && live != null -> live.flag
+                state == VpnState.Started && connectionCountryFlag.isNotBlank() -> connectionCountryFlag
+                else -> "🌐"
+            }
+        }
         val pendingCountry = pendingGlobeCountry()
         val liveLabel = live?.let { info ->
             buildString {
@@ -11011,7 +11112,7 @@ class MainActivity : Activity() {
             uptimeValueText.text = timerText.text
         }
         if (::homeUsageCard.isInitialized) renderHomeUsageCard()
-        refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.INVISIBLE
+        refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
         // Glass reconnect action with the Cat accent.
@@ -11148,11 +11249,14 @@ class MainActivity : Activity() {
         apply(uploadBarFill, fraction(txPerSecond))
     }
 
+    /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
+    private fun selectedRowColor(): Int = androidx.core.graphics.ColorUtils.blendARGB(palette.surfaceElevated1, TEAL, if (palette.isDark) 0.28f else 0.22f)
+
     /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
     private fun applyHomeBackdrop(state: VpnState) {
         val backdrop = homeBackdrop ?: return
         val colors = when (state) {
-            VpnState.Started -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), 0xFF1F6F7A.toInt(), ZedBlobView.ZED_CYAN)
+            VpnState.Started -> intArrayOf(0xFF2A1A6E.toInt(), 0xFF5A48D6.toInt(), 0xFF2EB8D0.toInt(), 0xFF8FD35A.toInt(), 0xFFC7F24E.toInt())
             VpnState.Starting, VpnState.Stopping -> intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, 0xFF3E2FB0.toInt(), BACKGROUND, BACKGROUND)
             else -> null
         }
