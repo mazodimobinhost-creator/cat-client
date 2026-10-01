@@ -6854,10 +6854,11 @@ class MainActivity : Activity() {
     private fun advancedSectionLabel(value: String): TextView {
         return TextView(this).apply {
             text = value
-            textSize = 12f
+            textSize = 13f
             letterSpacing = 0f
             typeface = CatClientBodyBoldTypeface
-            setTextColor(TEXT_SECONDARY)
+            setTextColor(TEAL)
+            setPaddingRelative(dp(4), 0, dp(4), 0)
             includeFontPadding = false
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
@@ -7229,10 +7230,10 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            background = glassSurfaceDrawable(radiusDp = 12)
+            background = glassSurfaceDrawable(radiusDp = 22)
             clipToOutline = true
             elevation = 0f
-            setPadding(dp(4), dp(4), dp(4), dp(12))
+            setPadding(dp(8), dp(8), dp(8), dp(14))
         }
     }
 
@@ -8111,8 +8112,8 @@ class MainActivity : Activity() {
                         ellipsize = TextUtils.TruncateAt.END
                     }
                     val delayBadge = TextView(this@MainActivity).apply {
-                        textSize = 11f
-                        typeface = CatClientDataTypeface
+                        textSize = 12.5f
+                        typeface = CatClientBodyBoldTypeface
                         includeFontPadding = false
                         gravity = Gravity.CENTER
                         maxLines = 1
@@ -8184,24 +8185,22 @@ class MainActivity : Activity() {
                             },
                             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) },
                         )
-                        addView(
-                            delayBadge,
-                            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) },
-                        )
                     }
-                    container.addView(checkIcon, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
+                    // ZedSecure row: text column · latency on the trailing edge · speed test · check.
                     container.addView(textColumn, LinearLayout.LayoutParams(0, -2, 1f))
+                    container.addView(delayBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
                     container.addView(speedAction, LinearLayout.LayoutParams(dp(96), dp(56)).apply { marginStart = dp(4) })
+                    container.addView(checkIcon, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(8) })
 
                     row = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.VERTICAL
-                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        setPadding(dp(16), dp(12), dp(14), dp(12))
                         addView(container, LinearLayout.LayoutParams(-1, -2))
                     }
-                    // Card-like background
+                    // Card-like background (low surface container; lime when selected)
                     row.background = GradientDrawable().apply {
-                        cornerRadius = dp(16).toFloat()
-                        setColor(SURFACE)
+                        cornerRadius = dp(22).toFloat()
+                        setColor(palette.surfaceElevated1)
                     }
                     holder = ConnectionRowHolder(
                         container,
@@ -8233,13 +8232,11 @@ class MainActivity : Activity() {
 
                 // Update selection state
                 holder.checkIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
-                (row.background as? GradientDrawable)?.setColor(
-                    if (isSelected) ((TEAL and 0x00FFFFFF) or (0x18 shl 24)) else SURFACE
-                )
-                (row.background as? GradientDrawable)?.setStroke(
-                    dp(1),
-                    if (isSelected) TEAL else OUTLINE
-                )
+                (holder.checkIcon.background as? GradientDrawable)?.setColor(palette.onAccent)
+                (row.background as? GradientDrawable)?.setColor(if (isSelected) TEAL else palette.surfaceElevated1)
+                (row.background as? GradientDrawable)?.setStroke(0, Color.TRANSPARENT)
+                holder.title.setTextColor(if (isSelected) palette.onAccent else TEXT_PRIMARY)
+                holder.detail.setTextColor(if (isSelected) withAlpha(palette.onAccent, 190) else TEXT_SECONDARY)
                 row.isSelected = isSelected
                 var protocolDescription: String? = null
 
@@ -8323,20 +8320,19 @@ class MainActivity : Activity() {
                         else -> ""
                     }
 
-                    // Badge background based on state
+                    // Latency colour like ZedSecure: lime when quick, amber when sluggish, red when slow/failed.
                     val badgeColor = when {
                         isTesting -> AMBER
-                        delayMs != null -> TEAL
+                        delayMs != null && delayMs <= 200 -> if (isSelected) palette.onAccent else TEAL
+                        delayMs != null && delayMs <= 500 -> if (isSelected) palette.onAccent else AMBER
+                        delayMs != null -> if (isSelected) palette.onAccent else ERROR
                         delayRecord?.status == ConnectionDelayStatus.Failure -> ERROR
                         else -> TEXT_SECONDARY
                     }
                     if (holder.delayBadge.text.isNotEmpty()) {
                         holder.delayBadge.visibility = View.VISIBLE
                         holder.delayBadge.setTextColor(badgeColor)
-                        holder.delayBadge.background = GradientDrawable().apply {
-                            cornerRadius = dp(12).toFloat()
-                            setColor((badgeColor and 0x00FFFFFF) or (0x20 shl 24))
-                        }
+                        holder.delayBadge.background = null
                     } else {
                         holder.delayBadge.visibility = View.GONE
                         holder.delayBadge.background = null
@@ -11039,13 +11035,9 @@ class MainActivity : Activity() {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
-            setColor(if (highlighted) palette.surfaceElevated2 else palette.surface)
-            if (highlighted) {
-                setStroke(dp(1), withAlpha(TEAL, 170))
-            } else if (palette.isDark) {
-                // Glass edge: a whisper of white keeps cards readable on black.
-                setStroke(dp(1), withAlpha(0xFFFFFFFF.toInt(), 24))
-            }
+            // ZedSecure tonal cards: surface container, no outline; highlighted = one step brighter + accent edge.
+            setColor(if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1)
+            if (highlighted) setStroke(dp(1), withAlpha(TEAL, 170))
         }
     }
 
