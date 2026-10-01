@@ -60,7 +60,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.0.0';
+const CAT_PANEL_VERSION = '6.1.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -185,6 +185,21 @@ function html(body, status = 200, extra = {}) {
   });
 }
 
+/** socks5://[user:pass@]host:port | http://[user:pass@]host:port → parts or null. */
+function parseChain(value) {
+  const m = String(value || '').trim().match(/^(socks5h?|socks|https?):\/\/(?:([^:@/]*)(?::([^@/]*))?@)?(\[[^\]]+\]|[^:/\s]+):(\d{1,5})\/?$/i);
+  if (!m) return null;
+  const port = Number(m[5]);
+  if (!(port > 0 && port < 65536)) return null;
+  return {
+    type: /^socks/i.test(m[1]) ? 'socks5' : 'http',
+    user: m[2] ? decodeURIComponent(m[2]) : '',
+    pass: m[3] ? decodeURIComponent(m[3]) : '',
+    host: m[4].replace(/^\[|\]$/g, ''),
+    port,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* identity                                                            */
 /* ------------------------------------------------------------------ */
@@ -284,6 +299,9 @@ function defaultSettings() {
     sni: '',
     fingerprint: 'chrome',
     proxyIps: [],
+    chain: '',          // socks5://user:pass@host:port or http://host:port — fixed egress
+    chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
+    chainStrict: false, // true = never fall back to direct when the chain is down
     entryLimit: 48,
     includeHost: true,  // also emit the worker hostname itself as an address
     updatedAt: 0,
@@ -308,6 +326,9 @@ function normalizeSettings(raw) {
   s.sni = String(s.sni || '').trim().toLowerCase().slice(0, 253);
   s.fingerprint = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'].includes(s.fingerprint) ? s.fingerprint : 'chrome';
   s.proxyIps = uniq(Array.isArray(s.proxyIps) ? s.proxyIps : splitCsv(s.proxyIps)).slice(0, 32);
+  s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
+  s.chainMode = s.chainMode === 'cf' ? 'cf' : 'all';
+  s.chainStrict = s.chainStrict === true;
   s.entryLimit = Math.min(200, Math.max(4, Number(s.entryLimit) || d.entryLimit));
   s.includeHost = s.includeHost !== false;
   s.updatedAt = Number(s.updatedAt) || 0;
@@ -1085,22 +1106,134 @@ function proxyIpList(env, settings) {
   return (list.length ? list : DEFAULT_PROXY_IPS).map((e) => String(e).trim()).filter(Boolean);
 }
 
+/* ---- chain outbound: SOCKS5 / HTTP CONNECT over cloudflare:sockets ----
+ * This is what makes the exit IP (and therefore the "country") STABLE: with a
+ * chain every connection leaves from your own relay instead of whichever
+ * Cloudflare datacenter the anycast route happened to land in. */
+
+async function readExactly(reader, pending, n) {
+  let buf = pending || new Uint8Array(0);
+  while (buf.byteLength < n) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('chain closed during handshake');
+    buf = concatBytes(buf, toBytes(value));
+  }
+  return { head: buf.subarray(0, n), rest: buf.subarray(n) };
+}
+
+async function socks5Handshake(socket, chain, host, port) {
+  const writer = socket.writable.getWriter();
+  const reader = socket.readable.getReader();
+  try {
+    const wantAuth = !!(chain.user || chain.pass);
+    await writer.write(new Uint8Array(wantAuth ? [5, 2, 0, 2] : [5, 1, 0]));
+    let r = await readExactly(reader, null, 2);
+    if (r.head[0] !== 5) throw new Error('not a socks5 proxy');
+    if (r.head[1] === 2) {
+      const u = new TextEncoder().encode(chain.user), p = new TextEncoder().encode(chain.pass);
+      await writer.write(concatBytes(concatBytes(new Uint8Array([1, u.length]), u), concatBytes(new Uint8Array([p.length]), p)));
+      r = await readExactly(reader, r.rest, 2);
+      if (r.head[1] !== 0) throw new Error('socks5 auth failed');
+    } else if (r.head[1] !== 0) {
+      throw new Error('socks5 auth method rejected');
+    }
+    let addr;
+    const v4 = ipToLong(host);
+    if (v4 !== null) addr = new Uint8Array([1, (v4 >>> 24) & 255, (v4 >>> 16) & 255, (v4 >>> 8) & 255, v4 & 255]);
+    else if (isIpv6(host)) {
+      const h = parseV6Hextets(host);
+      addr = new Uint8Array(17); addr[0] = 4;
+      h.forEach((x, i) => { const v = parseInt(x, 16); addr[1 + i * 2] = v >> 8; addr[2 + i * 2] = v & 255; });
+    } else {
+      const d = new TextEncoder().encode(host);
+      addr = concatBytes(new Uint8Array([3, d.length]), d);
+    }
+    await writer.write(concatBytes(concatBytes(new Uint8Array([5, 1, 0]), addr), new Uint8Array([port >> 8, port & 255])));
+    r = await readExactly(reader, r.rest, 4);
+    if (r.head[1] !== 0) throw new Error('socks5 connect refused (' + r.head[1] + ')');
+    const atyp = r.head[3];
+    let need = atyp === 1 ? 4 + 2 : atyp === 4 ? 16 + 2 : 0;
+    if (atyp === 3) { const l = await readExactly(reader, r.rest, 1); need = l.head[0] + 2; r = { head: null, rest: l.rest }; }
+    r = await readExactly(reader, r.rest, need);
+    return r.rest.byteLength ? r.rest.slice() : null;
+  } finally {
+    writer.releaseLock();
+    reader.releaseLock();
+  }
+}
+
+async function httpConnectHandshake(socket, chain, host, port) {
+  const writer = socket.writable.getWriter();
+  const reader = socket.readable.getReader();
+  try {
+    const target = (isIpv6(host) ? '[' + host + ']' : host) + ':' + port;
+    let req = 'CONNECT ' + target + ' HTTP/1.1\r\nHost: ' + target + '\r\nProxy-Connection: keep-alive\r\n';
+    if (chain.user || chain.pass) req += 'Proxy-Authorization: Basic ' + btoa(chain.user + ':' + chain.pass) + '\r\n';
+    await writer.write(new TextEncoder().encode(req + '\r\n'));
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('chain closed during CONNECT');
+      buf = concatBytes(buf, toBytes(value));
+      const text = new TextDecoder().decode(buf);
+      const end = text.indexOf('\r\n\r\n');
+      if (end >= 0) {
+        if (!/^HTTP\/1\.[01] 2\d\d/.test(text)) throw new Error('CONNECT refused: ' + text.split('\r\n')[0]);
+        const headerBytes = new TextEncoder().encode(text.slice(0, end + 4)).byteLength;
+        return buf.byteLength > headerBytes ? buf.slice(headerBytes) : null;
+      }
+      if (buf.byteLength > 8192) throw new Error('CONNECT reply too large');
+    }
+  } finally {
+    writer.releaseLock();
+    reader.releaseLock();
+  }
+}
+
+async function dialViaChain(sockets, chain, host, port) {
+  const socket = sockets.connect({ hostname: chain.host, port: chain.port }, { allowHalfOpen: false });
+  if (socket.opened) await socket.opened;
+  try {
+    const leftover = chain.type === 'socks5'
+      ? await socks5Handshake(socket, chain, host, port)
+      : await httpConnectHandshake(socket, chain, host, port);
+    return { socket, leftover };
+  } catch (e) {
+    try { socket.close(); } catch (e2) { /* ignore */ }
+    throw e;
+  }
+}
+
 async function dialTarget(host, port, env, settings, log) {
   const sockets = await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
+  const targetIsCf = isCloudflareIp(host);
+  const chain = parseChain((settings && settings.chain) || env.CHAIN || '');
+  const useChain = chain && ((settings && settings.chainMode === 'cf') ? targetIsCf : true);
+  let lastError = null;
+  if (useChain) {
+    try {
+      const dialed = await dialViaChain(sockets, chain, host, port);
+      if (log) log('dial ok chain:' + chain.type + ' → ' + host + ':' + port);
+      return { socket: dialed.socket, via: 'chain', leftover: dialed.leftover };
+    } catch (e) {
+      lastError = e;
+      if (log) log('chain failed: ' + (e && e.message ? e.message : e));
+      if (settings && settings.chainStrict) throw e;
+    }
+  }
   const attempts = [];
-  if (!isCloudflareIp(host)) attempts.push({ hostname: host, port, via: 'direct' });
+  if (!targetIsCf) attempts.push({ hostname: host, port, via: 'direct' });
   for (const proxy of proxyIpList(env, settings)) {
     const parsed = splitHostPort(proxy, port);
     attempts.push({ hostname: parsed.hostname, port: parsed.port || port, via: 'proxy:' + proxy });
   }
-  let lastError = null;
   for (const attempt of attempts) {
     try {
       const socket = sockets.connect({ hostname: attempt.hostname, port: attempt.port }, { allowHalfOpen: false });
       if (socket.opened) await socket.opened;
       if (log) log('dial ok ' + attempt.via + ' → ' + attempt.hostname + ':' + attempt.port);
-      return { socket, via: attempt.via };
+      return { socket, via: attempt.via, leftover: null };
     } catch (e) {
       lastError = e;
       if (log) log('dial failed ' + attempt.via + ': ' + (e && e.message ? e.message : e));
@@ -1114,12 +1247,16 @@ async function dialTarget(host, port, env, settings, log) {
  * downstream is a tight read loop that only prefixes the protocol response
  * to the first chunk. Nothing is counted — that was the CPU hog in v5.
  */
-async function pumpTunnel(ws, clientReadable, socket, responseHeader) {
+async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) {
   const upstream = clientReadable.pipeTo(socket.writable, { preventAbort: false }).catch(() => {});
   const downstream = (async () => {
     const reader = socket.readable.getReader();
     let header = responseHeader;
     try {
+      if (leftover && leftover.byteLength && ws.readyState === WS_OPEN) {
+        ws.send(header ? concatBytes(header, leftover) : leftover);
+        header = null;
+      }
       for (;;) {
         const chunk = await reader.read();
         if (chunk.done) break;
@@ -1261,7 +1398,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
   });
 
   try {
-    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader);
+    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader, dialed.leftover);
   } catch (e) {
     log('tunnel error');
   } finally {
@@ -1352,9 +1489,24 @@ function linkContext(host, env, settings, uuid, user) {
 }
 
 /** Every (address × port × protocol) entry; Cat order = TLS 443 first, then plain :80. */
-function buildConfigEntries(host, env, settings, uuid, user) {
+function buildConfigEntries(host, env, settings, uuid, user, q) {
   const ctx = linkContext(host, env, settings, uuid, user);
-  const addresses = addressList(host, env, settings);
+  q = q || {};
+  // Per-link overrides (?addr=a,b&port=443&proto=vless&limit=1) let a user pin
+  // ONE address → one Cloudflare entry point → a stable exit.
+  let addresses = addressList(host, env, settings);
+  if (q.addr && q.addr.length) addresses = uniq(q.addr);
+  if (q.proto === 'vless') ctx.protocols.trojan = false;
+  if (q.proto === 'trojan') ctx.protocols.vless = false;
+  if (q.port && q.port.length) {
+    settings = Object.assign({}, settings, {
+      tlsPorts: q.port.filter((p) => TLS_PORTS.includes(p)),
+      plainPorts: q.port.filter((p) => PLAIN_PORTS.includes(p)),
+      plainEnabled: q.port.some((p) => PLAIN_PORTS.includes(p)),
+    });
+    if (!settings.tlsPorts.length && !settings.plainPorts.length) settings = Object.assign({}, settings, { tlsPorts: [443] });
+  }
+  if (q.limit) settings = Object.assign({}, settings, { entryLimit: Math.min(200, Math.max(1, q.limit)) });
   // Interleave TLS and plain ports (443, 80, 2053, 8080, …) so both kinds
   // survive the entry limit.
   const tls = settings.tlsPorts.map((p) => ({ port: p, tls: true }));
@@ -1392,8 +1544,19 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function buildClashYaml(host, env, settings, uuid, user) {
-  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user);
+function subQuery(url) {
+  if (!url || !url.searchParams) return {};
+  const q = url.searchParams;
+  return {
+    addr: splitCsv(q.get('addr') || q.get('ip') || ''),
+    port: splitCsv(q.get('port') || q.get('ports') || '').map(Number).filter((p) => p > 0),
+    proto: String(q.get('proto') || '').toLowerCase(),
+    limit: Number(q.get('limit') || q.get('count') || 0) || 0,
+  };
+}
+
+function buildClashYaml(host, env, settings, uuid, user, q) {
+  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
   const proxies = entries.map((e) => {
     const base = [
       '  - name: ' + yamlStr(e.name),
@@ -1446,13 +1609,12 @@ function buildClashYaml(host, env, settings, uuid, user) {
     '  - name: "🐱 Cat"',
     '    type: select',
     '    proxies:',
-    '      - "⚡ Auto"',
     names,
+    '      - "⚡ Auto"',
     '  - name: "⚡ Auto"',
-    '    type: url-test',
+    '    type: fallback',
     '    url: https://www.gstatic.com/generate_204',
     '    interval: 300',
-    '    tolerance: 60',
     '    proxies:',
     names,
     'rules:',
@@ -1464,8 +1626,8 @@ function buildClashYaml(host, env, settings, uuid, user) {
   ].join('\n');
 }
 
-function buildSingboxConfig(host, env, settings, uuid, user) {
-  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user);
+function buildSingboxConfig(host, env, settings, uuid, user, q) {
+  const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
   const outbounds = entries.map((e) => {
     const out = {
       type: e.proto,
@@ -1499,8 +1661,10 @@ function buildSingboxConfig(host, env, settings, uuid, user) {
       { type: 'mixed', tag: 'mixed-in', listen: '127.0.0.1', listen_port: 2080, sniff: true },
     ],
     outbounds: [
-      { type: 'selector', tag: '🐱 Cat', outbounds: ['⚡ Auto'].concat(tags), default: '⚡ Auto' },
-      { type: 'urltest', tag: '⚡ Auto', outbounds: tags, url: 'https://www.gstatic.com/generate_204', interval: '5m', tolerance: 60 },
+      // Default = the FIRST entry (pinned exit), not auto-select: auto picks a
+      // different Cloudflare entry on every start → different exit country.
+      { type: 'selector', tag: '🐱 Cat', outbounds: tags.concat(['⚡ Auto']), default: tags[0] || '⚡ Auto' },
+      { type: 'urltest', tag: '⚡ Auto', outbounds: tags, url: 'https://www.gstatic.com/generate_204', interval: '10m', tolerance: 300 },
     ].concat(outbounds, [{ type: 'direct', tag: 'direct' }]),
     route: {
       rules: [
@@ -1536,17 +1700,32 @@ async function handleDoh(request, env) {
 
 const GEO_CACHE = new Map();
 const GEO_TTL_MS = 10 * 60 * 1000;
+async function resolveHost(name) {
+  try {
+    const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=A', { headers: { accept: 'application/dns-json' } });
+    const data = await res.json();
+    const a = (data.Answer || []).find((r) => r.type === 1);
+    return a ? a.data : '';
+  } catch (e) { return ''; }
+}
+
 async function geoLookup(ip) {
-  const key = String(ip || '').trim();
+  const key = String(ip || '').trim().replace(/^\[|\]$/g, '');
   const hit = GEO_CACHE.get(key);
   if (hit && Date.now() - hit.at < GEO_TTL_MS) return hit.value;
   let value = { ok: false, ip: key };
   try {
-    const res = await fetch('https://ipwho.is/' + encodeURIComponent(key), { headers: { accept: 'application/json', 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
+    let target = key;
+    if (!isIpv4(key) && !isIpv6(key)) {
+      target = await resolveHost(key);
+      if (!target) { GEO_CACHE.set(key, { value, at: Date.now() }); return value; }
+    }
+    const res = await fetch('https://ipwho.is/' + encodeURIComponent(target), { headers: { accept: 'application/json', 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
     const data = await res.json();
     value = {
       ok: !!data.success,
-      ip: data.ip || key,
+      host: target !== key ? key : undefined,
+      ip: data.ip || target,
       country: data.country || '',
       countryCode: data.country_code || '',
       city: data.city || '',
@@ -1614,17 +1793,18 @@ async function readJsonBody(request) {
 function subResponse(kind, host, env, settings, uuid, user, url) {
   const title = panelTitle(env, settings) + (user ? ' · ' + user.name : '');
   const headers = subscriptionHeaders(user, title);
+  const q = subQuery(url);
   if (kind === 'clash') {
-    return new Response(buildClashYaml(host, env, settings, uuid, user), {
+    return new Response(buildClashYaml(host, env, settings, uuid, user, q), {
       headers: Object.assign({ 'content-type': 'text/yaml; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }, headers),
     });
   }
   if (kind === 'singbox') {
-    return new Response(JSON.stringify(buildSingboxConfig(host, env, settings, uuid, user), null, 2), {
+    return new Response(JSON.stringify(buildSingboxConfig(host, env, settings, uuid, user, q), null, 2), {
       headers: Object.assign({ 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }, headers),
     });
   }
-  const { entries } = buildConfigEntries(host, env, settings, uuid, user);
+  const { entries } = buildConfigEntries(host, env, settings, uuid, user, q);
   const body = entries.map((e) => e.link).join('\n') + '\n';
   const wantB64 = kind === 'sub64' || (url && url.searchParams.get('b64') === '1');
   return text(wantB64 ? b64encode(body) : body, 200, headers);
@@ -1684,6 +1864,7 @@ async function handleApi(request, url, env, ctx) {
         links: subLinks(origin, masterUuid, null),
         paths: tunnelPaths(env),
         sni: effectiveSni(host, env, settings),
+        chain: (() => { const c = parseChain(settings.chain); return c ? { type: c.type, host: c.host, port: c.port, auth: !!(c.user || c.pass) } : null; })(),
         userCount: users.length,
         env: { hasUuid: isUuid(env.UUID), hasPanelPassword: !!env.PANEL_PASSWORD, hasProxyIp: !!(env.PROXYIP || env.PROXY_IPS), hasCfIps: !!env.CF_IPS },
       });
@@ -1780,6 +1961,31 @@ async function handleApi(request, url, env, ctx) {
       if (body.settings && typeof body.settings === 'object') persisted = (await writeSettings(env, body.settings)).persisted && persisted;
       if (Array.isArray(body.users)) persisted = (await writeUsers(env, body.users)).persisted && persisted;
       return json({ ok: true, persisted });
+    }
+  }
+
+  if (path === '/api/chain-test' && method === 'POST') {
+    // One outbound connection through the chain; reports whether the handshake
+    // works. Costs the owner one click, never runs on its own.
+    const body = (await readJsonBody(request)) || {};
+    const chain = parseChain(body.chain || settings.chain);
+    if (!chain) return json({ ok: false, error: 'invalid chain url' }, 400);
+    const sockets = await loadSockets();
+    if (!sockets) return json({ ok: false, error: 'cloudflare:sockets unavailable (preview?)' }, 501);
+    const t0 = Date.now();
+    try {
+      const dialed = await dialViaChain(sockets, chain, 'www.gstatic.com', 80);
+      const writer = dialed.socket.writable.getWriter();
+      await writer.write(new TextEncoder().encode('GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n'));
+      writer.releaseLock();
+      const reader = dialed.socket.readable.getReader();
+      const { value } = await reader.read();
+      reader.releaseLock();
+      try { dialed.socket.close(); } catch (e) { /* ignore */ }
+      const head = new TextDecoder().decode(toBytes(value || new Uint8Array(0))).split('\r\n')[0];
+      return json({ ok: /HTTP\/1\.[01] 204/.test(head), status: head, ms: Date.now() - t0, type: chain.type, host: chain.host });
+    } catch (e) {
+      return json({ ok: false, error: String(e && e.message ? e.message : e), ms: Date.now() - t0 }, 502);
     }
   }
 
@@ -2245,6 +2451,15 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   <label data-i="s_proxy"></label>
   <textarea name="proxyIps" style="min-height:70px" data-ph="s_proxy_ph"></textarea>
   <div class="small dim" data-i="s_proxy_hint"></div>
+  <div class="hr"></div>
+  <label><span data-i="s_chain"></span> <span class="chip" id="chainState"></span></label>
+  <input name="chain" class="mono" dir="ltr" data-ph="s_chain_ph">
+  <div class="small dim" data-i="s_chain_hint"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="s_chain_mode"></label><select name="chainMode"><option value="all" data-i="s_chain_all"></option><option value="cf" data-i="s_chain_cf"></option></select></div>
+   <div><label data-i="s_chain_strict"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swStrict"></span><span data-i="s_chain_strict_on"></span></div></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnChainTest" data-i="s_chain_test"></button><span class="small mute" id="chainTestOut"></span></div>
   <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><span class="small mute" id="saveState"></span></div>
  </form>
  <div class="card sec">
@@ -2327,7 +2542,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در 
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
-s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',
+s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
@@ -2348,7 +2563,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guid
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
-s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',
+s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
@@ -2396,7 +2611,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');f.elements.chain.value=s.chain||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -2412,9 +2627,11 @@ $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('chang
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on')};
+ proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
+
+$('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms':'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
 
 /* ---------- users ---------- */
 function protoChips(u){var h='';if(u.protocols.vless)h+='<span class="chip v">VLESS</span> ';if(u.protocols.trojan)h+='<span class="chip t">Trojan</span>';return h}
@@ -2521,7 +2738,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, DEFAULT_PROXY_IPS, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,

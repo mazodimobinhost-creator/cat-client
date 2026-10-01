@@ -135,5 +135,64 @@ let user;
   check('tunnel: downstream got vless response header + body', out.length>=1 && out[0][0]===0 && out[0][1]===0 && new TextDecoder().decode(out[0].subarray(2)).startsWith('HTTP/1.1 200'));
   check('tunnel: socket closed', closed);
 }
+
+// sub query overrides: pin one address / port / proto
+{ const r = await req('/sub/' + MASTER + '?addr=1.2.3.4&port=443&proto=vless&limit=1'); const b = (await r.text()).trim().split('\n');
+  check('?addr&port&proto&limit=1 → exactly one pinned vless config', b.length===1 && b[0].startsWith('vless://'+MASTER+'@1.2.3.4:443?'), b[0]);
+  const c = await req('/clash/' + MASTER + '?addr=www.example.com&limit=2'); const y = await c.text();
+  check('clash honours ?addr', y.includes('server: "www.example.com"') && !y.includes('1.2.3.4'));
+  check('clash select group defaults to concrete proxy, Auto is fallback type', y.indexOf('type: select') < y.indexOf('⚡ Auto') && y.includes('type: fallback'));
+  const sb = await (await req('/singbox/' + MASTER)).json(); const sel = sb.outbounds.find(o=>o.type==='selector');
+  check('singbox selector default = first concrete outbound (stable exit)', sel.default !== '⚡ Auto' && sel.outbounds[0] === sel.default); }
+// chain parsing + settings
+{ const c = T.parseChain('socks5://user:p%40ss@1.2.3.4:1080'); check('parseChain socks5 w/ auth', c && c.type==='socks5' && c.user==='user' && c.pass==='p@ss' && c.host==='1.2.3.4' && c.port===1080);
+  const h = T.parseChain('http://[2001:db8::1]:3128'); check('parseChain http v6', h && h.type==='http' && h.host==='2001:db8::1' && h.port===3128);
+  check('parseChain rejects junk', !T.parseChain('vless://x') && !T.parseChain('socks5://host') && !T.parseChain('socks5://host:99999'));
+  const r = await req('/api/settings', { method:'PUT', headers: auth, body:{ chain:'socks5://relay.example.net:1080', chainMode:'all' } }); const j = await r.json();
+  check('settings accept chain', j.ok && j.settings.chain==='socks5://relay.example.net:1080' && j.settings.chainMode==='all');
+  const g = await (await req('/api/settings', { headers: auth })).json(); check('settings GET exposes chain summary', g.chain && g.chain.type==='socks5' && g.chain.host==='relay.example.net');
+  const bad = await (await req('/api/settings', { method:'PUT', headers: auth, body:{ chain:'garbage' } })).json(); check('invalid chain is dropped', bad.settings.chain==='');
+  await req('/api/settings', { method:'PUT', headers: auth, body:{ chain:'' } }); }
+// chain dial: fake SOCKS5 relay — every connection must go through it
+{
+  const dials = []; const relayWrites = [];
+  function fakeRelaySocket() {
+    let ctrl; const readable = new ReadableStream({ start(c){ ctrl = c; } });
+    let stage = 0;
+    const writable = new WritableStream({ write(chunk){ relayWrites.push(Array.from(chunk));
+      if (stage===0) { ctrl.enqueue(new Uint8Array([5,0])); stage=1; return; }
+      if (stage===1) { // CONNECT request: 5,1,0,atyp...
+        const atyp = chunk[3]; const dom = atyp===3 ? new TextDecoder().decode(chunk.subarray(5,5+chunk[4])) : '';
+        dials.push(dom); ctrl.enqueue(new Uint8Array([5,0,0,1, 9,9,9,9, 0,80])); stage=2; return; }
+      // payload → echo back an HTTP answer
+      ctrl.enqueue(new TextEncoder().encode('HTTP/1.1 200 OK\r\n\r\nvia-chain')); ctrl.close(); } });
+    return { opened: Promise.resolve(), readable, writable, close(){} };
+  }
+  const connects = [];
+  T.__setSockets({ connect(opts){ connects.push(opts.hostname+':'+opts.port); return fakeRelaySocket(); } });
+  const envChain = { UUID: MASTER }; T.kvCacheClear();
+  const settings = T.normalizeSettings({ chain: 'socks5://relay.example.net:1080', chainMode: 'all' });
+  const out = []; const ws = { readyState: 1, listeners: {}, addEventListener(n,f){ (this.listeners[n]=this.listeners[n]||[]).push(f); }, send(d){ out.push(new Uint8Array(d)); }, close(){ this.readyState = 3; } };
+  const uuidHex = MASTER.replace(/-/g,''); const header = new Uint8Array([0, ...uuidHex.match(/../g).map(h=>parseInt(h,16)), 0, 1, 0x01,0xbb, 2, 10, ...new TextEncoder().encode('google.com'), ...new TextEncoder().encode('GET / HTTP/1.1\r\n\r\n')]);
+  const job = T.handleTunnelConnection(ws, envChain, { earlyDataHeader: Buffer.from(header).toString('base64url'), masterUuid: MASTER, settings });
+  await new Promise(r=>setTimeout(r,80)); (ws.listeners.close||[]).forEach(f=>f({})); await job;
+  check('chain: TCP went to the relay, not the destination', connects.length===1 && connects[0]==='relay.example.net:1080', connects.join());
+  check('chain: SOCKS5 CONNECT carried the real destination', dials[0]==='google.com', dials.join());
+  check('chain: payload relayed + reply delivered with vless header', out.length>=1 && out[0][0]===0 && new TextDecoder().decode(out[0].subarray(2)).includes('via-chain'));
+  // http CONNECT variant
+  const httpWrites = []; let hctrl;
+  T.__setSockets({ connect(){ return { opened: Promise.resolve(), readable: new ReadableStream({ start(c){ hctrl=c; } }), writable: new WritableStream({ write(chunk){ const t=new TextDecoder().decode(chunk); httpWrites.push(t); if (t.startsWith('CONNECT')) hctrl.enqueue(new TextEncoder().encode('HTTP/1.1 200 Connection established\r\n\r\n')); else { hctrl.enqueue(new TextEncoder().encode('ok-http')); hctrl.close(); } } }), close(){} }; } });
+  const d = await T.dialTarget('example.org', 443, envChain, T.normalizeSettings({ chain: 'http://u:p@proxy.example.net:3128' }), null);
+  check('http CONNECT: request + basic auth sent', httpWrites[0].startsWith('CONNECT example.org:443 HTTP/1.1') && httpWrites[0].includes('Proxy-Authorization: Basic ' + Buffer.from('u:p').toString('base64')));
+  check('http CONNECT: returns socket via chain', d.via==='chain');
+  // chainMode=cf: non-CF destination goes direct
+  const direct = []; T.__setSockets({ connect(opts){ direct.push(opts.hostname); return { opened: Promise.resolve(), readable: new ReadableStream({ start(c){ c.close(); } }), writable: new WritableStream(), close(){} }; } });
+  const d2 = await T.dialTarget('example.org', 443, envChain, T.normalizeSettings({ chain: 'socks5://relay.example.net:1080', chainMode: 'cf' }), null);
+  check('chainMode=cf: non-Cloudflare target dialled directly', d2.via==='direct' && direct[0]==='example.org');
+  // strict chain: failure must not fall back
+  T.__setSockets({ connect(){ throw new Error('relay down'); } });
+  let threw = false; try { await T.dialTarget('example.org', 443, envChain, T.normalizeSettings({ chain: 'socks5://relay.example.net:1080', chainStrict: true }), null); } catch (e) { threw = true; }
+  check('chainStrict: no fallback when relay is down', threw);
+}
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

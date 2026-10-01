@@ -190,6 +190,23 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 - `CF_IPS` env adds more addresses; the built-in default list is appended after
   yours (toggle in settings).
 
+**Stable exit IP / country (v6.1) — "خروجی ثابت"**
+
+Cloudflare egress differs per colo and per proxy-IP relay, so IP-check sites may
+show a different country each time you reconnect. Two fixes, both built in:
+
+- **Chain outbound** (like BPB *chain proxy* / Zeus *آی‌پی ثابت*): Settings →
+  *Fixed exit* → `socks5://user:pass@host:port` or `http://host:port` pointing at
+  a server you own. The worker opens every TCP connection through it, so the exit
+  IP never changes. Mode `all` chains everything; `cf` only replaces the proxy-IP
+  hop for Cloudflare-hosted sites. *Strict* refuses to fall back to a direct dial.
+  `🧪 Test chain` → `POST /api/chain-test` dials once through the relay.
+- **Pin one entry address** so the client cannot hop between Cloudflare edges:
+  `/sub/<uuid>?addr=<ip-or-host>&limit=1` (also `?port=`, `?proto=vless|trojan`,
+  `?limit=N`; works for `/clash` and `/singbox`). Clash's selector now defaults to
+  the first concrete proxy with `⚡ Auto` as a `fallback` group; sing-box's selector
+  defaults to the first outbound. Pick one server in V2Box instead of "Auto".
+
 **Worker environment variables (all optional)**
 
 | Var | Default | Meaning |
@@ -199,6 +216,7 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 | `PANEL_USER` | — | optional username the login form must match |
 | `CAT_KV` | — | KV binding; without it users/settings live only in memory |
 | `PROXYIP` | built-in list | proxy IPs for Cloudflare-hosted destinations |
+| `CHAIN` | — | `socks5://` / `http://` relay for a fixed exit IP (UI setting wins) |
 | `SNI` | worker host | SNI / Host written into links |
 | `CF_IPS` | — | extra clean IPs / domains for every subscription |
 | `VLESS_PATH` / `TROJAN_PATH` | `/ws?ed=2048` / `/trojan` | WebSocket paths |
@@ -212,7 +230,7 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 `/singbox/<uuid>`, `/u/<token>[/clash|/singbox|/64]`, `/info/<token>`,
 `/qr.svg?text=…`, `/dns-query`, `/health`, `/api/login`, `/api/settings`,
 `/api/users`, `/api/ips`, `/api/backup`, `/api/self`, `/api/geo?ip=`,
-`/api/scan-targets.json`, plus the VLESS/Trojan WebSocket paths.
+`/api/scan-targets.json`, `/api/chain-test`, plus the VLESS/Trojan WebSocket paths.
 
 **Panel → app deep links**: `catclient://add-sub?url=…&name=…` imports a
 subscription, `catclient://scan?sni=<panel host>` opens the app's Scanner tab.
