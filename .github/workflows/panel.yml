@@ -1,0 +1,44 @@
+name: Panel tests
+
+on:
+  push:
+    branches: [main, 'arena/*']
+    paths:
+      - 'app/src/main/assets/panels/**'
+      - 'scripts/panels/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/panel.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/assets/panels/**'
+      - 'scripts/panels/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/panel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntax check (Worker must stay a single valid script)
+        run: |
+          node --check app/src/main/assets/panels/catclient.worker.js
+          node --check app/src/main/assets/panels/catclient.wizard.js
+      - name: Unit tests
+        run: npm test
