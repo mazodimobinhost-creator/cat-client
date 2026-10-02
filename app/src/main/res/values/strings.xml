@@ -878,4 +878,5 @@
     <string name="pip_saved_direct">Saved — panel now has %1$d ProxyIP(s); new configs use them</string>
     <string name="pip_save_failed">Could not save: %1$s</string>
     <string name="pip_wrong_password">Wrong panel password</string>
+    <string name="pip_use_entry_short">⚡ entry</string>
 </resources>

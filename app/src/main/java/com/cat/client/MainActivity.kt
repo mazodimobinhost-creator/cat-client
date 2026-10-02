@@ -7577,7 +7577,23 @@ class MainActivity : Activity() {
     private fun panelBaseUrl(): String? = detectPanelSnisFromSubscriptions().firstOrNull()?.let { "https://$it" }
 
     private fun showProxyIpScannerPage() {
-        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl()).show()
+        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl(), onUseAsEntry = { applyProxyIpAsEntry(it) }).show()
+    }
+
+    /**
+     * "Connect via this IP" from the ProxyIP scanner: the scanned Cloudflare edge
+     * IP becomes a fronting address — the tunnel dials the IP directly while the
+     * configs' SNI/Host stay the panel domain (works even when the workers.dev
+     * hostname is DNS-poisoned).
+     */
+    private fun applyProxyIpAsEntry(ip: String) {
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = runCatching {
+            FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
+        }.getOrDefault(frontingIps)
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        Toast.makeText(this, getString(R.string.scanner_applied, ip, 0L), Toast.LENGTH_LONG).show()
     }
 
     /** Put an SNI into the live configs (servername of every TLS proxy) and reconnect; null clears it. */

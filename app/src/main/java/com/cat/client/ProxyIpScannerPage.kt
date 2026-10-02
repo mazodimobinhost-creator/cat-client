@@ -57,6 +57,7 @@ class ProxyIpScannerPage(
     private val palette: CatClientPalette,
     private val scope: CoroutineScope,
     private val panelUrl: String?,
+    private val onUseAsEntry: ((String) -> Unit)? = null,
 ) {
     data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true)
 
@@ -244,6 +245,16 @@ class ProxyIpScannerPage(
                     addView(text(if (hit.port == 443) hit.host else "${hit.host}:${hit.port}", 14f, bold = true).apply { typeface = CatClientDataTypeface; maxLines = 1 })
                     addView(text("${hit.country.ifBlank { "??" }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
+                if (onUseAsEntry != null) {
+                    addView(button(ctx.getString(R.string.pip_use_entry_short), false) {
+                        // This IP already completed a TLS handshake with the panel SNI —
+                        // it can replace the worker hostname as the connect address.
+                        val endpoint = if (hit.port == 443) hit.host
+                            else if (hit.host.contains(":")) "[${hit.host}]:${hit.port}"
+                            else "${hit.host}:${hit.port}"
+                        onUseAsEntry.invoke(endpoint)
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                }
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
     }
