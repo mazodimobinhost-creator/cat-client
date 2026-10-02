@@ -6094,7 +6094,7 @@ class MainActivity : Activity() {
             backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 190))
             strokeWidth = dp(1)
             strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
-            textColor = TEXT_PRIMARY
+            setTextColor(TEXT_PRIMARY)
             setOnClickListener { onPanelStatusCheck() }
         }
         card.addView(check, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
