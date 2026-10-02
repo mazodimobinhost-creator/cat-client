@@ -872,4 +872,10 @@
     <string name="pip_none_selected">Nothing selected</string>
     <string name="pip_sent_panel">%1$d ProxyIP(s) sent — press Save in the panel (also copied)</string>
     <string name="pip_copied_panel">%1$d ProxyIP(s) copied — paste into Panel → Settings → ProxyIPs</string>
+    <string name="pip_save_direct">Save into panel now</string>
+    <string name="pip_no_panel">No Cat Panel found in your subscriptions</string>
+    <string name="pip_password_hint">Panel password</string>
+    <string name="pip_saved_direct">Saved — panel now has %1$d ProxyIP(s); new configs use them</string>
+    <string name="pip_save_failed">Could not save: %1$s</string>
+    <string name="pip_wrong_password">Wrong panel password</string>
 </resources>

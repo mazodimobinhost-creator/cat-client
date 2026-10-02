@@ -58,7 +58,7 @@ class ProxyIpScannerPage(
     private val scope: CoroutineScope,
     private val panelUrl: String?,
 ) {
-    data class Hit(val host: String, val port: Int, val country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true)
+    data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true)
 
     private val ctx: Context = activity
     private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
@@ -173,15 +173,17 @@ class ProxyIpScannerPage(
         resultsList = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
         val actions = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(button(ctx.getString(R.string.pip_send_panel), true) { sendToPanel() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            addView(button(ctx.getString(R.string.pip_save_direct), true) { saveDirect() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
             addView(button(ctx.getString(R.string.pscan_copy), false) { copySelected() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
         }
+        val actions2 = button(ctx.getString(R.string.pip_send_panel), false) { sendToPanel() }
         val resultsCard = card().apply {
             addView(text(ctx.getString(R.string.pip_results), 15f, bold = true))
             addView(text(ctx.getString(R.string.pip_results_hint), 12f, color = palette.textSecondary), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
             addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(countryChips) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(resultsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(actions2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         renderResults()
 
@@ -267,6 +269,64 @@ class ProxyIpScannerPage(
         Toast.makeText(ctx, ctx.getString(if (opened) R.string.pip_sent_panel else R.string.pip_copied_panel, lines.size), Toast.LENGTH_LONG).show()
     }
 
+    /**
+     * Save straight into the panel: POST /api/login (password → session cookie), GET /api/settings
+     * to merge with the existing list, PUT /api/settings {proxyIps}. Nothing is stored on the phone.
+     */
+    private fun saveDirect() {
+        val lines = selectedLines().take(32)
+        if (lines.isEmpty()) { Toast.makeText(ctx, R.string.pip_none_selected, Toast.LENGTH_SHORT).show(); return }
+        val base = panelUrl?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(ctx, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val input = EditText(ctx).apply {
+            hint = ctx.getString(R.string.pip_password_hint); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+            .setTitle(ctx.getString(R.string.pip_save_direct))
+            .setMessage(base.removePrefix("https://"))
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.pip_save_direct) { _, _ ->
+                val password = input.text.toString()
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushToPanel(base, password, lines) } }
+                    result.onSuccess { n -> Toast.makeText(ctx, ctx.getString(R.string.pip_saved_direct, n), Toast.LENGTH_LONG).show() }
+                        .onFailure { e -> Toast.makeText(ctx, ctx.getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show() }
+                }
+            }
+            .show()
+    }
+
+    private fun pushToPanel(base: String, password: String, lines: List<String>): Int {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
+            val conn = URL("$base$path").openConnection() as HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(ctx.getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (get, getBody) = call("/api/settings", "GET", null, cookie)
+        val existing = ArrayList<String>()
+        if (get.responseCode == 200) {
+            val arr = org.json.JSONObject(getBody).optJSONObject("settings")?.optJSONArray("proxyIps")
+            if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
+        }
+        get.disconnect()
+        val merged = (lines + existing.filter { it !in lines }).filter { it.isNotBlank() }.distinct().take(32)
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("proxyIps", org.json.JSONArray(merged)).toString(), cookie)
+        val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+        put.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+        return merged.size
+    }
+
     private fun clear() {
         job?.cancel(); job = null; hits.clear(); checked.set(0); total = 0; filterCountry = null
         renderProgress(); renderResults()
@@ -300,6 +360,7 @@ class ProxyIpScannerPage(
                         }
                     }
                 }.awaitAll()
+                geolocate()
             }
             job = null
             renderProgress(); renderResults()
@@ -354,11 +415,30 @@ class ProxyIpScannerPage(
             val body = ssl.inputStream.bufferedReader().readText()
             val latency = SystemClock.elapsedRealtime() - t0
             if (!body.contains("h=$TRACE_HOST") || !body.contains("colo=")) return null
-            val loc = Regex("(?m)^loc=([A-Z]{2})").find(body)?.groupValues?.get(1).orEmpty()
-            val colo = Regex("(?m)^colo=([A-Z]{3})").find(body)?.groupValues?.get(1).orEmpty()
+            val loc = Regex("(?:^|\\n)loc=([A-Z]{2})").find(body)?.groupValues?.get(1).orEmpty()
+            val colo = Regex("(?:^|\\n)colo=([A-Z]{3})").find(body)?.groupValues?.get(1).orEmpty()
             Hit(host, port, loc, colo, latency)
         }
     }.getOrNull()
+
+    /** Country for hits whose trace had no usable `loc=` (relay rewrote it, or IPv6/HTTP quirks): one ip-api batch. */
+    private fun geolocate() {
+        val pending = synchronized(hits) { hits.filter { it.country.length != 2 } }
+        pending.chunked(100).forEach { chunk ->
+            runCatching {
+                val body = org.json.JSONArray().apply { chunk.forEach { put(org.json.JSONObject().put("query", it.host).put("fields", "countryCode,query")) } }.toString()
+                val conn = URL("http://ip-api.com/batch?fields=countryCode,query").openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 8_000; conn.readTimeout = 10_000
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                val arr = org.json.JSONArray(conn.inputStream.bufferedReader().readText())
+                conn.disconnect()
+                val map = HashMap<String, String>()
+                for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); map[o.optString("query")] = o.optString("countryCode").uppercase(java.util.Locale.ROOT) }
+                chunk.forEach { hit -> map[hit.host]?.takeIf { it.length == 2 }?.let { hit.country = it } }
+            }
+        }
+    }
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }
     private fun longToIp(v: Long): String = "${(v shr 24) and 0xFF}.${(v shr 16) and 0xFF}.${(v shr 8) and 0xFF}.${v and 0xFF}"
