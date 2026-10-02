@@ -872,6 +872,11 @@
     <string name="nat64_copied">کپی شد</string>
     <string name="nat64_apply">اعمال به‌عنوان IP ورودی</string>
     <string name="nat64_applied">%1$s اعمال شد — در حال اتصال دوباره</string>
+    <string name="scanner_speed_btn">⬇ تست سرعت (۸ تای برتر)</string>
+    <string name="scanner_speed_running">تست سرعت %1$d/%2$d…</string>
+    <string name="scanner_speed_done">سریع‌ترین: %1$s (%2$s)</string>
+    <string name="scanner_speed_mbps">%1$.1f MB/s</string>
+    <string name="scanner_result_speed">⬇ %1$.1f MB/s</string>
     <string name="static_ip_use_current">همین IP فعلی</string>
     <string name="static_ip_no_current">هنوز IP فعالی نیست — اول اسکن کن</string>
     <string name="static_ip_pool_empty">استخر IP خالی است — اول اسکن کن</string>

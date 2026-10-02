@@ -302,6 +302,8 @@ class MainActivity : Activity() {
     private lateinit var scannerApplyButton: MaterialButton
     private lateinit var scannerBuildButton: MaterialButton
     private var scannerResults: List<IpScanner.ScanResult> = emptyList()
+    private var scannerSpeedTestButton: MaterialButton? = null
+    private var scannerSpeedTestRunning = false
     private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
     private var scannerPort: Int = 443
     private var scannerRunning: Boolean = false
@@ -5300,6 +5302,23 @@ class MainActivity : Activity() {
             setOnClickListener { sendScanToPanel() }
         }
         body.addView(scannerPanelButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val scannerSpeedButton = MaterialButton(this).apply {
+            setText(R.string.scanner_speed_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+            setTextColor(TEAL)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerSpeedTest() }
+        }
+        scannerSpeedTestButton = scannerSpeedButton
+        body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5618,6 +5637,59 @@ class MainActivity : Activity() {
         scannerStopButton.isEnabled = false
         scannerProgressBar.visibility = View.GONE
         scannerStatusText.setText(R.string.scanner_stopped)
+    /** XIU2-style download throughput for the top verified rows; sorts by speed after. */
+    private fun runScannerSpeedTest() {
+        if (scannerSpeedTestRunning) return
+        val targets = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+            .filter { it.tlsOk }
+            .distinctBy { it.ip }
+            .take(8)
+        if (targets.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        scannerSpeedTestRunning = true
+        scannerSpeedTestButton?.isEnabled = false
+        activityScope.launch {
+            val measured = LinkedHashMap<String, Long>()
+            for ((index, target) in targets.withIndex()) {
+                mainHandler.post {
+                    scannerStatusText.text = getString(R.string.scanner_speed_running, index + 1, targets.size)
+                }
+                val speed = withContext(Dispatchers.IO) {
+                    runCatching { IpScanner.measureDownloadSpeed(target.ip, target.port) }.getOrNull()
+                }
+                if (speed != null) measured[target.ip] = speed
+                mainHandler.post {
+                    val updated = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+                        .map { if (it.ip == target.ip && speed != null) it.copy(speedBps = speed) else it }
+                    scannerResults = updated
+                    renderScannerResults()
+                }
+            }
+            mainHandler.post {
+                scannerResults = scannerResults.sortedWith(
+                    compareBy(
+                        { if (it.tlsOk) 0 else 1 },
+                        { it.speedBps?.let { s -> -s } ?: Long.MAX_VALUE },
+                        { it.pingMs },
+                    ),
+                )
+                renderScannerResults()
+                scannerSpeedTestRunning = false
+                scannerSpeedTestButton?.isEnabled = scannerResults.any { it.tlsOk }
+                val best = measured.maxByOrNull { it.value }
+                if (best != null) {
+                    val mbps = getString(R.string.scanner_speed_mbps, best.value / 1_000_000.0)
+                    scannerStatusText.text = getString(R.string.scanner_speed_done, best.key, mbps)
+                    Toast.makeText(this@MainActivity, getString(R.string.scanner_speed_done, best.key, mbps), Toast.LENGTH_LONG).show()
+                } else {
+                    scannerStatusText.setText(R.string.scanner_no_results)
+                }
+            }
+        }
+    }
+
     }
 
     private var ipHealthJob: Job? = null
@@ -5927,6 +5999,16 @@ class MainActivity : Activity() {
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+            }
+            result.speedBps?.let { bps ->
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.scanner_result_speed, bps / 1_000_000.0)
+                    textSize = 10f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    includeFontPadding = false
+                    maxLines = 1
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             }
             result.sourceRange?.takeIf { it.isNotBlank() }?.let { range ->
                 addView(TextView(this@MainActivity).apply {

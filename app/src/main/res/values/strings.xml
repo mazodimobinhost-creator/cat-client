@@ -873,6 +873,11 @@
     <string name="nat64_copied">Copied</string>
     <string name="nat64_apply">Apply as entry IP</string>
     <string name="nat64_applied">%1$s applied — reconnecting</string>
+    <string name="scanner_speed_btn">⬇ Speed test (top 8)</string>
+    <string name="scanner_speed_running">Speed test %1$d/%2$d…</string>
+    <string name="scanner_speed_done">Fastest: %1$s (%2$s)</string>
+    <string name="scanner_speed_mbps">%1$.1f MB/s</string>
+    <string name="scanner_result_speed">⬇ %1$.1f MB/s</string>
     <string name="static_ip_use_current">Use current</string>
     <string name="static_ip_no_current">No fronting IP is active yet — run a scan first</string>
     <string name="static_ip_pool_empty">The IP pool is empty — run a scan first</string>

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.6.0';
+const CAT_PANEL_VERSION = '6.6.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -1406,7 +1406,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
   const masterUuid = String(options.masterUuid || env.UUID || '').toLowerCase();
   const log = options.log || (() => {});
   // 🎯 PX configs carry /?proxyip=<ip> on the WS path — that relay wins for THIS connection.
-  const pxOverride = (() => { try { return decodeURIComponent(((options.path || '').match(/[?&]proxyip=([^&]+)/) || [])[1] || ''); } catch (e) { return ''; } })();
+  const pxOverride = (() => { try { return decodeURIComponent(((options.path || '').match(/[?&](?:proxyip|pyip)=([^&]+)/) || [])[1] || ''); } catch (e) { return ''; } })();
 
   let first;
   try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }

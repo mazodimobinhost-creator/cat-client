@@ -56,6 +56,82 @@ object IpScanner {
 
     const val DEFAULT_PER_RANGE = 24
 
+    /** Any Cloudflare-hosted SNI works on any edge; the official speed endpoint rides along. */
+    const val SPEED_TEST_SNI = "speed.cloudflare.com"
+
+    /**
+     * XIU2-style download throughput probe: TLS to the edge IP with the speed-test
+     * SNI, then GET /__down and count bytes for up to [timeoutMs]. Returns bytes
+     * per second, or null when the edge did not deliver.
+     */
+    fun measureDownloadSpeed(
+        ip: String,
+        port: Int,
+        timeoutMs: Int = 9_000,
+        maxBytes: Int = 12_000_000,
+    ): Long? {
+        val tls = port == 443 || port == 2053 || port == 2083 || port == 2087 || port == 2096 || port == 8443
+        var socket: java.net.Socket? = null
+        return try {
+            val connected: java.net.Socket = if (tls) {
+                val ssl = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+                ssl.apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                    val params = sslParameters
+                    params.serverNames = listOf(SNIHostName(SPEED_TEST_SNI))
+                    params.endpointIdentificationAlgorithm = null
+                    sslParameters = params
+                    startHandshake()
+                }
+            } else {
+                java.net.Socket().apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                }
+            }
+            socket = connected
+            val request = buildString {
+                append("GET /__down?bytes=").append(maxBytes).append(" HTTP/1.1\r\n")
+                append("Host: ").append(SPEED_TEST_SNI).append("\r\n")
+                append("User-Agent: CatClient\r\n")
+                append("Accept: */*\r\n")
+                append("Connection: close\r\n\r\n")
+            }
+            connected.getOutputStream().apply { write(request.toByteArray()); flush() }
+            val input = connected.getInputStream()
+            // Skip response headers.
+            var crlf = 0
+            var headerByteCount = 0
+            while (headerByteCount < 32_000) {
+                val b = input.read()
+                if (b == -1) return null
+                headerByteCount++
+                crlf = if (b == '\n'.code || b == '\r'.code) crlf + 1 else 0
+                if (crlf >= 4) break
+            }
+            if (crlf < 4) return null
+            val startedAt = System.currentTimeMillis()
+            var total = 0L
+            val buffer = ByteArray(64 * 1024)
+            while (total < maxBytes) {
+                val n = try { input.read(buffer) } catch (e: Exception) { -1 }
+                if (n <= 0) break
+                total += n
+                if (System.currentTimeMillis() - startedAt >= timeoutMs) break
+            }
+            val elapsed = System.currentTimeMillis() - startedAt
+            if (elapsed < 300 || total < 256 * 1024) return null // too little data to trust
+            total * 1000 / elapsed
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { socket?.close() }
+        }
+    }
+
     /** Recommended SNIs: the five curated defaults first — the suggestion chips,
      * `.first()` and the health-check retry budget keep behaving exactly as before —
      * then the Cloudflare-verified rotation pool the panel ships (v5.23.12) so the
@@ -385,6 +461,8 @@ object IpScanner {
         val countryCode: String? = null,
         val countryName: String? = null,
         val sourceRange: String? = null,
+        /** Download throughput measured against this edge (bytes/sec), null = not measured. */
+        val speedBps: Long? = null,
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
 
