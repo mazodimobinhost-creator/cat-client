@@ -3277,9 +3277,9 @@ $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');
 /* ---------- users ---------- */
 function protoChips(u){var h='';if(u.protocols.vless)h+='<span class="chip v">VLESS</span> ';if(u.protocols.trojan)h+='<span class="chip t">Trojan</span>';return h}
 function seenCell(u){
- var t=u.lastOnline||0;
- if(!t)return '<span class="dim small">'+t('seen_never')+'</span>';
- var m=Math.floor((Date.now()-t)/60000);
+ var ts=u.lastOnline||0;
+ if(!ts)return '<span class="dim small">'+t('seen_never')+'</span>';
+ var m=Math.floor((Date.now()-ts)/60000);
  var v=m<6?t('seen_now'):(m<60?(t('seen_min')||'').replace('%1',m):(m<1440?Math.floor(m/60)+'h':Math.floor(m/1440)+'d'));
  return '<span class="small" style="color:'+(m<6?'var(--green)':'var(--mute)')+'">'+v+'</span>';
 }
