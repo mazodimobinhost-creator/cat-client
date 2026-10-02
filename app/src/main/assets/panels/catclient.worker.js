@@ -1400,6 +1400,27 @@ async function tunnelAuth(env, uuid, masterUuid) {
   return { ok: true, user };
 }
 
+/** Last Online: remember that identity <id> just connected (KV, throttled to one write / 5 min). */
+async function markSeen(env, id) {
+  try {
+    const kv = kvBinding(env);
+    if (!kv || !id) return;
+    const key = 'seen:' + id;
+    const prev = await kv.get(key);
+    const now = Date.now();
+    if (prev && now - Number(prev) < 5 * 60 * 1000) return;
+    await kv.put(key, String(now));
+  } catch (e) { /* best effort */ }
+}
+
+async function readSeen(env, id) {
+  try {
+    const kv = kvBinding(env);
+    if (!kv || !id) return 0;
+    return Number(await kv.get('seen:' + id)) || 0;
+  } catch (e) { return 0; }
+}
+
 async function handleTunnelConnection(ws, env, options = {}) {
   const earlyData = decodeEarlyData(options.earlyDataHeader);
   const clientStream = websocketReadable(ws, earlyData);
@@ -1424,6 +1445,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
   if (vless) {
     const auth = await tunnelAuth(env, vless.uuid, masterUuid);
     if (!auth.ok) { log('vless rejected (' + auth.error + ')'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
+    markSeen(env, auth.user ? auth.user.id : masterUuid);
     if (auth.user && auth.user.protocols && auth.user.protocols.vless === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     if (vless.command === 2) {
       if (vless.port !== 53) { safeCloseWs(ws, 1003, 'udp only for dns'); return; }
@@ -1440,6 +1462,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
     const match = candidates.get(trojan.password);
     const blocked = match && match.user ? userBlockedReason(match.user) : null;
     if (!match || blocked) { log('trojan rejected'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
+    markSeen(env, match.user ? match.user.id : masterUuid);
     if (match.user && match.user.protocols && match.user.protocols.trojan === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     const request = parseTrojanRequest(trojan.rest);
     if (!request) { safeCloseWs(ws, 1002, 'malformed trojan request'); return; }
@@ -2259,8 +2282,11 @@ async function handleApi(request, url, env, ctx) {
     const users = await readUsers(env);
     const id = path.split('/')[3] ? decodeURIComponent(path.split('/')[3]).toLowerCase() : '';
     const action = path.split('/')[4] || '';
-    const decorate = (u) => Object.assign({}, u, { status: userBlockedReason(u) || 'active', links: subLinks(origin, masterUuid, u) });
-    if (method === 'GET' && !id) return json({ ok: true, users: users.map(decorate) });
+    const decorate = (u, lastOnline) => Object.assign({}, u, { status: userBlockedReason(u) || 'active', lastOnline: lastOnline || 0, links: subLinks(origin, masterUuid, u) });
+    if (method === 'GET' && !id) {
+      const seen = await Promise.all(users.map((u) => readSeen(env, u.id)));
+      return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i])) });
+    }
     if (method === 'POST' && !id) {
       const body = (await readJsonBody(request)) || {};
       const user = normalizeUser({
@@ -2278,6 +2304,7 @@ async function handleApi(request, url, env, ctx) {
     if (!id) return json({ ok: false, error: 'method' }, 405);
     const existing = findUser(users, id);
     if (!existing) return json({ ok: false, error: 'not found' }, 404);
+    existing.lastOnline = await readSeen(env, existing.id);
     if (method === 'DELETE') {
       const saved = await writeUsers(env, users.filter((u) => u.id !== id));
       return json({ ok: true, persisted: saved.persisted });
@@ -2528,27 +2555,27 @@ async function handleRequest(request, env, ctx) {
 /* ------------------------------------------------------------------ */
 
 const BASE_CSS = `
-:root{--bg:#0a1120;--bg2:#0d1628;--card:#0f1a2e;--card2:#13213a;--line:#1d2c47;--line2:#283b5e;--text:#e9f2fc;--mute:#8fa5c0;--dim:#5f7492;
---violet:#2dd4a8;--violet2:#5eead4;--fuchsia:#10b981;--pink:#f472b6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--cyan:#38bdf8;--blue:#60a5fa;--lime:#a3e635;
+:root{--bg:#0a1222;--bg2:#101c33;--card:#151f31;--card2:#1c2740;--line:#2c3950;--line2:#3c4b68;--text:#e3ebf7;--mute:#9aa8bf;--dim:#7b8aa3;
+--violet:#1bbf9f;--violet2:#56dcc2;--fuchsia:#14907a;--pink:#f472b6;--green:#4fd08d;--amber:#e0a94a;--red:#f2726a;--cyan:#6fa8f5;--blue:#6fa8f5;--lime:#a3e635;
 --r:16px;--sh:0 10px 40px rgba(0,0,0,.45)}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
-body{background:radial-gradient(1200px 600px at 80% -10%,rgba(139,92,246,.18),transparent 60%),radial-gradient(900px 500px at -10% 110%,rgba(217,70,239,.12),transparent 60%),var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Vazirmatn","Noto Sans Arabic",Tahoma,sans-serif;min-height:100vh;line-height:1.5}
+body{background:var(--bg);color:var(--text);font-family:'Vazirmatn UI NL','Vazirmatn',system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic",Tahoma,sans-serif;min-height:100vh;line-height:1.5}
 a{color:var(--violet2);text-decoration:none}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
 input,select,textarea{font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%;outline:none;transition:border-color .15s,box-shadow .15s}
-input:focus,select:focus,textarea:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(139,92,246,.18)}
+input:focus,select:focus,textarea:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(27,191,159,.18)}
 textarea{min-height:110px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;direction:ltr;text-align:left}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;direction:ltr;unicode-bidi:embed}
 .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:12px;border:1px solid var(--line2);background:var(--card2);font-weight:600;font-size:14px;transition:transform .08s,background .15s,border-color .15s;white-space:nowrap}
 .btn:hover{border-color:var(--violet);background:#1c1636}.btn:active{transform:translateY(1px)}
-.btn.p{background:linear-gradient(135deg,var(--violet),var(--fuchsia));border-color:transparent;color:#fff;box-shadow:0 6px 24px rgba(139,92,246,.35)}
+.btn.p{background:linear-gradient(135deg,var(--violet),var(--fuchsia));border-color:transparent;color:#fff;box-shadow:0 6px 24px rgba(27,191,159,.35)}
 .btn.g{border-color:rgba(34,197,94,.5);color:var(--green)}.btn.r{border-color:rgba(239,68,68,.5);color:#fda4af}.btn.a{border-color:rgba(245,158,11,.5);color:#fcd34d}.btn.c{border-color:rgba(6,182,212,.5);color:#67e8f9}
 .btn.sm{padding:6px 10px;font-size:12px;border-radius:10px}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--line2);background:var(--bg2)}
-.chip.v{color:#c4b5fd;border-color:rgba(139,92,246,.5);background:rgba(139,92,246,.12)}.chip.t{color:#f0abfc;border-color:rgba(217,70,239,.5);background:rgba(217,70,239,.12)}
+.chip.v{color:#c4b5fd;border-color:rgba(27,191,159,.5);background:rgba(27,191,159,.12)}.chip.t{color:#f0abfc;border-color:rgba(20,144,122,.5);background:rgba(20,144,122,.12)}
 .chip.ok{color:#86efac;border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}.chip.bad{color:#fda4af;border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.1)}.chip.warn{color:#fcd34d;border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .grid{display:grid;gap:14px}
@@ -2567,11 +2594,11 @@ textarea{min-height:110px;resize:vertical;font-family:ui-monospace,SFMono-Regula
 function loginPage(env, settings, needsUser) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css">
 <title>${escapeHtml(title)}</title><style>${BASE_CSS}
 .wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
 .box{width:100%;max-width:380px;padding:28px 24px}
-.logo{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:34px;margin:0 auto 14px;box-shadow:0 10px 30px rgba(139,92,246,.4)}
+.logo{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,#fb7185,#e11d48);display:grid;place-items:center;font-size:34px;margin:0 auto 14px;box-shadow:0 10px 30px rgba(225,29,72,.3)}
 h1{font-size:22px;text-align:center}.sub{text-align:center;margin-bottom:22px}
 label{display:block;font-size:13px;color:var(--mute);margin:12px 0 6px}
 .err{color:#fda4af;font-size:13px;min-height:18px;margin-top:10px;text-align:center}
@@ -2617,7 +2644,7 @@ function userInfoPage(origin, host, env, settings, token, user) {
   const status = blocked === 'expired' ? ['bad', t.expired] : blocked === 'disabled' ? ['bad', t.disabled] : ['ok', t.active];
   const linkRow = (label, url) => `<div class="lk"><div class="small mute">${label}</div><div class="row" style="flex-wrap:nowrap"><input class="mono" readonly value="${escapeHtml(url)}"><button class="btn sm" data-copy="${escapeHtml(url)}">${t.copy}</button><button class="btn sm" data-qr="${escapeHtml(url)}">${t.qr}</button></div></div>`;
   const catLink = 'catclient://add-sub?url=' + encodeURIComponent(links.sub) + '&name=' + encodeURIComponent(title + ' ' + name);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css">
 <title>${escapeHtml(title)} · ${escapeHtml(name)}</title><style>${BASE_CSS}
 .wrap{max-width:640px;margin:0 auto;padding:22px 14px 60px}
 .head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
@@ -2660,15 +2687,15 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-copy
 function panelPage(env, settings, host, masterUuid) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css">
 <meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#8b5cf6"/><text x="32" y="44" font-size="36" text-anchor="middle">🐱</text></svg>')}">
 <style>${BASE_CSS}
-.top{position:sticky;top:0;z-index:20;background:rgba(10,17,32,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top{position:sticky;top:0;z-index:20;background:rgba(10,18,34,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .topin{max-width:1180px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.5px;font-size:18px}
-.brand .lg{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:20px;box-shadow:0 6px 20px rgba(139,92,246,.4)}
-.brand .v{font-size:11px;color:var(--violet2);background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.4);padding:1px 8px;border-radius:999px;font-weight:600}
+.brand .lg{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#fb7185,#e11d48);display:grid;place-items:center;font-size:20px;box-shadow:0 6px 20px rgba(225,29,72,.35)}
+.brand .v{font-size:11px;color:var(--violet2);background:rgba(27,191,159,.15);border:1px solid rgba(27,191,159,.4);padding:1px 8px;border-radius:999px;font-weight:600}
 .tools{display:flex;gap:8px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
 .ib{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;border:1.5px solid;background:var(--bg2);font-size:16px;transition:transform .1s,box-shadow .15s;position:relative}
 .ib:hover{transform:translateY(-1px)}.ib.on{box-shadow:0 0 0 3px rgba(255,255,255,.06)}
@@ -2677,15 +2704,15 @@ function panelPage(env, settings, host, masterUuid) {
 .ib[data-c=green]{border-color:var(--green);color:#86efac;box-shadow:0 0 14px rgba(34,197,94,.25)}
 .ib[data-c=amber]{border-color:var(--amber);color:#fcd34d;box-shadow:0 0 14px rgba(245,158,11,.25)}
 .ib[data-c=cyan]{border-color:var(--cyan);color:#67e8f9;box-shadow:0 0 14px rgba(6,182,212,.25)}
-.ib[data-c=violet]{border-color:var(--violet);color:#c4b5fd;box-shadow:0 0 14px rgba(139,92,246,.35)}
+.ib[data-c=violet]{border-color:var(--violet);color:#c4b5fd;box-shadow:0 0 14px rgba(27,191,159,.35)}
 .ib[data-c=pink]{border-color:var(--pink);color:#f9a8d4;box-shadow:0 0 14px rgba(236,72,153,.25)}
 .ib[data-c=blue]{border-color:var(--blue);color:#93c5fd;box-shadow:0 0 14px rgba(59,130,246,.25)}
-.ib.on{background:linear-gradient(135deg,rgba(139,92,246,.35),rgba(217,70,239,.35))}
+.ib.on{background:linear-gradient(135deg,rgba(27,191,159,.35),rgba(20,144,122,.35))}
 .main{max-width:1180px;margin:0 auto;padding:16px 14px 90px}
 .view{display:none}.view.on{display:block}
 .sec{padding:14px 16px;margin-bottom:14px}
 .sec h2{font-size:15px;display:flex;align-items:center;gap:8px;margin-bottom:12px}
-.sec h2 .ic{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-size:15px;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.4)}
+.sec h2 .ic{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-size:15px;background:rgba(27,191,159,.15);border:1px solid rgba(27,191,159,.4)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .st{padding:14px;border-radius:14px;background:var(--bg2);border:1px solid var(--line);position:relative;overflow:hidden}
 .st .k{font-size:12px;color:var(--mute)}.st .n{font-size:26px;font-weight:800;margin-top:2px;letter-spacing:-.5px}.st .s{font-size:11px;color:var(--dim)}
@@ -2699,7 +2726,7 @@ function panelPage(env, settings, host, masterUuid) {
 .bar.w i{background:linear-gradient(90deg,var(--amber),#fde047)}.bar.d i{background:linear-gradient(90deg,var(--red),var(--pink))}
 .fab{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;font-size:22px;border:1.5px solid}
 .fab[data-c=green]{border-color:var(--green);color:#86efac;box-shadow:0 0 18px rgba(34,197,94,.35)}
-.fab[data-c=violet]{border-color:var(--violet);color:#c4b5fd;box-shadow:0 0 18px rgba(139,92,246,.4)}
+.fab[data-c=violet]{border-color:var(--violet);color:#c4b5fd;box-shadow:0 0 18px rgba(27,191,159,.4)}
 .fab[data-c=amber]{border-color:var(--amber);color:#fcd34d;box-shadow:0 0 18px rgba(245,158,11,.35)}
 .fab[data-c=cyan]{border-color:var(--cyan);color:#67e8f9;box-shadow:0 0 18px rgba(6,182,212,.35)}
 .tbl{width:100%;border-collapse:separate;border-spacing:0 8px}
@@ -2722,10 +2749,10 @@ function panelPage(env, settings, host, masterUuid) {
 @media(max-width:640px){.frm .two{grid-template-columns:1fr}}
 .pick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .pick button{padding:4px 10px;border-radius:999px;border:1px solid var(--line2);font-size:12px;color:var(--violet2)}
-.pick button.on{background:rgba(139,92,246,.2);border-color:var(--violet)}
+.pick button.on{background:rgba(27,191,159,.2);border-color:var(--violet)}
 .proto{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .proto label{display:flex;align-items:center;gap:10px;margin:0;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);cursor:pointer;color:var(--text)}
-.proto label.on{border-color:var(--violet);background:rgba(139,92,246,.1)}
+.proto label.on{border-color:var(--violet);background:rgba(27,191,159,.1)}
 .proto .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:16px}
 .drawer{position:fixed;inset:0;z-index:40;display:none}.drawer.show{display:block}
 .drawer .bg{position:absolute;inset:0;background:rgba(0,0,0,.65)}
@@ -2745,14 +2772,14 @@ function panelPage(env, settings, host, masterUuid) {
 .ipl .chip:hover{border-color:var(--red)}
 .res{max-height:300px;overflow:auto;font-size:12px}
 .res div{display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--line)}
-.nav{position:fixed;bottom:0;inset-inline:0;background:rgba(10,17,32,.94);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30;overflow-x:auto}
+.nav{position:fixed;bottom:0;inset-inline:0;background:rgba(10,18,34,.94);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30;overflow-x:auto}
 .nav button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--dim);padding:6px 10px;border-radius:12px;min-width:60px}
-.nav button span{font-size:18px}.nav button.on{color:#c4b5fd;background:rgba(139,92,246,.12)}
+.nav button span{font-size:18px}.nav button.on{color:#c4b5fd;background:rgba(27,191,159,.12)}
 @media(min-width:861px){.nav{display:none}}
 /* VPN-UI-style left sidebar (desktop) */
-.side{display:none;position:fixed;inset-block:0;inset-inline-start:0;width:196px;background:var(--bg2);border-inline-end:1px solid var(--line);z-index:40;flex-direction:column;padding:16px 10px;gap:2px}
+.side{display:none;position:fixed;inset-block:0;inset-inline-start:0;width:196px;background:var(--bg);border-inline-end:1px solid var(--line);z-index:40;flex-direction:column;padding:16px 10px;gap:2px}
 .side .sbrand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;padding:6px 10px 14px;color:var(--text)}
-.side .sbrand .lg{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:16px}
+.side .sbrand .lg{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#fb7185,#e11d48);display:grid;place-items:center;font-size:16px}
 .side a,.side button{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:0;background:transparent;color:var(--mute);font-size:13.5px;font-weight:600;cursor:pointer;text-align:start;width:100%}
 .side a:hover,.side button:hover{background:var(--card2);color:var(--text)}
 .side button.on{background:color-mix(in srgb,var(--violet) 16%,transparent);color:var(--violet2)}
@@ -2865,7 +2892,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
    <select id="srt"><option value="new" data-i="s_new"></option><option value="exp" data-i="s_exp"></option><option value="name" data-i="s_name"></option></select>
   </div>
   <table class="tbl"><thead><tr>
-   <th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_status"></th><th data-i="h_act"></th>
+   <th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_seen"></th><th data-i="h_status"></th><th data-i="h_act"></th>
   </tr></thead><tbody id="rows"></tbody></table>
   <div class="ucard" id="cards"></div>
   <div class="empty" id="empty" style="display:none"><div>🐾</div><div data-i="no_users"></div></div>
@@ -2958,8 +2985,8 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   <div class="hr"></div>
   <label data-i="s_protocols"></label>
   <div class="proto">
-   <label id="pVless"><span class="ic" style="background:rgba(139,92,246,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" style="width:auto;margin-inline-start:auto"></label>
-   <label id="pTrojan"><span class="ic" style="background:rgba(217,70,239,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" style="width:auto;margin-inline-start:auto"></label>
+   <label id="pVless"><span class="ic" style="background:rgba(27,191,159,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" style="width:auto;margin-inline-start:auto"></label>
+   <label id="pTrojan"><span class="ic" style="background:rgba(20,144,122,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" style="width:auto;margin-inline-start:auto"></label>
   </div>
   <div class="two">
    <div><label data-i="s_tls"></label><div class="pick" id="pickTls"></div></div>
@@ -3054,15 +3081,15 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 
 <!-- user drawer -->
 <div class="drawer" id="drawer"><div class="bg" data-close></div><div class="pn frm">
- <div class="row" style="justify-content:space-between"><h3><span class="ic" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:rgba(139,92,246,.2)">👤</span><span id="dTitle"></span></h3><button class="ib" data-c="red" data-close>✕</button></div>
+ <div class="row" style="justify-content:space-between"><h3><span class="ic" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:rgba(27,191,159,.2)">👤</span><span id="dTitle"></span></h3><button class="ib" data-c="red" data-close>✕</button></div>
  <div class="small mute" data-i="d_sub"></div>
  <form id="fUser">
   <label data-i="u_name"></label>
   <div class="row"><input name="uname" maxlength="40" required style="flex:1"><button class="btn sm" type="button" id="btnRandName">🎲 <span data-i="u_rand"></span></button></div>
   <label data-i="u_protocols"></label>
   <div class="proto">
-   <label id="uVless"><span class="ic" style="background:rgba(139,92,246,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" checked style="width:auto;margin-inline-start:auto"></label>
-   <label id="uTrojan"><span class="ic" style="background:rgba(217,70,239,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" checked style="width:auto;margin-inline-start:auto"></label>
+   <label id="uVless"><span class="ic" style="background:rgba(27,191,159,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" checked style="width:auto;margin-inline-start:auto"></label>
+   <label id="uTrojan"><span class="ic" style="background:rgba(20,144,122,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" checked style="width:auto;margin-inline-start:auto"></label>
   </div>
   <label data-i="u_days"></label>
   <input name="days" type="number" min="0" placeholder="0">
@@ -3086,7 +3113,7 @@ var HOST=${JSON.stringify(host)}, UUID=${JSON.stringify(masterUuid)}, VERSION=${
 var I18N={
 fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
-h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_status:'وضعیت',h_act:'عملیات',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
+h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
 scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی‌ها یا دامنه‌های تمیز را (هر خط یکی، یا با کاما) اینجا بچسبان. از Cat Client، اسکنر ircf، CFScanner یا هر ابزار دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
@@ -3108,7 +3135,7 @@ update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه 
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box'},
 en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
-h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_status:'Status',h_act:'Actions',no_users:'No users yet — tap + to create one.',
+h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
 scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated) from Cat Client, ircf scanner, CFScanner or any other tool.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
@@ -3249,6 +3276,13 @@ $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');
 
 /* ---------- users ---------- */
 function protoChips(u){var h='';if(u.protocols.vless)h+='<span class="chip v">VLESS</span> ';if(u.protocols.trojan)h+='<span class="chip t">Trojan</span>';return h}
+function seenCell(u){
+ var t=u.lastOnline||0;
+ if(!t)return '<span class="dim small">'+t('seen_never')+'</span>';
+ var m=Math.floor((Date.now()-t)/60000);
+ var v=m<6?t('seen_now'):(m<60?(t('seen_min')||'').replace('%1',m):(m<1440?Math.floor(m/60)+'h':Math.floor(m/1440)+'d'));
+ return '<span class="small" style="color:'+(m<6?'var(--green)':'var(--mute)')+'">'+v+'</span>';
+}
 function timeCell(u){var d=daysLeft(u);if(d===null)return '<span class="chip">♾️ '+t('unlimited')+'</span>';var total=Math.max(1,Math.round((u.expiresAt-u.createdAt)/86400000));var pct=Math.max(0,Math.min(100,Math.round(d/total*100)));
  var cls=d<=0?'d':d<=5?'w':'';return '<div class="small">'+(d>0?d+' '+t('days')+' '+t('left'):t('expired'))+' <span class="dim">· '+fmtDate(u.expiresAt)+'</span></div><div class="bar '+cls+'" style="margin-top:4px;width:120px"><i style="width:'+pct+'%"></i></div>'}
 function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':'⛔')+' '+t(s)+'</span>'}
@@ -3257,7 +3291,7 @@ function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" 
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
  $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
 ['input','change'].forEach(function(e){$('#q').addEventListener(e,renderUsers);$('#flt').addEventListener(e,renderUsers);$('#srt').addEventListener(e,renderUsers)});
 
