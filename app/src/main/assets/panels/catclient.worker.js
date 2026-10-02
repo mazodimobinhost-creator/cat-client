@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.6.1';
+const CAT_PANEL_VERSION = '6.7.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -319,6 +319,7 @@ function defaultSettings() {
     chainStrict: false, // true = never fall back to direct when the chain is down
     entryLimit: 48,
     includeHost: true,  // also emit the worker hostname itself as an address
+    installedAt: 0,     // first-save timestamp → "panel uptime" on the Overview
     updatedAt: 0,
   };
 }
@@ -364,6 +365,7 @@ function normalizeSettings(raw) {
   s.chainStrict = s.chainStrict === true;
   s.entryLimit = Math.min(200, Math.max(4, Number(s.entryLimit) || d.entryLimit));
   s.includeHost = s.includeHost !== false;
+  s.installedAt = Number(s.installedAt) || 0;
   s.updatedAt = Number(s.updatedAt) || 0;
   return s;
 }
@@ -2526,8 +2528,8 @@ async function handleRequest(request, env, ctx) {
 /* ------------------------------------------------------------------ */
 
 const BASE_CSS = `
-:root{--bg:#07060d;--bg2:#0c0a16;--card:#110e1f;--card2:#161229;--line:#241d3b;--line2:#2f2650;--text:#ece8ff;--mute:#9b93c2;--dim:#6b6490;
---violet:#8b5cf6;--violet2:#a78bfa;--fuchsia:#d946ef;--pink:#ec4899;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--cyan:#06b6d4;--blue:#3b82f6;--lime:#a3e635;
+:root{--bg:#0a1120;--bg2:#0d1628;--card:#0f1a2e;--card2:#13213a;--line:#1d2c47;--line2:#283b5e;--text:#e9f2fc;--mute:#8fa5c0;--dim:#5f7492;
+--violet:#2dd4a8;--violet2:#5eead4;--fuchsia:#10b981;--pink:#f472b6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--cyan:#38bdf8;--blue:#60a5fa;--lime:#a3e635;
 --r:16px;--sh:0 10px 40px rgba(0,0,0,.45)}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
@@ -2662,7 +2664,7 @@ function panelPage(env, settings, host, masterUuid) {
 <meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#8b5cf6"/><text x="32" y="44" font-size="36" text-anchor="middle">🐱</text></svg>')}">
 <style>${BASE_CSS}
-.top{position:sticky;top:0;z-index:20;background:rgba(7,6,13,.8);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top{position:sticky;top:0;z-index:20;background:rgba(10,17,32,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .topin{max-width:1180px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.5px;font-size:18px}
 .brand .lg{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:20px;box-shadow:0 6px 20px rgba(139,92,246,.4)}
@@ -2743,10 +2745,25 @@ function panelPage(env, settings, host, masterUuid) {
 .ipl .chip:hover{border-color:var(--red)}
 .res{max-height:300px;overflow:auto;font-size:12px}
 .res div{display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--line)}
-.nav{position:fixed;bottom:0;inset-inline:0;background:rgba(7,6,13,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30}
+.nav{position:fixed;bottom:0;inset-inline:0;background:rgba(10,17,32,.94);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30;overflow-x:auto}
 .nav button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--dim);padding:6px 10px;border-radius:12px;min-width:60px}
 .nav button span{font-size:18px}.nav button.on{color:#c4b5fd;background:rgba(139,92,246,.12)}
 @media(min-width:861px){.nav{display:none}}
+/* VPN-UI-style left sidebar (desktop) */
+.side{display:none;position:fixed;inset-block:0;inset-inline-start:0;width:196px;background:var(--bg2);border-inline-end:1px solid var(--line);z-index:40;flex-direction:column;padding:16px 10px;gap:2px}
+.side .sbrand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;padding:6px 10px 14px;color:var(--text)}
+.side .sbrand .lg{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:16px}
+.side a,.side button{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:0;background:transparent;color:var(--mute);font-size:13.5px;font-weight:600;cursor:pointer;text-align:start;width:100%}
+.side a:hover,.side button:hover{background:var(--card2);color:var(--text)}
+.side button.on{background:color-mix(in srgb,var(--violet) 16%,transparent);color:var(--violet2)}
+.side .sgap{flex:1}
+.side .sfoot{font-size:10px;color:var(--dim);padding:8px 12px}
+@media(min-width:1080px){
+ .side{display:flex}
+ .top{display:none}
+ .nav{display:none}
+ .main{margin-inline-start:196px}
+}
 .search{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .search input{flex:1;min-width:200px}.search select{width:auto}
 .hr{height:1px;background:var(--line);margin:14px 0}
@@ -2756,10 +2773,26 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 .skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--card2),var(--line),var(--card2));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style></head><body>
+<div class="side" id="sideNav">
+ <div class="sbrand"><div class="lg">🐱</div><span id="sideTitle">${escapeHtml(title)}</span></div>
+ <button data-view="dash">📊 <span data-i="n_dash"></span></button>
+ <button data-view="clients">👥 <span data-i="n_clients"></span></button>
+ <button data-view="inbounds">🧩 <span data-i="n_inbounds"></span></button>
+ <button data-view="scan">📡 <span data-i="n_scan"></span></button>
+ <button data-view="spoof">🎭 <span data-i="n_spoof"></span></button>
+ <button data-view="settings">⚙️ <span data-i="n_set"></span></button>
+ <button data-view="backup">💾 <span data-i="n_bak"></span></button>
+ <button data-view="about">ℹ️ <span data-i="n_about"></span></button>
+ <div class="sgap"></div>
+ <a href="/logout">⏻ <span data-i="n_logout"></span></a>
+ <div class="sfoot">v${CAT_PANEL_VERSION}</div>
+</div>
 <div class="top"><div class="topin">
  <div class="brand"><div class="lg">🐱</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
  <div class="tools">
-  <button class="ib" data-c="violet" data-view="dash" title="Dashboard">👥</button>
+  <button class="ib" data-c="violet" data-view="dash" title="Dashboard">📊</button>
+  <button class="ib" data-c="green" data-view="clients" title="Clients">👥</button>
+  <button class="ib" data-c="blue" data-view="inbounds" title="Inbounds">🧩</button>
   <button class="ib" data-c="cyan" data-view="scan" title="Clean IP">📡</button>
   <button class="ib" data-c="lime" data-view="spoof" title="SNI &amp; ProxyIP">🎭</button>
   <button class="ib" data-c="gray" data-view="settings" title="Settings">⚙️</button>
@@ -2793,10 +2826,35 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
  </div>
 
  <div class="card sec">
+  <h2><span class="ic">🖥</span><span data-i="ov_info"></span></h2>
+  <div class="kv" style="margin:6px 0">
+   <div><span data-i="ov_loc"></span><span class="mono" id="ovLoc">…</span></div>
+   <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">${CAT_PANEL_VERSION}</span></div>
+   <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+   <button class="btn sm" type="button" id="btnOvUpdate" data-i="ov_check"></button>
+   <button class="btn sm" type="button" data-view="backup" data-i="s_backup"></button>
+   <button class="btn sm" type="button" data-view="settings" data-i="settings"></button>
+  </div>
+  <div class="small mute" id="ovUpdateBox" style="margin-top:8px"></div>
+ </div>
+
+ <div class="card sec">
+  <h2><span class="ic">🟢</span><span data-i="ov_services"></span></h2>
+  <div class="row" id="ovServices" style="flex-wrap:wrap;gap:8px;margin-top:4px"></div>
+ </div>
+</section>
+
+<!-- ================= CLIENTS (users) ================= -->
+<section class="view" id="v-clients">
+ <div class="card sec">
   <div class="row" style="justify-content:space-between;margin-bottom:12px">
    <h2 style="margin:0"><span class="ic">👥</span><span data-i="users"></span></h2>
    <div class="row">
     <button class="fab" data-c="green" id="btnAdd" title="+">＋</button>
+    <button class="fab" data-c="blue" id="btnBulk" title="Add bulk">🧑‍🤝‍🧑</button>
     <button class="fab" data-c="violet" id="btnRefresh" title="refresh">🔄</button>
     <button class="fab" data-c="cyan" id="btnSync" title="sync">🚀</button>
    </div>
@@ -2811,6 +2869,23 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </tr></thead><tbody id="rows"></tbody></table>
   <div class="ucard" id="cards"></div>
   <div class="empty" id="empty" style="display:none"><div>🐾</div><div data-i="no_users"></div></div>
+ </div>
+</section>
+
+<!-- ================= INBOUNDS ================= -->
+<section class="view" id="v-inbounds">
+ <div class="card sec">
+  <h2><span class="ic">🧩</span><span data-i="n_inbounds"></span></h2>
+  <div class="stats" style="margin-top:8px">
+   <div class="st" data-c="cyan"><div class="ic">🧩</div><div class="k" data-i="ib_count"></div><div class="n" id="ibCount">–</div><div class="s">VLESS · Trojan</div></div>
+   <div class="st" data-c="green"><div class="ic">🔌</div><div class="k" data-i="ib_ports"></div><div class="n" id="ibPorts">–</div><div class="s">TLS</div></div>
+   <div class="st" data-c="violet"><div class="ic">👥</div><div class="k" data-i="st_users"></div><div class="n" id="ibUsers">–</div><div class="s" data-i="st_users_s"></div></div>
+  </div>
+  <div class="hr"></div>
+  <table class="tbl"><thead><tr>
+   <th data-i="ib_inbound"></th><th>Endpoint</th><th data-i="h_proto"></th><th data-i="h_act"></th>
+  </tr></thead><tbody id="ibRows"></tbody></table>
+  <div class="small dim" style="margin-top:8px" data-i="ib_hint"></div>
  </div>
 </section>
 
@@ -2968,7 +3043,9 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 
 <!-- bottom nav (mobile) -->
 <div class="nav">
- <button data-view="dash"><span>👥</span><i data-i="n_dash"></i></button>
+ <button data-view="dash"><span>📊</span><i data-i="n_dash"></i></button>
+ <button data-view="clients"><span>👥</span><i data-i="n_clients"></i></button>
+ <button data-view="inbounds"><span>🧩</span><i data-i="n_inbounds"></i></button>
  <button data-view="scan"><span>📡</span><i data-i="n_scan"></i></button>
  <button data-view="spoof"><span>🎭</span><i data-i="n_spoof"></i></button>
  <button data-view="settings"><span>⚙️</span><i data-i="n_set"></i></button>
@@ -3016,7 +3093,8 @@ ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیس�
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
-save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
+save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
+n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
@@ -3037,7 +3115,8 @@ ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hin
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
-save:'Save',cancel:'Cancel',saved:'Saved',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
+save:'Save',cancel:'Cancel',saved:'Saved',
+n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
@@ -3076,7 +3155,57 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="scan"]');if(n)n.click();toast(t('ip_import'))},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds()})}
+function renderOverview(){
+ var s=CFG.settings;
+ var st=function(k){return t(k)};
+ var act=function(on){return on?'<span class="chip ok">'+st('svc_run')+'</span>':'<span class="chip">'+st('svc_idle')+'</span>'};
+ var chips=[
+  ['VLESS',s.protocols.vless],['Trojan',s.protocols.trojan],
+  ['Fragment',!!(s.fragment&&s.fragment.enabled)],
+  ['Chain',!!s.chain],['Telegram',!!(CFG.telegram&&CFG.telegram.configured)],
+  ['Stealth /'+(s.panelPath||''),!!s.panelPath],
+  ['DoH',true],['KV',CFG.kv===true||CFG.kv===undefined?!!CFG.kv:!!CFG.kv]
+ ];
+ $('#ovServices').innerHTML=chips.map(function(c){return '<span class="chip" style="font-size:12px;padding:6px 10px">'+c[0]+' '+act(c[1])+'</span>'}).join('');
+ $('#ovKv').textContent=CFG.kv?st('kv_on'):st('kv_off');$('#ovKv').className='chip '+(CFG.kv?'ok':'warn');
+ $('#ovVer').textContent=CFG.version||'';
+ $('#ovLoc').textContent='Cloudflare — checking…';
+ fetch('/api/colo').then(function(r){return r.json()}).then(function(j){var v=(j.colo||'?')+(j.country?' · '+j.country:'');$('#ovLoc').textContent='Cloudflare '+v}).catch(function(){$('#ovLoc').textContent='Cloudflare'});
+ var up='';
+ if(s.installedAt){var d=Math.floor((Date.now()-s.installedAt)/86400000);up=d>0?d+'d':Math.max(1,Math.floor((Date.now()-s.installedAt)/3600000))+'h'}
+ $('#ovUp').textContent=up||'—';
+}
+function renderInbounds(){
+ var s=CFG.settings;var host=CFG.host;var rows=[];
+ var tls=s.tlsPorts||[443];var plain=s.plainEnabled?(s.plainPorts||[]):[];
+ ['vless','trojan'].forEach(function(p){
+  if(!s.protocols[p])return;
+  tls.forEach(function(pt){rows.push({p:p,pt:pt,tls:true})});
+  plain.forEach(function(pt){rows.push({p:p,pt:pt,tls:false})});
+ });
+ $('#ibCount').textContent=rows.length;
+ $('#ibPorts').textContent=(tls||[]).length+' + '+(plain||[]).length;
+ $('#ibUsers').textContent=(USERS&&USERS.length?USERS.length:1);
+ $('#ibRows').innerHTML=rows.map(function(r){
+  var path=r.p==='vless'?t_paths().vless:t_paths().trojan;
+  var url='https://'+host+path+(r.tls?'':'')+'?proto='+r.p+'&port='+r.pt;
+  return '<tr><td><span class="chip '+(r.tls?'ok':'')+'" style="font-size:11px">'+r.p.toUpperCase()+' :'+r.pt+(r.tls?' TLS':'')+'</span></td>'+
+   '<td class="mono" style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis">'+esc(host+path)+'</td>'+
+   '<td>'+esc(r.p)+'</td>'+
+   '<td><button class="btn sm" data-copy="'+esc(url)+'" data-i="ib_copy"></button></td></tr>';
+ }).join('')||'<tr><td colspan="4" class="dim">—</td></tr>';
+ applyI18n();
+}
+function t_paths(){return CFG.paths||{vlessPath:'/vless',trojanPath:'/trojan'}}
+$('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}b.innerHTML=j.latest===j.current?'<span class="chip ok">\u2713 '+esc(j.current)+'</span>':'<span class="chip warn">\u2b06\ufe0f '+esc(j.latest)+'</span> '+t('update_how')})});
+$('#btnBulk').addEventListener('click',function(){
+ var n=Number(prompt(t('bulk_count'),'5'));if(!n||n<1)return;
+ var prefix=prompt(t('bulk_prefix'),'user');if(prefix===null)return;
+ var chain=Promise.resolve();var made=0;
+ for(var i=1;i<=n;i++){(function(name){chain=chain.then(function(){return api('/api/users',{method:'POST',body:{name:name}})}).then(function(){made++})})(prefix+'-'+i)}
+ chain.then(function(){toast(t('bulk_done')+made);return load()}).catch(function(){toast('error',true)});
+});
 function renderStats(){var active=USERS.filter(function(u){return statusOf(u)==='active'}).length;
  $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;
  var ips=CFG.settings.ips.length;$('#stIps').textContent=ips;$('#stIpsS').textContent=(CFG.settings.useDefaults?'+ '+CFG.defaults.addresses.length+' default':'');
@@ -3198,7 +3327,7 @@ $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#upda
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','scan','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)b.innerHTML='<span class="chip warn">\u2b06\ufe0f '+t('update_new')+esc(j.latest)+'</span><div class="small mute" style="margin-top:6px">'+t('update_how')+'</div>';toast(t('update_new')+j.latest)}).catch(function(){});
 })();
