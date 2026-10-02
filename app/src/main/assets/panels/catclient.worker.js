@@ -56,11 +56,13 @@
  *   VLESS_PATH      default /ws?ed=2048      TROJAN_PATH  default /trojan
  *   TROJAN_PASS     trojan password (default: UUID)
  *   OPEN_PANEL      "true" → panel readable without password until one is set
+ *   Stealth: set settings.panelPath (Panel → Settings) to move the UI to /<path>;
+ *   the root then answers a neutral 404 (scanners see nothing). /api + /sub stay put.
  *   OPEN_SUB        "true" → /sub (without uuid) also serves the master links
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.4.2';
+const CAT_PANEL_VERSION = '6.5.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -309,6 +311,7 @@ function defaultSettings() {
     fragment: { enabled: false, packets: 'tlshello', length: '10-100', interval: '10-20' }, // opt-in; Xray + sing-box only
     alpn: 'http/1.1',    // WS over Cloudflare needs http/1.1; h2 would break the upgrade
     cipherSuites: '',    // Xray tlsSettings.cipherSuites (colon separated), '' = default
+    panelPath: '',       // stealth: panel UI lives at /<panelPath>; root answers a neutral 404 ('' = legacy open panel)
     countryFallback: 'auto', // 'auto' = fastest other country when preferred is dead, 'none' = never leave it
     chain: '',          // socks5://user:pass@host:port or http://host:port — fixed egress
     chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
@@ -350,6 +353,7 @@ function normalizeSettings(raw) {
   s.fragment = { enabled: fr.enabled === true, packets: ['tlshello', '1-1', '1-2', '1-3', '1-5'].includes(fr.packets) ? fr.packets : 'tlshello', length: rng(fr.length, '10-100'), interval: rng(fr.interval, '10-20') };
   s.alpn = ['http/1.1', 'h2,http/1.1', 'h2', 'h3,h2,http/1.1'].includes(s.alpn) ? s.alpn : 'http/1.1';
   s.cipherSuites = String(s.cipherSuites || '').replace(/[^A-Za-z0-9_:,]/g, '').slice(0, 2000);
+  s.panelPath = /^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(String(s.panelPath || '').trim().toLowerCase()) ? String(s.panelPath).trim().toLowerCase() : '';
   s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
   s.chainMode = s.chainMode === 'cf' ? 'cf' : 'all';
   s.chainStrict = s.chainStrict === true;
@@ -1711,7 +1715,7 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
     root = ['  - name: "🐱 Cat"', '    type: select', '    proxies:', names, '      - "⚡ Auto"'];
   }
   return [
-    '# 🐱 Cat Panel ' + CAT_PANEL_VERSION + ' — Mihomo / Clash Meta',
+    '# list v' + CAT_PANEL_VERSION,
     'mixed-port: 7890',
     'allow-lan: false',
     'mode: rule',
@@ -2120,7 +2124,11 @@ async function handleApi(request, url, env, ctx) {
   const masterUuid = await resolveUuid(host, env);
 
   if (path === '/api/health' || path === '/health') return json({ ok: true, version: CAT_PANEL_VERSION, kv: !!kvBinding(env) });
-  if (path === '/api/version') return json({ ok: true, version: CAT_PANEL_VERSION, repo: REPO_URL });
+  if (path === '/api/version') {
+    // Stealth hygiene: the repo URL only ships to the owner — anonymous probes get a bare version.
+    const owner = await isOwner(request, env, settings, masterUuid);
+    return json(owner ? { ok: true, version: CAT_PANEL_VERSION, repo: REPO_URL } : { ok: true, version: CAT_PANEL_VERSION });
+  }
   if (path === '/api/scan-targets.json') return json({ ok: true, ranges: SCAN_RANGES, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS, sni: effectiveSni(host, env, settings), host });
   if (path === '/api/colo') {
     // Public + free (no KV, no subrequest): which Cloudflare datacenter THIS
@@ -2440,16 +2448,31 @@ async function handleRequest(request, env, ctx) {
     return html(userInfoPage(url.origin, host, env, settings, token, user));
   }
 
+  /* Stealth mode: when settings.panelPath is set, the panel UI only exists at
+   * /<panelPath>. Everything else — including /, /login and /panel — answers
+   * with a bare, brand-free 404 so workers.dev crawlers and automated
+   * abuse-reporters have nothing to fingerprint. The data plane (/api, /sub,
+   * /u, tunnels, DoH) is untouched. */
+  const pp = String(settings.panelPath || '');
+  const atPanel = pp !== '' && (path === '/' + pp || path === '/' + pp + '/');
+  if (pp !== '' && !atPanel) {
+    if (path === '/logout') {
+      return new Response(null, { status: 302, headers: { location: '/' + pp, 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' } });
+    }
+    return stealthNotFound();
+  }
+  const panelBase = atPanel ? '/' + pp : '/';
+
   if (path === '/logout') {
-    return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' } });
+    return new Response(null, { status: 302, headers: { location: panelBase, 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' } });
   }
 
-  if (path === '/' || path === '/login' || path === '/panel') {
+  if (path === '/' || path === '/login' || path === '/panel' || atPanel) {
     // Legacy ?p=<password> entry: set the cookie and redirect to a clean URL.
     const quick = url.searchParams.get('p');
     if (quick && (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick))) {
       const token = await makeSession(env, settings, masterUuid);
-      return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': sessionCookieHeader(token) } });
+      return new Response(null, { status: 302, headers: { location: panelBase + (atPanel ? '/' : ''), 'set-cookie': sessionCookieHeader(token) } });
     }
     const owner = await isOwner(request, env, settings, masterUuid);
     if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim()));
@@ -2528,7 +2551,12 @@ var u=document.getElementById('u');fetch('/api/login',{method:'POST',headers:{'c
 }
 
 function notFoundPage() {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>404</title><style>${BASE_CSS}body{display:grid;place-items:center;min-height:100vh}</style></head><body><div style="text-align:center"><div style="font-size:64px">🐱</div><div class="mute">nothing here</div></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>404</title><style>${BASE_CSS}body{display:grid;place-items:center;min-height:100vh}</style></head><body><div style="text-align:center"><div class="mute">404</div></div></body></html>`;
+}
+
+/** Bare nginx-style 404 used in stealth mode — no branding, no engine hints. */
+function stealthNotFound() {
+  return new Response('<html>\r\n<head><title>404 Not Found</title>\r\n</head>\r\n<body>\r\n<center><h1>404 Not Found</h1>\r\n</center>\r\n<hr>\r\n<center>nginx</center>\r\n</body>\r\n</html>\r\n', { status: 404, headers: { 'content-type': 'text/html', 'cache-control': 'max-age=0, private' } });
 }
 
 function userInfoPage(origin, host, env, settings, token, user) {
@@ -2796,6 +2824,9 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </div>
   <label data-i="s_pass"></label>
   <div class="row"><input name="password" type="password" autocomplete="new-password" data-ph="s_pass_ph" style="flex:1"><span class="chip" id="passState"></span></div>
+  <label data-i="s_stealth"></label>
+  <div class="row"><input name="panelPath" class="mono" dir="ltr" spellcheck="false" data-ph="s_stealth_ph" style="flex:1"><button type="button" class="btn sm" id="btnPathRnd">🎲</button></div>
+  <div class="small dim" data-i="s_stealth_hint"></div>
   <div class="hr"></div>
   <label data-i="s_protocols"></label>
   <div class="proto">
@@ -2931,7 +2962,7 @@ h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'ز�
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
 scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی‌ها یا دامنه‌های تمیز را (هر خط یکی، یا با کاما) اینجا بچسبان. از Cat Client، اسکنر ircf، CFScanner یا هر ابزار دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
-settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
+settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
@@ -2952,7 +2983,7 @@ h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_status:'Sta
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
 scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated) from Cat Client, ircf scanner, CFScanner or any other tool.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
-settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
+settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
@@ -3004,7 +3035,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;f.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"settings\"]');if(n)n.click();f.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;f.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"settings\"]');if(n)n.click();f.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -3019,7 +3050,7 @@ $$('#pVless input,#pTrojan input').forEach(function(i){i.addEventListener('chang
 $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('change',function(){syncProto('#uVless','#uTrojan')})});
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
-$('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
+$('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
  proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
@@ -3028,6 +3059,7 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-cc]'
 document.addEventListener('change',function(e){var sel=e.target.closest('[data-ipcc]');if(!sel)return;var ip=sel.getAttribute('data-ipcc'),cc=sel.value;var body=cc?{ipCountries:{}}:{clearIp:ip};if(cc)body.ipCountries[ip]=cc;api('/api/countries',{method:'PUT',body:body}).then(function(){return load()}).catch(function(){toast('error',true)})});
 $('#btnTgHook').addEventListener('click',function(){var o=$('#tgHookOut');o.textContent='…';api('/api/telegram/webhook',{method:'POST'}).then(function(j){o.textContent=j.ok?'🟢 @'+j.bot:'🔴 '+(j.error||j.description||'');return load()}).catch(function(){o.textContent='🔴'})});
 $('#swFrag').addEventListener('click',function(){if($('#swFrag').classList.contains('on')&&!confirm(t('s_frag_confirm'))){$('#swFrag').classList.remove('on')}});
+$('#btnPathRnd').addEventListener('click',function(){var c='abcdefghijklmnopqrstuvwxyz0123456789',s='';for(var i=0;i<10;i++)s+=c[Math.floor(Math.random()*c.length)];$('#fSettings').elements.panelPath.value=s;});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
 $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms':'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});

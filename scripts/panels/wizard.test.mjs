@@ -165,7 +165,7 @@ let first;
   check('install finishes ok', done && done.result && done.result.ok === true, JSON.stringify(done));
   first = done.result;
   check('worker name slugified', first.workerName === 'my-panel');
-  check('subdomain auto-created', /^catpanel-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
+  check('subdomain auto-created', /^edge-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
   check('KV namespace created + bound', first.kvBound && state.kv.length === 1 && state.kv[0].title === 'my-panel-catpanel');
   const s = state.scripts['my-panel'];
   check('panel script uploaded (real Cat Panel source)', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));

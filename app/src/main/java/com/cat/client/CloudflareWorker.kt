@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
+import kotlin.random.Random
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -561,6 +562,16 @@ object CloudflareWorker {
 
         // 6. Smoke-test the live panel (workers.dev propagation takes a few seconds).
         val verifiedOnline = smokeTestPanel(workerUrl, uuid)
+
+        // 7. Stealth hardening: snapshot settings into the local recovery backup
+        // and move the panel UI to a random hidden path (root then 404s neutrally).
+        val stealthPath = runCatching {
+            applyPanelStealth(workerUrl, panelUser, panelPassword.ifBlank { uuid })
+        }.getOrDefault("")
+        if (stealthPath.isNotBlank()) {
+            PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
+        }
+
         DeploymentResult(
             workerName = workerName,
             subdomain = subdomain,
@@ -568,7 +579,9 @@ object CloudflareWorker {
             subscriptionUrl = "$workerUrl/sub/$uuid",
             verifiedOnline = verifiedOnline,
             uuid = uuid,
-            panelUrl = if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
+            panelUrl = if (stealthPath.isNotBlank()) {
+                "$workerUrl/$stealthPath" + if (panelUser.isNotBlank()) "/" else "/?p=$uuid"
+            } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
             kvBound = kvId != null,
         )
     }
@@ -675,6 +688,76 @@ object CloudflareWorker {
             kvBound = kvId != null,
             fromRelease = script.fromRelease,
         )
+    }
+
+    /** Neutral, non-branded worker name for fresh deploys (e.g. "edge-a7k2m9"). */
+    fun randomWorkerName(): String = "edge-" + randomToken(5)
+
+    /** Random 10-char hidden panel path used by stealth mode. */
+    fun randomPanelPath(): String = randomToken(10)
+
+    private fun randomToken(length: Int): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return buildString {
+            repeat(length) { append(alphabet[Random.nextInt(alphabet.length)]) }
+        }
+    }
+
+    /**
+     * Stealth hardening for deploys: log into the panel, snapshot its settings
+     * into [PanelBackup] (a local-only recovery point), and move the panel UI
+     * to a random hidden path so the root URL answers a neutral 404. Cloudflare
+     * auto abuse-reporters and workers.dev crawlers fingerprint open proxy
+     * panels on the root path — a hidden path plus a brand-free 404 keeps the
+     * panel out of that dragnet. Returns the hidden path, or "" when the panel
+     * did not accept the login (legacy open layout stays in place).
+     */
+    fun applyPanelStealth(workerUrl: String, panelUser: String, panelPassword: String): String {
+        val base = workerUrl.trimEnd('/')
+        fun req(path: String, method: String, body: String?, cookie: String?): Triple<Int, String, String> {
+            val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                instanceFollowRedirects = false
+                setRequestProperty("Accept", "application/json")
+                if (cookie != null) setRequestProperty("Cookie", cookie)
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    outputStream.use { it.write(body.toByteArray()) }
+                }
+            }
+            val code = conn.responseCode
+            val text = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val setCookie = conn.headerFields?.entries
+                ?.filter { it.key.equals("set-cookie", true) }
+                ?.flatMap { it.value }
+                ?.joinToString("; ") { it.substringBefore(';') }
+                .orEmpty()
+            conn.disconnect()
+            return Triple(code, text, setCookie)
+        }
+
+        val loginPayload = JSONObject().put("username", panelUser).put("password", panelPassword).toString()
+        val (loginCode, loginBody, cookie) = req("/api/login", "POST", loginPayload, null)
+        val loginOk = loginCode == 200 && cookie.isNotBlank() &&
+            runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        if (!loginOk) return ""
+
+        val (_, getBody, _) = req("/api/settings", "GET", null, cookie)
+        var existing = ""
+        val settingsJson = runCatching { JSONObject(getBody).optJSONObject("settings") }.getOrNull()
+        if (settingsJson != null) {
+            existing = settingsJson.optString("panelPath").orEmpty()
+            PanelBackup.save(base, settingsJson.toString(), existing)
+        }
+        val pathRegex = Regex("^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$")
+        if (existing.matches(pathRegex)) return existing
+
+        val target = randomPanelPath()
+        val (putCode, _, _) = req("/api/settings", "PUT", JSONObject().put("panelPath", target).toString(), cookie)
+        return if (putCode == 200) target else ""
     }
 
     private fun workerNameFromUrl(workerUrl: String): String {
@@ -929,9 +1012,13 @@ data class PanelDeploymentRecord(
     val workerUrl: String,
     val uuid: String,
     val createdAt: Long,
+    val path: String = "",
 ) {
     val panelUrl: String
-        get() = workerUrl.trimEnd('/') + "/?p=" + uuid
+        get() {
+            val base = workerUrl.trimEnd('/')
+            return if (path.isBlank()) base + "/?p=" + uuid else base + "/" + path + "/?p=" + uuid
+        }
 }
 
 class PanelDeploymentStore(context: Context) {
@@ -965,15 +1052,19 @@ class PanelDeploymentStore(context: Context) {
         return fresh
     }
 
-    fun rememberLast(workerUrl: String, uuid: String) {
+    fun rememberLast(workerUrl: String, uuid: String, path: String = "") {
         val normalized = workerUrl.trimEnd('/')
+        val pathKey = "path:" + normalized.lowercase(Locale.US)
+        // Blank path = don't touch it (worker self-updates must keep the hidden path).
+        val effectivePath = path.ifBlank { prefs.getString(pathKey, null).orEmpty() }
+        if (effectivePath.isNotBlank()) prefs.edit().putString(pathKey, effectivePath).apply()
         val history = deployments()
             .filterNot { it.workerUrl == normalized }
             .toMutableList()
-        history.add(0, PanelDeploymentRecord(normalized, uuid, System.currentTimeMillis()))
+        history.add(0, PanelDeploymentRecord(normalized, uuid, System.currentTimeMillis(), effectivePath))
         val encoded = JSONArray().apply {
             history.take(8).forEach { item ->
-                put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt))
+                put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt).put("path", item.path))
             }
         }
         prefs.edit()
@@ -994,7 +1085,7 @@ class PanelDeploymentStore(context: Context) {
                     val url = item.optString("url").trimEnd('/')
                     val uuid = item.optString("uuid")
                     if (url.isNotBlank() && uuid.isNotBlank()) {
-                        add(PanelDeploymentRecord(url, uuid, item.optLong("createdAt", 0L)))
+                        add(PanelDeploymentRecord(url, uuid, item.optLong("createdAt", 0L), item.optString("path")))
                     }
                 }
             }

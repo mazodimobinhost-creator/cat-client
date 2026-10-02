@@ -77,7 +77,7 @@ function jsonResponse(value, status = 200, extra = {}) {
 
 function slugWorkerName(value, fallback) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
-  return (slug || fallback || 'catpanel').slice(0, 54);
+  return (slug || fallback || 'edge-panel').slice(0, 54);
 }
 
 function isUuid(value) {
@@ -155,7 +155,7 @@ async function ensureSubdomain(token, accountId, log) {
   const current = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain');
   const existing = current.ok && current.json.result && current.json.result.subdomain;
   if (existing) return existing;
-  const candidate = 'catpanel-' + randomSuffix(8);
+  const candidate = 'edge-' + randomSuffix(8);
   log('subdomain', 'info', 'no workers.dev subdomain yet — creating ' + candidate);
   const created = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/subdomain', { subdomain: candidate });
   const made = created.ok && created.json.result && created.json.result.subdomain;
@@ -243,6 +243,28 @@ async function fetchSource(kind, env) {
 /* the install flow (async generator → streamed as NDJSON)             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Stealth: ask the fresh panel to move its UI to a random hidden path.
+ * Root then answers a bare 404 so crawlers scanning workers.dev find nothing.
+ * Keeps an existing panelPath if the panel already has one.
+ */
+async function applyStealth(base, username, password) {
+  const login = await fetchImpl(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password }) });
+  if (!login.ok) return '';
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) return '';
+  const get = await fetchImpl(base + '/api/settings', { headers: { cookie: cookie } });
+  if (!get.ok) return '';
+  const cur = await get.json().catch(() => ({}));
+  const existing = cur && cur.settings && String(cur.settings.panelPath || '');
+  if (/^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(existing)) return existing;
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let p = '';
+  for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
+  const put = await fetchImpl(base + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie }, body: JSON.stringify({ panelPath: p }) });
+  return put.ok ? p : '';
+}
+
 async function* runInstall(input, env) {
   const events = [];
   const log = (step, level, msg, data) => { events.push({ step, level, msg, data }); };
@@ -250,7 +272,7 @@ async function* runInstall(input, env) {
 
   const token = String(input.token || '').trim();
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
-  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || 'catpanel'));
+  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
   const customPassword = String(input.password || '').trim();
   const customUser = String(input.username || '').trim();
   if (!token) throw new Error('token missing');
@@ -322,13 +344,21 @@ async function* runInstall(input, env) {
   log('check', online ? 'ok' : 'warn', online ? 'online · v' + version : 'not reachable yet — workers.dev needs up to a minute for a brand-new subdomain'); yield* flush();
 
   const password = customPassword || uuid;
+  let stealthPath = '';
+  if (kind === 'panel' && online) {
+    log('stealth', 'info', 'moving the panel to a hidden path'); yield* flush();
+    stealthPath = await applyStealth(workerUrl, customUser, password).catch(() => '');
+    log('stealth', stealthPath ? 'ok' : 'warn', stealthPath ? 'panel hidden at /' + stealthPath : 'stealth skipped — set a hidden path in Panel → Settings later'); yield* flush();
+  }
+  const panelBase = stealthPath ? workerUrl + '/' + stealthPath : workerUrl;
   const result = kind === 'panel'
     ? {
       ok: true,
       kind,
       workerName,
       workerUrl,
-      panelUrl: customUser ? workerUrl + '/' : workerUrl + '/?p=' + encodeURIComponent(password),
+      stealthPath,
+      panelUrl: panelBase + (customUser ? '/' : '/?p=' + encodeURIComponent(password)),
       subUrl: workerUrl + '/sub/' + uuid,
       subClash: workerUrl + '/sub/' + uuid + '/clash',
       subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
@@ -510,7 +540,7 @@ function pageHtml(env, host) {
     host,
     tokenUrl: TOKEN_TEMPLATE_URL,
     inviteRequired,
-    defaultWorker: String(env.DEFAULT_WORKER || 'catpanel'),
+    defaultWorker: String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))),
     repo: REPO_URL,
     i18n: i18n(),
   };

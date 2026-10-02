@@ -6161,7 +6161,7 @@ class MainActivity : Activity() {
             setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
             setTextColor(TEXT_PRIMARY)
             setHintTextColor(TEXT_SECONDARY)
-            setText("catpanel")
+            setText(CloudflareWorker.randomWorkerName())
         }
         val workerNameLayout = TextInputLayout(this).apply {
             hint = getString(R.string.cloud_worker_name_hint)
@@ -6281,7 +6281,7 @@ class MainActivity : Activity() {
                 ?.replace(Regex("[^a-z0-9-]"), "-")
                 ?.replace(Regex("-{2,}"), "-")
                 ?.trim('-')
-                ?.ifEmpty { "catpanel" } ?: "catpanel"
+                ?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
             cloudDeployInProgress = true
             deployButton.isEnabled = false
             activityScope.launch {
@@ -7123,14 +7123,14 @@ class MainActivity : Activity() {
 
     /** Step 3/4 — name + password, then deploy with a progress dialog. */
     private fun showPanelWizardOptions(token: String, accountId: String) {
-        val (nameLayout, nameEdit) = wizardField(getString(R.string.cloud_worker_name_hint), initial = "catpanel")
+        val (nameLayout, nameEdit) = wizardField(getString(R.string.cloud_worker_name_hint), initial = CloudflareWorker.randomWorkerName())
         val (passLayout, passEdit) = wizardField(getString(R.string.cloud_panel_password_hint), password = true)
         MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.wizard_step, 3, 4) + " · " + getString(R.string.wizard_options_title))
             .setView(wizardBody(wizardText(getString(R.string.wizard_options_help)), nameLayout, passLayout, wizardText(getString(R.string.wizard_options_note), secondary = true)))
             .setPositiveButton(R.string.wizard_deploy) { _, _ ->
                 val workerName = nameEdit.text?.toString()?.trim()?.lowercase(Locale.US)
-                    ?.replace(Regex("[^a-z0-9-]"), "-")?.replace(Regex("-{2,}"), "-")?.trim('-')?.ifEmpty { "catpanel" } ?: "catpanel"
+                    ?.replace(Regex("[^a-z0-9-]"), "-")?.replace(Regex("-{2,}"), "-")?.trim('-')?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
                 val password = passEdit.text?.toString()?.trim().orEmpty()
                 val progress = MaterialAlertDialogBuilder(this)
                     .setTitle(getString(R.string.wizard_step, 4, 4) + " · " + getString(R.string.wizard_deploying_title))

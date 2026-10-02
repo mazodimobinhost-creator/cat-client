@@ -315,8 +315,12 @@ class ProxyIpScannerPage(
         val (get, getBody) = call("/api/settings", "GET", null, cookie)
         val existing = ArrayList<String>()
         if (get.responseCode == 200) {
-            val arr = org.json.JSONObject(getBody).optJSONObject("settings")?.optJSONArray("proxyIps")
+            val settingsObj = org.json.JSONObject(getBody).optJSONObject("settings")
+            val arr = settingsObj?.optJSONArray("proxyIps")
             if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
+            // Local-only recovery snapshot: lets the app rebuild the panel elsewhere
+            // if Cloudflare suspends this worker after an abuse report (Error 1101).
+            if (settingsObj != null) PanelBackup.save(base, settingsObj.toString(), settingsObj.optString("panelPath"))
         }
         get.disconnect()
         val merged = (lines + existing.filter { it !in lines }).filter { it.isNotBlank() }.distinct().take(32)
