@@ -6056,6 +6056,203 @@ class MainActivity : Activity() {
         ).show()
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Panel status & one-tap recovery (Cloudflare abuse-report 1101)      */
+    /* ------------------------------------------------------------------ */
+
+    private fun buildPanelStatusCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_status_title)
+                textSize = 15f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            },
+        )
+        card.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_status_detail)
+                textSize = 12f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        val check = MaterialButton(this).apply {
+            text = getString(R.string.cloud_status_check)
+            isAllCaps = false
+            textSize = 14f
+            minWidth = 0
+            minHeight = dp(44)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(14)
+            setPaddingRelative(dp(16), 0, dp(16), 0)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 190))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
+            textColor = TEXT_PRIMARY
+            setOnClickListener { onPanelStatusCheck() }
+        }
+        card.addView(check, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        return card
+    }
+
+    private fun onPanelStatusCheck() {
+        val dep = PanelDeploymentStore(this).deployments().firstOrNull()
+        if (dep == null) {
+            Toast.makeText(this, R.string.cloud_status_none, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_status_checking))
+            .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_status_checking_detail))))
+            .setCancelable(false)
+            .create()
+        progress.show()
+        activityScope.launch {
+            val health = withContext(Dispatchers.IO) {
+                runCatching { CloudflareWorker.checkPanelHealth(dep.workerUrl) }
+                    .getOrElse { CloudflareWorker.PanelHealth("DOWN", it.message ?: "network error") }
+            }
+            progress.dismiss()
+            if (health.state == "HEALTHY") {
+                Toast.makeText(this@MainActivity, R.string.cloud_status_healthy, Toast.LENGTH_LONG).show()
+            } else {
+                showPanelRecoveryDialog(dep.workerUrl, health.detail)
+            }
+        }
+    }
+
+    private fun showPanelRecoveryDialog(panelUrl: String, detail: String) {
+        val backup = PanelBackup.read(this)
+        val explain = TextView(this).apply {
+            text = getString(R.string.cloud_recover_explain, panelUrl, detail) + "\n\n" +
+                if (backup != null) {
+                    getString(R.string.cloud_recover_backup_ok, android.text.format.DateUtils.getRelativeTimeSpanString(backup.savedAt).toString())
+                } else {
+                    getString(R.string.cloud_recover_backup_none)
+                }
+            textSize = 13f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        val tokenEdit = com.google.android.material.textfield.TextInputEditText(this).apply {
+            hint = getString(R.string.cloud_token_help)
+            setText(PanelDeploymentStore(this@MainActivity).tokenFor(panelUrl).orEmpty())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            isSingleLine = true
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(explain)
+            addView(
+                tokenEdit,
+                LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(20), dp(10), dp(20), 0) },
+            )
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_title))
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.cloud_recover_start) { _, _ ->
+                val token = tokenEdit.text?.toString()?.trim().orEmpty()
+                if (token.isEmpty()) {
+                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                runPanelRecovery(token, backup)
+            }
+            .show()
+    }
+
+    private fun runPanelRecovery(token: String, backup: PanelBackup.Snapshot?) {
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_title))
+            .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_recover_running))))
+            .setCancelable(false)
+            .create()
+        progress.show()
+        activityScope.launch {
+            try {
+                val permissions = CloudflareWorker.verifyToken(token)
+                val accountId = permissions.accountId
+                if (!permissions.valid || accountId == null) {
+                    progress.dismiss()
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                // The snapshot must be captured BEFORE deploying: the deploy's own
+                // stealth step replaces the stored backup with the new panel's state.
+                val result = CloudflareWorker.deployBuiltIn(
+                    this@MainActivity,
+                    token,
+                    accountId,
+                    CloudflareWorker.randomWorkerName(),
+                )
+                PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                var usersNote = ""
+                if (backup != null) {
+                    val restored = withContext(Dispatchers.IO) {
+                        runCatching {
+                            CloudflareWorker.restorePanelState(
+                                workerUrl = result.workerUrl,
+                                settingsJson = backup.settingsJson,
+                                usersJson = backup.usersJson,
+                                password = result.uuid,
+                            )
+                        }.getOrElse { CloudflareWorker.PanelRestoreResult(false, 0) }
+                    }
+                    if (restored.settingsApplied) {
+                        usersNote = getString(R.string.cloud_recover_users, restored.usersRestored)
+                    }
+                }
+                progress.dismiss()
+                showPanelRecoveryDone(result, usersNote)
+            } catch (e: Exception) {
+                progress.dismiss()
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.cloud_recover_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private fun showPanelRecoveryDone(result: CloudflareWorker.DeploymentResult, usersNote: String) {
+        val message = buildString {
+            append(getString(R.string.cloud_recover_done, result.panelUrl))
+            append("\n")
+            append(getString(R.string.cloud_recover_done_sub, result.subscriptionUrl))
+            if (usersNote.isNotEmpty()) {
+                append("\n")
+                append(usersNote)
+            }
+            append("\n\n")
+            append(getString(R.string.cloud_recover_done_note))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_done_title))
+            .setMessage(message)
+            .setPositiveButton(R.string.cloud_recover_addsub) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
+            }
+            .setNeutralButton(R.string.cloud_recover_open) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun buildCloudScreen(): View {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -6327,6 +6524,7 @@ class MainActivity : Activity() {
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(buildPanelStatusCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val deploymentHistoryCard = advancedSettingsPanel()
         deploymentHistoryCard.addView(

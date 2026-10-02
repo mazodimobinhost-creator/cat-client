@@ -42,11 +42,16 @@ object CloudflareWorker {
      * read, User Details read). The user only taps Continue to summary → Create Token.
      * https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
      */
+    // Same permission set as the battle-tested BPB-Wizard template (Workers
+    // Scripts:Edit, KV Storage:Edit, Pages:Edit, Zone DNS:Edit, User Details:Read)
+    // so the dashboard pre-fills it in one tap and account listing works without
+    // Account Settings:Read (BPB proved /accounts answers for any account-scoped edit token).
     const val CF_TOKEN_TEMPLATE_URL =
         "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" +
             "%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C" +
             "%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C" +
-            "%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C" +
+            "%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22dns%22%2C%22type%22%3A%22edit%22%7D%2C" +
             "%7B%22key%22%3A%22user_details%22%2C%22type%22%3A%22read%22%7D%5D" +
             "&accountId=*&zoneId=all&name=Cat%20Panel"
 
@@ -752,12 +757,129 @@ object CloudflareWorker {
             existing = settingsJson.optString("panelPath").orEmpty()
             PanelBackup.save(context, base, settingsJson.toString(), existing)
         }
+        // Users too — recovery recreates them with their original tokens.
+        val (_, usersBody, _) = req("/api/users", "GET", null, cookie)
+        val usersArr = runCatching { JSONObject(usersBody).optJSONArray("users") }.getOrNull()
+        if (usersArr != null) PanelBackup.saveUsers(context, usersArr.toString())
         val pathRegex = Regex("^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$")
         if (existing.matches(pathRegex)) return existing
 
         val target = randomPanelPath()
         val (putCode, _, _) = req("/api/settings", "PUT", JSONObject().put("panelPath", target).toString(), cookie)
         return if (putCode == 200) target else ""
+    }
+
+    data class PanelHealth(val state: String, val detail: String)
+
+    /**
+     * Ask the panel's /health and classify the answer. Cloudflare suspensions
+     * after abuse reports answer EVERY route with the Error 1101 page and no
+     * code runs at all — that is the "BLOCKED" state the recovery flow handles.
+     */
+    fun checkPanelHealth(workerUrl: String): PanelHealth {
+        val base = workerUrl.trimEnd('/')
+        return runCatching {
+            val conn = (URL(base + "/health").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8_000
+                readTimeout = 8_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "Mozilla/5.0 (panel-status)")
+            }
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+            when {
+                code in 200..299 && body.contains("\"ok\"") -> PanelHealth("HEALTHY", "HTTP $code")
+                body.contains("Error 1101", true) || body.contains("Worker threw exception", true) ->
+                    PanelHealth("BLOCKED", "Error 1101 — the worker was suspended after an abuse report")
+                body.contains("cf-error-details", true) || (body.contains("Cloudflare", true) && code >= 500) ->
+                    PanelHealth("BLOCKED", "HTTP $code — Cloudflare error page")
+                else -> PanelHealth("DOWN", "HTTP $code")
+            }
+        }.getOrElse { PanelHealth("DOWN", it.message ?: "network error") }
+    }
+
+    data class PanelRestoreResult(val settingsApplied: Boolean, val usersRestored: Int)
+
+    /**
+     * Replay a [PanelBackup.Snapshot] into a freshly deployed panel: PUT the
+     * settings and recreate users with their original tokens (POST /api/users).
+     * The snapshot is passed in — NOT re-read from storage — because deploying
+     * the new panel has already replaced the backup with the new (empty) state.
+     * panelPath stays the new worker's fresh hidden path; a masked Telegram
+     * token ("••••…") is dropped instead of corrupting the field.
+     */
+    fun restorePanelState(
+        workerUrl: String,
+        settingsJson: String,
+        usersJson: String,
+        username: String = "",
+        password: String,
+    ): PanelRestoreResult {
+        val base = workerUrl.trimEnd('/')
+        fun call(path: String, method: String, body: String?, cookie: String?): Triple<Int, String, String> {
+            val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 10_000
+                readTimeout = 20_000
+                instanceFollowRedirects = false
+                setRequestProperty("Accept", "application/json")
+                if (cookie != null) setRequestProperty("Cookie", cookie)
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    outputStream.use { it.write(body.toByteArray()) }
+                }
+            }
+            val code = conn.responseCode
+            val text = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val setCookie = conn.headerFields?.entries
+                ?.filter { it.key.equals("set-cookie", true) }
+                ?.flatMap { it.value }
+                ?.joinToString("; ") { it.substringBefore(';') }
+                .orEmpty()
+            conn.disconnect()
+            return Triple(code, text, setCookie)
+        }
+
+        val (loginCode, loginBody, cookie) = call("/api/login", "POST", JSONObject().put("username", username).put("password", password).toString(), null)
+        val loginOk = loginCode == 200 && cookie.isNotBlank() &&
+            runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        if (!loginOk) return PanelRestoreResult(false, 0)
+
+        var settingsOk = false
+        if (settingsJson.isNotBlank()) {
+            val patch = runCatching { JSONObject(settingsJson) }.getOrNull()
+            if (patch != null) {
+                patch.remove("panelPath") // keep the fresh stealth path from the deploy
+                if (patch.optString("tgToken").contains("•")) patch.remove("tgToken")
+                val (code, _, _) = call("/api/settings", "PUT", patch.toString(), cookie)
+                settingsOk = code == 200
+            }
+        }
+
+        var users = 0
+        val arr = runCatching { JSONArray(usersJson) }.getOrNull()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val u = arr.optJSONObject(i) ?: continue
+                val id = u.optString("id")
+                if (!id.matches(Regex("^[0-9a-fA-F-]{36}$"))) continue
+                val payload = JSONObject()
+                    .put("id", id)
+                    .put("name", u.optString("name"))
+                    .put("enabled", u.optBoolean("enabled", true))
+                val expiresAt = u.optLong("expiresAt", 0L)
+                if (expiresAt > 0) payload.put("expiresAt", expiresAt)
+                val note = u.optString("note", "")
+                if (note.isNotBlank()) payload.put("note", note)
+                val (code, _, _) = call("/api/users", "POST", payload.toString(), cookie)
+                if (code == 200 || code == 201 || code == 409) users++
+            }
+        }
+        return PanelRestoreResult(settingsOk, users)
     }
 
     private fun workerNameFromUrl(workerUrl: String): String {
