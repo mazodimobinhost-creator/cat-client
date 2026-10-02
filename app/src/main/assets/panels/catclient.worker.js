@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.5.0';
+const CAT_PANEL_VERSION = '6.6.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
@@ -301,6 +301,7 @@ function defaultSettings() {
     sni: '',
     fingerprint: 'chrome',
     proxyIps: [],
+    extraSnis: [],       // Spoof section: per-SNI configs (🧬) — each host must sit on Cloudflare
     ipCountries: {},     // addr → ISO-2 (where this entry address lands for YOU)
     proxyCountries: {},  // proxy ip → ISO-2 (exit for Cloudflare-hosted sites)
     country: '',         // preferred exit country ('' = automatic)
@@ -338,8 +339,12 @@ function normalizeSettings(raw) {
   s.protocols = { vless: !(s.protocols && s.protocols.vless === false), trojan: !(s.protocols && s.protocols.trojan === false) };
   if (!s.protocols.vless && !s.protocols.trojan) s.protocols.vless = true;
   s.sni = String(s.sni || '').trim().toLowerCase().slice(0, 253);
-  s.fingerprint = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized'].includes(s.fingerprint) ? s.fingerprint : 'chrome';
+  s.fingerprint = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized', 'unsafe'].includes(s.fingerprint) ? s.fingerprint : 'chrome';
   s.proxyIps = uniq(Array.isArray(s.proxyIps) ? s.proxyIps : splitCsv(s.proxyIps)).slice(0, 32);
+  s.extraSnis = uniq(Array.isArray(s.extraSnis) ? s.extraSnis : splitCsv(s.extraSnis))
+    .map((v) => String(v).trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0])
+    .filter((v) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v))
+    .slice(0, 8);
   s.ipCountries = normalizeCountryMap(s.ipCountries, 500);
   s.proxyCountries = normalizeCountryMap(s.proxyCountries, 64);
   s.country = normalizeCountry(s.country) || '';
@@ -1294,7 +1299,7 @@ async function dialViaChain(sockets, chain, host, port) {
   }
 }
 
-async function dialTarget(host, port, env, settings, log) {
+async function dialTarget(host, port, env, settings, log, proxyOverride) {
   const sockets = await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
   const targetIsCf = isCloudflareIp(host);
@@ -1314,6 +1319,11 @@ async function dialTarget(host, port, env, settings, log) {
   }
   const attempts = [];
   if (!targetIsCf) attempts.push({ hostname: host, port, via: 'direct' });
+  // Per-connection override: /?proxyip= on the WS path (🎯 PX configs) wins.
+  if (proxyOverride) {
+    const parsed = splitHostPort(proxyOverride, port);
+    attempts.push({ hostname: parsed.hostname, port: parsed.port || port, via: 'proxy:' + proxyOverride });
+  }
   for (const proxy of proxyIpList(env, settings)) {
     const parsed = splitHostPort(proxy, port);
     attempts.push({ hostname: parsed.hostname, port: parsed.port || port, via: 'proxy:' + proxy });
@@ -1395,6 +1405,8 @@ async function handleTunnelConnection(ws, env, options = {}) {
   const settings = options.settings || await readSettings(env);
   const masterUuid = String(options.masterUuid || env.UUID || '').toLowerCase();
   const log = options.log || (() => {});
+  // 🎯 PX configs carry /?proxyip=<ip> on the WS path — that relay wins for THIS connection.
+  const pxOverride = (() => { try { return decodeURIComponent(((options.path || '').match(/[?&]proxyip=([^&]+)/) || [])[1] || ''); } catch (e) { return ''; } })();
 
   let first;
   try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }
@@ -1469,7 +1481,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
 
   let dialed;
   try {
-    dialed = await dialTarget(target.host, target.port, env, settings, log);
+    dialed = await dialTarget(target.host, target.port, env, settings, log, pxOverride || null);
   } catch (e) {
     log('no route to ' + target.host + ':' + target.port);
     safeCloseWs(ws, 1011, 'dial failed');
@@ -1551,14 +1563,18 @@ function wsParams(hostHeader, path, sni, fp, tls) {
   return params.join('&');
 }
 
-function vlessLink(ctx, addr, port, tls, cc) {
+function vlessLink(ctx, addr, port, tls, cc, opts) {
+  const name = (opts && opts.name) || configName('vless', addr, port, tls, cc);
+  const path = (opts && opts.path) || ctx.paths.vlessPath;
   return 'vless://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
-    wsParams(ctx.host, ctx.paths.vlessPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('vless', addr, port, tls, cc));
+    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(name);
 }
 
-function trojanLink(ctx, addr, port, tls, cc) {
+function trojanLink(ctx, addr, port, tls, cc, opts) {
+  const name = (opts && opts.name) || configName('trojan', addr, port, tls, cc);
+  const path = (opts && opts.path) || ctx.paths.trojanPath;
   return 'trojan://' + encodeURIComponent(ctx.trojanPass) + '@' + formatAddr(addr) + ':' + port + '?' +
-    wsParams(ctx.host, ctx.paths.trojanPath, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(configName('trojan', addr, port, tls, cc));
+    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(name);
 }
 
 /** Link context for one identity (master or a panel user). */
@@ -1621,12 +1637,33 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   const limit = settings.entryLimit;
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
-  for (const { port, tls } of ports) {
+  outer: for (const { port, tls } of ports) {
     for (const addr of addresses) {
       const cc = ccOf(addr);
       if (ctx.protocols.vless) entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc), name: configName('vless', addr, port, tls, cc) });
       if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc), name: configName('trojan', addr, port, tls, cc) });
-      if (entries.length >= limit) return { ctx, entries, preferredCc };
+      if (entries.length >= limit) break outer;
+    }
+  }
+  // Spoof section (Panel → 🎭): extra-SNI configs (🧬) and per-ProxyIP configs
+  // (🎯, path /?proxyip=) — deliberately named apart from the flag-named clean-IP
+  // entries. Skipped when a link pins ?addr= / ?limit= (deliberate single exit).
+  if (!q.addr && !q.limit) {
+    const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
+    for (const sniHost of (settings.extraSnis || [])) {
+      if (entries.length >= 200) break;
+      if (!sniHost || sniHost === ctx.sni) continue;
+      const sctx = Object.assign({}, ctx, { sni: sniHost });
+      const name = '🧬 SNI ' + sniHost;
+      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: host, port: tlsPort, tls: true, cc: '', link: vlessLink(sctx, host, tlsPort, true, '', { name }), name });
+      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: host, port: tlsPort, tls: true, cc: '', link: trojanLink(sctx, host, tlsPort, true, '', { name }), name });
+    }
+    for (const px of proxyIpList(env, settings)) {
+      if (entries.length >= 224) break;
+      const pxcc = (settings.proxyCountries || {})[px] || '';
+      const pxname = '🎯 PX ' + (pxcc ? flagOf(pxcc) + ' ' : '') + px;
+      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: host, port: tlsPort, tls: true, cc: pxcc, link: vlessLink(ctx, host, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.vlessPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
+      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: host, port: tlsPort, tls: true, cc: pxcc, link: trojanLink(ctx, host, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.trojanPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
     }
   }
   return { ctx, entries, preferredCc };
@@ -2387,6 +2424,7 @@ async function handleRequest(request, env, ctx) {
       earlyDataHeader: request.headers.get('sec-websocket-protocol') || '',
       masterUuid,
       settings,
+      path: url.pathname + (url.search || ''),
     }).catch(() => { safeCloseWs(server, 1011, 'internal'); });
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job);
     const headers = {};
@@ -2723,6 +2761,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard">👥</button>
   <button class="ib" data-c="cyan" data-view="scan" title="Clean IP">📡</button>
+  <button class="ib" data-c="lime" data-view="spoof" title="SNI &amp; ProxyIP">🎭</button>
   <button class="ib" data-c="gray" data-view="settings" title="Settings">⚙️</button>
   <button class="ib" data-c="amber" data-view="backup" title="Backup">💾</button>
   <button class="ib" data-c="green" id="btnUpdate" title="Update">⬆️</button>
@@ -2815,6 +2854,20 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 </section>
 
 <!-- ================= SETTINGS ================= -->
+<section class="view" id="v-spoof">
+ <form class="card sec frm" id="fSpoof">
+  <h2><span class="ic">🎭</span><span data-i="spoof"></span></h2>
+  <div class="small dim" data-i="spoof_hint"></div>
+  <label data-i="s_extra_sni"></label>
+  <textarea name="extraSnis" style="min-height:56px" data-ph="s_extra_sni_ph"></textarea>
+  <div class="small dim" data-i="s_extra_sni_hint"></div>
+  <label data-i="s_proxy"></label>
+  <textarea name="proxyIps" style="min-height:70px" data-ph="s_proxy_ph"></textarea>
+  <div class="small dim" data-i="s_proxy_hint"></div>
+  <div class="row" style="margin-top:14px"><button class="btn p" type="submit" data-i="save"></button></div>
+ </form>
+</section>
+
 <section class="view" id="v-settings">
  <form class="card sec frm" id="fSettings">
   <h2><span class="ic">⚙️</span><span data-i="settings"></span></h2>
@@ -2839,15 +2892,12 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </div>
   <div class="two">
    <div><label data-i="s_sni"></label><input name="sni" class="mono" data-ph="s_sni_ph"></div>
-   <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option></select></div>
+   <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option><option>unsafe</option></select></div>
   </div>
   <div class="two">
    <div><label data-i="s_limit"></label><input name="entryLimit" type="number" min="4" max="200"></div>
    <div><label data-i="s_flags"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swDefaults"></span><span data-i="s_defaults"></span></div><div class="row small" style="margin-top:8px"><span class="sw" id="swHost"></span><span data-i="s_host"></span></div></div>
   </div>
-  <label data-i="s_proxy"></label>
-  <textarea name="proxyIps" style="min-height:70px" data-ph="s_proxy_ph"></textarea>
-  <div class="small dim" data-i="s_proxy_hint"></div>
   <div class="hr"></div>
   <label data-i="s_route"></label>
   <div class="row small" style="margin-top:6px"><span class="sw" id="swIran"></span><span data-i="s_iran"></span></div>
@@ -2862,7 +2912,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </div>
   <div class="two" style="margin-top:8px">
    <div><label>ALPN</label><select name="alpn"><option>http/1.1</option><option>h2,http/1.1</option><option>h2</option><option>h3,h2,http/1.1</option></select></div>
-   <div><label>Cipher suites (Xray)</label><input name="cipherSuites" class="mono" dir="ltr" placeholder="TLS_ECDHE_..:TLS_.."></div>
+   <div><label>Cipher suites (Xray) · <button type="button" class="btn sm" id="btnPattn" data-i="pattn_btn" style="padding:2px 10px"></button></label><input name="cipherSuites" class="mono" dir="ltr" placeholder="TLS_ECDHE_..:TLS_.."></div>
   </div>
   <div class="small dim" data-i="s_frag_hint"></div>
   <div class="hr"></div>
@@ -2920,6 +2970,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 <div class="nav">
  <button data-view="dash"><span>👥</span><i data-i="n_dash"></i></button>
  <button data-view="scan"><span>📡</span><i data-i="n_scan"></i></button>
+ <button data-view="spoof"><span>🎭</span><i data-i="n_spoof"></i></button>
  <button data-view="settings"><span>⚙️</span><i data-i="n_set"></i></button>
  <button data-view="backup"><span>💾</span><i data-i="n_bak"></i></button>
 </div>
@@ -2965,7 +3016,7 @@ ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیس�
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
-save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
+save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
@@ -2986,7 +3037,7 @@ ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hin
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
-save:'Save',cancel:'Cancel',saved:'Saved',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
+save:'Save',cancel:'Cancel',saved:'Saved',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
@@ -3035,7 +3086,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;f.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;f.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"settings\"]');if(n)n.click();f.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"spoof\"]');if(n)n.click();sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -3051,10 +3102,13 @@ $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('chang
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
+$('#fSpoof').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={extraSnis:f.elements.extraSnis.value.split(/[\\s,]+/).filter(Boolean),proxyIps:f.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean)};
+ api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);return load()}).catch(function(){toast('error',true)})});
+$('#btnPattn').addEventListener('click',function(){var f=$('#fSettings');f.elements.alpn.value='http/1.1';f.elements.cipherSuites.value='TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256';f.elements.fingerprint.value='unsafe';$('#swFrag').classList.add('on');f.elements.fragPackets.value='tlshello';f.elements.fragLength.value='1-3';f.elements.fragInterval.value='1';toast(t('pattn_filled'))});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-cc]');if(!b)return;api('/api/countries',{method:'PUT',body:{country:b.getAttribute('data-cc')}}).then(function(){toast(t('saved'));return load()}).catch(function(){toast('error',true)})});
 document.addEventListener('change',function(e){var sel=e.target.closest('[data-ipcc]');if(!sel)return;var ip=sel.getAttribute('data-ipcc'),cc=sel.value;var body=cc?{ipCountries:{}}:{clearIp:ip};if(cc)body.ipCountries[ip]=cc;api('/api/countries',{method:'PUT',body:body}).then(function(){return load()}).catch(function(){toast('error',true)})});
 $('#btnTgHook').addEventListener('click',function(){var o=$('#tgHookOut');o.textContent='…';api('/api/telegram/webhook',{method:'POST'}).then(function(j){o.textContent=j.ok?'🟢 @'+j.bot:'🔴 '+(j.error||j.description||'');return load()}).catch(function(){o.textContent='🔴'})});

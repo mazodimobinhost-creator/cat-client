@@ -6120,11 +6120,79 @@ class MainActivity : Activity() {
             }
             progress.dismiss()
             if (health.state == "HEALTHY") {
-                Toast.makeText(this@MainActivity, R.string.cloud_status_healthy, Toast.LENGTH_LONG).show()
+                val deployed = runCatching { PanelUpdate.deployedVersion(dep.workerUrl) }.getOrNull()
+                val newest = runCatching { newestPanelScript() }.getOrNull()
+                showPanelManageDialog(dep, deployed, newest)
             } else {
                 showPanelRecoveryDialog(dep.workerUrl, health.detail)
             }
         }
+    }
+
+    /** Version + update + delete for a healthy panel (deployed from this app). */
+    private fun showPanelManageDialog(dep: PanelDeploymentRecord, deployed: String?, newest: PanelUpdate.PanelScript?) {
+        val updateAvailable = newest != null && newest.version != deployed
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                getString(R.string.panel_manage_title) +
+                    if (updateAvailable) "  ·  ⬆ v" + newest!!.version else "",
+            )
+            .setMessage(
+                getString(
+                    R.string.panel_manage_msg,
+                    dep.workerUrl,
+                    deployed ?: getString(R.string.panel_version_unknown),
+                    newest?.version ?: getString(R.string.panel_version_unknown),
+                ),
+            )
+            .setPositiveButton(R.string.panel_update_btn) { _, _ ->
+                val script = newest
+                if (script == null) {
+                    Toast.makeText(this, R.string.panel_no_source, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
+                panelUpdateInProgress = true
+                if (token.isBlank()) presentPanelTokenPrompt(dep, deployed, script)
+                else runPanelUpdate(dep, token, deployed, script)
+            }
+            .setNeutralButton(R.string.panel_delete) { _, _ -> confirmPanelDelete(dep) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmPanelDelete(dep: PanelDeploymentRecord) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.panel_delete_confirm_title)
+            .setMessage(getString(R.string.panel_delete_confirm_msg, dep.workerUrl))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.panel_delete) { _, _ ->
+                val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
+                if (token.isBlank()) {
+                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val progress = MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.panel_delete_confirm_title)
+                    .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_recover_running))))
+                    .setCancelable(false)
+                    .create()
+                progress.show()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { CloudflareWorker.deletePanel(token, dep.workerUrl) }
+                    }
+                    progress.dismiss()
+                    result.onSuccess { summary ->
+                        PanelDeploymentStore(this@MainActivity).remove(dep.workerUrl)
+                        Toast.makeText(this@MainActivity, getString(R.string.panel_delete_done, summary), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.panel_delete_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                    renderCloudDeploymentHistory()
+                }
+            }
+            .show()
     }
 
     private fun showPanelRecoveryDialog(panelUrl: String, detail: String) {
@@ -7734,7 +7802,7 @@ class MainActivity : Activity() {
                         if (ok) setOnClickListener {
                             com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
                                 .setTitle(sni)
-                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy))) { _, which ->
+                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy), getString(R.string.sni_action_panel))) { _, which ->
                                     when (which) {
                                         0 -> { applySniOverride(sni); overrideStatus.text = getString(R.string.sni_override_current, sni) }
                                         1 -> {
@@ -7742,7 +7810,8 @@ class MainActivity : Activity() {
                                             if (::scannerSniInput.isInitialized) scannerSniInput.setText(sni)
                                             Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
                                         }
-                                        else -> (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("sni", sni))
+                                        2 -> (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("sni", sni))
+                                        else -> pushSniToPanel(sni)
                                     }
                                 }
                                 .show()
@@ -7805,6 +7874,63 @@ class MainActivity : Activity() {
             startVpnService(Actions.RECONNECT)
         }
         Toast.makeText(this, if (next.isBlank()) getString(R.string.sni_override_cleared) else getString(R.string.sni_override_applied, next), Toast.LENGTH_LONG).show()
+    }
+
+    /** "Add to panel" from the SNI scanner: merges the host into settings.extraSnis (🧬 SNI configs). */
+    private fun pushSniToPanel(sni: String) {
+        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val input = EditText(this).apply {
+            hint = getString(R.string.pip_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.sni_push_title))
+            .setMessage(base.removePrefix("https://"))
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.sni_action_panel) { _, _ ->
+                val password = input.text.toString()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushSniToPanelApi(base, password, sni) } }
+                    result.onSuccess { added ->
+                        Toast.makeText(this@MainActivity, getString(if (added) R.string.sni_push_ok else R.string.sni_push_exists, sni), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.sni_push_fail, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun pushSniToPanelApi(base: String, password: String, sni: String): Boolean {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+            val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (get, getBody) = call("/api/settings", "GET", null, cookie)
+        val existing = ArrayList<String>()
+        if (get.responseCode == 200) {
+            val arr = org.json.JSONObject(getBody).optJSONObject("settings")?.optJSONArray("extraSnis")
+            if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
+        }
+        get.disconnect()
+        if (existing.any { it.equals(sni, ignoreCase = true) }) return false
+        val merged = (existing + sni).distinct().take(8)
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("extraSnis", org.json.JSONArray(merged)).toString(), cookie)
+        val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+        put.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+        return true
     }
 
     private fun showProxyScannerPage() {

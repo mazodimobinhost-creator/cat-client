@@ -882,6 +882,37 @@ object CloudflareWorker {
         return PanelRestoreResult(settingsOk, users)
     }
 
+    /**
+     * Delete a panel deployed from this app: removes the worker script and its
+     * "<worker>-catpanel" KV namespace. Subscription links die with the worker —
+     * the caller asks for confirmation first.
+     */
+    suspend fun deletePanel(token: String, workerUrl: String): String = withContext(Dispatchers.IO) {
+        val workerName = workerNameFromUrl(workerUrl.trimEnd('/'))
+        val accounts = cfGet(token, "https://api.cloudflare.com/client/v4/accounts?per_page=5")
+        val accountId = accounts.optJSONArray("result")?.optJSONObject(0)?.optString("id").orEmpty()
+        if (!accounts.optBoolean("success", false) || accountId.isBlank()) {
+            throw RuntimeException("token cannot list accounts")
+        }
+        val deleted = cfDelete(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName")
+        if (!deleted.optBoolean("success", false)) {
+            throw RuntimeException("worker delete failed: " + (deleted.optJSONArray("errors")?.toString() ?: "unknown"))
+        }
+        var kvDeleted = 0
+        runCatching {
+            val namespaces = cfGet(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces?per_page=100")
+            val arr = namespaces.optJSONArray("result") ?: JSONArray()
+            for (i in 0 until arr.length()) {
+                val ns = arr.optJSONObject(i) ?: continue
+                if (ns.optString("title") == "${workerName}-catpanel") {
+                    val id = ns.optString("id")
+                    if (id.isNotBlank() && cfDelete(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces/$id").optBoolean("success", false)) kvDeleted++
+                }
+            }
+        }
+        if (kvDeleted > 0) "worker + KV removed" else "worker removed"
+    }
+
     private fun workerNameFromUrl(workerUrl: String): String {
         val host = runCatching { URI(workerUrl).host }.getOrNull()?.lowercase(Locale.US).orEmpty()
         val name = host.substringBefore('.')
@@ -1019,6 +1050,19 @@ object CloudflareWorker {
         val body = stream.bufferedReader().use { it.readText() }
         return runCatching { JSONObject(body) }
             .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
+    }
+
+    private fun cfDelete(token: String, url: String): JSONObject {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "DELETE"
+            connectTimeout = 20_000
+            readTimeout = 20_000
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        return runCatching { JSONObject(body) }.getOrDefault(JSONObject().put("success", code in 200..299))
     }
 
     private fun cfPost(token: String, url: String, jsonBody: String): JSONObject {
@@ -1238,6 +1282,28 @@ class PanelDeploymentStore(context: Context) {
 
     fun tokenFor(workerUrl: String): String? =
         prefs.getString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
+
+    /** Forget a deployment completely (worker deleted in the dashboard or via the API). */
+    fun remove(workerUrl: String) {
+        val normalized = workerUrl.trimEnd('/')
+        val key = normalized.lowercase(Locale.US)
+        prefs.edit()
+            .remove("uuid:$key")
+            .remove("path:$key")
+            .remove("token:$key")
+            .putString(
+                "history",
+                JSONArray().apply {
+                    deployments()
+                        .filterNot { it.workerUrl.equals(normalized, ignoreCase = true) }
+                        .take(8)
+                        .forEach { item ->
+                            put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt).put("path", item.path))
+                        }
+                }.toString(),
+            )
+            .apply()
+    }
 
 
     fun lastWizardUrl(): String? = prefs.getString("last_wizard", null)
