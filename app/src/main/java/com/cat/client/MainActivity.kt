@@ -7670,7 +7670,7 @@ class MainActivity : Activity() {
             hint = getString(R.string.nat64_ip_hint)
             setText(currentIp)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            setTextColor(TEXT_PRIMARY); setHintTextColor(TEXT_TERTIARY)
+            setTextColor(TEXT_PRIMARY); setHintTextColor(palette.textTertiary)
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
         val preview = TextView(this).apply {
