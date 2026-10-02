@@ -864,6 +864,15 @@
     <string name="static_ip_off">Static IP off — managed pool is active</string>
     <string name="static_ip_invalid">Enter a valid IPv4 / IPv6 (optionally :port)</string>
     <string name="static_ip_pick_pool">Pick from pool</string>
+    <string name="nat64_btn">NAT64</string>
+    <string name="nat64_title">NAT64 address builder</string>
+    <string name="nat64_explain">Builds an IPv6 address from a clean IPv4 through a public NAT64 gateway (BPB-style): useful when your ISP\'s IPv4 to Cloudflare is blocked but IPv6 works. The device must have IPv6.</string>
+    <string name="nat64_ip_hint">Clean IPv4 (e.g. 188.114.97.6)</string>
+    <string name="nat64_invalid">Invalid IPv4 or prefix</string>
+    <string name="nat64_copy">Copy</string>
+    <string name="nat64_copied">Copied</string>
+    <string name="nat64_apply">Apply as entry IP</string>
+    <string name="nat64_applied">%1$s applied — reconnecting</string>
     <string name="static_ip_use_current">Use current</string>
     <string name="static_ip_no_current">No fronting IP is active yet — run a scan first</string>
     <string name="static_ip_pool_empty">The IP pool is empty — run a scan first</string>

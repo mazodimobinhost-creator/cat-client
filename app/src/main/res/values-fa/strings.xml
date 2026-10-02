@@ -863,6 +863,15 @@
     <string name="static_ip_off">IP ثابت خاموش — استخر مدیریت‌شده فعال است</string>
     <string name="static_ip_invalid">یک IPv4 / IPv6 معتبر وارد کن (اختیاری :پورت)</string>
     <string name="static_ip_pick_pool">انتخاب از استخر</string>
+    <string name="nat64_btn">NAT64</string>
+    <string name="nat64_title">سازندهٔ آدرس NAT64</string>
+    <string name="nat64_explain">از یک IPv4 تمیز از طریق گیت‌وی عمومی NAT64 آدرس IPv6 می‌سازد (روش BPB): وقتی IPv4 مسیر ISP تو به کلادفلر بلاک است ولی IPv6 کار می‌کند نجات‌بخش است. گوشی باید IPv6 داشته باشد.</string>
+    <string name="nat64_ip_hint">IPv4 تمیز (مثل 188.114.97.6)</string>
+    <string name="nat64_invalid">IPv4 یا پیشوند نامعتبر است</string>
+    <string name="nat64_copy">کپی</string>
+    <string name="nat64_copied">کپی شد</string>
+    <string name="nat64_apply">اعمال به‌عنوان IP ورودی</string>
+    <string name="nat64_applied">%1$s اعمال شد — در حال اتصال دوباره</string>
     <string name="static_ip_use_current">همین IP فعلی</string>
     <string name="static_ip_no_current">هنوز IP فعالی نیست — اول اسکن کن</string>
     <string name="static_ip_pool_empty">استخر IP خالی است — اول اسکن کن</string>

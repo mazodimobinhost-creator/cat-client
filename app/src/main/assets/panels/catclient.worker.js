@@ -65,7 +65,7 @@
 const CAT_PANEL_VERSION = '6.6.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
-const PANEL_SOURCE_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js';
+const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
 
 /* ------------------------------------------------------------------ */
 /* small utils                                                         */
@@ -3198,8 +3198,9 @@ $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#upda
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','scan','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','scan','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
+api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)b.innerHTML='<span class="chip warn">\u2b06\ufe0f '+t('update_new')+esc(j.latest)+'</span><div class="small mute" style="margin-top:6px">'+t('update_how')+'</div>';toast(t('update_new')+j.latest)}).catch(function(){});
 })();
 </script></body></html>`;
 }

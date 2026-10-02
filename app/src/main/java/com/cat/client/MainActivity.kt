@@ -7643,6 +7643,79 @@ class MainActivity : Activity() {
         return saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
     }
 
+    /** NAT64 address from an IPv4: <96-bit prefix>:<hex(ipv4)> — BPB's NAT64 trick. */
+    private fun nat64Address(prefix: String, ipv4: String): String? {
+        val parts = ipv4.trim().split('.')
+        if (parts.size != 4) return null
+        val bytes = parts.map { it.toIntOrNull() ?: return null }
+        if (bytes.any { it < 0 || it > 255 }) return null
+        val hex1 = "%02x%02x".format(bytes[0], bytes[1]).dropLeadingZeros()
+        val hex2 = "%02x%02x".format(bytes[2], bytes[3]).dropLeadingZeros()
+        val base = prefix.trim().trim('[', ']', ':')
+        if (!Regex("^[0-9a-fA-F:]{6,45}$").matches(base)) return null
+        return "[" + base.trimEnd(':') + "::" + hex1 + ":" + hex2 + "]"
+    }
+
+    private fun String.dropLeadingZeros(): String = dropWhile { it == '0' }.ifEmpty { "0" }
+
+    private fun showNat64Dialog() {
+        val currentIp = frontingIps.firstOrNull()?.removeSurrounding("[", "]")?.substringBeforeLast(':').orEmpty()
+        val prefixes = arrayOf(
+            "2a02:898:146:64:: (NL)",
+            "2602:fc59:b0:64:: (US)",
+            "2602:fc59:11:64:: (US)",
+        )
+        val chosen = arrayOf(prefixes[0])
+        val ipInput = EditText(this).apply {
+            hint = getString(R.string.nat64_ip_hint)
+            setText(currentIp)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            setTextColor(TEXT_PRIMARY); setHintTextColor(TEXT_TERTIARY)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        val preview = TextView(this).apply {
+            textSize = 12f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY)
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+        }
+        fun renderPreview() {
+            val built = nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())
+            preview.text = built ?: getString(R.string.nat64_invalid)
+        }
+        ipInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) = renderPreview()
+        })
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.nat64_title))
+            .setMessage(getString(R.string.nat64_explain))
+            .setSingleChoiceItems(prefixes, 0) { _, which -> chosen[0] = prefixes[which]; renderPreview() }
+            .setView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(ipInput, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(8), dp(12), dp(8), 0) })
+                    addView(preview)
+                },
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(R.string.nat64_copy) { _, _ ->
+                nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())?.let {
+                    (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("nat64", it))
+                    Toast.makeText(this, R.string.nat64_copied, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setPositiveButton(R.string.nat64_apply) { _, _ ->
+                val built = nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())
+                if (built == null || !applyStaticIp(built)) {
+                    Toast.makeText(this, R.string.nat64_invalid, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, getString(R.string.nat64_applied, built), Toast.LENGTH_LONG).show()
+                    renderFrontingIpChips()
+                }
+            }
+            .show()
+    }
+
     private fun clearStaticIp() {
         IpHealthStore(this).pinned = false
         NetworkGenomeStore(this).autoFailover = true
@@ -7707,6 +7780,7 @@ class MainActivity : Activity() {
             if (current == null) Toast.makeText(this, R.string.static_ip_no_current, Toast.LENGTH_SHORT).show()
             else { input.setText(current); if (!toggle.isChecked) toggle.isChecked = true }
         }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        pickRow.addView(smallButton(getString(R.string.nat64_btn)) { showNat64Dialog() })
         card.addView(pickRow, LinearLayout.LayoutParams(-1, -2))
         // Sticky location: reconnects keep the last working server instead of hopping to the fastest one.
         val stickySwitch = MaterialSwitch(this).apply {

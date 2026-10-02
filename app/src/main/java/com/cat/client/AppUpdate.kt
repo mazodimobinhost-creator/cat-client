@@ -311,5 +311,5 @@ object GitHubReleaseClient {
         "cdn.jsdelivr.net",
     )
 
-    private val ASSET_MIRRORS = listOf("https://ghproxy.net/", "https://gh-proxy.com/")
+    private val ASSET_MIRRORS = listOf("https://ghproxy.net/", "https://gh-proxy.com/", "https://ghproxy.link/", "https://mirror.ghproxy.com/")
 }
