@@ -5637,6 +5637,8 @@ class MainActivity : Activity() {
         scannerStopButton.isEnabled = false
         scannerProgressBar.visibility = View.GONE
         scannerStatusText.setText(R.string.scanner_stopped)
+    }
+
     /** XIU2-style download throughput for the top verified rows; sorts by speed after. */
     private fun runScannerSpeedTest() {
         if (scannerSpeedTestRunning) return
@@ -5688,7 +5690,6 @@ class MainActivity : Activity() {
                 }
             }
         }
-    }
 
     }
 
