@@ -283,5 +283,23 @@ let user;
   await req('/api/settings', { method:'PUT', headers: auth, body:{ tgToken: '', tgAdmins: [] } });
   check('tg can be switched off', !(await (await req('/api/telegram', { headers: auth })).json()).configured);
 }
+// pinned ip:port (scan → panel: address emitted only on its verified port)
+{
+  const st = T.normalizeSettings({ ips: ['198.51.100.7:2053'], tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 50 });
+  const { entries } = T.buildConfigEntries(HOST, ENV, st, MASTER, null, {});
+  const mine = entries.filter((e) => e.addr === '198.51.100.7:2053');
+  check('pinned addr emits configs', mine.length > 0);
+  check('pinned addr only on its scanned port (2053)', mine.length > 0 && mine.every((e) => e.port === 2053), JSON.stringify(mine.map((e) => e.port)));
+  check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
+  const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
+  const j = await r.json();
+  check('/api/ips stores ip:port + cc, rejects junk', j.ok && j.count === 1 && j.ips[0] === '198.51.100.9:8443');
+  await req('/api/ips', { method: 'POST', headers: auth, body: { ips: [], replace: true } });
+}
+// custom free ports survive normalize (panel no longer locked to presets)
+{
+  const st2 = T.normalizeSettings({ tlsPorts: [443, 8443, 2096], plainPorts: [80, 8080] });
+  check('normalize keeps custom ports', st2.tlsPorts.map(Number).includes(2096) && st2.tlsPorts.map(Number).includes(8443) && st2.plainPorts.map(Number).includes(8080));
+}
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

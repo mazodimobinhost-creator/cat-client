@@ -732,8 +732,10 @@
     <string name="diagnostics_cleared">گزارش عیب‌یابی پاک شد.</string>
     <string name="diagnostics_share_failed">باز کردن پنجرهٔ اشتراک‌گذاری ممکن نشد.</string>
     <string name="scanner_port_label">پورت تست</string>
-    <string name="scanner_port_hint">اول ۴۴۳ را امتحان کن؛ ۲۰۵۳، ۲۰۸۳ و ۸۴۴۳ گاهی با اپراتور متفاوت بهتر جواب می‌دهند.</string>
+    <string name="scanner_port_hint">اول ۴۴۳ را امتحان کن؛ ۲۰۵۳، ۲۰۸۳ و ۸۴۴۳ گاهی با اپراتور متفاوت بهتر جواب می‌دهند. با ✏️ هر پورت دیگری (۱ تا ۶۵۵۳۵) را هم می‌توانی اسکن کنی.</string>
     <string name="scanner_port_selected">پورت %1$d</string>
+    <string name="scanner_port_custom">پورت دلخواه…</string>
+    <string name="scanner_port_invalid">پورت را بین ۱ تا ۶۵۵۳۵ وارد کن.</string>
     <string name="wizard_title">ویزارد راه‌اندازی — پنل خودت در ۳ دقیقه</string>
     <string name="wizard_subtitle">بدون نیاز به بلد بودن کلودفلر: توکن → پنل → اشتراک → آی‌پی تمیز، قدم‌به‌قدم.</string>
     <string name="wizard_start">شروع ویزارد</string>

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.7.0';
+const CAT_PANEL_VERSION = '6.8.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -332,9 +332,9 @@ function normalizeSettings(raw) {
   s.lang = s.lang === 'en' ? 'en' : 'fa';
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
   s.useDefaults = s.useDefaults !== false;
-  s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => TLS_PORTS.includes(p)));
+  s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.tlsPorts.length) s.tlsPorts = [443];
-  s.plainPorts = uniq((Array.isArray(s.plainPorts) ? s.plainPorts : splitCsv(s.plainPorts)).map(Number).filter((p) => PLAIN_PORTS.includes(p)));
+  s.plainPorts = uniq((Array.isArray(s.plainPorts) ? s.plainPorts : splitCsv(s.plainPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.plainPorts.length) s.plainPorts = [80];
   s.plainEnabled = s.plainEnabled !== false;
   s.protocols = { vless: !(s.protocols && s.protocols.vless === false), trojan: !(s.protocols && s.protocols.trojan === false) };
@@ -1186,6 +1186,17 @@ function splitAddrTag(raw) {
   return { addr: String(raw || '').trim(), cc: '' };
 }
 
+/**
+ * Address may pin the port its scan verified: `1.2.3.4:2053` or `[2001:db8::1]:8443`.
+ * A pinned address is emitted ONLY on that port — no cross-product with the panel's
+ * port list (scan result keeps its own verified entry point).
+ */
+function pinnedPortOf(addr) {
+  const m = String(addr || '').trim().match(/^(?:\[[0-9a-f:.]+\]|[^\[\]:]+):(\d{1,5})$/i);
+  const p = m ? Number(m[1]) : 0;
+  return p >= 1 && p <= 65535 ? p : 0;
+}
+
 function countryOfAddr(addr, env, settings) {
   const a = String(addr).replace(/^\[|\]$/g, '');
   if (settings.ipCountries && settings.ipCountries[a]) return settings.ipCountries[a];
@@ -1642,7 +1653,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   if (q.proto === 'trojan') ctx.protocols.vless = false;
   if (q.port && q.port.length) {
     settings = Object.assign({}, settings, {
-      tlsPorts: q.port.filter((p) => TLS_PORTS.includes(p)),
+      tlsPorts: q.port.filter((p) => !PLAIN_PORTS.includes(p)),
       plainPorts: q.port.filter((p) => PLAIN_PORTS.includes(p)),
       plainEnabled: q.port.some((p) => PLAIN_PORTS.includes(p)),
     });
@@ -1658,12 +1669,17 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     if (tls[i]) ports.push(tls[i]);
     if (plain[i]) ports.push(plain[i]);
   }
+  // Scan-pinned addresses (`ip:port`) bring their own verified port; make sure it
+  // exists in the port walk even if the panel never enabled it explicitly.
+  for (const p of uniq(addresses.map(pinnedPortOf).filter(Boolean))) if (!ports.some((x) => Number(x.port) === p)) ports.push({ port: Number(p), tls: !PLAIN_PORTS.includes(p) });
   const entries = [];
   const limit = settings.entryLimit;
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
   outer: for (const { port, tls } of ports) {
     for (const addr of addresses) {
+      const pin = pinnedPortOf(addr); // pinned address → only its verified port (ports may arrive as strings)
+      if (pin && pin !== Number(port)) continue;
       const cc = ccOf(addr);
       if (ctx.protocols.vless) entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc), name: configName('vless', addr, port, tls, cc) });
       if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc), name: configName('trojan', addr, port, tls, cc) });
@@ -2271,7 +2287,7 @@ async function handleApi(request, url, env, ctx) {
     // Entries may carry a country tag: "1.2.3.4#DE" (what Cat Client's scanner
     // saw via /cdn-cgi/trace) → stored in ipCountries, address stays clean.
     const tags = Object.assign({}, settings.ipCountries);
-    const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((s) => isIpv4(s) || isIpv6(s) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)));
+    const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((s) => { const pin = pinnedPortOf(s); let a = pin ? s.slice(0, s.lastIndexOf(':')) : s; a = a.replace(/^\[/, '').replace(/\]$/, ''); return isIpv4(a) || isIpv6(a) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(a); }));
     if (body.countries && typeof body.countries === 'object') Object.assign(tags, normalizeCountryMap(body.countries, 500));
     const next = body.replace ? incoming : uniq(incoming.concat(settings.ips));
     const saved = await writeSettings(env, { ips: next, ipCountries: tags });
@@ -2931,7 +2947,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
  <div class="card sec">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
-  <textarea id="ipPaste" placeholder="104.16.1.1#DE&#10;172.67.2.3#TR&#10;www.example.com"></textarea>
+  <textarea id="ipPaste" placeholder="104.16.1.1#DE&#10;104.16.1.1:2053#DE&#10;www.example.com"></textarea>
   <div class="row" style="margin-top:10px">
    <button class="btn p" id="btnIpAppend" data-i="ip_append"></button>
    <button class="btn a" id="btnIpReplace" data-i="ip_replace"></button>
@@ -2989,8 +3005,8 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
    <label id="pTrojan"><span class="ic" style="background:rgba(20,144,122,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" style="width:auto;margin-inline-start:auto"></label>
   </div>
   <div class="two">
-   <div><label data-i="s_tls"></label><div class="pick" id="pickTls"></div></div>
-   <div><label data-i="s_plain"></label><div class="pick" id="pickPlain"></div><div class="row small" style="margin-top:8px"><span class="sw" id="swPlain"></span><span data-i="s_plain_on"></span></div></div>
+   <div><label data-i="s_tls"></label><div class="pick" id="pickTls"></div><div class="row" style="margin-top:8px"><input id="addTls" class="mono" dir="ltr" inputmode="numeric" placeholder="1-65535" maxlength="5" style="max-width:120px"><button type="button" class="btn sm" id="btnAddTls">➕</button></div></div>
+   <div><label data-i="s_plain"></label><div class="pick" id="pickPlain"></div><div class="row" style="margin-top:8px"><input id="addPlain" class="mono" dir="ltr" inputmode="numeric" placeholder="1-65535" maxlength="5" style="max-width:120px"><button type="button" class="btn sm" id="btnAddPlain">➕</button></div><div class="row small" style="margin-top:8px"><span class="sw" id="swPlain"></span><span data-i="s_plain_on"></span></div></div>
   </div>
   <div class="two">
    <div><label data-i="s_sni"></label><input name="sni" class="mono" data-ph="s_sni_ph"></div>
@@ -3115,10 +3131,10 @@ fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_user
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
-scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی‌ها یا دامنه‌های تمیز را (هر خط یکی، یا با کاما) اینجا بچسبان. از Cat Client، اسکنر ircf، CFScanner یا هر ابزار دیگری.',
+scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
-s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',
+s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: آدرس ورکر',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'خالی = لیست پیش‌فرض',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
 n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
@@ -3137,10 +3153,10 @@ en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_activ
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
-scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated) from Cat Client, ircf scanner, CFScanner or any other tool.',
+scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
-s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',
+s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: worker host',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_port_bad:'Invalid port — enter a number between 1 and 65535',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'empty = built-in list',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',
 n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
@@ -3250,8 +3266,11 @@ function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.v
  $('#pathsBox').innerHTML='<div class="lk"><span>VLESS</span><code>'+esc(CFG.paths.vlessPath)+'</code></div><div class="lk"><span>Trojan</span><code>'+esc(CFG.paths.trojanPath)+'</code></div><div class="lk"><span>SNI</span><code>'+esc(CFG.sni)+'</code></div><div class="lk"><span>UUID</span><code>'+esc(CFG.uuid)+'</code><button class="btn sm" data-copy="'+esc(CFG.uuid)+'">📋</button></div>'+
   (CFG.env.hasUuid?'':'<div class="note w small" style="margin-top:8px">UUID از نام ورکر مشتق شده؛ برای ثابت ماندن بعد از تغییر نام، متغیر UUID را در Workers → Settings تنظیم کن.</div>');
  renderIps();}
-function pick(sel,all,chosen){var box=$(sel);box.innerHTML='';all.forEach(function(p){var b=document.createElement('button');b.type='button';b.textContent=p;b.dataset.v=p;if(chosen.indexOf(p)>=0)b.classList.add('on');b.onclick=function(){b.classList.toggle('on')};box.appendChild(b)})}
+function pick(sel,all,chosen){var box=$(sel);box.innerHTML='';all.concat((chosen||[]).filter(function(p){return all.indexOf(p)<0})).forEach(function(p){var b=document.createElement('button');b.type='button';b.textContent=p;b.dataset.v=p;if(chosen.indexOf(p)>=0)b.classList.add('on');b.onclick=function(){b.classList.toggle('on')};box.appendChild(b)})}
 function picked(sel){return $$('button.on',$(sel)).map(function(b){return Number(b.dataset.v)})}
+function addPortTo(sel,inputId){var v=Number(($(inputId).value||'').trim());if(!(v>=1&&v<=65535)){toast(t('s_port_bad'),true);return}var b=document.createElement('button');b.type='button';b.textContent=v;b.dataset.v=v;b.classList.add('on');b.onclick=function(){b.classList.toggle('on')};$(sel).appendChild(b);$(inputId).value=''}
+$('#btnAddTls').addEventListener('click',function(){addPortTo('#pickTls','#addTls')});
+$('#btnAddPlain').addEventListener('click',function(){addPortTo('#pickPlain','#addPlain')});
 function syncProto(a,b){[a,b].forEach(function(s){var l=$(s);l.classList.toggle('on',$('input',l).checked)})}
 $$('#pVless input,#pTrojan input').forEach(function(i){i.addEventListener('change',function(){syncProto('#pVless','#pTrojan')})});
 $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('change',function(){syncProto('#uVless','#uTrojan')})});
@@ -3341,8 +3360,8 @@ function renderCountries(){var S=CFG.countries||{countries:[],untagged:[]};var s
  if(S.untagged.length)h+='<span class="chip">🌐 '+t('cc_untagged')+' · '+S.untagged.length+'</span>';$('#ccList').innerHTML=h}
 function renderIps(){var ips=CFG.settings.ips,tags=CFG.settings.ipCountries||{};$('#ipCount').textContent=ips.length;$('#ipList').innerHTML=ips.length?ips.map(function(ip){return '<span class="chip mono">'+ccSelect(ip,tags[ip]||'')+' '+esc(ip)+' <b data-ipdel="'+esc(ip)+'" title="remove" style="cursor:pointer">✕</b></span>'}).join(''):'<span class="dim small">—</span>';renderCountries();
  $('#btnScanApp').href='catclient://scan?sni='+encodeURIComponent(CFG.host)+'&panel='+encodeURIComponent(location.origin)}
-function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){return s.trim().replace(/^\\[|\\]$/g,'')}).filter(function(s){s=s.replace(/[#|=][A-Za-z]{2}$/,'');return /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(s)||/^[0-9a-f:]+$/i.test(s)&&s.indexOf(':')>=0||/^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(s)});
- if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,replace:!!replace}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
+function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(/^\\[[0-9a-f:]+\\]:\\d{1,5}$/i.test(s))return s;s=s.replace(/^\\[/,'').replace(/\\]$/,'').replace(/[#|=][A-Za-z]{2}$/,'');return /^(?:\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-f:]+|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?$/i.test(s)?s:''}).filter(Boolean);
+if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,replace:!!replace}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
 $('#btnIpAppend').addEventListener('click',function(){importIps(false)});$('#btnIpReplace').addEventListener('click',function(){importIps(true)});
 $('#btnIpClear').addEventListener('click',function(){if(!confirm('?'))return;api('/api/ips',{method:'POST',body:{ips:[],replace:true}}).then(function(){return load()})});
 $('#btnIpCopy').addEventListener('click',function(){copy(CFG.settings.ips.join('\\n'))});
@@ -3394,7 +3413,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, normalizeCountry, splitAddrTag, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,

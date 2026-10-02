@@ -733,8 +733,10 @@
     <string name="diagnostics_cleared">Diagnostic report cleared.</string>
     <string name="diagnostics_share_failed">Could not open the share sheet.</string>
     <string name="scanner_port_label">Probe port</string>
-    <string name="scanner_port_hint">Use 443 first; 2053, 2083 and 8443 can work when an ISP treats ports differently.</string>
+    <string name="scanner_port_hint">Use 443 first; 2053, 2083 and 8443 can work when an ISP treats ports differently. Tap ✏️ to probe any port (1–65535).</string>
     <string name="scanner_port_selected">Port %1$d</string>
+    <string name="scanner_port_custom">Custom port…</string>
+    <string name="scanner_port_invalid">Enter a port between 1 and 65535.</string>
     <string name="wizard_title">Setup wizard — your own panel in 3 minutes</string>
     <string name="wizard_subtitle">No Cloudflare experience needed: token → panel → subscription → clean IPs, one step at a time.</string>
     <string name="wizard_start">Start the wizard</string>

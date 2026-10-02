@@ -5107,8 +5107,42 @@ class MainActivity : Activity() {
             isSingleSelection = true
             chipSpacingHorizontal = dp(6)
             chipSpacingVertical = dp(4)
-            listOf(443, 2053, 2083, 8443).forEach { port ->
-                addView(Chip(this@MainActivity).apply {
+        }
+        var refreshPortChips: () -> Unit = {}
+        val customPortDialog: () -> Unit = {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(12), dp(20), dp(0))
+            }
+            val portInput = TextInputEditText(this).apply {
+                hint = getString(R.string.scanner_port_custom)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText(scannerPort.toString())
+            }
+            box.addView(portInput, LinearLayout.LayoutParams(-1, -2))
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.scanner_port_custom)
+                .setView(box)
+                .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                    val parsed = portInput.text?.toString()?.trim()?.toIntOrNull() ?: 0
+                    if (parsed in 1..65535) {
+                        scannerPort = parsed
+                        saveScannerPort(parsed)
+                        refreshPortChips()
+                    } else {
+                        Toast.makeText(this, R.string.scanner_port_invalid, Toast.LENGTH_SHORT).show()
+                    }
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+        // Presets + the last custom port + ✏️ opener: every port 1–65535 is selectable,
+        // and «Send to Cat Panel» pins each address to exactly this port (ip:port#CC).
+        refreshPortChips = {
+            scannerPortGroup.removeAllViews()
+            (SCANNER_PORTS.toList() + if (scannerPort in SCANNER_PORTS) emptyList() else listOf(scannerPort)).forEach { port ->
+                scannerPortGroup.addView(Chip(this@MainActivity).apply {
                     id = View.generateViewId()
                     text = getString(R.string.scanner_port_selected, port)
                     isCheckable = true
@@ -5124,7 +5158,17 @@ class MainActivity : Activity() {
                     }
                 })
             }
+            scannerPortGroup.addView(Chip(this@MainActivity).apply {
+                text = getString(R.string.scanner_port_custom)
+                textSize = 11f
+                setTextColor(TEXT_SECONDARY)
+                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
+                chipStrokeWidth = dp(1).toFloat()
+                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnClickListener { customPortDialog() }
+            })
         }
+        refreshPortChips()
         controls.addView(scannerPortGroup, LinearLayout.LayoutParams(-1, -2))
         controls.addView(
             TextView(this).apply {
@@ -5520,7 +5564,7 @@ class MainActivity : Activity() {
     private fun scannerPortPreference(): Int {
         val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
             .getInt(SCANNER_PORT_KEY, 443)
-        return saved.takeIf { it in SCANNER_PORTS } ?: 443
+        return saved.takeIf { it in 1..65535 } ?: 443
     }
 
     private fun saveScannerPort(value: Int) {

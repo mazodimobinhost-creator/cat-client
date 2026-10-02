@@ -59,6 +59,9 @@ object IpScanner {
     /** Any Cloudflare-hosted SNI works on any edge; the official speed endpoint rides along. */
     const val SPEED_TEST_SNI = "speed.cloudflare.com"
 
+    /** Cloudflare's plain-HTTP ports; every other port (incl. custom picks) is probed with TLS. */
+    val PLAIN_HTTP_PORTS = setOf(80, 8080, 8880, 2052, 2082, 2086, 2095)
+
     /**
      * XIU2-style download throughput probe: TLS to the edge IP with the speed-test
      * SNI, then GET /__down and count bytes for up to [timeoutMs]. Returns bytes
@@ -70,7 +73,7 @@ object IpScanner {
         timeoutMs: Int = 9_000,
         maxBytes: Int = 12_000_000,
     ): Long? {
-        val tls = port == 443 || port == 2053 || port == 2083 || port == 2087 || port == 2096 || port == 8443
+        val tls = !PLAIN_HTTP_PORTS.contains(port)
         var socket: java.net.Socket? = null
         return try {
             val connected: java.net.Socket = if (tls) {
@@ -466,8 +469,8 @@ object IpScanner {
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
 
-        /** `addr#CC` — the form Cat Panel's IP list understands (country tag per address). */
-        val panelLine: String get() = if (countryCode != null) "$ip#$countryCode" else ip
+        /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
+        val panelLine: String get() = if (countryCode != null) "$ip:$port#$countryCode" else "$ip:$port"
 
         /** Colour band used by the UI: green < 300 ms, amber < 700 ms, red above. */
         val band: Int get() = when {
