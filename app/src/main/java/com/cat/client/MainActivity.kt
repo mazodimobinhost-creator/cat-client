@@ -90,6 +90,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
 
@@ -6131,20 +6133,73 @@ class MainActivity : Activity() {
         val lines = verified.take(60).map { it.panelLine }
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", lines.joinToString("\n")))
-        val sni = scannerSniInput.text?.toString()?.trim().orEmpty()
-        val opened = sni.isNotBlank() && IpScanner.isValidHostname(sni) && runCatching {
-            startActivity(
-                Intent(
-                    Intent.ACTION_VIEW,
-                    Uri.parse("https://$sni/?ips=" + Uri.encode(lines.joinToString(","))),
-                ),
-            )
-        }.isSuccess
-        Toast.makeText(
-            this,
-            getString(if (opened) R.string.scanner_sent_panel else R.string.scanner_copied_panel, lines.size),
-            Toast.LENGTH_LONG,
-        ).show()
+        // Push straight into the panel over its API (login → POST /api/ips, append).
+        // The old deep link opened the scanner SNI instead of the panel, so IPs
+        // never arrived — the panel host comes from the subscriptions now.
+        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) {
+            Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
+            return
+        }
+        val input = TextInputEditText(this).apply {
+            hint = getString(R.string.pip_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.scanner_send_panel)
+            .setMessage(base.removePrefix("https://"))
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                val password = input.text?.toString().orEmpty()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines) } }
+                    result.onSuccess { n ->
+                        val msg = when {
+                            n > 0 -> R.string.scanner_panel_saved
+                            else -> R.string.scanner_panel_zero
+                        }
+                        Toast.makeText(this@MainActivity, getString(msg, n), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    /**
+     * Import clean IPs into Cat Panel over its API: POST /api/login (password →
+     * session cookie), then POST /api/ips {ips:[…]} which appends and returns the
+     * new list size. Nothing is stored on the phone. Mirror of
+     * ProxyIpScannerPage.pushToPanel.
+     */
+    private fun pushIpsToPanel(base: String, password: String, lines: List<String>): Int {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
+            val conn = URL("$base$path").openConnection() as HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (post, postBody) = call("/api/ips", "POST", org.json.JSONObject().put("ips", org.json.JSONArray(lines)).toString(), cookie)
+        val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
+        val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0
+        post.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${post.responseCode}")
+        return count
     }
 
     private fun copyScannerIp(result: IpScanner.ScanResult) {

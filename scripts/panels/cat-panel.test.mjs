@@ -112,7 +112,7 @@ let user;
 // geo endpoint shape (no network in test → ok:false but 200)
 { const r = await req('/api/geo?ip=1.1.1.1'); check('geo returns json', r.status===200 && typeof (await r.json()).ok==='boolean'); }
 // scan targets
-{ const r = await req('/api/scan-targets.json'); const j = await r.json(); check('scan targets', j.ranges.length>10 && j.sni===HOST); }
+{ const r = await req('/api/scan-targets.json'); const j = await r.json(); check('scan targets', j.ranges.length>10 && j.sni==='skk.moe'); }
 // wire parsers
 { const uuidHex = MASTER.replace(/-/g,''); const bytes = new Uint8Array([0, ...uuidHex.match(/../g).map(h=>parseInt(h,16)), 0, 1, 0x01,0xbb, 2, 11, ...new TextEncoder().encode('example.com'), 0x47,0x45,0x54]);
   const v = T.parseVlessHeader(bytes); check('vless header parse', v && v.uuid===MASTER && v.host==='example.com' && v.port===443 && v.command===1 && v.rest.length===3);
@@ -300,6 +300,16 @@ let user;
 {
   const st2 = T.normalizeSettings({ tlsPorts: [443, 8443, 2096], plainPorts: [80, 8080] });
   check('normalize keeps custom ports', st2.tlsPorts.map(Number).includes(2096) && st2.tlsPorts.map(Number).includes(8443) && st2.plainPorts.map(Number).includes(8080));
+}
+// SNI hygiene: the panel host must never be the default SNI (DPI burns panels that way)
+{
+  check('default SNI is NOT the panel host', T.effectiveSni(HOST, {}, {}) === 'skk.moe', T.effectiveSni(HOST, {}, {}));
+  check('SNI: settings beat default', T.effectiveSni(HOST, {}, T.normalizeSettings({ sni: 'example.com' })) === 'example.com');
+  check('SNI: env beats default', T.effectiveSni(HOST, { SNI: 'env.example' }, {}) === 'env.example');
+  const subSt = T.normalizeSettings({});
+  const sub = mod ? null : null;
+  const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
+  check('generated configs do not put panel host into sni param', !ctx.sni.includes(HOST), ctx.sni);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);
