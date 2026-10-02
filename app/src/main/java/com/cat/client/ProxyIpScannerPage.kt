@@ -320,7 +320,7 @@ class ProxyIpScannerPage(
             if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
             // Local-only recovery snapshot: lets the app rebuild the panel elsewhere
             // if Cloudflare suspends this worker after an abuse report (Error 1101).
-            if (settingsObj != null) PanelBackup.save(base, settingsObj.toString(), settingsObj.optString("panelPath"))
+            if (settingsObj != null) PanelBackup.save(ctx, base, settingsObj.toString(), settingsObj.optString("panelPath"))
         }
         get.disconnect()
         val merged = (lines + existing.filter { it !in lines }).filter { it.isNotBlank() }.distinct().take(32)

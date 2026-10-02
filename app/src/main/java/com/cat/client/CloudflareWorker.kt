@@ -566,7 +566,7 @@ object CloudflareWorker {
         // 7. Stealth hardening: snapshot settings into the local recovery backup
         // and move the panel UI to a random hidden path (root then 404s neutrally).
         val stealthPath = runCatching {
-            applyPanelStealth(workerUrl, panelUser, panelPassword.ifBlank { uuid })
+            applyPanelStealth(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
         }.getOrDefault("")
         if (stealthPath.isNotBlank()) {
             PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
@@ -712,7 +712,7 @@ object CloudflareWorker {
      * panel out of that dragnet. Returns the hidden path, or "" when the panel
      * did not accept the login (legacy open layout stays in place).
      */
-    fun applyPanelStealth(workerUrl: String, panelUser: String, panelPassword: String): String {
+    fun applyPanelStealth(context: Context, workerUrl: String, panelUser: String, panelPassword: String): String {
         val base = workerUrl.trimEnd('/')
         fun req(path: String, method: String, body: String?, cookie: String?): Triple<Int, String, String> {
             val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
@@ -750,7 +750,7 @@ object CloudflareWorker {
         val settingsJson = runCatching { JSONObject(getBody).optJSONObject("settings") }.getOrNull()
         if (settingsJson != null) {
             existing = settingsJson.optString("panelPath").orEmpty()
-            PanelBackup.save(base, settingsJson.toString(), existing)
+            PanelBackup.save(context, base, settingsJson.toString(), existing)
         }
         val pathRegex = Regex("^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$")
         if (existing.matches(pathRegex)) return existing
