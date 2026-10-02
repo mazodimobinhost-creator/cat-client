@@ -4869,6 +4869,34 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
         )
 
+        body.addView(
+            advancedSettingsPanel().apply {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showProxyIpScannerPage() }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(14), dp(16), dp(14))
+                        addView(TextView(this@MainActivity).apply { text = "🔁"; textSize = 22f }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(14) })
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(TextView(this@MainActivity).apply { setText(R.string.pip_entry); textSize = 15f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false })
+                                addView(TextView(this@MainActivity).apply { setText(R.string.pip_entry_detail); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                        addView(TextView(this@MainActivity).apply { text = "›"; textSize = 22f; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
+        )
+
         // ---- Static IP: exactly one fronting address, never rotated / failed-over / re-ranked ----
         body.addView(buildStaticIpCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
 
@@ -7461,6 +7489,11 @@ class MainActivity : Activity() {
         card.addView(scannerFieldLayout(getString(R.string.sni_scanner_list), listInput), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE; setPadding(dp(8), dp(6), dp(8), 0) }
         val progress = TextView(this).apply { textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); setPadding(dp(8), dp(6), dp(8), 0) }
+        val overrideStatus = TextView(this).apply {
+            textSize = 12f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY); setPadding(dp(8), dp(8), dp(8), 0)
+            val current = frontingIpPreferenceStore.readSniOverride()
+            text = if (current.isBlank()) getString(R.string.sni_override_none) else getString(R.string.sni_override_current, current)
+        }
         var running = false
         val run = MaterialButton(this).apply {
             setText(R.string.sni_scanner_run); setAllCaps(false); textSize = 12f; minHeight = dp(40); insetTop = 0; insetBottom = 0; cornerRadius = dp(16)
@@ -7501,9 +7534,20 @@ class MainActivity : Activity() {
                         background = glassSurfaceDrawable(radiusDp = 12); clipToOutline = true
                         isClickable = ok; isFocusable = ok
                         if (ok) setOnClickListener {
-                            saveScannerSni(sni)
-                            if (::scannerSniInput.isInitialized) scannerSniInput.setText(sni)
-                            Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
+                            com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle(sni)
+                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy))) { _, which ->
+                                    when (which) {
+                                        0 -> { applySniOverride(sni); overrideStatus.text = getString(R.string.sni_override_current, sni) }
+                                        1 -> {
+                                            saveScannerSni(sni)
+                                            if (::scannerSniInput.isInitialized) scannerSniInput.setText(sni)
+                                            Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
+                                        }
+                                        else -> (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("sni", sni))
+                                    }
+                                }
+                                .show()
                         }
                         addView(TextView(this@MainActivity).apply { text = if (ok) "TLS ✓" else "✗"; textSize = 10.5f; typeface = CatClientBodyBoldTypeface; setTextColor(if (ok) TEAL else TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
                         addView(TextView(this@MainActivity).apply { text = sni; textSize = 13f; typeface = CatClientDataTypeface; setTextColor(TEXT_PRIMARY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -7515,11 +7559,38 @@ class MainActivity : Activity() {
         card.addView(LinearLayout(this).apply { setPadding(dp(8), dp(10), dp(8), 0); addView(run, LinearLayout.LayoutParams(-1, -2)) }, LinearLayout.LayoutParams(-1, -2))
         card.addView(progress, LinearLayout.LayoutParams(-1, -2))
         card.addView(results, LinearLayout.LayoutParams(-1, -2))
+        card.addView(overrideStatus, LinearLayout.LayoutParams(-1, -2))
+        val clearOverride = MaterialButton(this).apply {
+            setText(R.string.sni_override_clear); setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(34); minimumHeight = dp(34)
+            insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEXT_SECONDARY, 30)); setTextColor(TEXT_PRIMARY)
+            setOnClickListener { applySniOverride(null); overrideStatus.text = getString(R.string.sni_override_none) }
+        }
+        card.addView(LinearLayout(this).apply { setPadding(dp(8), dp(4), dp(8), 0); addView(clearOverride, LinearLayout.LayoutParams(-2, -2)) }, LinearLayout.LayoutParams(-1, -2))
         return card
     }
 
     private fun showSpeedTestPage() {
         SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
+    }
+
+    private fun panelBaseUrl(): String? = detectPanelSnisFromSubscriptions().firstOrNull()?.let { "https://$it" }
+
+    private fun showProxyIpScannerPage() {
+        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl()).show()
+    }
+
+    /** Put an SNI into the live configs (servername of every TLS proxy) and reconnect; null clears it. */
+    private fun applySniOverride(sni: String?) {
+        val previous = frontingIpPreferenceStore.readSniOverride()
+        frontingIpPreferenceStore.saveSniOverride(sni)
+        val next = frontingIpPreferenceStore.readSniOverride()
+        if (next != previous && buttonModel.state == VpnState.Started) {
+            buttonModel.onStateChanged(VpnState.Starting)
+            renderState(VpnState.Starting)
+            startVpnService(Actions.RECONNECT)
+        }
+        Toast.makeText(this, if (next.isBlank()) getString(R.string.sni_override_cleared) else getString(R.string.sni_override_applied, next), Toast.LENGTH_LONG).show()
     }
 
     private fun showProxyScannerPage() {

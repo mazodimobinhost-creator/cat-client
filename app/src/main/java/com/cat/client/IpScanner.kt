@@ -349,6 +349,28 @@ object IpScanner {
 
     fun defaultRangesText(): String = DEFAULT_RANGES.joinToString(", ")
 
+    private val CLOUDFLARE_V4 = listOf(
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+        "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    ).map { cidr ->
+        val (ip, bits) = cidr.split('/')
+        val base = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or s.toLong() }
+        val mask = 0xFFFFFFFFL shl (32 - bits.toInt())
+        (base and mask) to mask
+    }
+
+    /** True for addresses inside Cloudflare's published IPv4/IPv6 edge ranges (a ProxyIP must NOT be one). */
+    fun isCloudflareAddress(host: String): Boolean {
+        val v4 = Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$")
+        if (v4.matches(host)) {
+            val value = host.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLongOrNull() ?: 0L) }
+            return CLOUDFLARE_V4.any { (base, mask) -> (value and mask) == base }
+        }
+        val h = host.lowercase()
+        return h.startsWith("2606:4700:") || h.startsWith("2803:f800:") || h.startsWith("2405:b500:") || h.startsWith("2405:8100:") || h.startsWith("2a06:98c0:") || h.startsWith("2c0f:f248:")
+    }
+
     data class ScanResult(
         val ip: String,
         val pingMs: Long,

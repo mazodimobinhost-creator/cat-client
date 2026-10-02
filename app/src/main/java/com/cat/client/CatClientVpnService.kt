@@ -1641,6 +1641,7 @@ class CatClientVpnService : VpnService() {
         alwaysOn = alwaysOnActive,
         lockdown = lockdownActive,
         tlsIntegrityEnabled = tlsIntegrityPreferenceStore.isEnabled(),
+        sniOverride = frontingIpPreferenceStore.readSniOverride(),
     )
 
     private suspend fun connectWithFrontingIpsOrOriginal(

@@ -1414,8 +1414,11 @@ object MihomoFrontingPatcher {
         rawYaml: String,
         serverOverrideIp: String?,
         serverOverridePort: Int? = null,
+        sniOverride: String? = null,
     ): String {
-        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() } ?: return rawYaml
+        val sni = sniOverride?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() }
+            ?: return if (sni == null) rawYaml else patchSniOnly(rawYaml, sni)
         val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
         val output = mutableListOf<String>()
         var inProxies = false
@@ -1423,7 +1426,7 @@ object MihomoFrontingPatcher {
 
         fun flushProxy() {
             if (currentProxy.isEmpty()) return
-            output += patchProxyBlock(currentProxy, override, serverOverridePort)
+            output += patchSni(patchProxyBlock(currentProxy, override, serverOverridePort), sni)
             currentProxy = mutableListOf()
         }
 
@@ -1458,6 +1461,67 @@ object MihomoFrontingPatcher {
         if (inProxies) flushProxy()
 
         return output.joinToString("\n")
+    }
+
+    /** SNI-only pass (no server override): same block walk, only servername/sni fields change. */
+    private fun patchSniOnly(rawYaml: String, sni: String): String {
+        val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
+        val output = mutableListOf<String>()
+        var inProxies = false
+        var currentProxy = mutableListOf<String>()
+        fun flushProxy() {
+            if (currentProxy.isEmpty()) return
+            output += patchSni(currentProxy, sni)
+            currentProxy = mutableListOf()
+        }
+        normalized.split('\n').forEach { line ->
+            val topLevelKey = topLevelKey(line)
+            if (topLevelKey != null) {
+                if (inProxies) flushProxy()
+                inProxies = topLevelKey == "proxies"
+                output += line
+                return@forEach
+            }
+            if (!inProxies) { output += line; return@forEach }
+            val content = line.trimStart()
+            if (indentation(line) == 2 && content.startsWith("- ")) { flushProxy(); currentProxy += line; return@forEach }
+            if (currentProxy.isNotEmpty()) currentProxy += line else output += line
+        }
+        if (inProxies) flushProxy()
+        return output.joinToString("\n")
+    }
+
+    /**
+     * Apply the SNI override to one proxy block: rewrite `servername:` / `sni:` when present,
+     * otherwise add `servername:` to TLS-capable proxies. Only the TLS handshake name changes —
+     * HTTP Host / ws headers still carry the panel domain so the Worker keeps routing.
+     */
+    private fun patchSni(lines: List<String>, sni: String?): List<String> {
+        if (sni == null) return lines
+        val joined = lines.joinToString("\n")
+        val tlsCapable = Regex("type:\\s*(vless|vmess|trojan|anytls|hysteria2|hysteria|tuic)").containsMatchIn(joined) ||
+            Regex("tls:\\s*true").containsMatchIn(joined)
+        if (!tlsCapable) return lines
+        var replaced = false
+        val out = lines.map { line ->
+            when {
+                isProxyField(line, "servername") -> { replaced = true; replaceYamlValue(line, "servername", sni) }
+                isProxyField(line, "sni") -> { replaced = true; replaceYamlValue(line, "sni", sni) }
+                line.trimStart().startsWith("- {") -> {
+                    var l = line
+                    if (Regex("servername:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("servername:\\s*[^,}]+"), "servername: $sni"); replaced = true }
+                    if (Regex("[,{\\s]sni:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("sni:\\s*[^,}]+"), "sni: $sni"); replaced = true }
+                    if (!replaced && l.contains("server:")) { l = l.replace(Regex("server:\\s*([^,}]+)"), "server: $1, servername: $sni"); replaced = true }
+                    l
+                }
+                else -> line
+            }
+        }.toMutableList()
+        if (!replaced) {
+            val serverIndex = out.indexOfFirst { isProxyField(it, "server") }
+            if (serverIndex >= 0) out.add(serverIndex + 1, "    servername: $sni")
+        }
+        return out
     }
 
     private fun patchProxyBlock(lines: List<String>, override: String, portOverride: Int?): List<String> {
