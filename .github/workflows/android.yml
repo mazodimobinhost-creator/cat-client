@@ -180,6 +180,20 @@ jobs:
           fi
           exit "$STATUS"
 
+      - name: Unit tests (JVM)
+        if: success()
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew :app:testDebugUnitTest --console=plain 2>&1 | tee unit-test.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== FAILED TESTS ==="
+            find app/build/test-results -name "*.xml" -exec grep -l "failure" {} \; 2>/dev/null | head -5 | xargs -r grep -h "<failure" | head -20
+            tail -n 60 unit-test.log
+          fi
+          exit "$STATUS"
+
       - name: Build release APK
         if: success()
         env:
