@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.10.1';
+const CAT_PANEL_VERSION = '6.10.2';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -1573,7 +1573,15 @@ function tunnelPaths(env) {
   // still win. Legacy '/ws' and '/trojan' remain accepted (see isTunnelPath).
   const overrideV = String(env.VLESS_PATH || '').trim();
   const overrideT = String(env.TROJAN_PATH || '').trim();
-  const seed = (() => { try { return sha224Hex(String(env.UUID || 'cat-panel')).slice(0, 16); } catch (e) { return 'catpanel0catpanel1'; } })();
+  const seed = (() => {
+    try {
+      const B62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let n = BigInt('0x' + sha224Hex(String(env.UUID || 'cat-panel')));
+      let s = '';
+      while (s.length < 23) { s += B62[Number(n % 62n)]; n /= 62n; }
+      return s;
+    } catch (e) { return 'CatPanelSeedFallback0123'; }
+  })();
   const vless = overrideV || '/vl/' + seed + '?ed=2560';
   const trojan = overrideT || '/tr/' + seed + '?ed=2560';
   return {
