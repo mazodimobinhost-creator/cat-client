@@ -209,6 +209,8 @@ jobs:
             echo
             grep -h "<failure" app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | sed -E 's/<failure message="/- /' | head -30
             echo
+            echo '## files with compile errors'
+            grep -oE 'app/src/test/[^:]+\.kt' unit-test.log 2>/dev/null | sort | uniq -c | sort -rn | head -20
             echo '## log tail'
             tail -n 100 unit-test.log 2>/dev/null
           } > FAILED-TESTS.md
