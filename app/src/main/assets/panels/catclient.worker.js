@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.10.0';
+const CAT_PANEL_VERSION = '6.10.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -315,7 +315,9 @@ function defaultSettings() {
     ips: [],            // owner's clean IPs / domains (first in every subscription)
     useDefaults: true,  // append DEFAULT_CLEAN_ADDRESSES after the owner's list
     tlsPorts: TLS_PORTS.slice(0, 3),
-    plainPorts: PLAIN_PORTS.slice(0, 2),
+    // BPB signature order: 443 → 8080. (Previously 80 came before 8080 and the
+    // entry limit ran out before any :8080 config was emitted.)
+    plainPorts: [8080, 80],
     plainEnabled: true,
     protocols: { vless: true, trojan: true },
     sni: '',
