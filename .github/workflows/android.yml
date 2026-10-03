@@ -180,6 +180,44 @@ jobs:
           fi
           exit "$STATUS"
 
+      - name: Unit tests (JVM)
+        if: success()
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew :app:testDebugUnitTest --console=plain 2>&1 | tee unit-test.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== FAILED TESTS ==="
+            for f in $(find app/build/test-results -name "*.xml" 2>/dev/null); do
+              grep -q "<failure" "$f" || continue
+              cls=$(grep -oE 'classname="[^"]+"' "$f" | head -1 | cut -d'"' -f2)
+              grep -oE '<failure message="[^"]{0,140}' "$f" | head -5 | sed "s/<failure message=/::error::FAILED ${cls} :: /"
+            done
+            tail -n 60 unit-test.log
+          fi
+          exit "$STATUS"
+
+      - name: Report failed tests back to the branch
+        if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
+        run: |
+          git config user.name "ci-report-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git branch --show-current
+          {
+            echo "# Unit test failure report (${GITHUB_SHA::7})"
+            echo
+            grep -h "<failure" app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | sed -E 's/<failure message="/- /' | head -30
+            echo
+            echo '## files with compile errors'
+            grep -oE 'app/src/test/[^:]+\.kt' unit-test.log 2>/dev/null | sort | uniq -c | sort -rn | head -20
+            echo '## log tail'
+            tail -n 100 unit-test.log 2>/dev/null
+          } > FAILED-TESTS.md
+          git add FAILED-TESTS.md
+          git commit -m "CI test failure report [skip ci]" || true
+          git push origin HEAD:"${GITHUB_REF_NAME}" || true
+
       - name: Build release APK
         if: success()
         env:

@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
+import kotlin.random.Random
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -41,11 +42,16 @@ object CloudflareWorker {
      * read, User Details read). The user only taps Continue to summary → Create Token.
      * https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
      */
+    // Same permission set as the battle-tested BPB-Wizard template (Workers
+    // Scripts:Edit, KV Storage:Edit, Pages:Edit, Zone DNS:Edit, User Details:Read)
+    // so the dashboard pre-fills it in one tap and account listing works without
+    // Account Settings:Read (BPB proved /accounts answers for any account-scoped edit token).
     const val CF_TOKEN_TEMPLATE_URL =
         "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" +
             "%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C" +
             "%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C" +
-            "%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C" +
+            "%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%2C" +
+            "%7B%22key%22%3A%22dns%22%2C%22type%22%3A%22edit%22%7D%2C" +
             "%7B%22key%22%3A%22user_details%22%2C%22type%22%3A%22read%22%7D%5D" +
             "&accountId=*&zoneId=all&name=Cat%20Panel"
 
@@ -561,6 +567,16 @@ object CloudflareWorker {
 
         // 6. Smoke-test the live panel (workers.dev propagation takes a few seconds).
         val verifiedOnline = smokeTestPanel(workerUrl, uuid)
+
+        // 7. Stealth hardening: snapshot settings into the local recovery backup
+        // and move the panel UI to a random hidden path (root then 404s neutrally).
+        val stealthPath = runCatching {
+            applyPanelStealth(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
+        }.getOrDefault("")
+        if (stealthPath.isNotBlank()) {
+            PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
+        }
+
         DeploymentResult(
             workerName = workerName,
             subdomain = subdomain,
@@ -568,7 +584,9 @@ object CloudflareWorker {
             subscriptionUrl = "$workerUrl/sub/$uuid",
             verifiedOnline = verifiedOnline,
             uuid = uuid,
-            panelUrl = if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
+            panelUrl = if (stealthPath.isNotBlank()) {
+                "$workerUrl/$stealthPath" + if (panelUser.isNotBlank()) "/" else "/?p=$uuid"
+            } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
             kvBound = kvId != null,
         )
     }
@@ -612,16 +630,15 @@ object CloudflareWorker {
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
 
-        // Never silently drop a secret the user added (e.g. WIZARD_PASSWORD):
-        // Cloudflare does not return secret values, so the caller must provide
-        // them (the app collects them first). Anything still missing blocks.
+        // Secrets the user added (e.g. UUID/WIZARD_PASSWORD) survive updates
+        // without retyping: keep_secrets=true preserves them server-side, so we
+        // simply must not send empty bindings for them (that would clear them).
         val existing = readScriptBindings(token, uploadUrl)
-        val blocked = existing
+        val keptSecrets = existing
             ?.filter { it.optString("type") == "secret_text" && it.optString("text").isNullOrBlank() }
             ?.mapNotNull { it.optString("name").takeIf { name -> name.isNotBlank() } }
             .orEmpty()
             .filterNot { secretValues.containsKey(it) }
-        if (blocked.isNotEmpty()) return@withContext PanelUpdateOutcome.Blocked(blocked)
 
         // Prefer the KV namespace already bound to this worker; fall back to the
         // deterministic "<worker>-catpanel" title the deploy flow creates.
@@ -640,6 +657,9 @@ object CloudflareWorker {
             if (name.isBlank() || name == "UUID" || name == "CAT_KV") return@forEach
             when (binding.optString("type")) {
                 "plain_text", "secret_text" -> {
+                    // Unreadable secrets ride on keep_secrets — sending an empty
+                    // text here would wipe them.
+                    if (name in keptSecrets) return@forEach
                     val text = secretValues[name] ?: binding.optString("text")
                     extras.put(
                         JSONObject()
@@ -652,7 +672,7 @@ object CloudflareWorker {
             }
         }
 
-        val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras)
+        val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras, keepSecrets = keptSecrets.isNotEmpty())
         if (!putResult.optBoolean("success", false)) {
             val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
             throw RuntimeException("Worker upload failed: $errors")
@@ -675,6 +695,224 @@ object CloudflareWorker {
             kvBound = kvId != null,
             fromRelease = script.fromRelease,
         )
+    }
+
+    /** Neutral, non-branded worker name for fresh deploys (e.g. "edge-a7k2m9"). */
+    fun randomWorkerName(): String = "edge-" + randomToken(5)
+
+    /** Random 10-char hidden panel path used by stealth mode. */
+    fun randomPanelPath(): String = randomToken(10)
+
+    private fun randomToken(length: Int): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return buildString {
+            repeat(length) { append(alphabet[Random.nextInt(alphabet.length)]) }
+        }
+    }
+
+    /**
+     * Stealth hardening for deploys: log into the panel, snapshot its settings
+     * into [PanelBackup] (a local-only recovery point), and move the panel UI
+     * to a random hidden path so the root URL answers a neutral 404. Cloudflare
+     * auto abuse-reporters and workers.dev crawlers fingerprint open proxy
+     * panels on the root path — a hidden path plus a brand-free 404 keeps the
+     * panel out of that dragnet. Returns the hidden path, or "" when the panel
+     * did not accept the login (legacy open layout stays in place).
+     */
+    fun applyPanelStealth(context: Context, workerUrl: String, panelUser: String, panelPassword: String): String {
+        val base = workerUrl.trimEnd('/')
+        fun req(path: String, method: String, body: String?, cookie: String?): Triple<Int, String, String> {
+            val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                instanceFollowRedirects = false
+                setRequestProperty("Accept", "application/json")
+                if (cookie != null) setRequestProperty("Cookie", cookie)
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    outputStream.use { it.write(body.toByteArray()) }
+                }
+            }
+            val code = conn.responseCode
+            val text = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val setCookie = conn.headerFields?.entries
+                ?.filter { it.key.equals("set-cookie", true) }
+                ?.flatMap { it.value }
+                ?.joinToString("; ") { it.substringBefore(';') }
+                .orEmpty()
+            conn.disconnect()
+            return Triple(code, text, setCookie)
+        }
+
+        val loginPayload = JSONObject().put("username", panelUser).put("password", panelPassword).toString()
+        val (loginCode, loginBody, cookie) = req("/api/login", "POST", loginPayload, null)
+        val loginOk = loginCode == 200 && cookie.isNotBlank() &&
+            runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        if (!loginOk) return ""
+
+        val (_, getBody, _) = req("/api/settings", "GET", null, cookie)
+        var existing = ""
+        val settingsJson = runCatching { JSONObject(getBody).optJSONObject("settings") }.getOrNull()
+        if (settingsJson != null) {
+            existing = settingsJson.optString("panelPath").orEmpty()
+            PanelBackup.save(context, base, settingsJson.toString(), existing)
+        }
+        // Users too — recovery recreates them with their original tokens.
+        val (_, usersBody, _) = req("/api/users", "GET", null, cookie)
+        val usersArr = runCatching { JSONObject(usersBody).optJSONArray("users") }.getOrNull()
+        if (usersArr != null) PanelBackup.saveUsers(context, usersArr.toString())
+        val pathRegex = Regex("^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$")
+        if (existing.matches(pathRegex)) return existing
+
+        val target = randomPanelPath()
+        val (putCode, _, _) = req("/api/settings", "PUT", JSONObject().put("panelPath", target).toString(), cookie)
+        return if (putCode == 200) target else ""
+    }
+
+    data class PanelHealth(val state: String, val detail: String)
+
+    /**
+     * Ask the panel's /health and classify the answer. Cloudflare suspensions
+     * after abuse reports answer EVERY route with the Error 1101 page and no
+     * code runs at all — that is the "BLOCKED" state the recovery flow handles.
+     */
+    fun checkPanelHealth(workerUrl: String): PanelHealth {
+        val base = workerUrl.trimEnd('/')
+        return runCatching {
+            val conn = (URL(base + "/health").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8_000
+                readTimeout = 8_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "Mozilla/5.0 (panel-status)")
+            }
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+            when {
+                code in 200..299 && body.contains("\"ok\"") -> PanelHealth("HEALTHY", "HTTP $code")
+                body.contains("Error 1101", true) || body.contains("Worker threw exception", true) ->
+                    PanelHealth("BLOCKED", "Error 1101 — the worker was suspended after an abuse report")
+                body.contains("cf-error-details", true) || (body.contains("Cloudflare", true) && code >= 500) ->
+                    PanelHealth("BLOCKED", "HTTP $code — Cloudflare error page")
+                else -> PanelHealth("DOWN", "HTTP $code")
+            }
+        }.getOrElse { PanelHealth("DOWN", it.message ?: "network error") }
+    }
+
+    data class PanelRestoreResult(val settingsApplied: Boolean, val usersRestored: Int)
+
+    /**
+     * Replay a [PanelBackup.Snapshot] into a freshly deployed panel: PUT the
+     * settings and recreate users with their original tokens (POST /api/users).
+     * The snapshot is passed in — NOT re-read from storage — because deploying
+     * the new panel has already replaced the backup with the new (empty) state.
+     * panelPath stays the new worker's fresh hidden path; a masked Telegram
+     * token ("••••…") is dropped instead of corrupting the field.
+     */
+    fun restorePanelState(
+        workerUrl: String,
+        settingsJson: String,
+        usersJson: String,
+        username: String = "",
+        password: String,
+    ): PanelRestoreResult {
+        val base = workerUrl.trimEnd('/')
+        fun call(path: String, method: String, body: String?, cookie: String?): Triple<Int, String, String> {
+            val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 10_000
+                readTimeout = 20_000
+                instanceFollowRedirects = false
+                setRequestProperty("Accept", "application/json")
+                if (cookie != null) setRequestProperty("Cookie", cookie)
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    outputStream.use { it.write(body.toByteArray()) }
+                }
+            }
+            val code = conn.responseCode
+            val text = (if (code < 400) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val setCookie = conn.headerFields?.entries
+                ?.filter { it.key.equals("set-cookie", true) }
+                ?.flatMap { it.value }
+                ?.joinToString("; ") { it.substringBefore(';') }
+                .orEmpty()
+            conn.disconnect()
+            return Triple(code, text, setCookie)
+        }
+
+        val (loginCode, loginBody, cookie) = call("/api/login", "POST", JSONObject().put("username", username).put("password", password).toString(), null)
+        val loginOk = loginCode == 200 && cookie.isNotBlank() &&
+            runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        if (!loginOk) return PanelRestoreResult(false, 0)
+
+        var settingsOk = false
+        if (settingsJson.isNotBlank()) {
+            val patch = runCatching { JSONObject(settingsJson) }.getOrNull()
+            if (patch != null) {
+                patch.remove("panelPath") // keep the fresh stealth path from the deploy
+                if (patch.optString("tgToken").contains("•")) patch.remove("tgToken")
+                val (code, _, _) = call("/api/settings", "PUT", patch.toString(), cookie)
+                settingsOk = code == 200
+            }
+        }
+
+        var users = 0
+        val arr = runCatching { JSONArray(usersJson) }.getOrNull()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val u = arr.optJSONObject(i) ?: continue
+                val id = u.optString("id")
+                if (!id.matches(Regex("^[0-9a-fA-F-]{36}$"))) continue
+                val payload = JSONObject()
+                    .put("id", id)
+                    .put("name", u.optString("name"))
+                    .put("enabled", u.optBoolean("enabled", true))
+                val expiresAt = u.optLong("expiresAt", 0L)
+                if (expiresAt > 0) payload.put("expiresAt", expiresAt)
+                val note = u.optString("note", "")
+                if (note.isNotBlank()) payload.put("note", note)
+                val (code, _, _) = call("/api/users", "POST", payload.toString(), cookie)
+                if (code == 200 || code == 201 || code == 409) users++
+            }
+        }
+        return PanelRestoreResult(settingsOk, users)
+    }
+
+    /**
+     * Delete a panel deployed from this app: removes the worker script and its
+     * "<worker>-catpanel" KV namespace. Subscription links die with the worker —
+     * the caller asks for confirmation first.
+     */
+    suspend fun deletePanel(token: String, workerUrl: String): String = withContext(Dispatchers.IO) {
+        val workerName = workerNameFromUrl(workerUrl.trimEnd('/'))
+        val accounts = cfGet(token, "https://api.cloudflare.com/client/v4/accounts?per_page=5")
+        val accountId = accounts.optJSONArray("result")?.optJSONObject(0)?.optString("id").orEmpty()
+        if (!accounts.optBoolean("success", false) || accountId.isBlank()) {
+            throw RuntimeException("token cannot list accounts")
+        }
+        val deleted = cfDelete(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName")
+        if (!deleted.optBoolean("success", false)) {
+            throw RuntimeException("worker delete failed: " + (deleted.optJSONArray("errors")?.toString() ?: "unknown"))
+        }
+        var kvDeleted = 0
+        runCatching {
+            val namespaces = cfGet(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces?per_page=100")
+            val arr = namespaces.optJSONArray("result") ?: JSONArray()
+            for (i in 0 until arr.length()) {
+                val ns = arr.optJSONObject(i) ?: continue
+                if (ns.optString("title") == "${workerName}-catpanel") {
+                    val id = ns.optString("id")
+                    if (id.isNotBlank() && cfDelete(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces/$id").optBoolean("success", false)) kvDeleted++
+                }
+            }
+        }
+        if (kvDeleted > 0) "worker + KV removed" else "worker removed"
     }
 
     private fun workerNameFromUrl(workerUrl: String): String {
@@ -816,6 +1054,19 @@ object CloudflareWorker {
             .getOrElse { JSONObject().put("success", false).put("message", body.take(300)) }
     }
 
+    private fun cfDelete(token: String, url: String): JSONObject {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "DELETE"
+            connectTimeout = 20_000
+            readTimeout = 20_000
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        return runCatching { JSONObject(body) }.getOrDefault(JSONObject().put("success", code in 200..299))
+    }
+
     private fun cfPost(token: String, url: String, jsonBody: String): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -857,6 +1108,7 @@ object CloudflareWorker {
         kvNamespaceId: String? = null,
         secrets: Map<String, String> = emptyMap(),
         extraBindings: JSONArray = JSONArray(),
+        keepSecrets: Boolean = false,
     ): JSONObject {
         val bindings = JSONArray()
         if (uuid.isNotBlank()) {
@@ -878,6 +1130,10 @@ object CloudflareWorker {
             .put("bindings", bindings)
             .put("compatibility_date", "2025-03-04")
             .put("compatibility_flags", JSONArray().put("nodejs_compat"))
+        // Cloudflare never returns secret values; keep_secrets=true tells the
+        // upload to preserve the previous version's secret bindings untouched —
+        // so an UPDATE never has to ask the user to retype them.
+        if (keepSecrets) metadata.put("keep_secrets", true)
         val boundary = "----catclient${System.currentTimeMillis()}"
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
@@ -929,9 +1185,15 @@ data class PanelDeploymentRecord(
     val workerUrl: String,
     val uuid: String,
     val createdAt: Long,
+    val path: String = "",
 ) {
     val panelUrl: String
-        get() = workerUrl.trimEnd('/') + "/?p=" + uuid
+        get() {
+            val base = workerUrl.trimEnd('/')
+            // Attached external panels have no stored UUID: open them plainly.
+            if (uuid.isBlank()) return if (path.isBlank()) base else base + "/" + path
+            return if (path.isBlank()) base + "/?p=" + uuid else base + "/" + path + "/?p=" + uuid
+        }
 }
 
 class PanelDeploymentStore(context: Context) {
@@ -965,15 +1227,19 @@ class PanelDeploymentStore(context: Context) {
         return fresh
     }
 
-    fun rememberLast(workerUrl: String, uuid: String) {
+    fun rememberLast(workerUrl: String, uuid: String, path: String = "") {
         val normalized = workerUrl.trimEnd('/')
+        val pathKey = "path:" + normalized.lowercase(Locale.US)
+        // Blank path = don't touch it (worker self-updates must keep the hidden path).
+        val effectivePath = path.ifBlank { prefs.getString(pathKey, null).orEmpty() }
+        if (effectivePath.isNotBlank()) prefs.edit().putString(pathKey, effectivePath).apply()
         val history = deployments()
             .filterNot { it.workerUrl == normalized }
             .toMutableList()
-        history.add(0, PanelDeploymentRecord(normalized, uuid, System.currentTimeMillis()))
+        history.add(0, PanelDeploymentRecord(normalized, uuid, System.currentTimeMillis(), effectivePath))
         val encoded = JSONArray().apply {
             history.take(8).forEach { item ->
-                put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt))
+                put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt).put("path", item.path))
             }
         }
         prefs.edit()
@@ -994,7 +1260,7 @@ class PanelDeploymentStore(context: Context) {
                     val url = item.optString("url").trimEnd('/')
                     val uuid = item.optString("uuid")
                     if (url.isNotBlank() && uuid.isNotBlank()) {
-                        add(PanelDeploymentRecord(url, uuid, item.optLong("createdAt", 0L)))
+                        add(PanelDeploymentRecord(url, uuid, item.optLong("createdAt", 0L), item.optString("path")))
                     }
                 }
             }
@@ -1025,6 +1291,28 @@ class PanelDeploymentStore(context: Context) {
 
     fun tokenFor(workerUrl: String): String? =
         prefs.getString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
+
+    /** Forget a deployment completely (worker deleted in the dashboard or via the API). */
+    fun remove(workerUrl: String) {
+        val normalized = workerUrl.trimEnd('/')
+        val key = normalized.lowercase(Locale.US)
+        prefs.edit()
+            .remove("uuid:$key")
+            .remove("path:$key")
+            .remove("token:$key")
+            .putString(
+                "history",
+                JSONArray().apply {
+                    deployments()
+                        .filterNot { it.workerUrl.equals(normalized, ignoreCase = true) }
+                        .take(8)
+                        .forEach { item ->
+                            put(JSONObject().put("url", item.workerUrl).put("uuid", item.uuid).put("createdAt", item.createdAt).put("path", item.path))
+                        }
+                }.toString(),
+            )
+            .apply()
+    }
 
 
     fun lastWizardUrl(): String? = prefs.getString("last_wizard", null)

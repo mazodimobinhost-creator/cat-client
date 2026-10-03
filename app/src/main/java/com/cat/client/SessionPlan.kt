@@ -25,6 +25,7 @@ internal data class SessionPlanPreferences(
     val alwaysOn: Boolean,
     val lockdown: Boolean,
     val tlsIntegrityEnabled: Boolean,
+    val sniOverride: String = "",
 )
 
 internal data class SessionPlanRequest(
@@ -84,6 +85,7 @@ internal object SessionPlanner {
             rawYaml = request.snapshot.rawConfig,
             serverOverrideIp = serverOverrideIp,
             serverOverridePort = serverOverridePort,
+            sniOverride = preferences.sniOverride.takeIf { it.isNotBlank() },
         )
         val optionsYaml = MihomoConnectionOptionsPatcher.patch(frontedYaml, preferences.connectionOptions)
         val baseRuntimeYaml = MihomoDpiBypassPatcher.patch(

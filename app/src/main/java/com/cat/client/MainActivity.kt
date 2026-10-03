@@ -39,6 +39,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
@@ -47,6 +48,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ProgressBar
@@ -79,12 +81,17 @@ import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.Size
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
 
@@ -122,7 +129,7 @@ class MainActivity : Activity() {
                     if (available) ", ${getString(R.string.update_available_title)}" else ""
             }
             if (::appTabs.isInitialized) {
-                appTabs.getTabAt(0)?.let { tab ->
+                appTabs.getTabAt(DOCK_SETTINGS)?.let { tab ->
                     tab.contentDescription = getString(R.string.tab_settings)
                     if (available) {
                         tab.orCreateBadge.apply {
@@ -215,6 +222,7 @@ class MainActivity : Activity() {
     private lateinit var dashboardConnectionMetadataSection: View
     private lateinit var tlsIntegrityCheckbox: MaterialSwitch
     private lateinit var tlsFragmentCheckbox: MaterialSwitch
+    private lateinit var adBlockCheckbox: MaterialSwitch
     private lateinit var alwaysOnStatusText: TextView
     private lateinit var amneziaNoiseCheckbox: MaterialSwitch
     private lateinit var amneziaNoiseFields: LinearLayout
@@ -254,6 +262,28 @@ class MainActivity : Activity() {
     private lateinit var frontingIpInputLayout: TextInputLayout
     private lateinit var frontingIpErrorText: TextView
     private lateinit var refreshActionButton: MaterialButton
+    private lateinit var connectionBlob: ZedBlobView
+    private lateinit var activeConfigTitle: TextView
+    private lateinit var homeLocationPill: View
+    private lateinit var heroPingAction: View
+    private var homeHeroFrame: FrameLayout? = null
+    private var heroClusterParams: FrameLayout.LayoutParams? = null
+    private var homeStageFitting = false
+    @Volatile private var livePingMs: Long? = null
+    private var lastQuietPingAtMs: Long = 0L
+    private var liveBackdrop: ZedLiveBackdropDrawable? = null
+    private lateinit var homeFlagBadge: FlagBadgeView
+    private var homeExtrasSection: View? = null
+    private lateinit var serversCountText: TextView
+    private lateinit var heroStateText: TextView
+    private lateinit var downloadBarFill: ZedWavyProgressView
+    private lateinit var uploadBarFill: ZedWavyProgressView
+    private lateinit var downloadTotalText: TextView
+    private lateinit var uploadTotalText: TextView
+    private var homeBackdrop: View? = null
+    private var appRootView: FrameLayout? = null
+    private var sessionRxStartBytes = -1L
+    private var sessionTxStartBytes = -1L
     private lateinit var subscriptionsList: LinearLayout
     private lateinit var vpnTabContent: View
     private lateinit var subscriptionsTabContent: View
@@ -274,6 +304,8 @@ class MainActivity : Activity() {
     private lateinit var scannerApplyButton: MaterialButton
     private lateinit var scannerBuildButton: MaterialButton
     private var scannerResults: List<IpScanner.ScanResult> = emptyList()
+    private var scannerSpeedTestButton: MaterialButton? = null
+    private var scannerSpeedTestRunning = false
     private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
     private var scannerPort: Int = 443
     private var scannerRunning: Boolean = false
@@ -350,6 +382,7 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        theme.applyStyle(AppAccentPreferenceStore(this).read().overlayStyleRes, true)
         super.onCreate(savedInstanceState)
         appLanguagePreferenceStore = AppLanguagePreferenceStore(this)
         appThemePreferenceStore = AppThemePreferenceStore(this)
@@ -390,7 +423,7 @@ class MainActivity : Activity() {
             )
             if (chainSlot != ConnectionChainSlot.Before) {
                 if (chainSlot != null) {
-                    appTabs.getTabAt(0)?.select()
+                    openScreen(SCREEN_SETTINGS)
                     openConnectionChainSettingsPage?.invoke()
                 }
                 mainHandler.post {
@@ -430,7 +463,7 @@ class MainActivity : Activity() {
                 if (source.isEmpty()) return
                 val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
                 mainHandler.post {
-                    showAppTab(0)
+                    openScreen(SCREEN_SERVERS)
                     showAddSubscriptionDialog(source, name)
                 }
             }
@@ -442,7 +475,7 @@ class MainActivity : Activity() {
                         scannerSniInput.setText(sni)
                         saveScannerSni(sni)
                     }
-                    showAppTab(4)
+                    openScreen(SCREEN_SCANNER)
                     val tokens = ips.split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
                     if (tokens.isNotEmpty()) {
                         val previousValue = frontingIpPreferenceStore.readFrontingIp()
@@ -473,6 +506,7 @@ class MainActivity : Activity() {
             setBackgroundColor(BACKGROUND)
             setPadding(tvInsetX, tvInsetY, tvInsetX, tvInsetY)
         }
+        appRootView = root
 
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -496,14 +530,15 @@ class MainActivity : Activity() {
         val tabs = TabLayout(this).apply {
             appTabsPending = this
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            minimumHeight = dp(72)
+            minimumHeight = dp(64)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24).toFloat()
-                setColor(withAlpha(SURFACE, 220))
+                cornerRadius = dp(32).toFloat()
+                setColor(palette.surfaceElevated1)
+                setStroke(dp(1), withAlpha(palette.outline, 110))
             }
-            elevation = 0f
-            setSelectedTabIndicatorHeight(dp(3))
+            elevation = dp(6).toFloat()
+            setSelectedTabIndicatorHeight(0)
             setSelectedTabIndicatorColor(TEAL)
             setSelectedTabIndicatorGravity(TabLayout.INDICATOR_GRAVITY_BOTTOM)
             setTabIndicatorFullWidth(false)
@@ -515,29 +550,26 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // Dock style: each tab is a custom icon+label cell that paints itself as a
-            // filled violet pill when selected (v2box-style bottom dock).
-            // Tab order (visual): settings, VPN (center), subscriptions, cloud panel, IP scanner
-            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
-            addDockTab(R.string.tab_vpn, R.drawable.ic_vpn_tab, selected = true)
-            addDockTab(R.string.tab_subscriptions, R.drawable.ic_subscriptions_tab, selected = false)
-            addDockTab(R.string.tab_scanner, R.drawable.ic_speedometer, selected = false)
+            // ZedSecure-style floating capsule: four cells, the active one expands into a
+            // lime pill with icon + label, inactive cells show the icon only.
+            // Visual order: Home, Servers, Cloud (panel + IP scanner), Settings.
+            layoutDirection = View.LAYOUT_DIRECTION_LTR // Zed keeps the dock order fixed in RTL too
+            addDockTab(R.string.dock_home, R.drawable.ic_vpn_tab, selected = true)
+            addDockTab(R.string.dock_servers, R.drawable.ic_subscriptions_tab, selected = false)
             addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
-            post { renderDockSelection(1) }
+            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
+            post { renderDockSelection(DOCK_HOME) }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
-                    // Visual order maps onto the content screens:
-                    // 0=Settings(2) 1=VPN(1) 2=Subscriptions(0) 3=Scanner(4) 4=Cloud(3)
-                    // Keep these explicit: the old mapping swapped Settings and Cloud.
-                    val mappedPosition = when (tab.position) {
-                        0 -> 2  // Settings
-                        1 -> 1  // VPN
-                        2 -> 0  // Subscriptions
-                        3 -> 4  // IP scanner
-                        4 -> 3  // Cloud panel
-                        else -> tab.position
-                    }
-                    showAppTab(mappedPosition)
+                    showAppTab(
+                        when (tab.position) {
+                            DOCK_HOME -> SCREEN_HOME
+                            DOCK_SERVERS -> SCREEN_SERVERS
+                            DOCK_CLOUD -> if (cloudDockShowsScanner) SCREEN_SCANNER else SCREEN_CLOUD
+                            DOCK_SETTINGS -> SCREEN_SETTINGS
+                            else -> SCREEN_HOME
+                        },
+                    )
                     renderDockSelection(tab.position)
                 }
 
@@ -550,11 +582,11 @@ class MainActivity : Activity() {
         val tabsHost = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(18), 0, dp(18), dp(18))
-            addView(tabs, FrameLayout.LayoutParams(-1, dp(72)))
+            addView(tabs, FrameLayout.LayoutParams(-1, dp(64)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         }
         ViewCompat.setOnApplyWindowInsetsListener(tabsHost) { view, insets ->
             val navigationBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(18), 0, dp(18), navigationBottom + dp(18))
+            view.setPadding(dp(28), 0, dp(28), navigationBottom + dp(14))
             insets
         }
         shell.addView(tabsHost, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -655,43 +687,96 @@ class MainActivity : Activity() {
         }
         val label = TextView(context).apply {
             setText(labelRes)
-            textSize = 10f
+            textSize = 13f
             typeface = CatClientBodyBoldTypeface
-            setTextColor(if (selected) TEAL else TEXT_SECONDARY)
+            setTextColor(if (selected) palette.onAccent else TEXT_SECONDARY)
             gravity = Gravity.CENTER
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
+            visibility = if (selected) View.VISIBLE else View.GONE
         }
         val pill = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(7), dp(6), dp(7))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             background = dockPillBackground(selected)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
-            addView(label, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+            addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
+        icon.setColorFilter(if (selected) palette.onAccent else TEXT_SECONDARY)
         dockTabs += DockTab(pill, icon, label)
         val tab = appTabsPending.newTab()
         tab.customView = pill
+        tab.view.setPadding(dp(2), 0, dp(2), 0)
+        tab.view.minimumWidth = 0
         appTabsPending.addTab(tab, selected)
     }
 
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(16).toFloat()
-        setColor(if (selected) withAlpha(TEAL, if (palette.isDark) 52 else 32) else Color.TRANSPARENT)
-        if (selected) setStroke(dp(1), withAlpha(TEAL, 90))
+        cornerRadius = dp(24).toFloat()
+        setColor(if (selected) TEAL else Color.TRANSPARENT)
     }
 
-    /** Repaints every dock cell so only the active one is filled. */
+    /** Repaints every dock cell so only the active one is the filled lime pill with a label. */
     private fun renderDockSelection(activeIndex: Int) {
         dockTabs.forEachIndexed { index, tab ->
             val active = index == activeIndex
             tab.pill.background = dockPillBackground(active)
-            tab.icon.setColorFilter(if (active) TEAL else TEXT_SECONDARY)
-            tab.label.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+            tab.icon.setColorFilter(if (active) palette.onAccent else TEXT_SECONDARY)
+            tab.label.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            tab.label.visibility = if (active) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** Remembers whether the Cloud dock cell last showed the panel or the IP scanner. */
+    private var cloudDockShowsScanner = false
+
+    /** Jump to a content screen and keep the dock in sync (Cloud cell covers panel + scanner). */
+    private fun openScreen(screen: Int) {
+        if (screen == SCREEN_SCANNER || screen == SCREEN_CLOUD) cloudDockShowsScanner = screen == SCREEN_SCANNER
+        val dockIndex = when (screen) {
+            SCREEN_HOME -> DOCK_HOME
+            SCREEN_SERVERS -> DOCK_SERVERS
+            SCREEN_SETTINGS -> DOCK_SETTINGS
+            else -> DOCK_CLOUD
+        }
+        showAppTab(screen)
+        if (::appTabs.isInitialized) {
+            val tab = appTabs.getTabAt(dockIndex)
+            if (tab != null && !tab.isSelected) tab.select() else renderDockSelection(dockIndex)
+        }
+    }
+
+    /** Segmented header shared by the Cloud and Scanner screens (ZedSecure-style pill switch). */
+    private fun cloudScannerSwitch(scannerActive: Boolean): View {
+        fun chip(@StringRes labelRes: Int, active: Boolean, onClick: () -> Unit) = TextView(this).apply {
+            setText(labelRes)
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(9), dp(16), dp(9))
+            setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(if (active) TEAL else Color.TRANSPARENT)
+            }
+            setOnClickListener { onClick() }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(palette.surfaceElevated1)
+            }
+            addView(chip(R.string.tab_cloud, !scannerActive) { openScreen(SCREEN_CLOUD) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(chip(R.string.tab_scanner, scannerActive) { openScreen(SCREEN_SCANNER) }, LinearLayout.LayoutParams(0, -2, 1f))
         }
     }
 
@@ -711,6 +796,7 @@ class MainActivity : Activity() {
             renderConnectionSelection()
             renderHomeUsageCard()
         }
+        syncShellBackdrop()
         if (position == 2) renderAdvancedControls()
     }
 
@@ -732,85 +818,170 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(34), dp(24), dp(104))
         }
+        serversCountText = TextView(this).apply {
+            setText(R.string.subscriptions_description)
+            textSize = 14f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+            gravity = Gravity.START
+        }
         val subscriptionsHeaderCopy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(TextView(this@MainActivity).apply {
-                setText(R.string.subscriptions_title)
-                textSize = 28f
+                setText(R.string.servers_title)
+                textSize = 30f
                 typeface = CatClientDisplayTypeface
                 setTextColor(TEXT_PRIMARY)
                 includeFontPadding = false
                 gravity = Gravity.START
             })
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.subscriptions_description)
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    gravity = Gravity.START
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+            addView(serversCountText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        }
+        // ZedSecure header actions: ping all · add (menu) · more.
+        fun headerAction(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: (View) -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) },
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) },
             )
+            setOnClickListener { onClick(this) }
         }
-        val addSubscriptionButton = MaterialButton(this).apply {
-            setText(R.string.subscription_add)
+        val headerActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            setAllCaps(false)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            isSingleLine = true
-            setPadding(dp(8), 0, dp(8), 0)
-            minWidth = 0
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(TEAL)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 24))
-            setTextColor(TEAL)
-            setOnClickListener { showAddSubscriptionMenu(this) }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(headerAction(R.drawable.ic_speedometer, R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(headerAction(R.drawable.ic_connection_test, R.string.subscription_action_test) { showConnectionTestingPage() }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            addView(headerAction(R.drawable.ic_more_vert, R.string.subscription_add) { showAddServerSheet() }, LinearLayout.LayoutParams(dp(42), dp(42)))
         }
-        val compactHeader = resources.configuration.screenWidthDp < 360
         content.addView(LinearLayout(this).apply {
-            orientation = if (compactHeader) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = if (compactHeader) Gravity.START else Gravity.CENTER_VERTICAL
-            if (compactHeader) {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(-1, -2),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(-2, dp(44)).apply { topMargin = dp(16) },
-                )
-            } else {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(0, -2, 1f),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(dp(84), dp(44)).apply { marginStart = dp(16) },
-                )
-            }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(subscriptionsHeaderCopy, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(headerActions, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         })
+        // "Auto · All servers" — ZedSecure's first row: bolt badge + connect to the fastest server.
+        content.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER_VERTICAL
+                setPaddingRelative(dp(14), dp(14), dp(14), dp(14))
+                isClickable = true
+                isFocusable = true
+                background = RippleDrawable(
+                    ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                    GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(22).toFloat()
+                        setColor(palette.surfaceElevated1)
+                    },
+                    null,
+                )
+                setOnClickListener { runPingAll(autoConnect = true) }
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "⚡"
+                        textSize = 18f
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(withAlpha(TEAL, 56))
+                            setStroke(dp(1), withAlpha(TEAL, 140))
+                        }
+                    },
+                    LinearLayout.LayoutParams(dp(44), dp(44)),
+                )
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        addView(TextView(this@MainActivity).apply {
+                            setText(R.string.servers_auto_title)
+                            textSize = 16f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(TEXT_PRIMARY)
+                            includeFontPadding = false
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            setText(R.string.servers_auto_detail)
+                            textSize = 12.5f
+                            typeface = CatClientBodyTypeface
+                            setTextColor(TEXT_SECONDARY)
+                            includeFontPadding = false
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                    },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) },
+        )
         subscriptionsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        homeExtrasSection?.let { extras ->
+            (extras.parent as? ViewGroup)?.removeView(extras)
+            content.addView(extras, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+        }
         content.addView(
             buildFreeConfigsSection(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28) },
         )
         scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
         renderSubscriptions()
-        return scroll
+        // Floating "+" like ZedSecure's Servers FAB (opens the add-server menu).
+        val fab = MaterialButton(this).apply {
+            text = "+"
+            textSize = 26f
+            typeface = CatClientBodyBoldTypeface
+            setAllCaps(false)
+            includeFontPadding = false
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding(0, 0, 0, dp(2))
+            cornerRadius = dp(20)
+            strokeWidth = 0
+            elevation = dp(6).toFloat()
+            backgroundTintList = ColorStateList.valueOf(selectedRowColor())
+            setTextColor(TEXT_PRIMARY)
+            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
+            contentDescription = getString(R.string.subscription_add)
+            setOnClickListener { showAddServerSheet() }
+        }
+        val root = FrameLayout(this)
+        root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        root.addView(
+            fab,
+            FrameLayout.LayoutParams(dp(60), dp(60)).apply {
+                gravity = Gravity.END or Gravity.BOTTOM
+                marginEnd = dp(20)
+                bottomMargin = dp(104)
+            },
+        )
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val navigationBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            (fab.layoutParams as FrameLayout.LayoutParams).bottomMargin = navigationBottom + dp(104)
+            fab.requestLayout()
+            insets
+        }
+        return root
     }
 
     /* ------------------------------------------------------------------ */
@@ -1420,6 +1591,11 @@ class MainActivity : Activity() {
                     selectedName,
                 )
         }
+        if (::serversCountText.isInitialized) {
+            val total = SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.sumOf { store.readCatalog(it)?.profiles?.size ?: 0 } +
+                userSubscriptionManager.list().sumOf { it.connectionCount }
+            serversCountText.text = connectionCountLabel(total)
+        }
         SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.forEachIndexed { index, subscriptionId ->
             val name = builtInSubscriptionName(subscriptionId)
             val count = store.readCatalog(subscriptionId)?.profiles?.size ?: 0
@@ -1505,8 +1681,8 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         gravity = Gravity.START
-        minimumHeight = dp(112)
-        setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+        minimumHeight = dp(72)
+        setPaddingRelative(dp(16), dp(14), dp(12), dp(14))
         elevation = 0f
         val selectAction = actions.firstOrNull { it.first == R.string.subscription_action_select }
         val overflowActions = actions.filterNot { it.first == R.string.subscription_action_select }
@@ -1516,15 +1692,19 @@ class MainActivity : Activity() {
         contentDescription = "$title, ${getString(
             if (selected) R.string.subscription_selected_badge else R.string.subscription_action_select,
         )}"
-        background = if (selected) {
-            glassSurfaceDrawable(radiusDp = 12, highlighted = true)
-        } else {
-            RippleDrawable(
-                ColorStateList.valueOf(withAlpha(TEAL, 28)),
-                glassSurfaceDrawable(radiusDp = 12),
-                null,
-            )
-        }
+        // ZedSecure row: the selected server is a solid lime card with dark text; the rest sit on
+        // the low surface container.
+        val rowPrimary = TEXT_PRIMARY
+        val rowSecondary = TEXT_SECONDARY
+        background = RippleDrawable(
+            ColorStateList.valueOf(withAlpha(TEAL, 36)),
+            GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(22).toFloat()
+                setColor(if (selected) selectedRowColor() else palette.surfaceElevated1)
+            },
+            null,
+        )
         clipToOutline = true
         if (canSelect) {
             setOnClickListener { selectAction?.second?.invoke() }
@@ -1540,7 +1720,7 @@ class MainActivity : Activity() {
                         text = title
                         textSize = 16f
                         typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEXT_PRIMARY)
+                        setTextColor(rowPrimary)
                         includeFontPadding = false
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
@@ -1552,22 +1732,41 @@ class MainActivity : Activity() {
                 )
                 if (selected) addView(
                     TextView(this@MainActivity).apply {
-                        setText(R.string.subscription_selected_badge)
-                        textSize = 12f
+                        text = "✓"
+                        textSize = 14f
                         typeface = CatClientBodyBoldTypeface
                         setTextColor(TEAL)
                         includeFontPadding = false
                         gravity = Gravity.CENTER
-                        isSingleLine = true
-                        setPaddingRelative(dp(8), dp(4), dp(8), dp(4))
                         background = GradientDrawable().apply {
-                            shape = GradientDrawable.RECTANGLE
-                            cornerRadius = dp(12).toFloat()
-                            setColor(withAlpha(TEAL, if (palette.isDark) 34 else 22))
-                            setStroke(dp(1), withAlpha(TEAL, 92))
+                            shape = GradientDrawable.OVAL
+                            setStroke(dp(2), TEAL)
                         }
                     },
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
+                    LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(12) },
+                )
+                // ⋮ overflow (edit · refresh · share · delete …), like Zed's per-row menu.
+                addView(
+                    ImageView(this@MainActivity).apply {
+                        setImageResource(R.drawable.ic_more_vert)
+                        setColorFilter(rowSecondary)
+                        contentDescription = getString(R.string.subscription_action_options)
+                        isClickable = true
+                        isFocusable = true
+                        setPadding(dp(6), dp(6), dp(6), dp(6))
+                        setOnClickListener { view ->
+                            catClientPopupMenu(view).apply {
+                                overflowActions.forEachIndexed { index, (labelRes, _) ->
+                                    menu.add(0, index, index, labelRes)
+                                }
+                                setOnMenuItemClickListener { item ->
+                                    overflowActions[item.itemId].second()
+                                    true
+                                }
+                            }.show()
+                        }
+                    },
+                    LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginStart = dp(6) },
                 )
             },
             LinearLayout.LayoutParams(-1, -2),
@@ -1576,7 +1775,7 @@ class MainActivity : Activity() {
             text = detail
             textSize = 12f
             typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
+            setTextColor(rowSecondary)
             includeFontPadding = false
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -1620,71 +1819,19 @@ class MainActivity : Activity() {
             gravity = Gravity.START
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        fun actionButton(
-            @StringRes labelRes: Int,
-            @DrawableRes iconRes: Int,
-            accent: Boolean,
-            action: (View) -> Unit,
-        ): MaterialButton = MaterialButton(this@MainActivity).apply {
-            setText(labelRes)
-            setIconResource(iconRes)
-            iconTint = ColorStateList.valueOf(if (accent) TEAL else TEXT_SECONDARY)
-            iconSize = dp(18)
-            iconPadding = dp(8)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            setAllCaps(false)
-            isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            setPaddingRelative(dp(12), 0, dp(12), 0)
-            backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 150) else OUTLINE)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 26))
-            setTextColor(if (accent) TEAL else TEXT_PRIMARY)
-            setOnClickListener(action)
-        }
-
         addView(
-            LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_test,
-                        iconRes = R.drawable.ic_connection_test,
-                        accent = true,
-                    ) { onTestConnections() },
-                    LinearLayout.LayoutParams(0, dp(48), 1f),
-                )
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_options,
-                        iconRes = R.drawable.ic_more_vert,
-                        accent = false,
-                    ) { view ->
-                        catClientPopupMenu(view).apply {
-                            overflowActions.forEachIndexed { index, (labelRes, _) ->
-                                menu.add(0, index, index, labelRes)
-                            }
-                            setOnMenuItemClickListener { item ->
-                                overflowActions[item.itemId].second()
-                                true
-                            }
-                        }.show()
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) },
-                )
+            TextView(this@MainActivity).apply {
+                text = getString(R.string.servers_open_list) + "  ›"
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEAL)
+                includeFontPadding = false
+                isClickable = true
+                isFocusable = true
+                setPaddingRelative(0, dp(6), dp(8), 0)
+                setOnClickListener { onTestConnections() }
             },
-            LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) },
+            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
         )
     }
 
@@ -2316,27 +2463,66 @@ class MainActivity : Activity() {
             }
         }
 
-        // Centered product header
+        // ZedSecure brand header: status chip · log icon · spacer · app name.
+        statusDot = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(palette.neutral)
+            }
+        }
+        statusText = TextView(this).apply {
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+        }
+        val statusChip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(withAlpha(palette.surfaceElevated2, 230))
+            }
+            addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(8) })
+            addView(statusText, LinearLayout.LayoutParams(-2, -2))
+        }
+        fun headerIconButton(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: () -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(withAlpha(palette.surfaceElevated2, 230))
+            }
+            setOnClickListener { onClick() }
+        }
         val headerBlock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            gravity = Gravity.CENTER
-            setPadding(dp(9), dp(4), dp(9), dp(4))
+            gravity = Gravity.CENTER_VERTICAL
+            addView(statusChip, LinearLayout.LayoutParams(-2, -2))
+            addView(
+                headerIconButton(R.drawable.ic_connection_test, R.string.diagnostics_copy) { copyDiagnosticsToClipboard() },
+                LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginStart = dp(8) },
+            )
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f))
             addView(TextView(this@MainActivity).apply {
                 text = "Cat Client"
-                textSize = 14.5f
+                textSize = 17f
                 typeface = CatClientDisplayTypeface
                 setTextColor(TEXT_PRIMARY)
                 includeFontPadding = false
                 letterSpacing = -0.01f
             })
-            addView(TextView(this@MainActivity).apply {
-                text = BuildConfig.VERSION_NAME
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(palette.textTertiary)
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(9) })
         }
 
         // New segmented tab switcher with rounded corners
@@ -2440,42 +2626,26 @@ class MainActivity : Activity() {
         connectActionButton = MaterialButton(this).apply {
             setText(R.string.connect_action_connect)
             setAllCaps(false)
-            textSize = 16f
+            textSize = 17f
             typeface = CatClientBodyBoldTypeface
             minWidth = 0
             minimumWidth = 0
-            minHeight = dp(56)
-            minimumHeight = dp(56)
+            minHeight = dp(64)
+            minimumHeight = dp(64)
             insetTop = 0
             insetBottom = 0
             setPadding(dp(30), 0, dp(30), 0)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 60))
-            elevation = dp(4).toFloat()
+            rippleColor = ColorStateList.valueOf(withAlpha(palette.onAccent, 40))
+            elevation = 0f
             stateListAnimator = null
             backgroundTintList = null
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(28).toFloat()
-                setColor(withAlpha(SURFACE, 235))
-                setStroke(dp(1), withAlpha(OUTLINE, 210))
+                cornerRadius = dp(30).toFloat()
+                setColor(TEAL)
             }
-            setTextColor(TEAL)
+            setTextColor(palette.onAccent)
             setOnClickListener { handleButtonClick() }
-        }
-        statusDot = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(palette.neutral)
-            }
-        }
-        statusText = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            textSize = 13f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
         }
         publicServerNotice = TextView(this).apply {
             setText(R.string.notification_connected_public)
@@ -2493,28 +2663,29 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
             text = "00:00:00"
-            textSize = 15f
+            textSize = 13f
             letterSpacing = 0.02f
             typeface = CatClientDataTypeface
             setTextColor(TEXT_SECONDARY)
             includeFontPadding = false
+            visibility = View.GONE // the elapsed time is rendered inside the hero blob
         }
         downloadSpeedText = TextView(this).apply {
             text = "0 B/s"
-            gravity = Gravity.END
+            gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
+            textSize = 26f
             typeface = CatClientDataTypeface
             setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
         uploadSpeedText = TextView(this).apply {
             text = "0 B/s"
-            gravity = Gravity.END
+            gravity = Gravity.START
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
+            textSize = 26f
             typeface = CatClientDataTypeface
             setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
@@ -2586,68 +2757,6 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
 
-        // Animated arrow icons for download/upload
-        downloadArrowIcon = AnimatedArrowIcon(this, isDownload = true)
-        uploadArrowIcon = AnimatedArrowIcon(this, isDownload = false)
-
-        // Speed stats row with animated arrow icons - matching the design
-        fun speedStatRow(label: String, value: TextView, isDownload: Boolean, arrowIcon: AnimatedArrowIcon): View = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            // Arrow icon + label on left
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                // Animated arrow icon
-                addView(arrowIcon, LinearLayout.LayoutParams(dp(13), dp(13)))
-                addView(TextView(this@MainActivity).apply {
-                    text = label
-                    textSize = 11.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            // Value on right
-            addView(value, LinearLayout.LayoutParams(-2, -2))
-        }
-        fun kpiCard(label: String, value: TextView, accent: Boolean): LinearLayout =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                gravity = Gravity.CENTER_VERTICAL
-                background = glassSurfaceDrawable(radiusDp = 14)
-                clipToOutline = true
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 11f
-                        typeface = CatClientBodyTypeface
-                        setTextColor(TEXT_SECONDARY)
-                        includeFontPadding = false
-                    },
-                    LinearLayout.LayoutParams(-2, -2),
-                )
-                addView(
-                    value,
-                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-                )
-                if (accent) {
-                    addView(
-                        View(this@MainActivity).apply {
-                            background = GradientDrawable().apply {
-                                shape = GradientDrawable.RECTANGLE
-                                cornerRadius = dp(2).toFloat()
-                                setColor(withAlpha(TEAL, 140))
-                            }
-                        },
-                        LinearLayout.LayoutParams(dp(28), dp(3)).apply { topMargin = dp(8) },
-                    )
-                }
-            }
         pingValueText = TextView(this).apply {
             text = "—"
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -2666,212 +2775,232 @@ class MainActivity : Activity() {
             setTextColor(TEXT_PRIMARY)
             includeFontPadding = false
         }
-        // 2 x 2 KPI grid: download / upload / ping / uptime
-        val speedStatsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.metric_download), downloadSpeedText, true),
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.metric_upload), uploadSpeedText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.home_ping_label), pingValueText, false).apply {
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { runTunnelPing() }
-                        },
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.home_uptime_label), uptimeValueText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-            )
-        }
-
         // Reconnect button - initialize before signalSection
         refreshActionButton = MaterialButton(this).apply {
-            setText(R.string.action_reconnect)
-            textSize = 11f
-            typeface = CatClientBodyBoldTypeface
-            minHeight = dp(44)
-            minimumHeight = dp(44)
+            text = ""
+            minHeight = 0
+            minimumHeight = 0
             minWidth = 0
             minimumWidth = 0
             insetTop = 0
             insetBottom = 0
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            cornerRadius = dp(12)
+            setPadding(0, 0, 0, 0)
+            cornerRadius = dp(26)
             strokeWidth = 0
             elevation = 0f
             stateListAnimator = null
-            setAllCaps(false)
             setIconResource(R.drawable.ic_refresh)
-            iconSize = dp(14)
+            iconSize = dp(22)
+            iconPadding = 0
             iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            iconPadding = dp(4)
             visibility = View.INVISIBLE  // Use INVISIBLE to preserve space and prevent UI jump
             setOnClickListener { handleRefreshClick() }
         }
 
-        // Row with reconnect button on left and timer on right
-        val timerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            // Reconnect button on left
-            addView(
-                refreshActionButton,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-            // Spacer
-            addView(
-                View(this@MainActivity),
-                LinearLayout.LayoutParams(0, 0, 1f),
-            )
-            // Timer on right
-            addView(
-                timerText,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-        }
-
-        val statusCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(withAlpha(SURFACE, 200))
-                setStroke(dp(1), withAlpha(OUTLINE, 180))
+        // ---- ZedSecure hero: blob core with the elapsed time inside, big state word under it,
+        // two round quick actions floating at the right edge (ping all · reconnect).
+        connectionBlob = ZedBlobView(this).apply {
+            AppAccentPreferenceStore(this@MainActivity).read().let { setThemeColors(palette.teal, palette.secondary, it == AppAccent.Lavender) }
+            setOnClickListener { handleButtonClick() }
+            setOnLongClickListener {
+                copyDiagnosticsToClipboard()
+                true
             }
-            addView(timerRow, LinearLayout.LayoutParams(-1, dp(44)))
-            addView(
-                View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    topMargin = dp(8)
-                    bottomMargin = dp(8)
-                },
-            )
-            addView(speedStatsRow, LinearLayout.LayoutParams(-1, dp(44)))
         }
-
+        heroStateText = TextView(this).apply {
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textSize = 34f
+            typeface = CatClientDisplayTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            letterSpacing = -0.02f
+        }
+        fun roundAction(@DrawableRes iconRes: Int, descriptionRes: Int, onClick: () -> Unit) = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(TEXT_PRIMARY)
+            contentDescription = getString(descriptionRes)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            elevation = dp(6).toFloat()
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(selectedRowColor())
+            }
+            setOnClickListener { onClick() }
+        }
+        val heroCluster = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                roundAction(R.drawable.ic_map, R.string.map_title) { showMapPage() },
+                LinearLayout.LayoutParams(dp(54), dp(54)),
+            )
+            heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.speedtest_title) { showSpeedTestPage() }
+            addView(heroPingAction, LinearLayout.LayoutParams(dp(54), dp(54)).apply { topMargin = dp(10) })
+            refreshActionButton.visibility = View.GONE
+        }
+        val heroFrame = FrameLayout(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            clipChildren = false
+            clipToPadding = false
+            addView(
+                connectionBlob,
+                FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6) },
+            )
+            addView(
+                heroStateText,
+                FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; topMargin = dp(266) },
+            )
+            heroClusterParams = FrameLayout.LayoutParams(-2, -2).apply {
+                gravity = Gravity.END or Gravity.TOP
+                marginEnd = dp(14)
+                topMargin = dp(228)
+            }
+            addView(heroCluster, heroClusterParams)
+        }
         val signalSection = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            // Allow particles to extend beyond this layout's bounds
             clipChildren = false
             clipToPadding = false
-            // Route globe first; the connect action now lives below it rather than inside the orb.
-            addView(
-                connectionGlobe,
-                LinearLayout.LayoutParams(-1, dp(238)),
-            )
-            addView(
-                connectActionButton,
-                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) },
-            )
-            // Visible actions: ping through the ACTIVE config (like v2rayNG /
-            // V2Box) and a manual IP re-check so the dashboard can be synced
-            // with any "what is my ip" site at a glance.
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_test) { runTunnelPing() }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.ip_refresh) { refreshDashboardIp() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Bulk actions: ping EVERY config (like v2rayNG Ping All) and
-            // connect straight to the fastest one.
+            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(350)))
+            addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+            addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+
+        // ---- Location pill (ZedSecure ConnectionInfoPill): flag · city/country · exit IP · ping · chevron.
+        connectionCountryText.textSize = 14f
+        connectionCountryText.typeface = CatClientBodyBoldTypeface
+        connectionCountryText.setTextColor(TEXT_PRIMARY)
+        connectionCountryText.maxLines = 1
+        connectionCountryText.ellipsize = TextUtils.TruncateAt.END
+        pingValueText.textSize = 12f
+        pingValueText.setTextColor(TEAL)
+        val locationPill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(22).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 235))
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { refreshDashboardIp() }
+            homeFlagBadge = FlagBadgeView(this@MainActivity).apply { fallbackColor = palette.surfaceElevated2 }
+            addView(homeFlagBadge, LinearLayout.LayoutParams(dp(42), dp(30)).apply { marginEnd = dp(12) })
             addView(
                 LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
+                    orientation = LinearLayout.VERTICAL
                     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.action_connect_best) { runPingAll(autoConnect = true) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                    addView(connectionCountryText, LinearLayout.LayoutParams(-1, -2))
+                    addView(
+                        LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                            addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2))
+                            addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                        },
+                        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
+                    )
                 },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+                LinearLayout.LayoutParams(0, -2, 1f),
             )
+            addView(pingValueText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(7) })
-                    addView(statusText, LinearLayout.LayoutParams(-2, -2))
-                    addView(connectionCountryText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+                TextView(this@MainActivity).apply {
+                    text = "›"
+                    textSize = 22f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_SECONDARY)
+                    includeFontPadding = false
                 },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) },
+            )
+        }
+
+        // ---- Traffic tiles (ZedSecure CardsTrafficPanel): label · big rate · bar · session total.
+        fun trafficTile(labelRes: Int, glyph: String, value: TextView, total: TextView, bar: View, tint: Int): LinearLayout =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(22).toFloat()
+                    setColor(withAlpha(palette.surfaceElevated1, 235))
+                }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = glyph
+                                textSize = 11f
+                                gravity = Gravity.CENTER
+                                typeface = CatClientBodyBoldTypeface
+                                setTextColor(tint)
+                                includeFontPadding = false
+                                background = GradientDrawable().apply {
+                                    shape = GradientDrawable.RECTANGLE
+                                    cornerRadius = dp(10).toFloat()
+                                    setColor(withAlpha(tint, 40))
+                                }
+                            },
+                            LinearLayout.LayoutParams(dp(36), dp(36)),
+                        )
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = getString(labelRes).uppercase(Locale.getDefault())
+                                textSize = 11f
+                                letterSpacing = 0.06f
+                                typeface = CatClientBodyBoldTypeface
+                                setTextColor(TEXT_SECONDARY)
+                                includeFontPadding = false
+                            },
+                            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+                        )
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+                addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+                addView(bar, LinearLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(8) })
+                addView(total, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            }
+        fun barFill(tint: Int) = ZedWavyProgressView(this).apply {
+            color = tint
+            trackColor = withAlpha(palette.outline, 110)
+            idleColor = withAlpha(palette.outline, 200)
+        }
+        fun totalText() = TextView(this).apply {
+            text = "0 B"
+            textSize = 12f
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+        }
+        downloadBarFill = barFill(TEAL)
+        uploadBarFill = barFill(palette.secondary)
+        downloadTotalText = totalText()
+        uploadTotalText = totalText()
+        val trafficRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                trafficTile(R.string.metric_download, "↓", downloadSpeedText, downloadTotalText, downloadBarFill, TEAL),
+                LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
-                publicServerNotice,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Connection status and traffic metrics
-            addView(
-                statusCard,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
+                trafficTile(R.string.metric_upload, "↑", uploadSpeedText, uploadTotalText, uploadBarFill, palette.secondary),
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) },
             )
         }
 
@@ -2977,29 +3106,98 @@ class MainActivity : Activity() {
 
         homeUsageCard = buildHomeUsageCard()
 
-        dashboardContent.apply {
-            addView(
-                headerBlock,
-                contentParams(dp(34)),
-            )
-            addView(
-                signalSection,
-                contentParams(dp(24)),
-            )
-            // VPN/Proxy tab switcher
-            addView(
-                connectionModeGroup,
-                contentParams(dp(16)),
-            )
-            addView(
-                dataRows,
-                contentParams(dp(16)),
-            )
-            addView(
-                homeUsageCard,
-                contentParams(dp(16)),
-            )
+        // ZedSecure ActiveConfigCard: round badge · server name · "Tap to change server" · chevron.
+        activeConfigTitle = TextView(this).apply {
+            text = getString(R.string.option_automatic)
+            textSize = 16f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
         }
+        val activeConfigCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(14), dp(12), dp(16), dp(12))
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(TEAL, 40)),
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(26).toFloat()
+                    setColor(selectedRowColor())
+                },
+                null,
+            )
+            setOnClickListener {
+                if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else openScreen(SCREEN_SERVERS)
+            }
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = "🌍"
+                    textSize = 22f
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(TEAL)
+                    }
+                },
+                LinearLayout.LayoutParams(dp(56), dp(56)),
+            )
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(activeConfigTitle, LinearLayout.LayoutParams(-1, -2))
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.home_tap_change_server)
+                        textSize = 13f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(TEXT_SECONDARY)
+                        includeFontPadding = false
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+            )
+            addView(TextView(this@MainActivity).apply {
+                text = "›"
+                textSize = 24f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(-2, -2))
+        }
+        homeLocationPill = locationPill
+        locationPill.visibility = View.GONE
+        connectActionButton.visibility = View.GONE // Zed: the blob itself is the switch
+        dashboardContent.apply {
+            addView(headerBlock, contentParams(dp(12)))
+            addView(locationPill, contentParams(dp(14)))
+            addView(signalSection, contentParams(dp(4)))
+            addView(trafficRow, contentParams(dp(18)))
+            addView(activeConfigCard, contentParams(dp(14)))
+            addView(connectActionButton, contentParams(dp(14)))
+        }
+        // Cat-specific controls (routing rows, VPN/Proxy mode, quota graph) move to the Servers screen.
+        homeExtrasSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(dataRows, LinearLayout.LayoutParams(-1, -2))
+            addView(connectionModeGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(homeUsageCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        }
+        homeBackdrop = scrollView
+        scrollView.isVerticalScrollBarEnabled = false
+        scrollView.overScrollMode = View.OVER_SCROLL_NEVER
+        homeHeroFrame = heroFrame
+        dashboardContent.clipChildren = false
+        dashboardContent.clipToPadding = false
+        applyHomeBackdrop(VpnState.Stopped)
         renderHomeUsageCard()
         viewport.addView(
             dashboardContent,
@@ -3071,12 +3269,81 @@ class MainActivity : Activity() {
             R.string.theme_dialog_title,
             getString(appThemePreferenceStore.read().labelRes),
         ) { showThemeSelector() }
+        val accentSelectorRow = appPreferenceRow(
+            R.string.accent_setting_title,
+            getString(AppAccentPreferenceStore(this).read().labelRes),
+        ) { showAccentSelector() }
         val languageSelectorRow = appPreferenceRow(
             R.string.language_setting_title,
             getString(appLanguagePreferenceStore.read().labelRes),
         ) { showLanguageSelector() }
+        // ---- Appearance (ZedSecure "Appearance"): theme mode, inline accent swatches, language.
+        val appearanceSettings = settingsContent()
+        val appearancePanel = advancedSettingsPanel()
+        val swatchStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(12), dp(6), dp(12), dp(14))
+            val store = AppAccentPreferenceStore(this@MainActivity)
+            val selected = store.read()
+            AppAccent.entries.chunked(4).forEach { rowItems ->
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    rowItems.forEach { preset ->
+                        val preview = CatClientDesignTokens.themed(CatClientDesignTokens.palette(palette.isDark), preset, palette.isDark)
+                        addView(LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER_HORIZONTAL
+                            setPadding(dp(6), dp(8), dp(6), dp(8))
+                            isClickable = true; isFocusable = true
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE; cornerRadius = dp(18).toFloat()
+                                setColor(preview.surface)
+                                setStroke(dp(if (preset == selected) 2 else 1), if (preset == selected) preview.teal else withAlpha(OUTLINE, 150))
+                            }
+                            setOnClickListener { if (preset != selected) { store.save(preset); recreate() } }
+                            // mini "screen": accent dot, secondary chip, button bar
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(preview.teal) } }, LinearLayout.LayoutParams(dp(26), dp(26)))
+                            addView(LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(4).toFloat(); setColor(preview.surfaceElevated2) } }, LinearLayout.LayoutParams(0, dp(12), 1f).apply { marginEnd = dp(3) })
+                                addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(4).toFloat(); setColor(preview.secondary) } }, LinearLayout.LayoutParams(0, dp(12), 1f).apply { marginStart = dp(3) })
+                            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(preview.brandPillBackground) } }, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(5) })
+                            addView(View(this@MainActivity).apply { background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(preview.teal) } }, LinearLayout.LayoutParams(-1, dp(12)).apply { topMargin = dp(5) })
+                            addView(TextView(this@MainActivity).apply {
+                                setText(preset.labelRes); textSize = 11f; gravity = Gravity.CENTER; maxLines = 1
+                                typeface = if (preset == selected) CatClientBodyBoldTypeface else CatClientBodyTypeface
+                                setTextColor(TEXT_PRIMARY)
+                            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+                        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    }
+                    repeat(4 - rowItems.size) { addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = dp(4); marginEnd = dp(4) }) }
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            }
+        }
+        val hapticSwitch = MaterialSwitch(this).apply {
+            isChecked = connectHapticEnabled()
+            setOnCheckedChangeListener { _, checked ->
+                getSharedPreferences("cat_client_theme", MODE_PRIVATE).edit().putBoolean("haptic_connect", checked).apply()
+                if (checked) connectHaptic()
+            }
+        }
+        val hapticRow = advancedToggleRow(getString(R.string.haptic_connect_title), getString(R.string.haptic_connect_detail), hapticSwitch)
+        listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow, hapticRow).forEachIndexed { index, row ->
+            if (index > 0 && row !== swatchStrip) {
+                appearancePanel.addView(
+                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
+                    LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(16); marginEnd = dp(16) },
+                )
+            }
+            appearancePanel.addView(row, LinearLayout.LayoutParams(-1, -2))
+        }
+        appearanceSettings.addView(appearancePanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+
         val appPreferencesPanel = advancedSettingsPanel()
-        listOf(settingsSubscriptionSelectorRow, themeSelectorRow, languageSelectorRow)
+        listOf(settingsSubscriptionSelectorRow)
             .forEachIndexed { index, row ->
                 if (index > 0) {
                     appPreferencesPanel.addView(
@@ -3728,6 +3995,19 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
+        adBlockCheckbox = MaterialSwitch(this).apply {
+            isChecked = routingModePreferenceStore.isAdBlockEnabled()
+            contentDescription = getString(R.string.ad_block_title)
+            setOnClickListener { saveAdBlockEnabled(isChecked) }
+        }
+        routingPanel.addView(
+            advancedToggleRow(
+                title = getString(R.string.ad_block_title),
+                detail = getString(R.string.ad_block_description),
+                toggle = adBlockCheckbox,
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         connectionSettings.addView(
             advancedSectionLabel(getString(R.string.dns_privacy_section)),
             LinearLayout.LayoutParams(
@@ -4144,7 +4424,7 @@ class MainActivity : Activity() {
             addView(
                 TextView(this@MainActivity).apply {
                     setText(R.string.settings_title)
-                    textSize = 28f
+                    textSize = 30f
                     typeface = CatClientDisplayTypeface
                     setTextColor(TEXT_PRIMARY)
                     includeFontPadding = false
@@ -4257,6 +4537,34 @@ class MainActivity : Activity() {
                         showCategory(titleRes, content)
                         onOpen?.invoke()
                     }
+                    // ZedSecure SettingsItem: tinted rounded-square leading icon.
+                    val glyph = when (titleRes) {
+                        R.string.settings_category_appearance -> "🎨"
+                        R.string.settings_category_app_preferences -> "✦"
+                        R.string.settings_category_testing -> "⏱"
+                        R.string.settings_category_connections -> "⇄"
+                        R.string.connection_chain_title -> "⛓"
+                        R.string.split_tunnel_label -> "▦"
+                        R.string.settings_category_sharing -> "⇪"
+                        R.string.settings_category_system -> "⚙"
+                        R.string.update_settings_title -> "⬆"
+                        else -> "•"
+                    }
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = glyph
+                            textSize = 18f
+                            gravity = Gravity.CENTER
+                            includeFontPadding = false
+                            setTextColor(TEAL)
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dp(14).toFloat()
+                                setColor(withAlpha(TEAL, 40))
+                            }
+                        },
+                        LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(14) },
+                    )
                     addView(
                         LinearLayout(this@MainActivity).apply {
                             orientation = LinearLayout.VERTICAL
@@ -4307,14 +4615,19 @@ class MainActivity : Activity() {
             )
             if (addDivider) {
                 categoriesPanel.addView(
-                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
+                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 90)) },
                     LinearLayout.LayoutParams(-1, dp(1)).apply {
-                        marginStart = dp(16)
+                        marginStart = dp(74)
                         marginEnd = dp(16)
                     },
                 )
             }
         }
+        addCategory(
+            R.string.settings_category_appearance,
+            R.string.settings_category_appearance_detail,
+            appearanceSettings,
+        )
         addCategory(
             R.string.settings_category_app_preferences,
             R.string.settings_category_app_preferences_detail,
@@ -4405,11 +4718,22 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            text = getString(R.string.footer_copyright)
+            // Version stays visible on the home footer; tapping it runs the
+            // in-app update check (GitHub release only — never an API token).
+            text = getString(R.string.footer_copyright) + "  ·  v" + BuildConfig.VERSION_NAME
             textSize = 12f
-            typeface = CatClientBodyTypeface
+            typeface = CatClientBodyBoldTypeface
             setTextColor(TEXT_SECONDARY)
             includeFontPadding = false
+            minHeight = dp(44)
+            setSelectableBackground()
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.update_check)
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, getString(R.string.update_installed_version, BuildConfig.VERSION_NAME), Toast.LENGTH_SHORT).show()
+                checkForUpdates()
+            }
         }
         val footerTelegramLink = TextView(this).apply {
             gravity = Gravity.CENTER
@@ -4514,6 +4838,7 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(28), dp(24), dp(104))
         }
 
+        body.addView(cloudScannerSwitch(scannerActive = true), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
         body.addView(
             TextView(this).apply {
                 setText(R.string.scanner_title)
@@ -4531,6 +4856,67 @@ class MainActivity : Activity() {
                 bottomMargin = dp(18)
             },
         )
+        body.addView(
+            advancedSettingsPanel().apply {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showProxyScannerPage() }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(14), dp(16), dp(14))
+                        addView(TextView(this@MainActivity).apply { text = "🛰"; textSize = 22f }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(14) })
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(TextView(this@MainActivity).apply { setText(R.string.scanner_proxy_entry); textSize = 15f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false })
+                                addView(TextView(this@MainActivity).apply { setText(R.string.scanner_proxy_entry_detail); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                        addView(TextView(this@MainActivity).apply { text = "›"; textSize = 22f; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
+        )
+
+        body.addView(
+            advancedSettingsPanel().apply {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showProxyIpScannerPage() }
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(14), dp(16), dp(14))
+                        addView(TextView(this@MainActivity).apply { text = "🔁"; textSize = 22f }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(14) })
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(TextView(this@MainActivity).apply { setText(R.string.pip_entry); textSize = 15f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false })
+                                addView(TextView(this@MainActivity).apply { setText(R.string.pip_entry_detail); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                        addView(TextView(this@MainActivity).apply { text = "›"; textSize = 22f; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
+        )
+
+        // ---- Static IP: exactly one fronting address, never rotated / failed-over / re-ranked ----
+        body.addView(buildStaticIpCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
+        // ---- SNI scanner: which SNI works best (fastest TLS) with the active IP ----
+        body.addView(buildSniScannerCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
 
         // ---- live IP health: auto-refresh the pool and replace broken IPs ----
         val ipHealthStore = IpHealthStore(this)
@@ -4553,6 +4939,11 @@ class MainActivity : Activity() {
             setLineSpacing(dp(3).toFloat(), 1f)
         }
         healthCard.addView(ipHealthStatusView, LinearLayout.LayoutParams(-1, -2))
+        ipHealthCountryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        healthCard.addView(ipHealthCountryRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val intervalChips = mutableListOf<Chip>()
         val autoChip = Chip(this@MainActivity).apply {
             setText(R.string.ip_health_auto)
@@ -4614,7 +5005,23 @@ class MainActivity : Activity() {
                 ).show()
             }
         }
+        val genomeStoreUi = NetworkGenomeStore(this)
+        val failoverChip = Chip(this@MainActivity).apply {
+            setText(R.string.engine_auto_failover)
+            isCheckable = true
+            isChecked = genomeStoreUi.autoFailover
+            textSize = 12f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                genomeStoreUi.autoFailover = checked
+                Toast.makeText(this@MainActivity, if (checked) R.string.engine_auto_failover_on else R.string.engine_auto_failover_off, Toast.LENGTH_SHORT).show()
+            }
+        }
         healthRow.addView(autoChip, LinearLayout.LayoutParams(-2, -2))
+        healthRow.addView(failoverChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthRow.addView(pinChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthRow.addView(rotateButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         healthCard.addView(healthRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
@@ -4713,8 +5120,42 @@ class MainActivity : Activity() {
             isSingleSelection = true
             chipSpacingHorizontal = dp(6)
             chipSpacingVertical = dp(4)
-            listOf(443, 2053, 2083, 8443).forEach { port ->
-                addView(Chip(this@MainActivity).apply {
+        }
+        var refreshPortChips: () -> Unit = {}
+        val customPortDialog: () -> Unit = {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(12), dp(20), dp(0))
+            }
+            val portInput = TextInputEditText(this).apply {
+                hint = getString(R.string.scanner_port_custom)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText(scannerPort.toString())
+            }
+            box.addView(portInput, LinearLayout.LayoutParams(-1, -2))
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.scanner_port_custom)
+                .setView(box)
+                .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                    val parsed = portInput.text?.toString()?.trim()?.toIntOrNull() ?: 0
+                    if (parsed in 1..65535) {
+                        scannerPort = parsed
+                        saveScannerPort(parsed)
+                        refreshPortChips()
+                    } else {
+                        Toast.makeText(this, R.string.scanner_port_invalid, Toast.LENGTH_SHORT).show()
+                    }
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+        // Presets + the last custom port + ✏️ opener: every port 1–65535 is selectable,
+        // and «Send to Cat Panel» pins each address to exactly this port (ip:port#CC).
+        refreshPortChips = {
+            scannerPortGroup.removeAllViews()
+            (SCANNER_PORTS.toList() + if (scannerPort in SCANNER_PORTS) emptyList() else listOf(scannerPort)).forEach { port ->
+                scannerPortGroup.addView(Chip(this@MainActivity).apply {
                     id = View.generateViewId()
                     text = getString(R.string.scanner_port_selected, port)
                     isCheckable = true
@@ -4730,7 +5171,17 @@ class MainActivity : Activity() {
                     }
                 })
             }
+            scannerPortGroup.addView(Chip(this@MainActivity).apply {
+                text = getString(R.string.scanner_port_custom)
+                textSize = 11f
+                setTextColor(TEXT_SECONDARY)
+                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
+                chipStrokeWidth = dp(1).toFloat()
+                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnClickListener { customPortDialog() }
+            })
         }
+        refreshPortChips()
         controls.addView(scannerPortGroup, LinearLayout.LayoutParams(-1, -2))
         controls.addView(
             TextView(this).apply {
@@ -4892,6 +5343,39 @@ class MainActivity : Activity() {
             }
         }
         body.addView(scannerBuildButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // Hand the verified rows to Cat Panel as `addr#CC` lines: copied to the
+        // clipboard AND opened in the panel (its import box pre-fills from ?ips=),
+        // so the panel learns which address lands in which country for THIS user.
+        val scannerPanelButton = MaterialButton(this).apply {
+            setText(R.string.scanner_send_panel)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 120))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { sendScanToPanel() }
+        }
+        body.addView(scannerPanelButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val scannerSpeedButton = MaterialButton(this).apply {
+            setText(R.string.scanner_speed_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+            setTextColor(TEAL)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerSpeedTest() }
+        }
+        scannerSpeedTestButton = scannerSpeedButton
+        body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5093,7 +5577,7 @@ class MainActivity : Activity() {
     private fun scannerPortPreference(): Int {
         val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
             .getInt(SCANNER_PORT_KEY, 443)
-        return saved.takeIf { it in SCANNER_PORTS } ?: 443
+        return saved.takeIf { it in 1..65535 } ?: 443
     }
 
     private fun saveScannerPort(value: Int) {
@@ -5149,8 +5633,12 @@ class MainActivity : Activity() {
         )
         scannerProgressBar.progress = 0
         scannerJob = activityScope.launch {
+            // Dual-stack: probe once whether v6 really works here; if so the v6
+            // ranges join the walk and results of both families are ranked together.
+            val ipv6 = withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
+            if (ipv6) mainHandler.post { scannerStatusText.setText(R.string.scanner_ipv6_detected) }
             val found = runCatching {
-                IpScanner.scan(this@MainActivity, options) { done, total, result ->
+                IpScanner.scan(this@MainActivity, options.copy(includeIpv6 = ipv6)) { done, total, result ->
                     // Called from an IO thread for every finished candidate.
                     mainHandler.post {
                         if (!scannerRunning) return@post
@@ -5208,15 +5696,134 @@ class MainActivity : Activity() {
         scannerStatusText.setText(R.string.scanner_stopped)
     }
 
+    /** XIU2-style download throughput for the top verified rows; sorts by speed after. */
+    private fun runScannerSpeedTest() {
+        if (scannerSpeedTestRunning) return
+        val targets = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+            .filter { it.tlsOk }
+            .distinctBy { it.ip }
+            .take(8)
+        if (targets.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        scannerSpeedTestRunning = true
+        scannerSpeedTestButton?.isEnabled = false
+        activityScope.launch {
+            val measured = LinkedHashMap<String, Long>()
+            for ((index, target) in targets.withIndex()) {
+                mainHandler.post {
+                    scannerStatusText.text = getString(R.string.scanner_speed_running, index + 1, targets.size)
+                }
+                val speed = withContext(Dispatchers.IO) {
+                    runCatching { IpScanner.measureDownloadSpeed(target.ip, target.port) }.getOrNull()
+                }
+                if (speed != null) measured[target.ip] = speed
+                mainHandler.post {
+                    val updated = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+                        .map { if (it.ip == target.ip && speed != null) it.copy(speedBps = speed) else it }
+                    scannerResults = updated
+                    renderScannerResults()
+                }
+            }
+            mainHandler.post {
+                scannerResults = scannerResults.sortedWith(
+                    compareBy(
+                        { if (it.tlsOk) 0 else 1 },
+                        { it.speedBps?.let { s -> -s } ?: Long.MAX_VALUE },
+                        { it.pingMs },
+                    ),
+                )
+                renderScannerResults()
+                scannerSpeedTestRunning = false
+                scannerSpeedTestButton?.isEnabled = scannerResults.any { it.tlsOk }
+                val best = measured.maxByOrNull { it.value }
+                if (best != null) {
+                    val mbps = getString(R.string.scanner_speed_mbps, best.value / 1_000_000.0)
+                    scannerStatusText.text = getString(R.string.scanner_speed_done, best.key, mbps)
+                    Toast.makeText(this@MainActivity, getString(R.string.scanner_speed_done, best.key, mbps), Toast.LENGTH_LONG).show()
+                } else {
+                    scannerStatusText.setText(R.string.scanner_no_results)
+                }
+            }
+        }
+
+    }
+
     private var ipHealthJob: Job? = null
     private var ipHealthSweeping = false
     private var ipHealthStatusView: TextView? = null
+    private var ipHealthCountryRow: LinearLayout? = null
+
+    /** Pool grouped by location: one chip per country (tap = lock failover/replacements to it), IPs listed under the lock. */
+    private fun renderIpHealthCountries(entries: List<IpHealthEntry>) {
+        val row = ipHealthCountryRow ?: return
+        row.removeAllViews()
+        if (entries.isEmpty()) return
+        val store = IpHealthStore(this)
+        val active = frontingIps.firstOrNull()
+        val groups = entries.groupBy { it.countryCode?.uppercase().orEmpty() }
+            .entries.sortedWith(compareByDescending<Map.Entry<String, List<IpHealthEntry>>> { it.value.size }.thenBy { it.key })
+        val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        fun chip(label: String, selected: Boolean, onClick: () -> Unit) = Chip(this@MainActivity).apply {
+            text = label
+            isCheckable = true
+            isChecked = selected
+            textSize = 11.5f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(if (selected) TEAL else OUTLINE, 170))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(if (selected) withAlpha(TEAL, 40) else withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+            setOnClickListener { onClick() }
+        }
+        chips.addView(chip(getString(R.string.ip_health_country_auto), store.preferredCountry.isBlank()) {
+            store.preferredCountry = ""
+            renderScannerIpHealth()
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        groups.forEach { (cc, list) ->
+            val flag = if (cc.length == 2) cc.toFlagEmoji() else "🌐"
+            val name = list.firstNotNullOfOrNull { it.countryName } ?: cc.ifBlank { "?" }
+            val hasActive = active != null && list.any { it.ip == active }
+            chips.addView(chip("$flag $name (${list.size})" + if (hasActive) " ●" else "", store.preferredCountry.equals(cc, true) && cc.isNotBlank()) {
+                store.preferredCountry = if (store.preferredCountry.equals(cc, true)) "" else cc
+                renderScannerIpHealth()
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        }
+        row.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, LinearLayout.LayoutParams(-1, -2))
+        val shown = groups.firstOrNull { it.key.equals(store.preferredCountry, true) && it.key.isNotBlank() }
+            ?: groups.firstOrNull { g -> active != null && g.value.any { it.ip == active } }
+            ?: groups.firstOrNull()
+        if (shown != null && shown.key.isNotBlank()) {
+            row.addView(MaterialButton(this).apply {
+                text = getString(R.string.multi_location_use, shown.key.toFlagEmoji(), shown.value.firstNotNullOfOrNull { it.countryName } ?: shown.key)
+                setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(34); minimumHeight = dp(34)
+                insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34)); strokeWidth = dp(1); strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130)); setTextColor(TEAL)
+                isEnabled = !staticIpEnabled()
+                setOnClickListener { useCountryIps(shown.key) }
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+        }
+        if (shown != null) {
+            row.addView(TextView(this).apply {
+                textSize = 11.5f
+                typeface = CatClientDataTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                setLineSpacing(dp(2).toFloat(), 1f)
+                text = shown.value.sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }.joinToString("\n") { e ->
+                    (if (e.ip == active) "● " else "   ") + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") + (if (e.fails > 0) "  ✗${e.fails}" else "")
+                }
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }
+    }
 
     private fun renderScannerIpHealth() {
         val view = ipHealthStatusView ?: return
         val store = IpHealthStore(this)
         val entries = store.entries()
         val last = store.events().firstOrNull()
+        renderIpHealthCountries(entries)
         view.text = buildString {
             append(getString(R.string.ip_health_pool, entries.size))
             val best = entries.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }
@@ -5227,6 +5834,26 @@ class MainActivity : Activity() {
             if (last != null) {
                 append('\n')
                 append(getString(R.string.ip_health_last_event, last.removedIp, last.addedIp ?: "—"))
+            }
+            val genomes = NetworkGenomeStore(this@MainActivity)
+            val stats = genomes.stats()
+            val network = NetworkContext.key(this@MainActivity)
+            val active = frontingIps.firstOrNull()
+            if (active != null) {
+                val g = genomes.genome(active).forNetwork(network)
+                if (g.count > 0) {
+                    append('\n')
+                    append(getString(R.string.engine_active_line, active, g.median, g.p95, (g.successRate * 100).toInt(), (g.confidence * 100).toInt()))
+                    g.anomaly()?.let { append("  ⚠ ").append(it.type).append(' ').append(it.detail) }
+                }
+            }
+            if (stats.probes > 0) {
+                append('\n')
+                append(getString(R.string.engine_stats_line, stats.observations, (stats.probeSuccessRate * 100).toInt(), stats.failovers, stats.lastRecoveryMs / 1000.0, (stats.predictionAccuracy * 100).toInt(), network))
+                if (stats.lastFailoverTo.isNotBlank()) {
+                    append('\n')
+                    append(getString(R.string.engine_last_failover, stats.lastFailoverFrom, stats.lastFailoverTo, stats.lastFailoverReason))
+                }
             }
         }
     }
@@ -5244,6 +5871,45 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Self-healing control plane: DETECT (anomaly on the active fronting address from its
+     * own history) → SELECT (best-ranked standby) → WARM/VERIFY (two fresh probes) →
+     * PROMOTE (move to the front of the fronting list, reconnect) → LEARN (stats).
+     */
+    private suspend fun runCognitiveFailover(pool: List<IpHealthEntry>, genomes: NetworkGenomeStore, network: String, sni: String, port: Int) {
+        if (!genomes.autoFailover || IpHealthStore(this).pinned) return
+        if (!currentVpnStateIsStarted()) return
+        val active = frontingIps.firstOrNull() ?: return
+        val plan = withContext(Dispatchers.IO) {
+            val options = IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)
+            CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network, country = IpHealthStore(this@MainActivity).preferredCountry) { candidate ->
+                val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }))
+                val ok = r != null && r.tlsOk && r.pingMs <= IpHealthMonitor.SLOW_MS
+                genomes.record(candidate.ip, Observation(System.currentTimeMillis(), network, r?.pingMs ?: -1L, r?.tlsMs ?: -1L, ok, if (ok) FailureClass.OK else CognitiveEngine.classify(r, IpHealthMonitor.SLOW_MS, genomes.genome(candidate.ip))))
+                ok
+            }
+        } ?: return
+        val started = System.currentTimeMillis()
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = FrontingIpPolicy.normalizeIps((listOf(plan.to.ip) + frontingIps.filter { it != plan.to.ip }).joinToString(","))
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        genomes.updateStats {
+            it.copy(
+                failovers = it.failovers + 1,
+                predictedDegradations = it.predictedDegradations + if (plan.predicted) 1 else 0,
+                predictionsConfirmed = it.predictionsConfirmed + if (plan.predicted) 1 else 0,
+                lastRecoveryMs = System.currentTimeMillis() - started,
+                lastFailoverAt = started,
+                lastFailoverFrom = plan.from,
+                lastFailoverTo = plan.to.ip,
+                lastFailoverReason = plan.reason,
+            )
+        }
+        renderScannerIpHealth()
+        Toast.makeText(this, getString(if (plan.countryChanged) R.string.engine_failover_country_toast else R.string.engine_failover_toast, plan.from, plan.to.ip, plan.reason), Toast.LENGTH_LONG).show()
+    }
+
     private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
         if (ipHealthSweeping) return
         ipHealthSweeping = true
@@ -5253,14 +5919,20 @@ class MainActivity : Activity() {
         if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
         activityScope.launch {
             try {
+                val genomeStore = NetworkGenomeStore(this@MainActivity)
+                val network = NetworkContext.key(this@MainActivity)
                 val result = IpHealthMonitor.sweep(
                     store,
                     sni,
                     port,
                     failFast = failFast,
                     extraSnis = detectPanelSnisFromSubscriptions(),
+                    genomes = genomeStore,
+                    network = network,
+                    baseIntervalMinutes = store.intervalMinutes,
                 )
                 renderScannerIpHealth()
+                runCognitiveFailover(result.kept, genomeStore, network, sni, port)
                 if (!silent) {
                     if (result.removed.isEmpty() && result.added.isEmpty()) {
                         Toast.makeText(this@MainActivity, R.string.ip_health_all_ok, Toast.LENGTH_SHORT).show()
@@ -5386,6 +6058,16 @@ class MainActivity : Activity() {
                     ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
             }
+            result.speedBps?.let { bps ->
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.scanner_result_speed, bps / 1_000_000.0)
+                    textSize = 10f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    includeFontPadding = false
+                    maxLines = 1
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            }
             result.sourceRange?.takeIf { it.isNotBlank() }?.let { range ->
                 addView(TextView(this@MainActivity).apply {
                     text = getString(R.string.scanner_result_range, range)
@@ -5452,6 +6134,85 @@ class MainActivity : Activity() {
         return row
     }
 
+    private fun sendScanToPanel() {
+        val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
+        val verified = source.filter { it.tlsOk }.ifEmpty { source }
+        if (verified.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val lines = verified.take(60).map { it.panelLine }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", lines.joinToString("\n")))
+        // Push straight into the panel over its API (login → POST /api/ips, append).
+        // The old deep link opened the scanner SNI instead of the panel, so IPs
+        // never arrived — the panel host comes from the subscriptions now.
+        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) {
+            Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
+            return
+        }
+        val input = TextInputEditText(this).apply {
+            hint = getString(R.string.pip_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.scanner_send_panel)
+            .setMessage(base.removePrefix("https://"))
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                val password = input.text?.toString().orEmpty()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines) } }
+                    result.onSuccess { n ->
+                        val msg = when {
+                            n > 0 -> R.string.scanner_panel_saved
+                            else -> R.string.scanner_panel_zero
+                        }
+                        Toast.makeText(this@MainActivity, getString(msg, n), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    /**
+     * Import clean IPs into Cat Panel over its API: POST /api/login (password →
+     * session cookie), then POST /api/ips {ips:[…]} which appends and returns the
+     * new list size. Nothing is stored on the phone. Mirror of
+     * ProxyIpScannerPage.pushToPanel.
+     */
+    private fun pushIpsToPanel(base: String, password: String, lines: List<String>): Int {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
+            val conn = URL("$base$path").openConnection() as HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (post, postBody) = call("/api/ips", "POST", org.json.JSONObject().put("ips", org.json.JSONArray(lines)).toString(), cookie)
+        val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
+        val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0
+        post.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${post.responseCode}")
+        return count
+    }
+
     private fun copyScannerIp(result: IpScanner.ScanResult) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.ip))
@@ -5469,7 +6230,16 @@ class MainActivity : Activity() {
             return
         }
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip).joinToString(","))
+        // Dual-stack apply: when nothing specific was tapped, take the best v4 AND
+        // the best v6 so the tunnel survives either family dropping.
+        val companions = if (result == null) {
+            val pool = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()).filter { it.tlsOk }
+            val otherFamily = pool.firstOrNull { IpScanner.isIpv6(it.ip) != IpScanner.isIpv6(target.ip) }
+            listOfNotNull(otherFamily?.ip)
+        } else {
+            emptyList()
+        }
+        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip + companions).joinToString(","))
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(
@@ -5477,6 +6247,272 @@ class MainActivity : Activity() {
             getString(R.string.scanner_applied, target.ip, target.pingMs),
             Toast.LENGTH_LONG,
         ).show()
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Panel status & one-tap recovery (Cloudflare abuse-report 1101)      */
+    /* ------------------------------------------------------------------ */
+
+    private fun buildPanelStatusCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_status_title)
+                textSize = 15f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            },
+        )
+        card.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_status_detail)
+                textSize = 12f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        val check = MaterialButton(this).apply {
+            text = getString(R.string.cloud_status_check)
+            isAllCaps = false
+            textSize = 14f
+            minWidth = 0
+            minHeight = dp(44)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(14)
+            setPaddingRelative(dp(16), 0, dp(16), 0)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 190))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
+            setTextColor(TEXT_PRIMARY)
+            setOnClickListener { onPanelStatusCheck() }
+        }
+        card.addView(check, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        return card
+    }
+
+    private fun onPanelStatusCheck() {
+        val dep = PanelDeploymentStore(this).deployments().firstOrNull()
+        if (dep == null) {
+            Toast.makeText(this, R.string.cloud_status_none, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_status_checking))
+            .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_status_checking_detail))))
+            .setCancelable(false)
+            .create()
+        progress.show()
+        activityScope.launch {
+            val health = withContext(Dispatchers.IO) {
+                runCatching { CloudflareWorker.checkPanelHealth(dep.workerUrl) }
+                    .getOrElse { CloudflareWorker.PanelHealth("DOWN", it.message ?: "network error") }
+            }
+            progress.dismiss()
+            if (health.state == "HEALTHY") {
+                val deployed = runCatching { PanelUpdate.deployedVersion(dep.workerUrl) }.getOrNull()
+                val newest = runCatching { newestPanelScript() }.getOrNull()
+                showPanelManageDialog(dep, deployed, newest)
+            } else {
+                showPanelRecoveryDialog(dep.workerUrl, health.detail)
+            }
+        }
+    }
+
+    /** Version + update + delete for a healthy panel (deployed from this app). */
+    private fun showPanelManageDialog(dep: PanelDeploymentRecord, deployed: String?, newest: PanelUpdate.PanelScript?) {
+        val updateAvailable = newest != null && newest.version != deployed
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                getString(R.string.panel_manage_title) +
+                    if (updateAvailable) "  ·  ⬆ v" + newest!!.version else "",
+            )
+            .setMessage(
+                getString(
+                    R.string.panel_manage_msg,
+                    dep.workerUrl,
+                    deployed ?: getString(R.string.panel_version_unknown),
+                    newest?.version ?: getString(R.string.panel_version_unknown),
+                ),
+            )
+            .setPositiveButton(R.string.panel_update_btn) { _, _ ->
+                val script = newest
+                if (script == null) {
+                    Toast.makeText(this, R.string.panel_no_source, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
+                panelUpdateInProgress = true
+                // No token? Token-free guided update — NEVER a token prompt.
+                if (token.isBlank()) presentTokenlessPanelUpdate(dep, deployed, script, updateAvailable)
+                else runPanelUpdate(dep, token, deployed, script)
+            }
+            .setNeutralButton(R.string.panel_delete) { _, _ -> confirmPanelDelete(dep) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmPanelDelete(dep: PanelDeploymentRecord) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.panel_delete_confirm_title)
+            .setMessage(getString(R.string.panel_delete_confirm_msg, dep.workerUrl))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.panel_delete) { _, _ ->
+                val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
+                if (token.isBlank()) {
+                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val progress = MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.panel_delete_confirm_title)
+                    .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_recover_running))))
+                    .setCancelable(false)
+                    .create()
+                progress.show()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { CloudflareWorker.deletePanel(token, dep.workerUrl) }
+                    }
+                    progress.dismiss()
+                    result.onSuccess { summary ->
+                        PanelDeploymentStore(this@MainActivity).remove(dep.workerUrl)
+                        Toast.makeText(this@MainActivity, getString(R.string.panel_delete_done, summary), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.panel_delete_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                    renderCloudDeploymentHistory()
+                }
+            }
+            .show()
+    }
+
+    private fun showPanelRecoveryDialog(panelUrl: String, detail: String) {
+        val backup = PanelBackup.read(this)
+        val explain = TextView(this).apply {
+            text = getString(R.string.cloud_recover_explain, panelUrl, detail) + "\n\n" +
+                if (backup != null) {
+                    getString(R.string.cloud_recover_backup_ok, android.text.format.DateUtils.getRelativeTimeSpanString(backup.savedAt).toString())
+                } else {
+                    getString(R.string.cloud_recover_backup_none)
+                }
+            textSize = 13f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        val tokenEdit = com.google.android.material.textfield.TextInputEditText(this).apply {
+            hint = getString(R.string.cloud_token_help)
+            setText(PanelDeploymentStore(this@MainActivity).tokenFor(panelUrl).orEmpty())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            isSingleLine = true
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(explain)
+            addView(
+                tokenEdit,
+                LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(20), dp(10), dp(20), 0) },
+            )
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_title))
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.cloud_recover_start) { _, _ ->
+                val token = tokenEdit.text?.toString()?.trim().orEmpty()
+                if (token.isEmpty()) {
+                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                runPanelRecovery(token, backup)
+            }
+            .show()
+    }
+
+    private fun runPanelRecovery(token: String, backup: PanelBackup.Snapshot?) {
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_title))
+            .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_recover_running))))
+            .setCancelable(false)
+            .create()
+        progress.show()
+        activityScope.launch {
+            try {
+                val permissions = CloudflareWorker.verifyToken(token)
+                val accountId = permissions.accountId
+                if (!permissions.valid || accountId == null) {
+                    progress.dismiss()
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                // The snapshot must be captured BEFORE deploying: the deploy's own
+                // stealth step replaces the stored backup with the new panel's state.
+                val result = CloudflareWorker.deployBuiltIn(
+                    this@MainActivity,
+                    token,
+                    accountId,
+                    CloudflareWorker.randomWorkerName(),
+                )
+                PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                var usersNote = ""
+                if (backup != null) {
+                    val restored = withContext(Dispatchers.IO) {
+                        runCatching {
+                            CloudflareWorker.restorePanelState(
+                                workerUrl = result.workerUrl,
+                                settingsJson = backup.settingsJson,
+                                usersJson = backup.usersJson,
+                                password = result.uuid,
+                            )
+                        }.getOrElse { CloudflareWorker.PanelRestoreResult(false, 0) }
+                    }
+                    if (restored.settingsApplied) {
+                        usersNote = getString(R.string.cloud_recover_users, restored.usersRestored)
+                    }
+                }
+                progress.dismiss()
+                showPanelRecoveryDone(result, usersNote)
+            } catch (e: Exception) {
+                progress.dismiss()
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.cloud_recover_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private fun showPanelRecoveryDone(result: CloudflareWorker.DeploymentResult, usersNote: String) {
+        val message = buildString {
+            append(getString(R.string.cloud_recover_done, result.panelUrl))
+            append("\n")
+            append(getString(R.string.cloud_recover_done_sub, result.subscriptionUrl))
+            if (usersNote.isNotEmpty()) {
+                append("\n")
+                append(usersNote)
+            }
+            append("\n\n")
+            append(getString(R.string.cloud_recover_done_note))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.cloud_recover_done_title))
+            .setMessage(message)
+            .setPositiveButton(R.string.cloud_recover_addsub) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
+            }
+            .setNeutralButton(R.string.cloud_recover_open) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun buildCloudScreen(): View {
@@ -5491,9 +6527,39 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(104))
         }
 
+        body.addView(cloudScannerSwitch(scannerActive = false), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+
+        // Wizard card (BPB/Zeus-style): token → deploy → import → scan, step by step.
+        val setupWizardCard = advancedSettingsPanel()
+        setupWizardCard.addView(
+            TextView(this).apply {
+                setText(R.string.wizard_title)
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        setupWizardCard.addView(
+            TextView(this).apply {
+                setText(R.string.wizard_subtitle)
+                textSize = 12.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        setupWizardCard.addView(
+            cloudActionButton(R.string.wizard_start, R.drawable.ic_cloud_tab, accent = true) { showPanelWizard() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(setupWizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         body.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
         )
 
         val catPanelCard = advancedSettingsPanel()
@@ -5554,7 +6620,7 @@ class MainActivity : Activity() {
             setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
             setTextColor(TEXT_PRIMARY)
             setHintTextColor(TEXT_SECONDARY)
-            setText("catpanel")
+            setText(CloudflareWorker.randomWorkerName())
         }
         val workerNameLayout = TextInputLayout(this).apply {
             hint = getString(R.string.cloud_worker_name_hint)
@@ -5674,7 +6740,7 @@ class MainActivity : Activity() {
                 ?.replace(Regex("[^a-z0-9-]"), "-")
                 ?.replace(Regex("-{2,}"), "-")
                 ?.trim('-')
-                ?.ifEmpty { "catpanel" } ?: "catpanel"
+                ?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
             cloudDeployInProgress = true
             deployButton.isEnabled = false
             activityScope.launch {
@@ -5720,6 +6786,7 @@ class MainActivity : Activity() {
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(buildPanelStatusCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val deploymentHistoryCard = advancedSettingsPanel()
         deploymentHistoryCard.addView(
@@ -5839,8 +6906,7 @@ class MainActivity : Activity() {
         )
         scannerLinkCard.addView(
             cloudActionButton(R.string.cloud_open_scanner, R.drawable.ic_speedometer, accent = false) {
-                // Visual tab 3 is the scanner (see the tab mapping in buildAppShell)
-                appTabs.getTabAt(3)?.select()
+                openScreen(SCREEN_SCANNER)
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
@@ -5977,7 +7043,6 @@ class MainActivity : Activity() {
         val host = cloudDeploymentHistoryHost ?: return
         host.removeAllViews()
         val history = PanelDeploymentStore(this).deployments()
-        if (history.isEmpty()) return
         history.forEachIndexed { index, deployment ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -6062,6 +7127,89 @@ class MainActivity : Activity() {
                 applyPanelVersionBadge(versionBadge, deployed, newest)
             }
         }
+        host.addView(
+            MaterialButton(this).apply {
+                setText(R.string.cloud_add_existing)
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(12)
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
+                setTextColor(TEXT_PRIMARY)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnClickListener { onAddExistingPanel() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+    }
+
+    /**
+     * Attach a panel that was deployed manually in the Cloudflare dashboard (no
+     * app record exists). After this the card shows in My Panels with its live
+     * version and the Update Panel button — the CF token is asked at update time.
+     */
+    private fun onAddExistingPanel() {
+        val input = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            hint = getString(R.string.cloud_add_existing_hint)
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(6), dp(24), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_add_existing)
+            .setMessage(R.string.cloud_add_existing_msg)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { button ->
+            var raw = input.text?.toString()?.trim().orEmpty()
+            if (raw.isBlank()) return@setOnClickListener
+            if (!raw.startsWith("http")) raw = "https://$raw"
+            val uri = runCatching { Uri.parse(raw) }.getOrNull()
+            val host = uri?.host.orEmpty()
+            if (!host.contains('.')) {
+                Toast.makeText(this, R.string.cloud_panel_notcat, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val path = uri?.path.orEmpty()
+            val url = "https://" + host + if (path.isNotBlank() && path != "/") path else ""
+            button.isEnabled = false
+            activityScope.launch {
+                val version = runCatching { PanelUpdate.deployedVersion(url) }.getOrNull()
+                if (version == null) {
+                    withContext(Dispatchers.Main) {
+                        button.isEnabled = true
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.cloud_add_existing)
+                            .setMessage(R.string.cloud_panel_notcat_confirm)
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(android.R.string.ok) { _, _ ->
+                                PanelDeploymentStore(this@MainActivity).rememberLast(url, "")
+                                renderCloudDeploymentHistory()
+                                Toast.makeText(this@MainActivity, R.string.cloud_panel_added, Toast.LENGTH_LONG).show()
+                                dialog.dismiss()
+                            }
+                            .show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        PanelDeploymentStore(this@MainActivity).rememberLast(url, "")
+                        renderCloudDeploymentHistory()
+                        Toast.makeText(this@MainActivity, getString(R.string.cloud_panel_added_version, version), Toast.LENGTH_LONG).show()
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
     }
 
     private fun applyPanelVersionBadge(
@@ -6119,7 +7267,44 @@ class MainActivity : Activity() {
             presentPanelUpdatePasswordDialog(deployment, deployed, newest, hasUpdate, savedToken)
             return
         }
-        presentPanelTokenPrompt(deployment, deployed, newest)
+        // No stored token: default to the token-free guided update. The user
+        // explicitly never wants to be asked for a Cloudflare API token.
+        presentTokenlessPanelUpdate(deployment, deployed, newest, hasUpdate)
+    }
+
+    /**
+     * Token-free panel update: the newest worker code (release asset, or the copy
+     * bundled in this APK when GitHub is unreachable) goes to the clipboard and the
+     * Cloudflare dashboard opens — paste into the worker's Edit code and Deploy.
+     * No API token is ever requested.
+     */
+    private fun presentTokenlessPanelUpdate(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+        @Suppress("UNUSED_PARAMETER") hasUpdate: Boolean,
+    ) {
+        val host = deployment.workerUrl.removePrefix("https://")
+        val workerName = if (host.endsWith(".workers.dev")) {
+            host.removeSuffix(".workers.dev").substringAfterLast('.')
+        } else {
+            host.substringBefore('/')
+        }
+        val message = getString(R.string.cloud_update_tokenless_msg, workerName, deployed ?: "?", newest.version)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_tokenless_title)
+            .setMessage(message)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
+            .setPositiveButton(R.string.cloud_update_tokenless_btn) { _, _ ->
+                panelUpdateInProgress = false
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", newest.text))
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/?to=/:account/workers")))
+                }
+                Toast.makeText(this, R.string.cloud_update_tokenless_go, Toast.LENGTH_LONG).show()
+            }
+            .show()
     }
 
     /** Inline Cloudflare-token prompt (also the recovery path for an expired token). */
@@ -6232,20 +7417,14 @@ class MainActivity : Activity() {
                         Toast.LENGTH_LONG,
                     ).show()
                     // The saved token can no longer upload (expired/revoked/scopes) —
-                    // offer the inline token prompt so the recovery continues here.
-                    presentPanelTokenPrompt(deployment, deployed, script)
+                    // NEVER ask for a token again: fall back to the token-free flow.
+                    panelUpdateInProgress = false
+                    presentTokenlessPanelUpdate(deployment, deployed, script, true)
                     return@launch
                 }
                 PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
-                val remaining = CloudflareWorker.protectedSecretNames(token, accountId, deployment.workerUrl)
-                    .filterNot { secretValues.containsKey(it) }
-                if (remaining.isNotEmpty()) {
-                    panelUpdateInProgress = false
-                    showPanelSecretsDialog(deployment, token, deployed, script, remaining) { values ->
-                        runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                    }
-                    return@launch
-                }
+                // No secret re-entry prompts: updateBuiltIn preserves unreadable
+                // secrets via keep_secrets, so the update just runs.
                 val outcome = CloudflareWorker.updateBuiltIn(
                     this@MainActivity,
                     token,
@@ -6257,16 +7436,9 @@ class MainActivity : Activity() {
                 )
                 when (outcome) {
                     is CloudflareWorker.PanelUpdateOutcome.Blocked -> {
+                        // Defensive: with keep_secrets this no longer triggers.
                         panelUpdateInProgress = false
-                        showPanelSecretsDialog(
-                            deployment,
-                            token,
-                            deployed,
-                            script,
-                            outcome.secretNames,
-                        ) { values ->
-                            runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                        }
+                        Toast.makeText(this@MainActivity, R.string.cloud_update_running, Toast.LENGTH_LONG).show()
                     }
                     is CloudflareWorker.PanelUpdateOutcome.Success -> showCloudUpdateDialog(outcome)
                 }
@@ -6432,6 +7604,772 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Panel wizard — the "I have nothing yet" path                          */
+    /* ------------------------------------------------------------------ */
+
+    private fun wizardField(hint: String, password: Boolean = false, initial: String = ""): Pair<TextInputLayout, TextInputEditText> {
+        val edit = TextInputEditText(this).apply {
+            setText(initial)
+            inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            textDirection = View.TEXT_DIRECTION_LTR
+            typeface = CatClientBodyTypeface
+        }
+        val layout = TextInputLayout(this).apply {
+            this.hint = hint
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            addView(edit, LinearLayout.LayoutParams(-1, -2))
+        }
+        return layout to edit
+    }
+
+    private fun wizardBody(vararg views: View): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        setPadding(dp(24), dp(12), dp(24), dp(4))
+        views.forEach { addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }) }
+    }
+
+    private fun wizardText(text: CharSequence, secondary: Boolean = false) = TextView(this).apply {
+        this.text = text
+        textSize = if (secondary) 12.5f else 14f
+        typeface = CatClientBodyTypeface
+        setTextColor(if (secondary) TEXT_SECONDARY else TEXT_PRIMARY)
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+
+    /** Step 1/4 — what is about to happen. */
+    private fun showPanelWizard() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 1, 4) + " · " + getString(R.string.wizard_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_intro)), wizardText(getString(R.string.wizard_intro_note), secondary = true)))
+            .setPositiveButton(R.string.wizard_next) { _, _ -> showPanelWizardToken() }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .show()
+    }
+
+    /** Step 2/4 — Cloudflare API token (verified before moving on). */
+    private fun showPanelWizardToken(prefill: String = "", error: String? = null) {
+        val (tokenLayout, tokenEdit) = wizardField(getString(R.string.cloud_token_hint), initial = prefill)
+        if (error != null) tokenLayout.error = error
+        val getToken = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.wizard_get_token)
+            isAllCaps = false
+            typeface = CatClientBodyBoldTypeface
+            setOnClickListener { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.CF_TOKEN_TEMPLATE_URL))) } }
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 2, 4) + " · " + getString(R.string.wizard_token_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_token_help)), getToken, tokenLayout, wizardText(getString(R.string.wizard_token_privacy), secondary = true)))
+            .setPositiveButton(R.string.wizard_next, null)
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val token = tokenEdit.text?.toString()?.trim().orEmpty()
+                if (token.isEmpty()) { tokenLayout.error = getString(R.string.cloud_token_required); return@setOnClickListener }
+                tokenLayout.error = null
+                tokenLayout.isEnabled = false
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                activityScope.launch {
+                    val permissions = runCatching { CloudflareWorker.verifyToken(token) }.getOrNull()
+                    val accountId = permissions?.accountId
+                    if (permissions == null || !permissions.valid || accountId == null) {
+                        dialog.dismiss()
+                        showPanelWizardToken(token, getString(R.string.cloud_token_invalid, permissions?.missingScopes?.joinToString(" + ") ?: "network"))
+                    } else {
+                        dialog.dismiss()
+                        showPanelWizardOptions(token, accountId)
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    /** Step 3/4 — name + password, then deploy with a progress dialog. */
+    private fun showPanelWizardOptions(token: String, accountId: String) {
+        val (nameLayout, nameEdit) = wizardField(getString(R.string.cloud_worker_name_hint), initial = CloudflareWorker.randomWorkerName())
+        val (passLayout, passEdit) = wizardField(getString(R.string.cloud_panel_password_hint), password = true)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.wizard_step, 3, 4) + " · " + getString(R.string.wizard_options_title))
+            .setView(wizardBody(wizardText(getString(R.string.wizard_options_help)), nameLayout, passLayout, wizardText(getString(R.string.wizard_options_note), secondary = true)))
+            .setPositiveButton(R.string.wizard_deploy) { _, _ ->
+                val workerName = nameEdit.text?.toString()?.trim()?.lowercase(Locale.US)
+                    ?.replace(Regex("[^a-z0-9-]"), "-")?.replace(Regex("-{2,}"), "-")?.trim('-')?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
+                val password = passEdit.text?.toString()?.trim().orEmpty()
+                val progress = MaterialAlertDialogBuilder(this)
+                    .setTitle(getString(R.string.wizard_step, 4, 4) + " · " + getString(R.string.wizard_deploying_title))
+                    .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_deploying, workerName))))
+                    .setCancelable(false)
+                    .show()
+                activityScope.launch {
+                    try {
+                        val result = CloudflareWorker.deployBuiltIn(this@MainActivity, token, accountId, workerName, panelPassword = password)
+                        PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                        PanelDeploymentStore(this@MainActivity).rememberLast(result.workerUrl, result.uuid)
+                        renderCloudDeploymentHistory()
+                        progress.dismiss()
+                        showPanelWizardDone(result)
+                    } catch (e: Exception) {
+                        progress.dismiss()
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.wizard_failed_title)
+                            .setMessage(getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName))
+                            .setPositiveButton(R.string.wizard_retry) { _, _ -> showPanelWizardOptions(token, accountId) }
+                            .setNegativeButton(R.string.split_tunnel_cancel, null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .show()
+    }
+
+    /** Step 4/4 — done: import + connect, scan clean IPs, open the panel. */
+    private fun showPanelWizardDone(result: CloudflareWorker.DeploymentResult) {
+        val host = Uri.parse(result.workerUrl).host.orEmpty()
+        val status = if (result.verifiedOnline) getString(R.string.cloud_verified_online) else getString(R.string.cloud_verify_pending)
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.wizard_done_title)
+            .setView(
+                wizardBody(
+                    wizardText(status + "\n" + kvLine),
+                    wizardText(getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl, secondary = true),
+                    wizardText(getString(R.string.cloud_uuid_is_password, result.uuid), secondary = true),
+                    wizardText(getString(R.string.wizard_done_help)),
+                ),
+            )
+            .setPositiveButton(R.string.wizard_import_connect) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
+            }
+            .setNeutralButton(R.string.wizard_scan_now) { _, _ ->
+                if (::scannerSniInput.isInitialized && host.isNotEmpty()) {
+                    scannerSniInput.setText(host)
+                    saveScannerSni(host)
+                }
+                openScreen(SCREEN_SCANNER)
+                Toast.makeText(this, R.string.wizard_scan_hint, Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .show()
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Map page (ZedSecure MapScreen): real location → exit                 */
+    /* ------------------------------------------------------------------ */
+
+    private fun showMapPage() {
+        val connected = buttonModel.state == VpnState.Started
+        val live = liveGeo
+        val vpnOn = connected || deviceVpnActive()
+        val prefs = getSharedPreferences("cat_client_map", MODE_PRIVATE)
+        // Origin = the real location: the panel worker's "real IP" view when available, otherwise
+        // the last lookup made while NO VPN (ours or another app's) was up.
+        var originCode = prefs.getString("origin_code", "").orEmpty()
+        var originLabel = prefs.getString("origin_label", "").orEmpty()
+        if (!live?.realCountryCode.isNullOrBlank()) {
+            originCode = live!!.realCountryCode!!.uppercase()
+            originLabel = live.realCountryName.orEmpty()
+            prefs.edit().putString("origin_code", originCode).putString("origin_label", originLabel).apply()
+        } else if (!vpnOn && live != null) {
+            originCode = live.countryCode.uppercase()
+            originLabel = listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
+            prefs.edit().putString("origin_code", originCode).putString("origin_label", originLabel).apply()
+        }
+        val exitCode = if (connected && live != null) live.countryCode.uppercase() else ""
+        val exitLabel = if (connected && live != null) listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ") else ""
+        if (connected && originCode.isNotBlank() && originCode == exitCode && originLabel == exitLabel) {
+            // A lookup recorded through the tunnel is not an origin — drop it (Zed asks for one VPN-off run).
+            originCode = ""; originLabel = ""
+            prefs.edit().remove("origin_code").remove("origin_label").apply()
+        }
+        val originTint = ZedBlobView.ZED_HOT_PINK
+
+        val map = ZedWorldMapView(this).apply {
+            accent = TEAL
+            originColor = originTint
+            landColor = TEXT_PRIMARY
+        }
+        activityScope.launch {
+            val list = withContext(kotlinx.coroutines.Dispatchers.IO) { WorldMap.countries(this@MainActivity) }
+            map.setCountries(list)
+            val o = WorldMap.anchorOf(list, originCode)?.let { ZedWorldMapView.Point(it.first, it.second, originLabel, originCode) }
+            val e = WorldMap.anchorOf(list, exitCode)?.let { ZedWorldMapView.Point(it.first, it.second, exitLabel, exitCode) }
+            map.setRoute(o, e)
+        }
+
+        fun endpointRow(dot: Int, hollow: Boolean, caption: String, value: String) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            addView(View(this@MainActivity).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    if (hollow) setStroke(dp(2), dot) else setColor(dot)
+                }
+            }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(12) })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                addView(TextView(this@MainActivity).apply {
+                    text = caption; textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); includeFontPadding = false
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = value; textSize = 16f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY)
+                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END; includeFontPadding = false
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        fun stat(caption: String, value: String) = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply { text = caption; textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY) })
+            addView(TextView(this@MainActivity).apply {
+                text = value; textSize = 14f; typeface = CatClientBodyBoldTypeface; setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR; textDirection = View.TEXT_DIRECTION_LTR
+            })
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 225))
+            }
+            addView(endpointRow(
+                originTint, true,
+                getString(if (connected && originCode.isNotBlank()) R.string.map_you_saved else R.string.map_you),
+                originLabel.ifBlank { getString(if (connected) R.string.map_no_origin else R.string.map_unknown) },
+            ))
+            if (connected) {
+                addView(endpointRow(TEAL, false, getString(R.string.map_exit), exitLabel.ifBlank { getString(R.string.map_unknown) }),
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+                val ping = livePingMs
+                val server = activeConfigTitle.text?.toString()?.takeIf { it.isNotBlank() }
+                if (ping != null || server != null) {
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        ping?.let { addView(stat(getString(R.string.map_ping), "$it ms"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(18) }) }
+                        server?.let { addView(stat(getString(R.string.map_server), it), LinearLayout.LayoutParams(0, -2, 1f)) }
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+                }
+            } else {
+                addView(TextView(this@MainActivity).apply {
+                    setText(R.string.map_offline_here); textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY)
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            }
+        }
+        // Route badge (Zed RouteBadge): origin flag ─ dotted connector with travelling dot ─ exit flag.
+        val badge = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(40).toFloat()
+                setColor(withAlpha(palette.surfaceElevated1, 230))
+                setStroke(dp(1), withAlpha(OUTLINE, 150))
+            }
+            fun endpoint(code: String, label: String, tint: Int, hollow: Boolean) = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(FlagBadgeView(this@MainActivity).apply {
+                    circle = true; ringColor = tint; ringWidthDp = if (hollow) 1.5f else 2f; fallbackColor = palette.surfaceElevated2
+                    setCountryCode(code)
+                }, LinearLayout.LayoutParams(dp(34), dp(34)))
+                if (label.isNotBlank()) addView(TextView(this@MainActivity).apply {
+                    text = label.substringBefore(',').trim(); textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); maxLines = 1
+                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+            }
+            if (originCode.isNotBlank()) addView(endpoint(originCode, originLabel, originTint, true))
+            if (connected && exitCode.isNotBlank()) {
+                addView(ZedRouteConnectorView(this@MainActivity).apply { color = TEAL }, LinearLayout.LayoutParams(dp(38), dp(34)).apply { marginStart = dp(10); marginEnd = dp(10) })
+                addView(endpoint(exitCode, exitLabel, TEAL, false))
+            }
+            visibility = if (originCode.isNotBlank() || exitCode.isNotBlank()) View.VISIBLE else View.GONE
+        }
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(12), dp(20), dp(18))
+            addView(TextView(this@MainActivity).apply {
+                setText(R.string.map_title); textSize = 28f; typeface = CatClientDisplayTypeface; setTextColor(TEXT_PRIMARY); includeFontPadding = false
+            })
+            addView(wizardText(getString(R.string.map_subtitle), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(badge, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(12) })
+            addView(card, LinearLayout.LayoutParams(-1, -2))
+        }
+        val page = FrameLayout(this).apply {
+            setBackgroundColor(BACKGROUND)
+            addView(map, FrameLayout.LayoutParams(-1, -1))
+            addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        }
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(page)
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
+        dialog.show()
+    }
+
+    /** True when any VPN (ours or another app's) owns the default route — Zed's deviceVpnActive(). */
+    private fun deviceVpnActive(): Boolean = runCatching {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+    }.getOrDefault(false)
+
+
+    /* ------------------------------------------------------------------ */
+    /* Static IP + multi-location + SNI scanner (Scanner tab)               */
+    /* ------------------------------------------------------------------ */
+
+    private fun staticIpEnabled(): Boolean = IpHealthStore(this).pinned && frontingIps.size == 1
+
+    private fun applyStaticIp(ip: String): Boolean {
+        val normalized = runCatching { FrontingIpPolicy.normalizeIps(ip) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return false
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = normalized.take(1)
+        IpHealthStore(this).pinned = true
+        NetworkGenomeStore(this).autoFailover = false
+        startIpHealthLoop() // no-op while pinned; stops a running loop
+        renderFrontingIpChips()
+        return saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
+    }
+
+    /** NAT64 address from an IPv4: <96-bit prefix>:<hex(ipv4)> — BPB's NAT64 trick. */
+    private fun nat64Address(prefix: String, ipv4: String): String? {
+        val parts = ipv4.trim().split('.')
+        if (parts.size != 4) return null
+        val bytes = parts.map { it.toIntOrNull() ?: return null }
+        if (bytes.any { it < 0 || it > 255 }) return null
+        val hex1 = "%02x%02x".format(bytes[0], bytes[1]).dropLeadingZeros()
+        val hex2 = "%02x%02x".format(bytes[2], bytes[3]).dropLeadingZeros()
+        val base = prefix.trim().trim('[', ']', ':')
+        if (!Regex("^[0-9a-fA-F:]{6,45}$").matches(base)) return null
+        return "[" + base.trimEnd(':') + "::" + hex1 + ":" + hex2 + "]"
+    }
+
+    private fun String.dropLeadingZeros(): String = dropWhile { it == '0' }.ifEmpty { "0" }
+
+    private fun showNat64Dialog() {
+        val currentIp = frontingIps.firstOrNull()?.removeSurrounding("[", "]")?.substringBeforeLast(':').orEmpty()
+        val prefixes = arrayOf(
+            "2a02:898:146:64:: (NL)",
+            "2602:fc59:b0:64:: (US)",
+            "2602:fc59:11:64:: (US)",
+        )
+        val chosen = arrayOf(prefixes[0])
+        val ipInput = EditText(this).apply {
+            hint = getString(R.string.nat64_ip_hint)
+            setText(currentIp)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            setTextColor(TEXT_PRIMARY); setHintTextColor(palette.textTertiary)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        val preview = TextView(this).apply {
+            textSize = 12f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY)
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+        }
+        fun renderPreview() {
+            val built = nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())
+            preview.text = built ?: getString(R.string.nat64_invalid)
+        }
+        ipInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) = renderPreview()
+        })
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.nat64_title))
+            .setMessage(getString(R.string.nat64_explain))
+            .setSingleChoiceItems(prefixes, 0) { _, which -> chosen[0] = prefixes[which]; renderPreview() }
+            .setView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(ipInput, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(8), dp(12), dp(8), 0) })
+                    addView(preview)
+                },
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(R.string.nat64_copy) { _, _ ->
+                nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())?.let {
+                    (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("nat64", it))
+                    Toast.makeText(this, R.string.nat64_copied, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setPositiveButton(R.string.nat64_apply) { _, _ ->
+                val built = nat64Address(chosen[0].substringBefore(" ("), ipInput.text?.toString().orEmpty())
+                if (built == null || !applyStaticIp(built)) {
+                    Toast.makeText(this, R.string.nat64_invalid, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, getString(R.string.nat64_applied, built), Toast.LENGTH_LONG).show()
+                    renderFrontingIpChips()
+                }
+            }
+            .show()
+    }
+
+    private fun clearStaticIp() {
+        IpHealthStore(this).pinned = false
+        NetworkGenomeStore(this).autoFailover = true
+        startIpHealthLoop()
+    }
+
+    private fun buildStaticIpCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(advancedSectionLabel(getString(R.string.static_ip_title)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(6) })
+        card.addView(advancedSectionDetail(getString(R.string.static_ip_desc)), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        val input = scannerInput(getString(R.string.static_ip_hint), if (staticIpEnabled()) frontingIps.first() else "")
+        card.addView(scannerFieldLayout(getString(R.string.static_ip_label), input), LinearLayout.LayoutParams(-1, -2))
+        val status = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(dp(8), dp(8), dp(8), 0)
+        }
+        fun renderStatus() {
+            status.text = if (staticIpEnabled()) getString(R.string.static_ip_on, frontingIps.first()) else getString(R.string.static_ip_off)
+        }
+        renderStatus()
+        card.addView(status, LinearLayout.LayoutParams(-1, -2))
+        val toggle = MaterialSwitch(this).apply {
+            isChecked = staticIpEnabled()
+            setOnCheckedChangeListener { _, checked ->
+                if (checked) {
+                    val value = input.text?.toString()?.trim().orEmpty().ifBlank { frontingIps.firstOrNull().orEmpty() }
+                    if (value.isBlank() || !applyStaticIp(value)) {
+                        isChecked = false
+                        Toast.makeText(this@MainActivity, R.string.static_ip_invalid, Toast.LENGTH_SHORT).show()
+                    } else {
+                        input.setText(frontingIps.first())
+                        Toast.makeText(this@MainActivity, getString(R.string.static_ip_on, frontingIps.first()), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    clearStaticIp()
+                }
+                renderStatus()
+                renderScannerIpHealth()
+            }
+        }
+        card.addView(advancedToggleRow(getString(R.string.static_ip_switch), getString(R.string.static_ip_switch_detail), toggle), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        val pickRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE; setPadding(dp(8), dp(4), dp(8), 0) }
+        fun smallButton(label: String, onClick: () -> Unit) = MaterialButton(this).apply {
+            text = label; setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(36); minimumHeight = dp(36)
+            insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34)); strokeWidth = dp(1); strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130)); setTextColor(TEAL)
+            setOnClickListener { onClick() }
+        }
+        pickRow.addView(smallButton(getString(R.string.static_ip_pick_pool)) {
+            val pool = IpHealthStore(this).entries().sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }
+            if (pool.isEmpty()) { Toast.makeText(this, R.string.static_ip_pool_empty, Toast.LENGTH_SHORT).show(); return@smallButton }
+            val labels = pool.map { e -> (e.countryCode?.toFlagEmoji() ?: "🌐") + " " + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") }.toTypedArray()
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.static_ip_pick_pool)
+                .setItems(labels) { _, which -> input.setText(pool[which].ip); if (toggle.isChecked) { applyStaticIp(pool[which].ip); renderStatus(); renderScannerIpHealth() } else toggle.isChecked = true }
+                .show()
+        }, LinearLayout.LayoutParams(-2, -2))
+        pickRow.addView(smallButton(getString(R.string.static_ip_use_current)) {
+            val current = frontingIps.firstOrNull()
+            if (current == null) Toast.makeText(this, R.string.static_ip_no_current, Toast.LENGTH_SHORT).show()
+            else { input.setText(current); if (!toggle.isChecked) toggle.isChecked = true }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        pickRow.addView(smallButton(getString(R.string.nat64_btn)) { showNat64Dialog() })
+        card.addView(pickRow, LinearLayout.LayoutParams(-1, -2))
+        // Sticky location: reconnects keep the last working server instead of hopping to the fastest one.
+        val stickySwitch = MaterialSwitch(this).apply {
+            isChecked = getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("sticky_location", true)
+            setOnCheckedChangeListener { _, checked -> getSharedPreferences("cat_client_theme", MODE_PRIVATE).edit().putBoolean("sticky_location", checked).apply() }
+        }
+        card.addView(advancedToggleRow(getString(R.string.sticky_location_title), getString(R.string.sticky_location_detail), stickySwitch), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        return card
+    }
+
+    /** Multi-location: make a whole country the active fronting set (best-ranked first) and reconnect. */
+    private fun useCountryIps(countryCode: String) {
+        val store = IpHealthStore(this)
+        val entries = store.entries().filter { it.countryCode.equals(countryCode, true) && it.fails == 0 }
+        if (entries.isEmpty()) { Toast.makeText(this, R.string.multi_location_empty, Toast.LENGTH_SHORT).show(); return }
+        val genomes = NetworkGenomeStore(this)
+        val ranked = CognitiveEngine.rank(entries, genomes.genomes(entries.map { it.ip }), NetworkContext.key(this))
+        store.preferredCountry = countryCode
+        store.pinned = false
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = FrontingIpPolicy.normalizeIps(ranked.map { it.ip }.take(6).joinToString(","))
+        renderFrontingIpChips()
+        if (saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) {
+            Toast.makeText(this, getString(R.string.multi_location_applied, countryCode.toFlagEmoji(), ranked.size), Toast.LENGTH_SHORT).show()
+        }
+        renderScannerIpHealth()
+    }
+
+    private fun buildSniScannerCard(): View {
+        val card = advancedSettingsPanel()
+        card.addView(advancedSectionLabel(getString(R.string.sni_scanner_title)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(6) })
+        card.addView(advancedSectionDetail(getString(R.string.sni_scanner_desc)), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        val targetInput = scannerInput(getString(R.string.sni_scanner_target_hint), frontingIps.firstOrNull() ?: IpHealthStore(this).entries().firstOrNull()?.ip.orEmpty())
+        card.addView(scannerFieldLayout(getString(R.string.sni_scanner_target), targetInput), LinearLayout.LayoutParams(-1, -2))
+        val listInput = TextInputEditText(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = null
+            minLines = 3; maxLines = 8
+            gravity = Gravity.TOP or Gravity.START
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+            setTextColor(TEXT_PRIMARY); setHintTextColor(TEXT_SECONDARY)
+            setHint(getString(R.string.sni_scanner_list_hint))
+            setText((detectPanelSnisFromSubscriptions() + IpScanner.RECOMMENDED_SNIS).distinct().joinToString("\n"))
+        }
+        card.addView(scannerFieldLayout(getString(R.string.sni_scanner_list), listInput), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE; setPadding(dp(8), dp(6), dp(8), 0) }
+        val progress = TextView(this).apply { textSize = 12f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); setPadding(dp(8), dp(6), dp(8), 0) }
+        val overrideStatus = TextView(this).apply {
+            textSize = 12f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY); setPadding(dp(8), dp(8), dp(8), 0)
+            val current = frontingIpPreferenceStore.readSniOverride()
+            text = if (current.isBlank()) getString(R.string.sni_override_none) else getString(R.string.sni_override_current, current)
+        }
+        var running = false
+        val run = MaterialButton(this).apply {
+            setText(R.string.sni_scanner_run); setAllCaps(false); textSize = 12f; minHeight = dp(40); insetTop = 0; insetBottom = 0; cornerRadius = dp(16)
+            backgroundTintList = ColorStateList.valueOf(TEAL); setTextColor(palette.onAccent)
+        }
+        run.setOnClickListener {
+            if (running) return@setOnClickListener
+            val target = targetInput.text?.toString()?.trim().orEmpty()
+            if (target.isBlank()) { Toast.makeText(this, R.string.sni_scanner_no_target, Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            val snis = listInput.text?.toString().orEmpty().split('\n', ',', ' ', ';').map { it.trim().lowercase().removePrefix("https://").trimEnd('/') }.filter { it.contains('.') }.distinct()
+            if (snis.isEmpty()) return@setOnClickListener
+            running = true; run.isEnabled = false; results.removeAllViews()
+            val port = scannerPortPreference()
+            activityScope.launch {
+                val done = java.util.concurrent.atomic.AtomicInteger()
+                progress.text = getString(R.string.sni_scanner_progress, 0, snis.size)
+                val rows = withContext(Dispatchers.IO) {
+                    val gate = kotlinx.coroutines.sync.Semaphore(8)
+                    snis.map { sni ->
+                        async {
+                            gate.withPermit {
+                                val best = (1..2).mapNotNull { IpScanner.probe(target, IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)) }.minByOrNull { it.pingMs }
+                                val n = done.incrementAndGet()
+                                withContext(Dispatchers.Main) { progress.text = getString(R.string.sni_scanner_progress, n, snis.size) }
+                                sni to best
+                            }
+                        }
+                    }.awaitAll()
+                }.sortedWith(compareByDescending<Pair<String, IpScanner.ScanResult?>> { it.second?.tlsOk == true }.thenBy { it.second?.pingMs ?: Long.MAX_VALUE })
+                running = false; run.isEnabled = true
+                val okCount = rows.count { it.second?.tlsOk == true }
+                progress.text = getString(R.string.sni_scanner_done, okCount, snis.size)
+                rows.forEach { (sni, r) ->
+                    val ok = r?.tlsOk == true
+                    results.addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LTR; gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(10), dp(8), dp(10), dp(8))
+                        background = glassSurfaceDrawable(radiusDp = 12); clipToOutline = true
+                        isClickable = ok; isFocusable = ok
+                        if (ok) setOnClickListener {
+                            com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle(sni)
+                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy), getString(R.string.sni_action_panel))) { _, which ->
+                                    when (which) {
+                                        0 -> { applySniOverride(sni); overrideStatus.text = getString(R.string.sni_override_current, sni) }
+                                        1 -> {
+                                            saveScannerSni(sni)
+                                            if (::scannerSniInput.isInitialized) scannerSniInput.setText(sni)
+                                            Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
+                                        }
+                                        2 -> (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("sni", sni))
+                                        else -> pushSniToPanel(sni)
+                                    }
+                                }
+                                .show()
+                        }
+                        addView(TextView(this@MainActivity).apply { text = if (ok) "TLS ✓" else "✗"; textSize = 10.5f; typeface = CatClientBodyBoldTypeface; setTextColor(if (ok) TEAL else TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
+                        addView(TextView(this@MainActivity).apply { text = sni; textSize = 13f; typeface = CatClientDataTypeface; setTextColor(TEXT_PRIMARY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(TextView(this@MainActivity).apply { text = if (ok) "${r!!.pingMs} ms" + (r.tlsMs?.let { " · tls $it" } ?: "") else "—"; textSize = 11.5f; typeface = CatClientDataTypeface; setTextColor(TEXT_SECONDARY) }, LinearLayout.LayoutParams(-2, -2))
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }
+            }
+        }
+        card.addView(LinearLayout(this).apply { setPadding(dp(8), dp(10), dp(8), 0); addView(run, LinearLayout.LayoutParams(-1, -2)) }, LinearLayout.LayoutParams(-1, -2))
+        card.addView(progress, LinearLayout.LayoutParams(-1, -2))
+        card.addView(results, LinearLayout.LayoutParams(-1, -2))
+        card.addView(overrideStatus, LinearLayout.LayoutParams(-1, -2))
+        val clearOverride = MaterialButton(this).apply {
+            setText(R.string.sni_override_clear); setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(34); minimumHeight = dp(34)
+            insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEXT_SECONDARY, 30)); setTextColor(TEXT_PRIMARY)
+            setOnClickListener { applySniOverride(null); overrideStatus.text = getString(R.string.sni_override_none) }
+        }
+        card.addView(LinearLayout(this).apply { setPadding(dp(8), dp(4), dp(8), 0); addView(clearOverride, LinearLayout.LayoutParams(-2, -2)) }, LinearLayout.LayoutParams(-1, -2))
+        return card
+    }
+
+    private fun showSpeedTestPage() {
+        SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
+    }
+
+    private fun panelBaseUrl(): String? = detectPanelSnisFromSubscriptions().firstOrNull()?.let { "https://$it" }
+
+    private fun showProxyIpScannerPage() {
+        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl(), onUseAsEntry = { applyProxyIpAsEntry(it) }).show()
+    }
+
+    /**
+     * "Connect via this IP" from the ProxyIP scanner: the scanned Cloudflare edge
+     * IP becomes a fronting address — the tunnel dials the IP directly while the
+     * configs' SNI/Host stay the panel domain (works even when the workers.dev
+     * hostname is DNS-poisoned).
+     */
+    private fun applyProxyIpAsEntry(ip: String) {
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = runCatching {
+            FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
+        }.getOrDefault(frontingIps)
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        Toast.makeText(this, getString(R.string.scanner_applied, ip, 0L), Toast.LENGTH_LONG).show()
+    }
+
+    /** Put an SNI into the live configs (servername of every TLS proxy) and reconnect; null clears it. */
+    private fun applySniOverride(sni: String?) {
+        val previous = frontingIpPreferenceStore.readSniOverride()
+        frontingIpPreferenceStore.saveSniOverride(sni)
+        val next = frontingIpPreferenceStore.readSniOverride()
+        if (next != previous && buttonModel.state == VpnState.Started) {
+            buttonModel.onStateChanged(VpnState.Starting)
+            renderState(VpnState.Starting)
+            startVpnService(Actions.RECONNECT)
+        }
+        Toast.makeText(this, if (next.isBlank()) getString(R.string.sni_override_cleared) else getString(R.string.sni_override_applied, next), Toast.LENGTH_LONG).show()
+    }
+
+    /** "Add to panel" from the SNI scanner: merges the host into settings.extraSnis (🧬 SNI configs). */
+    private fun pushSniToPanel(sni: String) {
+        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val input = EditText(this).apply {
+            hint = getString(R.string.pip_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.sni_push_title))
+            .setMessage(base.removePrefix("https://"))
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.sni_action_panel) { _, _ ->
+                val password = input.text.toString()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushSniToPanelApi(base, password, sni) } }
+                    result.onSuccess { added ->
+                        Toast.makeText(this@MainActivity, getString(if (added) R.string.sni_push_ok else R.string.sni_push_exists, sni), Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@MainActivity, getString(R.string.sni_push_fail, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun pushSniToPanelApi(base: String, password: String, sni: String): Boolean {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+            val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (get, getBody) = call("/api/settings", "GET", null, cookie)
+        val existing = ArrayList<String>()
+        if (get.responseCode == 200) {
+            val arr = org.json.JSONObject(getBody).optJSONObject("settings")?.optJSONArray("extraSnis")
+            if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
+        }
+        get.disconnect()
+        if (existing.any { it.equals(sni, ignoreCase = true) }) return false
+        val merged = (existing + sni).distinct().take(8)
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("extraSnis", org.json.JSONArray(merged)).toString(), cookie)
+        val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+        put.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+        return true
+    }
+
+    private fun showProxyScannerPage() {
+        ProxyScannerPage(this, palette, activityScope) { link -> showAddSubscriptionDialog(link, "") }.show()
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Add server sheet (ZedSecure "Add server")                             */
+    /* ------------------------------------------------------------------ */
+
+    private fun showAddServerSheet() {
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        fun item(glyph: String, labelRes: Int, onClick: () -> Unit) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(14), dp(8), dp(14))
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(ColorStateList.valueOf(withAlpha(TEAL, 40)), null, GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(16).toFloat() })
+            setOnClickListener { sheet.dismiss(); onClick() }
+            addView(TextView(this@MainActivity).apply {
+                text = glyph
+                textSize = 18f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setTextColor(TEAL)
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(TextView(this@MainActivity).apply {
+                setText(labelRes)
+                textSize = 16f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(16), dp(20), dp(28))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(dp(28).toFloat(), dp(28).toFloat(), dp(28).toFloat(), dp(28).toFloat(), 0f, 0f, 0f, 0f)
+                setColor(palette.surfaceElevated1)
+            }
+            addView(TextView(this@MainActivity).apply {
+                setText(R.string.servers_add_title)
+                textSize = 26f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+            })
+            addView(advancedSectionLabel(getString(R.string.servers_add_import)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+            addView(item("📋", R.string.servers_add_clipboard) { addSubscriptionFromClipboard() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+                addView(item("▣", R.string.servers_add_qr) { startSubscriptionQrScan() }, LinearLayout.LayoutParams(-1, -2))
+            }
+            addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
+            addView(wizardText(getString(R.string.servers_add_file_hint), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }
+        sheet.setContentView(body)
+        (body.parent as? View)?.setBackgroundColor(Color.TRANSPARENT)
+        sheet.show()
+    }
+
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
         PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
         renderCloudDeploymentHistory()
@@ -6469,7 +8407,7 @@ class MainActivity : Activity() {
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-sub", result.subscriptionUrl))
                     Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
-                    appTabs.getTabAt(2)?.select()
+                    openScreen(SCREEN_SERVERS)
                 }
             }
             .show()
@@ -6512,10 +8450,11 @@ class MainActivity : Activity() {
     private fun advancedSectionLabel(value: String): TextView {
         return TextView(this).apply {
             text = value
-            textSize = 12f
+            textSize = 13f
             letterSpacing = 0f
             typeface = CatClientBodyBoldTypeface
-            setTextColor(TEXT_SECONDARY)
+            setTextColor(TEAL)
+            setPaddingRelative(dp(4), 0, dp(4), 0)
             includeFontPadding = false
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
@@ -6811,7 +8750,7 @@ class MainActivity : Activity() {
     }
 
     private fun openConnectionChainSettingsFromHome() {
-        appTabs.getTabAt(0)?.select()
+        openScreen(SCREEN_SETTINGS)
         openConnectionChainSettingsPage?.invoke()
     }
 
@@ -6887,10 +8826,10 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            background = glassSurfaceDrawable(radiusDp = 12)
+            background = glassSurfaceDrawable(radiusDp = 22)
             clipToOutline = true
             elevation = 0f
-            setPadding(dp(4), dp(4), dp(4), dp(12))
+            setPadding(dp(8), dp(8), dp(8), dp(14))
         }
     }
 
@@ -7769,8 +9708,8 @@ class MainActivity : Activity() {
                         ellipsize = TextUtils.TruncateAt.END
                     }
                     val delayBadge = TextView(this@MainActivity).apply {
-                        textSize = 11f
-                        typeface = CatClientDataTypeface
+                        textSize = 12.5f
+                        typeface = CatClientBodyBoldTypeface
                         includeFontPadding = false
                         gravity = Gravity.CENTER
                         maxLines = 1
@@ -7842,24 +9781,22 @@ class MainActivity : Activity() {
                             },
                             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) },
                         )
-                        addView(
-                            delayBadge,
-                            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) },
-                        )
                     }
-                    container.addView(checkIcon, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
+                    // ZedSecure row: text column · latency on the trailing edge · speed test · check.
                     container.addView(textColumn, LinearLayout.LayoutParams(0, -2, 1f))
+                    container.addView(delayBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
                     container.addView(speedAction, LinearLayout.LayoutParams(dp(96), dp(56)).apply { marginStart = dp(4) })
+                    container.addView(checkIcon, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(8) })
 
                     row = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.VERTICAL
-                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        setPadding(dp(16), dp(12), dp(14), dp(12))
                         addView(container, LinearLayout.LayoutParams(-1, -2))
                     }
-                    // Card-like background
+                    // Card-like background (low surface container; lime when selected)
                     row.background = GradientDrawable().apply {
-                        cornerRadius = dp(16).toFloat()
-                        setColor(SURFACE)
+                        cornerRadius = dp(22).toFloat()
+                        setColor(palette.surfaceElevated1)
                     }
                     holder = ConnectionRowHolder(
                         container,
@@ -7891,13 +9828,11 @@ class MainActivity : Activity() {
 
                 // Update selection state
                 holder.checkIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
-                (row.background as? GradientDrawable)?.setColor(
-                    if (isSelected) ((TEAL and 0x00FFFFFF) or (0x18 shl 24)) else SURFACE
-                )
-                (row.background as? GradientDrawable)?.setStroke(
-                    dp(1),
-                    if (isSelected) TEAL else OUTLINE
-                )
+                (holder.checkIcon.background as? GradientDrawable)?.setColor(TEAL)
+                (row.background as? GradientDrawable)?.setColor(if (isSelected) selectedRowColor() else palette.surfaceElevated1)
+                (row.background as? GradientDrawable)?.setStroke(0, Color.TRANSPARENT)
+                holder.title.setTextColor(TEXT_PRIMARY)
+                holder.detail.setTextColor(TEXT_SECONDARY)
                 row.isSelected = isSelected
                 var protocolDescription: String? = null
 
@@ -7981,20 +9916,19 @@ class MainActivity : Activity() {
                         else -> ""
                     }
 
-                    // Badge background based on state
+                    // Latency colour like ZedSecure: lime when quick, amber when sluggish, red when slow/failed.
                     val badgeColor = when {
                         isTesting -> AMBER
-                        delayMs != null -> TEAL
+                        delayMs != null && delayMs <= 200 -> ZedBlobView.ZED_LIME
+                        delayMs != null && delayMs <= 500 -> AMBER
+                        delayMs != null -> ERROR
                         delayRecord?.status == ConnectionDelayStatus.Failure -> ERROR
                         else -> TEXT_SECONDARY
                     }
                     if (holder.delayBadge.text.isNotEmpty()) {
                         holder.delayBadge.visibility = View.VISIBLE
                         holder.delayBadge.setTextColor(badgeColor)
-                        holder.delayBadge.background = GradientDrawable().apply {
-                            cornerRadius = dp(12).toFloat()
-                            setColor((badgeColor and 0x00FFFFFF) or (0x20 shl 24))
-                        }
+                        holder.delayBadge.background = null
                     } else {
                         holder.delayBadge.visibility = View.GONE
                         holder.delayBadge.background = null
@@ -8712,6 +10646,7 @@ class MainActivity : Activity() {
         } ?: configuredValue
         connectionSelectorRow.setValue(value)
         connectionSelectorRow.contentDescription = getString(R.string.connection_content_description, value)
+        if (::activeConfigTitle.isInitialized) activeConfigTitle.text = value
         renderHomeConnectionRows()
     }
 
@@ -8875,6 +10810,78 @@ class MainActivity : Activity() {
                 VpnWidgetProvider.refresh(this)
                 recreate()
             }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+        dialog.showCatClientDialog()
+    }
+
+    /** Accent colour picker (ZedSecure appearance): swatches in a grid, applied with a recreate. */
+    private fun showAccentSelector() {
+        val store = AppAccentPreferenceStore(this)
+        val selected = store.read()
+        val night = palette.isDark
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        var dialog: AlertDialog? = null
+        AppAccent.entries.chunked(3).forEach { rowItems ->
+            grid.addView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    rowItems.forEach { accent ->
+                        val tone = if (night) accent.dark else accent.light
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER_HORIZONTAL
+                                setPadding(dp(6), dp(10), dp(6), dp(10))
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    dialog?.dismiss()
+                                    if (accent != selected) {
+                                        store.save(accent)
+                                        recreate()
+                                    }
+                                }
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = if (accent == selected) "✓" else ""
+                                        gravity = Gravity.CENTER
+                                        textSize = 20f
+                                        typeface = CatClientBodyBoldTypeface
+                                        setTextColor(if (night) accent.onDark else accent.onLight)
+                                        background = GradientDrawable().apply {
+                                            shape = GradientDrawable.OVAL
+                                            setColor(tone)
+                                            if (accent == selected) setStroke(dp(3), TEXT_PRIMARY)
+                                        }
+                                    },
+                                    LinearLayout.LayoutParams(dp(52), dp(52)),
+                                )
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        setText(accent.labelRes)
+                                        textSize = 12f
+                                        typeface = CatClientBodyTypeface
+                                        setTextColor(TEXT_SECONDARY)
+                                        gravity = Gravity.CENTER
+                                    },
+                                    LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
+                                )
+                            },
+                            LinearLayout.LayoutParams(0, -2, 1f),
+                        )
+                    }
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+        dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.accent_setting_title)
+            .setView(grid)
             .setNegativeButton(R.string.split_tunnel_cancel, null)
             .create()
         dialog.showCatClientDialog()
@@ -9585,6 +11592,13 @@ class MainActivity : Activity() {
         reconnectForConnectionOptionChange()
     }
 
+    private fun saveAdBlockEnabled(enabled: Boolean) {
+        if (routingModePreferenceStore.isAdBlockEnabled() == enabled) return
+        routingModePreferenceStore.saveAdBlockEnabled(enabled)
+        DiagnosticLogger.info(this, "activity.adBlock.saved", "enabled=$enabled")
+        Toast.makeText(this, R.string.ad_block_toast, Toast.LENGTH_SHORT).show()
+    }
+
     private fun saveTlsFragmentEnabled(enabled: Boolean) {
         if (dpiBypassPreferenceStore.isEnabled() == enabled) return
         dpiBypassPreferenceStore.saveEnabled(enabled)
@@ -10097,6 +12111,20 @@ class MainActivity : Activity() {
             if (info == null) return@launch
             liveGeo = info
             liveGeoTunneled = tunneledAtFetch
+            if (tunneledAtFetch) {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).let { prefs ->
+                    if (!info.realCountryCode.isNullOrBlank() && prefs.getString("origin_code", "").isNullOrBlank()) {
+                        prefs.edit().putString("origin_code", info.realCountryCode.uppercase())
+                            .putString("origin_label", info.realCountryName.orEmpty()).apply()
+                    }
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { measureTunnelPingQuietly() }
+            } else if (!currentVpnStateIsStarted() && !deviceVpnActive()) {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).edit()
+                    .putString("origin_code", info.countryCode.uppercase())
+                    .putString("origin_label", listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName).joinToString(", "))
+                    .apply()
+            }
             val label = buildString {
                 if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
@@ -10123,6 +12151,43 @@ class MainActivity : Activity() {
 
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
+    /** Zed ConnectionInfoPill ping: lime when < 250 ms, error-red otherwise, "—" while unknown. */
+    private fun renderPingValue() {
+        if (!::pingValueText.isInitialized) return
+        val ping = livePingMs
+        pingValueText.text = if (ping != null) "$ping ms" else "—"
+        pingValueText.setTextColor(if (ping == null) TEXT_SECONDARY else if (ping < 250) ZedBlobView.ZED_LIME else ERROR)
+    }
+
+    /** Silent background ping through the tunnel (feeds the Home pill and the Map card). */
+    private fun measureTunnelPingQuietly() {
+        if (tunnelPingRunning || !currentVpnStateIsStarted()) return
+        tunnelPingRunning = true
+        activityScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val tunnelProxy = java.net.Proxy(
+                java.net.Proxy.Type.HTTP,
+                java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
+            )
+            val samples = (1..2).mapNotNull {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val code = runCatching {
+                    val conn = java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(tunnelProxy) as java.net.HttpURLConnection
+                    conn.connectTimeout = 4_000; conn.readTimeout = 4_000; conn.instanceFollowRedirects = false
+                    val c = conn.responseCode
+                    runCatching { conn.inputStream.close() }
+                    conn.disconnect()
+                    c
+                }.getOrNull()
+                if (code != null && code in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
+            }
+            if (samples.isNotEmpty()) livePingMs = samples.min()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                tunnelPingRunning = false
+                renderPingValue()
+            }
+        }
+    }
+
     /** Real ping THROUGH the active config: samples the local mihomo mixed
      * proxy (the exact tunnel path), like v2rayNG/V2Box delay tests — with an
      * on-the-spot result toast so the feedback is never missed. */
@@ -10162,8 +12227,9 @@ class MainActivity : Activity() {
             var samples = (1..3).mapNotNull { sample(true) }
             if (samples.isEmpty() && started) samples = (1..3).mapNotNull { sample(false) }
             val best = samples.minOrNull()
+            livePingMs = best
             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                pingValueText.text = if (best != null) best.toString() + "ms" else "—"
+                renderPingValue()
                 Toast.makeText(
                     this@MainActivity,
                     if (best != null) getString(R.string.route_ping_result, best) else getString(R.string.route_ping_failed),
@@ -10257,22 +12323,16 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
         if (!::connectionRealIpText.isInitialized) return
-        val show = info != null && tunneled && !info.realIp.isNullOrBlank() && info.realIp != info.ip
-        if (!show) {
+        connectionV6Text.visibility = View.GONE
+        if (info == null || !tunneled || info.ip.isBlank()) {
             connectionRealIpText.visibility = View.GONE
-            connectionV6Text.visibility = View.GONE
             return
         }
-        connectionRealIpText.text = getString(R.string.route_real_ip_line, info.realIp, info.realFlag ?: "")
+        connectionRealIpText.text = info.ip
         connectionRealIpText.visibility = View.VISIBLE
-        if (!info.v6.isNullOrBlank() && tunneled) {
-            connectionV6Text.text = getString(R.string.route_v6_line, info.v6)
-            connectionV6Text.visibility = View.VISIBLE
-        } else {
-            connectionV6Text.visibility = View.GONE
-        }
     }
 
     private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
@@ -10321,11 +12381,42 @@ class MainActivity : Activity() {
         }
     }
 
+    private var lastHapticState: VpnState? = null
+
+    private fun connectHapticEnabled(): Boolean =
+        getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("haptic_connect", true)
+
+    private fun connectHaptic() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+            } else {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(25L, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        }
+    }
+
     private fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
+        if (state == VpnState.Started && lastHapticState != null && lastHapticState != VpnState.Started && connectHapticEnabled()) connectHaptic()
+        lastHapticState = state
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
+        if (::connectionBlob.isInitialized) {
+            connectionBlob.setVpnState(state)
+            if (state != VpnState.Started) connectionBlob.setCenterText("C")
+        }
+        if (::heroStateText.isInitialized) heroStateText.text = getString(presentation.titleRes)
+        if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        if (::heroPingAction.isInitialized) heroPingAction.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
         connectActionButton.contentDescription = getString(buttonModel.labelRes())
@@ -10340,17 +12431,15 @@ class MainActivity : Activity() {
             }
         )
         statusText.text = getString(presentation.titleRes)
-        statusText.setTextColor(TEXT_SECONDARY)
+        statusText.setTextColor(TEXT_PRIMARY)
         timerText.setTextColor(if (state == VpnState.Started) TEXT_PRIMARY else TEXT_SECONDARY)
         val live = liveGeo?.takeIf { state == VpnState.Started }
         connectionCountryText.text = when {
             state == VpnState.Started && live != null ->
-                getString(R.string.route_location, live.flag, live.countryName)
-            state == VpnState.Started && connectionCountryFlag.isNotBlank() -> {
-                val country = ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
+                listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
+            state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
                     ?: getString(R.string.route_edge_fallback)
-                getString(R.string.route_location, connectionCountryFlag, country)
-            }
             state == VpnState.Started -> getString(R.string.route_edge_fallback)
             state == VpnState.Starting -> getString(R.string.route_selecting)
             state == VpnState.Stopping -> getString(R.string.route_closing)
@@ -10358,7 +12447,17 @@ class MainActivity : Activity() {
             state == VpnState.DailyLimitReached -> getString(R.string.state_daily_limit)
             else -> getString(R.string.route_automatic)
         }
-        connectionCountryText.setTextColor(if (state == VpnState.Started) accent else TEXT_SECONDARY)
+        connectionCountryText.setTextColor(TEXT_PRIMARY)
+        if (::homeFlagBadge.isInitialized) {
+            homeFlagBadge.setCountryCode(
+                when {
+                    state == VpnState.Started && live != null -> live.countryCode
+                    state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                        ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.code
+                    else -> null
+                },
+            )
+        }
         val pendingCountry = pendingGlobeCountry()
         val liveLabel = live?.let { info ->
             buildString {
@@ -10405,28 +12504,22 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
         ) View.VISIBLE else View.GONE
         renderConnectionDetails(state)
-        if (::pingValueText.isInitialized) {
-            pingValueText.text = connectionDetails
-                .takeIf { state == VpnState.Started }
-                ?.let { details -> Regex("(\\d+\\s?ms)").find(details)?.value }
-                ?: "—"
-        }
+        if (state != VpnState.Started) livePingMs = null
+        renderPingValue()
         if (::uptimeValueText.isInitialized && ::timerText.isInitialized) {
             uptimeValueText.text = timerText.text
         }
         if (::homeUsageCard.isInitialized) renderHomeUsageCard()
-        refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.INVISIBLE
+
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
         // Glass reconnect action with the Cat accent.
-        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 34 else 24))
-        refreshActionButton.strokeWidth = dp(1)
-        refreshActionButton.strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 120))
-        refreshActionButton.elevation = dp(1).toFloat()
+        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 235))
+        refreshActionButton.strokeWidth = 0
+        refreshActionButton.elevation = 0f
         refreshActionButton.stateListAnimator = null
         refreshActionButton.rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
-        refreshActionButton.setTextColor(ColorStateList.valueOf(TEAL))
-        refreshActionButton.iconTint = ColorStateList.valueOf(TEAL)
+        refreshActionButton.iconTint = ColorStateList.valueOf(TEXT_PRIMARY)
         val settingsEnabled = state != VpnState.Starting && state != VpnState.Stopping
         locationSelectorRow.isEnabled = settingsEnabled
         connectionSelectorRow.isEnabled = settingsEnabled
@@ -10483,6 +12576,9 @@ class MainActivity : Activity() {
         val isActive = buttonModel.state == VpnState.Started && sessionStartedAtElapsedMs > 0L
         timerText.setTextColor(if (isActive) TEXT_PRIMARY else TEXT_SECONDARY)
         timerText.text = formatDuration(elapsedMs)
+        if (::connectionBlob.isInitialized && buttonModel.state == VpnState.Started) {
+            connectionBlob.setCenterText(formatDuration(elapsedMs).removePrefix("00:"))
+        }
     }
 
     private fun toggleAppTheme() {
@@ -10508,23 +12604,108 @@ class MainActivity : Activity() {
 
         if (lastTransferSampleElapsedMs > 0L && nowElapsedMs > lastTransferSampleElapsedMs) {
             val elapsedMs = nowElapsedMs - lastTransferSampleElapsedMs
-            downloadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs))
-            uploadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs))
+            val rx = bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs)
+            val tx = bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs)
+            downloadSpeedText.text = formatTransferSpeed(rx)
+            uploadSpeedText.text = formatTransferSpeed(tx)
+            renderTrafficBars(rx, tx)
         } else {
+            if (sessionRxStartBytes < 0L) {
+                sessionRxStartBytes = rxBytes
+                sessionTxStartBytes = txBytes
+            }
             downloadSpeedText.text = formatTransferSpeed(0L)
             uploadSpeedText.text = formatTransferSpeed(0L)
         }
         lastTransferRxBytes = rxBytes
         lastTransferTxBytes = txBytes
         lastTransferSampleElapsedMs = nowElapsedMs
+        if (currentVpnStateIsStarted() && nowElapsedMs - lastQuietPingAtMs > 30_000L) {
+            lastQuietPingAtMs = nowElapsedMs
+            measureTunnelPingQuietly()
+        }
+        if (::downloadTotalText.isInitialized && sessionRxStartBytes >= 0L) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes((rxBytes - sessionRxStartBytes).coerceAtLeast(0L))
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes((txBytes - sessionTxStartBytes).coerceAtLeast(0L))
+        }
+    }
+
+    /** Bar length grows logarithmically with the rate (ZedSecure rateFraction): 1 KB/s → ~0, 10 MB/s → full. */
+    private fun renderTrafficBars(rxPerSecond: Long, txPerSecond: Long) {
+        if (!::downloadBarFill.isInitialized) return
+        val live = currentVpnStateIsStarted()
+        downloadBarFill.setRate(rxPerSecond, live)
+        uploadBarFill.setRate(txPerSecond, live)
+    }
+
+    /**
+     * Zed StageColumn: the hero stage takes whatever height is left so the Home never scrolls;
+     * it only shrinks (down to 210 dp, blob down to 180 dp) when the viewport is short.
+     */
+    private fun fitHomeStage(scrollView: ScrollView) {
+        val hero = homeHeroFrame ?: return
+        if (homeStageFitting || scrollView.height == 0) return
+        val wrapper = scrollView.getChildAt(0) as? ViewGroup ?: return
+        val content = wrapper.getChildAt(0) ?: return // dashboardContent (wrap_content; the wrapper is fillViewport)
+        if (content.height == 0) return
+        val viewport = scrollView.height - scrollView.paddingTop - scrollView.paddingBottom
+        val current = hero.height.takeIf { it > 0 } ?: hero.layoutParams.height
+        val fixed = content.height - current + wrapper.paddingTop + wrapper.paddingBottom // everything except the stage (incl. dock padding)
+        val full = dp(300)
+        val minStage = dp(210)
+        val target = (viewport - fixed).coerceIn(minStage, full)
+        if (target == current) return
+        homeStageFitting = true
+        val blob = (dp(250) * target / full.toFloat()).toInt().coerceIn(dp(180), dp(250))
+        // Zed HomeFabCluster: anchored at the blob's lower-right, running down past the state label.
+        heroClusterParams?.topMargin = target / 2 + blob / 2 - dp(32)
+        connectionBlob.layoutParams = (connectionBlob.layoutParams as FrameLayout.LayoutParams).apply { width = blob; height = blob }
+        hero.layoutParams = hero.layoutParams.apply { height = target }
+        hero.post {
+            homeStageFitting = false
+            fitHomeStage(scrollView)
+        }
+    }
+
+    /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
+    private fun selectedRowColor(): Int = androidx.core.graphics.ColorUtils.blendARGB(palette.surfaceElevated1, TEAL, if (palette.isDark) 0.28f else 0.22f)
+
+    /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
+    private fun applyHomeBackdrop(state: VpnState) {
+        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also {
+            liveBackdrop = it
+            it.setThemeColors(palette.teal, palette.secondary, AppAccentPreferenceStore(this).read() == AppAccent.Lavender)
+        }
+        drawable.setVpnState(state)
+        syncShellBackdrop()
+    }
+
+    /** Zed paints the Home gradient edge to edge — behind the status bar and under the floating dock. */
+    private fun syncShellBackdrop() {
+        val root = appRootView
+        val drawable = liveBackdrop
+        if (root == null || drawable == null) { homeBackdrop?.background = drawable; return }
+        val home = ::vpnTabContent.isInitialized && vpnTabContent.visibility == View.VISIBLE
+        homeBackdrop?.background = null
+        if (home) {
+            if (root.background !== drawable) root.background = drawable
+            drawable.start()
+        } else if (root.background === drawable) {
+            root.setBackgroundColor(BACKGROUND)
+        }
     }
 
     private fun resetTransferSpeeds() {
         lastTransferRxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferTxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferSampleElapsedMs = 0L
+        sessionRxStartBytes = -1L
+        sessionTxStartBytes = -1L
+        if (::downloadBarFill.isInitialized) renderTrafficBars(0L, 0L)
+        if (::downloadTotalText.isInitialized) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+        }
         if (::downloadSpeedText.isInitialized) {
             downloadSpeedText.text = formatTransferSpeed(0L)
             uploadSpeedText.text = formatTransferSpeed(0L)
@@ -10611,8 +12792,13 @@ class MainActivity : Activity() {
     private fun configureSystemBars() {
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         window.decorView.textDirection = View.TEXT_DIRECTION_LOCALE
-        window.statusBarColor = BACKGROUND
-        window.navigationBarColor = SURFACE
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         var flags = window.decorView.systemUiVisibility
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags = if (palette.isDark) {
@@ -10635,13 +12821,9 @@ class MainActivity : Activity() {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
-            setColor(if (highlighted) palette.surfaceElevated2 else palette.surface)
-            if (highlighted) {
-                setStroke(dp(1), withAlpha(TEAL, 170))
-            } else if (palette.isDark) {
-                // Glass edge: a whisper of white keeps cards readable on black.
-                setStroke(dp(1), withAlpha(0xFFFFFFFF.toInt(), 24))
-            }
+            // ZedSecure tonal cards: surface container, no outline; highlighted = one step brighter + accent edge.
+            setColor(if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1)
+            if (highlighted) setStroke(dp(1), withAlpha(TEAL, 170))
         }
     }
 
@@ -10711,6 +12893,16 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        // Dock cell indices (visual order) and content screen indices (fixed, used all over).
+        const val DOCK_HOME = 0
+        const val DOCK_SERVERS = 1
+        const val DOCK_CLOUD = 2
+        const val DOCK_SETTINGS = 3
+        const val SCREEN_SERVERS = 0
+        const val SCREEN_HOME = 1
+        const val SCREEN_SETTINGS = 2
+        const val SCREEN_CLOUD = 3
+        const val SCREEN_SCANNER = 4
         const val REQUEST_VPN_PERMISSION = 10
         const val REQUEST_NOTIFICATION_PERMISSION = 11
         const val TIMER_TICK_MS = 1_000L
