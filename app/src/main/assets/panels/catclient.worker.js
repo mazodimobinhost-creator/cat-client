@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.9.0';
+const CAT_PANEL_VERSION = '6.9.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -2804,6 +2804,17 @@ function panelPage(env, settings, host, masterUuid) {
 .side a,.side button{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:0;background:transparent;color:var(--mute);font-size:13.5px;font-weight:600;cursor:pointer;text-align:start;width:100%}
 .side a:hover,.side button:hover{background:var(--card2);color:var(--text)}
 .side button.on{background:color-mix(in srgb,var(--violet) 16%,transparent);color:var(--violet2)}
+.sb-nav{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:10px}
+.side .sb-nav button{padding:11px 14px;font-size:13px;font-weight:500;color:var(--mute);border-radius:12px}
+.side .sb-nav button.on{color:var(--violet);background:rgba(0,225,193,.14);border:1px solid rgba(0,225,193,.4)}
+.nav-acc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;font-size:13px;font-weight:600;color:var(--text);background:transparent;border:0;border-radius:12px;cursor:pointer;width:100%;text-align:start}
+.nav-acc-head .ar{color:var(--dim);font-size:11px}
+.nav-acc-body{flex-direction:column;gap:2px;padding:2px 0 2px 10px}
+[dir=rtl] .nav-acc-body{padding:2px 10px 2px 0}
+.sb-foot{padding:16px 22px;border-top:1px solid var(--line);font-size:11px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.sb-foot .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:sbpulse 2s infinite}
+@keyframes sbpulse{0%,100%{opacity:1}50%{opacity:.3}}
+.side .sb-out{color:var(--red)!important}
 .side .sgap{flex:1}
 .side .sfoot{font-size:10px;color:var(--dim);padding:8px 12px}
 @media(min-width:1080px){
@@ -2822,21 +2833,28 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style></head><body>
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg">🐱</div><span id="sideTitle">${escapeHtml(title)}</span></div>
- <button data-view="dash">📊 <span data-i="n_dash"></span></button>
- <button data-view="clients">👥 <span data-i="n_clients"></span></button>
- <button data-view="inbounds">🧩 <span data-i="n_inbounds"></span></button>
- <button data-view="scan">📡 <span data-i="n_scan"></span></button>
- <button data-view="spoof">🎭 <span data-i="n_spoof"></span></button>
- <button data-view="settings">⚙️ <span data-i="n_set"></span></button>
- <button data-view="backup">💾 <span data-i="n_bak"></span></button>
- <button data-view="about">ℹ️ <span data-i="n_about"></span></button>
- <div class="sgap"></div>
- <a href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sfoot">v${CAT_PANEL_VERSION}</div>
+ <div class="sbrand"><div class="lg">🕷️</div><span id="sideTitle">${escapeHtml(title)}</span></div>
+ <div class="sb-nav">
+  <button data-view="dash">🏠 <span data-i="n_dash"></span></button>
+  <div class="nav-acc">
+   <button type="button" class="nav-acc-head" onclick="var b=document.getElementById('accBody');var o=b.style.display!=='flex';b.style.display=o?'flex':'none';this.querySelector('.ar').textContent=o?'▴':'▾'"><span>🗂️ <span data-i="n_manage"></span></span><span class="ar">▾</span></button>
+   <div class="nav-acc-body" id="accBody" style="display:flex">
+    <button data-view="clients">👥 <span data-i="n_clients"></span></button>
+    <button data-view="inbounds">🧩 <span data-i="n_inbounds"></span></button>
+    <button data-view="scan">📡 <span data-i="n_scan"></span></button>
+    <button data-view="nodes">🕸️ <span data-i="n_nodes"></span></button>
+    <button data-view="spoof">🎭 <span data-i="n_spoof"></span></button>
+    <button data-view="settings">⚙️ <span data-i="n_set"></span></button>
+   </div>
+  </div>
+  <button data-view="backup">💾 <span data-i="n_bak"></span></button>
+  <button data-view="about">ℹ️ <span data-i="n_about"></span></button>
+ </div>
+ <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
+ <div class="sb-foot"><span class="dot"></span> Cat Panel v${CAT_PANEL_VERSION}</div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg">🐱</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
+ <div class="brand"><div class="lg">🕷️</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard">📊</button>
   <button class="ib" data-c="green" data-view="clients" title="Clients">👥</button>
@@ -2858,6 +2876,7 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
 <section class="view on" id="v-dash">
  <div class="card sec">
   <h2><span class="ic">📊</span><span data-i="stats"></span></h2>
+  <div class="note w" id="noIpsNote" style="display:none;margin-top:10px"><span data-i="no_ips"></span> <button class="btn sm" data-view="nodes" style="vertical-align:middle">🕸️ <span data-i="n_nodes"></span></button></div>
   <div class="stats">
    <div class="st" data-c="violet"><div class="ic">👥</div><div class="k" data-i="st_users"></div><div class="n" id="stUsers">–</div><div class="s" data-i="st_users_s"></div></div>
    <div class="st" data-c="green"><div class="ic">✅</div><div class="k" data-i="st_active"></div><div class="n" id="stActive">–</div><div class="s" data-i="st_active_s"></div></div>
@@ -2949,6 +2968,10 @@ code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;paddin
   </div>
   <div id="scanRes" class="res" style="margin-top:12px"></div>
  </div>
+</section>
+
+<!-- ================= NODES (clean IPs) ================= -->
+<section class="view" id="v-nodes">
  <div class="card sec">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
@@ -3146,7 +3169,7 @@ n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
-n_dash:'کاربران',n_scan:'آی‌پی',n_set:'تنظیمات',n_bak:'پشتیبان',
+n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
 unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
@@ -3168,7 +3191,7 @@ n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
-n_dash:'Users',n_scan:'IPs',n_set:'Settings',n_bak:'Backup',
+n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
 unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
@@ -3202,8 +3225,8 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
-(function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="scan"]');if(n)n.click();importIps(false)},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds()})}
+(function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"');if(n)n.click();importIps(false)},300)}}catch(e){}})();
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};
@@ -3385,7 +3408,7 @@ $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#upda
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','nodes','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)b.innerHTML='<span class="chip warn">\u2b06\ufe0f '+t('update_new')+esc(j.latest)+'</span><div class="small mute" style="margin-top:6px">'+t('update_how')+'</div>';toast(t('update_new')+j.latest)}).catch(function(){});
 })();
