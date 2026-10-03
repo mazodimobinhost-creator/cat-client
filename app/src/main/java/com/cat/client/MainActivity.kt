@@ -6335,7 +6335,8 @@ class MainActivity : Activity() {
                 }
                 val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
                 panelUpdateInProgress = true
-                if (token.isBlank()) presentPanelTokenPrompt(dep, deployed, script)
+                // No token? Token-free guided update — NEVER a token prompt.
+                if (token.isBlank()) presentTokenlessPanelUpdate(dep, deployed, script, updateAvailable)
                 else runPanelUpdate(dep, token, deployed, script)
             }
             .setNeutralButton(R.string.panel_delete) { _, _ -> confirmPanelDelete(dep) }
@@ -7282,8 +7283,9 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.cloud_update_tokenless_title)
             .setMessage(message)
-            .setNegativeButton(android.R.string.cancel, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
             .setPositiveButton(R.string.cloud_update_tokenless_btn) { _, _ ->
+                panelUpdateInProgress = false
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", newest.text))
                 runCatching {
