@@ -47,27 +47,40 @@ data class AppApkMetadata(
 )
 
 object AppUpdatePolicy {
+    /** `1.10.0` and pre-releases like `1.10.0-beta10` (the app ships betas!). */
+    private val VERSION_REGEX = Regex("([0-9]+(?:\\.[0-9]+)*)(?:-([A-Za-z]+)([0-9]+))?")
+
+    data class VersionParts(val core: List<Long>, val preName: String, val preNum: Long)
+
     fun normalizedVersion(version: String): String {
         val value = version.trim().let { if (it.startsWith("v", ignoreCase = true)) it.drop(1) else it }
-        return value.takeIf {
-            it.length <= 100 && it.matches(Regex("[0-9]+(?:\\.[0-9]+)*")) &&
-                it.split('.').all { part -> part.toLongOrNull() != null }
-        }.orEmpty()
+        if (value.length > 100) return ""
+        val m = VERSION_REGEX.matchEntire(value) ?: return ""
+        val core = m.groupValues[1]
+        if (core.split('.').any { it.toLongOrNull() == null }) return ""
+        return if (m.groupValues[2].isEmpty()) core else core + "-" + m.groupValues[2] + m.groupValues[3]
     }
 
     fun isNewer(latestVersion: String, currentVersion: String): Boolean {
         val latest = parts(latestVersion) ?: return false
         val current = parts(currentVersion) ?: return false
-        for (index in 0 until maxOf(latest.size, current.size)) {
-            val comparison = latest.getOrElse(index) { 0L }.compareTo(current.getOrElse(index) { 0L })
+        for (index in 0 until maxOf(latest.core.size, current.core.size)) {
+            val comparison = latest.core.getOrElse(index) { 0L }.compareTo(current.core.getOrElse(index) { 0L })
             if (comparison != 0) return comparison > 0
         }
-        return false
+        // Same core numbers: a final release outranks its pre-release; two
+        // pre-releases compare by their number (beta10 > beta9 — this is what
+        // silently killed in-app updates before).
+        val latestFinal = if (latest.preName.isEmpty()) 1 else 0
+        val currentFinal = if (current.preName.isEmpty()) 1 else 0
+        if (latestFinal != currentFinal) return latestFinal > currentFinal
+        if (latest.preName != current.preName) return latest.preName > current.preName
+        return latest.preNum > current.preNum
     }
 
     fun shouldPrompt(latest: String, current: String, skipped: String?): Boolean =
         isNewer(latest, current) &&
-            (skipped == null || parts(latest)?.dropLastWhile { it == 0L } != parts(skipped)?.dropLastWhile { it == 0L })
+            (skipped == null || parts(latest)?.core?.dropLastWhile { it == 0L } != parts(skipped)?.core?.dropLastWhile { it == 0L })
 
     fun detectVariant(entries: Sequence<String>): ApkVariant? {
         val nativeLibrary = Regex("^lib/([^/]+)/libclash\\.so$")
@@ -108,8 +121,16 @@ object AppUpdatePolicy {
         }
     }
 
-    private fun parts(version: String): List<Long>? = normalizedVersion(version)
-        .takeIf { it.isNotEmpty() }?.split('.')?.map { it.toLong() }
+    private fun parts(version: String): VersionParts? {
+        val normalized = normalizedVersion(version)
+        if (normalized.isEmpty()) return null
+        val m = VERSION_REGEX.matchEntire(normalized) ?: return null
+        return VersionParts(
+            core = m.groupValues[1].split('.').map { it.toLong() },
+            preName = m.groupValues[2].lowercase(),
+            preNum = m.groupValues[3].toLongOrNull() ?: 0L,
+        )
+    }
 }
 
 object GitHubReleaseClient {
