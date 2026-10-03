@@ -630,16 +630,15 @@ object CloudflareWorker {
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
 
-        // Never silently drop a secret the user added (e.g. WIZARD_PASSWORD):
-        // Cloudflare does not return secret values, so the caller must provide
-        // them (the app collects them first). Anything still missing blocks.
+        // Secrets the user added (e.g. UUID/WIZARD_PASSWORD) survive updates
+        // without retyping: keep_secrets=true preserves them server-side, so we
+        // simply must not send empty bindings for them (that would clear them).
         val existing = readScriptBindings(token, uploadUrl)
-        val blocked = existing
+        val keptSecrets = existing
             ?.filter { it.optString("type") == "secret_text" && it.optString("text").isNullOrBlank() }
             ?.mapNotNull { it.optString("name").takeIf { name -> name.isNotBlank() } }
             .orEmpty()
             .filterNot { secretValues.containsKey(it) }
-        if (blocked.isNotEmpty()) return@withContext PanelUpdateOutcome.Blocked(blocked)
 
         // Prefer the KV namespace already bound to this worker; fall back to the
         // deterministic "<worker>-catpanel" title the deploy flow creates.
@@ -658,6 +657,9 @@ object CloudflareWorker {
             if (name.isBlank() || name == "UUID" || name == "CAT_KV") return@forEach
             when (binding.optString("type")) {
                 "plain_text", "secret_text" -> {
+                    // Unreadable secrets ride on keep_secrets — sending an empty
+                    // text here would wipe them.
+                    if (name in keptSecrets) return@forEach
                     val text = secretValues[name] ?: binding.optString("text")
                     extras.put(
                         JSONObject()
@@ -670,7 +672,7 @@ object CloudflareWorker {
             }
         }
 
-        val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras)
+        val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras, keepSecrets = keptSecrets.isNotEmpty())
         if (!putResult.optBoolean("success", false)) {
             val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
             throw RuntimeException("Worker upload failed: $errors")
@@ -1106,6 +1108,7 @@ object CloudflareWorker {
         kvNamespaceId: String? = null,
         secrets: Map<String, String> = emptyMap(),
         extraBindings: JSONArray = JSONArray(),
+        keepSecrets: Boolean = false,
     ): JSONObject {
         val bindings = JSONArray()
         if (uuid.isNotBlank()) {
@@ -1127,6 +1130,10 @@ object CloudflareWorker {
             .put("bindings", bindings)
             .put("compatibility_date", "2025-03-04")
             .put("compatibility_flags", JSONArray().put("nodejs_compat"))
+        // Cloudflare never returns secret values; keep_secrets=true tells the
+        // upload to preserve the previous version's secret bindings untouched —
+        // so an UPDATE never has to ask the user to retype them.
+        if (keepSecrets) metadata.put("keep_secrets", true)
         val boundary = "----catclient${System.currentTimeMillis()}"
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"

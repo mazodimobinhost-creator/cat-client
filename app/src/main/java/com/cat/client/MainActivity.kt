@@ -7282,9 +7282,7 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.cloud_update_tokenless_title)
             .setMessage(message)
-            .setNegativeButton(R.string.cloud_update_with_token) { _, _ ->
-                presentPanelTokenPrompt(deployment, deployed, newest)
-            }
+            .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.cloud_update_tokenless_btn) { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", newest.text))
@@ -7406,20 +7404,14 @@ class MainActivity : Activity() {
                         Toast.LENGTH_LONG,
                     ).show()
                     // The saved token can no longer upload (expired/revoked/scopes) —
-                    // offer the inline token prompt so the recovery continues here.
-                    presentPanelTokenPrompt(deployment, deployed, script)
+                    // NEVER ask for a token again: fall back to the token-free flow.
+                    panelUpdateInProgress = false
+                    presentTokenlessPanelUpdate(deployment, deployed, script, true)
                     return@launch
                 }
                 PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
-                val remaining = CloudflareWorker.protectedSecretNames(token, accountId, deployment.workerUrl)
-                    .filterNot { secretValues.containsKey(it) }
-                if (remaining.isNotEmpty()) {
-                    panelUpdateInProgress = false
-                    showPanelSecretsDialog(deployment, token, deployed, script, remaining) { values ->
-                        runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                    }
-                    return@launch
-                }
+                // No secret re-entry prompts: updateBuiltIn preserves unreadable
+                // secrets via keep_secrets, so the update just runs.
                 val outcome = CloudflareWorker.updateBuiltIn(
                     this@MainActivity,
                     token,
@@ -7431,16 +7423,9 @@ class MainActivity : Activity() {
                 )
                 when (outcome) {
                     is CloudflareWorker.PanelUpdateOutcome.Blocked -> {
+                        // Defensive: with keep_secrets this no longer triggers.
                         panelUpdateInProgress = false
-                        showPanelSecretsDialog(
-                            deployment,
-                            token,
-                            deployed,
-                            script,
-                            outcome.secretNames,
-                        ) { values ->
-                            runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                        }
+                        Toast.makeText(this@MainActivity, R.string.cloud_update_running, Toast.LENGTH_LONG).show()
                     }
                     is CloudflareWorker.PanelUpdateOutcome.Success -> showCloudUpdateDialog(outcome)
                 }
