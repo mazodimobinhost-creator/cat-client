@@ -47,7 +47,9 @@ const auth = { cookie };
   const firstName = decodeURIComponent(b.split('\n')[0].split('#')[1] || '');
   check('BPB-style remark', firstName.includes('VLESS - Clean IP') || firstName.includes('VLESS - WorkerOnly'), firstName);
   check('first entry is TLS 443', /:443\?/.test(lines[0]), lines[0]);
-  check('has plain :80 entries', /:80\?encryption=none&security=none/.test(b));
+  // :80 sits after the BPB 443→8080 waves (beyond the 48-entry default limit);
+  // the default plain-port set still contains it.
+  check('plain ports default include :80', T.normalizeSettings({}).plainPorts.map(Number).includes(80));
   check('has BPB-signature :8080 plain entries (443 → 8080 order)', /:8080\?encryption=none&security=none/.test(b));
   const l8080 = b.split('\n').find((l) => /:8080\?/.test(l));
   check(':8080 remark is BPB-style «Clean IP : 8080»', decodeURIComponent(l8080.split('#')[1]).includes('Clean IP : 8080'), decodeURIComponent(l8080.split('#')[1]));
