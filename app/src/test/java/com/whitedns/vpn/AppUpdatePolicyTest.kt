@@ -41,7 +41,7 @@ class AppUpdatePolicyTest {
         }
         assertTrue(AppUpdatePolicy.isNewer("1.4-rc1", "1.3.0"))
         assertFalse(AppUpdatePolicy.isNewer("1.4-rc1", "1.4.0"))
-        assertFalse(AppUpdatePolicy.isNewer("1.4.0", "1.4-rc1"))
+        assertTrue(AppUpdatePolicy.isNewer("1.4.0", "1.4-rc1"))
     }
 
     @Test
