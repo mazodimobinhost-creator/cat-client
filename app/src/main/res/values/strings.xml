@@ -933,5 +933,12 @@
     <string name="scanner_panel_saved">Added — panel now has %1$d clean IP(s); pinned ones keep their scanned port</string>
     <string name="scanner_panel_zero">0 added — update your panel to 6.8+ (banner or ⬆ Update Panel), then resend</string>
     <string name="scanner_panel_none">%1$d IP(s) copied. No Cat Panel found in your subscriptions — deploy one first</string>
+    <string name="cloud_add_existing">Attach existing panel</string>
+    <string name="cloud_add_existing_hint">panel.workers.dev</string>
+    <string name="cloud_add_existing_msg">Enter the worker URL of a panel you deployed manually in the Cloudflare dashboard. The app will watch its version and can update it (it will ask for your CF API token when updating).</string>
+    <string name="cloud_panel_notcat">Not reachable, or not a Cat Panel address</string>
+    <string name="cloud_panel_notcat_confirm">No Cat Panel answered at this address (or the version is too old to report one). Attach anyway?</string>
+    <string name="cloud_panel_added">Panel attached — now tap “Update Panel”</string>
+    <string name="cloud_panel_added_version">Attached Cat Panel %1$s — tap “Update Panel” to bring it to the newest version</string>
     <string name="pip_use_entry_short">⚡ entry</string>
 </resources>

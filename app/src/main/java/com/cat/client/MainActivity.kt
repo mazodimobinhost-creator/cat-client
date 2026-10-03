@@ -7031,7 +7031,6 @@ class MainActivity : Activity() {
         val host = cloudDeploymentHistoryHost ?: return
         host.removeAllViews()
         val history = PanelDeploymentStore(this).deployments()
-        if (history.isEmpty()) return
         history.forEachIndexed { index, deployment ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -7114,6 +7113,89 @@ class MainActivity : Activity() {
                 val newest = runCatching { newestPanelScript() }.getOrNull()
                 if (!versionBadge.isAttachedToWindow) return@launch
                 applyPanelVersionBadge(versionBadge, deployed, newest)
+            }
+        }
+        host.addView(
+            MaterialButton(this).apply {
+                setText(R.string.cloud_add_existing)
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(12)
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
+                setTextColor(TEXT_PRIMARY)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+                setOnClickListener { onAddExistingPanel() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+    }
+
+    /**
+     * Attach a panel that was deployed manually in the Cloudflare dashboard (no
+     * app record exists). After this the card shows in My Panels with its live
+     * version and the Update Panel button — the CF token is asked at update time.
+     */
+    private fun onAddExistingPanel() {
+        val input = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            hint = getString(R.string.cloud_add_existing_hint)
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(6), dp(24), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_add_existing)
+            .setMessage(R.string.cloud_add_existing_msg)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { button ->
+            var raw = input.text?.toString()?.trim().orEmpty()
+            if (raw.isBlank()) return@setOnClickListener
+            if (!raw.startsWith("http")) raw = "https://$raw"
+            val uri = runCatching { Uri.parse(raw) }.getOrNull()
+            val host = uri?.host.orEmpty()
+            if (!host.contains('.')) {
+                Toast.makeText(this, R.string.cloud_panel_notcat, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val path = uri?.path.orEmpty()
+            val url = "https://" + host + if (path.isNotBlank() && path != "/") path else ""
+            button.isEnabled = false
+            activityScope.launch {
+                val version = runCatching { PanelUpdate.deployedVersion(url) }.getOrNull()
+                if (version == null) {
+                    withContext(Dispatchers.Main) {
+                        button.isEnabled = true
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.cloud_add_existing)
+                            .setMessage(R.string.cloud_panel_notcat_confirm)
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(android.R.string.ok) { _, _ ->
+                                PanelDeploymentStore(this@MainActivity).rememberLast(url, "")
+                                renderCloudDeploymentHistory()
+                                Toast.makeText(this@MainActivity, R.string.cloud_panel_added, Toast.LENGTH_LONG).show()
+                                dialog.dismiss()
+                            }
+                            .show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        PanelDeploymentStore(this@MainActivity).rememberLast(url, "")
+                        renderCloudDeploymentHistory()
+                        Toast.makeText(this@MainActivity, getString(R.string.cloud_panel_added_version, version), Toast.LENGTH_LONG).show()
+                        dialog.dismiss()
+                    }
+                }
             }
         }
     }

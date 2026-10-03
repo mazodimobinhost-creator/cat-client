@@ -1183,6 +1183,8 @@ data class PanelDeploymentRecord(
     val panelUrl: String
         get() {
             val base = workerUrl.trimEnd('/')
+            // Attached external panels have no stored UUID: open them plainly.
+            if (uuid.isBlank()) return if (path.isBlank()) base else base + "/" + path
             return if (path.isBlank()) base + "/?p=" + uuid else base + "/" + path + "/?p=" + uuid
         }
 }

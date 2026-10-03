@@ -932,5 +932,12 @@
     <string name="scanner_panel_saved">اضافه شد — پنل الان %1$d آی‌پی تمیز دارد؛ پین‌شده‌ها روی پورتِ اسکن‌شده می‌مانند</string>
     <string name="scanner_panel_zero">۰ تا اضافه نشد — پنل را به ۶.۸ به بالا آپدیت کن (بنر یا «⬆ آپدیت پنل») و دوباره بفرست</string>
     <string name="scanner_panel_none">‏%1$d آی‌پی کپی شد. هیچ پنل کتی در ساب‌هات پیدا نشد — اول یک پنل بساز و وصل کن</string>
+    <string name="cloud_add_existing">اتصال پنل موجود</string>
+    <string name="cloud_add_existing_hint">panel.workers.dev</string>
+    <string name="cloud_add_existing_msg">آدرس ورکر پنلی را بده که دستی در داشبورد کلادفلر ساختی. اپ نسخه‌اش را دنبال می‌کند و می‌تواند آپدیتش کند (موقع آپدیت، توکن CF API را می‌پرسد).</string>
+    <string name="cloud_panel_notcat">در دسترس نیست، یا آدرس پنل کتی نیست</string>
+    <string name="cloud_panel_notcat_confirm">در این آدرس پنل کتی جواب نداد (یا نسخه‌اش برای گزارش نسخه خیلی قدیم است). باز هم اضافه شود؟</string>
+    <string name="cloud_panel_added">پنل وصل شد — حالا «بروزرسانی پنل» را بزن</string>
+    <string name="cloud_panel_added_version">پنل کت %1$s وصل شد — «بروزرسانی پنل» را بزن تا به آخرین نسخه بیاید</string>
     <string name="pip_use_entry_short">⚡ ورودی</string>
 </resources>

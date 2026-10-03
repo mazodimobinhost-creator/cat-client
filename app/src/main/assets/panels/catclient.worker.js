@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.9.1';
+const CAT_PANEL_VERSION = '6.9.2';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -2438,6 +2438,15 @@ async function handleApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/update-download') {
+    try {
+      const res = await fetch(PANEL_SOURCE_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
+      if (!res.ok) return json({ ok: false, error: 'fetch failed' }, 502);
+      return new Response(res.body, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'content-disposition': 'attachment; filename="catclient.worker.js"', 'cache-control': 'no-store' } });
+    } catch (e) {
+      return json({ ok: false, error: 'fetch failed' }, 502);
+    }
+  }
   if (path === '/api/update-check') {
     try {
       const res = await fetch(PANEL_SOURCE_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 600 } });
@@ -3175,7 +3184,7 @@ u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمار�
 unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
-update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',
+update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box'},
 en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
@@ -3197,7 +3206,7 @@ u_noquota:'This version does not meter traffic (traffic metering is what filled 
 unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
-update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',
+update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
 sync_hint:'Opens the master subscription in Cat Client',restore_ok:'Restored',restore_bad:'Invalid file',sub:'Sub',clash:'Clash',singbox:'sing-box'}};
 var lang=document.documentElement.lang==='en'?'en':'fa';
 function t(k){return (I18N[lang][k]!==undefined?I18N[lang][k]:I18N.fa[k])||k}
@@ -3269,7 +3278,7 @@ function renderInbounds(){
  applyI18n();
 }
 function t_paths(){return CFG.paths||{vlessPath:'/vless',trojanPath:'/trojan'}}
-$('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}b.innerHTML=j.latest===j.current?'<span class="chip ok">\u2713 '+esc(j.current)+'</span>':'<span class="chip warn">\u2b06\ufe0f '+esc(j.latest)+'</span> '+t('update_how')})});
+$('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}b.innerHTML=j.latest===j.current?'<span class="chip ok">\u2713 '+esc(j.current)+'</span>':'<span class="chip warn">\u2b06\ufe0f '+esc(j.latest)+'</span> <a class="btn sm p" href="/api/update-download" style="vertical-align:middle">\u2b07\ufe0f worker.js</a><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>'})});
 $('#btnBulk').addEventListener('click',function(){
  var n=Number(prompt(t('bulk_count'),'5'));if(!n||n<1)return;
  var prefix=prompt(t('bulk_prefix'),'user');if(prefix===null)return;
@@ -3404,7 +3413,7 @@ $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f
 
 /* ---------- update / lang ---------- */
 $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}
- b.innerHTML=j.latest===j.current?'<span class="chip ok">✓ '+t('update_ok')+' ('+esc(j.current)+')</span>':'<span class="chip warn">⬆️ '+t('update_new')+esc(j.latest)+'</span><div class="small mute" style="margin-top:6px">'+t('update_how')+'</div>'})});
+ b.innerHTML=j.latest===j.current?'<span class="chip ok">✓ '+t('update_ok')+' ('+esc(j.current)+')</span>':'<span class="chip warn">⬆️ '+t('update_new')+esc(j.latest)+'</span> <a class="btn sm p" href="/api/update-download" style="vertical-align:middle">⬇️ worker.js</a><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>'})});
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
