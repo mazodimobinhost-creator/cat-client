@@ -23,7 +23,7 @@ class PanelUpdatePolicyTest {
     fun releaseSourceMustBeStrictlyNewerThanTheBundle() {
         assertTrue(PanelUpdate.preferRelease("5.6.0", "5.7.0"))
         assertTrue(PanelUpdate.preferRelease("5.6.0", "v5.10.0"))
-        assertFalse(PanelUpdate.preferRelease("5.7.0", "5.7.0"), "ties keep the offline bundle")
+        assertFalse("ties keep the offline bundle", PanelUpdate.preferRelease("5.7.0", "5.7.0"))
         assertFalse(PanelUpdate.preferRelease("5.7.0", "5.6.9"))
         assertFalse(PanelUpdate.preferRelease("5.7.0", null))
         assertFalse(PanelUpdate.preferRelease("5.7.0", ""))
