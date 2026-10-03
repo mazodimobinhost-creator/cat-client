@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.9.2';
+const CAT_PANEL_VERSION = '6.10.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -1565,8 +1565,15 @@ async function handleTunnelConnection(ws, env, options = {}) {
 }
 
 function tunnelPaths(env) {
-  const vless = String(env.VLESS_PATH || '/ws?ed=2048');
-  const trojan = String(env.TROJAN_PATH || '/trojan');
+  // BPB-style per-deployment stealth paths: /vl/<seed>?ed=2560 (vless) and
+  // /tr/<seed>?ed=2560 (trojan). The seed derives from the deployment UUID, so
+  // every panel gets a different stable path. VLESS_PATH / TROJAN_PATH env vars
+  // still win. Legacy '/ws' and '/trojan' remain accepted (see isTunnelPath).
+  const overrideV = String(env.VLESS_PATH || '').trim();
+  const overrideT = String(env.TROJAN_PATH || '').trim();
+  const seed = (() => { try { return sha224Hex(String(env.UUID || 'cat-panel')).slice(0, 16); } catch (e) { return 'catpanel0catpanel1'; } })();
+  const vless = overrideV || '/vl/' + seed + '?ed=2560';
+  const trojan = overrideT || '/tr/' + seed + '?ed=2560';
   return {
     vlessPath: vless,
     trojanPath: trojan,
@@ -1577,7 +1584,11 @@ function tunnelPaths(env) {
 
 function isTunnelPath(pathname, env) {
   const p = tunnelPaths(env);
-  return pathname === p.vlessName || pathname === p.trojanName || pathname === '/ws' || pathname.startsWith('/ws/');
+  if (pathname === p.vlessName || pathname === p.trojanName) return true;
+  if (pathname === '/ws' || pathname.startsWith('/ws/') || pathname === '/trojan') return true;
+  // BPB-style prefixes (seed is obfuscation, shape is what matters)
+  if (/^\/vl\/[0-9a-z_-]{4,64}$/i.test(pathname) || /^\/tr\/[0-9a-z_-]{4,64}$/i.test(pathname)) return true;
+  return false;
 }
 
 
@@ -1599,10 +1610,15 @@ function addressList(host, env, settings) {
   return list;
 }
 
-function configName(proto, addr, port, tls, cc) {
-  // A leading flag lets every client (Cat Client, V2Box, Clash, sing-box) group
-  // and pick by country; untagged entries keep the 🐱 prefix.
-  return (cc ? flagOf(cc) : '🐱') + ' ' + (proto === 'vless' ? 'VL' : 'TR') + ' ' + addr + ':' + port + (tls ? '' : ' ⚡');
+function configName(proto, addr, port, tls, cc, host, index) {
+  // BPB-style remarks: "💦 12. VLESS - Clean IP : 8080". Entries on the panel's
+  // own address are 🔌 WorkerOnly; everything else is a clean IP (💦). A country
+  // flag (when known) still leads the name so clients can group by country.
+  const protoName = proto === 'vless' ? 'VLESS' : 'TROJAN';
+  const isWorker = !!host && String(addr).toLowerCase().replace(/^\[/, '').replace(/\]$/, '') === String(host).toLowerCase();
+  const label = (isWorker ? 'WorkerOnly' : 'Clean IP') + (tls ? ' TLS' : '');
+  const n = index ? index + '. ' : '';
+  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : '💦 ') + n + protoName + ' - ' + label + ' : ' + port;
 }
 
 function wsParams(hostHeader, path, sni, fp, tls) {
@@ -1621,14 +1637,14 @@ function wsParams(hostHeader, path, sni, fp, tls) {
 }
 
 function vlessLink(ctx, addr, port, tls, cc, opts) {
-  const name = (opts && opts.name) || configName('vless', addr, port, tls, cc);
+  const name = (opts && opts.name) || configName('vless', addr, port, tls, cc, ctx.host);
   const path = (opts && opts.path) || ctx.paths.vlessPath;
   return 'vless://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
     wsParams(ctx.host, path, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(name);
 }
 
 function trojanLink(ctx, addr, port, tls, cc, opts) {
-  const name = (opts && opts.name) || configName('trojan', addr, port, tls, cc);
+  const name = (opts && opts.name) || configName('trojan', addr, port, tls, cc, ctx.host);
   const path = (opts && opts.path) || ctx.paths.trojanPath;
   return 'trojan://' + encodeURIComponent(ctx.trojanPass) + '@' + formatAddr(addr) + ':' + port + '?' +
     wsParams(ctx.host, path, ctx.sni, ctx.fp, tls) + '#' + encodeURIComponent(name);
@@ -1694,6 +1710,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // exists in the port walk even if the panel never enabled it explicitly.
   for (const p of uniq(addresses.map(pinnedPortOf).filter(Boolean))) if (!ports.some((x) => Number(x.port) === p)) ports.push({ port: Number(p), tls: !PLAIN_PORTS.includes(p) });
   const entries = [];
+  let vi = 0;
+  let ti = 0;
   const limit = settings.entryLimit;
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
@@ -1702,8 +1720,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const pin = pinnedPortOf(addr); // pinned address → only its verified port (ports may arrive as strings)
       if (pin && pin !== Number(port)) continue;
       const cc = ccOf(addr);
-      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc), name: configName('vless', addr, port, tls, cc) });
-      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc), name: configName('trojan', addr, port, tls, cc) });
+      if (ctx.protocols.vless) { vi++; const nm = configName('vless', addr, port, tls, cc, host, vi); entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc, { name: nm }), name: nm }); }
+      if (ctx.protocols.trojan) { ti++; const tm = configName('trojan', addr, port, tls, cc, host, ti); entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc, { name: tm }), name: tm }); }
       if (entries.length >= limit) break outer;
     }
   }

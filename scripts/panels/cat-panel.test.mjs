@@ -44,9 +44,11 @@ const auth = { cookie };
   check('/sub/<uuid> 200', r.status===200);
   const lines = b.trim().split('\n');
   check('has vless + trojan', b.includes('vless://') && b.includes('trojan://'));
+  const firstName = decodeURIComponent(b.split('\n')[0].split('#')[1] || '');
+  check('BPB-style remark', firstName.includes('VLESS - Clean IP') || firstName.includes('VLESS - WorkerOnly'), firstName);
   check('first entry is TLS 443', /:443\?/.test(lines[0]), lines[0]);
   check('has plain :80 entries', /:80\?encryption=none&security=none/.test(b));
-  check('host header + path', b.includes('host=' + HOST) && b.includes(encodeURIComponent('/ws?ed=2048')));
+  check('host header + BPB path', b.includes('host=' + HOST) && b.includes(encodeURIComponent('?ed=2560')) && b.includes(encodeURIComponent('/vl/')));
   check('userinfo header', (r.headers.get('subscription-userinfo')||'').includes('total=0'));
   check('entry limit respected', lines.length <= 48 && lines.length >= 20, String(lines.length));
   const r64 = await req('/sub64/' + MASTER); const b64 = await r64.text(); check('/sub64 is base64 of /sub', T.b64decode(b64) === b);
@@ -118,7 +120,7 @@ let user;
   const v = T.parseVlessHeader(bytes); check('vless header parse', v && v.uuid===MASTER && v.host==='example.com' && v.port===443 && v.command===1 && v.rest.length===3);
   check('sha224 vector', T.sha224Hex('abc')==='23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7');
   check('cf ip detection', T.isCloudflareIp('104.16.1.1') && !T.isCloudflareIp('8.8.8.8') && T.isCloudflareIp('2606:4700::1'));
-  check('tunnel paths', T.isTunnelPath('/ws', {}) && T.isTunnelPath('/trojan', {}) && !T.isTunnelPath('/sub', {}));
+  check('tunnel paths (legacy + BPB)', T.isTunnelPath('/ws', {}) && T.isTunnelPath('/trojan', {}) && T.isTunnelPath('/vl/abcdef0123456789', {}) && T.isTunnelPath('/tr/abcdef0123456789', {}) && !T.isTunnelPath('/sub', {}));
 }
 // tunnel e2e with fake sockets
 {
