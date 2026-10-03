@@ -198,6 +198,24 @@ jobs:
           fi
           exit "$STATUS"
 
+      - name: Report failed tests back to the branch
+        if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
+        run: |
+          git config user.name "ci-report-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git branch --show-current
+          {
+            echo "# Unit test failure report (${GITHUB_SHA::7})"
+            echo
+            grep -h "<failure" app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | sed -E 's/<failure message="/- /' | head -30
+            echo
+            echo '## log tail'
+            tail -n 100 unit-test.log 2>/dev/null
+          } > FAILED-TESTS.md
+          git add FAILED-TESTS.md
+          git commit -m "CI test failure report [skip ci]" || true
+          git push origin HEAD:"${GITHUB_REF_NAME}" || true
+
       - name: Build release APK
         if: success()
         env:
