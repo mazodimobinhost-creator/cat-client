@@ -31,6 +31,29 @@ class PanelUpdatePolicyTest {
     }
 
     @Test
+    fun betaPrereleaseVersionsCompareNumerically() {
+        // The shipped versionName is a beta (1.10.0-betaN). The old comparator
+        // only accepted bare numbers, so isNewer was ALWAYS false and in-app
+        // updates never appeared (beta10 even sorted before beta9 lexically).
+        assertTrue(AppUpdatePolicy.isNewer("1.10.0-beta10", "1.10.0-beta9"))
+        assertTrue(AppUpdatePolicy.isNewer("v1.10.0-beta10", "1.10.0-beta5"))
+        assertFalse(AppUpdatePolicy.isNewer("1.10.0-beta9", "1.10.0-beta10"))
+        assertFalse(AppUpdatePolicy.isNewer("1.10.0-beta10", "1.10.0"))
+        assertTrue(AppUpdatePolicy.isNewer("1.10.0", "1.10.0-beta10"))
+        assertTrue(AppUpdatePolicy.isNewer("1.11.0-beta1", "1.10.0-beta99"))
+        assertTrue(AppUpdatePolicy.isNewer("1.10.0-beta10", "1.9.9-beta77"))
+        assertEquals("1.10.0-beta10", AppUpdatePolicy.normalizedVersion("v1.10.0-beta10"))
+        assertEquals("1.10.0", AppUpdatePolicy.normalizedVersion("1.10.0"))
+        assertTrue(AppUpdatePolicy.isNewer("1.4-rc1", "1.3.0"))
+        assertFalse(AppUpdatePolicy.isNewer("1.4-rc1", "1.4.0"))
+        assertTrue(AppUpdatePolicy.isNewer("1.4.0", "1.4-rc1"))
+        for (invalid in listOf("1.-1", "1..4", "vV1.4", "1.4+build", "9999999999999999999999999")) {
+            assertFalse(invalid, AppUpdatePolicy.isNewer(invalid, "1.3.0"))
+            assertFalse(invalid, AppUpdatePolicy.isNewer("1.4.0", invalid))
+        }
+    }
+
+    @Test
     fun updatePromptSemanticsMatchAppUpdates() {
         // Same comparison the deployment rows use: installed vs newest known source.
         assertTrue(AppUpdatePolicy.isNewer("5.7.0", "5.6.0"))
