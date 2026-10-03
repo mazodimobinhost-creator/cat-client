@@ -4718,11 +4718,22 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            text = getString(R.string.footer_copyright)
+            // Version stays visible on the home footer; tapping it runs the
+            // in-app update check (GitHub release only — never an API token).
+            text = getString(R.string.footer_copyright) + "  ·  v" + BuildConfig.VERSION_NAME
             textSize = 12f
-            typeface = CatClientBodyTypeface
+            typeface = CatClientBodyBoldTypeface
             setTextColor(TEXT_SECONDARY)
             includeFontPadding = false
+            minHeight = dp(44)
+            setSelectableBackground()
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.update_check)
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, getString(R.string.update_installed_version, BuildConfig.VERSION_NAME), Toast.LENGTH_SHORT).show()
+                checkForUpdates()
+            }
         }
         val footerTelegramLink = TextView(this).apply {
             gravity = Gravity.CENTER
