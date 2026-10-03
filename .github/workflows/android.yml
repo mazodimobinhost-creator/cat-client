@@ -191,12 +191,8 @@ jobs:
             echo "=== FAILED TESTS ==="
             for f in $(find app/build/test-results -name "*.xml" 2>/dev/null); do
               grep -q "<failure" "$f" || continue
-              python3 - "$f" <<'PYX'
-import sys, re
-x = open(sys.argv[1], encoding='utf-8', errors='replace').read()
-for m in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)"[^>]*>\s*<failure[^>]*message="([^"]*)"', x):
-    print('::error::TEST-FAILED ' + m.group(2) + '#' + m.group(1) + ' :: ' + m.group(3)[:160])
-PYX
+              cls=$(grep -oE 'classname="[^"]+"' "$f" | head -1 | cut -d'"' -f2)
+              grep -oE '<failure message="[^"]{0,140}' "$f" | head -5 | sed "s/<failure message=/::error::FAILED ${cls} :: /"
             done
             tail -n 60 unit-test.log
           fi
