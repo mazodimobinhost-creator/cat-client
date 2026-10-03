@@ -33,10 +33,15 @@ class AppUpdatePolicyTest {
         assertEquals("1.10.0-beta10", AppUpdatePolicy.normalizedVersion("v1.10.0-beta10"))
         assertEquals("1.10.0", AppUpdatePolicy.normalizedVersion("1.10.0"))
         assertTrue(AppUpdatePolicy.isNewer("  v1.4.0 ", "1.3.0"))
-        for (invalid in listOf("1.-1", "1..4", "vV1.4", "1.4-rc1", "1.4+build", "9999999999999999999999999")) {
+        // `-betaN` / `-rcN` suffixes are VALID now (the app ships betas); other
+        // suffix shapes (+build, doubles, negatives, overflow) stay invalid.
+        for (invalid in listOf("1.-1", "1..4", "vV1.4", "1.4+build", "9999999999999999999999999")) {
             assertFalse(invalid, AppUpdatePolicy.isNewer(invalid, "1.3.0"))
             assertFalse(invalid, AppUpdatePolicy.isNewer("1.4.0", invalid))
         }
+        assertTrue(AppUpdatePolicy.isNewer("1.4-rc1", "1.3.0"))
+        assertFalse(AppUpdatePolicy.isNewer("1.4-rc1", "1.4.0"))
+        assertFalse(AppUpdatePolicy.isNewer("1.4.0", "1.4-rc1"))
     }
 
     @Test
