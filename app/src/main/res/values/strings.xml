@@ -940,5 +940,10 @@
     <string name="cloud_panel_notcat_confirm">No Cat Panel answered at this address (or the version is too old to report one). Attach anyway?</string>
     <string name="cloud_panel_added">Panel attached — now tap “Update Panel”</string>
     <string name="cloud_panel_added_version">Attached Cat Panel %1$s — tap “Update Panel” to bring it to the newest version</string>
+    <string name="cloud_update_tokenless_title">Token-free update</string>
+    <string name="cloud_update_tokenless_msg">No API token needed — 4 taps:\n1) Tap “Copy code &amp; open Cloudflare” — the new code (%3$s) is copied and the dashboard opens\n2) Workers → %1$s → Edit code\n3) Ctrl+A then Ctrl+V — replace all of the old code (v%2$s)\n4) Deploy</string>
+    <string name="cloud_update_tokenless_btn">Copy code &amp; open Cloudflare</string>
+    <string name="cloud_update_with_token">Automatic update (needs API token)</string>
+    <string name="cloud_update_tokenless_go">New code copied — in Cloudflare: Workers → your panel → Edit code → paste → Deploy</string>
     <string name="pip_use_entry_short">⚡ entry</string>
 </resources>

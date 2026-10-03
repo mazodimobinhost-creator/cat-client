@@ -7255,7 +7255,45 @@ class MainActivity : Activity() {
             presentPanelUpdatePasswordDialog(deployment, deployed, newest, hasUpdate, savedToken)
             return
         }
-        presentPanelTokenPrompt(deployment, deployed, newest)
+        // No stored token: default to the token-free guided update. The user
+        // explicitly never wants to be asked for a Cloudflare API token.
+        presentTokenlessPanelUpdate(deployment, deployed, newest, hasUpdate)
+    }
+
+    /**
+     * Token-free panel update: the newest worker code (release asset, or the copy
+     * bundled in this APK when GitHub is unreachable) goes to the clipboard and the
+     * Cloudflare dashboard opens — paste into the worker's Edit code and Deploy.
+     * No API token is ever requested.
+     */
+    private fun presentTokenlessPanelUpdate(
+        deployment: PanelDeploymentRecord,
+        deployed: String?,
+        newest: PanelUpdate.PanelScript,
+        @Suppress("UNUSED_PARAMETER") hasUpdate: Boolean,
+    ) {
+        val host = deployment.workerUrl.removePrefix("https://")
+        val workerName = if (host.endsWith(".workers.dev")) {
+            host.removeSuffix(".workers.dev").substringAfterLast('.')
+        } else {
+            host.substringBefore('/')
+        }
+        val message = getString(R.string.cloud_update_tokenless_msg, workerName, deployed ?: "?", newest.version)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_tokenless_title)
+            .setMessage(message)
+            .setNegativeButton(R.string.cloud_update_with_token) { _, _ ->
+                presentPanelTokenPrompt(deployment, deployed, newest)
+            }
+            .setPositiveButton(R.string.cloud_update_tokenless_btn) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", newest.text))
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/?to=/:account/workers")))
+                }
+                Toast.makeText(this, R.string.cloud_update_tokenless_go, Toast.LENGTH_LONG).show()
+            }
+            .show()
     }
 
     /** Inline Cloudflare-token prompt (also the recovery path for an expired token). */

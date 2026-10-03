@@ -939,5 +939,10 @@
     <string name="cloud_panel_notcat_confirm">در این آدرس پنل کتی جواب نداد (یا نسخه‌اش برای گزارش نسخه خیلی قدیم است). باز هم اضافه شود؟</string>
     <string name="cloud_panel_added">پنل وصل شد — حالا «بروزرسانی پنل» را بزن</string>
     <string name="cloud_panel_added_version">پنل کت %1$s وصل شد — «بروزرسانی پنل» را بزن تا به آخرین نسخه بیاید</string>
+    <string name="cloud_update_tokenless_title">آپدیت بدون توکن</string>
+    <string name="cloud_update_tokenless_msg">هیچ توکنی لازم نیست — ۴ تا کلیک:\n۱) «کپی کد و باز کردن کلادفلر» را بزن — کد جدید (%3$s) کپی می‌شود و داشبورد باز می‌شود\n۲) Workers → %1$s → Edit code\n۳) Ctrl+A بعد Ctrl+V — کل کد قدیمی (نسخهٔ %2$s) عوض شود\n۴) Deploy</string>
+    <string name="cloud_update_tokenless_btn">کپی کد و باز کردن کلادفلر</string>
+    <string name="cloud_update_with_token">آپدیت خودکار (با توکن کلادفلر)</string>
+    <string name="cloud_update_tokenless_go">کد جدید کپی شد — در کلادفلر: Workers → پنلت → Edit code → پیست → Deploy</string>
     <string name="pip_use_entry_short">⚡ ورودی</string>
 </resources>

@@ -66,6 +66,22 @@ const CAT_PANEL_VERSION = '6.9.2';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
+// Update sources in order: the release asset, then jsDelivr (usually reachable
+// where github.com is filtered), then the raw file on the default branch.
+const PANEL_SOURCE_URLS = [
+  PANEL_SOURCE_URL,
+  'https://cdn.jsdelivr.net/gh/' + REPO + '@latest/app/src/main/assets/panels/catclient.worker.js',
+  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+];
+async function fetchNewestPanelSource() {
+  for (const u of PANEL_SOURCE_URLS) {
+    try {
+      const r = await fetch(u, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
+      if (r.ok) return r;
+    } catch (e) { /* try the next mirror */ }
+  }
+  return null;
+}
 
 /* ------------------------------------------------------------------ */
 /* small utils                                                         */
@@ -2440,8 +2456,8 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/update-download') {
     try {
-      const res = await fetch(PANEL_SOURCE_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
-      if (!res.ok) return json({ ok: false, error: 'fetch failed' }, 502);
+      const res = await fetchNewestPanelSource();
+      if (!res) return json({ ok: false, error: 'all sources failed' }, 502);
       return new Response(res.body, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'content-disposition': 'attachment; filename="catclient.worker.js"', 'cache-control': 'no-store' } });
     } catch (e) {
       return json({ ok: false, error: 'fetch failed' }, 502);
@@ -2449,7 +2465,8 @@ async function handleApi(request, url, env, ctx) {
   }
   if (path === '/api/update-check') {
     try {
-      const res = await fetch(PANEL_SOURCE_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 600 } });
+      const res = await fetchNewestPanelSource();
+      if (!res) return json({ ok: false, error: 'all sources failed' }, 502);
       const src = await res.text();
       const m = src.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/);
       return json({ ok: true, current: CAT_PANEL_VERSION, latest: m ? m[1] : '', source: PANEL_SOURCE_URL });
