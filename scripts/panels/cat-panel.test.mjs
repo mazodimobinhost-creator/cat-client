@@ -55,7 +55,7 @@ const auth = { cookie };
   check(':8080 remark is BPB-style «Clean IP : 8080»', decodeURIComponent(l8080.split('#')[1]).includes('Clean IP : 8080'), decodeURIComponent(l8080.split('#')[1]));
   check('host header + BPB path', b.includes('host=' + HOST) && b.includes(encodeURIComponent('?ed=2560')) && b.includes(encodeURIComponent('/vl/')));
   check('userinfo header', (r.headers.get('subscription-userinfo')||'').includes('total=0'));
-  const isSpoof = (l) => /%20PX%20|%20SNI%20/.test(l);
+  const isSpoof = (l) => /%F0%9F%8E%AF|%F0%9F%A7%AC/.test(l); // 🎯 PX / 🧬 SNI sections
   const cleanLines = lines.filter((l) => !isSpoof(l));
   check('entry limit respected (clean section)', cleanLines.length <= 48 && cleanLines.length >= 20, String(lines.length) + ' total, clean=' + cleanLines.length);
   check('spoof section present in plain sub (PX or SNI)', lines.some((l) => isSpoof(l)));
@@ -72,7 +72,7 @@ const auth = { cookie };
   check('settings PUT', j.ok && j.persisted && j.settings.ips.length===3 && j.settings.tlsPorts.join()==='443,2053' && j.settings.protocols.trojan===false);
   const s = await req('/sub/' + MASTER); const b = await s.text(); const lines=b.trim().split('\n');
   check('owner ips first', lines[0].includes('@1.2.3.4:443') && lines[1].includes('@www.example.com:443'), lines[0]);
-  const clean = lines.filter((l) => !/%20PX%20|%20SNI%20/.test(l));
+  const clean = lines.filter((l) => !/%F0%9F%8E%AF|%F0%9F%A7%AC/.test(l));
   check('trojan disabled + no plain + limit', !b.includes('trojan://') && !b.includes('security=none') && clean.length===10, 'clean=' + clean.length);
 }
 // password change
@@ -399,6 +399,23 @@ let user;
     const subOff = await (await req('/sub/' + MASTER, { env: ENV })).text();
     check('proxyRepoAuto off → no repo ProxyIPs', !subOff.includes('proxyip%3D198.51.'));
     check('sanitizeProxyRepos: kinds + https-only', T.sanitizeProxyRepos([{ id: 'm', url: 'https://x/a.csv', kind: 'csv-proxy' }]).length === 1 && T.sanitizeProxyRepos(null).length >= 3);
+    // ---- per-ProxyIP configs (screenshot style) + repo default country ----
+    check('proxyRepoAuto defaults ON', T.normalizeSettings({}).proxyRepoAuto === true && T.normalizeSettings({ proxyRepoAuto: false }).proxyRepoAuto === false);
+    const sanc = T.sanitizeProxyRepos([{ id: 'w', name: 'wanwu', url: 'https://x/DE.txt', kind: 'txt', cc: 'de' }]);
+    check('repo default country kept (sanitized)', sanc[0].cc === 'DE');
+    const feedCC = async (url) => ({ ok: true, status: 200, text: async () => '198.51.50.7\n198.51.50.8\n' });
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyRepos: [{ id: 'wde', name: 'wanwu-de', url: 'https://x/DE.txt', kind: 'txt', cc: 'DE' }], proxyRepoAuto: true } });
+    await T.refreshProxyRepos(ENV, feedCC);
+    const poolCC = (await T.proxyRepoHealthyPool(ENV, 10)).find((p) => p.ip === '198.51.50.7');
+    check('txt feed gets repo default country tag', poolCC && poolCC.cc === 'DE', JSON.stringify(poolCC));
+    const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
+    const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
+    const pxs = epx.filter((e) => e.name.includes('🎯'));
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1', pxs[0] && pxs[0].name);
+    check('PX config carries ?proxyip= relay path', pxs.every((e) => decodeURIComponent(e.link).includes('?proxyip=203.0.113.1')));
+    const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
+    const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
+    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });

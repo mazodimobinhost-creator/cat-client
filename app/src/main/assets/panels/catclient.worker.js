@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.14.0';
+const CAT_PANEL_VERSION = '6.15.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -355,7 +355,7 @@ function normalizeSettings(raw) {
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
   s.repoAuto = s.repoAuto === true;
   s.repos = sanitizeRepos(s.repos);
-  s.proxyRepoAuto = s.proxyRepoAuto === true;
+  s.proxyRepoAuto = s.proxyRepoAuto !== false; // default ON — repo ProxyIPs become separate 🎯 configs
   s.proxyRepos = sanitizeProxyRepos(s.proxyRepos);
   s.useDefaults = s.useDefaults !== false;
   s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
@@ -1174,6 +1174,7 @@ function proxyIpList(env, settings) {
 }
 
 /* ---- countries ------------------------------------------------------- */
+const PX_FA_NAMES = { DE:'آلمان', FR:'فرانسه', US:'آمریکا', GB:'بریتانیا', NL:'هلند', TR:'ترکیه', AE:'امارات', FI:'فنلاند', SE:'سوئد', PL:'لهستان', AT:'اتریش', CH:'سوئیس', IT:'ایتالیا', ES:'اسپانیا', CZ:'چک', RO:'رومانی', BG:'بلغارستان', HU:'مجارستان', CA:'کانادا', SG:'سنگاپور', JP:'ژاپن', HK:'هنگ‌کنگ', IN:'هند', KR:'کرهٔ جنوبی', IR:'ایران', BR:'برزیل', AU:'استرالیا', ZA:'آفریقای جنوبی', IL:'اسرائیل', RU:'روسیه', UA:'اوکراین', MY:'مالزی', ID:'اندونزی', TH:'تایلند', VN:'ویتنام', PH:'فیلیپین', KZ:'قزاقستان', AZ:'آذربایجان', AM:'ارمنستان', GE:'گرجستان', QA:'قطر', KW:'کویت', SA:'عربستان', IQ:'عراق', MX:'مکزیک', AR:'آرژانتین', EG:'مصر', NO:'نروژ', DK:'دانمارک', IE:'ایرلند' };
 const COUNTRY_NAMES = { DE: 'Germany', NL: 'Netherlands', FR: 'France', GB: 'United Kingdom', US: 'United States', TR: 'Turkey', AE: 'UAE', FI: 'Finland', SE: 'Sweden', PL: 'Poland', AT: 'Austria', CH: 'Switzerland', IT: 'Italy', ES: 'Spain', CZ: 'Czechia', RO: 'Romania', BG: 'Bulgaria', HU: 'Hungary', UA: 'Ukraine', RU: 'Russia', AM: 'Armenia', GE: 'Georgia', KZ: 'Kazakhstan', IN: 'India', SG: 'Singapore', JP: 'Japan', KR: 'Korea', HK: 'Hong Kong', TW: 'Taiwan', AU: 'Australia', CA: 'Canada', BR: 'Brazil', IR: 'Iran', IQ: 'Iraq', OM: 'Oman', QA: 'Qatar', SA: 'Saudi Arabia', BH: 'Bahrain', KW: 'Kuwait', IE: 'Ireland', NO: 'Norway', DK: 'Denmark', BE: 'Belgium', PT: 'Portugal', GR: 'Greece', RS: 'Serbia', LT: 'Lithuania', LV: 'Latvia', EE: 'Estonia', MD: 'Moldova', CY: 'Cyprus', IL: 'Israel', EG: 'Egypt', ZA: 'South Africa', MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', ID: 'Indonesia', PH: 'Philippines', MX: 'Mexico', AR: 'Argentina', CL: 'Chile', PK: 'Pakistan', AZ: 'Azerbaijan', UZ: 'Uzbekistan' };
 
 function normalizeCountry(code) {
@@ -1763,8 +1764,8 @@ const PROXY_REPO_TTL_MS = 12 * 3600 * 1000;
 const PROXY_REPO_FAILS_DROP = 3;
 const DEFAULT_PROXY_REPOS = [
   { id: 'xgonce', name: 'XGonce ProxyIP (CSV, 6h, speed-sorted)', url: 'https://raw.githubusercontent.com/xgonce/Cloudflare_IP/main/result.csv', kind: 'csv-proxy', enabled: true },
-  { id: 'wanwu-de', name: 'Wanwu ProxyIP · Germany', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/DE.txt', kind: 'txt', enabled: true },
-  { id: 'wanwu-gb', name: 'Wanwu ProxyIP · UK', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/GB.txt', kind: 'txt', enabled: true },
+  { id: 'wanwu-de', name: 'Wanwu ProxyIP · Germany', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/DE.txt', kind: 'txt', cc: 'DE', enabled: true },
+  { id: 'wanwu-gb', name: 'Wanwu ProxyIP · UK', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/GB.txt', kind: 'txt', cc: 'GB', enabled: true },
 ];
 function sanitizeProxyRepos(list) {
   const src = Array.isArray(list) && list.length ? list : DEFAULT_PROXY_REPOS;
@@ -1774,8 +1775,9 @@ function sanitizeProxyRepos(list) {
     const url = String(r.url || '').trim();
     if (!/^https:\/\/[^\s"'<>]+$/.test(url)) continue;
     const kind = r.kind === 'csv-proxy' || r.kind === 'json-speed' ? r.kind : 'txt';
+    const ccRaw = String(r.cc || '').trim().toUpperCase();
     const id = (String(r.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)) || 'prepo' + (out.length + 1);
-    out.push({ id, name: String(r.name || 'repo').slice(0, 48), url, kind, enabled: r.enabled !== false });
+    out.push({ id, name: String(r.name || 'repo').slice(0, 48), url, kind, cc: /^[A-Z]{2}$/.test(ccRaw) ? ccRaw : '', enabled: r.enabled !== false });
   }
   if (!out.length) for (const r of DEFAULT_PROXY_REPOS) out.push(Object.assign({}, r));
   return out;
@@ -1839,7 +1841,7 @@ async function refreshProxyRepos(env, fetchImpl) {
       if (!res || !res.ok) throw new Error('http ' + (res && res.status));
       const list = parseProxyFeed(r.kind, await res.text());
       const alive = list.filter((x) => (health.f[x.ip] || 0) < PROXY_REPO_FAILS_DROP);
-      for (const x of alive) if (!merged.has(x.ip)) merged.set(x.ip, x);
+      for (const x of alive) { if (!x.cc && r.cc) x.cc = r.cc; if (!merged.has(x.ip)) merged.set(x.ip, x); }
       per[r.id] = { ts: Date.now(), ok: true, count: alive.length };
     } catch (e) {
       clearTimeout(timer);
@@ -2042,10 +2044,16 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: host, port: tlsPort, tls: true, cc: '', link: vlessLink(sctx, host, tlsPort, true, '', { name }), name });
       if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: host, port: tlsPort, tls: true, cc: '', link: trojanLink(sctx, host, tlsPort, true, '', { name }), name });
     }
+    const faUi = settings.lang !== 'en';
+    let pxi = 0;
     for (const px of proxyIpList(env, settings)) {
       if (entries.length >= 224) break;
+      pxi++;
       const pxcc = (settings.proxyCountries || {})[px] || '';
-      const pxname = '🎯 PX ' + (pxcc ? flagOf(pxcc) + ' ' : '') + px;
+      // Screenshot style: «🎯 3. 🇩🇪 آلمان · 1.2.3.4» — a separate config PER
+      // ProxyIP that exits through that relay (?proxyip= on the WS path).
+      const pxlabel = pxcc ? (faUi ? (PX_FA_NAMES[pxcc] || pxcc) : (COUNTRY_NAMES[pxcc] || pxcc)) : '';
+      const pxname = '🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px;
       if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: host, port: tlsPort, tls: true, cc: pxcc, link: vlessLink(ctx, host, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.vlessPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
       if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: host, port: tlsPort, tls: true, cc: pxcc, link: trojanLink(ctx, host, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.trojanPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
     }
