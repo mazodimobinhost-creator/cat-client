@@ -123,3 +123,69 @@ Execution failed for task ':app:compileDebugUnitTestKotlin'.
 
 BUILD FAILED in 4s
 22 actionable tasks: 4 executed, 18 up-to-date
+FAIL cat-panel
+```
+✓ warp on => single wireguard outbound w/ reserved array
+✓ warp chain => hub + inner dialerProxy
+✓ xray config dials through warp (sockopt dialerProxy)
+✓ chain mode: warp-hub present + inner dialerProxy
+✓ subQuery parses noext
+✓ extSubs normalize: https-only, caps, name default
+✓ parseExtUris: b64, scheme filter, cap 100
+✓ /ext route gated without key
+✓ /ext unknown index => 404
+✓ sub still works with extSubs + noext
+✓ sub without noext survives dead ext sub (allSettled)
+✓ /ext/<n>/<uuid> fetches (or clean-fails offline)
+✗ toAddrs with empty pool adds nothing — {"ok":true,"added":64,"count":67,"persisted":true}
+✓ toAddrs imports healthy pool with country tags
+✓ imported pool IPs stored + tagged
+✓ toAddrs dedupes (second run adds 0)
+✗ ips list grew by exactly 2
+✓ pool IP gets a config in the sub
+✓ subRotate defaults to fetch (fresh set every update)
+✓ rotate=fetch: sub changes across refreshes
+✓ rotate=daily: deterministic within the day
+✓ rotate=off: stable order
+✓ rotation keeps port walk: first config is TLS :443
+✓ repo refresh merges both feeds, uniq + junk-filtered
+✓ /api/repos GET status
+✓ json-speed sort within feed: fastest first
+✓ dead<3 still in pool
+✓ dead≥3 dropped from pool
+✓ repoAuto on → library IP (pinned 443) in sub
+✓ ?norepo=1 excludes library IPs
+✓ repoAuto off → no library IPs
+✓ repo import by country adds to panel list
+✓ sanitizeRepos: https-only, defaults when empty
+✓ proxy repo refresh: csv+txt merged, uniq
+✓ /api/prepos GET status
+✓ csv-proxy speed sort: fastest first
+✓ proxy domains kept
+✓ proxy dead<3 kept
+✓ proxy dead≥3 dropped
+✓ proxy import by country
+✓ proxyRepoAuto on → appended ProxyIP in sub ?proxyip=
+✓ ?norepo=1 excludes repo ProxyIPs
+✓ user own ProxyIP still present
+✓ proxyRepoAuto off → no repo ProxyIPs
+✓ sanitizeProxyRepos: kinds + https-only
+✓ proxyRepoAuto defaults ON
+✓ repo default country kept (sanitized)
+✓ txt feed gets repo default country tag
+✓ per-ProxyIP configs: numbered + flag + Persian country
+✓ PX config carries ?proxyip= relay path
+✓ en locale → English country label
+✓ pinnedPortOf parses v4/v6/domain, rejects bare
+✓ /api/ips stores ip:port + cc, rejects junk
+✓ normalize keeps custom ports
+✓ default SNI is NOT the panel host
+✓ SNI: settings beat default
+✓ SNI: env beats default
+✓ generated configs do not put panel host into sni param
+
+2 FAILED
+```
+PASS panel-dom
+PASS wizard
+PASS multipart-upload
