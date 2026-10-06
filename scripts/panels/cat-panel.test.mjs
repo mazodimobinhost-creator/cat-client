@@ -391,6 +391,10 @@ let user;
   // ================= ProxyIP pool → connection addresses (toAddrs) =================
   {
     const pre = ((await (await req('/api/settings', { headers: auth })).json()).settings.ips || []).length;
+    // Fresh empty cache BEFORE the first call: with a stale cache the route
+    // fires a LIVE proxyRepoRefresh (CI has open network) and the pool stops
+    // being empty mid-test — sandbox (no outbound) hides this.
+    await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: Date.now(), per: {}, ips: [] }));
     const empty = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs' } })).json();
     check('toAddrs with empty pool adds nothing', empty.ok === true && empty.added === 0, JSON.stringify(empty));
     await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: Date.now(), per: {}, ips: ['5.75.200.40#DE', '45.12.30.10#TR', 'not-an-ip'] }));
@@ -404,7 +408,7 @@ let user;
     // the freshly imported addresses out of the emitted window.
     const dbg = await (await req('/sub/' + MASTER + '?limit=200', { env: ENV })).text();
     check('pool IP gets a config in the sub', dbg.includes('@5.75.200.40:'), dbg.split('\n').length + ' lines');
-    await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0, per: {}, ips: [] }));
+    await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: Date.now(), per: {}, ips: [] }));
   }
   // ================= auto config rotation (subRotate) =================
   {
