@@ -8343,7 +8343,7 @@ class MainActivity : Activity() {
     }
 
     private fun showProxyIpScannerPage() {
-        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl(), onUseAsEntry = { applyProxyIpAsEntry(it) }).show()
+        ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl(), onUseAsEntry = { applyProxyIpAsEntry(it) }, pickPanel = { pickPanelBaseInteractive() }).show()
     }
 
     /**

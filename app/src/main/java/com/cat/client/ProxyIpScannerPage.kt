@@ -58,6 +58,8 @@ class ProxyIpScannerPage(
     private val scope: CoroutineScope,
     private val panelUrl: String?,
     private val onUseAsEntry: ((String) -> Unit)? = null,
+    /** Explicit panel chooser (never a silent guess) — resolved per action. */
+    private val pickPanel: (suspend () -> String?)? = null,
 ) {
     data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true)
 
@@ -272,12 +274,14 @@ class ProxyIpScannerPage(
     private fun sendToPanel() {
         val lines = selectedLines().take(32)
         if (lines.isEmpty()) { Toast.makeText(ctx, R.string.pip_none_selected, Toast.LENGTH_SHORT).show(); return }
+        scope.launch {
         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("proxyips", lines.joinToString("\n")))
-        val base = panelUrl?.trim()?.trimEnd('/')
+        val base = (pickPanel?.invoke() ?: panelUrl)?.trim()?.trimEnd('/')
         val opened = !base.isNullOrBlank() && runCatching {
             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$base/?proxyips=" + Uri.encode(lines.joinToString(",")))))
         }.isSuccess
         Toast.makeText(ctx, ctx.getString(if (opened) R.string.pip_sent_panel else R.string.pip_copied_panel, lines.size), Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
@@ -287,11 +291,14 @@ class ProxyIpScannerPage(
     private fun saveDirect() {
         val lines = selectedLines().take(32)
         if (lines.isEmpty()) { Toast.makeText(ctx, R.string.pip_none_selected, Toast.LENGTH_SHORT).show(); return }
-        val base = panelUrl?.trim()?.trimEnd('/')
-        if (base.isNullOrBlank()) { Toast.makeText(ctx, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        scope.launch {
+        val base = (pickPanel?.invoke() ?: panelUrl)?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(ctx, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return@launch }
+        val storedUuid = runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty()
         val input = EditText(ctx).apply {
             hint = ctx.getString(R.string.pip_password_hint); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
+            if (storedUuid.isNotBlank()) setText(storedUuid)
         }
         com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
             .setTitle(ctx.getString(R.string.pip_save_direct))
@@ -307,6 +314,7 @@ class ProxyIpScannerPage(
                 }
             }
             .show()
+        }
     }
 
     private fun pushToPanel(base: String, password: String, lines: List<String>): Int {
