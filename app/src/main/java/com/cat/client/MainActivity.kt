@@ -89,6 +89,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
@@ -6134,7 +6136,9 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun sendScanToPanel() {
+    private fun sendScanToPanel() = activityScope.launch { sendScanToPanelSuspend() }
+
+    private suspend fun sendScanToPanelSuspend() {
         val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
         // ONLY IPs whose TLS handshake actually passed ON THIS NETWORK are sent
         // (checked → then → panel). No unchecked fallback: an unverified IP in
@@ -6154,7 +6158,7 @@ class MainActivity : Activity() {
         // Push straight into the panel over its API (login → POST /api/ips, append).
         // The old deep link opened the scanner SNI instead of the panel, so IPs
         // never arrived — the panel host comes from the subscriptions now.
-        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+        val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) {
             Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
             return
@@ -8227,7 +8231,32 @@ class MainActivity : Activity() {
         SpeedTestPage(this, palette, activityScope, connected = currentVpnStateIsStarted()).show()
     }
 
-    private fun panelBaseUrl(): String? = detectPanelSnisFromSubscriptions().firstOrNull()?.let { "https://$it" }
+    /**
+     * Panel base for push APIs (ips / extraSnis). Priority: KNOWN deployments
+     * recorded in this app (deploys + Add-existing + wizard) — never a guess;
+     * falls back to panel hosts detected inside subscriptions only when no
+     * explicit record exists.
+     */
+    private fun panelBaseUrl(): String? {
+        PanelDeploymentStore(this).deployments().firstOrNull()?.let { return it.workerUrl.trimEnd('/') }
+        return detectPanelSnisFromSubscriptions().firstOrNull()?.let { "https://$it" }
+    }
+
+    /** Panel base picked EXPLICITLY by the user when several are known. */
+    private suspend fun pickPanelBaseInteractive(): String? {
+        val known = PanelDeploymentStore(this).deployments().map { it.workerUrl.trimEnd('/') }.distinct()
+        val detected = detectPanelSnisFromSubscriptions().map { "https://$it" }
+        val all = (known + detected).distinct()
+        if (all.isEmpty()) return null
+        if (all.size == 1) return all[0]
+        return suspendCancellableCoroutine { cont ->
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.pip_pick_panel)
+                .setItems(all.map { it.removePrefix("https://") }.toTypedArray()) { _, which -> cont.resume(all[which]) }
+                .setOnCancelListener { cont.resume(null) }
+                .show()
+        }
+    }
 
     private fun showProxyIpScannerPage() {
         ProxyIpScannerPage(this, palette, activityScope, panelBaseUrl(), onUseAsEntry = { applyProxyIpAsEntry(it) }).show()
@@ -8263,10 +8292,14 @@ class MainActivity : Activity() {
     }
 
     /** "Add to panel" from the SNI scanner: merges the host into settings.extraSnis (🧬 SNI configs). */
-    private fun pushSniToPanel(sni: String) {
-        val base = panelBaseUrl()?.trim()?.trimEnd('/')
+    private fun pushSniToPanel(sni: String) = activityScope.launch { pushSniToPanelSuspend(sni) }
+
+    private suspend fun pushSniToPanelSuspend(sni: String) {
+        val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
         val input = EditText(this).apply {
+            if (storedUuid.isNotBlank()) setText(storedUuid)
             hint = getString(R.string.pip_password_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }

@@ -924,6 +924,7 @@
     <string name="pip_sent_panel">%1$d ProxyIP ارسال شد — در پنل «ذخیره» را بزن (کپی هم شد)</string>
     <string name="pip_copied_panel">%1$d ProxyIP کپی شد — در پنل → تنظیمات → ProxyIPs بچسبان</string>
     <string name="pip_save_direct">ذخیره‌ی مستقیم در پنل</string>
+    <string name="pip_pick_panel">کدام پنل؟</string>
     <string name="pip_no_panel">هیچ Cat Panel‌ای در ساب‌هایت پیدا نشد</string>
     <string name="pip_password_hint">رمز پنل</string>
     <string name="pip_saved_direct">ذخیره شد — پنل الان %1$d ProxyIP دارد و کانفیگ‌ها از آن‌ها استفاده می‌کنند</string>
