@@ -6144,6 +6144,9 @@ class MainActivity : Activity() {
         val lines = verified.take(60).map { it.panelLine }
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", lines.joinToString("\n")))
+        // The paste-fallback is always available, so SAY it: Panel → Tools →
+        // «Import scan results» accepts these very lines (ip:port#CC).
+        Toast.makeText(this, getString(R.string.scanner_panel_clipboard, lines.size), Toast.LENGTH_LONG).show()
         // Push straight into the panel over its API (login → POST /api/ips, append).
         // The old deep link opened the scanner SNI instead of the panel, so IPs
         // never arrived — the panel host comes from the subscriptions now.
@@ -6152,9 +6155,14 @@ class MainActivity : Activity() {
             Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
             return
         }
+        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
         val input = TextInputEditText(this).apply {
             hint = getString(R.string.pip_password_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            // Default panel password IS the deploy UUID — the app already knows
+            // it, so prefill: send-to-panel becomes one tap (still editable for
+            // users who changed their panel password).
+            if (storedUuid.isNotBlank()) setText(storedUuid)
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
