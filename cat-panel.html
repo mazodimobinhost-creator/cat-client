@@ -1,5 +1,5 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>Cat Panel</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2216%22%20fill%3D%22%238b5cf6%22%2F%3E%3Ctext%20x%3D%2232%22%20y%3D%2244%22%20font-size%3D%2236%22%20text-anchor%3D%22middle%22%3E%F0%9F%90%B1%3C%2Ftext%3E%3C%2Fsvg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2064%2064%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20aria-hidden%3D%22true%22%20style%3D%22display%3Ablock%3Bwidth%3A100%25%3Bheight%3A100%25%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22cgf%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%2300e1c1%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%232ef2d6%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Cpath%20fill%3D%22url(%23cgf)%22%20d%3D%22M32%2013.5C27.5%207%2019%203.8%209.5%204.9c1.8%205.7%202.2%2011.6%201.2%2016.9C7.1%2027%205.5%2032.3%205.5%2037.6%205.5%2050.4%2017.3%2058.5%2032%2058.5s26.5-8.1%2026.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2%201.2-16.9C45%203.8%2036.5%207%2032%2013.5Z%22%2F%3E%3Ccircle%20cx%3D%2222.8%22%20cy%3D%2234.5%22%20r%3D%223.2%22%20fill%3D%22%2305302a%22%2F%3E%3Ccircle%20cx%3D%2241.2%22%20cy%3D%2234.5%22%20r%3D%223.2%22%20fill%3D%22%2305302a%22%2F%3E%3Cpath%20fill%3D%22%2305302a%22%20d%3D%22M28.6%2044h6.8L32%2049z%22%2F%3E%3C%2Fsvg%3E">
 <style>
 :root{--bg:#000000;--bg2:#000000;--card:#0a0a0d;--card2:#121216;--line:rgba(255,255,255,.06);--line2:rgba(255,255,255,.16);--text:#ffffff;--mute:#c9c9ce;--dim:#8f8f96;
 --violet:#00e1c1;--violet2:#2ef2d6;--fuchsia:#00b398;--pink:#b9a6ff;--green:#00e1c1;--amber:#ffab00;--red:#ff6b6b;--cyan:#9db4ff;--blue:#9db4ff;--lime:#2ef2d6;
@@ -41,9 +41,12 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .top{position:sticky;top:0;z-index:20;background:var(--flat);border-bottom:1px solid var(--line)}
 .topin{max-width:1180px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-.brand .lg{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#00e1c1,#2ef2d6);display:grid;place-items:center;font-size:18px}
+.brand .lg{width:36px;height:36px;display:grid;place-items:center}
 .brand .v{font-size:10px;color:var(--mute);background:var(--input-bg);border:1px solid var(--line);padding:2px 8px;border-radius:20px;font-weight:600}
 .tools{display:flex;gap:8px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
+.burger{display:none}
+.top.menu-open .tools{display:grid;position:absolute;top:100%;left:0;right:0;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 14px;background:var(--flat);border-bottom:1px solid var(--line);box-shadow:0 18px 40px rgba(0,0,0,.5)}
+@media(max-width:1079px){.tools{display:none}.burger{display:grid}}
 .ib{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background:var(--input-bg);color:var(--text);transition:background .2s,border-color .2s}
 .ib:hover{background:var(--nav-bg);border-color:var(--glow)}
 .ib.on{background:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
@@ -113,7 +116,7 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .nav button.on{color:var(--violet)}
 .side{position:fixed;top:0;bottom:0;inset-inline-start:0;width:260px;background:var(--flat);border-inline-end:1px solid var(--line);display:none;flex-direction:column;z-index:30;overflow-y:auto;overflow-x:hidden;box-shadow:0 8px 32px rgba(0,0,0,.6)}
 .side .sbrand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
-.side .sbrand .lg{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#00e1c1,#2ef2d6);display:grid;place-items:center;font-size:16px}
+.side .sbrand .lg{width:32px;height:32px;display:grid;place-items:center}
 .side a,.side button{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;border:0;background:transparent;color:var(--mute);font-size:13px;font-weight:500;cursor:pointer;text-align:start;width:100%}
 .side a:hover,.side button:hover{color:var(--text);background:rgba(255,255,255,.03)}
 .side button.on,.side a.on{color:var(--violet);background:var(--nav-bg);border:1px solid var(--glow)}
@@ -150,7 +153,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style></head><body>
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg">🕷️</div><span id="sideTitle">Cat Panel</span></div>
+ <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="sideTitle">Cat Panel</span></div>
  <div class="sb-nav">
   <button data-view="dash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> <span data-i="n_dash"></span></button>
   <div class="nav-acc">
@@ -169,10 +172,10 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
  </div>
  <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sb-foot"><span class="dot"></span> Cat Panel v6.20.0</div>
+ <div class="sb-foot"><span class="dot"></span> Cat Panel v6.21.0</div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg">🕷️</div><span id="brandTitle">Cat Panel</span><span class="v">v6.20.0</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.21.0</span></div>
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></button>
   <button class="ib" data-c="green" data-view="clients" title="Clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg></button>
@@ -188,6 +191,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button class="ib" data-c="pink" data-view="about" title="About"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg></button>
   <a class="ib" data-c="red" href="/logout" title="Logout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9"/></svg></a>
  </div>
+ <button class="ib burger" id="btnBurger" title="Menu" aria-label="Menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 </div></div>
 
 <div class="main">
@@ -217,7 +221,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="kv" style="margin:6px 0">
    <div><span data-i="ov_loc"></span><span class="mono" id="ovLoc">…</span></div>
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.20.0</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.21.0</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -581,7 +585,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <!-- ================= ABOUT ================= -->
 <section class="view" id="v-about">
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.20.0</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.21.0</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -631,7 +635,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <script>
 (function(){
 'use strict';
-var HOST="catpanel-preview.workers.dev", UUID="ca7c11e1-7a9e-4a0b-9e3f-0d2b1c3d4e5f", VERSION="6.20.0";
+var HOST="catpanel-preview.workers.dev", UUID="ca7c11e1-7a9e-4a0b-9e3f-0d2b1c3d4e5f", VERSION="6.21.0";
 var I18N={
 fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
@@ -1085,6 +1089,9 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-ppcc
  var list=(PP.d&&PP.d.repos||[]).slice(0,9);if(list.some(function(r){return r.id==='wanwu-'+c.toLowerCase()}))return;
  list.push({id:'wanwu-'+c.toLowerCase(),name:'Wanwu ProxyIP · '+c,url:'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/'+c+'.txt',kind:'txt',cc:c,enabled:true});
  ppPost({action:'set',repos:list}).then(function(){return ppPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()})});
+
+if($('#btnBurger'))$('#btnBurger').addEventListener('click',function(){document.querySelector('.top').classList.toggle('menu-open')});
+document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('.tools button,.tools a')){var tp=document.querySelector('.top');if(tp)tp.classList.remove('menu-open')}},true);
 
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
