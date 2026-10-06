@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.22.0';
+const CAT_PANEL_VERSION = '6.23.0';
 /* Teal cat brand mark (replaces the legacy spider glyph) — n namespaces the
  * gradient id so several instances can live on one page. */
 function catLogo(n) {
@@ -1499,7 +1499,10 @@ async function handleTunnelConnection(ws, env, options = {}) {
   const masterUuid = String(options.masterUuid || env.UUID || '').toLowerCase();
   const log = options.log || (() => {});
   // 🎯 PX configs carry /?proxyip=<ip> on the WS path — that relay wins for THIS connection.
-  const pxOverride = (() => { try { return decodeURIComponent(((options.path || '').match(/[?&](?:proxyip|pyip)=([^&]+)/) || [])[1] || ''); } catch (e) { return ''; } })();
+  // Port-bearing relays arrive double-encoded (path is encoded once, the
+  // proxyip VALUE once more) — decode twice, keep the value if the second
+  // decode is not valid percent-encoding.
+  const pxOverride = (() => { let v = ((options.path || '').match(/[?&](?:proxyip|pyip)=([^&]+)/) || [])[1] || ''; try { v = decodeURIComponent(v); } catch (e) { } try { v = decodeURIComponent(v); } catch (e) { } return v; })();
 
   let first;
   try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }
@@ -1836,13 +1839,17 @@ function parseProxyFeed(kind, body) {
   }
   if (kind === 'csv-proxy') {
     // xgonce result.csv: IP,cf-meta-ip,PORT,speedMbps,CC,COLO,TCPms,TLSms
+    // Port column is KEPT: each proxy IP has its own working port, and a bare
+    // ip emitted on every panel port produced mostly-dead configs.
     for (const line of String(body || '').split(/\r?\n/).slice(1)) {
       const c = line.split(',');
       const ip = (c[0] || '').trim();
       if (!ip || !(isIpv4(ip) || isIpv6(ip))) continue;
+      const p = parseInt(c[2], 10);
+      const port = p >= 1 && p <= 65535 ? p : null;
       const ccRaw = (c[4] || '').trim().toUpperCase();
       const ms = Number(c[6]);
-      out.push({ ip, cc: /^[A-Z]{2}$/.test(ccRaw) ? ccRaw : '', ms: ms >= 1 && ms <= 5000 ? ms : 9999 });
+      out.push({ ip, port, cc: /^[A-Z]{2}$/.test(ccRaw) ? ccRaw : '', ms: ms >= 1 && ms <= 5000 ? ms : 9999 });
     }
     out.sort((a, b) => a.ms - b.ms);
     return out.slice(0, 400);
@@ -1884,7 +1891,10 @@ async function refreshProxyRepos(env, fetchImpl) {
       per[r.id] = { ts: Date.now(), ok: false, error: String((e && e.message) || e).slice(0, 60) };
     }
   }));
-  const ips = Array.from(merged.values()).map((x) => (x.cc ? x.ip + '#' + x.cc : x.ip)).slice(0, 400);
+  const ips = Array.from(merged.values()).map((x) => {
+    const addr = x.ip + ':' + (x.port || 443); // every pool IP is pinned to ONE port
+    return x.cc ? addr + '#' + x.cc : addr;
+  }).slice(0, 400);
   const cache = { ts: Date.now(), per, ips };
   await kv.put(PROXY_REPO_CACHE_KEY, JSON.stringify(cache));
   pushEvent(env, 'prepo-refresh', repos.map((r) => r.id + (per[r.id] && per[r.id].ok ? ' ' + per[r.id].count : ' fail')).join(' · ').slice(0, 110));
@@ -1901,7 +1911,9 @@ async function proxyRepoHealthyPool(env, cap) {
     if (pin) ip = ip.slice(0, ip.lastIndexOf(':'));
     ip = ip.replace(/^\[/, '').replace(/\]$/, '');
     if ((health.f[ip] || 0) >= PROXY_REPO_FAILS_DROP) continue;
-    out.push({ ip, cc: t.cc || '' });
+    // Port flows through: feed port wins, otherwise 443 — so 🎯 relay dials and
+    // toAddrs imports each pool IP on exactly ONE port instead of all of them.
+    out.push({ ip: ip + ':' + (pin || 443), cc: t.cc || '' });
     if (out.length >= (cap || 400)) break;
   }
   return out;
@@ -2954,7 +2966,7 @@ async function handleApi(request, url, env, ctx) {
         const pool = await proxyRepoHealthyPool(env, cap);
         if (!pool.length) return json({ ok: true, added: 0, count: (settings.ips || []).length });
         const tags = Object.assign({}, settings.ipCountries);
-        const clean = pool.map((p) => (p.cc ? p.ip + '#' + p.cc : p.ip)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((a) => isIpv4(a) || isIpv6(a) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(a));
+        const clean = pool.map((p) => (p.cc ? p.ip + '#' + p.cc : p.ip)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((a) => { const pin = pinnedPortOf(a); let b = pin ? a.slice(0, a.lastIndexOf(':')) : a; b = b.replace(/^\[/, '').replace(/\]$/, ''); return isIpv4(b) || isIpv6(b) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(b); });
         const next = uniq(clean.concat(settings.ips || [])).slice(0, 400);
         const saved = await writeSettings(env, { ips: next, ipCountries: tags });
         await pushEvent(env, 'px-to-addrs', '+' + Math.max(0, next.length - (settings.ips || []).length) + ' ips');

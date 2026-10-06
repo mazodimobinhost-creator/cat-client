@@ -406,7 +406,7 @@ let user;
     const imp = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs', limit: 64 } })).json();
     check('toAddrs imports healthy pool with country tags', imp.ok === true && imp.added === 2, JSON.stringify(imp));
     const st = (await (await req('/api/settings', { headers: auth })).json()).settings;
-    check('imported pool IPs stored + tagged', st.ips.includes('5.75.200.40') && st.ips.includes('45.12.30.10') && st.ipCountries['5.75.200.40'] === 'DE' && st.ipCountries['45.12.30.10'] === 'TR', JSON.stringify(st.ips));
+    check('imported pool IPs stored PORT-PINNED + tagged', st.ips.includes('5.75.200.40:443') && st.ips.includes('45.12.30.10:443') && st.ipCountries['5.75.200.40:443'] === 'DE' && st.ipCountries['45.12.30.10:443'] === 'TR', JSON.stringify(st.ips));
     check('toAddrs dedupes (second run adds 0)', ((await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs' } })).json()).added) === 0);
     check('ips list grew by exactly 2', ((await (await req('/api/settings', { headers: auth })).json()).settings.ips.length) === pre + 2);
     // ?limit=200 so early entryLimit:10 fixture + rotation shuffle cannot push
@@ -514,23 +514,30 @@ let user;
     const pj = await (await req('/api/prepos', { headers: auth })).json();
     check('/api/prepos GET status', pj.ok && pj.total === 5 && pj.repos.length >= 3, 'total=' + pj.total);
     const pool = (await T.proxyRepoHealthyPool(ENV, 10)).map((p) => p.ip);
-    check('csv-proxy speed sort: fastest first', pool.indexOf('198.51.30.1') < pool.indexOf('198.51.30.2'), JSON.stringify(pool));
-    check('proxy domains kept', pool.includes('proxy.example.org'));
+    check('csv-proxy speed sort: fastest first', pool.indexOf('198.51.30.1:443') < pool.indexOf('198.51.30.2:443'), JSON.stringify(pool));
+    check('csv port column preserved (real port wins over 443)', pool.includes('198.51.30.1:443'), JSON.stringify(pool));
+    check('proxy domains kept (port-pinned)', pool.includes('proxy.example.org:443'));
     // dead replacement ×3
     await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.41.9'] } });
     await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.41.9'] } });
     const pool2 = (await T.proxyRepoHealthyPool(ENV, 10)).map((p) => p.ip);
-    check('proxy dead<3 kept', pool2.includes('198.51.41.9'));
+    check('proxy dead<3 kept', pool2.includes('198.51.41.9:443'));
     const hr = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.41.9'] } })).json();
     const pool3 = (await T.proxyRepoHealthyPool(ENV, 10)).map((p) => p.ip);
-    check('proxy dead≥3 dropped', hr.dropped === 1 && !pool3.includes('198.51.41.9'));
+    check('proxy dead≥3 dropped', hr.dropped === 1 && !pool3.includes('198.51.41.9:443'));
     // import → settings.proxyIps
     const imp = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'import', cc: 'US', limit: 8 } })).json();
     check('proxy import by country', imp.ok && imp.added >= 1 && imp.total >= 1, JSON.stringify(imp));
     // auto-append to sub (?proxyip= entries), ?norepo=1 opt-out, off default
     await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyRepoAuto: true, proxyIps: ['203.0.113.1'] } });
     const subAuto = await (await req('/sub/' + MASTER + '?norepo=0', { env: ENV })).text();
-    check('proxyRepoAuto on → appended ProxyIP in sub ?proxyip=', subAuto.includes('proxyip%3D198.51.30.1') || subAuto.includes('proxyip%3D198.51.30.2') || subAuto.includes('proxyip%3D198.51.40.1'), subAuto.slice(0, 0) + 'searched');
+    // port-bearing relay: colon is double-encoded in the raw link (%253A)
+    check('proxyRepoAuto on → appended port-pinned ProxyIP in sub', /proxyip(?:%3D|=)198\.51\.30\.1(?:%253A|%3A|:)443/.test(subAuto), 'searched');
+    // and the WORKER still dials it correctly after double-decode (unit)
+    const dialPath = '/vl/TOKEN?ed=2560?proxyip=198.51.30.1%253A443';
+    const pxo = ((dialPath.match(/[?&](?:proxyip|pyip)=([^&]+)/) || [])[1] || '');
+    let dec = pxo; try { dec = decodeURIComponent(dec); } catch (e) { } try { dec = decodeURIComponent(dec); } catch (e) { }
+    check('pxOverride double-decode → host:port', dec === '198.51.30.1:443', dec);
     const subNo = await (await req('/sub/' + MASTER + '?norepo=1', { env: ENV })).text();
     check('?norepo=1 excludes repo ProxyIPs', !subNo.includes('proxyip%3D198.51.'));
     check('user own ProxyIP still present', subNo.includes('proxyip%3D203.0.113.1'));
@@ -538,6 +545,12 @@ let user;
     const subOff = await (await req('/sub/' + MASTER, { env: ENV })).text();
     check('proxyRepoAuto off → no repo ProxyIPs', !subOff.includes('proxyip%3D198.51.'));
     check('sanitizeProxyRepos: kinds + https-only', T.sanitizeProxyRepos([{ id: 'm', url: 'https://x/a.csv', kind: 'csv-proxy' }]).length === 1 && T.sanitizeProxyRepos(null).length >= 3);
+    // ---- port chain: feed port → cache → healthy pool (default 443) ----
+    const portFeed = async (url) => ({ ok: true, status: 200, text: async () => 'IP,cf,PORT,spd,CC\n198.51.60.1,x,8443,10,DE\n198.51.60.2,x,,5,US\n' });
+    await T.refreshProxyRepos(ENV, portFeed);
+    const pp = (await T.proxyRepoHealthyPool(ENV, 20));
+    check('csv PORT column survives: real port pinned', pp.some((p) => p.ip === '198.51.60.1:8443' && p.cc === 'DE'), JSON.stringify(pp));
+    check('missing csv port → default pin 443', pp.some((p) => p.ip === '198.51.60.2:443'));
     // ---- per-ProxyIP configs (screenshot style) + repo default country ----
     check('proxyRepoAuto defaults ON', T.normalizeSettings({}).proxyRepoAuto === true && T.normalizeSettings({ proxyRepoAuto: false }).proxyRepoAuto === false);
     const sanc = T.sanitizeProxyRepos([{ id: 'w', name: 'wanwu', url: 'https://x/DE.txt', kind: 'txt', cc: 'de' }]);
@@ -545,7 +558,7 @@ let user;
     const feedCC = async (url) => ({ ok: true, status: 200, text: async () => '198.51.50.7\n198.51.50.8\n' });
     await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyRepos: [{ id: 'wde', name: 'wanwu-de', url: 'https://x/DE.txt', kind: 'txt', cc: 'DE' }], proxyRepoAuto: true } });
     await T.refreshProxyRepos(ENV, feedCC);
-    const poolCC = (await T.proxyRepoHealthyPool(ENV, 10)).find((p) => p.ip === '198.51.50.7');
+    const poolCC = (await T.proxyRepoHealthyPool(ENV, 10)).find((p) => p.ip === '198.51.50.7:443');
     check('txt feed gets repo default country tag', poolCC && poolCC.cc === 'DE', JSON.stringify(poolCC));
     const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
