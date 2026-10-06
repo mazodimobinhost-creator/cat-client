@@ -17,6 +17,13 @@ combining one-tap connectivity with all the tools Iranian users need.
 
 *(استقرار پنل شخصی خودت روی حساب کلودفلرت — بدون نصب هیچ اپی)*
 
+### 🤖 ربات دیپلوی تلگرام (جدید)
+بعد از نصب پنل، این دکمه رباتِ دیپلوی را هم بالا می‌آورد — با `/deploy` در تلگرام، آخرین نسخهٔ پنل با API Token کلادفلر خودکار آپدیت می‌شود:
+
+[![Deploy Cat Deploy Bot](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mazodimobinhost-creator/cat-client/tree/main/deploy-bot)
+
+راهنمای کامل: [docs/deploy-bot.md](docs/deploy-bot.md)
+
 1. Click the button → sign in with your (free) Cloudflare account.
 2. Confirm the setup page → Cloudflare clones this repo, creates the
    `cat-panel-kv` namespace and deploys the panel worker automatically.
