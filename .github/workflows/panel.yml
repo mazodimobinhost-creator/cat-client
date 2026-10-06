@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: panel-${{ github.ref }}
@@ -39,3 +39,18 @@ jobs:
           node --check app/src/main/assets/panels/catclient.wizard.js
       - name: Unit tests
         run: npm test
+      - name: Report panel test failures back to the branch
+        if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
+        run: |
+          for t in cat-panel panel-dom wizard multipart-upload; do
+            if node scripts/panels/$t.test.mjs > "/tmp/$t.out" 2>&1; then
+              echo "PASS $t" >> FAILED-TESTS.md
+            else
+              { echo "FAIL $t"; echo '```'; tail -n 60 "/tmp/$t.out"; echo '```'; } >> FAILED-TESTS.md
+            fi
+          done
+          git config user.name "ci-report-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git add FAILED-TESTS.md
+          git commit -m "CI panel test failure report [skip ci]" || true
+          git push origin HEAD:"${GITHUB_REF_NAME}" || true
