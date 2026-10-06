@@ -294,9 +294,18 @@ let user;
 {
   const st = T.normalizeSettings({ ips: ['198.51.100.7:2053'], tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 50 });
   const { entries } = T.buildConfigEntries(HOST, ENV, st, MASTER, null, {});
-  const mine = entries.filter((e) => e.addr === '198.51.100.7:2053');
+  // Scanner-imported `ip:port` must connect to the BARE ip — the scanned port is
+  // the entry port. `[1.2.3.4:443]:443` links could never dial (the "sent IPs
+  // never sit in the configs" bug).
+  const mine = entries.filter((e) => e.addr === '198.51.100.7');
   check('pinned addr emits configs', mine.length > 0);
   check('pinned addr only on its scanned port (2053)', mine.length > 0 && mine.every((e) => e.port === 2053), JSON.stringify(mine.map((e) => e.port)));
+  check('pinned addr is bare ip in entries', mine.length > 0 && mine.every((e) => e.addr === '198.51.100.7'), JSON.stringify(mine.map((e) => e.addr)));
+  check('pinned addr links dial ip:port once (no bracketed [ip:port]:port)', mine.every((e) => e.link.includes('@198.51.100.7:2053?') && !e.link.includes('[198.51.100.7')), mine[0] && mine[0].link.slice(0, 90));
+  const st6 = T.normalizeSettings({ ips: ['[2001:db8::1]:8443'], tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 50 });
+  const { entries: e6 } = T.buildConfigEntries(HOST, ENV, st6, MASTER, null, {});
+  const mine6 = e6.filter((e) => String(e.addr).includes('2001:db8::1'));
+  check('pinned ipv6 bare in entries, bracketed once in link', mine6.length > 0 && mine6.every((e) => e.addr === '2001:db8::1' && e.link.includes('@[2001:db8::1]:8443?')), mine6[0] && mine6[0].link.slice(0, 90));
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
   const j = await r.json();

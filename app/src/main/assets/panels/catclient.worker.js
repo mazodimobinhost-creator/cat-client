@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.11.0';
+const CAT_PANEL_VERSION = '6.11.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -1729,9 +1729,14 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     for (const addr of addresses) {
       const pin = pinnedPortOf(addr); // pinned address → only its verified port (ports may arrive as strings)
       if (pin && pin !== Number(port)) continue;
+      // A pinned `ip:port` (what the scanner imports) must connect to the BARE
+      // host — the port is carried by `port`, never inside the address, or the
+      // link would become `[1.2.3.4:443]:443` and the config could not dial.
+      // Country lookup stays on the original string (ipCountries is keyed by it).
+      const bare = pin ? addr.slice(0, addr.lastIndexOf(':')).replace(/^\[/, '').replace(/\]$/, '') : addr;
       const cc = ccOf(addr);
-      if (ctx.protocols.vless) { vi++; const nm = configName('vless', addr, port, tls, cc, host, vi); entries.push({ proto: 'vless', addr, port, tls, cc, link: vlessLink(ctx, addr, port, tls, cc, { name: nm }), name: nm }); }
-      if (ctx.protocols.trojan) { ti++; const tm = configName('trojan', addr, port, tls, cc, host, ti); entries.push({ proto: 'trojan', addr, port, tls, cc, link: trojanLink(ctx, addr, port, tls, cc, { name: tm }), name: tm }); }
+      if (ctx.protocols.vless) { vi++; const nm = configName('vless', bare, port, tls, cc, host, vi); entries.push({ proto: 'vless', addr: bare, port, tls, cc, link: vlessLink(ctx, bare, port, tls, cc, { name: nm }), name: nm }); }
+      if (ctx.protocols.trojan) { ti++; const tm = configName('trojan', bare, port, tls, cc, host, ti); entries.push({ proto: 'trojan', addr: bare, port, tls, cc, link: trojanLink(ctx, bare, port, tls, cc, { name: tm }), name: tm }); }
       if (entries.length >= limit) break outer;
     }
   }
