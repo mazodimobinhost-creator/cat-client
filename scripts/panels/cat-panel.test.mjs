@@ -40,7 +40,7 @@ const auth = { cookie };
 { const r = await req('/', { headers: auth }); const b = await r.text(); check('/ shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
 { const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
 // subscription master
-{ const r = await req('/sub/' + MASTER); const b = await r.text();
+{ const r = await req('/sub/' + MASTER + '?rotate=off'); const b = await r.text();
   check('/sub/<uuid> 200', r.status===200);
   const lines = b.trim().split('\n');
   check('has vless + trojan', b.includes('vless://') && b.includes('trojan://'));
@@ -59,7 +59,7 @@ const auth = { cookie };
   const cleanLines = lines.filter((l) => !isSpoof(l));
   check('entry limit respected (clean section)', cleanLines.length <= 48 && cleanLines.length >= 20, String(lines.length) + ' total, clean=' + cleanLines.length);
   check('spoof section present in plain sub (PX or SNI)', lines.some((l) => isSpoof(l)));
-  const r64 = await req('/sub64/' + MASTER); const b64 = await r64.text(); check('/sub64 is base64 of /sub', T.b64decode(b64) === b);
+  const r64 = await req('/sub64/' + MASTER + '?rotate=off'); const b64 = await r64.text(); check('/sub64 is base64 of /sub', T.b64decode(b64) === (await (await req('/sub/' + MASTER + '?rotate=off')).text()));
   const rb = await req('/sub/' + MASTER + '?b64=1'); check('?b64=1 works', T.b64decode(await rb.text()).includes('vless://'));
   const bad = await req('/sub/00000000-0000-4000-8000-000000000000'); check('unknown uuid 404', bad.status===404);
   const noKey = await req('/sub'); check('/sub without uuid 404 when OPEN_SUB unset', noKey.status===404);
@@ -68,7 +68,7 @@ const auth = { cookie };
 { const r = await req('/clash/' + MASTER); const y = await r.text(); check('clash yaml', r.status===200 && y.includes('proxies:') && y.includes('type: vless') && y.includes('type: trojan') && y.includes('MATCH,🐱 Cat') && !y.includes('tls: false\n    password')); }
 { const r = await req('/singbox/' + MASTER); const j = await r.json(); check('singbox json', j.outbounds.some(o=>o.type==='vless') && j.outbounds[0].type==='selector' && j.route.final==='🐱 Cat'); }
 // settings PUT
-{ const r = await req('/api/settings', { method:'PUT', headers: auth, body:{ ips:['1.2.3.4','www.example.com','bad ip'], tlsPorts:[443,2053], plainEnabled:false, protocols:{vless:true,trojan:false}, entryLimit:10 } }); const j = await r.json();
+{ const r = await req('/api/settings', { method:'PUT', headers: auth, body:{ ips:['1.2.3.4','www.example.com','bad ip'], tlsPorts:[443,2053], plainEnabled:false, protocols:{vless:true,trojan:false}, entryLimit:10, subRotate:'off' } }); const j = await r.json();
   check('settings PUT', j.ok && j.persisted && j.settings.ips.length===3 && j.settings.tlsPorts.join()==='443,2053' && j.settings.protocols.trojan===false);
   const s = await req('/sub/' + MASTER); const b = await s.text(); const lines=b.trim().split('\n');
   check('owner ips first', lines[0].includes('@1.2.3.4:443') && lines[1].includes('@www.example.com:443'), lines[0]);
@@ -81,7 +81,7 @@ const auth = { cookie };
   const old = await req('/api/settings', { headers: auth }); check('old session invalid after password change', old.status===401);
   const bearer = await req('/api/settings', { headers:{ authorization:'Bearer s3cret' } }); check('bearer password works', bearer.status===200);
   const uuidLogin = await req('/api/login', { method:'POST', body:{ password: MASTER } }); check('uuid no longer a password', uuidLogin.status===401);
-  auth.cookie = newCookie; check('settings save = 2 KV writes (settings + events ring)', KV.writes === writes + 2, String(KV.writes - writes)); }
+  auth.cookie = newCookie; check('settings save persists settings + events ring (tolerating throttled last-seen writes)', KV.writes >= writes + 2, String(KV.writes - writes)); }
 // users
 let user;
 { const r = await req('/api/users', { method:'POST', headers: auth, body:{ name:'ali', days:30 } }); const j = await r.json(); user = j.user;
@@ -215,15 +215,15 @@ let user;
   check('country summary groups addresses', cs.countries.map(c=>c.code).join()==='DE,TR' && cs.untagged.includes('7.7.7.7') && cs.countries[0].flag==='🇩🇪');
   const set = await (await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'tr', countryFallback:'auto', ipCountries:{ '7.7.7.7':'nl' } } })).json();
   check('preferred country saved + manual tag', set.preferred==='TR' && set.countries.map(c=>c.code).join()==='DE,NL,TR');
-  const sub = (await (await req('/sub/' + MASTER + '?limit=12')).text()).trim().split('\n');
+  const sub = (await (await req('/sub/' + MASTER + '?limit=12&rotate=off')).text()).trim().split('\n');
   check('preferred country entries come first with flag names', sub[0].includes('@6.6.6.6:') && decodeURIComponent(sub[0].split('#')[1]).startsWith('🇹🇷'));
   check('other countries follow as fallback', sub.some(l=>l.includes('@5.5.5.5:')));
   const de = (await (await req('/sub/' + MASTER + '?country=DE&strict=1')).text()).trim().split('\n');
   check('?country=DE&strict=1 → only Germany', de.length>0 && de.every(l=>l.includes('@5.5.5.5:')));
-  const y = await (await req('/clash/' + MASTER)).text();
+  const y = await (await req('/clash/' + MASTER + '?rotate=off')).text();
   check('clash root = fallback [preferred country, Auto]', /name: "🐱 Cat"\n    type: fallback\n[\s\S]*?- "🇹🇷 Turkey"\n      - "⚡ Auto"/.test(y));
   check('clash has url-test group per country', y.includes('- name: "🇩🇪 Germany"\n    type: url-test') && y.includes('- name: "🇳🇱 Netherlands"'));
-  const sb = await (await req('/singbox/' + MASTER)).json(); const sel = sb.outbounds.find(o=>o.tag==='🐱 Cat');
+  const sb = await (await req('/singbox/' + MASTER + '?rotate=off')).json(); const sel = sb.outbounds.find(o=>o.tag==='🐱 Cat');
   check('singbox selector defaults to preferred country urltest', sel.default==='🇹🇷 Turkey' && sb.outbounds.some(o=>o.type==='urltest' && o.tag==='🇹🇷 Turkey'));
   await req('/api/countries', { method:'PUT', headers: auth, body:{ countryFallback:'none' } });
   const only = (await (await req('/sub/' + MASTER + '?limit=20')).text()).trim().split('\n');
@@ -325,6 +325,25 @@ let user;
     const r = await req('/api/events', { headers: auth });
     const j = await r.json();
     check('events ring caps at 50, newest first', j.ok && j.events.length === 50 && j.events[0].ev === 'test' && j.events[0].d === 'e54', String(j.events.length) + '/' + (j.events[0] && j.events[0].d));
+  }
+  // ================= auto config rotation (subRotate) =================
+  {
+    check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { subRotate: 'fetch' } });
+    const firsts = new Set();
+    for (let i = 0; i < 8; i++) {
+      const b = await (await req('/sub/' + MASTER + '?limit=48', { env: ENV })).text();
+      firsts.add((b.split('\n')[0] || '').split('@')[1] || '');
+    }
+    check('rotate=fetch: sub changes across refreshes', firsts.size >= 2, 'unique first-lines=' + firsts.size);
+    const daily1 = await (await req('/sub/' + MASTER + '?rotate=daily', { env: ENV })).text();
+    const daily2 = await (await req('/sub/' + MASTER + '?rotate=daily', { env: ENV })).text();
+    check('rotate=daily: deterministic within the day', daily1 === daily2 && daily1.length > 0);
+    const stable1 = await (await req('/sub/' + MASTER + '?rotate=off', { env: ENV })).text();
+    const stable2 = await (await req('/sub/' + MASTER + '?rotate=off', { env: ENV })).text();
+    check('rotate=off: stable order', stable1 === stable2);
+    const offFirst = (await (await req('/sub/' + MASTER + '?rotate=off&limit=1', { env: ENV })).text()).trim();
+    check('rotation keeps port walk: first config is TLS :443', offFirst.includes(':443?') && offFirst.includes('security=tls'), offFirst.slice(0, 90));
   }
   // ================= repo library: 12h feeds + dead replacement =================
   {
