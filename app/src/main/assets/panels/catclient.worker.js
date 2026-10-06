@@ -62,7 +62,17 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.20.0';
+const CAT_PANEL_VERSION = '6.21.0';
+/* Teal cat brand mark (replaces the legacy spider glyph) — n namespaces the
+ * gradient id so several instances can live on one page. */
+function catLogo(n) {
+  return '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%">' +
+    '<defs><linearGradient id="cg' + n + '" x1="0" y1="0" x2="1" y2="1">' +
+    '<stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs>' +
+    '<path fill="url(#cg' + n + ')" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/>' +
+    '<circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/>' +
+    '<path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg>';
+}
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -3321,12 +3331,12 @@ function loginPage(env, settings, needsUser) {
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}
 .wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
 .box{width:100%;max-width:380px;padding:28px 24px}
-.logo{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#00e1c1,#2ef2d6);display:grid;place-items:center;font-size:28px;margin:0 auto 14px;box-shadow:0 8px 32px rgba(0,0,0,.55)}
+.logo{width:56px;height:56px;display:grid;place-items:center;margin:0 auto 14px;filter:drop-shadow(0 10px 26px rgba(0,225,193,.28))}
 h1{font-size:17px;font-weight:700;text-align:center}.sub{text-align:center;margin-bottom:22px}
 label{display:block;font-size:11px;font-weight:600;color:var(--mute);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.5px}
 .err{color:#fda4af;font-size:13px;min-height:18px;margin-top:10px;text-align:center}
 </style></head><body><div class="wrap"><form class="card box" id="f">
-<div class="logo">🕷️</div><h1>${escapeHtml(title)}</h1><div class="sub mute small">${fa ? 'برای ورود رمز پنل را وارد کن' : 'Enter the panel password'}</div>
+<div class="logo">${catLogo(1)}</div><h1>${escapeHtml(title)}</h1><div class="sub mute small">${fa ? 'برای ورود رمز پنل را وارد کن' : 'Enter the panel password'}</div>
 ${needsUser ? `<label>${fa ? 'نام کاربری' : 'Username'}</label><input id="u" autocomplete="username">` : ''}
 <label>${fa ? 'رمز عبور' : 'Password'}</label><input id="p" type="password" autocomplete="current-password" autofocus>
 <div class="err" id="e"></div>
@@ -3370,7 +3380,7 @@ function userInfoPage(origin, host, env, settings, token, user) {
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · ${escapeHtml(name)}</title><style>${BASE_CSS}
 .wrap{max-width:640px;margin:0 auto;padding:22px 14px 60px}
 .head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
-.logo{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,var(--violet),var(--fuchsia));display:grid;place-items:center;font-size:28px;flex:none}
+.logo{width:52px;height:52px;display:grid;place-items:center;flex:none}
 .lk{padding:12px 14px;border-top:1px solid var(--line)}.lk:first-child{border-top:0}
 .lk input{font-size:12px}
 .exp{padding:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
@@ -3378,7 +3388,7 @@ function userInfoPage(origin, host, env, settings, token, user) {
 .apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;padding:14px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}
 </style></head><body><div class="wrap">
-<div class="head"><div class="logo">🕷️</div><div><div class="b" style="font-size:20px">${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)}</div></div><span class="chip ${status[0]}" style="margin-inline-start:auto">${status[1]}</span></div>
+<div class="head"><div class="logo">${catLogo(2)}</div><div><div class="b" style="font-size:20px">${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)}</div></div><span class="chip ${status[0]}" style="margin-inline-start:auto">${status[1]}</span></div>
 <div class="card exp"><div><div class="small mute">${fa ? 'اعتبار زمانی' : 'Validity'}</div><div class="b">${expires ? (daysLeft > 0 ? daysLeft + ' ' + t.left : t.expired) : t.never}</div>${expires ? `<div class="dim small mono">${expires.toISOString().slice(0, 10)}</div>` : ''}</div><div style="font-size:32px">${expires ? '⏳' : '♾️'}</div></div>
 <div class="card">
 ${linkRow(t.sub, links.sub)}
@@ -3410,14 +3420,17 @@ function panelPage(env, settings, host, masterUuid) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#8b5cf6"/><text x="32" y="44" font-size="36" text-anchor="middle">🐱</text></svg>')}">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(catLogo('f'))}">
 <style>${BASE_CSS}
 .top{position:sticky;top:0;z-index:20;background:var(--flat);border-bottom:1px solid var(--line)}
 .topin{max-width:1180px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-.brand .lg{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#00e1c1,#2ef2d6);display:grid;place-items:center;font-size:18px}
+.brand .lg{width:36px;height:36px;display:grid;place-items:center}
 .brand .v{font-size:10px;color:var(--mute);background:var(--input-bg);border:1px solid var(--line);padding:2px 8px;border-radius:20px;font-weight:600}
 .tools{display:flex;gap:8px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
+.burger{display:none}
+.top.menu-open .tools{display:grid;position:absolute;top:100%;left:0;right:0;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 14px;background:var(--flat);border-bottom:1px solid var(--line);box-shadow:0 18px 40px rgba(0,0,0,.5)}
+@media(max-width:1079px){.tools{display:none}.burger{display:grid}}
 .ib{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background:var(--input-bg);color:var(--text);transition:background .2s,border-color .2s}
 .ib:hover{background:var(--nav-bg);border-color:var(--glow)}
 .ib.on{background:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
@@ -3487,7 +3500,7 @@ function panelPage(env, settings, host, masterUuid) {
 .nav button.on{color:var(--violet)}
 .side{position:fixed;top:0;bottom:0;inset-inline-start:0;width:260px;background:var(--flat);border-inline-end:1px solid var(--line);display:none;flex-direction:column;z-index:30;overflow-y:auto;overflow-x:hidden;box-shadow:0 8px 32px rgba(0,0,0,.6)}
 .side .sbrand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
-.side .sbrand .lg{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#00e1c1,#2ef2d6);display:grid;place-items:center;font-size:16px}
+.side .sbrand .lg{width:32px;height:32px;display:grid;place-items:center}
 .side a,.side button{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;border:0;background:transparent;color:var(--mute);font-size:13px;font-weight:500;cursor:pointer;text-align:start;width:100%}
 .side a:hover,.side button:hover{color:var(--text);background:rgba(255,255,255,.03)}
 .side button.on,.side a.on{color:var(--violet);background:var(--nav-bg);border:1px solid var(--glow)}
@@ -3524,7 +3537,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style></head><body>
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg">🕷️</div><span id="sideTitle">${escapeHtml(title)}</span></div>
+ <div class="sbrand"><div class="lg">${catLogo(3)}</div><span id="sideTitle">${escapeHtml(title)}</span></div>
  <div class="sb-nav">
   <button data-view="dash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> <span data-i="n_dash"></span></button>
   <div class="nav-acc">
@@ -3546,7 +3559,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
  <div class="sb-foot"><span class="dot"></span> Cat Panel v${CAT_PANEL_VERSION}</div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg">🕷️</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
+ <div class="brand"><div class="lg">${catLogo(4)}</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></button>
   <button class="ib" data-c="green" data-view="clients" title="Clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg></button>
@@ -3562,6 +3575,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button class="ib" data-c="pink" data-view="about" title="About"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg></button>
   <a class="ib" data-c="red" href="/logout" title="Logout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9"/></svg></a>
  </div>
+ <button class="ib burger" id="btnBurger" title="Menu" aria-label="Menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 </div></div>
 
 <div class="main">
@@ -4459,6 +4473,9 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-ppcc
  var list=(PP.d&&PP.d.repos||[]).slice(0,9);if(list.some(function(r){return r.id==='wanwu-'+c.toLowerCase()}))return;
  list.push({id:'wanwu-'+c.toLowerCase(),name:'Wanwu ProxyIP · '+c,url:'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/'+c+'.txt',kind:'txt',cc:c,enabled:true});
  ppPost({action:'set',repos:list}).then(function(){return ppPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()})});
+
+if($('#btnBurger'))$('#btnBurger').addEventListener('click',function(){document.querySelector('.top').classList.toggle('menu-open')});
+document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('.tools button,.tools a')){var tp=document.querySelector('.top');if(tp)tp.classList.remove('menu-open')}},true);
 
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
