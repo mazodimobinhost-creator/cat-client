@@ -388,6 +388,24 @@ let user;
     check('/ext/<n>/<uuid> fetches (or clean-fails offline)', extRoute.status === 200 ? (extRoute.headers.get('subscription-userinfo') || '').includes('total=0') : extRoute.status === 502, extRoute.status);
     await req('/api/settings', { method: 'PUT', headers: auth, body: { extSubs: [] } });
   }
+  // ================= ProxyIP pool → connection addresses (toAddrs) =================
+  {
+    const pre = ((await (await req('/api/settings', { headers: auth })).json()).settings.ips || []).length;
+    const empty = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs' } })).json();
+    check('toAddrs with empty pool adds nothing', empty.ok === true && empty.added === 0, JSON.stringify(empty));
+    await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: Date.now(), per: {}, ips: ['5.75.200.40#DE', '45.12.30.10#TR', 'not-an-ip'] }));
+    const imp = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs', limit: 64 } })).json();
+    check('toAddrs imports healthy pool with country tags', imp.ok === true && imp.added === 2, JSON.stringify(imp));
+    const st = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    check('imported pool IPs stored + tagged', st.ips.includes('5.75.200.40') && st.ips.includes('45.12.30.10') && st.ipCountries['5.75.200.40'] === 'DE' && st.ipCountries['45.12.30.10'] === 'TR', JSON.stringify(st.ips));
+    check('toAddrs dedupes (second run adds 0)', ((await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'toAddrs' } })).json()).added) === 0);
+    check('ips list grew by exactly 2', ((await (await req('/api/settings', { headers: auth })).json()).settings.ips.length) === pre + 2);
+    // ?limit=200 so early entryLimit:10 fixture + rotation shuffle cannot push
+    // the freshly imported addresses out of the emitted window.
+    const dbg = await (await req('/sub/' + MASTER + '?limit=200', { env: ENV })).text();
+    check('pool IP gets a config in the sub', dbg.includes('@5.75.200.40:'), dbg.split('\n').length + ' lines');
+    await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0, per: {}, ips: [] }));
+  }
   // ================= auto config rotation (subRotate) =================
   {
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
