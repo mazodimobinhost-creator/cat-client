@@ -326,6 +326,26 @@ let user;
     const j = await r.json();
     check('events ring caps at 50, newest first', j.ok && j.events.length === 50 && j.events[0].ev === 'test' && j.events[0].d === 'e54', String(j.events.length) + '/' + (j.events[0] && j.events[0].d));
   }
+  // ================= fixed IPs (pinnedIps) =================
+  {
+    await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['6.6.6.6', '5.5.5.5', '7.7.7.7'], replace: true } });
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { country: '', pinnedIps: ['6.6.6.6:443'], subRotate: 'fetch' } });
+    const sp = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    check('pinnedIps stored bare (port stripped, max 5)', JSON.stringify(sp.pinnedIps) === '["6.6.6.6"]', JSON.stringify(sp.pinnedIps));
+    let lead = true;
+    for (let i = 0; i < 6; i++) {
+      const b = await (await req('/sub/' + MASTER + '?limit=48', { env: ENV })).text();
+      const first = (b.split('\n')[0] || '');
+      if (!first.includes('@6.6.6.6:443')) { lead = false; break; }
+    }
+    check('pinned fixed IP leads EVERY fetch-rotated sub', lead);
+    const pinnedSub = await (await req('/sub/' + MASTER + '?limit=48', { env: ENV })).text();
+    check('pinned config carries flag/country tags untouched', pinnedSub.includes('@6.6.6.6:443'));
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { pinnedIps: [] } });
+    const sp2 = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    check('unpin clears list', sp2.pinnedIps.length === 0);
+    check('pinnedIps normalize: junk dropped, max 5 kept', T.normalizeSettings({ pinnedIps: ['junk', '1.2.3.4:8443', '[2606:4700::1]:443', 'cdn.example.com', '5.5.5.5', '6.6.6.6', '7.7.7.7', '8.8.8.8'] }).pinnedIps.length === 5);
+  }
   // ================= auto config rotation (subRotate) =================
   {
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
