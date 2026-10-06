@@ -322,6 +322,43 @@ let user;
     const j = await r.json();
     check('events ring caps at 50, newest first', j.ok && j.events.length === 50 && j.events[0].ev === 'test' && j.events[0].d === 'e54', String(j.events.length) + '/' + (j.events[0] && j.events[0].d));
   }
+  // ================= repo library: 12h feeds + dead replacement =================
+  {
+    const fakeFeed = async (url) => {
+      if (String(url).includes('arista')) return { ok: true, status: 200, text: async () => '198.51.10.1\n198.51.10.1\n198.51.10.2\n#comment\njunk line\n198.51.10.3#DE\n' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: [{ ip: '198.51.20.1', ms: 40, status: 'online' }, { ip: '198.51.20.2', ms: 9, status: 'online' }, { ip: '198.51.20.3', ms: 5, status: 'down' }] }) };
+    };
+    const rep = await T.refreshRepos(ENV, fakeFeed);
+    check('repo refresh merges both feeds, uniq + junk-filtered', rep.ok && rep.total === 5, JSON.stringify(rep.per));
+    const st = await req('/api/repos', { headers: auth });
+    const j = await st.json();
+    check('/api/repos GET status', j.ok && j.total === 5 && Array.isArray(j.repos) && j.repos.length >= 2, 'total=' + j.total);
+    const pool0 = (await T.repoHealthyPool(ENV, 10)).map((p) => p.ip);
+    check('json-speed sort within feed: fastest first', pool0.indexOf('198.51.20.2') < pool0.indexOf('198.51.20.1'), JSON.stringify(pool0));
+    // dead reports: <3 = kept, >=3 = dropped and replaced on next refresh
+    await req('/api/repos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.10.1'] } });
+    await req('/api/repos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.10.1'] } });
+    const poolAfter2 = (await T.repoHealthyPool(ENV, 10)).map((p) => p.ip);
+    check('dead<3 still in pool', poolAfter2.includes('198.51.10.1'));
+    const hr = await (await req('/api/repos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.10.1'] } })).json();
+    const poolAfter3 = (await T.repoHealthyPool(ENV, 10)).map((p) => p.ip);
+    check('dead≥3 dropped from pool', hr.dropped === 1 && !poolAfter3.includes('198.51.10.1') && poolAfter3.length === 4, JSON.stringify(poolAfter3));
+    // repoAuto → sub gains library IPs (pinned :443), off/norepo → not
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { repoAuto: true } });
+    const subAuto = await (await req('/sub/' + MASTER + '?limit=200&norepo=0', { env: ENV })).text();
+    check('repoAuto on → library IP (pinned 443) in sub', subAuto.includes('vless://') && /[198.51.20.2|198.51.10.2|198.51.10.3|198.51.20.1]/.test('') === false && (subAuto.includes('@198.51.20.2:443') || subAuto.includes('@198.51.10.2:443') || subAuto.includes('@198.51.10.3:443') || subAuto.includes('@198.51.20.1:443')));
+    const subNo = await (await req('/sub/' + MASTER + '?limit=200&norepo=1', { env: ENV })).text();
+    check('?norepo=1 excludes library IPs', !subNo.includes('@198.51.'));
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { repoAuto: false } });
+    const subOff = await (await req('/sub/' + MASTER + '?limit=200', { env: ENV })).text();
+    check('repoAuto off → no library IPs', !subOff.includes('@198.51.'));
+    // import by country (tagged txt feed entry 198.51.10.3#DE)
+    const imp = await (await req('/api/repos', { method: 'POST', headers: auth, body: { action: 'import', cc: 'DE', limit: 8 } })).json();
+    check('repo import by country adds to panel list', imp.ok && imp.added >= 1, JSON.stringify(imp));
+    // sanitize: custom repo kept, junk url rejected, defaults on empty
+    const san = T.sanitizeRepos([{ id: 'mine', name: 'x', url: 'https://example.com/l.txt', kind: 'txt' }, { url: 'ftp://bad' }]);
+    check('sanitizeRepos: https-only, defaults when empty', san.length === 1 && san[0].id === 'mine' && T.sanitizeRepos(null).length >= 2);
+  }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
   const j = await r.json();

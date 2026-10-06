@@ -10,6 +10,10 @@
   "kv_namespaces": [
     { "binding": "CAT_KV", "name": "cat-panel-kv" }
   ],
+  "triggers": {
+    // Repo library feeds refresh themselves every 12 hours (plus lazy refresh on panel open).
+    "crons": ["0 */12 * * *"]
+  },
   "vars": {
     // Fresh installs start open; set a panel password in Tools → settings.
     "OPEN_PANEL": "true",

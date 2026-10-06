@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.12.0';
+const CAT_PANEL_VERSION = '6.13.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -353,6 +353,8 @@ function normalizeSettings(raw) {
   s.passwordHash = String(s.passwordHash || '');
   s.lang = s.lang === 'en' ? 'en' : 'fa';
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
+  s.repoAuto = s.repoAuto === true;
+  s.repos = sanitizeRepos(s.repos);
   s.useDefaults = s.useDefaults !== false;
   s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.tlsPorts.length) s.tlsPorts = [443];
@@ -1623,6 +1625,135 @@ async function pushEvent(env, ev, d) {
   } catch { /* ignore */ }
 }
 
+/** Repo library: live clean-IP feeds (12h auto-refresh, dead-IP replacement). */
+const REPO_CACHE_KEY = 'cat_repo_cache_v1';
+const REPO_HEALTH_KEY = 'cat_repo_health_v1';
+const REPO_TTL_MS = 12 * 3600 * 1000;
+const REPO_FAILS_DROP = 3;
+const DEFAULT_REPOS = [
+  { id: 'arista', name: 'Arista Clean IPs (hourly)', url: 'https://raw.githubusercontent.com/arista-project/cf-clean-ips/main/ip.txt', kind: 'txt', enabled: true },
+  { id: 'matix', name: 'Matix Scanner (10min, speed-sorted)', url: 'https://raw.githubusercontent.com/imatixofficel/Scanner-matix/main/data/clean_ips.json', kind: 'json-speed', enabled: true },
+];
+function sanitizeRepos(list) {
+  const src = Array.isArray(list) && list.length ? list : DEFAULT_REPOS;
+  const out = [];
+  for (const r of src.slice(0, 10)) {
+    if (!r || typeof r !== 'object') continue;
+    const url = String(r.url || '').trim();
+    if (!/^https:\/\/[^\s"'<>]+$/.test(url)) continue;
+    const kind = r.kind === 'json-speed' ? 'json-speed' : 'txt';
+    const id = (String(r.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)) || 'repo' + (out.length + 1);
+    out.push({ id, name: String(r.name || 'repo').slice(0, 48), url, kind, enabled: r.enabled !== false });
+  }
+  if (!out.length) for (const r of DEFAULT_REPOS) out.push(Object.assign({}, r));
+  return out;
+}
+async function readJsonKv(env, key, fallback) {
+  const kv = kvBinding(env);
+  if (!kv) return fallback;
+  try { const v = await kv.get(key); return v ? Object.assign({}, fallback, JSON.parse(v)) : fallback; } catch { return fallback; }
+}
+/** txt: one address per line (`ip`, `ip:port`, `ip#CC`); json-speed: Matix {results:[{ip,ms,status}]}. */
+function parseRepoFeed(kind, body) {
+  const out = [];
+  if (kind === 'json-speed') {
+    let j = null; try { j = JSON.parse(body); } catch { return out; }
+    const rs = Array.isArray(j && j.results) ? j.results : [];
+    for (const r of rs) {
+      if (!r || typeof r.ip !== 'string') continue;
+      if (r.status && r.status !== 'online') continue;
+      const ip = r.ip.trim();
+      if (!(isIpv4(ip) || isIpv6(ip))) continue;
+      out.push({ ip, cc: '', ms: Number(r.ms) || 9999 });
+    }
+    out.sort((a, b) => a.ms - b.ms);
+    return out.slice(0, 400);
+  }
+  for (const raw of String(body || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    const t = splitAddrTag(line);
+    let a = t.addr;
+    const pin = pinnedPortOf(a);
+    if (pin) a = a.slice(0, a.lastIndexOf(':'));
+    a = a.replace(/^\[/, '').replace(/\]$/, '');
+    if (isIpv4(a) || isIpv6(a)) out.push({ ip: a, cc: t.cc || '', ms: 9999 });
+  }
+  return out.slice(0, 400);
+}
+async function refreshRepos(env, fetchImpl) {
+  const kv = kvBinding(env);
+  if (!kv) return { ok: false, error: 'kv' };
+  const F = fetchImpl || fetch;
+  const settings = await readSettings(env);
+  const repos = (settings.repos || []).filter((r) => r.enabled !== false);
+  const health = await readJsonKv(env, REPO_HEALTH_KEY, { f: {} });
+  const per = {};
+  const merged = new Map();
+  await Promise.allSettled(repos.map(async (r) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const res = await F(r.url, { signal: ctl.signal });
+      clearTimeout(timer);
+      if (!res || !res.ok) throw new Error('http ' + (res && res.status));
+      const list = parseRepoFeed(r.kind, await res.text());
+      const alive = list.filter((x) => (health.f[x.ip] || 0) < REPO_FAILS_DROP);
+      for (const x of alive) if (!merged.has(x.ip)) merged.set(x.ip, x);
+      per[r.id] = { ts: Date.now(), ok: true, count: alive.length };
+    } catch (e) {
+      clearTimeout(timer);
+      per[r.id] = { ts: Date.now(), ok: false, error: String((e && e.message) || e).slice(0, 60) };
+    }
+  }));
+  const ips = Array.from(merged.values()).map((x) => (x.cc ? x.ip + '#' + x.cc : x.ip)).slice(0, 500);
+  const cache = { ts: Date.now(), per, ips };
+  await kv.put(REPO_CACHE_KEY, JSON.stringify(cache));
+  pushEvent(env, 'repo-refresh', repos.map((r) => r.id + (per[r.id] && per[r.id].ok ? ' ' + per[r.id].count : ' fail')).join(' · ').slice(0, 110));
+  return { ok: true, ts: cache.ts, total: ips.length, per };
+}
+/** Fresh, healthy library entries [{ip, cc}] — dead ones (≥3 fail reports) are gone. */
+async function repoHealthyPool(env, cap) {
+  const cache = await readJsonKv(env, REPO_CACHE_KEY, { ts: 0, ips: [] });
+  const health = await readJsonKv(env, REPO_HEALTH_KEY, { f: {} });
+  const out = [];
+  for (const it of Array.isArray(cache.ips) ? cache.ips : []) {
+    const t = splitAddrTag(String(it));
+    let ip = t.addr;
+    const pin = pinnedPortOf(ip);
+    if (pin) ip = ip.slice(0, ip.lastIndexOf(':'));
+    ip = ip.replace(/^\[/, '').replace(/\]$/, '');
+    if ((health.f[ip] || 0) >= REPO_FAILS_DROP) continue;
+    out.push({ ip, cc: t.cc || '' });
+    if (out.length >= (cap || 500)) break;
+  }
+  return out;
+}
+/** ?repoAuto=on: append up to 8 library IPs (pinned to :443, country-tagged) AFTER the user's own list. */
+async function withRepoPool(env, settings, url) {
+  try {
+    if (!settings || settings.repoAuto !== true) return settings;
+    if (url && (url.searchParams.get('norepo') === '1' || url.searchParams.get('norepo') === 'true')) return settings;
+    const pool = await repoHealthyPool(env, 8);
+    if (!pool.length) return settings;
+    const ips = [];
+    const cc = {};
+    for (const r of pool) { const line = r.ip + ':443'; ips.push(line); if (r.cc) cc[line] = r.cc; }
+    return Object.assign({}, settings, { ips: uniq(settings.ips.concat(ips)).slice(0, 400), ipCountries: Object.assign({}, settings.ipCountries, cc) });
+  } catch { return settings; }
+}
+/** Panel-page lazy trigger: if the cache is older than 12h, refresh in the background. */
+async function maybeRepoRefresh(env, ctx) {
+  try {
+    const kv = kvBinding(env);
+    if (!kv) return;
+    const cache = await readJsonKv(env, REPO_CACHE_KEY, { ts: 0 });
+    if (Date.now() - (cache.ts || 0) < REPO_TTL_MS) return;
+    const job = refreshRepos(env).catch(() => {});
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job);
+  } catch { /* ignore */ }
+}
+
 function effectiveSni(host, env, settings) {
   void host; // deliberately NOT a fallback — see DEFAULT_FRONTING_SNI
   return String((settings && settings.sni) || env.SNI || DEFAULT_FRONTING_SNI).trim().toLowerCase();
@@ -2372,6 +2503,68 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: false, error: 'method' }, 405);
   }
 
+  if (path === '/api/repos') {
+    const kv = kvBinding(env);
+    if (method === 'GET') {
+      const cache = await readJsonKv(env, REPO_CACHE_KEY, { ts: 0, per: {}, ips: [] });
+      const health = await readJsonKv(env, REPO_HEALTH_KEY, { f: {} });
+      const pool = await repoHealthyPool(env, 500);
+      const ccs = {};
+      for (const p of pool) if (p.cc) ccs[p.cc] = (ccs[p.cc] || 0) + 1;
+      return json({ ok: true, kv: !!kv, ts: cache.ts || 0, ttlH: 12, total: pool.length, dead: Object.keys(health.f || {}).length, auto: settings.repoAuto === true, repos: (settings.repos || []).map((r) => { const st = (cache.per || {})[r.id]; return Object.assign({}, r, { count: st ? st.count : null, ok: st ? st.ok !== false : null, ts: st ? st.ts : 0 }); }), ccs });
+    }
+    if (method === 'POST') {
+      const body = (await readJsonBody(request)) || {};
+      if (body.action === 'refresh') return json(await refreshRepos(env));
+      if (body.action === 'set') {
+        const repos = sanitizeRepos(body.repos);
+        const saved = await writeSettings(env, { repos });
+        pushEvent(env, 'repo-set', repos.length + ' repos');
+        return json({ ok: true, persisted: saved.persisted, repos });
+      }
+      if (body.action === 'auto') {
+        const saved = await writeSettings(env, { repoAuto: body.enabled === true });
+        pushEvent(env, 'repo-auto', body.enabled === true ? 'on' : 'off');
+        return json({ ok: true, persisted: saved.persisted, auto: saved.settings.repoAuto === true });
+      }
+      if (body.action === 'health') {
+        const health = await readJsonKv(env, REPO_HEALTH_KEY, { f: {} });
+        const dead = (Array.isArray(body.dead) ? body.dead : splitCsv(body.dead)).map((x) => String(x).trim()).filter(Boolean);
+        const cache = await readJsonKv(env, REPO_CACHE_KEY, { ts: 0, per: {}, ips: [] });
+        // One report = +1 fail. At 3 fails the entry leaves the pool immediately
+        // AND stays blocked in future refreshes until the feed drops it.
+        const alive = (cache.ips || []).filter((it) => {
+          const t = splitAddrTag(String(it));
+          let ip = t.addr; const pin = pinnedPortOf(ip);
+          if (pin) ip = ip.slice(0, ip.lastIndexOf(':'));
+          if (!dead.includes(ip)) return true;
+          health.f[ip] = (health.f[ip] || 0) + 1;
+          return health.f[ip] < REPO_FAILS_DROP;
+        });
+        const removed = (cache.ips || []).length - alive.length;
+        if (kv) {
+          await kv.put(REPO_HEALTH_KEY, JSON.stringify({ f: health.f }));
+          if (removed) await kv.put(REPO_CACHE_KEY, JSON.stringify(Object.assign({}, cache, { ips: alive, ts: cache.ts || Date.now() })));
+        }
+        pushEvent(env, 'repo-dead', dead.length + ' reported' + (removed ? ' · ' + removed + ' dropped' : ''));
+        return json({ ok: true, reported: dead.length, dropped: removed, total: alive.length });
+      }
+      if (body.action === 'import') {
+        const ccw = normalizeCountry(body.cc) || '';
+        const limit = Math.min(24, Math.max(1, Number(body.limit) || 16));
+        const pool = (await repoHealthyPool(env, 500)).filter((p) => (ccw ? p.cc === ccw : true)).slice(0, limit);
+        if (!pool.length) return json({ ok: false, error: 'empty' }, 404);
+        const cc = {};
+        for (const p of pool) if (p.cc) cc[p.ip] = p.cc;
+        const saved = await writeSettings(env, { ips: uniq(settings.ips.concat(pool.map((p) => p.ip))).slice(0, 400), ipCountries: Object.assign({}, settings.ipCountries, cc) });
+        pushEvent(env, 'repo-import', (ccw || 'all') + ' ' + pool.length);
+        return json({ ok: true, persisted: saved.persisted, added: pool.length, total: saved.settings.ips.length });
+      }
+      return json({ ok: false, error: 'action' }, 400);
+    }
+    return json({ ok: false, error: 'method' }, 405);
+  }
+
   if (path === '/api/ips' && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
     // Entries may carry a country tag: "1.2.3.4#DE" (what Cat Client's scanner
@@ -2600,13 +2793,13 @@ async function handleRequest(request, env, ctx) {
   if (master) {
     const kind = master[1];
     const key = (master[2] || '').toLowerCase();
-    if (key === masterUuid || (!key && isTrue(env.OPEN_SUB))) return subResponse(kind, host, env, settings, masterUuid, null, url);
+    if (key === masterUuid || (!key && isTrue(env.OPEN_SUB))) return subResponse(kind, host, env, await withRepoPool(env, settings, url), masterUuid, null, url);
     if (key && isUuid(key)) {
       // Allow a user token on the master paths too (v2rayNG users sometimes edit the URL).
       const user = findUser(await readUsers(env), key);
       if (user) {
         const blocked = userBlockedReason(user);
-        return blocked ? blockedSubResponse(blocked) : subResponse(kind, host, env, settings, user.id, user, url);
+        return blocked ? blockedSubResponse(blocked) : subResponse(kind, host, env, await withRepoPool(env, settings, url), user.id, user, url);
       }
     }
     return text('not found', 404);
@@ -2617,12 +2810,12 @@ async function handleRequest(request, env, ctx) {
   if (per) {
     const token = decodeURIComponent(per[1]).toLowerCase();
     const kind = per[2] === '64' ? 'sub64' : (per[2] || 'sub');
-    if (token === masterUuid) return subResponse(kind, host, env, settings, masterUuid, null, url);
+    if (token === masterUuid) return subResponse(kind, host, env, await withRepoPool(env, settings, url), masterUuid, null, url);
     const user = findUser(await readUsers(env), token);
     if (!user) return text('not found', 404);
     const blocked = userBlockedReason(user);
     if (blocked) return blockedSubResponse(blocked);
-    return subResponse(kind, host, env, settings, user.id, user, url);
+    return subResponse(kind, host, env, await withRepoPool(env, settings, url), user.id, user, url);
   }
 
   /* per-user landing page */
@@ -2662,6 +2855,7 @@ async function handleRequest(request, env, ctx) {
     }
     const owner = await isOwner(request, env, settings, masterUuid);
     if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim()));
+    maybeRepoRefresh(env, ctx);
     return html(panelPage(env, settings, host, masterUuid));
   }
 
@@ -3136,6 +3330,19 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <!-- ================= NODES (clean IPs) ================= -->
 <section class="view" id="v-nodes">
  <div class="card sec">
+  <h2><span class="ic">📡</span><span data-i="rp_title"></span><span class="chip v" id="rpState">…</span><button class="btn sm" id="rpRefresh" type="button" style="margin-inline-start:auto">⟳ <span data-i="rp_refresh"></span></button></h2>
+  <div class="note i small" data-i="rp_hint"></div>
+  <div class="res" id="rpRows" style="margin-top:10px"></div>
+  <label data-i="rp_cc"></label>
+  <div class="ipl" id="rpCcs"></div>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+   <button class="btn sm p" id="rpAuto" type="button"></button>
+   <button class="btn sm" id="rpAdd" type="button">➕ <span data-i="rp_add"></span></button>
+   <span class="small dim" data-i="rp_src"></span>
+  </div>
+  <div class="note w small" style="margin-top:8px" data-i="rp_dead_note"></div>
+ </div>
+ <div class="card sec">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
   <textarea id="ipPaste" placeholder="104.16.1.1#DE&#10;104.16.1.1:2053#DE&#10;www.example.com"></textarea>
@@ -3323,7 +3530,7 @@ fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_user
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
-scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'مرورگر نمی‌تواند آی‌پی خام را تست کند (محدودیت SNI/گواهی) — برای آی‌پی خام از «اسکن با Cat Client» استفاده کن؛ تستِ مرورگر فقط دامنه‌ها را می‌سنجد.',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
+scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',rp_title:'مخزن‌ها (آپدیت ۱۲ساعته)',rp_refresh:'بروزرسانی',rp_hint:'فیدهای عمومی آی‌پی تمیز؛ هر ۱۲ ساعت خودکار بروز می‌شوند (cron کلادفلر + باز شدن پنل). مخزن خراب‌ها بعد از ۳ گزارش از استخر حذف و در بروزرسانی بعدی جایگزین می‌شود.',rp_cc:'کشورهای استخر مخزن — + = افزودن ۱۶ آی‌پی آن کشور به لیست پنل',rp_auto:'افزودن خودکار ۸ آی‌پی تازه به ساب‌ها',rp_add:'مخزن جدید',rp_add_url:'آدرس raw مخزن (https://…)',rp_add_name:'نام مخزن',rp_empty:'استخر مخزن خالی است — «بروزرسانی» را بزن.',rp_nokv:'بدون KV ذخیره نمی‌شود',rp_src:'منابع: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'گزارش آی‌پی مرده؟ سه بار «health» با POST /api/repos {action:"health",dead:[…]} — بعدش خودکار عوضش می‌کند.',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'مرورگر نمی‌تواند آی‌پی خام را تست کند (محدودیت SNI/گواهی) — برای آی‌پی خام از «اسکن با Cat Client» استفاده کن؛ تستِ مرورگر فقط دامنه‌ها را می‌سنجد.',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: skk.moe — آدرس پنل هرگز در SNI نمی‌رود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
@@ -3345,7 +3552,7 @@ en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_activ
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
-scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'Browsers cannot probe raw IPs (SNI/certificate limits) — use “Scan with Cat Client” for raw IPs; the browser test only probes domains.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
+scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',rp_title:'Repos (12h auto-update)',rp_refresh:'Refresh',rp_hint:'Public clean-IP feeds; refreshed every 12 hours (Cloudflare cron + panel open). IPs reported dead 3× are dropped and replaced on the next refresh.',rp_cc:'Repo pool countries — + adds 16 IPs of that country to your panel list',rp_auto:'Auto-append 8 fresh IPs to subs',rp_add:'Add repo',rp_add_url:'Raw repo URL (https://…)',rp_add_name:'Repo name',rp_empty:'Repo pool is empty — hit Refresh.',rp_nokv:'no KV, not persisted',rp_src:'Sources: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'Dead IP? POST /api/repos {action:"health",dead:[…]} three times — it gets replaced automatically.',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'Browsers cannot probe raw IPs (SNI/certificate limits) — use “Scan with Cat Client” for raw IPs; the browser test only probes domains.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: skk.moe — your panel host is never exposed in SNI',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_port_bad:'Invalid port — enter a number between 1 and 65535',
@@ -3390,7 +3597,7 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"');if(n)n.click();importIps(false)},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};
@@ -3655,6 +3862,35 @@ function loadEvents(){var tb=$('#evRows');if(!tb)return;
   tb.innerHTML=ev.slice(0,15).map(function(x){return '<tr><td class="dim small" style="white-space:nowrap">'+esc(ago(x.t))+'</td><td><span class="chip">'+esc(x.ev)+'</span></td><td class="small dim">'+esc(x.d||'')+'</td></tr>'}).join('')}).catch(function(){})}
 if($('#evRefresh'))$('#evRefresh').addEventListener('click',loadEvents);
 
+/* ---------- repo library ---------- */
+var RP={d:null};
+function agoH(ts){if(!ts)return '—';var h=Math.floor((Date.now()-ts)/3600000);if(h<1)return t('seen_now');if(h<48)return t('ev_ago_h').replace('%1',h);return t('ev_ago_d').replace('%1',Math.floor(h/24))}
+function rpRender(){if(!RP.d)return;var box=$('#rpRows');if(!box)return;
+ var st=$('#rpState');if(st){var fresh=RP.d.ts&&(Date.now()-RP.d.ts<12*3600000);st.textContent=RP.d.kv?('⚡ '+RP.d.total):(t('rp_nokv'));st.className='chip '+(RP.d.kv?(fresh?'ok':'warn'):'')}
+ var rows=box;rows.innerHTML=(RP.d.repos||[]).map(function(r){var c=[];c.push('<div class="card" style="padding:10px 12px;margin-bottom:6px"><div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">');
+  c.push('<b>'+esc(r.name)+'</b>');
+  c.push(r.ok===null?'<span class="chip">'+esc('—')+'</span>':(r.ok?'<span class="chip ok">'+(r.count||0)+'</span>':'<span class="chip bad">✗</span>'));
+  c.push('<span class="dim small">'+esc(agoH(r.ts))+'</span>');
+  c.push('<span style="flex:1"></span>');
+  c.push('<button class="btn sm" type="button" data-rptoggle="'+esc(r.id)+'">'+(r.enabled!==false?'⏸':'▶')+'</button>');
+  c.push('<button class="btn sm r" type="button" data-rpdel="'+esc(r.id)+'">✕</button>');
+  c.push('</div><div class="small dim mono" dir="ltr" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.url)+'</div></div>');
+  return c.join('')}).join('');
+ var ccbox=$('#rpCcs');var ccs=RP.d.ccs||{};var keys=Object.keys(ccs).sort();
+ ccbox.innerHTML=keys.length?keys.map(function(c){return '<span class="chip" style="font-size:11px">'+ccFlag(c)+' '+esc(ccName(c))+' <b>'+ccs[c]+'</b> <button class="btn sm" type="button" data-rpimp="'+esc(c)+'" style="padding:1px 8px;margin:0">+</button></span>'}).join(''):'<span class="small dim">'+esc(t('rp_empty'))+'</span>';
+ var ab=$('#rpAuto');if(ab){ab.innerHTML=(RP.d.auto?'⚡ ':'⏸ ')+t('rp_auto');ab.className='btn sm '+(RP.d.auto?'p':'')}}
+function rpLoad(){return api('/api/repos').then(function(j){RP.d=j;rpRender()}).catch(function(){})}
+function rpPost(b){return api('/api/repos',{method:'POST',body:b})}
+if($('#rpRefresh'))$('#rpRefresh').addEventListener('click',function(){var b=this;b.disabled=true;rpPost({action:'refresh'}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return rpLoad()}).catch(function(){toast('✗',true)}).then(function(){b.disabled=false})});
+if($('#rpAuto'))$('#rpAuto').addEventListener('click',function(){rpPost({action:'auto',enabled:!(RP.d&&RP.d.auto)}).then(function(){return rpLoad()})});
+if($('#rpAdd'))$('#rpAdd').addEventListener('click',function(){var url=prompt(t('rp_add_url'));if(!url)return;var name=prompt(t('rp_add_name'),'repo'+((RP.d&&RP.d.repos||[]).length+1));if(!name)return;
+ var list=(RP.d&&RP.d.repos||[]).slice(0,9);list.push({id:'r'+Date.now().toString(36),name:name,url:url,kind:/\\.json($|\\?)/i.test(url)?'json-speed':'txt',enabled:true});
+ rpPost({action:'set',repos:list}).then(function(){return rpPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return rpLoad()})});
+document.addEventListener('click',function(e){var d=e.target.closest('[data-rpdel]');if(d){var id=d.getAttribute('data-rpdel');var list=(RP.d.repos||[]).filter(function(r){return r.id!==id});if(!list.length)list=null;rpPost({action:'set',repos:list||undefined}).then(function(){return rpLoad()});return}
+ var tg=e.target.closest('[data-rptoggle]');if(tg){var id2=tg.getAttribute('data-rptoggle');var list2=(RP.d.repos||[]).map(function(r){return r.id===id2?Object.assign({},r,{enabled:r.enabled===false}):r});rpPost({action:'set',repos:list2}).then(function(){return rpLoad()});return}
+ var im=e.target.closest('[data-rpimp]');if(im){rpPost({action:'import',cc:im.getAttribute('data-rpimp'),limit:16}).then(function(j){toast(j.ok?('⚡ +'+j.added):t('rp_empty'));return load()})}});
+if($('#btnUpdate')===null){} /* noop guard */
+
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
 
@@ -3677,6 +3913,14 @@ api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.curr
 /* ------------------------------------------------------------------ */
 
 export default {
+  /** Cloudflare cron (wrangler.jsonc triggers → every 12h): refresh repo feeds. */
+  async scheduled(controller, env, ctx) {
+    void controller;
+    try {
+      const job = refreshRepos(env);
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job); else await job;
+    } catch { /* cron must never throw */ }
+  },
   async fetch(request, env, ctx) {
     try {
       return await handleRequest(request, env || {}, ctx);
@@ -3698,6 +3942,7 @@ export const _testing = {
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
   __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,
