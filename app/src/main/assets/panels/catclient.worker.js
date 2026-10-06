@@ -2772,7 +2772,7 @@ async function handleApi(request, url, env, ctx) {
   if (path === '/api/version') {
     // Stealth hygiene: the repo URL only ships to the owner — anonymous probes get a bare version.
     const owner = await isOwner(request, env, settings, masterUuid);
-    return json(owner ? { ok: true, version: CAT_PANEL_VERSION, repo: REPO_URL } : { ok: true, version: CAT_PANEL_VERSION });
+    return json(owner ? { ok: true, panel: 'cat-panel', version: CAT_PANEL_VERSION, repo: REPO_URL } : { ok: true, panel: 'cat-panel', version: CAT_PANEL_VERSION });
   }
   if (path === '/api/scan-targets.json') return json({ ok: true, ranges: SCAN_RANGES, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS, sni: effectiveSni(host, env, settings), host });
   if (path === '/api/ech') {

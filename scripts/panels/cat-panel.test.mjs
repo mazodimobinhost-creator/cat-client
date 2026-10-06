@@ -388,6 +388,11 @@ let user;
     check('/ext/<n>/<uuid> fetches (or clean-fails offline)', extRoute.status === 200 ? (extRoute.headers.get('subscription-userinfo') || '').includes('total=0') : extRoute.status === 502, extRoute.status);
     await req('/api/settings', { method: 'PUT', headers: auth, body: { extSubs: [] } });
   }
+  // ================= /api/version contract (app PanelUpdate recognition) =================
+  {
+    const v = await (await req('/api/version', { env: ENV })).json();
+    check('version contract: anonymous gets panel+version (PanelUpdate.kt requires them)', v.ok === true && v.panel === 'cat-panel' && /^[0-9]+\.[0-9]+\.[0-9]+$/.test(v.version), JSON.stringify(v));
+  }
   // ================= ProxyIP pool → connection addresses (toAddrs) =================
   {
     const pre = ((await (await req('/api/settings', { headers: auth })).json()).settings.ips || []).length;
