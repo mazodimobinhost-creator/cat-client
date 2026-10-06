@@ -77,7 +77,7 @@ const auth = { cookie };
   const old = await req('/api/settings', { headers: auth }); check('old session invalid after password change', old.status===401);
   const bearer = await req('/api/settings', { headers:{ authorization:'Bearer s3cret' } }); check('bearer password works', bearer.status===200);
   const uuidLogin = await req('/api/login', { method:'POST', body:{ password: MASTER } }); check('uuid no longer a password', uuidLogin.status===401);
-  auth.cookie = newCookie; check('one KV write for settings save', KV.writes === writes + 1, String(KV.writes - writes)); }
+  auth.cookie = newCookie; check('settings save = 2 KV writes (settings + events ring)', KV.writes === writes + 2, String(KV.writes - writes)); }
 // users
 let user;
 { const r = await req('/api/users', { method:'POST', headers: auth, body:{ name:'ali', days:30 } }); const j = await r.json(); user = j.user;
@@ -306,6 +306,22 @@ let user;
   const { entries: e6 } = T.buildConfigEntries(HOST, ENV, st6, MASTER, null, {});
   const mine6 = e6.filter((e) => String(e.addr).includes('2001:db8::1'));
   check('pinned ipv6 bare in entries, bracketed once in link', mine6.length > 0 && mine6.every((e) => e.addr === '2001:db8::1' && e.link.includes('@[2001:db8::1]:8443?')), mine6[0] && mine6[0].link.slice(0, 90));
+  // ?fam=v4|v6 — strict address-family filter (scanner categories / builder)
+  {
+    const stf = T.normalizeSettings({ ips: ['198.51.100.7:2053', '[2001:db8::2]:8443'], tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 50 });
+    const q4 = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, { fam: 'v4' });
+    check('fam=v4 keeps only raw IPv4', q4.entries.length > 0 && q4.entries.every((e) => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(e.addr))), JSON.stringify(q4.entries.map((e) => e.addr)));
+    const q6 = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, { fam: 'v6' });
+    check('fam=v6 keeps only raw IPv6', q6.entries.length > 0 && q6.entries.every((e) => String(e.addr).includes(':')), JSON.stringify(q6.entries.map((e) => e.addr)));
+    check('subQuery parses fam', T.subQuery(new URL('https://x/sub?fam=v6')).fam === 'v6');
+  }
+  // /api/events — owner-visible ring log (real actions only)
+  {
+    for (let i = 0; i < 55; i++) await req('/api/events', { method: 'POST', headers: auth, body: { ev: 'test', d: 'e' + i } });
+    const r = await req('/api/events', { headers: auth });
+    const j = await r.json();
+    check('events ring caps at 50, newest first', j.ok && j.events.length === 50 && j.events[0].ev === 'test' && j.events[0].d === 'e54', String(j.events.length) + '/' + (j.events[0] && j.events[0].d));
+  }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
   const j = await r.json();

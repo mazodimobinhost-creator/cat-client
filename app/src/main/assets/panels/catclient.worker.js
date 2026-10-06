@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.11.1';
+const CAT_PANEL_VERSION = '6.12.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -1606,6 +1606,23 @@ function isTunnelPath(pathname, env) {
 /* subscription content                                                */
 /* ------------------------------------------------------------------ */
 
+/** Owner-visible event log (KV ring, last 50) — real actions only. */
+const EVENTS_KEY = 'cat_events_v1';
+async function readEvents(env) {
+  const kv = kvBinding(env);
+  if (!kv) return [];
+  try { const a = JSON.parse((await kv.get(EVENTS_KEY)) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+async function pushEvent(env, ev, d) {
+  const kv = kvBinding(env);
+  if (!kv) return; // no KV → nothing persists; skip silently (events must never break the data path)
+  try {
+    const list = await readEvents(env);
+    list.unshift({ t: Date.now(), ev: String(ev || 'event').slice(0, 24), d: String(d || '').slice(0, 120) });
+    await kv.put(EVENTS_KEY, JSON.stringify(list.slice(0, 50)));
+  } catch { /* ignore */ }
+}
+
 function effectiveSni(host, env, settings) {
   void host; // deliberately NOT a fallback — see DEFAULT_FRONTING_SNI
   return String((settings && settings.sni) || env.SNI || DEFAULT_FRONTING_SNI).trim().toLowerCase();
@@ -1761,6 +1778,17 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: host, port: tlsPort, tls: true, cc: pxcc, link: trojanLink(ctx, host, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.trojanPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
     }
   }
+  // ?fam=v4|v6 — strict address-family filter over the FINAL entry list, so the
+  // always-on worker-host anchor and domain defaults are dropped too: the link
+  // then means exactly "only raw IPs of this family".
+  if (q.fam === 'v4' || q.fam === 'v6') {
+    const famOfAddr = (a) => {
+      const pin = pinnedPortOf(a);
+      const b = (pin ? a.slice(0, a.lastIndexOf(':')) : a).replace(/^\[/, '').replace(/\]$/, '');
+      return isIpv6(b) ? 'v6' : isIpv4(b) ? 'v4' : '';
+    };
+    return { ctx, entries: entries.filter((e) => famOfAddr(String(e.addr)) === q.fam), preferredCc };
+  }
   return { ctx, entries, preferredCc };
 }
 
@@ -1788,6 +1816,7 @@ function subQuery(url) {
     limit: Number(q.get('limit') || q.get('count') || 0) || 0,
     country: normalizeCountry(q.get('country') || q.get('cc') || ''),
     strict: q.get('strict') === '1' || q.get('strict') === 'true',
+    fam: String(q.get('fam') || '').toLowerCase(),
   };
 }
 
@@ -2331,8 +2360,15 @@ async function handleApi(request, url, env, ctx) {
         // Password changed → old sessions die; hand back a fresh one.
         extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid));
       }
+      pushEvent(env, 'settings', 'update');
       return json({ ok: true, persisted: saved.persisted, settings: Object.assign({}, saved.settings, { passwordHash: undefined, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '' }) }, 200, extra);
     }
+    return json({ ok: false, error: 'method' }, 405);
+  }
+
+  if (path === '/api/events') {
+    if (method === 'GET') return json({ ok: true, events: await readEvents(env) });
+    if (method === 'POST') { const b = (await readJsonBody(request)) || {}; await pushEvent(env, b.ev, b.d); return json({ ok: true }); }
     return json({ ok: false, error: 'method' }, 405);
   }
 
@@ -2345,6 +2381,7 @@ async function handleApi(request, url, env, ctx) {
     if (body.countries && typeof body.countries === 'object') Object.assign(tags, normalizeCountryMap(body.countries, 500));
     const next = body.replace ? incoming : uniq(incoming.concat(settings.ips));
     const saved = await writeSettings(env, { ips: next, ipCountries: tags });
+    pushEvent(env, body.replace ? 'ips-replace' : 'ips-add', String(next.length) + ' ips');
     return json({ ok: true, persisted: saved.persisted, count: saved.settings.ips.length, ips: saved.settings.ips });
   }
 
@@ -2369,6 +2406,7 @@ async function handleApi(request, url, env, ctx) {
       });
       if (findUser(users, user.id)) return json({ ok: false, error: 'exists' }, 409);
       const saved = await writeUsers(env, users.concat([user]));
+      pushEvent(env, 'user-add', user.name || user.id);
       return json({ ok: true, persisted: saved.persisted, user: decorate(user) }, 201);
     }
     if (!id) return json({ ok: false, error: 'method' }, 405);
@@ -2377,6 +2415,7 @@ async function handleApi(request, url, env, ctx) {
     existing.lastOnline = await readSeen(env, existing.id);
     if (method === 'DELETE') {
       const saved = await writeUsers(env, users.filter((u) => u.id !== id));
+      pushEvent(env, 'user-del', existing.name || id);
       return json({ ok: true, persisted: saved.persisted });
     }
     if (method === 'PUT' || method === 'PATCH' || method === 'POST') {
@@ -2891,6 +2930,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
     <button data-view="clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg> <span data-i="n_clients"></span></button>
     <button data-view="inbounds"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> <span data-i="n_inbounds"></span></button>
     <button data-view="scan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg> <span data-i="n_scan"></span></button>
+    <button data-view="build"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> <span data-i="n_build"></span></button>
     <button data-view="nodes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg> <span data-i="n_nodes"></span></button>
     <button data-view="spoof"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/></svg> <span data-i="n_spoof"></span></button>
     <button data-view="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> <span data-i="n_set"></span></button>
@@ -2909,6 +2949,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button class="ib" data-c="green" data-view="clients" title="Clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg></button>
   <button class="ib" data-c="blue" data-view="inbounds" title="Inbounds"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></button>
   <button class="ib" data-c="cyan" data-view="scan" title="Clean IP"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg></button>
+  <button class="ib" data-c="lime" data-view="build" title="Config builder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg></button>
   <button class="ib" data-c="lime" data-view="spoof" title="SNI &amp; ProxyIP"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/></svg></button>
   <button class="ib" data-c="gray" data-view="settings" title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
   <button class="ib" data-c="amber" data-view="backup" title="Backup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
@@ -2961,6 +3002,12 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <h2><span class="ic">🟢</span><span data-i="ov_services"></span></h2>
   <div class="row" id="ovServices" style="flex-wrap:wrap;gap:8px;margin-top:4px"></div>
  </div>
+
+ <div class="card sec">
+  <h2><span class="ic">🧾</span><span data-i="ev_title"></span><button class="btn sm" id="evRefresh" type="button" style="margin-inline-start:auto">⟳</button></h2>
+  <table class="tbl"><thead><tr><th data-i="ev_time"></th><th data-i="ev_ev"></th><th data-i="ev_d"></th></tr></thead><tbody id="evRows"></tbody></table>
+  <div class="small dim" id="evEmpty" data-i="ev_empty" style="display:none"></div>
+ </div>
 </section>
 
 <!-- ================= CLIENTS (users) ================= -->
@@ -3008,14 +3055,81 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <!-- ================= CLEAN IP / SCAN ================= -->
 <section class="view" id="v-scan">
  <div class="card sec">
-  <h2><span class="ic">📡</span><span data-i="scan_title"></span></h2>
+  <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
+  <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>
   <div class="note i" data-i="scan_why"></div>
+  <label data-i="scan_cat"></label>
+  <div class="pick" id="scanFam"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div>
+  <label data-i="scan_region"></label>
+  <div class="pick" id="scanRegion"></div>
+  <label data-i="scan_cc"></label>
+  <div class="pick" id="scanCc"></div>
+  <div class="two" style="margin-top:12px">
+   <div><label data-i="scan_search"></label><input id="scanSearch" data-ph="scan_search_ph"></div>
+   <div><label data-i="scan_cidr"></label><input id="scanCidr" class="mono" dir="ltr" data-ph="scan_cidr_ph"></div>
+  </div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:12px">
    <a class="btn p" id="btnScanApp" href="#">📱 <span data-i="scan_app"></span></a>
-   <button class="btn c" id="btnBrowserTest">🌐 <span data-i="scan_browser"></span></button>
+   <button class="btn c" id="btnBrowserTest" type="button">🌐 <span data-i="scan_browser"></span></button>
+   <button class="btn" id="btnCidrAdd" type="button">➕ <span data-i="cidr_add"></span></button>
    <a class="btn" href="https://github.com/${REPO}#clean-ip" target="_blank" rel="noopener">📖 <span data-i="scan_guide"></span></a>
   </div>
+  <div class="note w small" style="margin-top:10px" data-i="scan_note_browser"></div>
   <div id="scanRes" class="res" style="margin-top:12px"></div>
+  <div id="scanList" style="margin-top:6px"></div>
+ </div>
+</section>
+
+<!-- ================= CONFIG BUILDER ================= -->
+<section class="view" id="v-build">
+ <div class="card sec">
+  <h2><span class="ic">🛠️</span><span data-i="b_title"></span></h2>
+  <div class="note i small" data-i="b_hint"></div>
+  <label data-i="b_isp"></label>
+  <div class="pick" id="bIsp">
+   <button type="button" data-isp="mtn" data-i="isp_mtn"></button>
+   <button type="button" data-isp="mci" data-i="isp_mci"></button>
+   <button type="button" data-isp="rtl" data-i="isp_rtl"></button>
+   <button type="button" data-isp="tdsl" data-i="isp_tdsl"></button>
+   <button type="button" data-isp="direct" data-i="isp_direct"></button>
+  </div>
+  <div class="small mute" id="bIspNote" style="margin-top:6px;min-height:16px"></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="b_proto"></label><div class="pick" id="bProto"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="vless">VLESS</button><button type="button" data-v="trojan">TROJAN</button></div></div>
+   <div><label data-i="b_fam"></label><div class="pick" id="bFam"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
+  </div>
+  <label data-i="b_ports"></label>
+  <div class="pick" id="bPorts"></div>
+  <label data-i="b_cc"></label>
+  <div class="pick" id="bCc"></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="b_limit"></label><input id="bLimit" type="number" min="1" max="200" value="24"></div>
+   <div><label data-i="b_strict"></label><div class="pick" id="bStrict"><button type="button" data-v="0" class="on" data-i="b_fb_ok"></button><button type="button" data-v="1" data-i="b_only"></button></div></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+   <button class="btn p" id="bGen" type="button">⚡ <span data-i="b_gen"></span></button>
+   <button class="btn" id="bCopyAll" type="button" style="display:none">📋 <span data-i="b_copy"></span> (<span id="bCount">0</span>)</button>
+   <button class="btn" id="bQr" type="button" style="display:none">▦ QR</button>
+  </div>
+  <label data-i="b_link" style="margin-top:12px"></label>
+  <input id="bLink" readonly class="mono" dir="ltr" value="">
+  <label data-i="b_open" style="margin-top:10px"></label>
+  <div class="row" id="bApps" style="display:none">
+   <a class="btn sm p" id="bCat" href="#">🐱 Cat Client</a>
+   <a class="btn sm" id="bV2rn" href="#">v2rayNG</a>
+   <a class="btn sm" id="bHid" href="#">Hiddify</a>
+  </div>
+  <label data-i="b_prev" style="margin-top:12px"></label>
+  <textarea id="bPrev" readonly style="min-height:130px"></textarea>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">🧩</span><span data-i="b_frag"></span></h2>
+  <div class="small mute" data-i="b_frag_hint"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label>Fragment</label><input id="bFrag" dir="ltr" value="tlshello,100-200,5-10"></div>
+   <div><label data-i="b_fp"></label><select id="bFp"><option value="">—</option><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option></select></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="btn sm" id="bFragCopy" type="button">📋 <span data-i="copy_all"></span></button></div>
  </div>
 </section>
 
@@ -3167,6 +3281,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
  <button data-view="clients"><span>👥</span><i data-i="n_clients"></i></button>
  <button data-view="inbounds"><span>🧩</span><i data-i="n_inbounds"></i></button>
  <button data-view="scan"><span>📡</span><i data-i="n_scan"></i></button>
+ <button data-view="build"><span>🛠️</span><i data-i="n_build"></i></button>
  <button data-view="spoof"><span>🎭</span><i data-i="n_spoof"></i></button>
  <button data-view="settings"><span>⚙️</span><i data-i="n_set"></i></button>
  <button data-view="backup"><span>💾</span><i data-i="n_bak"></i></button>
@@ -3208,7 +3323,7 @@ fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_user
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
-scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
+scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'مرورگر نمی‌تواند آی‌پی خام را تست کند (محدودیت SNI/گواهی) — برای آی‌پی خام از «اسکن با Cat Client» استفاده کن؛ تستِ مرورگر فقط دامنه‌ها را می‌سنجد.',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: skk.moe — آدرس پنل هرگز در SNI نمی‌رود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
@@ -3230,7 +3345,7 @@ en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_activ
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
-scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
+scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'Browsers cannot probe raw IPs (SNI/certificate limits) — use “Scan with Cat Client” for raw IPs; the browser test only probes domains.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: skk.moe — your panel host is never exposed in SNI',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_port_bad:'Invalid port — enter a number between 1 and 65535',
@@ -3275,7 +3390,7 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"');if(n)n.click();importIps(false)},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};
@@ -3447,6 +3562,98 @@ $('#btnBrowserTest').addEventListener('click',function(){var box=$('#scanRes');v
  var i=0;function next(){if(i>=targets.length)return;var h=targets[i++];var t0=performance.now();var ctl=('AbortController' in window)?new AbortController():null;var timer=setTimeout(function(){if(ctl)ctl.abort()},4000);
   fetch('https://'+h+'/cdn-cgi/trace?'+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl?ctl.signal:undefined}).then(function(){var ms=Math.round(performance.now()-t0);rows[h].innerHTML='<span style="color:'+(ms<400?'var(--green)':ms<900?'var(--amber)':'var(--red)')+'">'+ms+' ms</span>'},function(){rows[h].innerHTML='<span style="color:var(--red)">✗</span>'}).then(function(){clearTimeout(timer);next()})}
  next();next();next()});
+
+/* ---------- config builder + scanner filters + events ---------- */
+var CC_FA={DE:'آلمان',NL:'هلند',GB:'بریتانیا',FR:'فرانسه',TR:'ترکیه',AE:'امارات',FI:'فنلاند',SE:'سوئد',CA:'کانادا',SG:'سنگاپور',JP:'ژاپن',US:'آمریکا',IR:'ایران',IT:'ایتالیا',ES:'اسپانیا',CH:'سوئیس',AT:'اتریش',BE:'بلژیک',DK:'دانمارک',NO:'نروژ',PL:'لهستان',UA:'اوکراین',RU:'روسیه',CN:'چین',HK:'هنگ‌کنگ',IN:'هند',KR:'کرهٔ جنوبی',AU:'استرالیا',BR:'برزیل',IL:'اسرائیل',SA:'عربستان',QA:'قطر',KW:'کویت',IQ:'عراق',OM:'عمان',AZ:'آذربایجان',AM:'ارمنستان',GE:'گرجستان',KZ:'قزاقستان',MY:'مالزی',TH:'تایلند',VN:'ویتنام',PH:'فیلیپین',ID:'اندونزی',ZA:'آفریقای جنوبی',EG:'مصر',MA:'مراکش',AR:'آرژانتین',MX:'مکزیک'};
+var REGIONS={eu:['DE','NL','GB','FR','FI','SE','NO','DK','IT','ES','CH','AT','BE','PL','UA','RU'],me:['TR','AE','SA','QA','KW','IQ','OM','IL','AZ','AM','GE','IR'],as:['SG','JP','IN','KR','CN','HK','MY','TH','VN','PH','ID','KZ'],am:['US','CA','BR','AR','MX'],af:['ZA','EG','MA']};
+var REGKEY={eu:'reg_eu',me:'reg_me',as:'reg_as',am:'reg_am',af:'reg_af'};
+function ccName(cc){return (lang==='fa'&&CC_FA[cc])?CC_FA[cc]:cc}
+function ccFlag(cc){if(!cc||cc.length!==2)return '\u{1F3F3}';return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1))}
+function famOf(a){var st=String(a);var c=st.lastIndexOf(':');
+ if(c>-1&&/^\\d{1,5}$/.test(st.slice(c+1))&&st.indexOf(':')===c)st=st.slice(0,c);
+ st=st.replace(/^\[/,'').replace(/\]$/,'');
+ if(/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(st))return 'v4';
+ if(/^[0-9a-f:]+$/i.test(st)&&st.indexOf(':')>-1)return 'v6';
+ return ''}
+/* builder state */
+var B={proto:'',fam:'',ports:{},cc:'',strict:0,limit:24},bText='',bLive=false,bT=null;
+var ISP={mtn:{p:['443','8443'],fam:'',frag:'tlshello,10-50,5-10',fp:'chrome',n:'b_isp_mtn_n'},mci:{p:['443','2053'],fam:'',frag:'tlshello,100-200,5-10',fp:'chrome',n:'b_isp_mci_n'},rtl:{p:['80','8080','443'],fam:'',frag:'tlshello,10-30,3-8',fp:'chrome',n:'b_isp_rtl_n'},tdsl:{p:['443'],fam:'',frag:'tlshello,50-150,4-8',fp:'ios',n:'b_isp_tdsl_n'},direct:{p:[],fam:'',frag:'',fp:'',n:'b_isp_direct_n'}};
+function pickSel(box,btn){$$('#'+box+' button').forEach(function(x){x.classList.remove('on')});if(btn)btn.classList.add('on')}
+function bPortList(){var st=CFG.settings;var l=(st.tlsPorts||[]).map(String);if(st.plainEnabled)l=l.concat((st.plainPorts||[]).map(String));return l.filter(function(v,i,a){return a.indexOf(v)===i})}
+function ccList(){var m=CFG.settings.ipCountries||{};return Object.keys(m).filter(function(c){return m[c]&&c&&c!=='??'}).sort()}
+function renderB(){var pb=$('#bPorts');if(!pb)return;
+ pb.innerHTML=bPortList().map(function(p){return '<button type="button" data-v="'+p+'" class="'+(B.ports[p]?'on':'')+'">'+esc(p)+'</button>'}).join('');
+ var cb=$('#bCc');cb.innerHTML='<button type="button" data-v="" class="'+(B.cc?'':'on')+'">'+esc(t('b_cc_all'))+'</button>'+ccList().map(function(c){return '<button type="button" data-v="'+c+'" class="'+(B.cc===c?'on':'')+'">'+ccFlag(c)+' '+esc(ccName(c))+'</button>'}).join('')}
+function bUrl(kind){var u=new URL(CFG.links[kind]||CFG.links.sub);var q=new URLSearchParams();
+ if(B.proto)q.set('proto',B.proto);if(B.fam)q.set('fam',B.fam);
+ var ps=Object.keys(B.ports).filter(function(k){return B.ports[k]});if(ps.length)q.set('ports',ps.join(','));
+ if(B.cc){q.set('country',B.cc);if(B.strict)q.set('strict','1')}
+ q.set('limit',String(B.limit||24));u.search=q.toString();return u.toString()}
+function bGen(){var link=bUrl('sub');$('#bLink').value=link;$('#bApps').style.display='flex';$('#bCopyAll').style.display='';$('#bQr').style.display='';
+ $('#bCat').href='catclient://add-sub?url='+encodeURIComponent(link)+'&name='+encodeURIComponent((CFG.settings.title||'Cat Panel')+' · '+t('b_title'));
+ $('#bV2rn').href='v2rayng://install-sub?url='+encodeURIComponent(link)+'&name=CatPanel';
+ $('#bHid').href='hiddify://import/'+link;
+ $('#bQr').setAttribute('data-qr',link);$('#bQr').setAttribute('data-qrl',t('b_title'));
+ api('/api/events',{method:'POST',body:{ev:'builder',d:(link.split('?')[1]||'').slice(0,110)}});
+ fetch(link,{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(tx){bText=tx||'';var ls=bText.trim()?bText.trim().split('\\n'):[];$('#bCount').textContent=ls.length;$('#bPrev').value=ls.slice(0,10).join('\\n')}).catch(function(){bText='';$('#bCount').textContent='0';$('#bPrev').value=''})}
+function bMaybe(){if(bLive){clearTimeout(bT);bT=setTimeout(bGen,300)}}
+$$('#bIsp button').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-isp');pickSel('bIsp',b);var sp=ISP[k]||{};B.ports={};(sp.p||[]).forEach(function(p){B.ports[p]=true});B.fam=sp.fam||'';if(sp.frag)$('#bFrag').value=sp.frag;if(sp.fp)$('#bFp').value=sp.fp;$('#bIspNote').textContent=t(sp.n||'b_isp_direct_n');renderB();bMaybe()})});
+$$('#bProto button').forEach(function(b){b.addEventListener('click',function(){pickSel('bProto',b);B.proto=b.getAttribute('data-v');bMaybe()})});
+$$('#bFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('bFam',b);B.fam=b.getAttribute('data-v');bMaybe()})});
+var bPortsBox=$('#bPorts');if(bPortsBox)bPortsBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;b.classList.toggle('on');B.ports[b.getAttribute('data-v')]=b.classList.contains('on');bMaybe()});
+var bCcBox=$('#bCc');if(bCcBox)bCcBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('bCc',b);B.cc=b.getAttribute('data-v');bMaybe()});
+$$('#bStrict button').forEach(function(b){b.addEventListener('click',function(){pickSel('bStrict',b);B.strict=Number(b.getAttribute('data-v'))||0;bMaybe()})});
+if($('#bLimit'))$('#bLimit').addEventListener('change',function(){B.limit=Math.min(200,Math.max(1,Number(this.value)||24));this.value=B.limit;bMaybe()});
+if($('#bGen'))$('#bGen').addEventListener('click',function(){bLive=true;bGen()});
+if($('#bCopyAll'))$('#bCopyAll').addEventListener('click',function(){copy(bText)});
+if($('#bFragCopy'))$('#bFragCopy').addEventListener('click',function(){copy($('#bFrag').value)});
+/* scanner */
+var SF={fam:'',region:'',cc:'',q:''};
+function loadLoc(){var c=$('#locNow');if(!c)return;c.textContent='…';
+ fetch('/cdn-cgi/trace',{cache:'no-store'}).then(function(r){return r.text()}).then(function(tx){var m=/ip=([^\\s]+)/.exec(tx),l=/loc=([A-Za-z]{2})/.exec(tx);
+  if(!m){c.textContent=t('loc_fail');return}var cc=l?l[1].toUpperCase():'';
+  c.innerHTML=ccFlag(cc)+' '+esc(ccName(cc))+' <span class="dim mono">('+esc(m[1])+')</span>'}).catch(function(){c.textContent=t('loc_fail')})}
+if($('#btnLocRefresh'))$('#btnLocRefresh').addEventListener('click',loadLoc);
+function scanAll(){var st=CFG.settings;var out=[];(st.ips||[]).concat(st.useDefaults?CFG.defaults.addresses:[]).forEach(function(a){out.push({a:a,cc:(st.ipCountries||{})[a]||''})});return out}
+function renderScanChips(){var box=$('#scanRegion');if(!box)return;var ccs={};scanAll().forEach(function(x){if(x.cc)ccs[x.cc]=(ccs[x.cc]||0)+1});
+ box.innerHTML='<button type="button" data-v="" class="'+(SF.region?'':'on')+'">'+esc(t('b_cc_all'))+'</button>'+Object.keys(REGIONS).map(function(r){return '<button type="button" data-v="'+r+'" class="'+(SF.region===r?'on':'')+'">'+esc(t(REGKEY[r]))+'</button>'}).join('');
+ var cc=$('#scanCc');cc.innerHTML=Object.keys(ccs).sort().map(function(c){return '<button type="button" data-v="'+c+'" class="'+(SF.cc===c?'on':'')+'">'+ccFlag(c)+' '+esc(ccName(c))+' <span class="dim">'+ccs[c]+'</span></button>'}).join('');
+ renderScanRes()}
+function renderScanRes(){var box=$('#scanList');if(!box)return;var st=CFG.settings;
+ var all=scanAll().filter(function(x){if(SF.fam&&famOf(x.a)!==SF.fam)return false;
+  if(SF.cc&&x.cc!==SF.cc)return false;
+  if(SF.region&&REGIONS[SF.region]&&REGIONS[SF.region].indexOf(x.cc)<0)return false;
+  if(SF.q){var hay=(x.cc+' '+ccName(x.cc)+' '+x.a).toLowerCase();if(hay.indexOf(SF.q)<0)return false}return true});
+ var by={};all.forEach(function(x){var k=x.cc||'';(by[k]=by[k]||[]).push(x.a)});
+ var keys=Object.keys(by).sort();
+ box.innerHTML=keys.length?keys.map(function(c){var addrs=by[c];
+  return '<div class="card" style="padding:10px 12px;margin-bottom:8px"><div class="row" style="align-items:center;gap:8px"><b>'+ccFlag(c)+' '+esc(ccName(c))+'</b><span class="chip">'+addrs.length+'</span><span style="flex:1"></span>'+(c?'<button class="btn sm" type="button" data-scancc="'+c+'">'+esc(t('scan_jump'))+'</button>':'')+'<button class="btn sm" type="button" data-copy="'+esc(addrs.join('\\n'))+'">\u{1F4CB}</button></div><div class="ipl" style="margin-top:6px">'+addrs.map(function(a){return '<span class="chip mono">'+esc(a)+'</span>'}).join('')+'</div></div>'}).join('')
+  :'<div class="empty"><div>\u{1F4E1}</div><span>'+esc(t('scan_empty'))+'</span></div>'}
+$$('#scanFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('scanFam',b);SF.fam=b.getAttribute('data-v');renderScanRes()})});
+var srg=$('#scanRegion');if(srg)srg.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('scanRegion',b);SF.region=b.getAttribute('data-v');renderScanRes()});
+var scc=$('#scanCc');if(scc)scc.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('scanCc',b);SF.cc=b.getAttribute('data-v');renderScanRes()});
+if($('#scanSearch'))$('#scanSearch').addEventListener('input',function(){SF.q=this.value.trim().toLowerCase();renderScanRes()});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-scancc]');if(!b)return;B.cc=b.getAttribute('data-scancc');B.strict=0;show('build');renderB();bLive=true;bGen()});
+if($('#btnCidrAdd'))$('#btnCidrAdd').addEventListener('click',function(){var raw=$('#scanCidr').value.split(/[\\s,]+/).filter(Boolean);var ips=[];var bad=false;
+ raw.forEach(function(r){var m=r.match(/^(\\d{1,3}(?:\\.\\d{1,3}){3})\\/(\\d{1,2})$/);
+  if(m){var b=m[1].split('.').map(Number);var bits=Number(m[2]);
+   if(b.some(function(x){return x>255})||bits<8||bits>32){bad=true;return}
+   var size=Math.min(16,Math.pow(2,32-bits));var step=Math.max(1,Math.floor(Math.pow(2,32-bits)/size));
+   var base=((b[0]<<24)|(b[1]<<16)|(b[2]<<8)|b[3])>>>0;
+   for(var i=0;i<size;i++){var v=(base+i*step)>>>0;ips.push([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join('.'))}}
+  else if(/^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(r))ips.push(r);
+  else if(r)bad=true});
+ if(!ips.length){toast(t('cidr_bad'));return}
+ api('/api/ips',{method:'POST',body:{ips:ips}}).then(function(j){toast((t('cidr_ok').replace('%1',ips.length))+(j&&j.persisted===false?' (memory)':''));$('#scanCidr').value='';return load()}).catch(function(){toast(t('cidr_bad'))})});
+if($('#btnScanApp'))$('#btnScanApp').addEventListener('click',function(){api('/api/events',{method:'POST',body:{ev:'scan',d:'app'}})});
+if($('#btnBrowserTest'))$('#btnBrowserTest').addEventListener('click',function(){api('/api/events',{method:'POST',body:{ev:'scan',d:'browser'}})});
+/* events log */
+function ago(ts){var sec=Math.max(0,(Date.now()-ts)/1000);if(sec<60)return t('seen_now');var m=Math.floor(sec/60);if(m<60)return t('seen_min').replace('%1',m);var h=Math.floor(m/60);if(h<24)return t('ev_ago_h').replace('%1',h);return t('ev_ago_d').replace('%1',Math.floor(h/24))}
+function loadEvents(){var tb=$('#evRows');if(!tb)return;
+ api('/api/events').then(function(j){var ev=(j&&j.events)||[];
+  var em=$('#evEmpty');if(em)em.style.display=ev.length?'none':'block';
+  tb.innerHTML=ev.slice(0,15).map(function(x){return '<tr><td class="dim small" style="white-space:nowrap">'+esc(ago(x.t))+'</td><td><span class="chip">'+esc(x.ev)+'</span></td><td class="small dim">'+esc(x.d||'')+'</td></tr>'}).join('')}).catch(function(){})}
+if($('#evRefresh'))$('#evRefresh').addEventListener('click',loadEvents);
 
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
