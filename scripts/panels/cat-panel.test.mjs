@@ -346,6 +346,18 @@ let user;
     check('unpin clears list', sp2.pinnedIps.length === 0);
     check('pinnedIps normalize: junk dropped, max 5 kept', T.normalizeSettings({ pinnedIps: ['junk', '1.2.3.4:8443', '[2606:4700::1]:443', 'cdn.example.com', '5.5.5.5', '6.6.6.6', '7.7.7.7', '8.8.8.8'] }).pinnedIps.length === 5);
   }
+  // ================= ECH (?ech=1 → &ech= on TLS links) =================
+  {
+    check('subQuery parses ech', T.subQuery(new URL('https://x/sub?ech=1')).ech === true && T.subQuery(new URL('https://x/sub')).ech === false);
+    const ste = T.normalizeSettings({ echList: 'AAH+BASE64ECH==', tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 10 });
+    const { entries: ee } = T.buildConfigEntries(HOST, ENV, ste, MASTER, null, {});
+    const tlsEntry = ee.find((e) => e.tls);
+    check('ECH injected into TLS links', tlsEntry && decodeURIComponent(tlsEntry.link).includes('ech=AAH+BASE64ECH=='), tlsEntry && tlsEntry.link.slice(0, 160));
+    const plain = ee.find((e) => !e.tls);
+    check('ECH never on plain links', !plain || !decodeURIComponent(plain.link).includes('ech='));
+    const noEch = T.buildConfigEntries(HOST, ENV, T.normalizeSettings({ tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 10 }), MASTER, null, {}).entries[0];
+    check('no ech param by default', !decodeURIComponent(noEch.link).includes('ech='));
+  }
   // ================= auto config rotation (subRotate) =================
   {
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
