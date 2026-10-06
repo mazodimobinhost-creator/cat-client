@@ -1899,6 +1899,64 @@ class MainActivity : Activity() {
     private fun showAddSubscriptionDialog(initialSource: String = "", initialName: String = "") =
         showSubscriptionDialog(initialSource = initialSource, initialName = initialName)
 
+    /**
+     * socks5/http link → panel FIXED EXIT (chain): every config the panel emits
+     * then leaves through this server (stable IP & country). Panel picker +
+     * pre-filled password, same as the scanner push.
+     */
+    private suspend fun pushChainToPanelSuspend(link: String) {
+        val base = withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        withContext(Dispatchers.Main) {
+            val input = TextInputEditText(this@MainActivity).apply {
+                hint = getString(R.string.pip_password_hint)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                if (storedUuid.isNotBlank()) setText(storedUuid)
+            }
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(12), dp(20), 0)
+                addView(input, LinearLayout.LayoutParams(-1, -2))
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(getString(R.string.chain_push_title, base.removePrefix("https://")))
+                .setView(box)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.chain_push_btn) { d, _ ->
+                    val password = input.text.toString()
+                    d.dismiss()
+                    activityScope.launch {
+                        val result = withContext(Dispatchers.IO) { runCatching { pushChainToPanelApi(base, password, link) } }
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, result.fold({ getString(R.string.chain_push_ok, link) }, { getString(R.string.chain_push_fail, it.message ?: "?") }), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .show()
+        }
+    }
+
+    private fun pushChainToPanelApi(base: String, password: String, chain: String): Unit {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+            val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("chain", chain).toString(), cookie)
+        val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+        put.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+    }
+
     private fun showEditSubscriptionDialog(item: UserSubscription) = showSubscriptionDialog(item)
 
     private fun showSubscriptionDialog(
@@ -1947,11 +2005,37 @@ class MainActivity : Activity() {
             setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
             addView(sourceInput)
         }
+        // socks5/http proxy links are valid CLIENT profiles AND panel fixed-exit
+        // (chain) material — give them a one-tap "→ panel" action right here.
+        val chainPush = MaterialButton(this).apply {
+            setText(R.string.chain_push_btn)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(12)
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 150))
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
+            setTextColor(TEAL)
+            visibility = View.GONE
+            setOnClickListener {
+                val link = sourceInput.text.toString().trim().lines().firstOrNull { it.startsWith("socks5://") || it.startsWith("http://") || it.startsWith("https://") }.orEmpty()
+                if (link.isNotBlank()) activityScope.launch { pushChainToPanelSuspend(link) }
+            }
+        }
+        sourceInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(e: android.text.Editable?) {
+                chainPush.visibility = if (e?.toString()?.trim()?.startsWith("socks5://") == true) View.VISIBLE else View.GONE
+            }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+        })
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(4))
             addView(nameLayout, LinearLayout.LayoutParams(-1, -2))
             addView(sourceLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(chainPush, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(
