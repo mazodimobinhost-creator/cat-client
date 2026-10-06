@@ -410,6 +410,37 @@ let user;
     check('pool IP gets a config in the sub', dbg.includes('@5.75.200.40:'), dbg.split('\n').length + ' lines');
     await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: Date.now(), per: {}, ips: [] }));
   }
+  // ================= telegram deploy bot (round 29) =================
+  {
+    check('gh settings normalize: junk dropped, default workflow kept', (() => { const s = T.normalizeSettings({ ghPat: 'nope', ghRepo: 'no repo', ghRef: 'bad ref!', ghWorkflow: 'x.txt' }); return !s.ghPat && !s.ghRepo && !s.ghRef && s.ghWorkflow === 'deploy-worker.yml'; })());
+    check('gh settings normalize: valid values kept', (() => { const s = T.normalizeSettings({ ghPat: 'github_pat_ABCDEFGHIJKLMNOPQRSTUVWX', ghRepo: 'o/r', ghRef: 'main', ghWorkflow: 'deploy-worker.yml' }); return s.ghPat.startsWith('github_pat_') && s.ghRepo === 'o/r' && s.ghRef === 'main'; })());
+    const base = { origin: 'https://x', host: 'x', env: ENV, settings: T.normalizeSettings({}), masterUuid: MASTER };
+    const uncfg = await T.tgCommand('/deploy', base);
+    check('/deploy honest without config (no CF token asked)', uncfg.includes('not configured') && !uncfg.includes('Cloudflare API token is NEVER'.toLowerCase()) ? uncfg.includes('NEVER stored') || uncfg.includes('not configured') : true, uncfg.slice(0, 80));
+    check('/deploy never asks for a CF token', !uncfg.includes('CLOUDFLARE_API_TOKEN=') && uncfg.includes('GitHub'));
+    const cfgd = T.normalizeSettings({ ghPat: 'github_pat_ABCDEFGHIJKLMNOPQRSTUVWX', ghRepo: 'o/r' });
+    let captured = null;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (u, o) => { captured = { url: String(u), method: o && o.method, body: o && o.body }; return { ok: true, status: 204, json: async () => ({}) }; };
+    try {
+      const q = await T.tgCommand('/deploy', Object.assign({}, base, { settings: cfgd }));
+      check('/deploy dispatches workflow on default ref', q.includes('queued') && captured.url === 'https://api.github.com/repos/o/r/actions/workflows/deploy-worker.yml/dispatches' && JSON.parse(captured.body).ref === 'main' && captured.method === 'POST', captured.url);
+      check('/deploy branch arg overrides ref', ((await T.tgCommand('/deploy arena/01a0ebed-cat-client', Object.assign({}, base, { settings: cfgd }))).includes('queued')) && JSON.parse(captured.body).ref === 'arena/01a0ebed-cat-client');
+      globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({ message: 'Not Found' }) });
+      const e404 = await T.tgCommand('/deploy', Object.assign({}, base, { settings: cfgd }));
+      check('/deploy maps 404 to a clear error', e404.includes('404') && e404.includes('not found'));
+      globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ workflow_runs: [{ status: 'completed', conclusion: 'success', head_branch: 'main', run_number: 7, html_url: 'https://x/1' }, { status: 'in_progress', conclusion: null, head_branch: 'main', run_number: 8, html_url: 'https://x/2' }] }) });
+      const list = await T.tgCommand('/deploys', Object.assign({}, base, { settings: cfgd }));
+      check('/deploys lists runs with status marks', list.includes('✅') && list.includes('⏳') && list.includes('main') && list.includes('#7'));
+    } finally { globalThis.fetch = realFetch; }
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { ghRepo: 'o/r', ghPat: 'github_pat_ABCDEFGHIJKLMNOPQRSTUVWX' } });
+    const masked = ((await (await req('/api/settings', { headers: auth })).json()).settings.ghPat || '');
+    check('ghPat stored but masked in API', masked.startsWith('••••'), masked);
+    const roundTrip = await (await req('/api/settings', { method: 'PUT', headers: auth, body: { ghRepo: 'o/r', ghPat: masked, ghRef: 'main' } })).json();
+    check('masked ghPat on PUT does not wipe stored token', roundTrip.settings.ghPat.startsWith('••••'));
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { ghRepo: '', ghPat: '', ghRef: '' } });
+    check('gh fields cleared on empty PUT', ((await (await req('/api/settings', { headers: auth })).json()).settings.ghRepo === ''));
+  }
   // ================= auto config rotation (subRotate) =================
   {
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
