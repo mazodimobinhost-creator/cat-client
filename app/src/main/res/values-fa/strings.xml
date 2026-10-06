@@ -929,6 +929,7 @@
     <string name="pip_saved_direct">ذخیره شد — پنل الان %1$d ProxyIP دارد و کانفیگ‌ها از آن‌ها استفاده می‌کنند</string>
     <string name="pip_save_failed">ذخیره نشد: %1$s</string>
     <string name="pip_wrong_password">رمز پنل اشتباه است</string>
+    <string name="scanner_unverified_only">هیچ آی‌پی تأییدشده‌ای روی شبکهٔ تو نیست — فقط سبزها (TLS-OK) ارسال می‌شوند تا کانفیگ مرده نسازی. اسکن را تکرار کن یا رنج را عوض کن.</string>
     <string name="scanner_panel_clipboard">%1$d آی‌پی تاییدشده کپی شد — اگر ارسال خودکار نشد: پنل → جعبه‌ابزار → بچسبان داخل «وارد کردن نتیجهٔ اسکن»</string>
     <string name="scanner_panel_saved">اضافه شد — پنل الان %1$d آی‌پی تمیز دارد؛ پین‌شده‌ها روی پورتِ اسکن‌شده می‌مانند</string>
     <string name="scanner_panel_zero">۰ تا اضافه نشد — پنل را به ۶.۸ به بالا آپدیت کن (بنر یا «⬆ آپدیت پنل») و دوباره بفرست</string>

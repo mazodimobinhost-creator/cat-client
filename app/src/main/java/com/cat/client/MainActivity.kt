@@ -6136,9 +6136,13 @@ class MainActivity : Activity() {
 
     private fun sendScanToPanel() {
         val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
-        val verified = source.filter { it.tlsOk }.ifEmpty { source }
+        // ONLY IPs whose TLS handshake actually passed ON THIS NETWORK are sent
+        // (checked → then → panel). No unchecked fallback: an unverified IP in
+        // the panel produces dead 💦 configs, which is exactly what the user
+        // complained about («پروکسی آی‌پیا کار نمی‌کنن»).
+        val verified = source.filter { it.tlsOk }
         if (verified.isEmpty()) {
-            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.scanner_unverified_only, Toast.LENGTH_LONG).show()
             return
         }
         val lines = verified.take(60).map { it.panelLine }

@@ -930,6 +930,7 @@
     <string name="pip_saved_direct">Saved — panel now has %1$d ProxyIP(s); new configs use them</string>
     <string name="pip_save_failed">Could not save: %1$s</string>
     <string name="pip_wrong_password">Wrong panel password</string>
+    <string name="scanner_unverified_only">No TLS-verified IPs on YOUR network yet — only green (TLS-OK) IPs are sent, so no dead configs. Re-scan or change the range.</string>
     <string name="scanner_panel_clipboard">%1$d verified IPs copied — if the auto-send fails: Panel → Tools → paste into «Import scan results»</string>
     <string name="scanner_panel_saved">Added — panel now has %1$d clean IP(s); pinned ones keep their scanned port</string>
     <string name="scanner_panel_zero">0 added — update your panel to 6.8+ (banner or ⬆ Update Panel), then resend</string>
