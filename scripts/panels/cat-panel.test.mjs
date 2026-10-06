@@ -358,6 +358,36 @@ let user;
     const noEch = T.buildConfigEntries(HOST, ENV, T.normalizeSettings({ tlsPorts: [443], plainEnabled: false, useDefaults: false, includeHost: false, entryLimit: 10 }), MASTER, null, {}).entries[0];
     check('no ech param by default', !decodeURIComponent(noEch.link).includes('ech='));
   }
+  // ================= WARP-in-WARP + external subs (round 26) =================
+  {
+    const w0 = T.normalizeSettings({});
+    check('warp defaults off + extSubs empty', w0.warp.mode === 'off' && Array.isArray(w0.extSubs) && w0.extSubs.length === 0);
+    check('warp normalize: junk keys kept shape-safe', (() => { const w = T.normalizeSettings({ warp: { mode: 'chain', secretKey: 'x'.repeat(200), publicKey: 'pub123', reserved: '12,34,999,abc,56', endpoint: '' } }).warp; return w.mode === 'chain' && w.secretKey.length === 64 && w.reserved === '12,34,56' && w.endpoint.includes('engage.cloudflareclient.com:2408'); })());
+    check('warp off => no outbounds', T.buildWarpOutbounds(T.normalizeSettings({})).length === 0);
+    const won = T.buildWarpOutbounds(T.normalizeSettings({ warp: { mode: 'on', secretKey: 'SK==', publicKey: 'PK==', reserved: '1,2,3' } }));
+    check('warp on => single wireguard outbound w/ reserved array', won.length === 1 && won[0].tag === 'warp' && won[0].settings.peers[0].publicKey === 'PK==' && won[0].settings.reserved.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) && won[0].streamSettings.sockopt.dialerProxy === undefined, JSON.stringify(won).slice(0, 200));
+    const wch = T.buildWarpOutbounds(T.normalizeSettings({ warp: { mode: 'chain', secretKey: 'SK==', publicKey: 'PK==' } }));
+    check('warp chain => hub + inner dialerProxy', wch.length === 2 && wch[0].tag === 'warp' && wch[0].streamSettings.sockopt.dialerProxy === 'warp-hub' && wch[1].tag === 'warp-hub', JSON.stringify(wch).slice(0, 200));
+    const sw = T.normalizeSettings({ warp: { mode: 'on', secretKey: 'SK==', publicKey: 'PK==' }, useDefaults: false, includeHost: false, entryLimit: 4, tlsPorts: [443] });
+    const xc = T.buildXrayConfigs(HOST, ENV, sw, MASTER, null, {});
+    check('xray config dials through warp (sockopt dialerProxy)', xc.length > 0 && JSON.stringify(xc[0]).includes('"dialerProxy":"warp"'), xc[0] && JSON.stringify(xc[0]).slice(0, 260));
+    const xcCh = T.buildXrayConfigs(HOST, ENV, T.normalizeSettings({ warp: { mode: 'chain', secretKey: 'SK==', publicKey: 'PK==' }, useDefaults: false, includeHost: false, entryLimit: 4, tlsPorts: [443] }), MASTER, null, {});
+    check('chain mode: warp-hub present + inner dialerProxy', JSON.stringify(xcCh[0]).includes('"warp-hub"') && JSON.stringify(xcCh[0]).includes('"dialerProxy":"warp-hub"'));
+    check('subQuery parses noext', T.subQuery(new URL('https://x/sub?noext=1')).noext === true && T.subQuery(new URL('https://x/sub')).noext === false);
+    const exts = T.normalizeSettings({ extSubs: [{ name: '', url: 'http://insecure.dev/x' }, { name: 'ok', url: 'https://ok.dev/sub' }, { name: 'x'.repeat(50), url: 'https://ok2.dev/s' }, { name: 'n3', url: 'ftp://nope' }] });
+    check('extSubs normalize: https-only, caps, name default', exts.extSubs.length === 2 && exts.extSubs[0].name === 'ok' && exts.extSubs[1].name.length <= 40, JSON.stringify(exts.extSubs));
+    const uris = T.parseExtUris(Buffer.from('vless://a@1.2.3.4:443?id=x#one\nvless://b@5.6.7.8:443?id=y#two\njunk-line-without-scheme\n' + 'vless://c@9.9.9.9:443?id=z#three').toString('base64'));
+    check('parseExtUris: b64, scheme filter, cap 100', uris.length === 3 && uris[0].startsWith('vless://') && (() => { const many = T.parseExtUris(Array.from({ length: 150 }, (_, i) => 'vless://x@1.1.1.1:443?id=' + i + '#c' + i).join('\n')); return many.length === 100; })());
+    check('/ext route gated without key', (await (await req('/ext/1', { env: ENV })).status) === 404);
+    check('/ext unknown index => 404', (await (await req('/ext/5/' + MASTER, { env: ENV })).status) === 404);
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { extSubs: [{ name: 'test', url: 'https://test.invalid/sub' }] } });
+    const subNoExt = await (await req('/sub/' + MASTER + '?noext=1', { env: ENV })).text();
+    check('sub still works with extSubs + noext', subNoExt.split('\n')[0].includes('vless://'));
+    check('sub without noext survives dead ext sub (allSettled)', ((await (await req('/sub/' + MASTER, { env: ENV })).text()).split('\n')[0] || '').includes('vless://'));
+    const extRoute = await req('/ext/1/' + MASTER, { env: ENV });
+    check('/ext/<n>/<uuid> fetches (or clean-fails offline)', extRoute.status === 200 ? (extRoute.headers.get('subscription-userinfo') || '').includes('total=0') : extRoute.status === 502, extRoute.status);
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { extSubs: [] } });
+  }
   // ================= auto config rotation (subRotate) =================
   {
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');

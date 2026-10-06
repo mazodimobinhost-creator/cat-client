@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.18.0';
+const CAT_PANEL_VERSION = '6.19.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
@@ -359,6 +359,18 @@ function normalizeSettings(raw) {
   s.proxyRepos = sanitizeProxyRepos(s.proxyRepos);
   s.subRotate = ['off', 'fetch', 'daily'].includes(s.subRotate) ? s.subRotate : 'fetch';
   s.pinnedIps = uniq((Array.isArray(s.pinnedIps) ? s.pinnedIps : splitCsv(s.pinnedIps)).map((x) => { const t = splitAddrTag(x); let a = t.addr; const pin = pinnedPortOf(a); if (pin) a = a.slice(0, a.lastIndexOf(':')); return a.replace(/^\[/, '').replace(/\]$/, ''); })).slice(0, 5);
+  const wRaw = (s.warp && typeof s.warp === 'object') ? s.warp : {};
+  s.warp = {
+    mode: ['off', 'on', 'chain'].includes(wRaw.mode) ? wRaw.mode : 'off',
+    secretKey: String(wRaw.secretKey || '').trim().slice(0, 64),
+    publicKey: String(wRaw.publicKey || '').trim().slice(0, 64),
+    reserved: (() => { const parts = String(wRaw.reserved || '').split(',').map((x) => parseInt(x, 10)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 255).slice(0, 3); return parts.length === 3 ? parts.join(',') : ''; })(),
+    endpoint: String(wRaw.endpoint || '').trim().slice(0, 120) || 'engage.cloudflareclient.com:2408',
+  };
+  s.extSubs = (Array.isArray(s.extSubs) ? s.extSubs : [])
+    .filter((x) => x && typeof x === 'object' && /^https:\/\/[^\s"'<>]+$/.test(String(x.url || '')))
+    .slice(0, 5)
+    .map((x, i) => ({ name: String(x.name || 'ext' + (i + 1)).slice(0, 40), url: String(x.url).trim() }));
   s.useDefaults = s.useDefaults !== false;
   s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.tlsPorts.length) s.tlsPorts = [443];
@@ -1768,6 +1780,10 @@ const DEFAULT_PROXY_REPOS = [
   { id: 'xgonce', name: 'XGonce ProxyIP (CSV, 6h, speed-sorted)', url: 'https://raw.githubusercontent.com/xgonce/Cloudflare_IP/main/result.csv', kind: 'csv-proxy', enabled: true },
   { id: 'wanwu-de', name: 'Wanwu ProxyIP · Germany', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/DE.txt', kind: 'txt', cc: 'DE', enabled: true },
   { id: 'wanwu-gb', name: 'Wanwu ProxyIP · UK', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/GB.txt', kind: 'txt', cc: 'GB', enabled: true },
+  { id: 'wanwu-us', name: 'Wanwu ProxyIP · USA', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/US.txt', kind: 'txt', cc: 'US', enabled: true },
+  { id: 'wanwu-tr', name: 'Wanwu ProxyIP · Türkiye', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/TR.txt', kind: 'txt', cc: 'TR', enabled: true },
+  { id: 'wanwu-fr', name: 'Wanwu ProxyIP · France', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/FR.txt', kind: 'txt', cc: 'FR', enabled: true },
+  { id: 'wanwu-nl', name: 'Wanwu ProxyIP · Netherlands', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/NL.txt', kind: 'txt', cc: 'NL', enabled: true },
 ];
 function sanitizeProxyRepos(list) {
   const src = Array.isArray(list) && list.length ? list : DEFAULT_PROXY_REPOS;
@@ -1923,6 +1939,67 @@ async function echConfigList(sni, env) {
     await kv.put(ECH_CACHE_KEY, JSON.stringify(cached));
     return ech;
   } catch { return (hit && hit.ech) || ''; }
+}
+
+/** WARP (wireguard) outbounds for the Xray JSON output. Keys are the USER'S
+ * OWN (from wgcf / Aether export) — the worker never registers with Cloudflare,
+ * so nothing here can trip abuse systems. mode: off | on (vless → warp) |
+ * chain (vless → warp → warp-hub = WARP-in-WARP). */
+function buildWarpOutbounds(settings) {
+  const w = (settings && settings.warp) || {};
+  if (w.mode === 'off' || !w.secretKey || !w.publicKey) return [];
+  const mk = (tag, dialerProxy) => {
+    const o = {
+      tag,
+      protocol: 'wireguard',
+      settings: {
+        secretKey: w.secretKey,
+        peers: [{ publicKey: w.publicKey, endpoint: w.endpoint || 'engage.cloudflareclient.com:2408' }],
+        address: ['172.16.0.2/32', 'fd01:5ca1:ab1e:80fa:ab85:6e2a:2b09:2b04/128'],
+        mtu: 1280,
+      },
+      streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } },
+    };
+    if (w.reserved && /^[0-9]+(,[0-9]+)*$/.test(w.reserved)) o.settings.reserved = w.reserved.split(',').map(Number).filter((n) => n >= 0 && n <= 255).slice(0, 3);
+    if (dialerProxy) o.streamSettings.sockopt.dialerProxy = dialerProxy;
+    return o;
+  };
+  const out = [mk('warp', w.mode === 'chain' ? 'warp-hub' : undefined)];
+  if (w.mode === 'chain') out.push(mk('warp-hub', undefined));
+  return out;
+}
+
+/** External subscriptions: fetch-through with a 12h KV cache and a hard size
+ * cap — lets clients pull e.g. raw.githubusercontent.com subs THROUGH the
+ * panel's own domain (raw GitHub is often unreachable from Iran). */
+const EXT_CACHE_PREFIX = 'cat_ext_';
+const EXT_TTL_MS = 12 * 3600 * 1000;
+const EXT_MAX_BYTES = 384 * 1024;
+async function extSubContent(env, url, fetchImpl) {
+  const kv = kvBinding(env);
+  const key = EXT_CACHE_PREFIX + (await sha256Hex(url)).slice(0, 24);
+  if (kv) { try { const v = await kv.get(key); if (v) { const j = JSON.parse(v); if (Date.now() - (j.ts || 0) < EXT_TTL_MS && j.body) return j.body; } } catch { } }
+  const F = fetchImpl || fetch;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const res = await F(url, { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res || !res.ok) throw new Error('http ' + (res && res.status));
+    const body = String(await res.text()).slice(0, EXT_MAX_BYTES);
+    if (kv) { try { await kv.put(key, JSON.stringify({ ts: Date.now(), body })); } catch { } }
+    return body;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+/** URI lines out of an external sub (base64 or plain). */
+const EXT_URI_SCHEMES = /^(?:vless|vmess|trojan|ss|ssr|hysteria|hysteria2|hy2|tuic|socks|socks5|snell|anytls|wireguard|juicity|mieru):/;
+function parseExtUris(body) {
+  let text = String(body || '');
+  if (!EXT_URI_SCHEMES.test(text)) { try { text = b64decode(text); } catch { } }
+  return text.split(/\r?\n/).map((l) => l.trim()).filter((l) => EXT_URI_SCHEMES.test(l)).slice(0, 100);
 }
 
 function effectiveSni(host, env, settings) {
@@ -2148,6 +2225,7 @@ function subQuery(url) {
     fam: String(q.get('fam') || '').toLowerCase(),
     rotate: String(q.get('rotate') || '').toLowerCase(),
     ech: q.get('ech') === '1',
+    noext: q.get('noext') === '1' || q.get('noext') === 'true',
   };
 }
 
@@ -2328,12 +2406,14 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
   if (settings.blockAds) rules.push({ type: 'field', domain: ['geosite:category-ads-all'], outboundTag: 'block' });
   if (settings.bypassIran) rules.push({ type: 'field', domain: ['geosite:category-ir', 'domain:ir'], outboundTag: 'direct' }, { type: 'field', ip: ['geoip:ir'], outboundTag: 'direct' });
   rules.push({ type: 'field', port: '0-65535', outboundTag: 'proxy' });
+  const warpOut = buildWarpOutbounds(settings);
+  const fragOn = !!(frag && frag.enabled);
   const one = (e) => {
     const stream = {
       network: 'ws',
       security: e.tls ? 'tls' : 'none',
       wsSettings: { path: e.proto === 'vless' ? ctx.paths.vlessPath : ctx.paths.trojanPath, headers: { Host: ctx.host } },
-      sockopt: frag.enabled ? { dialerProxy: 'fragment', tcpKeepAliveIdle: 100, tcpNoDelay: true } : { tcpKeepAliveIdle: 100, tcpNoDelay: true },
+      sockopt: (function () { const so = { tcpKeepAliveIdle: 100, tcpNoDelay: true }; const dial = warpOut.length ? 'warp' : (fragOn ? 'fragment' : undefined); if (dial) so.dialerProxy = dial; return so; })(),
     };
     if (e.tls) {
       stream.tlsSettings = { serverName: ctx.sni, fingerprint: ctx.fp, alpn: settings.alpn.split(','), allowInsecure: false };
@@ -2343,6 +2423,13 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
       ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
       : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx.trojanPass, level: 8 }] }, streamSettings: stream };
     const outbounds = [proxy];
+    if (warpOut.length) {
+      // warp dials either the hub (WARP-in-WARP) or the fragment/edge directly.
+      for (const wo of warpOut) {
+        if (wo.tag === 'warp' && wo.streamSettings.sockopt && !wo.streamSettings.sockopt.dialerProxy && fragOn) wo.streamSettings.sockopt.dialerProxy = 'fragment';
+        outbounds.push(wo);
+      }
+    }
     if (frag.enabled) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
     outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
     return {
@@ -2500,7 +2587,19 @@ async function subResponse(kind, host, env, settings, uuid, user, url) {
     });
   }
   const { entries } = buildConfigEntries(host, env, settings, uuid, user, q);
-  const body = entries.map((e) => e.link).join('\n') + '\n';
+  let body = entries.map((e) => e.link).join('\n') + '\n';
+  // External subs (URI lists) are appended AFTER our own configs — ?noext=1 or
+  // single-exit links (?addr/?limit) skip them.
+  if (!q.noext && !(q.addr && q.addr.length) && !q.limit && (settings.extSubs || []).length && kind !== 'clash' && kind !== 'singbox') {
+    const results = await Promise.allSettled(settings.extSubs.slice(0, 5).map((x) => extSubContent(env, x.url)));
+    const lines = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      for (const l of parseExtUris(r.value)) { lines.push(l); if (lines.length >= 100) break; }
+      if (lines.length >= 100) break;
+    }
+    if (lines.length) body += lines.join('\n') + '\n';
+  }
   const wantB64 = kind === 'sub64' || (url && url.searchParams.get('b64') === '1');
   return text(wantB64 ? b64encode(body) : body, 200, headers);
 }
@@ -3061,6 +3160,27 @@ async function handleRequest(request, env, ctx) {
   const settings = await readSettings(env);
   const masterUuid = await resolveUuid(host, env);
 
+  /* external-sub fetch-through: /ext/<n>/<key> — key = master uuid or a user
+   * token (same gating as /sub). Content cached 12h, size-capped, so clients
+   * can pull blocked raw-GitHub subs through the panel's own domain. */
+  const extm = path.match(/^\/ext\/([0-9]+)(?:\/([^/?]+))?\/?$/);
+  if (extm) {
+    const idx = Math.min(4, Math.max(0, Number(extm[1]) - 1));
+    const key = (extm[2] || url.searchParams.get('k') || '').toLowerCase();
+    const own = key === masterUuid;
+    let subUser = null;
+    if (!own && key && isUuid(key)) subUser = findUser(await readUsers(env), key);
+    if (!own && !subUser) return text('not found', 404);
+    const sub = settings.extSubs[idx];
+    if (!sub) return text('no such ext sub', 404);
+    try {
+      const content = await extSubContent(env, sub.url);
+      return text(content, 200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*', 'subscription-userinfo': 'total=0' });
+    } catch (e) {
+      return json({ ok: false, error: 'fetch', message: String((e && e.message) || e) }, 502);
+    }
+  }
+
   /* master subscriptions: /sub/<uuid> /sub64/<uuid> /clash/<uuid> /singbox/<uuid> */
   const master = path.match(/^\/(sub|sub64|clash|singbox|xray)(?:\/([^/]+))?\/?$/);
   if (master) {
@@ -3601,6 +3721,23 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   </div>
   <div class="row" style="margin-top:8px"><button class="btn sm" id="bFragCopy" type="button">📋 <span data-i="copy_all"></span></button></div>
  </div>
+ <div class="card sec">
+  <h2><span class="ic">🧬</span><span data-i="aether_title"></span></h2>
+  <div class="note i small" data-i="aether_hint"></div>
+  <label data-i="aether_mode"></label>
+  <div class="pick" id="aePick"><button type="button" data-v="warp">WARP</button><button type="button" data-v="gool" class="on" data-i="aether_gool"></button><button type="button" data-v="masque">MASQUE/H2</button></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="aether_name"></label><input id="aeName" value="Omni WARP-in-WARP"></div>
+   <div><label data-i="aether_family"></label><div class="pick" id="aeFam"><button type="button" data-v="both" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
+  </div>
+  <label data-i="b_link" style="margin-top:12px"></label>
+  <input id="aeLink" readonly class="mono" dir="ltr" value="">
+  <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+   <button class="btn p" id="aeCopy" type="button">📋 <span data-i="copy_all"></span></button>
+   <button class="btn" id="aeQr" type="button">▦ QR</button>
+   <a class="btn" id="aeOpen" href="#">⚡ <span data-i="aether_open"></span></a>
+  </div>
+ </div>
 </section>
 
 <!-- ================= NODES (clean IPs) ================= -->
@@ -3647,12 +3784,46 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= SETTINGS ================= -->
 <section class="view" id="v-spoof">
+ <form class="card sec frm" id="fWarp">
+  <h2><span class="ic">🌐</span><span data-i="warp_title"></span></h2>
+  <div class="note i small" data-i="warp_hint"></div>
+  <label data-i="warp_mode"></label>
+  <div class="pick" id="warpMode"><button type="button" data-v="off" data-i="warp_off"></button><button type="button" data-v="on">WARP</button><button type="button" data-v="chain" data-i="warp_chain"></button></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="warp_sk"></label><input name="secretKey" class="mono" dir="ltr" autocomplete="off"></div>
+   <div><label data-i="warp_pk"></label><input name="publicKey" class="mono" dir="ltr" autocomplete="off"></div>
+  </div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="warp_reserved"></label><input name="reserved" class="mono" dir="ltr" placeholder="12,34,56"></div>
+   <div><label data-i="warp_endpoint"></label><input name="endpoint" class="mono" dir="ltr" placeholder="engage.cloudflareclient.com:2408"></div>
+  </div>
+  <div class="note w small" style="margin-top:10px" data-i="warp_warn"></div>
+  <div class="row" style="margin-top:12px"><button class="btn p" type="submit" data-i="save"></button></div>
+ </form>
+ <div class="card sec">
+  <h2><span class="ic">🔀</span><span data-i="ext_title"></span></h2>
+  <div class="small mute" data-i="ext_hint"></div>
+  <div class="res" id="extRows" style="margin-top:10px"></div>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+   <button class="btn sm" id="btnExtAdd" type="button">➕ <span data-i="ext_add"></span></button>
+   <button class="btn sm p" id="btnExtPreset" type="button">⚡ <span data-i="ext_preset"></span></button>
+  </div>
+  <div class="note i small" id="extCoreNote" style="margin-top:8px"></div>
+  <div class="small dim mono" dir="ltr" id="extLinkDemo" style="margin-top:8px"></div>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">🕵️</span><span data-i="mitm_title"></span></h2>
+  <div class="small mute" data-i="mitm_body"></div>
+  <div class="row" style="margin-top:10px"><a class="btn sm" href="https://github.com/patterniha/MITM-DomainFronting" target="_blank" rel="noopener">📖 GitHub — MITM + DomainFronting</a></div>
+ </div>
  <div class="card sec">
   <h2><span class="ic">🛰️</span><span data-i="pp_title"></span><span class="chip v" id="ppState">…</span><button class="btn sm" id="ppRefresh" type="button" style="margin-inline-start:auto">⟳ <span data-i="rp_refresh"></span></button></h2>
   <div class="note i small" data-i="pp_hint"></div>
   <div class="res" id="ppRows" style="margin-top:10px"></div>
   <label data-i="pp_cc"></label>
   <div class="ipl" id="ppCcs"></div>
+  <label data-i="pp_countries" style="margin-top:10px"></label>
+  <div class="ipl" id="ppCountries"></div>
   <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
    <button class="btn sm p" id="ppAuto" type="button"></button>
    <button class="btn sm" id="ppAdd" type="button">➕ <span data-i="rp_add"></span></button>
@@ -3823,7 +3994,7 @@ fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_user
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
-scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',b_ech:'ECH (رمزگذاری ClientHello — سبک تیکه‌های ECH/SIIT)',b_ech_off:'خاموش',ech_none:'SNI فعلی ECH ندارد (یا دسترسی DNS نبود) — خاموش نگه دار',rot_btn_off:'ایپی ثابت (چرخش روشنه — بزن تا ثابت شه)',rot_btn_on:'ایپی ثابته (بزن تا چرخش روشن شه)',rot_fixed_lbl:'ایپی ثابت',rot_rot_lbl:'چرخش',rot_now_fixed:'📌 چرخش خاموش شد — ایپی‌ها ثابت ماندند',rot_now_rotating:'⚡ چرخش روشن شد — هر آپدیت ست تازه',ip_pin:'پین به‌عنوان ایپی ثابت (همیشه اول ساب)',ip_unpin:'برداشتن پین',pin_saved:'📌 این آی‌پی همیشه اول ساب می‌ماند — حتی با چرخش',pin_removed:'پین برداشته شد',s_rot:'چرخش خودکار کانفیگ‌ها',s_rot_off:'ثابت (مثل BPB)',s_rot_fetch:'هر بروزرسانی',s_rot_daily:'روزانه',s_rot_hint:'با هر آپدیت ساب، چیدمان آی‌پی‌ها و شمارهٔ کانفیگ‌ها عوض می‌شود — هر بار ستِ تازه می‌گیری. «روزانه» در طول روز ثابت است؛ «ثابت» همان ترتیب همیشگی است.',pp_title:'مخزن‌های ProxyIP (آپدیت ۱۲ساعته)',pp_hint:'فیدهای عمومی ProxyIP (آی‌پی یا دامنه)؛ هر ۱۲ ساعت خودکار بروز می‌شوند. ProxyIP = IP واسط برای بازکردن سایت‌های کلادفلریِ روی همان IP؛ خراب‌ها بعد از ۳ گزارش حذف و جایگزین می‌شوند.',pp_cc:'کشورهای استخر ProxyIP — + = افزودن ۸ عدد آن کشور به لیست ProxyIP پنل',pp_auto:'افزودن خودکار ۶ ProxyIP تازه به ساب‌ها',pp_src:'منابع: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'گزارش مرده: POST /api/prepos {action:"health",dead:[…]} ×۳ — بعدش جایگزین می‌شود.',rp_title:'مخزن‌ها (آپدیت ۱۲ساعته)',rp_refresh:'بروزرسانی',rp_hint:'فیدهای عمومی آی‌پی تمیز؛ هر ۱۲ ساعت خودکار بروز می‌شوند (cron کلادفلر + باز شدن پنل). مخزن خراب‌ها بعد از ۳ گزارش از استخر حذف و در بروزرسانی بعدی جایگزین می‌شود.',rp_cc:'کشورهای استخر مخزن — + = افزودن ۱۶ آی‌پی آن کشور به لیست پنل',rp_auto:'افزودن خودکار ۸ آی‌پی تازه به ساب‌ها',rp_add:'مخزن جدید',rp_add_url:'آدرس raw مخزن (https://…)',rp_add_name:'نام مخزن',rp_empty:'استخر مخزن خالی است — «بروزرسانی» را بزن.',rp_nokv:'بدون KV ذخیره نمی‌شود',rp_src:'منابع: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'گزارش آی‌پی مرده؟ سه بار «health» با POST /api/repos {action:"health",dead:[…]} — بعدش خودکار عوضش می‌کند.',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'مرورگر نمی‌تواند آی‌پی خام را تست کند (محدودیت SNI/گواهی) — برای آی‌پی خام از «اسکن با Cat Client» استفاده کن؛ تستِ مرورگر فقط دامنه‌ها را می‌سنجد.',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
+scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در مرورگر',scan_guide:'راهنمای اسکنرها',warp_title:'WARP روی خروجی Xray (کلیدهای خودت)',warp_hint:'اتصال به پنل داخل تونل WARP خودت می‌رود (آی‌پی واقعی‌ات حتی برای ورکر پنهان می‌شود). کلیدها را از wgcf یا خروجی Aether بردار — ورکر هیچ‌وقت با کلادفلر ثبت‌نام نمی‌کند (بن نمی‌شود). با روشن‌بودن WARP، فرگمنت کنار گذاشته می‌شود (تونل UDP است).',warp_mode:'حالت',warp_off:'خاموش',warp_chain:'WARP-در-WARP (زنجیره)',warp_sk:'SecretKey وایرگارد',warp_pk:'PublicKey همتا (Cloudflare)',warp_reserved:'reserved (اختیاری — با ویرگول)',warp_endpoint:'اندپوینت',warp_warn:'هیچ کلیدی را که مال خودت نیست اینجا نگذار. برای خاموش‌کردن موقت، حالت را «خاموش» بگذار — کلیدها می‌مانند.',ext_title:'ساب‌های خارجی (ترکیب با ساب تو)',ext_hint:'محتوای ساب‌های خارجی از دامنهٔ خود پنل سرو می‌شود (raw.github از ایران باز نمی‌شود) + اگر لیست URI باشد بعد از کانفیگ‌های خودت به ساب اضافه می‌شود. ?noext=1 = بدون این‌ها.',ext_add:'افزودن ساب',ext_preset:'ساب آمادهٔ سرورلس (PattNG)',ext_core:'ساب سرورلس به هستهٔ Xray تازه نیاز دارد (PattNG یا v2rayNG ≥2.2.6) و باید مستقیم در اپ ایمپورت شود، نه داخل ساب پنل.',ext_empty:'هنوز ساب خارجی نداری — پیش‌تنظیم سرورلس را امتحان کن.',ext_name:'نام',ext_url:'آدرس https ساب',mitm_title:'MITM + DomainFronting (سمت کلاینت)',mitm_body:'روشِ پترنیها برای باز کردن مستقیم یوتیوب/اینستاگرام/واتس‌اپ/فیسبوک/رددیت بدون سرور — راه‌اندازی روی خود دستگاه (ویندوز/لینوکس/مک/اندروید بدون روت) انجام می‌شود؛ سرتیفیکیت شخصی بساز و به سیستم اعتماد بده. راهنمای کامل در مخزن:',aether_title:'کانفیگ‌های ویژهٔ Aether (PattNG)',aether_hint:'لینک aether:// می‌سازد — با دکمهٔ باز کردن مستقیم در PattNG (هستهٔ Aether) باز می‌شود. WARP تک‌لایه، WARP-در-WARP (Gool) و MASQUE/HTTP-2 با فرگمنت.',aether_mode:'نوع',aether_gool:'WARP-در-WARP (Gool)',aether_name:'نام کانفیگ',aether_family:'خانوادهٔ آی‌پی',aether_open:'افزودن به PattNG',pp_countries:'افزودن مخزن کشوری (وان‌وو):',b_ech:'ECH (رمزگذاری ClientHello — سبک تیکه‌های ECH/SIIT)',b_ech_off:'خاموش',ech_none:'SNI فعلی ECH ندارد (یا دسترسی DNS نبود) — خاموش نگه دار',rot_btn_off:'ایپی ثابت (چرخش روشنه — بزن تا ثابت شه)',rot_btn_on:'ایپی ثابته (بزن تا چرخش روشن شه)',rot_fixed_lbl:'ایپی ثابت',rot_rot_lbl:'چرخش',rot_now_fixed:'📌 چرخش خاموش شد — ایپی‌ها ثابت ماندند',rot_now_rotating:'⚡ چرخش روشن شد — هر آپدیت ست تازه',ip_pin:'پین به‌عنوان ایپی ثابت (همیشه اول ساب)',ip_unpin:'برداشتن پین',pin_saved:'📌 این آی‌پی همیشه اول ساب می‌ماند — حتی با چرخش',pin_removed:'پین برداشته شد',s_rot:'چرخش خودکار کانفیگ‌ها',s_rot_off:'ثابت (مثل BPB)',s_rot_fetch:'هر بروزرسانی',s_rot_daily:'روزانه',s_rot_hint:'با هر آپدیت ساب، چیدمان آی‌پی‌ها و شمارهٔ کانفیگ‌ها عوض می‌شود — هر بار ستِ تازه می‌گیری. «روزانه» در طول روز ثابت است؛ «ثابت» همان ترتیب همیشگی است.',pp_title:'مخزن‌های ProxyIP (آپدیت ۱۲ساعته)',pp_hint:'فیدهای عمومی ProxyIP (آی‌پی یا دامنه)؛ هر ۱۲ ساعت خودکار بروز می‌شوند. ProxyIP = IP واسط برای بازکردن سایت‌های کلادفلریِ روی همان IP؛ خراب‌ها بعد از ۳ گزارش حذف و جایگزین می‌شوند.',pp_cc:'کشورهای استخر ProxyIP — + = افزودن ۸ عدد آن کشور به لیست ProxyIP پنل',pp_auto:'افزودن خودکار ۶ ProxyIP تازه به ساب‌ها',pp_src:'منابع: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'گزارش مرده: POST /api/prepos {action:"health",dead:[…]} ×۳ — بعدش جایگزین می‌شود.',rp_title:'مخزن‌ها (آپدیت ۱۲ساعته)',rp_refresh:'بروزرسانی',rp_hint:'فیدهای عمومی آی‌پی تمیز؛ هر ۱۲ ساعت خودکار بروز می‌شوند (cron کلادفلر + باز شدن پنل). مخزن خراب‌ها بعد از ۳ گزارش از استخر حذف و در بروزرسانی بعدی جایگزین می‌شود.',rp_cc:'کشورهای استخر مخزن — + = افزودن ۱۶ آی‌پی آن کشور به لیست پنل',rp_auto:'افزودن خودکار ۸ آی‌پی تازه به ساب‌ها',rp_add:'مخزن جدید',rp_add_url:'آدرس raw مخزن (https://…)',rp_add_name:'نام مخزن',rp_empty:'استخر مخزن خالی است — «بروزرسانی» را بزن.',rp_nokv:'بدون KV ذخیره نمی‌شود',rp_src:'منابع: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'گزارش آی‌پی مرده؟ سه بار «health» با POST /api/repos {action:"health",dead:[…]} — بعدش خودکار عوضش می‌کند.',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'مرورگر نمی‌تواند آی‌پی خام را تست کند (محدودیت SNI/گواهی) — برای آی‌پی خام از «اسکن با Cat Client» استفاده کن؛ تستِ مرورگر فقط دامنه‌ها را می‌سنجد.',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'آی‌پی یا دامنهٔ تمیز را اینجا بچسبان (هر خط یکی یا با کاما). پورت هم می‌پذیرد: 104.16.1.1:2053#DE — آن IP فقط و فقط روی همان پورتِ تأییدشده ساخته می‌شود، نه پورت‌های دیگر. از دکمهٔ ارسال به پنل در Cat Client یا هر اسکنر دیگری.',
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: skk.moe — آدرس پنل هرگز در SNI نمی‌رود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
@@ -3845,7 +4016,7 @@ en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_activ
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
-scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',b_ech:'ECH (encrypted ClientHello — ECH/SIIT-style configs)',b_ech_off:'Off',ech_none:'Current SNI has no ECH (or DNS unreachable) — keep it off',rot_btn_off:'Fixed IP (rotation ON — tap to freeze)',rot_btn_on:'Fixed IP active (tap to resume rotation)',rot_fixed_lbl:'Fixed IP',rot_rot_lbl:'Rotating',rot_now_fixed:'📌 Rotation off — IPs stay fixed',rot_now_rotating:'⚡ Rotation on — fresh set every update',ip_pin:'Pin as fixed IP (always first in sub)',ip_unpin:'Unpin',pin_saved:'📌 This IP stays first — even with rotation on',pin_removed:'Pin removed',s_rot:'Auto config rotation',s_rot_off:'Stable (BPB-like)',s_rot_fetch:'Every update',s_rot_daily:'Daily',s_rot_hint:'Each sub refresh reshuffles the IP order and numbering — a fresh set every time. Daily keeps one arrangement per day; Stable keeps the classic order.',pp_title:'ProxyIP repos (12h auto-update)',pp_hint:'Public ProxyIP feeds (IPs or domains); refreshed every 12h. A ProxyIP is the relay address for opening Cloudflare-fronted sites; IPs reported dead 3× are replaced.',pp_cc:'ProxyIP pool countries — + adds 8 of that country to the panel ProxyIP list',pp_auto:'Auto-append 6 fresh ProxyIPs to subs',pp_src:'Sources: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'Dead? POST /api/prepos {action:"health",dead:[…]} ×3 — replaced automatically.',rp_title:'Repos (12h auto-update)',rp_refresh:'Refresh',rp_hint:'Public clean-IP feeds; refreshed every 12 hours (Cloudflare cron + panel open). IPs reported dead 3× are dropped and replaced on the next refresh.',rp_cc:'Repo pool countries — + adds 16 IPs of that country to your panel list',rp_auto:'Auto-append 8 fresh IPs to subs',rp_add:'Add repo',rp_add_url:'Raw repo URL (https://…)',rp_add_name:'Repo name',rp_empty:'Repo pool is empty — hit Refresh.',rp_nokv:'no KV, not persisted',rp_src:'Sources: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'Dead IP? POST /api/repos {action:"health",dead:[…]} three times — it gets replaced automatically.',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'Browsers cannot probe raw IPs (SNI/certificate limits) — use “Scan with Cat Client” for raw IPs; the browser test only probes domains.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
+scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guide:'Scanner guide',warp_title:'WARP on Xray output (your own keys)',warp_hint:'Your connection to the panel rides inside your own WARP tunnel (your real IP stays hidden even from the worker). Grab keys from wgcf or an Aether export — the worker never registers with Cloudflare (nothing to ban). With WARP on, fragment is bypassed (the tunnel is UDP).',warp_mode:'Mode',warp_off:'Off',warp_chain:'WARP-in-WARP (chained)',warp_sk:'WireGuard SecretKey',warp_pk:'Peer PublicKey (Cloudflare)',warp_reserved:'reserved (optional, comma sep)',warp_endpoint:'Endpoint',warp_warn:'Never paste keys that are not yours. Set mode to Off to disable temporarily — keys are kept.',ext_title:'External subs (merged into yours)',ext_hint:'External sub content is served through the panel\u2019s own domain (raw.github is unreachable from Iran) + URI-list subs are appended after your own configs. ?noext=1 = skip them.',ext_add:'Add sub',ext_preset:'Serverless preset (PattNG)',ext_core:'The Serverless sub needs a recent Xray core (PattNG or v2rayNG ≥2.2.6) and must be imported directly into the app, not merged into the panel sub.',ext_empty:'No external subs yet — try the Serverless preset.',ext_name:'Name',ext_url:'https sub URL',mitm_title:'MITM + DomainFronting (client-side)',mitm_body:'Patterniha\u2019s method to open YouTube/Instagram/WhatsApp/Facebook/Reddit directly without a server — set up on the device (Win/Linux/mac/Android, no root). Create a PERSONAL certificate and trust it. Full guide:',aether_title:'Aether special configs (PattNG)',aether_hint:'Builds aether:// links — the open button launches PattNG (Aether core) directly. Single WARP, WARP-in-WARP (Gool) and MASQUE/HTTP-2 with fragment.',aether_mode:'Type',aether_gool:'WARP-in-WARP (Gool)',aether_name:'Config name',aether_family:'Address family',aether_open:'Add to PattNG',pp_countries:'Add a country repo (Wanwu):',b_ech:'ECH (encrypted ClientHello — ECH/SIIT-style configs)',b_ech_off:'Off',ech_none:'Current SNI has no ECH (or DNS unreachable) — keep it off',rot_btn_off:'Fixed IP (rotation ON — tap to freeze)',rot_btn_on:'Fixed IP active (tap to resume rotation)',rot_fixed_lbl:'Fixed IP',rot_rot_lbl:'Rotating',rot_now_fixed:'📌 Rotation off — IPs stay fixed',rot_now_rotating:'⚡ Rotation on — fresh set every update',ip_pin:'Pin as fixed IP (always first in sub)',ip_unpin:'Unpin',pin_saved:'📌 This IP stays first — even with rotation on',pin_removed:'Pin removed',s_rot:'Auto config rotation',s_rot_off:'Stable (BPB-like)',s_rot_fetch:'Every update',s_rot_daily:'Daily',s_rot_hint:'Each sub refresh reshuffles the IP order and numbering — a fresh set every time. Daily keeps one arrangement per day; Stable keeps the classic order.',pp_title:'ProxyIP repos (12h auto-update)',pp_hint:'Public ProxyIP feeds (IPs or domains); refreshed every 12h. A ProxyIP is the relay address for opening Cloudflare-fronted sites; IPs reported dead 3× are replaced.',pp_cc:'ProxyIP pool countries — + adds 8 of that country to the panel ProxyIP list',pp_auto:'Auto-append 6 fresh ProxyIPs to subs',pp_src:'Sources: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'Dead? POST /api/prepos {action:"health",dead:[…]} ×3 — replaced automatically.',rp_title:'Repos (12h auto-update)',rp_refresh:'Refresh',rp_hint:'Public clean-IP feeds; refreshed every 12 hours (Cloudflare cron + panel open). IPs reported dead 3× are dropped and replaced on the next refresh.',rp_cc:'Repo pool countries — + adds 16 IPs of that country to your panel list',rp_auto:'Auto-append 8 fresh IPs to subs',rp_add:'Add repo',rp_add_url:'Raw repo URL (https://…)',rp_add_name:'Repo name',rp_empty:'Repo pool is empty — hit Refresh.',rp_nokv:'no KV, not persisted',rp_src:'Sources: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'Dead IP? POST /api/repos {action:"health",dead:[…]} three times — it gets replaced automatically.',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'Browsers cannot probe raw IPs (SNI/certificate limits) — use “Scan with Cat Client” for raw IPs; the browser test only probes domains.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste clean IPs or domains (one per line or comma separated). A port may be pinned too: 104.16.1.1:2053#DE — that address is emitted only on its verified port. From Cat Client (Send to Cat Panel) or any other scanner.',
 ip_append:'Append',ip_replace:'Replace list',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: skk.moe — your panel host is never exposed in SNI',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_port_bad:'Invalid port — enter a number between 1 and 65535',
@@ -3890,7 +4061,7 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"');if(n)n.click();importIps(false)},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};
@@ -3950,7 +4121,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"spoof\"]');if(n)n.click();sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(s.subRotate||'fetch'))});renderRotBtn();
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"spoof\"]');if(n)n.click();sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(s.subRotate||'fetch'))});renderRotBtn();renderWarp();renderExt();
 if(srp&&!srp.__w){srp.__w=1;srp.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;$$('#subRotatePick button').forEach(function(x){x.classList.remove('on')});b.classList.add('on')})}
 $('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
@@ -4206,7 +4377,8 @@ function ppRender(){if(!PP.d)return;var box=$('#ppRows');if(!box)return;
   return c.join('')}).join('');
  var ccbox=$('#ppCcs');var ccs=PP.d.ccs||{};var keys=Object.keys(ccs).sort();
  ccbox.innerHTML=keys.length?keys.map(function(c){return '<span class="chip" style="font-size:11px">'+ccFlag(c)+' '+esc(ccName(c))+' <b>'+ccs[c]+'</b> <button class="btn sm" type="button" data-ppimp="'+esc(c)+'" style="padding:1px 8px;margin:0">+</button></span>'}).join(''):'<span class="small dim">'+esc(t('rp_empty'))+'</span>';
- var ab=$('#ppAuto');if(ab){ab.innerHTML=(PP.d.auto?'⚡ ':'⏸ ')+t('pp_auto');ab.className='btn sm '+(PP.d.auto?'p':'')}}
+ var ab=$('#ppAuto');if(ab){ab.innerHTML=(PP.d.auto?'⚡ ':'⏸ ')+t('pp_auto');ab.className='btn sm '+(PP.d.auto?'p':'')}
+ renderPpCountries()}
 function ppLoad(){return api('/api/prepos').then(function(j){PP.d=j;ppRender()}).catch(function(){})}
 function ppPost(b){return api('/api/prepos',{method:'POST',body:b})}
 if($('#ppRefresh'))$('#ppRefresh').addEventListener('click',function(){var b=this;b.disabled=true;ppPost({action:'refresh'}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()}).catch(function(){toast('✗',true)}).then(function(){b.disabled=false})});
@@ -4225,6 +4397,50 @@ function renderRotBtn(){var fixed=rotFixed();var b1=$('#btnRot');if(b1){b1.class
 function toggleRot(){var next=rotFixed()?'fetch':'off';api('/api/settings',{method:'PUT',body:{subRotate:next}}).then(function(j){if(!j.ok)throw 0;CFG.settings.subRotate=next;renderRotBtn();var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===next)});toast(next==='off'?t('rot_now_fixed'):t('rot_now_rotating'))}).catch(function(){toast('error',true)})}
 if($('#btnRot'))$('#btnRot').addEventListener('click',toggleRot);
 if($('#btnRot2'))$('#btnRot2').addEventListener('click',toggleRot);
+
+/* ---------- WARP form + ext subs + aether builder + country chips ---------- */
+function renderWarp(){var w=(CFG.settings.warp||{}),f=$('#fWarp');if(!f)return;$$('#warpMode button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(w.mode||'off'))});f.elements.secretKey.value=w.secretKey||'';f.elements.publicKey.value=w.publicKey||'';f.elements.reserved.value=w.reserved||'';f.elements.endpoint.value=w.endpoint||''}
+$$('#warpMode button').forEach(function(b){b.addEventListener('click',function(){$$('#warpMode button').forEach(function(x){x.classList.remove('on')});b.classList.add('on')})});
+if($('#fWarp'))$('#fWarp').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var mode=(document.querySelector('#warpMode button.on')||{getAttribute:function(){return 'off'}}).getAttribute('data-v');
+api('/api/settings',{method:'PUT',body:{warp:{mode:mode,secretKey:f.elements.secretKey.value.trim(),publicKey:f.elements.publicKey.value.trim(),reserved:f.elements.reserved.value.trim(),endpoint:f.elements.endpoint.value.trim()}}}).then(function(j){if(!j.ok)throw 0;CFG.settings.warp=j.settings.warp;toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted)}).catch(function(){toast('error',true)})});
+/* ext subs */
+var SERVERLESS_SUB='https://raw.githubusercontent.com/patterniha/Serverless-for-Iran/refs/heads/main/Subscription/Serverless-for-Iran.json';
+function renderExt(){var box=$('#extRows');if(!box)return;var list=CFG.settings.extSubs||[];
+ box.innerHTML=list.length?list.map(function(x,i){var link=location.origin+'/ext/'+(i+1)+'/'+CFG.uuid;
+ return '<div class="card" style="padding:10px 12px;margin-bottom:6px"><div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(x.name)+'</b><span style="flex:1"></span><button class="btn sm" type="button" data-copy="'+esc(link)+'">🔗 /ext/'+(i+1)+'</button><button class="btn sm" type="button" data-qr="'+esc(link)+'" data-qrl="'+esc(x.name)+'">▦</button><button class="btn sm r" type="button" data-extdel="'+i+'">✕</button></div><div class="small dim mono" dir="ltr" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.url)+'</div></div>'}).join('')
+ :'<span class="small dim">'+esc(t('ext_empty'))+'</span>';
+ var core=$('#extCoreNote');if(core){core.setAttribute('data-i','ext_core');core.textContent=t('ext_core');core.style.display=list.some(function(x){return /Serverless-for-Iran/.test(x.url||'')})?'':'none'}
+ var demo=$('#extLinkDemo');if(demo)demo.textContent=list.length?('/ext/1/'+CFG.uuid):''}
+if($('#btnExtAdd'))$('#btnExtAdd').addEventListener('click',function(){var name=prompt(t('ext_name'),'ext'+((CFG.settings.extSubs||[]).length+1));if(!name)return;var url=prompt(t('ext_url'));if(!url)return;
+ var list=(CFG.settings.extSubs||[]).slice(0,4);list.push({name:name,url:url});
+ api('/api/settings',{method:'PUT',body:{extSubs:list}}).then(function(j){if(!j.ok)throw 0;CFG.settings.extSubs=j.settings.extSubs;renderExt()}).catch(function(){toast('error',true)})});
+if($('#btnExtPreset'))$('#btnExtPreset').addEventListener('click',function(){
+ var list=(CFG.settings.extSubs||[]).filter(function(x){return x.url!==SERVERLESS_SUB});if(list.length>=5)list=list.slice(0,4);list.push({name:'Serverless-for-Iran (PattNG)',url:SERVERLESS_SUB});
+ api('/api/settings',{method:'PUT',body:{extSubs:list}}).then(function(j){if(!j.ok)throw 0;CFG.settings.extSubs=j.settings.extSubs;renderExt();toast('⚡ ✓')}).catch(function(){toast('error',true)})});
+document.addEventListener('click',function(e){var d=e.target.closest('[data-extdel]');if(!d)return;var i=Number(d.getAttribute('data-extdel'));var list=(CFG.settings.extSubs||[]).filter(function(x,xi){return xi!==i});
+ api('/api/settings',{method:'PUT',body:{extSubs:list}}).then(function(j){if(!j.ok)throw 0;CFG.settings.extSubs=j.settings.extSubs;renderExt()}).catch(function(){toast('error',true)})});
+/* aether builder */
+var AE={mode:'gool',fam:'both'};
+function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Omni';var ip=AE.fam==='both'?'&ip=both':('&ip='+AE.fam);var u='';
+ if(AE.mode==='warp')u='aether://?protocol=warp'+ip+'&scan=balanced#'+encodeURIComponent(name+' WARP');
+ else if(AE.mode==='gool')u='aether://?protocol=gool'+ip+'&scan=balanced#'+encodeURIComponent(name+' WARP-in-WARP');
+ else{var fm=JSON.stringify({tcp:[{type:'fragment',settings:{packets:'tlshello',lengths:['100-200'],interval:'5-10'}}]});
+  u='aether://?protocol=masque&transport=h2&fingerPrint=semi-python'+ip+'&fm='+encodeURIComponent(fm)+'#'+encodeURIComponent(name+' MASQUE/H2')}
+ $('#aeLink').value=u;$('#aeQr').setAttribute('data-qr',u);$('#aeQr').setAttribute('data-qrl',name);$('#aeOpen').href=u;return u}
+$$('#aePick button').forEach(function(b){b.addEventListener('click',function(){pickSel('aePick',b);AE.mode=b.getAttribute('data-v');aeBuild()})});
+$$('#aeFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('aeFam',b);AE.fam=b.getAttribute('data-v');aeBuild()})});
+if($('#aeName'))$('#aeName').addEventListener('input',aeBuild);
+if($('#aeCopy'))$('#aeCopy').addEventListener('click',function(){copy($('#aeLink').value)});
+if($('#aeBuild')===null){} /* noop */
+/* proxy repo country chips */
+var PP_COUNTRIES=['CA','CH','DE','FI','FR','GB','HK','IN','JP','KR','LV','NL','PL','RU','SE','SG','TW','US'];
+function renderPpCountries(){var box=$('#ppCountries');if(!box)return;var have={};(PP.d&&PP.d.repos||[]).forEach(function(r){have[r.id]=1});
+ box.innerHTML=PP_COUNTRIES.map(function(c){var added=have['wanwu-'+c.toLowerCase()];
+ return '<button type="button" class="btn sm'+(added?' p':'')+'" data-ppcc="'+c+'">'+ccFlag(c)+' '+(lang==='fa'?(CC_FA[c]||c):c)+(added?' ✓':'')+'</button>'}).join('')}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-ppcc]');if(!b)return;var c=b.getAttribute('data-ppcc');
+ var list=(PP.d&&PP.d.repos||[]).slice(0,9);if(list.some(function(r){return r.id==='wanwu-'+c.toLowerCase()}))return;
+ list.push({id:'wanwu-'+c.toLowerCase(),name:'Wanwu ProxyIP · '+c,url:'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/'+c+'.txt',kind:'txt',cc:c,enabled:true});
+ ppPost({action:'set',repos:list}).then(function(){return ppPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()})});
 
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
@@ -4279,6 +4495,7 @@ export const _testing = {
   __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
+  buildWarpOutbounds, parseExtUris, extSubContent,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup,
