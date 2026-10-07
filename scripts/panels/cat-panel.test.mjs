@@ -599,7 +599,13 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version bumped to 6.24.0', T.CAT_PANEL_VERSION === '6.24.0'); }
+  check('panel version is 6.24.1', T.CAT_PANEL_VERSION === '6.24.1');
+  const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
+  const nrmQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&limit=24'));
+  check('sub query tolerates &amp; links (Telegram copy)', ampQ.limit === 24 && ampQ.port.join() === '443,2053' && nrmQ.limit === 24, JSON.stringify(ampQ));
+  let fetched = ''; const fakeF = async (u) => { fetched = String(u); return { ok: true, text: async () => 'vless://x' }; };
+  await T.extSubContent({ CAT_PANEL_KV: new Map() }, 'https://x/sub?a=1&amp;b=2', fakeF);
+  check('ext sub fetch sanitizes &amp;', fetched === 'https://x/sub?a=1&b=2', fetched); }
 check('generated configs do not put panel host into sni param', !ctx.sni.includes(HOST), ctx.sni);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');

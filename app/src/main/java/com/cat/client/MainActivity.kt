@@ -1899,6 +1899,15 @@ class MainActivity : Activity() {
     private fun showAddSubscriptionDialog(initialSource: String = "", initialName: String = "") =
         showSubscriptionDialog(initialSource = initialSource, initialName = initialName)
 
+    /** Undo HTML-entity escaping (&amp; …) that survives copy/paste from Telegram and web pages. */
+    private fun unescapeHtmlEntities(s: String): String = s
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+
     /**
      * socks5/http link → panel FIXED EXIT (chain): every config the panel emits
      * then leaves through this server (stable IP & country). Panel picker +
@@ -2054,8 +2063,10 @@ class MainActivity : Activity() {
             .create()
         dialog.showCatClientDialog {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                // Links copied from Telegram/HTML surfaces arrive as &amp; —
+                // saving them verbatim silently breaks ports/limit params.
                 val name = nameInput.text.toString()
-                val source = sourceInput.text.toString()
+                val source = unescapeHtmlEntities(sourceInput.text.toString())
                 if (name.isBlank() || source.isBlank()) {
                     Toast.makeText(
                         this@MainActivity,

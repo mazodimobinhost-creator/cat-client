@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.24.0';
+const CAT_PANEL_VERSION = '6.24.1';
 /* Teal cat brand mark (replaces the legacy spider glyph) — n namespaces the
  * gradient id so several instances can live on one page. */
 function catLogo(n) {
@@ -384,7 +384,8 @@ function normalizeSettings(raw) {
   s.extSubs = (Array.isArray(s.extSubs) ? s.extSubs : [])
     .filter((x) => x && typeof x === 'object' && /^https:\/\/[^\s"'<>]+$/.test(String(x.url || '')))
     .slice(0, 5)
-    .map((x, i) => ({ name: String(x.name || 'ext' + (i + 1)).slice(0, 40), url: String(x.url).trim() }));
+    // Links copied from Telegram/HTML arrive with &amp; — sanitize at save time
+    .map((x, i) => ({ name: String(x.name || 'ext' + (i + 1)).slice(0, 40), url: String(x.url).trim().replace(/&amp;/g, '&') }));
   s.useDefaults = s.useDefaults !== false;
   s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.tlsPorts.length) s.tlsPorts = [443];
@@ -2006,6 +2007,7 @@ const EXT_CACHE_PREFIX = 'cat_ext_';
 const EXT_TTL_MS = 12 * 3600 * 1000;
 const EXT_MAX_BYTES = 384 * 1024;
 async function extSubContent(env, url, fetchImpl) {
+  url = String(url || '').replace(/&amp;/g, '&');
   const kv = kvBinding(env);
   const key = EXT_CACHE_PREFIX + (await sha256Hex(url)).slice(0, 24);
   if (kv) { try { const v = await kv.get(key); if (v) { const j = JSON.parse(v); if (Date.now() - (j.ts || 0) < EXT_TTL_MS && j.body) return j.body; } } catch { } }
@@ -2244,7 +2246,12 @@ function yamlStr(value) {
 
 function subQuery(url) {
   if (!url || !url.searchParams) return {};
-  const q = url.searchParams;
+  // Links copied from Telegram/HTML surfaces carry &amp; instead of & (the
+  // entity survives the clipboard) — every "amp;param" would be LOST here and
+  // ports/limit/strict silently ignored. Normalize before parsing.
+  const q = String(url.search || '').includes('&amp;')
+    ? new URLSearchParams(String(url.search).replace(/&amp;/g, '&'))
+    : url.searchParams;
   return {
     addr: splitCsv(q.get('addr') || q.get('ip') || ''),
     port: splitCsv(q.get('port') || q.get('ports') || '').map(Number).filter((p) => p > 0),
