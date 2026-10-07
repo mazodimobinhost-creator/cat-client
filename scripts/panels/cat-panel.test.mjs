@@ -592,11 +592,11 @@ let user;
     const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
-    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1', pxs[0] && pxs[0].name);
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1 · '), pxs[0] && pxs[0].name);
     check('PX config carries ?proxyip= relay path', pxs.every((e) => decodeURIComponent(e.link).includes('?proxyip=203.0.113.1')));
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
-    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
+    check('en locale → English country label', een.some((e) => e.name.startsWith('🎯 1. 🇩🇪 Germany · 203.0.113.1 · ')), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.27.0', T.CAT_PANEL_VERSION === '6.27.0');
+  check('panel version is 6.28.0', T.CAT_PANEL_VERSION === '6.28.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -652,6 +652,31 @@ let user;
     const bad = await T.withDomMap(env5, T.normalizeSettings({ ips: ['h.dev'], useDefaults: false, includeHost: false }));
     check('poisoned cache entry ignored (must be CF-range)', !T.addressList('h.dev', env5, bad).includes('6.6.6.6'));
   }
+  // beta46: SNI rotation — every TLS config a different fronting SNI
+  {
+    const st = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false });
+    const out = T.buildConfigEntries('panelx.workers.dev', ENV, st, 'u1', null, {});
+    const vls = out.entries.filter((e) => e.proto === 'vless' && e.tls);
+    const snis = vls.map((e) => e.sni);
+    const uniqSnis = new Set(snis);
+    check('SNI rotation: TLS configs carry >1 distinct SNI', uniqSnis.size > 1, uniqSnis.size + ' distinct: ' + [...uniqSnis].slice(0, 4).join(','));
+    check('SNI rotation: pool = defaults, never the panel host', [...uniqSnis].every((x) => T.DEFAULT_SNI_POOL.includes(x)) && !uniqSnis.has('panelx.workers.dev'), [...uniqSnis].join(','));
+    check('SNI rotation: remarks carry the SNI suffix', vls.some((e) => / · /.test(e.name)) === true, vls[0] && vls[0].name);
+    check('SNI rotation: links carry matching sni= param', vls.every((e) => e.link.includes('sni=' + e.sni)) === true);
+    const outP = T.buildConfigEntries('panelx.workers.dev', ENV, st, 'u1', null, { sni: 'time.is' });
+    const snisP = new Set(outP.entries.filter((e) => e.tls).map((e) => e.sni));
+    check('?sni= pins a single SNI', snisP.size === 1 && snisP.has('time.is'), [...snisP].join(','));
+    const stOff = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, sniRotate: false });
+    const snisOff = new Set(T.buildConfigEntries('panelx.workers.dev', ENV, stOff, 'u1', null, {}).entries.filter((e) => e.tls).map((e) => e.sni));
+    check('sniRotate=false → single shared SNI (skk.moe default)', snisOff.size === 1 && snisOff.has('skk.moe'), [...snisOff].join(','));
+    const pool = T.sniPoolOf('panelx.workers.dev', {}, { sniPool: ['panelx.workers.dev', 'skk.moe', 'BAD!!', 'www.visa.com', 'www.visa.com'] });
+    check('custom SNI pool: panel host + skk.moe + invalid filtered, deduped', pool.length === 1 && pool[0] === 'www.visa.com', pool.join(','));
+    const stD = T.normalizeSettings({ useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, proxyIps: ['203.0.113.1'], domMap: { 'panelx.workers.dev': '104.17.24.14' } });
+    const outD = T.buildConfigEntries('panelx.workers.dev', ENV, stD, 'u1', null, {});
+    const pxs = outD.entries.filter((e) => e.name.includes('🎯'));
+    check('🎯 configs dial the domMap IP of the worker host', pxs.length > 0 && pxs.every((e) => e.addr === '104.17.24.14'), pxs.map((e) => e.addr).join(','));
+  }
+
   const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
   const nrmQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&limit=24'));
   check('sub query tolerates &amp; links (Telegram copy)', ampQ.limit === 24 && ampQ.port.join() === '443,2053' && nrmQ.limit === 24, JSON.stringify(ampQ));
