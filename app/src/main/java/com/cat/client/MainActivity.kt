@@ -6244,7 +6244,17 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.scanner_unverified_only, Toast.LENGTH_LONG).show()
             return
         }
-        val lines = verified.take(60).map { it.panelLine }
+        val selected = verified.take(60)
+        val lines = selected.map { it.panelLine }
+        // Provenance travels WITH the IPs: every entry is tagged with its source
+        // (this scanner), the latency measured ON THIS NETWORK and the country
+        // seen by this device — the panel shows the badge next to each IP.
+        val ping = org.json.JSONObject()
+        val countries = org.json.JSONObject()
+        selected.forEach { r ->
+            ping.put(r.panelLine, r.pingMs)
+            if (!r.countryCode.isNullOrBlank()) countries.put(r.panelLine, r.countryCode)
+        }
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", lines.joinToString("\n")))
         // The paste-fallback is always available, so SAY it: Panel → Tools →
@@ -6287,7 +6297,7 @@ class MainActivity : Activity() {
                 val password = input.text?.toString().orEmpty()
                 activityScope.launch {
                     val replacing = replaceToggle.isChecked
-                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing) } }
+                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing, ping, countries) } }
                     result.onSuccess { n ->
                         val msg = when {
                             replacing -> R.string.scanner_panel_replaced
@@ -6310,7 +6320,7 @@ class MainActivity : Activity() {
      * new list size. Nothing is stored on the phone. Mirror of
      * ProxyIpScannerPage.pushToPanel.
      */
-    private fun pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false): Int {
+    private fun pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false, pingMs: org.json.JSONObject? = null, countries: org.json.JSONObject? = null): Int {
         fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
             val conn = URL("$base$path").openConnection() as HttpURLConnection
             conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
@@ -6326,6 +6336,10 @@ class MainActivity : Activity() {
         login.disconnect()
         val body = org.json.JSONObject().put("ips", org.json.JSONArray(lines))
         if (replace) body.put("replace", true)
+        // Source tag + per-IP latency measured from THIS network + country tags.
+        body.put("source", "scanner")
+        if (pingMs != null && pingMs.length() > 0) body.put("pingMs", pingMs)
+        if (countries != null && countries.length() > 0) body.put("countries", countries)
         val (post, postBody) = call("/api/ips", "POST", body.toString(), cookie)
         val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
         val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0

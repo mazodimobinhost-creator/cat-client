@@ -599,7 +599,20 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.24.1', T.CAT_PANEL_VERSION === '6.24.1');
+  check('panel version is 6.25.0', T.CAT_PANEL_VERSION === '6.25.0');
+  const prov = T.normalizeSettings({ ipSources: { '9.9.9.9:443': { src: 'scanner', ms: 210, at: 9 } } });
+  check('ip provenance (src+ping) persisted', !!(prov.ipSources && prov.ipSources['9.9.9.9:443'] && prov.ipSources['9.9.9.9:443'].src === 'scanner'), JSON.stringify(prov.ipSources));
+  {
+    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.77:443#DE'], source:'scanner', pingMs:{ '198.51.100.77:443#DE': 341 } } }); const j = await r.json();
+    check('ips import accepted provenance payload', j.ok === true && j.ips.includes('198.51.100.77:443'), JSON.stringify(j.ips));
+    const st3 = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    check('provenance badge stored (scanner + 341ms)', !!(st3.ipSources && st3.ipSources['198.51.100.77:443#DE'] && st3.ipSources['198.51.100.77:443#DE'].ms === 341), JSON.stringify(st3.ipSources));
+    const anon = await req('/api/ip-test', { method:'POST', body:{ ips:['1.2.3.4'] } }); check('ip-test 401 without session', anon.status === 401);
+    const emp = await req('/api/ip-test', { method:'POST', headers: auth, body:{ ips: [] } }); const je = await emp.json();
+    check('ip-test empty list → empty results', je.ok === true && Object.keys(je.results).length === 0);
+    const html2 = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.dev', 'u');
+    check('worker-side test button on IP list', html2.includes('btnIpTest') && html2.includes('ip_test_btn'));
+  }
   const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
   const nrmQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&limit=24'));
   check('sub query tolerates &amp; links (Telegram copy)', ampQ.limit === 24 && ampQ.port.join() === '443,2053' && nrmQ.limit === 24, JSON.stringify(ampQ));
