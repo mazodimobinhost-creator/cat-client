@@ -6256,10 +6256,16 @@ class MainActivity : Activity() {
             // users who changed their panel password).
             if (storedUuid.isNotBlank()) setText(storedUuid)
         }
+        val replaceToggle = android.widget.CheckBox(this).apply {
+            text = getString(R.string.scanner_replace_mode)
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+        }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
-            addView(input, LinearLayout.LayoutParams(-1, -2))
+            addView(replaceToggle, LinearLayout.LayoutParams(-1, -2))
+            addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.scanner_send_panel)
@@ -6269,9 +6275,11 @@ class MainActivity : Activity() {
             .setPositiveButton(android.R.string.ok) { dialog, _ ->
                 val password = input.text?.toString().orEmpty()
                 activityScope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines) } }
+                    val replacing = replaceToggle.isChecked
+                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing) } }
                     result.onSuccess { n ->
                         val msg = when {
+                            replacing -> R.string.scanner_panel_replaced
                             n > 0 -> R.string.scanner_panel_saved
                             else -> R.string.scanner_panel_zero
                         }
@@ -6291,7 +6299,7 @@ class MainActivity : Activity() {
      * new list size. Nothing is stored on the phone. Mirror of
      * ProxyIpScannerPage.pushToPanel.
      */
-    private fun pushIpsToPanel(base: String, password: String, lines: List<String>): Int {
+    private fun pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false): Int {
         fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
             val conn = URL("$base$path").openConnection() as HttpURLConnection
             conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
@@ -6305,7 +6313,9 @@ class MainActivity : Activity() {
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
-        val (post, postBody) = call("/api/ips", "POST", org.json.JSONObject().put("ips", org.json.JSONArray(lines)).toString(), cookie)
+        val body = org.json.JSONObject().put("ips", org.json.JSONArray(lines))
+        if (replace) body.put("replace", true)
+        val (post, postBody) = call("/api/ips", "POST", body.toString(), cookie)
         val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
         val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0
         post.disconnect()
@@ -8276,7 +8286,7 @@ class MainActivity : Activity() {
                         if (ok) setOnClickListener {
                             com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
                                 .setTitle(sni)
-                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy), getString(R.string.sni_action_panel))) { _, which ->
+                                .setItems(arrayOf(getString(R.string.sni_action_configs), getString(R.string.sni_action_scanner), getString(R.string.sni_action_copy), getString(R.string.sni_action_panel), getString(R.string.sni_action_main))) { _, which ->
                                     when (which) {
                                         0 -> { applySniOverride(sni); overrideStatus.text = getString(R.string.sni_override_current, sni) }
                                         1 -> {
@@ -8285,7 +8295,8 @@ class MainActivity : Activity() {
                                             Toast.makeText(this@MainActivity, getString(R.string.sni_scanner_applied, sni), Toast.LENGTH_SHORT).show()
                                         }
                                         2 -> (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("sni", sni))
-                                        else -> pushSniToPanel(sni)
+                                        3 -> pushSniToPanel(sni)
+                                        else -> pushSniMainToPanel(sni)
                                     }
                                 }
                                 .show()
@@ -8377,6 +8388,63 @@ class MainActivity : Activity() {
 
     /** "Add to panel" from the SNI scanner: merges the host into settings.extraSnis (🧬 SNI configs). */
     private fun pushSniToPanel(sni: String) = activityScope.launch { pushSniToPanelSuspend(sni) }
+
+    /** "Make panel main SNI": PUT /api/settings {sni} — every TLS config the panel emits re-fronts through this host (kills the skk.moe default in one tap). */
+    private fun pushSniMainToPanel(sni: String) = activityScope.launch { pushSniMainToPanelSuspend(sni) }
+
+    private suspend fun pushSniMainToPanelSuspend(sni: String) {
+        val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
+        if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        kotlinx.coroutines.withContext(Dispatchers.Main) {
+            val input = TextInputEditText(this@MainActivity).apply {
+                hint = getString(R.string.pip_password_hint)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                if (storedUuid.isNotBlank()) setText(storedUuid)
+            }
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(12), dp(20), 0)
+                addView(input, LinearLayout.LayoutParams(-1, -2))
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(getString(R.string.sni_main_title, sni))
+                .setMessage(base.removePrefix("https://"))
+                .setView(box)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.sni_action_main) { d, _ ->
+                    val password = input.text.toString()
+                    d.dismiss()
+                    activityScope.launch {
+                        val result = kotlinx.coroutines.withContext(Dispatchers.IO) { runCatching { pushSniMainToPanelApi(base, password, sni) } }
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, result.fold({ getString(R.string.sni_main_ok, sni) }, { getString(R.string.sni_main_fail, it.message ?: "?") }), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .show()
+        }
+    }
+
+    private fun pushSniMainToPanelApi(base: String, password: String, sni: String) {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+            val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("sni", sni).toString(), cookie)
+        val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+        put.disconnect()
+        if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+    }
 
     private suspend fun pushSniToPanelSuspend(sni: String) {
         val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')

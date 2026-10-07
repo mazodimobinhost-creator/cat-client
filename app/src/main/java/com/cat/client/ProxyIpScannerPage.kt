@@ -153,11 +153,25 @@ class ProxyIpScannerPage(
             listOf(3, 5, 8).forEach { s -> budgetRow.addView(chip("${s}s", timeoutMs == s * 1000) { timeoutMs = s * 1000; renderBudget() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) }) }
         }
         renderBudget()
+        val portRowHost = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val renderPorts: () -> Unit = {
+            portRowHost.removeAllViews()
+            listOf(443, 2053, 2083, 2087, 2096, 8443).forEach { p ->
+                val on = p in selectedPorts
+                portRowHost.addView(chip((if (on) "☑ " else "") + p, on) {
+                    if (on) { if (selectedPorts.size > 1) selectedPorts.remove(p) } else selectedPorts.add(p)
+                    renderPorts()
+                }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+            }
+        }
+        renderPorts()
         val inputs = card().apply {
             addView(text(ctx.getString(R.string.pip_sources), 15f, bold = true))
             addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(sourceRow) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(text(ctx.getString(R.string.pip_custom_title), 13f, bold = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
             addView(customInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(text(ctx.getString(R.string.pip_ports), 13f, bold = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(portRowHost) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(budgetRow) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         }
 
@@ -261,7 +275,12 @@ class ProxyIpScannerPage(
         }
     }
 
-    private fun selectedLines(): List<String> = visible().filter { it.selected }.map { if (it.port == 443) it.host else "${it.host}:${it.port}" }
+    // Port is NEVER dropped — the panel must dial the relay on exactly the port
+    // that passed the handshake (user rule: the port must never change).
+    private fun selectedLines(): List<String> = visible().filter { it.selected }.map {
+        val host = if (it.host.contains(':')) "[${it.host}]" else it.host
+        "$host:${it.port}"
+    }
 
     private fun copySelected() {
         val lines = selectedLines()
@@ -300,15 +319,24 @@ class ProxyIpScannerPage(
             setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
             if (storedUuid.isNotBlank()) setText(storedUuid)
         }
+        val replaceToggle = android.widget.CheckBox(ctx).apply {
+            text = ctx.getString(R.string.pip_replace_mode); textSize = 13f
+            setTextColor(palette.textPrimary)
+        }
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(12), dp(20), 0)
+            addView(replaceToggle, LinearLayout.LayoutParams(-1, -2))
+            addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
         com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
             .setTitle(ctx.getString(R.string.pip_save_direct))
             .setMessage(base.removePrefix("https://"))
-            .setView(input)
+            .setView(box)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.pip_save_direct) { _, _ ->
                 val password = input.text.toString()
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { pushToPanel(base, password, lines) } }
+                    val result = withContext(Dispatchers.IO) { runCatching { pushToPanel(base, password, lines, replaceToggle.isChecked) } }
                     result.onSuccess { n -> Toast.makeText(ctx, ctx.getString(R.string.pip_saved_direct, n), Toast.LENGTH_LONG).show() }
                         .onFailure { e -> Toast.makeText(ctx, ctx.getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show() }
                 }
@@ -317,7 +345,7 @@ class ProxyIpScannerPage(
         }
     }
 
-    private fun pushToPanel(base: String, password: String, lines: List<String>): Int {
+    private fun pushToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false): Int {
         fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
             val conn = URL("$base$path").openConnection() as HttpURLConnection
             conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
@@ -331,6 +359,14 @@ class ProxyIpScannerPage(
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(ctx.getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
+        if (replace) {
+            // Replace mode: the panel ProxyIP list becomes EXACTLY this selection.
+            val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("proxyIps", org.json.JSONArray(lines)).toString(), cookie)
+            val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+            put.disconnect()
+            if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+            return lines.size
+        }
         val (get, getBody) = call("/api/settings", "GET", null, cookie)
         val existing = ArrayList<String>()
         if (get.responseCode == 200) {
@@ -396,18 +432,22 @@ class ProxyIpScannerPage(
             var line = raw.trim().removePrefix("https://").removePrefix("http://").substringBefore('/').substringBefore('#').substringBefore(' ')
             if (line.isEmpty()) return
             var port = 443
-            Regex("^(.*):(\\d+)$").find(line)?.takeIf { !line.contains("::") || line.startsWith("[") }?.let { m -> line = m.groupValues[1].trim('[', ']'); port = m.groupValues[2].toInt() }
+            var explicit = false
+            Regex("^(.*):(\\d+)$").find(line)?.takeIf { !line.contains("::") || line.startsWith("[") }?.let { m -> line = m.groupValues[1].trim('[', ']'); port = m.groupValues[2].toInt(); explicit = true }
+            // An explicit :port survives untouched; a bare host is probed on every
+            // selected port — the result KEEPS exactly the port that answered.
+            fun put(h: String) { if (explicit) { out += h to port } else selectedPorts.ifEmpty { linkedSetOf(443) }.forEach { out += h to it } }
             val cidr = Regex("^(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)$").find(line)
             if (cidr != null) {
                 val bits = cidr.groupValues[2].toInt().coerceIn(24, 32)
                 val base = ipToLong(cidr.groupValues[1]) and (0xFFFFFFFFL shl (32 - bits))
-                for (i in 0 until (1L shl (32 - bits))) out += longToIp(base + i) to port
+                for (i in 0 until (1L shl (32 - bits))) put(longToIp(base + i))
                 return
             }
-            if (Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$").matches(line) || line.contains(':')) { out += line to port; return }
+            if (Regex("^\\d{1,3}(?:\\.\\d{1,3}){3}$").matches(line) || line.contains(':')) { put(line); return }
             if (line.contains('.')) {
                 // Domain → every A/AAAA record (ProxyIP domains rotate many relays behind one name).
-                runCatching { InetAddress.getAllByName(line) }.getOrDefault(emptyArray()).forEach { out += it.hostAddress.orEmpty() to port }
+                runCatching { InetAddress.getAllByName(line) }.getOrDefault(emptyArray()).forEach { put(it.hostAddress.orEmpty()) }
             }
         }
         custom.lines().forEach(::addHost)

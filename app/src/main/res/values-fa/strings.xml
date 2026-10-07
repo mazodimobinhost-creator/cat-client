@@ -928,6 +928,14 @@
     <string name="chain_push_title">خروجی ثابت پنل: %1$s</string>
     <string name="chain_push_ok">🟢 شد — همهٔ کانفیگ‌های پنل از %1$s رد می‌شوند؛ ساب را رفرش کن</string>
     <string name="chain_push_fail">نشد: %1$s</string>
+    <string name="scanner_replace_mode">🧹 جایگزینی کل لیست پنل (به‌جای افزودن)</string>
+    <string name="scanner_panel_replaced">🧹 جایگزین شد — لیست پنل الان %1$d آی‌پی است</string>
+    <string name="pip_replace_mode">🧹 جایگزینی کل لیست ProxyIP (فقط همین‌ها)</string>
+    <string name="pip_ports">پورت‌های اسکن — پورتِ نتیجه دقیقاً همین می‌ماند</string>
+    <string name="sni_action_main">⚡ SNI اصلی پنل شود</string>
+    <string name="sni_main_title">SNI اصلی پنل: %1$s</string>
+    <string name="sni_main_ok">🟢 شد — همهٔ کانفیگ‌های پنل با sni=%1$s ساخته می‌شوند؛ ساب را رفرش کن</string>
+    <string name="sni_main_fail">نشد: %1$s</string>
     <string name="pip_pick_panel">کدام پنل؟</string>
     <string name="pip_no_panel">هیچ Cat Panel‌ای در ساب‌هایت پیدا نشد</string>
     <string name="pip_password_hint">رمز پنل</string>

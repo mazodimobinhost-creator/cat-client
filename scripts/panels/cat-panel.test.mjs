@@ -104,6 +104,15 @@ let user;
 }
 // ips import
 { const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:'5.6.7.8\n9.9.9.9, cdn.example.org junk' } }); const j = await r.json(); check('ips import appends', j.ok && j.ips.includes('5.6.7.8') && j.ips.includes('1.2.3.4') && !j.ips.includes('junk')); }
+{ // beta39: replace mode (app «🧹 جایگزینی») + ProxyIP ip:port never normalized away
+  const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.7:2053#CA','203.0.113.9'], replace:true } }); const j = await r.json();
+  check('ips REPLACE wipes old list (exact set)', j.ok && j.ips.length===2 && j.ips.includes('198.51.100.7:2053') && j.ips.includes('203.0.113.9'), JSON.stringify(j.ips));
+  const st = (await (await req('/api/settings', { headers: auth })).json()).settings;
+  check('replaced entry kept its pin+tag', st.ipCountries['198.51.100.7:2053']==='CA', JSON.stringify(st.ipCountries));
+  await req('/api/settings', { method:'PUT', headers: auth, body:{ proxyIps:['104.17.1.1:2053','83.147.217.103:1080','ip.sb'] } });
+  const st2 = (await (await req('/api/settings', { headers: auth })).json()).settings;
+  check('proxyIps keep ip:port exactly (never stripped)', JSON.stringify(st2.proxyIps)===JSON.stringify(['104.17.1.1:2053','83.147.217.103:1080','ip.sb']), JSON.stringify(st2.proxyIps));
+}
 // backup
 { const r = await req('/api/backup', { headers: auth }); const j = await r.json(); check('backup export', j.settings && j.users.length===1);
   const KV2 = new FakeKV(); const env2 = { CAT_KV: KV2, UUID: MASTER }; T.kvCacheClear();

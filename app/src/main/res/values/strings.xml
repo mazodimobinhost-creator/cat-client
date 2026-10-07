@@ -929,6 +929,14 @@
     <string name="chain_push_title">Panel fixed exit: %1$s</string>
     <string name="chain_push_ok">🟢 done — every panel config now exits via %1$s; refresh the sub</string>
     <string name="chain_push_fail">failed: %1$s</string>
+    <string name="scanner_replace_mode">🧹 Replace the whole panel list (instead of appending)</string>
+    <string name="scanner_panel_replaced">🧹 replaced — panel list is now %1$d IPs</string>
+    <string name="pip_replace_mode">🧹 Replace the whole ProxyIP list (only these)</string>
+    <string name="pip_ports">Scan ports — result keeps exactly this port</string>
+    <string name="sni_action_main">⚡ Make panel main SNI</string>
+    <string name="sni_main_title">Panel main SNI: %1$s</string>
+    <string name="sni_main_ok">🟢 done — every panel config now builds with sni=%1$s; refresh the sub</string>
+    <string name="sni_main_fail">failed: %1$s</string>
     <string name="pip_pick_panel">Which panel?</string>
     <string name="pip_no_panel">No Cat Panel found in your subscriptions</string>
     <string name="pip_password_hint">Panel password</string>
