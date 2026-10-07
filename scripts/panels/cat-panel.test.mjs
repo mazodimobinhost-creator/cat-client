@@ -610,7 +610,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.26.0', T.CAT_PANEL_VERSION === '6.26.0');
+  check('panel version is 6.27.0', T.CAT_PANEL_VERSION === '6.27.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -630,6 +630,18 @@ let user;
     check('ip-test empty list → empty results', je.ok === true && Object.keys(je.results).length === 0);
     const html2 = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.dev', 'u');
     check('worker-side test button on IP list', html2.includes('btnIpTest') && html2.includes('ip_test_btn'));
+    // beta45: domain entries resolved to raw CF IPs (DNS-free subs) — cache-first
+    await KV.put('cat_dom_v1', JSON.stringify({ 'icook.tw': { ip: '104.20.28.74', ts: Date.now() }, 'www.speedtest.net': { ip: '104.17.147.22', ts: Date.now() } }));
+    const env5 = ENV;
+    T.kvCacheClear();
+    const stD = T.normalizeSettings({ ips: ['icook.tw', 'www.speedtest.net'], includeHost: false, useDefaults: false });
+    const mapped = await T.withDomMap(env5, stD);
+    const lst = T.addressList('h.dev', env5, mapped);
+    check('domain → raw CF IP in sub (DNS-free)', lst.includes('104.20.28.74') && lst.includes('104.17.147.22') && !lst.includes('icook.tw'), JSON.stringify(lst));
+    const stOff = await T.withDomMap(env5, T.normalizeSettings({ ips: ['icook.tw'], domToIp: false, useDefaults: false, includeHost: false }));
+    check('?dom=1 / domToIp=false keeps domains', T.addressList('h.dev', env5, stOff).includes('icook.tw'));
+    const bad = await T.withDomMap(env5, T.normalizeSettings({ ips: ['h.dev'], useDefaults: false, includeHost: false }));
+    check('poisoned cache entry ignored (must be CF-range)', !T.addressList('h.dev', env5, bad).includes('6.6.6.6'));
   }
   const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
   const nrmQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&limit=24'));
