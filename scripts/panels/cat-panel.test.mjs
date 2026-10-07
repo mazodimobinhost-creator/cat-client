@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.29.0', T.CAT_PANEL_VERSION === '6.29.0');
+  check('panel version is 6.30.0', T.CAT_PANEL_VERSION === '6.30.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -719,6 +719,33 @@ let user;
     const r5 = await T.healthProbe(m5, Object.assign({}, base, { kind: 'clean' }));
     check('health: silent endpoint → no-http-response', r5.ok === false && r5.error === 'no-http-response', JSON.stringify(r5));
   }
+  // beta48: ProxyIP keeps its OWN port in health tests (no forced 443)
+  {
+    function fakeSockets(script) {
+      const enc = new TextEncoder();
+      const mod = { _made: [] };
+      mod._script = script.map((x) => enc.encode(x));
+      mod.connect = function (opts) {
+        const rec = { opts, sent: '', tls: false, closed: false };
+        mod._made.push(rec);
+        const chunks = mod._script.slice();
+        const reader = { read: () => (chunks.length ? Promise.resolve({ done: false, value: chunks.shift() }) : Promise.resolve({ done: true, value: undefined })) };
+        const writer = { write: (b) => { rec.sent += new TextDecoder().decode(b); return Promise.resolve(); }, releaseLock() { } };
+        const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, startTls() { rec.tls = true; return sock; }, close() { rec.closed = true; return Promise.resolve(); } };
+        return sock;
+      };
+      return mod;
+    }
+    const m6 = fakeSockets(['HTTP/1.1 200 OK\r\n\r\nok']);
+    const r6 = await T.healthProbe(m6, { addr: '198.51.100.7', port: 8443, kind: 'proxyip', host: 'panelx.workers.dev', path: '/vl/T' });
+    check('health: px probed on its OWN port (8443)', r6.ok === true && m6._made[0].opts.port === 8443, JSON.stringify(m6._made[0].opts));
+    const m7 = fakeSockets(['HTTP/1.1 200 OK\r\n\r\nok']);
+    const r7 = await T.healthProbe(m7, { addr: '198.51.100.7:8443', port: 0, kind: 'proxyip', host: 'panelx.workers.dev', path: '/vl/T' });
+    check('health: addr with :port suffix split defensively (port honored)', r7.ok === true && m7._made[0].opts.port === 8443 && m7._made[0].opts.hostname === '198.51.100.7', JSON.stringify(m7._made[0].opts));
+    const html3 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('health: hint explains entry-port vs relay-port', html3.includes('پورتِ رله') && html3.includes('?proxyip='), 'hint present');
+  }
+
 
 
   const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
