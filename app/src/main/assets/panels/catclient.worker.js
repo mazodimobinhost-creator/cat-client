@@ -1616,7 +1616,9 @@ async function dialViaChain(sockets, chain, host, port) {
 const RELAY_COOLDOWN = new Map();
 const RELAY_COOLDOWN_MS = 60 * 1000;
 function markRelayFailed(via) {
-  if (via) RELAY_COOLDOWN.set(via, Date.now() + RELAY_COOLDOWN_MS);
+  // Only real relays cool down — a refused direct dial to one destination says
+  // nothing about the next one (and cooling 'direct' reroutes everything).
+  if (via && (/^proxy:/.test(via) || /^socks:/.test(via))) RELAY_COOLDOWN.set(via, Date.now() + RELAY_COOLDOWN_MS);
   if (RELAY_COOLDOWN.size > 512) {
     const now = Date.now();
     for (const [k, until] of RELAY_COOLDOWN) if (until <= now) RELAY_COOLDOWN.delete(k);

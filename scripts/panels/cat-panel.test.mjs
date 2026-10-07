@@ -1004,6 +1004,10 @@ let user;
     const after = T.relayAttempts(false, null, ['1.2.3.4', '5.6.7.8'], [], 'example.com', 443);
     check('cooldown: relayAttempts still returns all (filtering happens at dial)', after.length === 3);
     check('cooldown: relayCool flags the failed one', T.relayCool('proxy:1.2.3.4') === true && T.relayCool('proxy:5.6.7.8') === false);
+    T.markRelayFailed('direct');
+    check('cooldown: direct dial never cools', T.relayCool('direct') === false);
+    T.markRelayFailed('socks:9.9.9.9:1080');
+    check('cooldown: socks relays cool too', T.relayCool('socks:9.9.9.9:1080') === true);
   }
 
 
