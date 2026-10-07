@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.35.0', T.CAT_PANEL_VERSION === '6.35.0');
+  check('panel version is 6.36.0', T.CAT_PANEL_VERSION === '6.36.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -871,6 +871,19 @@ let user;
     const html7 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('panel: v6 accepted hint + svc exit chip handler', html7.includes('2606:4700') && html7.includes('__svcExit'));
   }
+  // beta55: per-country exit latency card (P50/P95) + neighbor badge + svc note
+  {
+    const rows = T.countryLatency(
+      { '104.1.1.1': { ok: true, ms: 28 }, '104.1.1.2': { ok: true, ms: 76 }, '104.1.1.3': { ok: true, ms: 30 }, '104.2.2.2': { ok: true, ms: 111 }, '104.3.3.3': { ok: false, ms: 20 } },
+      { '104.1.1.1': 'DE', '104.1.1.2': 'DE', '104.1.1.3': 'DE', '104.2.2.2': 'US' });
+    check('latency: per-country P50/P95 sorted, dead IPs excluded', rows.length === 2 && rows[0].cc === 'DE' && rows[0].p50 === 30 && rows[0].p95 === 76 && rows[0].n === 3 && rows[1].cc === 'US' && rows[1].n === 1, JSON.stringify(rows));
+    const html8 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: latency card container + title + neighbor badge + svc note', html8.includes('ccLatency') && html8.includes('renderLatency') && html8.includes('👑 همسایه') && html8.includes('svc_note'));
+    check('panel: best-ms summary wired', html8.includes('کمترین: '));
+    new Function(html8.match(/<script>([\s\S]*?)<\/script>/)[1]);
+    check('panel: inline script still parses', true);
+  }
+
 
 
 
