@@ -84,7 +84,10 @@ class ProxyIpScannerPage(
         "cdn.xn--b6gac.eu.org" to false,
         "https://ipdb.030101.xyz/api/bestproxy.txt" to true,
     )
-    private var ports = listOf(443)
+    // Ports the scanner probes. An explicit :port on a source line is honored
+    // as-is; a bare host is tried on every selected port — and each result
+    // KEEPS exactly the port that passed the handshake (never normalized).
+    private val selectedPorts = LinkedHashSet(listOf(443, 2053))
     private var threads = 32
     private var timeoutMs = 5_000
 
