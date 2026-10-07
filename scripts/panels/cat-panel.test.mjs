@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.31.0', T.CAT_PANEL_VERSION === '6.31.0');
+  check('panel version is 6.32.0', T.CAT_PANEL_VERSION === '6.32.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -785,6 +785,18 @@ let user;
     const html4 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('panel: socks placeholder mentions socks5:// form', html4.includes('socks5://user:pass@ip:port'));
   }
+  // beta50: exit-test link (IPCheck.ing) + inline-panel-script self-check
+  {
+    const html5 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: IPCheck.ing exit-test link + hint', html5.includes('https://ipcheck.ing') && html5.includes('exit_hint'));
+    // regression guard for the beta49 class of bug: the emitted inline panel
+    // script must PARSE (compiles without executing — no jsdom needed)
+    const mScript = html5.match(/<script>([\s\S]*?)<\/script>/);
+    let parsed = true;
+    try { new Function(mScript ? mScript[1] : ''); } catch (e) { parsed = false; }
+    check('panel inline script parses (no syntax errors)', parsed && !!mScript);
+  }
+
 
 
 
