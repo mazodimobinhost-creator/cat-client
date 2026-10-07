@@ -12,6 +12,15 @@ const workerPath = path.join(here, '../../app/src/main/assets/panels/catclient.w
 execFileSync(process.execPath, ['--check', workerPath], { stdio: 'pipe' });
 console.log('✓ syntax check passed');
 const mod = await import(workerPath);
+// CI has real network → DoH inside subResponse would rewrite domain entries and
+// break exact-sub assertions. Stub any DNS fetch; the seeded-cache domMap test
+// below never fetches, so it stays hermetic.
+const realFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const u = typeof input === 'string' ? input : (input && input.url) || String(input);
+  if (String(u).includes('dns-query')) return Promise.reject(new Error('dns-stubbed-in-tests'));
+  return realFetch(input, init);
+};
 const worker = mod.default; const T = mod._testing;
 let failures = 0;
 function check(name, cond, extra) { if (cond) console.log('✓ ' + name); else { failures++; console.error('✗ ' + name + (extra ? ' — ' + extra : '')); } }
