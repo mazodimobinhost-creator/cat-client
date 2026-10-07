@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.28.0', T.CAT_PANEL_VERSION === '6.28.0');
+  check('panel version is 6.29.0', T.CAT_PANEL_VERSION === '6.29.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -676,6 +676,50 @@ let user;
     const pxs = outD.entries.filter((e) => e.name.includes('🎯'));
     check('🎯 configs dial the domMap IP of the worker host', pxs.length > 0 && pxs.every((e) => e.addr === '104.17.24.14'), pxs.map((e) => e.addr).join(','));
   }
+  // beta47: «سلامت و تست» — REAL template-aware probes
+  {
+    check('panel: health&test button renamed + px chips + hint', (() => {
+      const html = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+      return html.includes('سلامت و تست') && html.includes('pxTestChips') && html.includes('ip_test_hint') && html.includes('renderPxTest');
+    })());
+    function fakeSockets(script) {
+      const enc = new TextEncoder();
+      const mod = { _made: [] };
+      mod._script = script.map((x) => enc.encode(x));
+      mod.connect = function (opts) {
+        const rec = { opts, sent: '', tls: false, closed: false };
+        mod._made.push(rec);
+        const chunks = mod._script.slice();
+        const reader = { read: () => (chunks.length ? Promise.resolve({ done: false, value: chunks.shift() }) : Promise.resolve({ done: true, value: undefined })) };
+        const writer = { write: (b) => { rec.sent += new TextDecoder().decode(b); return Promise.resolve(); }, releaseLock() { } };
+        const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, startTls() { rec.tls = true; return sock; }, close() { rec.closed = true; return Promise.resolve(); } };
+        return sock;
+      };
+      return mod;
+    }
+    const base = { addr: '104.17.24.14', port: 443, host: 'panelx.workers.dev', path: '/vl/TEST?ed=2560' };
+    // clean 💦: TLS + real Host routing on the config template
+    const m1 = fakeSockets(['HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\n\r\nbad']);
+    const r1 = await T.healthProbe(m1, Object.assign({}, base, { kind: 'clean' }));
+    check('health: clean probe ok on any HTTP answer (routing works)', r1.ok === true && r1.status === 400, JSON.stringify(r1));
+    check('health: clean probe dials TLS + config Host + vless path', m1._made[0].tls === true && m1._made[0].sent.includes('Host: panelx.workers.dev') && m1._made[0].sent.includes('/vl/TEST?ed=2560'), m1._made[0].sent.split('\r\n')[0]);
+    // plain :80: NO startTls, same Host check
+    const m2 = fakeSockets(['HTTP/1.1 404 Not Found\r\n\r\nx']);
+    const r2 = await T.healthProbe(m2, Object.assign({}, base, { port: 80, kind: 'plain' }));
+    check('health: plain probe skips TLS, keeps Host template', r2.ok === true && m2._made[0].tls === false, JSON.stringify(r2));
+    // proxyip 🎯: relay chain template — Host must be the CF probe site, 200 required
+    const m3 = fakeSockets(['HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nfl=abc\nloc=DE\nip=1.2.3.4']);
+    const r3 = await T.healthProbe(m3, Object.assign({}, base, { kind: 'proxyip' }));
+    check('health: proxyip probe uses relay template (trace via CF host)', r3.ok === true && r3.status === 200 && m3._made[0].sent.includes('Host: speed.cloudflare.com') && m3._made[0].sent.includes('/cdn-cgi/trace'), JSON.stringify(r3));
+    const m4 = fakeSockets(['HTTP/1.1 403 Forbidden\r\n\r\nno']);
+    const r4 = await T.healthProbe(m4, Object.assign({}, base, { kind: 'proxyip' }));
+    check('health: proxyip 403 → relay NOT healthy (http 403)', r4.ok === false && r4.error === 'http 403', JSON.stringify(r4));
+    // silence → no-http-response
+    const m5 = fakeSockets([]);
+    const r5 = await T.healthProbe(m5, Object.assign({}, base, { kind: 'clean' }));
+    check('health: silent endpoint → no-http-response', r5.ok === false && r5.error === 'no-http-response', JSON.stringify(r5));
+  }
+
 
   const ampQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&amp;limit=24'));
   const nrmQ = T.subQuery(new URL('https://h/sub/u?ports=443%2C2053&limit=24'));
