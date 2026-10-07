@@ -62,6 +62,17 @@ const auth = { cookie };
   const r64 = await req('/sub64/' + MASTER + '?rotate=off'); const b64 = await r64.text(); check('/sub64 is base64 of /sub', T.b64decode(b64) === (await (await req('/sub/' + MASTER + '?rotate=off')).text()));
   const rb = await req('/sub/' + MASTER + '?b64=1'); check('?b64=1 works', T.b64decode(await rb.text()).includes('vless://'));
   const bad = await req('/sub/00000000-0000-4000-8000-000000000000'); check('unknown uuid 404', bad.status===404);
+  { // beta43: BPB-parity — ONE link serves every client (UA + ?target=)
+    const rc = await req('/sub/' + MASTER + '?rotate=off', { headers:{ 'user-agent':'ClashMetaForAndroid/2.11.5' } });
+    check('UA clash → yaml', (rc.headers.get('content-type')||'').includes('yaml'));
+    const rs = await req('/sub/' + MASTER + '?rotate=off', { headers:{ 'user-agent':'SFI/1.12.0 (sing-box; ios)' } });
+    check('UA sing-box → json', (rs.headers.get('content-type')||'').includes('json') && (await rs.text()).includes('"outbounds"'));
+    const rt = await req('/clash/' + MASTER + '?target=base64&rotate=off');
+    check('?target=base64 overrides path kind', T.b64decode(await rt.text()).includes('vless://'));
+    const rp2 = await req('/sub/' + MASTER + '?rotate=off');
+    check('profile-web-page-url header', !!(rp2.headers.get('profile-web-page-url')||'').includes('/info/'));
+    check('safeEqualHex', T.safeEqualHex('abcd','abcd')===true && T.safeEqualHex('abcd','abce')===false && T.safeEqualHex('abc','abcd')===false);
+  }
   const noKey = await req('/sub'); check('/sub without uuid 404 when OPEN_SUB unset', noKey.status===404);
   const open = await req('/sub', { env: Object.assign({}, ENV, { OPEN_SUB: 'true' }) }); check('/sub with OPEN_SUB serves master', open.status===200 && (await open.text()).includes('vless://'));
 }
@@ -599,7 +610,14 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.25.0', T.CAT_PANEL_VERSION === '6.25.0');
+  check('panel version is 6.26.0', T.CAT_PANEL_VERSION === '6.26.0');
+  { const qs = T.normalizeSettings({ blockQuic: true });
+    const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
+    check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
+    const sb = JSON.stringify(T.buildSingboxConfig('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {}));
+    check('blockQuic in singbox', sb.includes('"network":"udp"'));
+    const xr = JSON.stringify(T.buildXrayConfigs('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {}));
+    check('blockQuic in xray', xr.includes('"network":"udp"') || xr.includes('"udp"')); }
   const prov = T.normalizeSettings({ ipSources: { '9.9.9.9:443': { src: 'scanner', ms: 210, at: 9 } } });
   check('ip provenance (src+ping) persisted', !!(prov.ipSources && prov.ipSources['9.9.9.9:443'] && prov.ipSources['9.9.9.9:443'].src === 'scanner'), JSON.stringify(prov.ipSources));
   {
