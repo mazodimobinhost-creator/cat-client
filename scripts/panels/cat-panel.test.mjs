@@ -620,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.39.0', T.CAT_PANEL_VERSION === '6.39.0');
+  check('panel version is 6.40.0', T.CAT_PANEL_VERSION === '6.40.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -980,6 +980,14 @@ let user;
     const st9 = (await (await req('/api/settings', { headers: auth, env: env9 })).json().catch(() => ({})));
     check('beta58: ?ips= never auto-imports', !st9.settings || !((st9.settings.ips || []).includes('198.51.100.200')), JSON.stringify(st9.settings && st9.settings.ips));
     T.kvCacheClear();
+  }
+  // beta59: 🆓 Patterniha free-configs preset + ECH field note
+  {
+    const html11 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('beta59: free preset button wired', html11.includes('btnExtPresetFree') && html11.includes('ext_preset_free') && html11.includes('patterniha/Free-Configs/main/configs.txt'));
+    check('beta59: ECH field note on the toggle', html11.includes('مهم‌ترین عامل وصل‌ماندن') || html11.includes('single most important switch'));
+    new Function(html11.match(/<script>[\s\S]*?<\/script>/)[1]);
+    check('beta59: inline script still parses', true);
   }
 
 

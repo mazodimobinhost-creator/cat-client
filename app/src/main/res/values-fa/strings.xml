@@ -668,7 +668,8 @@
     <string name="scanner_profile_fast">⚡ سریع</string>
     <string name="scanner_profile_std">⚖ استاندارد</string>
     <string name="scanner_profile_deep">🔬 عمیق</string>
-    <string name="scanner_share_btn">⤴ هم‌رسانی نتایج</string>
+    <string name="scanner_profile_gentle">🌙 ملایم</string>
+        <string name="scanner_share_btn">⤴ هم‌رسانی نتایج</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>
     <string name="scanner_history_last">اسکن قبلی: %1$s · بهترین %2$d ms · %3$d سالم</string>

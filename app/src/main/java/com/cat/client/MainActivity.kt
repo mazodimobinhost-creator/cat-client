@@ -5842,10 +5842,21 @@ class MainActivity : Activity() {
                 else -> SCANNER_PER_RANGE
             },
             randomSample = true,
-            concurrency = SCANNER_CONCURRENCY,
-            // Profile depth: fast = snappy timeouts, deep = doubled TLS patience.
-            connectTimeoutMs = if (scannerProfile == "fast") 1000 else SCANNER_CONNECT_TIMEOUT_MS,
-            tlsTimeoutMs = if (scannerProfile == "deep") SCANNER_TLS_TIMEOUT_MS * 2 else SCANNER_TLS_TIMEOUT_MS,
+            // 🌙 Gentle (SenPai-style): 6 workers only — for ISPs that cut the
+            // whole connection when a scan floods SYN packets.
+            concurrency = if (scannerProfile == "gentle") 6 else SCANNER_CONCURRENCY,
+            // Profile depth: fast = snappy timeouts, deep = doubled TLS patience,
+            // gentle = calm pacing with generous timeouts.
+            connectTimeoutMs = when (scannerProfile) {
+                "fast" -> 1000
+                "gentle" -> 4000
+                else -> SCANNER_CONNECT_TIMEOUT_MS
+            },
+            tlsTimeoutMs = when (scannerProfile) {
+                "deep" -> SCANNER_TLS_TIMEOUT_MS * 2
+                "gentle" -> SCANNER_TLS_TIMEOUT_MS * 2
+                else -> SCANNER_TLS_TIMEOUT_MS
+            },
             verifyHttp = true,
         )
         scannerProgressBar.progress = 0
@@ -6300,13 +6311,14 @@ class MainActivity : Activity() {
             }
         row.addView(chip(getString(R.string.scanner_profile_fast), "fast"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         row.addView(chip(getString(R.string.scanner_profile_std), "std"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
-        row.addView(chip(getString(R.string.scanner_profile_deep), "deep"), LinearLayout.LayoutParams(-2, -2))
+        row.addView(chip(getString(R.string.scanner_profile_deep), "deep"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        row.addView(chip(getString(R.string.scanner_profile_gentle), "gentle"), LinearLayout.LayoutParams(-2, -2))
         refreshScannerProfileRow(row)
         return row
     }
 
     private fun refreshScannerProfileRow(row: LinearLayout) {
-        val keys = listOf("fast", "std", "deep")
+        val keys = listOf("fast", "std", "deep", "gentle")
         for (i in 1 until row.childCount) {
             val chip = row.getChildAt(i) as? android.widget.TextView ?: continue
             val key = keys.getOrNull(i - 1) ?: continue

@@ -669,7 +669,8 @@
     <string name="scanner_profile_fast">⚡ Fast</string>
     <string name="scanner_profile_std">⚖ Standard</string>
     <string name="scanner_profile_deep">🔬 Deep</string>
-    <string name="scanner_share_btn">⤴ Share results</string>
+    <string name="scanner_profile_gentle">🌙 Gentle</string>
+        <string name="scanner_share_btn">⤴ Share results</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>
     <string name="scanner_history_last">Last scan: %1$s · best %2$d ms · %3$d verified</string>
