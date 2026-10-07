@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.36.0';
+const CAT_PANEL_VERSION = '6.37.0';
 /* Teal cat brand mark (replaces the legacy spider glyph) — n namespaces the
  * gradient id so several instances can live on one page. */
 function catLogo(n) {
@@ -3317,8 +3317,13 @@ async function handleApi(request, url, env, ctx) {
     // write their own status via /api/ip-test. Shown per-row in the IP list.
     const src = String(body.source || '').slice(0, 24);
     const pings = (body.pingMs && typeof body.pingMs === 'object') ? body.pingMs : {};
+    // 👑 Neighbor provenance: Cat Client's «اسکن همسایه» flags the IPs it found
+    // around known-good neighbours; those get src=neighbor (crown badge) even
+    // though they arrive in the same scanner batch.
+    const neighborRaw = Array.isArray(body.neighborIps) ? body.neighborIps : splitCsv(body.neighborIps);
+    const neighborSet = new Set((neighborRaw || []).map((v) => String(v).split('#')[0].trim()).filter(Boolean));
     const srcMap = Object.assign({}, settings.ipSources || {});
-    for (const k of Object.keys(pings).slice(0, 400)) if (pings[k] != null) srcMap[k] = { src: src || 'import', ms: Number(pings[k]) || 0, at: Date.now() };
+    for (const k of Object.keys(pings).slice(0, 400)) if (pings[k] != null) srcMap[k] = { src: neighborSet.has(String(k).split('#')[0]) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
     const saved = await writeSettings(env, { ips: next, ipCountries: tags, ipSources: srcMap });
     await pushEvent(env, body.replace ? 'ips-replace' : 'ips-add', String(next.length) + ' ips');
     return json({ ok: true, persisted: saved.persisted, count: saved.settings.ips.length, ips: saved.settings.ips });

@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.36.0', T.CAT_PANEL_VERSION === '6.36.0');
+  check('panel version is 6.37.0', T.CAT_PANEL_VERSION === '6.37.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -882,6 +882,19 @@ let user;
     check('panel: best-ms summary wired', html8.includes('کمترین: '));
     new Function(html8.match(/<script>([\s\S]*?)<\/script>/)[1]);
     check('panel: inline script still parses', true);
+  }
+  // beta56: 👑 neighbor provenance — /api/ips flags neighborIps as src=neighbor
+  {
+    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['203.0.113.90:443#DE','203.0.113.91:443#DE'], source:'scanner', pingMs:{ '203.0.113.90:443#DE': 88, '203.0.113.91:443#DE': 102 }, neighborIps:['203.0.113.91:443#DE'] } });
+    const j = await r.json();
+    check('neighbor: import ok with neighborIps', j.ok === true && j.ips.includes('203.0.113.90:443') && j.ips.includes('203.0.113.91:443'), JSON.stringify(j));
+    const st6 = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    const s90 = st6.ipSources && st6.ipSources['203.0.113.90:443#DE'];
+    const s91 = st6.ipSources && st6.ipSources['203.0.113.91:443#DE'];
+    check('neighbor: flagged IP gets src=neighbor', !!s91 && s91.src === 'neighbor' && s91.ms === 102, JSON.stringify(s91));
+    check('neighbor: regular scanner IP keeps src=scanner', !!s90 && s90.src === 'scanner', JSON.stringify(s90));
+    const html9 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('neighbor: crown badge wired in UI', html9.includes("so.src==='neighbor'"));
   }
 
 

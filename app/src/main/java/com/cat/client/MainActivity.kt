@@ -5456,6 +5456,22 @@ class MainActivity : Activity() {
             setOnClickListener { sendScanToPanel() }
         }
         body.addView(scannerPanelButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // 👑 Neighbor scan (like the reference app): take the best verified hits
+        // and probe their close neighbours inside the SAME block — fresh finds
+        // on every run, tagged «neighbor» when sent to the panel.
+        val scannerNeighborButton = MaterialButton(this).apply {
+            setText(R.string.scanner_neighbor_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(AMBER, 90))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runNeighborScan() }
+        }
+        body.addView(scannerNeighborButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val scannerSpeedButton = MaterialButton(this).apply {
             setText(R.string.scanner_speed_btn)
             textSize = 13.5f
@@ -5473,6 +5489,11 @@ class MainActivity : Activity() {
         }
         scannerSpeedTestButton = scannerSpeedButton
         body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        body.addView(
+            scannerFilterRow(),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5697,7 +5718,7 @@ class MainActivity : Activity() {
     }
 
     private fun startIpScanner() {
-        if (scannerRunning) return
+        if (scannerRunning || scannerNeighborRunning) return
         val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
         saveScannerSni(sni)
         val customSubnets = scannerSubnetsInput.text?.toString()?.trim().orEmpty()
@@ -6055,10 +6076,152 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 👑 Neighbor scan: best verified hits → walk ±16 addresses around each in
+     * the same /24 (v4) or /64 (v6), verified with the SAME SNI/port; results
+     * join the live list, carry source=neighbor when pushed to the panel. */
+    private fun runNeighborScan() {
+        if (scannerRunning || scannerNeighborRunning) return
+        val seeds = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+            .filter { it.tlsOk }
+            .distinctBy { it.ip }
+            .take(3)
+        if (seeds.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+        val candidates = LinkedHashSet<String>()
+        seeds.forEach { seed ->
+            val ip = seed.ip
+            if (IpScanner.isIpv6(ip)) {
+                // Scanner v6 seeds come from InetAddress → full 8-group form; the
+                // /64 prefix is the first four groups. Compressed forms keep
+                // everything before «::». Neighbours: ::0 … ::f in that prefix.
+                val head = if (ip.contains("::")) ip.substringBefore("::") + "::"
+                else ip.split(":").take(4).joinToString(":") + "::"
+                (0..15).forEach { k -> candidates += head + Integer.toHexString(k) }
+            } else {
+                val parts = ip.split(".")
+                val p3 = parts.take(3).joinToString(".")
+                val last = parts[3].toIntOrNull() ?: 0
+                (-16..16).forEach { k ->
+                    val o = last + k
+                    if (k != 0 && o in 0..255) candidates += "$p3.$o"
+                }
+            }
+        }
+        val clean = candidates.filter { IpScanner.isValidIpv4(it) || IpScanner.isValidIpv6(it) }.toList()
+        if (clean.isEmpty()) return
+        scannerNeighborRunning = true
+        scannerStatusText.setText(R.string.scanner_neighbor_running)
+        val collected = java.util.concurrent.CopyOnWriteArrayList<IpScanner.ScanResult>()
+        scannerJob = activityScope.launch {
+            val found = runCatching {
+                IpScanner.scan(this@MainActivity, IpScanner.ScanOptions(
+                    sni = sni,
+                    port = scannerPort,
+                    customSubnets = clean.joinToString(","),
+                    includeBuiltin = false,
+                    includeIranLibrary = false,
+                    // v6 neighbors must survive the candidate build (the default
+                    // drops v6 literals when includeIpv6 is off — seeds carry v6
+                    // only on dual-stack networks, so always-on here is safe).
+                    includeIpv6 = true,
+                    perRange = 1,
+                    randomSample = false,
+                    concurrency = SCANNER_CONCURRENCY,
+                    connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
+                    tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
+                    verifyHttp = true,
+                )) { done, total, result ->
+                    // Called from an IO thread: collect first, render on main.
+                    if (result != null && result.tlsOk && collected.none { it.ip == result.ip }) collected += result
+                    mainHandler.post {
+                        val percent = (done * 100) / total.coerceAtLeast(1)
+                        scannerProgressBar.progress = percent
+                        scannerStatusText.text = getString(R.string.scanner_progress_empty, done, total, percent)
+                    }
+                }
+            }.getOrDefault(emptyList())
+            val added = found.filter { it.tlsOk }.distinctBy { it.ip }.filter { base -> scannerResults.none { it.ip == base.ip } }
+            scannerNeighborIps.addAll(added.map { it.ip })
+            scannerResults = (scannerResults + added).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+            scannerFilter = "all"
+            scannerNeighborRunning = false
+            renderScannerResults()
+            scannerStatusText.text = getString(R.string.scanner_neighbor_done, added.size, clean.size)
+            Toast.makeText(this@MainActivity, getString(R.string.scanner_neighbor_done, added.size, clean.size), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Category chips under the results (like the reference screenshots): all /
+    // v4-only / v6-only — v6 chip lights up once the walk found v6 endpoints.
+    private var scannerFilterAll: android.widget.TextView? = null
+    private var scannerFilterV4: android.widget.TextView? = null
+    private var scannerFilterV6: android.widget.TextView? = null
+    private var scannerFilter: String = "all"
+    private var scannerNeighborRunning: Boolean = false
+
+    private fun scannerFilterVisible(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> =
+        when (scannerFilter) {
+            "v4" -> list.filter { !IpScanner.isIpv6(it.ip) }
+            "v6" -> list.filter { IpScanner.isIpv6(it.ip) }
+            else -> list
+        }
+
+    private fun scannerFilterRow(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fun chip(label: String, key: String): android.widget.TextView =
+            TextView(this).apply {
+                text = label
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                background = glassSurfaceDrawable(radiusDp = 16)
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setOnClickListener {
+                    scannerFilter = key
+                    refreshScannerFilters()
+                    renderScannerResults()
+                }
+            }
+        scannerFilterAll = chip(getString(R.string.scanner_filter_all), "all")
+        scannerFilterV4 = chip(getString(R.string.scanner_filter_v4), "v4")
+        scannerFilterV6 = chip(getString(R.string.scanner_filter_v6), "v6")
+        row.addView(scannerFilterAll, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        row.addView(scannerFilterV4, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        row.addView(scannerFilterV6, LinearLayout.LayoutParams(-2, -2))
+        return row
+    }
+
+    private fun refreshScannerFilters() {
+        val list = if (scannerRunning) scannerLiveResults.toList() else scannerResults
+        val v6Count = list.count { IpScanner.isIpv6(it.ip) }
+        val v4Count = list.size - v6Count
+        fun style(v: android.widget.TextView?, active: Boolean, enabled: Boolean) {
+            v ?: return
+            v.isEnabled = enabled
+            v.alpha = if (enabled) 1f else 0.45f
+            v.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            v.background = glassSurfaceDrawable(radiusDp = 16, highlighted = active)
+        }
+        style(scannerFilterAll, scannerFilter == "all", list.isNotEmpty())
+        style(scannerFilterV4, scannerFilter == "v4", v4Count > 0)
+        style(scannerFilterV6, scannerFilter == "v6", v6Count > 0)
+        scannerFilterV4?.text = getString(R.string.scanner_filter_v4) + " " + v4Count
+        scannerFilterV6?.text = getString(R.string.scanner_filter_v6) + " " + v6Count
+    }
+
     private fun renderScannerResults() {
         if (!::scannerResultsList.isInitialized) return
-        val visible = if (scannerRunning) scannerLiveResults.toList() else scannerResults
+        val visible = scannerFilterVisible(if (scannerRunning) scannerLiveResults.toList() else scannerResults)
         scannerResultsList.removeAllViews()
+        refreshScannerFilters()
         if (visible.isEmpty()) {
             scannerResultsList.addView(
                 TextView(this).apply {
@@ -6297,7 +6460,8 @@ class MainActivity : Activity() {
                 val password = input.text?.toString().orEmpty()
                 activityScope.launch {
                     val replacing = replaceToggle.isChecked
-                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing, ping, countries) } }
+                    val neighborLines = selected.filter { scannerNeighborIps.contains(it.ip) }.map { it.panelLine }
+                    val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing, ping, countries, neighborLines) } }
                     result.onSuccess { n ->
                         val msg = when {
                             replacing -> R.string.scanner_panel_replaced
@@ -6320,7 +6484,7 @@ class MainActivity : Activity() {
      * new list size. Nothing is stored on the phone. Mirror of
      * ProxyIpScannerPage.pushToPanel.
      */
-    private fun pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false, pingMs: org.json.JSONObject? = null, countries: org.json.JSONObject? = null): Int {
+    private fun pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false, pingMs: org.json.JSONObject? = null, countries: org.json.JSONObject? = null, neighborLines: List<String> = emptyList()): Int {
         fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
             val conn = URL("$base$path").openConnection() as HttpURLConnection
             conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
@@ -6340,6 +6504,9 @@ class MainActivity : Activity() {
         body.put("source", "scanner")
         if (pingMs != null && pingMs.length() > 0) body.put("pingMs", pingMs)
         if (countries != null && countries.length() > 0) body.put("countries", countries)
+        // 👑 Provenance: IPs discovered by the neighbor scan are flagged so the
+        // panel shows the crown badge («👑 همسایه») next to them.
+        if (neighborLines.isNotEmpty()) body.put("neighborIps", org.json.JSONArray(neighborLines))
         val (post, postBody) = call("/api/ips", "POST", body.toString(), cookie)
         val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
         val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0

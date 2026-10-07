@@ -534,7 +534,7 @@
     <string name="scanner_sni_hint">مثلاً mypanel.workers.dev</string>
     <string name="scanner_sni_recommended">SNIهای پیشنهادی — یکی را لمس کن یا دامنهٔ پنل Cat را وارد کن</string>
     <string name="scanner_subnets_label">رنج‌های آی‌پی برای اسکن (CIDR، با کاما جدا کنید)</string>
-    <string name="scanner_subnets_hint">104.16.0.0/13, 172.64.0.0/13, 188.114.96.0/20</string>
+    <string name="scanner_subnets_hint">104.16.0.0/13, 172.64.0.0/13 · v6: 2606:4700::/32، 2a06:98c0::/29</string>
     <string name="scanner_ranges_note">هر بار از داخل هر رنج، آی‌پی‌های تازه و تصادفی تست می‌شود (۲۴ تا از هر رنج). تک‌آی‌پی هم قبول است.</string>
     <string name="scanner_ranges_reset">رنج‌های پیش‌فرض کلودفلر</string>
     <string name="scanner_ranges_invalid">رنج معتبری پیدا نشد. به شکل 104.16.0.0/13 یا آی‌پی ساده بنویسید.</string>
@@ -654,6 +654,12 @@
     <string name="scanner_build_no_panel">سابسکریپشن پنلی با SNI «%1$s» پیدا نشد. اول لینک /sub/UUID پنل را وارد کن (تب ابر → وارد کردن)، یا سریع‌ترین آی‌پی را به‌عنوان فرانتینگ اعمال کن.</string>
     <string name="scanner_build_apply_fronting">اعمال به‌عنوان فرانتینگ</string>
     <string name="scanner_build_sub_name">اسکن کت · %1$s</string>
+    <string name="scanner_filter_all">همه</string>
+    <string name="scanner_filter_v4">IPv4</string>
+    <string name="scanner_filter_v6">IPv6</string>
+    <string name="scanner_neighbor_btn">👑 اسکن همسایه</string>
+    <string name="scanner_neighbor_running">اسکن همسایه‌های همان بلوک…</string>
+    <string name="scanner_neighbor_done">%1$d همسایهٔ تازه پیدا شد (از %2$d تست)</string>
     <string name="scanner_ipv6_detected">این شبکه IPv6 دارد — اسکن IPv4 و IPv6 با هم…</string>
     <string name="scanner_send_panel">ارسال به Cat Panel (با کشور)</string>
     <string name="scanner_sent_panel">%1$d آدرس به پنل فرستاده شد — آنجا «افزودن به لیست» را بزن</string>

@@ -536,7 +536,7 @@
     <string name="scanner_sni_hint">e.g. mypanel.workers.dev</string>
     <string name="scanner_sni_recommended">Recommended SNI values — tap one, or use your Cat Panel domain</string>
     <string name="scanner_subnets_label">IP ranges to scan (CIDR, comma separated)</string>
-    <string name="scanner_subnets_hint">104.16.0.0/13, 172.64.0.0/13, 188.114.96.0/20</string>
+    <string name="scanner_subnets_hint">104.16.0.0/13, 172.64.0.0/13 · v6: 2606:4700::/32, 2a06:98c0::/29</string>
     <string name="scanner_ranges_note">Every run draws fresh random hosts from each range (24 per range). Single IPs are accepted too.</string>
     <string name="scanner_ranges_reset">Cloudflare defaults</string>
     <string name="scanner_ranges_invalid">No valid range found. Use CIDR like 104.16.0.0/13 or plain IPv4 addresses.</string>
@@ -655,6 +655,12 @@
     <string name="scanner_build_no_panel">No panel subscription matches SNI “%1$s”. Import your panel’s /sub/UUID link first (Cloud tab → Import), or apply the fastest IP as a fronting address instead.</string>
     <string name="scanner_build_apply_fronting">Apply as fronting</string>
     <string name="scanner_build_sub_name">Cat Scan · %1$s</string>
+    <string name="scanner_filter_all">All</string>
+    <string name="scanner_filter_v4">IPv4</string>
+    <string name="scanner_filter_v6">IPv6</string>
+    <string name="scanner_neighbor_btn">👑 Neighbor scan</string>
+    <string name="scanner_neighbor_running">Scanning neighbours of the best hits…</string>
+    <string name="scanner_neighbor_done">%1$d fresh neighbours found (of %2$d tried)</string>
     <string name="scanner_ipv6_detected">IPv6 works on this network — scanning IPv4 + IPv6…</string>
     <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
     <string name="scanner_sent_panel">%1$d addresses sent to the panel — press “Append” there</string>
