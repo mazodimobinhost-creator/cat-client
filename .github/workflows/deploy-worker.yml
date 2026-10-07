@@ -64,7 +64,21 @@ jobs:
 
       - name: Notice (secrets not configured)
         if: env.CF_TOKEN == '' || env.CF_ACCOUNT == ''
-        run: echo "::notice::Deploy skipped — set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repository secrets (see docs/telegram-deploy.md)."
+        run: |
+          echo "::warning::Deploy SKIPPED — set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repository secrets. This green run deployed NOTHING."
+          echo '### ⚠️ NOT deployed — no Cloudflare secrets configured' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify deployed health (anti-1101 gate)
+        if: steps.deploy.outcome == 'success'
+        run: |
+          set -e
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
+          if [ -z "$URL" ]; then echo "::warning::could not parse workers.dev URL from deploy.log — skipping health verify"; exit 0; fi
+          sleep 6
+          HEALTH=$(curl -s --max-time 20 "$URL/health" || true)
+          echo "health: $HEALTH"
+          echo "$HEALTH" | grep -q "\\"version\\":\\"$PVER\\"" || { echo "::error::deployed /health does not report $PVER — deploy did not take effect (open the URL, check Workers logs)"; exit 1; }
+          echo "✅ health verify OK: $URL reports $PVER"
 
       - name: Notify Telegram
         if: always() && env.TG_TOKEN != '' && env.TG_CHAT != ''

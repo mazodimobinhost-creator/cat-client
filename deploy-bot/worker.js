@@ -24,7 +24,7 @@
  * never in the repo. Send /revoke in BotFather if a token ever leaks.
  */
 
-const BOT_VERSION = '1.1.0';
+const BOT_VERSION = '2.0.0';
 const KV_TITLE = 'cat-panel-kv';
 const DEFAULT_REPO = 'mazodimobinhost-creator/cat-client';
 const DEFAULT_WORKER = 'cat-panel';
@@ -108,7 +108,18 @@ async function deployPanel(F, c, ref) {
   const sub = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/subdomain');
   const subd = sub.json && sub.json.result && sub.json.result.subdomain;
   const url = subd ? 'https://' + c.name + '.' + subd + '.workers.dev' : '';
-  return { ok: true, ver, url, ref: ref || 'latest release' };
+  // Post-deploy health gate: upload returning 200 is NOT enough — the RUNNING
+  // worker must answer /health with the SAME version. This catches half-applied
+  // scripts and the whole 1101 class before the user ever sees them.
+  let health = { ok: false, status: 0 };
+  if (url) {
+    try {
+      const hr = await F(url + '/health', { redirect: 'follow' });
+      const hj = await hr.json().catch(() => null);
+      health = { ok: !!(hr.ok && hj && hj.ok === true && hj.version === ver), status: hr.status, version: hj && hj.version };
+    } catch (e) { health = { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 60) }; }
+  }
+  return { ok: true, ver, url, ref: ref || 'latest release', health };
 }
 
 const setupChecklist = (c) =>
@@ -127,7 +138,7 @@ async function runCommand(F, c, text) {
     case '/start': case '/help': {
       const ready = c.token && c.cf && c.acc && c.admin;
       return '🐱 <b>Cat Deploy Bot</b> ' + BOT_VERSION + '\n🚀 یک دکمه = آخرین نسخهٔ پنل روی کلادفلر تو\n\n' +
-        '/deploy [branch] — deploy/update the panel\n/status — panel + token health\n\n' +
+        '/deploy [branch] — deploy/update the panel\n/doctor — چک کامل: توکن/ورکر/KV/health\n/rollback — برگشت به نسخهٔ قبلی\n/status — panel + token health\n\n' +
         (ready ? '✅ configured — send /deploy' : setupChecklist(c)) +
         '\n\nℹ️ من فقط دیپلوی می‌کنم؛ مدیریت پنل (کاربران/لینک‌ها) ربات داخل خود پنل است.';
     }
@@ -139,7 +150,47 @@ async function runCommand(F, c, text) {
       const ping = await tgApi(F, c.token, 'sendMessage', { text: '⏳ گرفتن ' + (ref || 'آخرین رلیز') + ' و دیپلوی روی کلادفلر…' });
       const res = await deployPanel(F, c, ref);
       if (!res.ok) return '🔴 deploy failed:\n<code>' + esc(res.error) + '</code>';
-      return '✅ <b>Cat Panel ' + esc(res.ver) + '</b> deployed\n📦 منبع: ' + esc(res.ref) + '\n🔗 ' + (res.url ? '<code>' + esc(res.url) + '</code>' : '(workers.dev off — از داشبورد کلادفلر باز کن)') + '\n\n⚠️ دامنهٔ پنل عوض نشده؛ تنظیمات قبلی در KV می‌ماند.';
+      const hl = res.health && res.health.ok
+        ? '🫀 health OK — پنل زنده است و همین نسخه را سرو می‌کند'
+        : '⚠️ health FAILED ' + (res.health && res.health.status ? '(HTTP ' + res.health.status + (res.health.version ? ' — سرو‌شده: ' + res.health.version : '') + ')' : (res.health && res.health.error ? '(' + res.health.error + ')' : '')) + '\n⏪ برگشت به نسخهٔ قبل: /rollback';
+      return '✅ <b>Cat Panel ' + esc(res.ver) + '</b> deployed\n' + hl + '\n📦 منبع: ' + esc(res.ref) + '\n🔗 ' + (res.url ? '<code>' + esc(res.url) + '</code>' : '(workers.dev off — از داشبورد کلادفلر باز کن)') + '\n\n⚠️ دامنهٔ پنل عوض نشده؛ تنظیمات قبلی در KV می‌ماند.';
+    }
+    case '/doctor': {
+      if (!c.cf || !c.acc) return setupChecklist(c);
+      const acc = await cfApi(F, c, 'GET', '/accounts/' + c.acc);
+      const scripts = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts');
+      const has = scripts.ok && ((scripts.json && scripts.json.result) || []).some((x) => x.id === c.name || x.name === c.name);
+      const kv = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/storage/kv/namespaces?per_page=100');
+      const kvok = kv.ok && ((kv.json && kv.json.result) || []).some((n) => n.title === KV_TITLE);
+      const sub = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/subdomain');
+      const subd = sub.json && sub.json.result && sub.json.result.subdomain;
+      let healthLine = '🟡 health — نشناختم (workers.dev خاموش؟)';
+      if (subd) {
+        try {
+          const hr = await F('https://' + c.name + '.' + subd + '.workers.dev/health', { redirect: 'follow' });
+          const hj = await hr.json().catch(() => null);
+          healthLine = hr.ok && hj && hj.ok === true
+            ? '✅ health v' + hj.version + ' — ورکر زنده است'
+            : '🔴 health HTTP ' + hr.status + ' — ورکر down (ارور 1101؟) → /deploy بزن؛ اگر تکرار شد /rollback';
+        } catch (e) { healthLine = '🔴 health: ' + esc(String((e && e.message) || e).slice(0, 60)); }
+      }
+      return '🩺 <b>گزارش وضعیت</b>\n' + [
+        (acc.ok ? '✅' : '🔴') + ' حساب کلادفلر' + (acc.ok ? '' : ' — توکن یا Account ID نادرست'),
+        (has ? '✅' : '🔴') + ' ورکر «' + c.name + '»' + (has ? '' : ' — وجود ندارد؛ اول /deploy'),
+        (kvok ? '✅' : '🟡') + ' KV («' + KV_TITLE + '»)',
+        healthLine,
+      ].join('\n') + '\n\nقانون طلایی: آپدیت فقط با /deploy یا Actions — هیچ‌وقت paste در مرورگر موبایل.';
+    }
+    case '/rollback': {
+      if (!c.cf || !c.acc) return setupChecklist(c);
+      const list = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions');
+      if (!list.ok) return '🔴 versions list failed (' + list.status + ')';
+      const vs = Array.isArray(list.json && list.json.result) ? list.json.result : [];
+      if (vs.length < 2) return '🟡 فقط یک نسخهٔ دیپلوی‌شده هست — چیزی برای برگرداندن نیست';
+      const prev = vs[1];
+      const rb = await cfApi(F, c, 'POST', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions/' + encodeURIComponent(prev.id) + '/rollback', {});
+      if (!rb.ok) { const e0 = rb.json && rb.json.errors && rb.json.errors[0]; return '🔴 rollback failed (' + rb.status + (e0 ? ' — ' + esc(e0.code + ' ' + e0.message) : '') + ')'; }
+      return '⏪ به نسخهٔ قبلی برگشت (' + esc(String(prev.number || prev.id).slice(0, 16)) + ') — حالا /doctor را بزن';
     }
     case '/status': {
       if (!c.cf || !c.acc) return setupChecklist(c);

@@ -35,7 +35,9 @@ function mkBot(t) {
     }
     if (u.includes('/workers/scripts/cat-panel') && u.includes('/schedules')) return { ok: true, status: 200, json: async () => ({}) };
     if (u.includes('/workers/scripts/cat-panel/subdomain') && (opt && opt.method) === 'POST') return { ok: true, status: 200, json: async () => ({}) };
-    if (u.includes('/workers/subdomain')) return { ok: true, status: 200, json: async () => ({ result: { subdomain: 'me.workers.dev' } }) };
+    if (u.includes('/workers/subdomain')) return { ok: true, status: 200, json: async () => ({ result: { subdomain: 'me' } }) }; // real API returns the bare label
+    if (u === 'https://cat-panel.me.workers.dev/health') return { ok: true, status: 200, json: async () => ({ ok: true, version: '9.9.9', kv: true }) };
+    if (u.includes('/accounts/acc1') && !u.includes('/workers') && !u.includes('/storage')) return { ok: true, status: 200, json: async () => ({ result: { id: 'acc1' } }) };
     if (u.includes('/workers/scripts/cat-panel')) return { ok: true, status: 200, json: async () => ({ result: {} }) };
     if (u.includes('/workers/scripts')) return { ok: true, status: 200, json: async () => ({ result: [{ id: 'cat-panel' }] }) };
     if (u.includes('/user/tokens/verify')) return { ok: true, status: 200, json: async () => ({ result: { status: 'active' } }) };
@@ -77,6 +79,45 @@ const ENV = (t) => ({ TG_TOKEN: t, CF_API_TOKEN: 'cf-tok', CF_ACCOUNT_ID: 'acc1'
   check('subdomain enabled + URL in reply', b.calls.some((x) => x.u.includes('/subdomain')) && rep.includes('cat-panel.me.workers.dev'), rep.slice(0, 120));
   check('reply carries fetched version', rep.includes('9.9.9'));
   check('deploy reused existing KV (no create call)', !b.calls.some((x) => x.u.includes('/storage/kv/namespaces') && x.opt.method === 'POST'));
+  check('post-deploy health gate: reply reports health OK', b.calls.some((x) => x.u === 'https://cat-panel.me.workers.dev/health') && rep.includes('health OK'), rep.slice(0, 160));
+}
+// 2b) health mismatch → honest ⚠ + rollback pointer (anti-1101 gate)
+{
+  const b = mkBot('sec2b'); const env = ENV('sec2b'); env.__fetch = b.F;
+  const orig = b.F;
+  const F2 = async (u, o) => { if (String(u) === 'https://cat-panel.me.workers.dev/health') return { ok: true, status: 200, json: async () => ({ ok: false, version: '6.20.0' }) }; return orig(u, o); };
+  b.F = F2;
+  const rep2 = await T.runCommand(F2, T.cfg(env), '/deploy');
+  check('health mismatch → ⚠ + /rollback pointer', rep2.includes('health FAILED') && rep2.includes('سرو‌شده: 6.20.0') && rep2.includes('/rollback'), rep2.slice(0, 200));
+}
+// 2c) /doctor — full status report
+{
+  const b = mkBot('sec2c'); const env = ENV('sec2c'); env.__fetch = b.F;
+  const d = await T.runCommand(b.F, T.cfg(env), '/doctor');
+  check('/doctor: account + worker + KV + health all green', d.includes('🩺') && d.includes('حساب کلادفلر') && d.includes('✅ health v9.9.9') && !d.includes('🔴'), d);
+  const b2 = mkBot('sec2d'); const env2 = ENV('sec2d'); env2.__fetch = b2.F;
+  const orig = b2.F;
+  const F3 = async (u, o) => { if (String(u) === 'https://cat-panel.me.workers.dev/health') return { ok: false, status: 500, json: async () => ({}) }; return orig(u, o); };
+  b2.F = F3;
+  const d2 = await T.runCommand(F3, T.cfg(env2), '/doctor');
+  check('/doctor: dead worker → red 1101 guidance with /deploy', d2.includes('🔴 health HTTP 500') && d2.includes('1101'), d2);
+}
+// 2e) /rollback — rolls back to the previous version
+{
+  const b = mkBot('sec2e'); const env = ENV('sec2e'); env.__fetch = b.F;
+  const orig = b.F;
+  const F4 = async (u, o) => {
+    const uu = String(u);
+    if (uu.includes('/workers/scripts/cat-panel/versions') && (uu.endsWith('/versions') || uu.endsWith('/versions?per_page=100')) ) return { ok: true, status: 200, json: async () => ({ result: [{ id: 'v2', number: 2 }, { id: 'v1', number: 1 }] }) };
+    if (uu.includes('/versions/v2/rollback')) return { ok: true, status: 200, json: async () => ({ result: { id: 'v1' } }) };
+    return orig(u, o);
+  };
+  b.F = F4;
+  const rb = await T.runCommand(F4, T.cfg(env), '/rollback');
+  check('/rollback: rolls back to previous version', rb.includes('⏪') && rb.includes('(1)'), rb.slice(0, 140));
+  const b2 = mkBot('sec2f'); const env2 = ENV('sec2f'); env2.__fetch = b2.F;
+  const rb2 = await T.runCommand(b2.F, T.cfg(env2), '/rollback');
+  check('/rollback: single version → honest no-op', rb2.includes('🟡'), rb2.slice(0, 140));
 }
 // 3) KV created when missing
 {
