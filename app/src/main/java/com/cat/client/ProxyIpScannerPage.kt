@@ -154,7 +154,7 @@ class ProxyIpScannerPage(
         }
         renderBudget()
         val portRowHost = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val renderPorts: () -> Unit = {
+        fun renderPorts() {
             portRowHost.removeAllViews()
             listOf(443, 2053, 2083, 2087, 2096, 8443).forEach { p ->
                 val on = p in selectedPorts
