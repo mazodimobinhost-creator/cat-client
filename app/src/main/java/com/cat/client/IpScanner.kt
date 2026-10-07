@@ -530,6 +530,17 @@ object IpScanner {
         results.sortedWith(compareBy({ it.pingMs }, { if (it.tlsOk) 0 else 1 }))
     }
 
+    /** Jitter pass helper: one fresh probe of an already-verified IP (used by
+     * the UI's second pass to estimate jitter). */
+    fun reprobeOnce(
+        ip: String,
+        sni: String,
+        port: Int,
+        connectTimeoutMs: Int = 1500,
+        tlsTimeoutMs: Int = 2500,
+    ): ScanResult? =
+        probe(ip, ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, randomSample = false, connectTimeoutMs = connectTimeoutMs, tlsTimeoutMs = tlsTimeoutMs, verifyHttp = true))
+
     /** Two-stage probe: TCP connect, then TLS + optional HTTP trace. */
     internal fun probe(ip: String, options: ScanOptions): ScanResult? {
         val tcpMs = tcpConnect(ip, options.port, options.connectTimeoutMs) ?: return null

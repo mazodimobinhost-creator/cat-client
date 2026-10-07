@@ -5335,6 +5335,10 @@ class MainActivity : Activity() {
             )
         }
         controls.addView(rangeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        // ⚡ Scan profile: fast (shallow + snappy) / standard / deep (wide walk +
+        // long timeouts) — same engine, different depth, persisted per device.
+        scannerProfile = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString("profile", "std") ?: "std"
+        controls.addView(scannerProfileRow(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -5396,6 +5400,16 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(4))
         }
         controls.addView(scannerStatusText, LinearLayout.LayoutParams(-1, -2))
+        scannerHistoryText = TextView(this).apply {
+            setText(R.string.scanner_history_never)
+            textSize = 11f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(0, dp(2), 0, 0)
+        }
+        controls.addView(scannerHistoryText, LinearLayout.LayoutParams(-1, -2))
+        renderScanHistory()
         body.addView(controls, LinearLayout.LayoutParams(-1, -2))
 
         body.addView(
@@ -5472,6 +5486,20 @@ class MainActivity : Activity() {
             setOnClickListener { runNeighborScan() }
         }
         body.addView(scannerNeighborButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // ⤴ Share the verified hits anywhere (Telegram, clipboard apps, …).
+        val scannerShareButton = MaterialButton(this).apply {
+            setText(R.string.scanner_share_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 90))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { shareScannerResults() }
+        }
+        body.addView(scannerShareButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val scannerSpeedButton = MaterialButton(this).apply {
             setText(R.string.scanner_speed_btn)
             textSize = 13.5f
@@ -5494,6 +5522,15 @@ class MainActivity : Activity() {
             scannerFilterRow(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
+        scannerCountryText = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            visibility = View.GONE
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(0, dp(8), 0, 0)
+        }
+        body.addView(scannerCountryText, LinearLayout.LayoutParams(-1, -2))
 
         scannerResultsList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5742,11 +5779,16 @@ class MainActivity : Activity() {
             customSubnets = customSubnets,
             includeBuiltin = true,
             includeIranLibrary = true,
-            perRange = SCANNER_PER_RANGE,
+            perRange = when (scannerProfile) {
+                "fast" -> (SCANNER_PER_RANGE / 2).coerceAtLeast(2)
+                "deep" -> SCANNER_PER_RANGE * 3
+                else -> SCANNER_PER_RANGE
+            },
             randomSample = true,
             concurrency = SCANNER_CONCURRENCY,
-            connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
-            tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
+            // Profile depth: fast = snappy timeouts, deep = doubled TLS patience.
+            connectTimeoutMs = if (scannerProfile == "fast") 1000 else SCANNER_CONNECT_TIMEOUT_MS,
+            tlsTimeoutMs = if (scannerProfile == "deep") SCANNER_TLS_TIMEOUT_MS * 2 else SCANNER_TLS_TIMEOUT_MS,
             verifyHttp = true,
         )
         scannerProgressBar.progress = 0
@@ -5794,6 +5836,19 @@ class MainActivity : Activity() {
                 scannerSniPreference(),
                 scannerPortPreference(),
             )
+            // ⚡ Advanced: record the run (best ms + verified count), then a
+            // jitter pass — two extra handshakes for the top verified hits.
+            saveScanHistoryRun(found.filter { it.tlsOk }.minByOrNull { it.pingMs }?.pingMs?.toInt(), found.count { it.tlsOk }, found.size)
+            scannerJitterMs = withContext(Dispatchers.IO) {
+                val out = mutableMapOf<String, Int>()
+                for (r in found.filter { it.tlsOk }.take(8)) {
+                    val pings = mutableListOf(r.pingMs)
+                    repeat(2) { runCatching { IpScanner.reprobeOnce(r.ip, sni, scannerPort) }.getOrNull()?.let { pings += it.pingMs } }
+                    out[r.ip] = ((pings.maxOrNull() ?: r.pingMs) - (pings.minOrNull() ?: r.pingMs)).toInt()
+                }
+                out
+            }
+            renderScanHistory()
             renderScannerResults()
             renderScannerIpHealth()
             scannerStatusText.text = if (found.isEmpty()) {
@@ -6154,6 +6209,121 @@ class MainActivity : Activity() {
         }
     }
 
+    /** ⚡ Scan profile chips: fast / standard / deep — depth of the same engine. */
+    private fun scannerProfileRow(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        row.addView(
+            TextView(this).apply {
+                setText(R.string.scanner_profile_label)
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+        )
+        fun chip(labelText: String, key: String): android.widget.TextView =
+            TextView(this).apply {
+                text = labelText
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+                background = glassSurfaceDrawable(radiusDp = 14)
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setOnClickListener {
+                    scannerProfile = key
+                    getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).edit().putString("profile", key).apply()
+                    refreshScannerProfileRow(row)
+                }
+            }
+        row.addView(chip(getString(R.string.scanner_profile_fast), "fast"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        row.addView(chip(getString(R.string.scanner_profile_std), "std"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        row.addView(chip(getString(R.string.scanner_profile_deep), "deep"), LinearLayout.LayoutParams(-2, -2))
+        refreshScannerProfileRow(row)
+        return row
+    }
+
+    private fun refreshScannerProfileRow(row: LinearLayout) {
+        val keys = listOf("fast", "std", "deep")
+        for (i in 1 until row.childCount) {
+            val chip = row.getChildAt(i) as? android.widget.TextView ?: continue
+            val key = keys.getOrNull(i - 1) ?: continue
+            val active = scannerProfile == key
+            chip.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            chip.background = glassSurfaceDrawable(radiusDp = 14, highlighted = active)
+        }
+    }
+
+    /** ⤴ Shares the verified hits (ip:port#CC lines) with any app. */
+    private fun shareScannerResults() {
+        val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+            .filter { it.tlsOk }
+            .distinctBy { it.ip }
+            .take(60)
+        if (verified.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_share_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val text = verified.joinToString("\n") { it.panelLine }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.scanner_share_btn)))
+    }
+
+    /** 🕘 One scanner run → prefs history (timestamp:best:verified:total). */
+    private fun saveScanHistoryRun(bestMs: Int?, verified: Int, total: Int) {
+        val entry = "${System.currentTimeMillis()}:${bestMs ?: -1}:$verified:$total"
+        val rest = scanHistoryRaw().split("|").filter { it.isNotBlank() }.take(11)
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString("history", (listOf(entry) + rest).joinToString("|"))
+            .apply()
+    }
+
+    private fun scanHistoryRaw(): String =
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString("history", "") ?: ""
+
+    private fun renderScanHistory() {
+        val view = scannerHistoryText ?: return
+        val rows = scanHistoryRaw().split("|").filter { it.isNotBlank() }
+        if (rows.isEmpty()) {
+            view.setText(R.string.scanner_history_never)
+            return
+        }
+        val parts = rows.first().split(":")
+        val at = parts.getOrNull(0)?.toLongOrNull() ?: 0L
+        val best = parts.getOrNull(1)?.toIntOrNull() ?: -1
+        val ok = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        val bestEver = rows.mapNotNull { it.split(":").getOrNull(1)?.toIntOrNull() }.filter { it > 0 }.minOrNull()
+        val ago = android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+        view.text = if (best > 0) {
+            val line = getString(R.string.scanner_history_last, ago, best, ok)
+            if (bestEver != null && bestEver > 0) "$line · ${getString(R.string.scanner_history_record, bestEver)}" else line
+        } else {
+            getString(R.string.scanner_history_last, ago, getString(R.string.scanner_history_na), ok)
+        }
+    }
+
+    /** 🌐 Country distribution of the visible results (line under the filters). */
+    private fun refreshScannerCountrySummary(list: List<IpScanner.ScanResult>) {
+        val view = scannerCountryText ?: return
+        val groups = list.filter { !it.countryCode.isNullOrBlank() }
+            .groupingBy { it.countryCode!! }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .take(6)
+        view.text = groups.joinToString("   ") { "${it.key.toFlagEmoji()} ${it.value}" }
+        view.visibility = if (groups.isEmpty()) View.GONE else View.VISIBLE
+    }
+
     // Category chips under the results (like the reference screenshots): all /
     // v4-only / v6-only — v6 chip lights up once the walk found v6 endpoints.
     private var scannerFilterAll: android.widget.TextView? = null
@@ -6164,6 +6334,12 @@ class MainActivity : Activity() {
     /** IPs the 👑 neighbor scan added this session — sent to the panel with
      * source=neighbor so the 🩺 provenance badge shows «👑 همسایه». */
     private val scannerNeighborIps = mutableSetOf<String>()
+    // ⚡ Advanced scanner (beta57): profile «fast/std/deep», jitter of the top
+    // hits, country distribution of the visible results, run history line.
+    private var scannerProfile: String = "std"
+    private var scannerJitterMs: Map<String, Int> = emptyMap()
+    private var scannerCountryText: TextView? = null
+    private var scannerHistoryText: TextView? = null
 
     private fun scannerFilterVisible(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> =
         when (scannerFilter) {
@@ -6225,6 +6401,7 @@ class MainActivity : Activity() {
         val visible = scannerFilterVisible(if (scannerRunning) scannerLiveResults.toList() else scannerResults)
         scannerResultsList.removeAllViews()
         refreshScannerFilters()
+        refreshScannerCountrySummary(visible)
         if (visible.isEmpty()) {
             scannerResultsList.addView(
                 TextView(this).apply {
@@ -6340,6 +6517,15 @@ class MainActivity : Activity() {
                     includeFontPadding = false
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+            }
+            scannerJitterMs[result.ip]?.let { jitter ->
+                addView(TextView(this@MainActivity).apply {
+                    text = getString(R.string.scanner_jitter, jitter)
+                    textSize = 9.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    includeFontPadding = false
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
             }
             if (rank == 1) {

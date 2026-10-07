@@ -36,8 +36,9 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
 }
 // health
 { const r = await req('/health'); const j = await r.json(); check('/health ok', r.status===200 && j.ok===true && j.version===T.CAT_PANEL_VERSION); }
-// panel locked by default → login page
-{ const r = await req('/'); const b = await r.text(); check('/ shows login when locked', r.status===200 && b.includes('/api/login')); }
+// beta57 stealth default: / = camouflage landing, real UI at /panel
+{ const r = await req('/'); const b = await r.text(); check('/ serves camouflage when locked', r.status===200 && b.includes('Sora') && !b.includes('/api/login')); }
+{ const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows login when locked', rp.status===200 && bp.includes('/api/login')); }
 // api unauthorized
 { const r = await req('/api/settings'); check('/api/settings 401 without session', r.status===401); }
 // login with uuid
@@ -46,7 +47,7 @@ let cookie='';
   const r2 = await req('/api/login', { method:'POST', body:{ password: MASTER } }); const j = await r2.json(); cookie = (r2.headers.get('set-cookie')||'').split(';')[0];
   check('login with UUID ok', r2.status===200 && j.ok && cookie.startsWith('cat_session=')); }
 const auth = { cookie };
-{ const r = await req('/', { headers: auth }); const b = await r.text(); check('/ shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
+{ const r = await req('/panel', { headers: auth }); const b = await r.text(); check('/panel shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
 { const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
 // subscription master
 { const r = await req('/sub/' + MASTER + '?rotate=off'); const b = await r.text();
@@ -141,7 +142,7 @@ let user;
   const lu = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env2 }); check('restored users + password', lu.status===200 && (await lu.json()).users[0].name==='ali');
   T.kvCacheClear(); }
 // open panel
-{ const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER, OPEN_PANEL:'true' }; const r = await req('/', { env: env3 }); check('OPEN_PANEL serves panel without login', (await r.text()).includes('v-dash'));
+{ const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER, OPEN_PANEL:'true' }; const r = await req('/panel', { env: env3 }); check('OPEN_PANEL serves panel without login', (await r.text()).includes('v-dash'));
   const r2 = await req('/api/settings', { env: env3 }); check('OPEN_PANEL api open', r2.status===200 && (await r2.json()).open===true); T.kvCacheClear(); }
 // no KV
 { const envNo = { UUID: MASTER }; const r = await req('/sub/' + MASTER, { env: envNo }); check('works without KV', r.status===200); const h = await req('/health', { env: envNo }); check('health reports kv:false', (await h.json()).kv===false); }
@@ -619,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.37.0', T.CAT_PANEL_VERSION === '6.37.0');
+  check('panel version is 6.38.0', T.CAT_PANEL_VERSION === '6.38.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -895,6 +896,47 @@ let user;
     check('neighbor: regular scanner IP keeps src=scanner', !!s90 && s90.src === 'scanner', JSON.stringify(s90));
     const html9 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('neighbor: crown badge wired in UI', html9.includes("so.src==='neighbor'"));
+  }
+  // beta57: stealth camouflage + manual IP add + one-time stealth default
+  {
+    // One-time stealth latch: empty settings wake up camouflaged at /panel.
+    const st10 = T.normalizeSettings({});
+    check('stealth: one-time latch defaults panelPath=panel', st10.panelPath === 'panel' && st10.stealthOn === true, JSON.stringify({ p: st10.panelPath, on: st10.stealthOn }));
+    const st11 = T.normalizeSettings({ panelPath: 'myhole', stealthOn: true });
+    check('stealth: explicit path respected', st11.panelPath === 'myhole');
+    const st12 = T.normalizeSettings({ panelPath: '', stealthOn: true });
+    check('stealth: opting out stays off', st12.panelPath === '' && st12.stealthOn === true);
+    const camo = T.camouflagePage();
+    const banned = ['vless', 'trojan', 'proxy', 'panel', 'config', 'uuid', 'vpn', 'subscribe', 'worker'].filter((w) => camo.toLowerCase().includes(w));
+    check('camo: zero fingerprint words', banned.length === 0, banned.join(','));
+    check('camo: realistic page with decoy meta', camo.includes('generator') && camo.includes('<!doctype html>'));
+    const html10 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: manual-add card wired', html10.includes('btnManualAdd') && html10.includes('ip_manual_add') && html10.includes('manualIps'));
+    new Function(html10.match(/<script>[\s\S]*?<\/script>/)[1]);
+    check('panel: inline script still parses (manual add)', true);
+    // Routing: enable stealth via the real settings API, then probe the camo.
+    const put = await req('/api/settings', { method: 'PUT', headers: auth, body: { panelPath: 'panel' } });
+    const pj = await put.json();
+    check('stealth: settings PUT ok', pj.ok === true && pj.settings.panelPath === 'panel', JSON.stringify(pj.settings && pj.settings.panelPath));
+    const root = await req('/');
+    const rootTxt = await root.text();
+    check('stealth: / serves camouflage', root.status === 200 && rootTxt.includes('Sora') && !rootTxt.includes('login'), root.status + ' ' + rootTxt.slice(0, 80));
+    const hole = await req('/panel');
+    const holeTxt = await hole.text();
+    check('stealth: /panel serves the real login', hole.status === 200 && (holeTxt.includes('login') || holeTxt.includes('ورود')), hole.status);
+    const rnd = await req('/zzz-not-here');
+    check('stealth: unknown path = neutral 404', rnd.status === 404 && (await rnd.text()).includes('nginx'));
+    const rob = await req('/robots.txt');
+    check('stealth: robots.txt quiet', rob.status === 200 && (await rob.text()).includes('Disallow'));
+    // back to legacy-open for the remaining blocks
+    const put2 = await req('/api/settings', { method: 'PUT', headers: auth, body: { panelPath: '' } });
+    check('stealth: reset to legacy open', (await put2.json()).settings.panelPath === '');
+    // ✍️ manual add: source=manual provenance
+    const mr = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['203.0.113.50:443'], source: 'manual' } });
+    const mj = await mr.json();
+    check('manual: import ok', mj.ok === true && mj.ips.includes('203.0.113.50:443'), JSON.stringify(mj));
+    const st13 = (await (await req('/api/settings', { headers: auth })).json()).settings;
+    check('manual: src=manual stored', !!(st13.ipSources && st13.ipSources['203.0.113.50:443'] && st13.ipSources['203.0.113.50:443'].src === 'manual'), JSON.stringify(st13.ipSources && st13.ipSources['203.0.113.50:443']));
   }
 
 

@@ -11,7 +11,8 @@ const worker = mod.default;
 const KV = { m: new Map(), async get(k){return this.m.get(k)??null}, async put(k,v){this.m.set(k,v)}, async list(){return {keys:[]}} };
 const env = { CAT_KV: KV, UUID: '11111111-2222-4333-8444-555555555555', OPEN_PANEL: 'true' };
 const HOST='https://p.workers.dev';
-const htmlRes = await worker.fetch(new Request(HOST + '/'), env, {});
+// beta57 stealth default: the UI lives at /panel — / is the camouflage page.
+const htmlRes = await worker.fetch(new Request(HOST + '/panel'), env, {});
 const html = await htmlRes.text();
 const errors = [];
 const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
@@ -59,6 +60,6 @@ check('user deleted', document.querySelectorAll('#rows tr').length===0);
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
 check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));
 // login page + info page parse
-const login = await (await worker.fetch(new Request(HOST + '/'), { CAT_KV: KV, UUID: env.UUID }, {})).text();
+const login = await (await worker.fetch(new Request(HOST + '/panel'), { CAT_KV: KV, UUID: env.UUID }, {})).text();
 const d2 = new JSDOM(login, { runScripts:'dangerously' }); check('login page has form', !!d2.window.document.querySelector('#f'));
 console.log(failures ? failures+' FAILED' : 'DOM PASSED'); process.exit(failures?1:0);

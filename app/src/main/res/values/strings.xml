@@ -660,6 +660,17 @@
     <string name="scanner_filter_v6">IPv6</string>
     <string name="scanner_neighbor_btn">👑 Neighbor scan</string>
     <string name="scanner_neighbor_running">Scanning neighbours of the best hits…</string>
+        <string name="scanner_profile_label">Profile</string>
+    <string name="scanner_profile_fast">⚡ Fast</string>
+    <string name="scanner_profile_std">⚖ Standard</string>
+    <string name="scanner_profile_deep">🔬 Deep</string>
+    <string name="scanner_share_btn">⤴ Share results</string>
+    <string name="scanner_share_empty">No verified result to share yet</string>
+    <string name="scanner_jitter">jit %1$d ms</string>
+    <string name="scanner_history_last">Last scan: %1$s · best %2$d ms · %3$d verified</string>
+    <string name="scanner_history_record">network record %1$d ms</string>
+    <string name="scanner_history_never">No scan recorded yet</string>
+    <string name="scanner_history_na">n/a</string>
     <string name="scanner_neighbor_done">%1$d fresh neighbours found (of %2$d tried)</string>
     <string name="scanner_ipv6_detected">IPv6 works on this network — scanning IPv4 + IPv6…</string>
     <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
