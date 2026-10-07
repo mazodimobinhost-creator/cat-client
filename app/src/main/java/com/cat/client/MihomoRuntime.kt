@@ -60,6 +60,19 @@ object MihomoRuntimeDefaults {
         "www.gstatic.com",
         "connectivitycheck.gstatic.com",
     )
+    /** AI/service domains that must ALWAYS ride the tunnel — a subscription
+     * rule set routing them DIRECT leaks the Iranian egress (Gemini/OpenAI
+     * refuse it). DOMAIN-SUFFIX rules, injected first like the measurement
+     * domains so nothing shadows them. */
+    val SERVICE_DOMAINS = listOf(
+        "gemini.google.com",
+        "aistudio.google.com",
+        "generativelanguage.googleapis.com",
+        "chatgpt.com",
+        "openai.com",
+        "oaistatic.com",
+        "oaiusercontent.com",
+    )
     const val SPEED_TEST_BYTES = 1_000_000L
     const val SPEED_TEST_URL_PREFIX = "https://speed.cloudflare.com/__down?bytes="
 }
@@ -819,6 +832,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     val measurementRules = if (measureTarget != null) {
                         MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
                             "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
+                        } + MihomoRuntimeDefaults.SERVICE_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN-SUFFIX,$domain,$measureTarget")}\n"
                         }
                     } else {
                         ""

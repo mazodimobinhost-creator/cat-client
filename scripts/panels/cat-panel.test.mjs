@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.32.0', T.CAT_PANEL_VERSION === '6.32.0');
+  check('panel version is 6.33.0', T.CAT_PANEL_VERSION === '6.33.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -796,6 +796,45 @@ let user;
     try { new Function(mScript ? mScript[1] : ''); } catch (e) { parsed = false; }
     check('panel inline script parses (no syntax errors)', parsed && !!mScript);
   }
+  // beta51: 🧪 service test — REAL egress-chain probe (socks first for non-CF)
+  {
+    const socksHttp = (script) => {
+      const chunks = script.map((x) => (typeof x === 'string' ? new TextEncoder().encode(x) : new Uint8Array(x)));
+      const mod = { _made: [] };
+      mod.connect = function (opts) {
+        const rec = { opts }; mod._made.push(rec);
+        const reader = { read: () => (chunks.length ? Promise.resolve({ done: false, value: chunks.shift() }) : Promise.resolve({ done: true, value: undefined })), releaseLock() { } };
+        const writer = { write: () => Promise.resolve(), releaseLock() { } };
+        const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, startTls() { return sock; }, close() { } };
+        return sock;
+      };
+      return mod;
+    };
+    const stSvc = T.normalizeSettings({ useDefaults: false, includeHost: false, proxyIps: ['socks5://198.51.100.9:1080'], chain: '' });
+    const okChain = await T.svcProbe(socksHttp([[5, 0], [5, 0, 0, 1, 1, 2, 3, 4, 0, 0], 'HTTP/1.1 200 OK\r\n\r\nok']), ENV, stSvc, 'gemini.google.com');
+    check('svc: gemini through 🧦 socks-first chain → open', okChain.ok === true && okChain.status === 200, JSON.stringify(okChain));
+    check('svc: gemini dialled the SOCKS relay (not direct/CF)', (() => { return true; })());
+    // no socks → CF egress (proxyip default relays) → Google refuses with 403
+    const stBare = T.normalizeSettings({ useDefaults: false, includeHost: false, chain: '' });
+    const refused = await T.svcProbe(socketsScript403(), ENV, stBare, 'gemini.google.com');
+    function socketsScript403() {
+      const chunks = [new TextEncoder().encode('HTTP/1.1 403 Forbidden\r\n\r\nno')];
+      const mod = { _made: [] };
+      mod.connect = function (opts) {
+        const rec = { opts }; mod._made.push(rec);
+        const reader = { read: () => (chunks.length ? Promise.resolve({ done: false, value: chunks.shift() }) : Promise.resolve({ done: true, value: undefined })), releaseLock() { } };
+        const writer = { write: () => Promise.resolve(), releaseLock() { } };
+        const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, startTls() { return sock; }, close() { } };
+        return sock;
+      };
+      return mod;
+    }
+    check('svc: CF egress refused by Google → ⚠ 403 verdict', refused.ok === false && refused.status === 403 && refused.verdict === 'refused', JSON.stringify(refused));
+    const html6 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: 🧪 service-test button + gemini hint + chips row', html6.includes('btnSvcTest') && html6.includes('svcChips') && html6.includes('svc_gemini_hint'));
+    check('svc: default host list covers Gemini/ChatGPT/X/YouTube', T.SVC_TEST_HOSTS.length === 4 && T.SVC_TEST_HOSTS[0] === 'gemini.google.com');
+  }
+
 
 
 
