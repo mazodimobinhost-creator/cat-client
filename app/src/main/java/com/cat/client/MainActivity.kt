@@ -7149,6 +7149,99 @@ class MainActivity : Activity() {
     private suspend fun newestPanelScript(): PanelUpdate.PanelScript =
         newestPanelCache ?: PanelUpdate.newestPanel(this).also { newestPanelCache = it }
 
+    /**
+     * «📊 وضعیت کامل» — live snapshot of everything this panel currently serves:
+     * SNI (with the skk.moe-default warning), clean IPs (+pins), ProxyIP relays,
+     * fixed exit (chain), extra SNIs, ports, rotation, sub link. Login uses the
+     * stored deploy UUID (panel default password); on 401 the user is asked.
+     */
+    private fun showPanelStatusDialog(base0: String) {
+        val base = base0.trim().trimEnd('/')
+        activityScope.launch {
+            var password = runCatching { PanelDeploymentStore(this@MainActivity).uuidFor(base) }.getOrNull().orEmpty()
+            var result = withContext(Dispatchers.IO) { runCatching { fetchPanelStatus(base, password) } }
+            if (result.isFailure && password.isNotBlank()) {
+                // stored UUID rejected (password changed) → ask once
+                val asked = kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine<String?> { cont ->
+                        val input = TextInputEditText(this@MainActivity).apply {
+                            hint = getString(R.string.pip_password_hint)
+                            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                            setText(password)
+                        }
+                        val box = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(20), dp(12), dp(20), 0)
+                            addView(input, LinearLayout.LayoutParams(-1, -2))
+                        }
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.panel_status_btn)
+                            .setMessage(base.removePrefix("https://"))
+                            .setView(box)
+                            .setNegativeButton(android.R.string.cancel) { _, _ -> cont.resume(null) }
+                            .setPositiveButton(android.R.string.ok) { d, _ -> cont.resume(input.text.toString()); d.dismiss() }
+                            .setOnCancelListener { cont.resume(null) }
+                            .show()
+                    }
+                }
+                if (asked.isNullOrBlank()) return@launch
+                password = asked
+                result = withContext(Dispatchers.IO) { runCatching { fetchPanelStatus(base, password) } }
+            }
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                result.onSuccess { text ->
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.panel_status_title)
+                        .setMessage(text)
+                        .setPositiveButton(R.string.panel_status_close, null)
+                        .show()
+                }.onFailure { e ->
+                    Toast.makeText(this@MainActivity, getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun fetchPanelStatus(base: String, password: String): String {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+            val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val version = runCatching {
+            val (v, vb) = call("/api/version", "GET", null, null); v.disconnect()
+            org.json.JSONObject(vb).optString("version", "?")
+        }.getOrDefault("?")
+        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (get, getBody) = call("/api/settings", "GET", null, cookie)
+        get.disconnect()
+        if (get.responseCode != 200) throw IllegalStateException("HTTP ${get.responseCode}")
+        val st = org.json.JSONObject(getBody).optJSONObject("settings") ?: org.json.JSONObject()
+        val sni = st.optString("sni", "")
+        val sniLine = if (sni.isBlank()) getString(R.string.panel_st_sni_default) else sni
+        val ips = st.optJSONArray("ips"); var pins = 0
+        if (ips != null) { for (i in 0 until ips.length()) if (ips.optString(i).contains(":")) pins++ }
+        val px = st.optJSONArray("proxyIps")?.length() ?: 0
+        val xs = st.optJSONArray("extraSnis")?.length() ?: 0
+        val chain = st.optString("chain", "").ifBlank { getString(R.string.panel_st_chain_off) }
+        val tls = (0 until st.optJSONArray("tlsPorts")?.length().orEmpty()).take(3).mapNotNull { st.optJSONArray("tlsPorts")?.optString(it) }.joinToString("/")
+        val plain = if (st.optBoolean("plainEnabled")) (0 until st.optJSONArray("plainPorts")?.length().orEmpty()).take(3).mapNotNull { st.optJSONArray("plainPorts")?.optString(it) }.joinToString("/") else null
+        val rot = when (st.optString("subRotate", "fetch")) { "off" -> getString(R.string.panel_rot_off); "daily" -> getString(R.string.panel_rot_daily); else -> getString(R.string.panel_rot_fetch) }
+        val uuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrDefault("")
+        val sub = if (uuid.isNotBlank()) "$base/sub/$uuid" else base + "/sub/<uuid>"
+        return getString(R.string.panel_status_body,
+            base.removePrefix("https://"), version, sniLine,
+            ips?.length() ?: 0, pins, px, chain, xs,
+            tls + (plain?.let { " · $it" } ?: ""), rot, sub)
+    }
+
     private fun renderCloudDeploymentHistory() {
         val host = cloudDeploymentHistoryHost ?: return
         host.removeAllViews()
@@ -7225,6 +7318,14 @@ class MainActivity : Activity() {
                 marginStart = dp(8)
             })
             card.addView(buttons, LinearLayout.LayoutParams(-1, -2))
+            // «📊 وضعیت کامل»: everything the panel currently serves, fetched live
+            val status = rowButton(getString(R.string.panel_status_btn)).apply {
+                setOnClickListener { showPanelStatusDialog(deployment.workerUrl) }
+            }
+            card.addView(
+                status,
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
             host.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
                 if (index > 0) topMargin = dp(7)
             })

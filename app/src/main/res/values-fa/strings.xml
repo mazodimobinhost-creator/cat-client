@@ -936,6 +936,15 @@
     <string name="sni_main_title">SNI اصلی پنل: %1$s</string>
     <string name="sni_main_ok">🟢 شد — همهٔ کانفیگ‌های پنل با sni=%1$s ساخته می‌شوند؛ ساب را رفرش کن</string>
     <string name="sni_main_fail">نشد: %1$s</string>
+    <string name="panel_status_btn">📊 وضعیت کامل</string>
+    <string name="panel_status_title">وضعیت کامل پنل</string>
+    <string name="panel_status_close">بستن</string>
+    <string name="panel_st_sni_default">⚠️ پیش‌فرض (skk.moe) — اگر اپراتور ببندد همه می‌میرند</string>
+    <string name="panel_st_chain_off">— (خروجی خود کلادفلر)</string>
+    <string name="panel_rot_fetch">هر بروزرسانی</string>
+    <string name="panel_rot_daily">روزانه</string>
+    <string name="panel_rot_off">ثابت</string>
+    <string name="panel_status_body">🐱 %1$s (v%2$s)\n\n🎯 SNI: %3$s\n💦 آی‌پی تمیز: %4$d (📌 پورت‌پین: %5$d)\n🎭 رله ProxyIP: %6$d\n⛓ خروجی ثابت: %7$s\n🧬 SNI اضافه: %8$d\n🚪 پورت‌ها: %9$s\n🔄 چرخش: %10$s\n\n🔗 ساب:\n%11$s</string>
     <string name="pip_pick_panel">کدام پنل؟</string>
     <string name="pip_no_panel">هیچ Cat Panel‌ای در ساب‌هایت پیدا نشد</string>
     <string name="pip_password_hint">رمز پنل</string>

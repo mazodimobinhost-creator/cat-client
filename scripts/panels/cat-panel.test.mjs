@@ -597,7 +597,10 @@ let user;
   const subSt = T.normalizeSettings({});
   const sub = mod ? null : null;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
-  check('generated configs do not put panel host into sni param', !ctx.sni.includes(HOST), ctx.sni);
+  { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
+  check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
+  check('panel version bumped to 6.24.0', T.CAT_PANEL_VERSION === '6.24.0'); }
+check('generated configs do not put panel host into sni param', !ctx.sni.includes(HOST), ctx.sni);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

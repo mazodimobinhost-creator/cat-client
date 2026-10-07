@@ -937,6 +937,15 @@
     <string name="sni_main_title">Panel main SNI: %1$s</string>
     <string name="sni_main_ok">🟢 done — every panel config now builds with sni=%1$s; refresh the sub</string>
     <string name="sni_main_fail">failed: %1$s</string>
+    <string name="panel_status_btn">📊 Full status</string>
+    <string name="panel_status_title">Panel full status</string>
+    <string name="panel_status_close">Close</string>
+    <string name="panel_st_sni_default">⚠️ default (skk.moe) — dies everywhere if the carrier blocks it</string>
+    <string name="panel_st_chain_off">— (Cloudflare egress)</string>
+    <string name="panel_rot_fetch">Every update</string>
+    <string name="panel_rot_daily">Daily</string>
+    <string name="panel_rot_off">Fixed</string>
+    <string name="panel_status_body">🐱 %1$s (v%2$s)\n\n🎯 SNI: %3$s\n💦 Clean IPs: %4$d (📌 port-pinned: %5$d)\n🎭 ProxyIP relays: %6$d\n⛓ Fixed exit: %7$s\n🧬 Extra SNIs: %8$d\n🚪 Ports: %9$s\n🔄 Rotation: %10$s\n\n🔗 Sub:\n%11$s</string>
     <string name="pip_pick_panel">Which panel?</string>
     <string name="pip_no_panel">No Cat Panel found in your subscriptions</string>
     <string name="pip_password_hint">Panel password</string>
