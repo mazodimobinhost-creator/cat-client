@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.33.0', T.CAT_PANEL_VERSION === '6.33.0');
+  check('panel version is 6.34.0', T.CAT_PANEL_VERSION === '6.34.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -834,6 +834,21 @@ let user;
     check('panel: 🧪 service-test button + gemini hint + chips row', html6.includes('btnSvcTest') && html6.includes('svcChips') && html6.includes('svc_gemini_hint'));
     check('svc: default host list covers Gemini/ChatGPT/X/YouTube', T.SVC_TEST_HOSTS.length === 4 && T.SVC_TEST_HOSTS[0] === 'gemini.google.com');
   }
+  // beta52: fm/cs inside TLS links (cf-optimizor equivalent, native to the panel)
+  {
+    const stF = T.normalizeSettings({ useDefaults: false, includeHost: true, tlsPorts: [443], plainEnabled: false });
+    const outF = T.buildConfigEntries('p.workers.dev', ENV, stF, 'u1', null, {});
+    const tlsE = outF.entries.find((e) => e.proto === 'vless' && e.tls);
+    check('fm/cs: TLS links carry cs= and fm= (two-stage fragment profile)', tlsE.link.includes('&cs=') && tlsE.link.includes('&fm='), tlsE.link.slice(0, 120));
+    const fmVal = decodeURIComponent(tlsE.link.split('&fm=')[1].split('#')[0]);
+    check('fm/cs: fm payload is valid JSON with two fragment stages', (() => { try { const j = JSON.parse(fmVal); return Array.isArray(j.tcp) && j.tcp.length === 2 && j.tcp[0].settings.packets === 'tlshello'; } catch (e) { return false; } })(), fmVal.slice(0, 80));
+    const plainE = outF.entries.find((e) => e.proto === 'vless' && !e.tls);
+    check('fm/cs: :80 plain links stay clean (no fm)', !plainE || !plainE.link.includes('&fm='));
+    const stNo = T.normalizeSettings({ useDefaults: false, includeHost: true, tlsPorts: [443], plainEnabled: false, fmLinks: false });
+    check('fm/cs: toggle off → legacy links', !T.buildConfigEntries('p.workers.dev', ENV, stNo, 'u1', null, {}).entries.find((e) => e.proto === 'vless' && e.tls).link.includes('&fm='));
+    check('fm/cs: CIPHER_SUITES_DEFAULT is a colon-separated TLS list', /^[A-Z0-9_]+(:[A-Z0-9_]+)+$/.test(T.CIPHER_SUITES_DEFAULT));
+  }
+
 
 
 
