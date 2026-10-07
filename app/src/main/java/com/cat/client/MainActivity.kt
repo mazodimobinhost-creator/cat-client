@@ -6161,6 +6161,9 @@ class MainActivity : Activity() {
     private var scannerFilterV6: android.widget.TextView? = null
     private var scannerFilter: String = "all"
     private var scannerNeighborRunning: Boolean = false
+    /** IPs the 👑 neighbor scan added this session — sent to the panel with
+     * source=neighbor so the 🩺 provenance badge shows «👑 همسایه». */
+    private val scannerNeighborIps = mutableSetOf<String>()
 
     private fun scannerFilterVisible(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> =
         when (scannerFilter) {
