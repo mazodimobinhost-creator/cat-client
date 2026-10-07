@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.34.0', T.CAT_PANEL_VERSION === '6.34.0');
+  check('panel version is 6.35.0', T.CAT_PANEL_VERSION === '6.35.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -832,7 +832,7 @@ let user;
     check('svc: CF egress refused by Google → ⚠ 403 verdict', refused.ok === false && refused.status === 403 && refused.verdict === 'refused', JSON.stringify(refused));
     const html6 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('panel: 🧪 service-test button + gemini hint + chips row', html6.includes('btnSvcTest') && html6.includes('svcChips') && html6.includes('svc_gemini_hint'));
-    check('svc: default host list covers Gemini/ChatGPT/X/YouTube', T.SVC_TEST_HOSTS.length === 4 && T.SVC_TEST_HOSTS[0] === 'gemini.google.com');
+    check('svc: default host list covers Gemini/ChatGPT/X/YouTube', T.SVC_TEST_HOSTS.length >= 4 && T.SVC_TEST_HOSTS[0] === 'gemini.google.com');
   }
   // beta52: fm/cs inside TLS links (cf-optimizor equivalent, native to the panel)
   {
@@ -848,6 +848,30 @@ let user;
     check('fm/cs: toggle off → legacy links', !T.buildConfigEntries('p.workers.dev', ENV, stNo, 'u1', null, {}).entries.find((e) => e.proto === 'vless' && e.tls).link.includes('&fm='));
     check('fm/cs: CIPHER_SUITES_DEFAULT is a colon-separated TLS list', /^[A-Z0-9_]+(:[A-Z0-9_]+)+$/.test(T.CIPHER_SUITES_DEFAULT));
   }
+  // beta54: IPv6 endpoints first-class + service test v2 (+claude/aistudio, 404=alive) + exit-info
+  {
+    check('v6: 2606:4700 endpoints are recognized CF IPs', T.isCloudflareIp('2606:4700:d0::a29f:c001') && T.isCloudflareIp('2606:4700:4700::1111'));
+    check('v6: defaults include IPv6 endpoints', T.DEFAULT_CLEAN_ADDRESSES.some((a) => a.startsWith('2606:4700:')));
+    const stV6 = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false });
+    const outV6 = T.buildConfigEntries('panelx.workers.dev', ENV, stV6, 'u1', null, {});
+    const v6e = outV6.entries.find((e) => String(e.addr).startsWith('2606:4700:'));
+    check('v6: sub emits bracketed IPv6 endpoint link', !!v6e && v6e.link.includes('@[2606:4700:'), v6e && v6e.link.slice(0, 90));
+    check('svc: host list now covers Claude + AI Studio', T.SVC_TEST_HOSTS.includes('claude.ai') && T.SVC_TEST_HOSTS.includes('aistudio.google.com') && T.SVC_TEST_HOSTS.length === 6);
+    // 404 = reachable (API root) — the verdict used for Gemini API in the screenshots
+    const chunks404 = [new TextEncoder().encode('HTTP/1.1 404 Not Found\r\n\r\nnope')];
+    const mod404 = { _made: [] };
+    mod404.connect = function () {
+      const reader = { read: () => (chunks404.length ? Promise.resolve({ done: false, value: chunks404.shift() }) : Promise.resolve({ done: true, value: undefined })), releaseLock() { } };
+      const writer = { write: () => Promise.resolve(), releaseLock() { } };
+      const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, startTls() { return sock; }, close() { } };
+      return sock;
+    };
+    const r404 = await T.svcProbe(mod404, ENV, T.normalizeSettings({ useDefaults: false, includeHost: false, chain: '' }), 'gemini.google.com');
+    check('svc: 404 on an API root counts as reachable (open)', r404.ok === true && r404.status === 404, JSON.stringify(r404));
+    const html7 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: v6 accepted hint + svc exit chip handler', html7.includes('2606:4700') && html7.includes('__svcExit'));
+  }
+
 
 
 
