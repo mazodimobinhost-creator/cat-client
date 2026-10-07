@@ -757,6 +757,19 @@ object IpScanner {
             .filter { it.isNotEmpty() }
             .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) || isValidIpv6(part) || isValidHostname(part) }
 
+    /** Concrete, always-probed IPv6 edges (the «repo» for v6): well-known
+     * Cloudflare anycast addresses that answer TLS on every port we scan.
+     * Added to the walk whenever the network really has IPv6 connectivity. */
+    val V6_LIBRARY: List<String> = listOf(
+        "2606:4700:4700::1111",
+        "2606:4700:4700::1001",
+        "2606:4700::6810:84e5",
+        "2606:4700:d0::a29f:c001",
+        "2606:4700:d0::a29f:c002",
+        "2606:4700:3033::6810:84e5",
+        "2a06:98c0::6810:84e5",
+    )
+
     internal fun buildCandidateList(options: ScanOptions): List<String> {
         val ips = linkedSetOf<String>()
         val perRange = options.perRange.coerceIn(1, 256)
@@ -773,6 +786,7 @@ object IpScanner {
         }
         if (options.includeIpv6) {
             IPV6_RANGES.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
+            ips += V6_LIBRARY
         } else {
             // No usable v6 on this network → drop v6 literals/ranges the user typed too.
             ips.removeAll { isIpv6(it) }

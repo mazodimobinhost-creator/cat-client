@@ -659,7 +659,12 @@
     <string name="scanner_filter_v6">IPv6</string>
     <string name="scanner_neighbor_btn">👑 اسکن همسایه</string>
     <string name="scanner_neighbor_running">اسکن همسایه‌های همان بلوک…</string>
-        <string name="scanner_profile_label">حالت</string>
+            <string name="scanner_manual_ip_label">افزودن تک IP یا دامنه</string>
+    <string name="scanner_manual_ip_hint">مثلاً 104.16.1.1 یا [2606:4700:4700::1111]:443</string>
+    <string name="scanner_manual_ip_add">افزودن</string>
+    <string name="scanner_manual_ip_ok">%1$s اضافه شد — %2$d ms</string>
+    <string name="scanner_manual_ip_dead">%1$s جواب نداد — اضافه نشد</string>
+    <string name="scanner_profile_label">حالت</string>
     <string name="scanner_profile_fast">⚡ سریع</string>
     <string name="scanner_profile_std">⚖ استاندارد</string>
     <string name="scanner_profile_deep">🔬 عمیق</string>

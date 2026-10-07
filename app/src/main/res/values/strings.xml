@@ -660,7 +660,12 @@
     <string name="scanner_filter_v6">IPv6</string>
     <string name="scanner_neighbor_btn">👑 Neighbor scan</string>
     <string name="scanner_neighbor_running">Scanning neighbours of the best hits…</string>
-        <string name="scanner_profile_label">Profile</string>
+            <string name="scanner_manual_ip_label">Add a single IP or domain</string>
+    <string name="scanner_manual_ip_hint">e.g. 104.16.1.1 or [2606:4700:4700::1111]:443</string>
+    <string name="scanner_manual_ip_add">Add</string>
+    <string name="scanner_manual_ip_ok">%1$s added — %2$d ms</string>
+    <string name="scanner_manual_ip_dead">%1$s did not answer — not added</string>
+    <string name="scanner_profile_label">Profile</string>
     <string name="scanner_profile_fast">⚡ Fast</string>
     <string name="scanner_profile_std">⚖ Standard</string>
     <string name="scanner_profile_deep">🔬 Deep</string>

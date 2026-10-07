@@ -57,6 +57,20 @@ check('ips imported', document.querySelector('#ipCount').textContent==='3', docu
 // delete user
 document.querySelector('[data-del]').click(); await sleep(300);
 check('user deleted', document.querySelectorAll('#rows tr').length===0);
+// beta58: ✍️ manual add — real click, real POST, real storage (regression:
+// a template-literal escape bug once mangled every entry into «a.com:443»)
+{
+  const before = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  document.querySelector('#manualIps').value = '198.51.100.9\n2606:4700:4700::1111\nwww.visa.com';
+  document.querySelector('#manualTest').checked = false;
+  document.querySelector('#btnManualAdd').click();
+  await sleep(400);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  const ips = st.ips || [];
+  check('manual add: 3 entries stored', ips.includes('198.51.100.9:443') && ips.includes('[2606:4700:4700::1111]:443') && ips.includes('www.visa.com:443'), JSON.stringify(ips));
+  check('manual add: list grew by 3', ips.length === before + 3, before + ' → ' + ips.length);
+  check('manual add: src=manual badge', !!(st.ipSources && Object.values(st.ipSources).some((v) => v && v.src === 'manual')));
+}
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
 check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));
 // login page + info page parse

@@ -5335,6 +5335,63 @@ class MainActivity : Activity() {
             )
         }
         controls.addView(rangeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        // ✍️ Manual single-IP add (v4 / v6 / domain): probe NOW with the current
+        // SNI/port and join the results only when it really answers.
+        val manualIpInput = TextInputEditText(this).apply {
+            hint = getString(R.string.scanner_manual_ip_hint)
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
+        }
+        val manualAddRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                TextInputLayout(this@MainActivity).apply {
+                    hint = getString(R.string.scanner_manual_ip_label)
+                    boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+                    addView(manualIpInput, LinearLayout.LayoutParams(-1, -2))
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                MaterialButton(this@MainActivity).apply {
+                    setText(R.string.scanner_manual_ip_add)
+                    textSize = 12.5f
+                    typeface = CatClientBodyBoldTypeface
+                    isAllCaps = false
+                    cornerRadius = dp(10)
+                    insetTop = 0
+                    insetBottom = 0
+                    setOnClickListener {
+                        val value = manualIpInput.text?.toString()?.trim().orEmpty()
+                        if (value.isEmpty()) return@setOnClickListener
+                        val target = value.removePrefix("[").substringBefore("]")
+                        val sniNow = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+                        it.isEnabled = false
+                        activityScope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { IpScanner.reprobeOnce(target, sniNow, scannerPort) }.getOrNull()
+                            }
+                            it.isEnabled = true
+                            if (result == null) {
+                                Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_dead, value), Toast.LENGTH_LONG).show()
+                            } else {
+                                if (scannerResults.none { r -> r.ip == result.ip }) {
+                                    scannerResults = (scannerResults + result).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                                }
+                                manualIpInput.setText("")
+                                scannerFilter = "all"
+                                renderScannerResults()
+                                Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_ok, result.ip, result.pingMs.toInt()), Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+            )
+        }
+        controls.addView(manualAddRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         // ⚡ Scan profile: fast (shallow + snappy) / standard / deep (wide walk +
         // long timeouts) — same engine, different depth, persisted per device.
         scannerProfile = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString("profile", "std") ?: "std"

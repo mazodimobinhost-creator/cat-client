@@ -620,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.38.0', T.CAT_PANEL_VERSION === '6.38.0');
+  check('panel version is 6.39.0', T.CAT_PANEL_VERSION === '6.39.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -937,6 +937,49 @@ let user;
     check('manual: import ok', mj.ok === true && mj.ips.includes('203.0.113.50:443'), JSON.stringify(mj));
     const st13 = (await (await req('/api/settings', { headers: auth })).json()).settings;
     check('manual: src=manual stored', !!(st13.ipSources && st13.ipSources['203.0.113.50:443'] && st13.ipSources['203.0.113.50:443'].src === 'manual'), JSON.stringify(st13.ipSources && st13.ipSources['203.0.113.50:443']));
+  }
+  // beta58: stealth handoffs + pool life-support (regressions from the field)
+  {
+    const put3 = await req('/api/settings', { method: 'PUT', headers: auth, body: { panelPath: 'panel' } });
+    check('beta58: stealth on for routing tests', (await put3.json()).settings.panelPath === 'panel');
+    const rIps = await req('/?ips=104.16.1.1,104.16.1.2');
+    check('beta58: /?ips= hops to the real panel path', rIps.status === 302 && (rIps.headers.get('location') || '').startsWith('/panel/?ips='), rIps.status + ' ' + rIps.headers.get('location'));
+    const rP = await req('/?p=' + MASTER);
+    check('beta58: /?p= quick-login hops to /panel', rP.status === 302 && (rP.headers.get('location') || '').startsWith('/panel/'), rP.status + ' ' + rP.headers.get('location'));
+    const rPlain = await req('/');
+    check('beta58: plain / still camouflaged', rPlain.status === 200 && (await rPlain.text()).includes('Sora'));
+    // Pool life-support: camo + sub hits must trigger the refresh hooks.
+    const realFetch = globalThis.fetch;
+    let feedHits = 0;
+    globalThis.fetch = async (u) => { feedHits++; return { ok: true, status: 200, text: async () => '104.16.0.1\n104.16.0.2' }; };
+    try {
+      T.kvCacheClear();
+      // Expire both pool caches so the refresh hooks actually fire.
+      await KV.put('cat_repo_cache_v1', JSON.stringify({ ts: 0 }));
+      await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0 }));
+      T.kvCacheClear();
+      await req('/');                 // camo hit (expired cache → refresh fires)
+      await new Promise((r) => setTimeout(r, 120));
+      const afterCamo = feedHits;
+      check('beta58: camo hit nudges the repo pools', afterCamo > 0, 'feedHits=' + afterCamo);
+      feedHits = 0;
+      await KV.put('cat_repo_cache_v1', JSON.stringify({ ts: 0 }));
+      await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0 }));
+      T.kvCacheClear();
+      await req('/sub/' + MASTER + '?rotate=off');   // sub hit → heartbeat
+      await new Promise((r) => setTimeout(r, 120));
+      check('beta58: sub hit nudges the repo pools', feedHits > 0, 'feedHits=' + feedHits);
+    } finally { globalThis.fetch = realFetch; T.kvCacheClear(); }
+    const put4 = await req('/api/settings', { method: 'PUT', headers: auth, body: { panelPath: '' } });
+    check('beta58: stealth reset', (await put4.json()).settings.panelPath === '');
+    // ?ips= must NOT auto-import anymore: fresh env, GET /panel?ips=… → the page
+    // prefills but the list only grows when the user presses the button.
+    const KV9 = new FakeKV(); const env9 = { CAT_KV: KV9, UUID: MASTER, OPEN_PANEL: 'true' };
+    const hp = await req('/panel?ips=198.51.100.200', { env: env9 });
+    await hp.text();
+    const st9 = (await (await req('/api/settings', { headers: auth, env: env9 })).json().catch(() => ({})));
+    check('beta58: ?ips= never auto-imports', !st9.settings || !((st9.settings.ips || []).includes('198.51.100.200')), JSON.stringify(st9.settings && st9.settings.ips));
+    T.kvCacheClear();
   }
 
 
