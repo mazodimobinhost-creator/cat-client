@@ -619,7 +619,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.30.0', T.CAT_PANEL_VERSION === '6.30.0');
+  check('panel version is 6.31.0', T.CAT_PANEL_VERSION === '6.31.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -745,6 +745,47 @@ let user;
     const html3 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('health: hint explains entry-port vs relay-port', html3.includes('پورتِ رله') && html3.includes('?proxyip='), 'hint present');
   }
+  // beta49: 🧦 SOCKS5 relays — list parsing, dial plan, configs, probe
+  {
+    function socksSockets(script) {
+      const chunks = script.map((b) => new Uint8Array(b));
+      const mod = { _made: [] };
+      mod.connect = function (opts) {
+        const rec = { opts }; mod._made.push(rec);
+        const reader = { read: () => (chunks.length ? Promise.resolve({ done: false, value: chunks.shift() }) : Promise.resolve({ done: true, value: undefined })), releaseLock() { } };
+        const writer = { write: () => Promise.resolve(), releaseLock() { } };
+        const sock = { opened: Promise.resolve(), writable: { getWriter: () => writer }, readable: { getReader: () => reader }, close() { } };
+        return sock;
+      };
+      return mod;
+    }
+    check('socksRelayList parses socks5://user:pass@ip:port, skips CF relays', (() => {
+      const l = T.socksRelayList({}, { proxyIps: ['1.2.3.4:8443', 'socks5://bob:hunter2@198.51.100.9:1080', 'socks5://10.0.0.1'] });
+      return l.length === 1 && l[0].host === '198.51.100.9' && l[0].port === 1080 && l[0].user === 'bob' && l[0].pass === 'hunter2'; // portless socks is rejected by design
+    })());
+    check('dial plan: CF target → CF relays then socks', (() => {
+      const a = T.relayAttempts(true, null, ['1.2.3.4'], [{ url: 'socks5://9.9.9.9:1080' }], 't.dev', 443);
+      return a.length === 2 && a[0].via === 'proxy:1.2.3.4' && a[1].via === 'socks:9.9.9.9:1080';
+    })());
+    check('dial plan: non-CF target → socks FIRST then direct then CF relays', (() => {
+      const a = T.relayAttempts(false, null, ['1.2.3.4'], [{ url: 'socks5://9.9.9.9:1080' }], 'gemini.google.com', 443);
+      return a.length === 3 && a[0].via === 'socks:9.9.9.9:1080' && a[1].via === 'direct' && a[2].via === 'proxy:1.2.3.4';
+    })());
+    const stS = T.normalizeSettings({ useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, proxyIps: ['socks5://bob:hunter2@198.51.100.9:1080'] });
+    const outS = T.buildConfigEntries('panelx.workers.dev', ENV, stS, 'u1', null, {});
+    const sk = outS.entries.filter((e) => e.name.startsWith('🧦 1.'));
+        const pathDec = decodeURIComponent(sk[0].link.split('path=')[1].split('&')[0]);
+    check('sub: 🧦 config emitted with encoded socks path + sni', sk.length === 2 && pathDec.includes('proxyip=') && decodeURIComponent(pathDec.split('proxyip=')[1]) === 'socks5://bob:hunter2@198.51.100.9:1080' && sk[0].link.includes('sni='), pathDec);
+    const p1 = await T.healthProbe(socksSockets([[5, 0], [5, 0, 0, 1, 1, 2, 3, 4, 0, 0]]), { addr: 'socks5://198.51.100.9:1080', kind: 'socks' });
+    check('health: socks probe ok (no auth)', p1.ok === true, JSON.stringify(p1));
+    const p2 = await T.healthProbe(socksSockets([[5, 2], [1, 0], [5, 0, 0, 1, 1, 2, 3, 4, 0, 0]]), { addr: 'socks5://bob:hunter2@198.51.100.9:1080', kind: 'socks' });
+    check('health: socks probe with user:pass auth', p2.ok === true, JSON.stringify(p2));
+    const p3 = await T.healthProbe(socksSockets([[5, 255]]), { addr: 'socks5://198.51.100.9:1080', kind: 'socks' });
+    check('health: socks method rejected → relay✗ with reason', p3.ok === false && p3.error === 'socks5 auth method rejected', JSON.stringify(p3));
+    const html4 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: socks placeholder mentions socks5:// form', html4.includes('socks5://user:pass@ip:port'));
+  }
+
 
 
 
