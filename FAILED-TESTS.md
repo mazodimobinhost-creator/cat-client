@@ -189,3 +189,69 @@ FAIL cat-panel
 PASS panel-dom
 PASS wizard
 PASS multipart-upload
+FAIL cat-panel
+```
+✓ rotate=daily: deterministic within the day
+✓ rotate=off: stable order
+✓ rotation keeps port walk: first config is TLS :443
+✓ repo refresh merges both feeds, uniq + junk-filtered
+✓ /api/repos GET status
+✓ json-speed sort within feed: fastest first
+✓ dead<3 still in pool
+✓ dead≥3 dropped from pool
+✓ repoAuto on → library IP (pinned 443) in sub
+✓ ?norepo=1 excludes library IPs
+✓ repoAuto off → no library IPs
+✓ repo import by country adds to panel list
+✓ sanitizeRepos: https-only, defaults when empty
+✓ proxy repo refresh: csv+txt merged, uniq
+✓ /api/prepos GET status
+✓ csv-proxy speed sort: fastest first
+✓ csv port column preserved (real port wins over 443)
+✓ proxy domains kept (port-pinned)
+✓ proxy dead<3 kept
+✓ proxy dead≥3 dropped
+✓ proxy import by country
+✓ proxyRepoAuto on → appended port-pinned ProxyIP in sub
+✓ pxOverride double-decode → host:port
+✓ ?norepo=1 excludes repo ProxyIPs
+✓ user own ProxyIP still present
+✓ proxyRepoAuto off → no repo ProxyIPs
+✓ sanitizeProxyRepos: kinds + https-only
+✓ csv PORT column survives: real port pinned
+✓ missing csv port → default pin 443
+✓ proxyRepoAuto defaults ON
+✓ repo default country kept (sanitized)
+✓ txt feed gets repo default country tag
+✓ per-ProxyIP configs: numbered + flag + Persian country
+✓ PX config carries ?proxyip= relay path
+✓ en locale → English country label
+✓ pinnedPortOf parses v4/v6/domain, rejects bare
+✓ /api/ips stores ip:port + cc, rejects junk
+✓ normalize keeps custom ports
+✓ default SNI is NOT the panel host
+✓ SNI: settings beat default
+✓ SNI: env beats default
+✓ hero «in use» card on dashboard
+✓ panel version is 6.27.0
+✓ blockQuic in clash yaml
+✓ blockQuic in singbox
+✓ blockQuic in xray
+✓ ip provenance (src+ping) persisted
+✓ ips import accepted provenance payload
+✓ provenance badge stored (scanner + 341ms)
+✓ ip-test 401 without session
+✓ ip-test empty list → empty results
+✓ worker-side test button on IP list
+✓ domain → raw CF IP in sub (DNS-free)
+✓ ?dom=1 / domToIp=false keeps domains
+✓ poisoned cache entry ignored (must be CF-range)
+✓ sub query tolerates &amp; links (Telegram copy)
+✓ ext sub fetch sanitizes &amp;
+✓ generated configs do not put panel host into sni param
+
+1 FAILED
+```
+PASS panel-dom
+PASS wizard
+PASS multipart-upload
