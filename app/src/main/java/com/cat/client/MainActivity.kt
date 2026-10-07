@@ -7231,8 +7231,10 @@ class MainActivity : Activity() {
         val px = st.optJSONArray("proxyIps")?.length() ?: 0
         val xs = st.optJSONArray("extraSnis")?.length() ?: 0
         val chain = st.optString("chain", "").ifBlank { getString(R.string.panel_st_chain_off) }
-        val tls = (0 until st.optJSONArray("tlsPorts")?.length().orEmpty()).take(3).mapNotNull { st.optJSONArray("tlsPorts")?.optString(it) }.joinToString("/")
-        val plain = if (st.optBoolean("plainEnabled")) (0 until st.optJSONArray("plainPorts")?.length().orEmpty()).take(3).mapNotNull { st.optJSONArray("plainPorts")?.optString(it) }.joinToString("/") else null
+        val tlsArr = st.optJSONArray("tlsPorts")
+        val plainArr = st.optJSONArray("plainPorts")
+        val tls = (0 until (tlsArr?.length() ?: 0)).take(3).mapNotNull { tlsArr?.optString(it) }.joinToString("/")
+        val plain = if (st.optBoolean("plainEnabled")) (0 until (plainArr?.length() ?: 0)).take(3).mapNotNull { plainArr?.optString(it) }.joinToString("/") else null
         val rot = when (st.optString("subRotate", "fetch")) { "off" -> getString(R.string.panel_rot_off); "daily" -> getString(R.string.panel_rot_daily); else -> getString(R.string.panel_rot_fetch) }
         val uuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrDefault("")
         val sub = if (uuid.isNotBlank()) "$base/sub/$uuid" else base + "/sub/<uuid>"
