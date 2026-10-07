@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.40.0';
+const CAT_PANEL_VERSION = '6.41.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -1610,6 +1610,22 @@ async function dialViaChain(sockets, chain, host, port) {
 /** Dial plan: CF targets ride CF relays then socks; every other target rides
  * socks FIRST (a foreign exit opens Gemini/Google), then direct, then CF relays
  * as a last resort. ?proxyip= override wins inside its own family. */
+/** Relay failure cooldown (ZEUS-inspired): a relay that just failed a dial is
+ * skipped for 60s so clients do not eat the dead hop again on every request.
+ * Isolate-scoped memory — best-effort, resets with the isolate. */
+const RELAY_COOLDOWN = new Map();
+const RELAY_COOLDOWN_MS = 60 * 1000;
+function markRelayFailed(via) {
+  if (via) RELAY_COOLDOWN.set(via, Date.now() + RELAY_COOLDOWN_MS);
+  if (RELAY_COOLDOWN.size > 512) {
+    const now = Date.now();
+    for (const [k, until] of RELAY_COOLDOWN) if (until <= now) RELAY_COOLDOWN.delete(k);
+  }
+}
+function relayCool(via) {
+  const until = RELAY_COOLDOWN.get(via);
+  return until ? until > Date.now() : false;
+}
 function relayAttempts(targetIsCf, proxyOverride, cfList, socksList, host, port) {
   const cfAtt = [];
   const socksAtt = [];
@@ -1640,7 +1656,9 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
       if (settings && settings.chainStrict) throw e;
     }
   }
-  const attempts = relayAttempts(targetIsCf, proxyOverride, proxyIpList(env, settings), socksRelayList(env, settings), host, port);
+  const allAttempts = relayAttempts(targetIsCf, proxyOverride, proxyIpList(env, settings), socksRelayList(env, settings), host, port);
+  const fresh = allAttempts.filter((a) => !relayCool(a.via));
+  const attempts = (fresh.length ? fresh : allAttempts);
   for (const attempt of attempts) {
     try {
       if (attempt.socks) {
@@ -1654,6 +1672,7 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
       return { socket, via: attempt.via, leftover: null };
     } catch (e) {
       lastError = e;
+      markRelayFailed(attempt.via);
       if (log) log('dial failed ' + attempt.via + ': ' + (e && e.message ? e.message : e));
     }
   }
@@ -1667,6 +1686,11 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
  */
 async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) {
   const upstream = clientReadable.pipeTo(socket.writable, { preventAbort: false }).catch(() => {});
+  // Downstream grain bundling (adopted from ZEUS): coalesce small reads into
+  // ≤128KB messages and flush after 1ms of silence — far fewer ws.send calls
+  // at the same latency. The first chunk (TLS server hello) stays unbuffered.
+  const GRAIN_BYTES = 128 * 1024;
+  const SILENT_MS = 1;
   const downstream = (async () => {
     const reader = socket.readable.getReader();
     let header = responseHeader;
@@ -1675,14 +1699,25 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
         ws.send(header ? concatBytes(header, leftover) : leftover);
         header = null;
       }
+      let grain = null;
+      const flushGrain = () => { if (grain && ws.readyState === WS_OPEN) { ws.send(grain); grain = null; } };
       for (;;) {
-        const chunk = await reader.read();
+        let chunk;
+        if (grain) {
+          // Pending small bytes: race the next read against a 1ms silence timer.
+          chunk = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r(null), SILENT_MS))]);
+          if (!chunk) { flushGrain(); continue; }
+        } else {
+          chunk = await reader.read();
+        }
         if (chunk.done) break;
         if (!chunk.value || !chunk.value.byteLength) continue;
         if (ws.readyState !== WS_OPEN) break;
-        if (header) { ws.send(concatBytes(header, chunk.value)); header = null; }
-        else ws.send(chunk.value);
+        if (header) { ws.send(concatBytes(header, chunk.value)); header = null; continue; }
+        if (!grain) { grain = chunk.value; } else { grain = concatBytes(grain, chunk.value); }
+        if (grain.byteLength >= GRAIN_BYTES) flushGrain();
       }
+      flushGrain();
     } catch (e) { /* remote closed */ }
     if (header && ws.readyState === WS_OPEN) { try { ws.send(header); } catch (e) { /* ignore */ } }
     safeCloseWs(ws, 1000, 'remote closed');
@@ -2778,16 +2813,48 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
 /* DoH proxy + geo                                                     */
 /* ------------------------------------------------------------------ */
 
+/* DNS cache (adopted from the ZEUS panel's architecture): clients hammer the
+ * same names all day — 30 minutes + a 2048-entry cap keeps DoH traffic (and
+ * its latency) down. Only successful answers are cached. */
+const DNS_CACHE = new Map();
+const DNS_CACHE_TTL = 30 * 60 * 1000;
+const DNS_CACHE_MAX = 2048;
+function dnsCacheGet(key) {
+  const hit = DNS_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > DNS_CACHE_TTL) { DNS_CACHE.delete(key); return null; }
+  return hit.value;
+}
+function dnsCachePut(key, value) {
+  if (DNS_CACHE.size >= DNS_CACHE_MAX) DNS_CACHE.delete(DNS_CACHE.keys().next().value);
+  DNS_CACHE.set(key, { value, at: Date.now() });
+}
 async function handleDoh(request, env) {
   const upstream = dohUpstream(env);
   if (request.method === 'GET') {
     const dns = new URL(request.url).searchParams.get('dns');
     if (!dns) return text('missing dns', 400);
+    const hit = dnsCacheGet('g:' + dns);
+    if (hit) return new Response(hit.slice(0), { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
     const res = await fetch(upstream + '?dns=' + encodeURIComponent(dns), { headers: { accept: 'application/dns-message' } });
+    if (res.status === 200) {
+      const body = await res.arrayBuffer();
+      dnsCachePut('g:' + dns, new Uint8Array(body));
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
+    }
     return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
   }
   if (request.method === 'POST') {
-    const res = await fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' }, body: request.body });
+    const raw = await request.arrayBuffer();
+    const key = 'p:' + (await sha256Hex(new Uint8Array(raw))).slice(0, 32);
+    const hit = dnsCacheGet(key);
+    if (hit) return new Response(hit.slice(0), { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
+    const res = await fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' }, body: raw });
+    if (res.status === 200) {
+      const body = await res.arrayBuffer();
+      dnsCachePut(key, new Uint8Array(body));
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
+    }
     return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
   }
   return text('method not allowed', 405);
@@ -2796,11 +2863,16 @@ async function handleDoh(request, env) {
 const GEO_CACHE = new Map();
 const GEO_TTL_MS = 10 * 60 * 1000;
 async function resolveHost(name) {
+  const key = 'a:' + name;
+  const hit = dnsCacheGet(key);
+  if (hit !== null) return hit;
   try {
     const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=A', { headers: { accept: 'application/dns-json' } });
     const data = await res.json();
     const a = (data.Answer || []).find((r) => r.type === 1);
-    return a ? a.data : '';
+    const ip = a ? a.data : '';
+    if (ip) dnsCachePut(key, ip);
+    return ip;
   } catch (e) { return ''; }
 }
 
@@ -5096,6 +5168,6 @@ export const _testing = {
   buildWarpOutbounds, parseExtUris, extSubContent,
   effectiveSni, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
-  handleRequest, handleApi, selfInfo, geoLookup,
+  handleRequest, handleApi, selfInfo, geoLookup, dnsCacheGet, dnsCachePut, markRelayFailed, relayCool,
   loginPage, panelPage, userInfoPage, camouflagePage,
 };

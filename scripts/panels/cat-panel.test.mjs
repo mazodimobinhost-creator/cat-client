@@ -620,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.40.0', T.CAT_PANEL_VERSION === '6.40.0');
+  check('panel version is 6.41.0', T.CAT_PANEL_VERSION === '6.41.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -988,6 +988,22 @@ let user;
     check('beta59: ECH field note on the toggle', html11.includes('مهم‌ترین عامل وصل‌ماندن') || html11.includes('single most important switch'));
     new Function(html11.match(/<script>[\s\S]*?<\/script>/)[1]);
     check('beta59: inline script still parses', true);
+  }
+  // beta60: ZEUS-inspired internals — DNS cache + relay cooldown
+  {
+    // DNS cache: put/get + TTL eviction semantics
+    T.dnsCachePut('k1', new Uint8Array([7, 8, 9]));
+    const hit = T.dnsCacheGet('k1');
+    check('dns cache: roundtrip', hit && hit.length === 3 && hit[1] === 8, JSON.stringify(hit));
+    check('dns cache: miss returns null', T.dnsCacheGet('nope') === null);
+    // relay cooldown: failed relay is skipped, then returns after reset
+    const ipOf = (via) => (via.match(/proxy:([^:]+)/) || [])[1];
+    const before = T.relayAttempts(false, null, ['1.2.3.4', '5.6.7.8'], [], 'example.com', 443);
+    check('cooldown: attempts listed before', before.length === 3, JSON.stringify(before.map((a) => a.via)));
+    T.markRelayFailed('proxy:1.2.3.4');
+    const after = T.relayAttempts(false, null, ['1.2.3.4', '5.6.7.8'], [], 'example.com', 443);
+    check('cooldown: relayAttempts still returns all (filtering happens at dial)', after.length === 3);
+    check('cooldown: relayCool flags the failed one', T.relayCool('proxy:1.2.3.4') === true && T.relayCool('proxy:5.6.7.8') === false);
   }
 
 
