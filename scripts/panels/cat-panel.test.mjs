@@ -620,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.41.0', T.CAT_PANEL_VERSION === '6.41.0');
+  check('panel version is 6.42.0', T.CAT_PANEL_VERSION === '6.42.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -1008,6 +1008,11 @@ let user;
     check('cooldown: direct dial never cools', T.relayCool('direct') === false);
     T.markRelayFailed('socks:9.9.9.9:1080');
     check('cooldown: socks relays cool too', T.relayCool('socks:9.9.9.9:1080') === true);
+    // beta61: t.me/socks links normalize into socks5 chains
+    const tg1 = T.parseChain('https://t.me/socks?server=1.2.3.4&port=1080');
+    check('t.me socks: plain link parses', !!tg1 && tg1.type === 'socks5' && tg1.host === '1.2.3.4' && tg1.port === 1080, JSON.stringify(tg1));
+    const tg2 = T.parseChain('tg://socks?server=5.6.7.8&port=1080&user=u1&pass=p1');
+    check('t.me socks: auth link parses', !!tg2 && tg2.user === 'u1' && tg2.pass === 'p1' && tg2.host === '5.6.7.8', JSON.stringify(tg2));
   }
 
 
