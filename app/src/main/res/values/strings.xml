@@ -683,6 +683,8 @@
     <string name="scanner_ai_row">%1$d · %2$dms</string>
     <string name="pm_channel">Panel monitor</string>
     <string name="pm_title">⚠️ Cat Panel is down</string>
+    <string name="pm_title_1101">🚫 Cat Panel blocked by Cloudflare (Error 1101)</string>
+    <string name="pm_detail_1101">Cloudflare disabled the worker (code scan). Recovery: backup in Tools, delete the worker, redeploy on a new subdomain/account, restore the backup — a custom domain lowers the risk.</string>
     <string name="scanner_list_copied">List copied (IPv4 / IPv6 sections)</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>

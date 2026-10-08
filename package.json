@@ -10,5 +10,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.9.0"
   }
 }

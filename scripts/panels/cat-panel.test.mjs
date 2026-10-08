@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
-const workerPath = path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
+// CAT_PANEL_WORKER=<path> runs the whole suite against an obfuscated artifact (release-parity proof).
+const workerPath = process.env.CAT_PANEL_WORKER || path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
 execFileSync(process.execPath, ['--check', workerPath], { stdio: 'pipe' });
 console.log('✓ syntax check passed');
 const mod = await import(workerPath);
@@ -662,7 +663,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.49.0', T.CAT_PANEL_VERSION === '6.49.0');
+  check('panel version is 6.50.0', T.CAT_PANEL_VERSION === '6.50.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

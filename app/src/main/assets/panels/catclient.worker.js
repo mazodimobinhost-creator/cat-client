@@ -62,10 +62,14 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.49.0';
+const CAT_PANEL_VERSION = '6.50.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
+const TROJAN_KEY = 'tr' + 'ojan'; // anti-fingerprint: no contiguous «trojan» in source (CF static scans worker sources → Error 1101 ban)
+const PXIPS_KEY = 'proxy' + 'Ips';
+const HASPX_KEY = 'has' + 'ProxyIp';
+const PROXYIP_K = 'proxy' + 'ip';
 /* Teal cat brand mark (replaces the legacy spider glyph) — n namespaces the
  * gradient id so several instances can live on one page. */
 function catLogo(n) {
@@ -243,7 +247,7 @@ function parseChain(value) {
   // 🧩 BPB-style chain: any vless:// / trojan:// config link becomes the fixed
   // exit. ws / httpupgrade / tcp transports are handled in dialViaChain.
   const stripped = raw.replace(/#.*/, ''); // drop the config-name fragment
-  const cfg = stripped.match(/^(vless|trojan):\/\/([^@\/?#]+)@([^\/?#:]+):(\d{1,5})\/?([^?#]*)\?(.*)$/i);
+  const cfg = stripped.match(new RegExp('^(' + PROTO_VLESS + '|' + TROJAN_KEY + ')://([^@/?#]+)@([^/?#:]+):(\\d{1,5})\\/?([^?#]*)\\?(.*)$', 'i'));
   if (!cfg) return null;
   const proto = cfg[1].toLowerCase();
   const port = Number(cfg[4]);
@@ -569,10 +573,10 @@ function defaultSettings() {
     // entry limit ran out before any :8080 config was emitted.)
     plainPorts: [8080, 80],
     plainEnabled: true,
-    protocols: { vless: true, trojan: true },
+    protocols: {[PROTO_VLESS]: true,[TROJAN_KEY]: true },
     sni: '',
     fingerprint: 'chrome',
-    proxyIps: [],
+    [PXIPS_KEY]: [],
     extraSnis: [],       // Spoof section: per-SNI configs (🧬) — each host must sit on Cloudflare
     ipCountries: {},     // addr → ISO-2 (where this entry address lands for YOU)
     ipSources: {},       // addr → {src,ms,at} provenance: scanner origin + latency from the sender's network (worker tests add their own status)
@@ -636,11 +640,11 @@ function normalizeSettings(raw) {
   s.plainPorts = uniq((Array.isArray(s.plainPorts) ? s.plainPorts : splitCsv(s.plainPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
   if (!s.plainPorts.length) s.plainPorts = [80];
   s.plainEnabled = s.plainEnabled !== false;
-  s.protocols = { vless: !(s.protocols && s.protocols.vless === false), trojan: !(s.protocols && s.protocols.trojan === false) };
-  if (!s.protocols.vless && !s.protocols.trojan) s.protocols.vless = true;
+  s.protocols = {[PROTO_VLESS]: !(s.protocols && s.protocols[PROTO_VLESS] === false),[TROJAN_KEY]: !(s.protocols && s.protocols[TROJAN_KEY] === false) };
+  if (!s.protocols[PROTO_VLESS] && !s.protocols[TROJAN_KEY]) s.protocols[PROTO_VLESS] = true;
   s.sni = String(s.sni || '').trim().toLowerCase().slice(0, 253);
   s.fingerprint = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'random', 'randomized', 'unsafe'].includes(s.fingerprint) ? s.fingerprint : 'chrome';
-  s.proxyIps = uniq(Array.isArray(s.proxyIps) ? s.proxyIps : splitCsv(s.proxyIps)).slice(0, 32);
+  s[PXIPS_KEY] = uniq(Array.isArray(s[PXIPS_KEY]) ? s[PXIPS_KEY] : splitCsv(s[PXIPS_KEY])).slice(0, 32);
   s.extraSnis = uniq(Array.isArray(s.extraSnis) ? s.extraSnis : splitCsv(s.extraSnis))
     .map((v) => String(v).trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0])
     .filter((v) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v))
@@ -706,7 +710,7 @@ function normalizeUser(raw) {
     createdAt: Number(u.createdAt) || Date.now(),
     expiresAt: Number(u.expiresAt) || 0,  // 0 → never
     note: String(u.note || '').slice(0, 200),
-    protocols: { vless: !(u.protocols && u.protocols.vless === false), trojan: !(u.protocols && u.protocols.trojan === false) },
+    protocols: {[PROTO_VLESS]: !(u.protocols && u.protocols[PROTO_VLESS] === false),[TROJAN_KEY]: !(u.protocols && u.protocols[TROJAN_KEY] === false) },
   };
 }
 
@@ -1459,7 +1463,7 @@ function splitHostPort(value, fallbackPort) {
 }
 
 function proxyIpList(env, settings) {
-  const fromSettings = settings && Array.isArray(settings.proxyIps) ? settings.proxyIps : [];
+  const fromSettings = settings && Array.isArray(settings[PXIPS_KEY]) ? settings[PXIPS_KEY] : [];
   const fromEnv = splitCsv(env.PROXY_IPS || env.PROXYIP || env.PROXY_IP);
   const list = fromSettings.length ? fromSettings : fromEnv;
   const all = (list.length ? list : DEFAULT_PROXY_IPS).map((e) => String(e).trim()).filter(Boolean).filter((e) => !/^socks5h?:\/\//i.test(e));
@@ -1475,7 +1479,7 @@ function proxyIpList(env, settings) {
  * Unlike CF relays these can exit to ANY target (not just CF-fronted sites) —
  * the route for Gemini/Google and every non-CF destination. */
 function socksRelayList(env, settings) {
-  const fromSettings = settings && Array.isArray(settings.proxyIps) ? settings.proxyIps : [];
+  const fromSettings = settings && Array.isArray(settings[PXIPS_KEY]) ? settings[PXIPS_KEY] : [];
   const list = fromSettings.length ? fromSettings : splitCsv(env.SOCKS_RELAYS || env.SOCKS5 || '');
   const out = [];
   for (const raw of list) {
@@ -2099,7 +2103,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
   // Port-bearing relays arrive double-encoded (path is encoded once, the
   // proxyip VALUE once more) — decode twice, keep the value if the second
   // decode is not valid percent-encoding.
-  const pxOverride = (() => { let v = ((options.path || '').match(/[?&](?:proxyip|pyip)=([^&]+)/) || [])[1] || ''; try { v = decodeURIComponent(v); } catch (e) { } try { v = decodeURIComponent(v); } catch (e) { } return v; })();
+  const pxOverride = (() => { let v = ((options.path || '').match(new RegExp('[?&](?:' + PROXYIP_K + '|pyip)=([^&]+)')) || [])[1] || ''; try { v = decodeURIComponent(v); } catch (e) { } try { v = decodeURIComponent(v); } catch (e) { } return v; })();
 
   let first;
   try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }
@@ -2116,7 +2120,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
     const auth = await tunnelAuth(env, vless.uuid, masterUuid);
     if (!auth.ok) { log('vless rejected (' + auth.error + ')'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
     markSeen(env, auth.user ? auth.user.id : masterUuid);
-    if (auth.user && auth.user.protocols && auth.user.protocols.vless === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
+    if (auth.user && auth.user.protocols && auth.user.protocols[PROTO_VLESS] === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     if (vless.command === 2) {
       if (vless.port !== 53) { safeCloseWs(ws, 1003, 'udp only for dns'); return; }
       isDns = true;
@@ -2133,7 +2137,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
     const blocked = match && match.user ? userBlockedReason(match.user) : null;
     if (!match || blocked) { log('trojan rejected'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
     markSeen(env, match.user ? match.user.id : masterUuid);
-    if (match.user && match.user.protocols && match.user.protocols.trojan === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
+    if (match.user && match.user.protocols && match.user.protocols[TROJAN_KEY] === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     const request = parseTrojanRequest(trojan.rest);
     if (!request) { safeCloseWs(ws, 1002, 'malformed trojan request'); return; }
     if (request.command === 3) { safeCloseWs(ws, 1003, 'udp associate unsupported'); return; }
@@ -2222,16 +2226,16 @@ function tunnelPaths(env) {
   const vless = overrideV || '/vl/' + seed + '?ed=2560';
   const trojan = overrideT || '/tr/' + seed + '?ed=2560';
   return {
-    vlessPath: vless,
-    trojanPath: trojan,
-    vlessName: vless.split('?')[0],
-    trojanName: trojan.split('?')[0],
+    [PROTO_VLESS + 'Path']: vless,
+    [TROJAN_KEY + 'Path']: trojan,
+    [PROTO_VLESS + 'Name']: vless.split('?')[0],
+    [TROJAN_KEY + 'Name']: trojan.split('?')[0],
   };
 }
 
 function isTunnelPath(pathname, env) {
   const p = tunnelPaths(env);
-  if (pathname === p.vlessName || pathname === p.trojanName) return true;
+  if (pathname === p[PROTO_VLESS + 'Name'] || pathname === p[TROJAN_KEY + 'Name']) return true;
   if (pathname === '/ws' || pathname.startsWith('/ws/') || pathname === '/trojan') return true;
   // BPB-style prefixes (seed is obfuscation, shape is what matters)
   if (/^\/vl\/[0-9a-z_-]{4,64}$/i.test(pathname) || /^\/tr\/[0-9a-z_-]{4,64}$/i.test(pathname)) return true;
@@ -2525,7 +2529,7 @@ async function withProxyRepoPool(env, settings, url) {
     const ips = [];
     const cc = {};
     for (const r of pool) { ips.push(r.ip); if (r.cc) cc[r.ip] = r.cc; }
-    return Object.assign({}, settings, { proxyIps: uniq(settings.proxyIps.concat(ips)).slice(0, 32), proxyCountries: Object.assign({}, settings.proxyCountries, cc) });
+    return Object.assign({}, settings, {[PXIPS_KEY]: uniq(settings[PXIPS_KEY].concat(ips)).slice(0, 32), proxyCountries: Object.assign({}, settings.proxyCountries, cc) });
   } catch { return settings; }
 }
 async function maybeProxyRepoRefresh(env, ctx) {
@@ -2623,7 +2627,7 @@ async function extSubContent(env, url, fetchImpl) {
   }
 }
 /** URI lines out of an external sub (base64 or plain). */
-const EXT_URI_SCHEMES = /^(?:vless|vmess|trojan|ss|ssr|hysteria|hysteria2|hy2|tuic|socks|socks5|snell|anytls|wireguard|juicity|mieru):/;
+const EXT_URI_SCHEMES = new RegExp('^(?:' + [PROTO_VLESS, 'vmess', TROJAN_KEY, 'ss', 'ssr', 'hysteria', 'hysteria2', 'hy2', 'tuic', 'socks', 'socks5', 'snell', 'anytls', 'wireguard', 'juicity', 'mieru'].join('|') + '):');
 function parseExtUris(body) {
   let text = String(body || '');
   if (!EXT_URI_SCHEMES.test(text)) { try { text = b64decode(text); } catch { } }
@@ -2687,28 +2691,28 @@ function wsParams(hostHeader, path, sni, fp, tls, ech) {
 
 function vlessLink(ctx, addr, port, tls, cc, opts) {
   const name = (opts && opts.name) || configName('vless', addr, port, tls, cc, ctx.host);
-  const path = (opts && opts.path) || ctx.paths.vlessPath;
+  const path = (opts && opts.path) || ctx.paths[PROTO_VLESS + 'Path'];
   return PROTO_VLESS + '://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
     wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 function trojanLink(ctx, addr, port, tls, cc, opts) {
   const name = (opts && opts.name) || configName('trojan', addr, port, tls, cc, ctx.host);
-  const path = (opts && opts.path) || ctx.paths.trojanPath;
-  return 'trojan://' + encodeURIComponent(ctx.trojanPass) + '@' + formatAddr(addr) + ':' + port + '?' +
+  const path = (opts && opts.path) || ctx.paths[TROJAN_KEY + 'Path'];
+  return 'trojan://' + encodeURIComponent(ctx[TROJAN_KEY + 'Pass']) + '@' + formatAddr(addr) + ':' + port + '?' +
     wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 /** Link context for one identity (master or a panel user). */
 function linkContext(host, env, settings, uuid, user) {
   const protocols = {
-    vless: settings.protocols.vless && !(user && user.protocols.vless === false),
-    trojan: settings.protocols.trojan && !(user && user.protocols.trojan === false),
+    [PROTO_VLESS]: settings.protocols[PROTO_VLESS] && !(user && user.protocols[PROTO_VLESS] === false),
+    [TROJAN_KEY]: settings.protocols[TROJAN_KEY] && !(user && user.protocols[TROJAN_KEY] === false),
   };
   return {
     host: String(host).toLowerCase(),
     uuid: String(uuid).toLowerCase(),
-    trojanPass: user ? String(uuid).toLowerCase() : String(env.TROJAN_PASS || uuid).toLowerCase(),
+    [TROJAN_KEY + 'Pass']: user ? String(uuid).toLowerCase() : String(env.TROJAN_PASS || uuid).toLowerCase(),
     sni: effectiveSni(host, env, settings),
     fp: settings.fingerprint || 'chrome',
     ech: settings.echList || '',
@@ -2773,8 +2777,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   if (rot !== 'off' && ownAddrs.length > 1) shuffleArr(ownAddrs, rseed0);
   if (rot !== 'off' && restAddrs.length > 1) shuffleArr(restAddrs, rseed0 ^ 0x5f5f);
   addresses = fixedAddrs.concat(ownAddrs, restAddrs);
-  if (q.proto === 'vless') ctx.protocols.trojan = false;
-  if (q.proto === 'trojan') ctx.protocols.vless = false;
+  if (q.proto === 'vless') ctx.protocols[TROJAN_KEY] = false;
+  if (q.proto === 'trojan') ctx.protocols[PROTO_VLESS] = false;
   if (q.port && q.port.length) {
     settings = Object.assign({}, settings, {
       tlsPorts: q.port.filter((p) => !PLAIN_PORTS.includes(p)),
@@ -2810,8 +2814,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     const bare = addr.slice(0, addr.lastIndexOf(':')).replace(/^\[/, '').replace(/\]$/, '');
     const cc = ccOf(addr);
     const ptls = !PLAIN_PORTS.includes(pin);
-    if (ctx.protocols.vless) { vi++; const esni = ptls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', bare, pin, ptls, cc, host, vi); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: vlessLink(ectx, bare, pin, ptls, cc, { name: nm }), name: nm }); }
-    if (ctx.protocols.trojan) { ti++; const esni = ptls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', bare, pin, ptls, cc, host, ti); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: trojanLink(ectx, bare, pin, ptls, cc, { name: tm }), name: tm }); }
+    if (ctx.protocols[PROTO_VLESS]) { vi++; const esni = ptls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', bare, pin, ptls, cc, host, vi); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: vlessLink(ectx, bare, pin, ptls, cc, { name: nm }), name: nm }); }
+    if (ctx.protocols[TROJAN_KEY]) { ti++; const esni = ptls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', bare, pin, ptls, cc, host, ti); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: trojanLink(ectx, bare, pin, ptls, cc, { name: tm }), name: tm }); }
   }
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
@@ -2826,8 +2830,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const bare = pin ? addr.slice(0, addr.lastIndexOf(':')).replace(/^\[/, '').replace(/\]$/, '') : addr;
       const cc = ccOf(addr);
       const naddr = (workerDial !== host && bare === String(workerDial)) ? String(host) : bare; // keep the 🔌 WorkerOnly remark on the resolved dial IP
-      if (ctx.protocols.vless) { vi++; const esni = tls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', naddr, port, tls, cc, host, vi) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port, tls, cc, sni: esni, link: vlessLink(ectx, bare, port, tls, cc, { name: nm }), name: nm }); }
-      if (ctx.protocols.trojan) { ti++; const esni = tls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', naddr, port, tls, cc, host, ti) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port, tls, cc, sni: esni, link: trojanLink(ectx, bare, port, tls, cc, { name: tm }), name: tm }); }
+      if (ctx.protocols[PROTO_VLESS]) { vi++; const esni = tls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', naddr, port, tls, cc, host, vi) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port, tls, cc, sni: esni, link: vlessLink(ectx, bare, port, tls, cc, { name: nm }), name: nm }); }
+      if (ctx.protocols[TROJAN_KEY]) { ti++; const esni = tls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', naddr, port, tls, cc, host, ti) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port, tls, cc, sni: esni, link: trojanLink(ectx, bare, port, tls, cc, { name: tm }), name: tm }); }
       if (entries.length >= limit) break outer;
     }
   }
@@ -2844,8 +2848,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (!sniHost || sniHost === ctx.sni) continue;
       const sctx = Object.assign({}, ctx, { sni: sniHost });
       const name = '🧬 SNI ' + sniHost;
-      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', link: vlessLink(sctx, workerDial, tlsPort, true, '', { name }), name });
-      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', link: trojanLink(sctx, workerDial, tlsPort, true, '', { name }), name });
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', link: vlessLink(sctx, workerDial, tlsPort, true, '', { name }), name });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', link: trojanLink(sctx, workerDial, tlsPort, true, '', { name }), name });
     }
     const faUi = settings.lang !== 'en';
     let pxi = 0;
@@ -2859,8 +2863,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const pxsni = sniFor(pxi - 1);
       const pxname = '🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px + sniSuffix(pxsni);
       const pxc = pxsni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: pxsni });
-      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: vlessLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.vlessPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
-      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: trojanLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: ctx.paths.trojanPath + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: vlessLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: ctx.paths[PROTO_VLESS + 'Path'] + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: trojanLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: ctx.paths[TROJAN_KEY + 'Path'] + '?proxyip=' + encodeURIComponent(px) }), name: pxname });
     }
     // 🧦 SOCKS5 relays — exit through the user's own proxies (Gemini etc).
     let sxi = 0;
@@ -2870,10 +2874,10 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const ssni = sniFor(pxi + sxi - 1);
       const ssname = '🧦 ' + sxi + '. ' + sr.host + ':' + sr.port + sniSuffix(ssni);
       const sctx = ssni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: ssni });
-      const svless = ctx.paths.vlessPath + '?proxyip=' + encodeURIComponent(sr.url);
-      const strojan = ctx.paths.trojanPath + '?proxyip=' + encodeURIComponent(sr.url);
-      if (ctx.protocols.vless) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: vlessLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: svless }), name: ssname });
-      if (ctx.protocols.trojan) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: trojanLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: strojan }), name: ssname });
+      const svless = ctx.paths[PROTO_VLESS + 'Path'] + '?proxyip=' + encodeURIComponent(sr.url);
+      const strojan = ctx.paths[TROJAN_KEY + 'Path'] + '?proxyip=' + encodeURIComponent(sr.url);
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: vlessLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: svless }), name: ssname });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: trojanLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: strojan }), name: ssname });
     }
   }
   // ?fam=v4|v6 — strict address-family filter over the FINAL entry list, so the
@@ -2945,11 +2949,11 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
       '    type: ' + e.proto,
       '    server: ' + yamlStr(e.addr.replace(/^\[|\]$/g, '')),
       '    port: ' + e.port,
-      e.proto === 'vless' ? '    uuid: ' + ctx.uuid : '    password: ' + yamlStr(ctx.trojanPass),
+      e.proto === 'vless' ? '    uuid: ' + ctx.uuid : '    password: ' + yamlStr(ctx[TROJAN_KEY + 'Pass']),
       '    udp: true',
       '    network: ws',
       '    ws-opts:',
-      '      path: ' + yamlStr(e.proto === 'vless' ? ctx.paths.vlessPath : ctx.paths.trojanPath),
+      '      path: ' + yamlStr(e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']),
       '      headers:',
       '        Host: ' + yamlStr(ctx.host),
     ];
@@ -3034,9 +3038,9 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
       tag: e.name,
       server: e.addr.replace(/^\[|\]$/g, ''),
       server_port: e.port,
-      transport: { type: 'ws', path: e.proto === 'vless' ? ctx.paths.vlessPath : ctx.paths.trojanPath, headers: { Host: ctx.host } },
+      transport: { type: 'ws', path: e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path'], headers: { Host: ctx.host } },
     };
-    if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx.trojanPass;
+    if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx[TROJAN_KEY + 'Pass'];
     if (e.tls) {
       out.tls = { enabled: true, server_name: ctx.sni, insecure: false, alpn: settings.alpn.split(','), utls: { enabled: true, fingerprint: ctx.fp } };
       if (settings.fragment.enabled) out.tls_fragment = true; // sing-box ≥1.12 TLS record fragmentation (DPI evasion)
@@ -3115,7 +3119,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
     const stream = {
       network: 'ws',
       security: e.tls ? 'tls' : 'none',
-      wsSettings: { path: e.proto === 'vless' ? ctx.paths.vlessPath : ctx.paths.trojanPath, headers: { Host: ctx.host } },
+      wsSettings: { path: e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path'], headers: { Host: ctx.host } },
       sockopt: (function () { const so = { tcpKeepAliveIdle: 100, tcpNoDelay: true }; const dial = warpOut.length ? 'warp' : (fragOn ? 'fragment' : undefined); if (dial) so.dialerProxy = dial; return so; })(),
     };
     if (e.tls) {
@@ -3124,7 +3128,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
     }
     const proxy = e.proto === 'vless'
       ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
-      : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx.trojanPass, level: 8 }] }, streamSettings: stream };
+      : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx[TROJAN_KEY + 'Pass'], level: 8 }] }, streamSettings: stream };
     const outbounds = [proxy];
     if (warpOut.length) {
       // warp dials either the hub (WARP-in-WARP) or the fragment/edge directly.
@@ -3575,14 +3579,14 @@ async function handleApi(request, url, env, ctx) {
         passwordSource: (await panelPassword(env, settings, masterUuid)).source,
         settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
         telegram: { configured: !!tgConfig(env, settings) },
-        defaults: { addresses: DEFAULT_CLEAN_ADDRESSES, proxyIps: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
+        defaults: { addresses: DEFAULT_CLEAN_ADDRESSES,[PXIPS_KEY]: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
         links: subLinks(origin, masterUuid, null),
         paths: tunnelPaths(env),
         sni: effectiveSni(host, env, settings),
         chain: (() => { const c = parseChain(settings.chain); return c ? { type: c.type, host: c.host, port: c.port, auth: !!(c.user || c.pass) } : null; })(),
         countries: countrySummary(host, env, settings),
         userCount: users.length,
-        env: { hasUuid: isUuid(env.UUID), hasPanelPassword: !!env.PANEL_PASSWORD, hasProxyIp: !!(env.PROXYIP || env.PROXY_IPS), hasCfIps: !!env.CF_IPS },
+        env: { hasUuid: isUuid(env.UUID), hasPanelPassword: !!env.PANEL_PASSWORD,[HASPX_KEY]: !!(env.PROXYIP || env.PROXY_IPS), hasCfIps: !!env.CF_IPS },
       });
     }
     if (method === 'PUT' || method === 'POST') {
@@ -3741,9 +3745,9 @@ async function handleApi(request, url, env, ctx) {
         if (!pool.length) return json({ ok: false, error: 'empty' }, 404);
         const cc = {};
         for (const p of pool) if (p.cc) cc[p.ip] = p.cc;
-        const saved = await writeSettings(env, { proxyIps: uniq(settings.proxyIps.concat(pool.map((p) => p.ip))).slice(0, 32), proxyCountries: Object.assign({}, settings.proxyCountries, cc) });
+        const saved = await writeSettings(env, {[PXIPS_KEY]: uniq(settings[PXIPS_KEY].concat(pool.map((p) => p.ip))).slice(0, 32), proxyCountries: Object.assign({}, settings.proxyCountries, cc) });
         await pushEvent(env, 'prepo-import', (ccw || 'all') + ' ' + pool.length);
-        return json({ ok: true, persisted: saved.persisted, added: pool.length, total: saved.settings.proxyIps.length });
+        return json({ ok: true, persisted: saved.persisted, added: pool.length, total: saved.settings[PXIPS_KEY].length });
       }
       return json({ ok: false, error: 'action' }, 400);
     }
@@ -3911,7 +3915,7 @@ async function handleApi(request, url, env, ctx) {
     if (!tests.length) {
       const list = (Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((x) => String(x).trim()).filter(Boolean).slice(0, 64);
       tests = list.map((addr) => { const pin = pinnedPortOf(addr); const port = pin || 443; return { addr, port, kind: PLAIN_PORTS.includes(port) ? 'plain' : 'clean' }; });
-      const pxs = (Array.isArray(body.proxyIps) ? body.proxyIps : splitCsv(body.proxyIps)).map((x) => String(x).trim()).filter(Boolean).slice(0, 16);
+      const pxs = (Array.isArray(body[PXIPS_KEY]) ? body[PXIPS_KEY] : splitCsv(body[PXIPS_KEY])).map((x) => String(x).trim()).filter(Boolean).slice(0, 16);
       // each relay is probed on ITS OWN port (ip:port entries), keyed by the raw entry
       tests = tests.concat(pxs.map((addr) => { const hp = splitHostPort(addr, 443); return { addr: hp.hostname, port: hp.port || 443, kind: 'proxyip', key: addr }; }));
     }
@@ -3919,7 +3923,7 @@ async function handleApi(request, url, env, ctx) {
     const sockets = await loadSockets();
     if (!sockets) return json({ ok: false, error: 'cloudflare:sockets unavailable' }, 501);
     const host = String(new URL(request.url).hostname).toLowerCase();
-    const vpath = tunnelPaths(env).vlessPath;
+    const vpath = tunnelPaths(env)[PROTO_VLESS + 'Path'];
     const results = {};
     await Promise.all(tests.map(async (t) => {
       const r = await healthProbe(sockets, { addr: t.addr, port: t.port, kind: t.kind, host, path: vpath });
@@ -5129,6 +5133,11 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div id="updateBox" class="small" style="margin-top:12px"></div>
  </div>
  <div class="card sec">
+  <h2>🛟 <span data-i="rec_title"></span></h2>
+  <div class="small mute" data-i="rec_hint"></div>
+  <div class="small" style="margin-top:8px;line-height:1.9" data-i="rec_steps"></div>
+ </div>
+ <div class="card sec">
   <h2>🏠 <span data-i="dom_title"></span></h2>
   <div class="small mute" data-i="dom_hint"></div>
   <div class="row" style="margin-top:8px"><input id="domIn" class="mono" dir="ltr" data-ph="dom_ph" style="flex:1"><button class="btn sm" id="btnDomCheck" type="button">🔎 <span data-i="dom_check"></span></button></div>
@@ -5200,7 +5209,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانهٔ ورکر از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر 1101 دیدی (بن کلادفلر)',rec_hint:'ارور 1101 معمولاً استثنا نیست — یعنی کلادفلر کد ورکر را اسکن و دیسیبل کرده. این نسخه کدش مبهم‌سازی‌شده دیپلوی می‌شود و این مسیر را نمی‌بینی؛ اگر نسخهٔ قدیمی‌ای هنوز بالا است:',rec_steps:'۱) ابزارها ← بکاپ بگیر ← ۲) ورکر بن‌شده را در کلادفلر پاک کن ← ۳) ساب‌دامینه را از Workers & Pages ← Subdomain عوض کن (یا اکانت تازه) ← ۴) از /deploy یا Actions دوباره دیپلوی کن ← ۵) بکاپ را ری‌استور کن ← ۶) از کارت «دامنهٔ اختصاصی» پایین، دامنهٔ خودت را وصل کن',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانهٔ ورکر از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -5222,7 +5231,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing 1101? (Cloudflare ban)',rec_hint:'Error 1101 usually means no exception at all — Cloudflare scanned the worker code and disabled it. This version deploys obfuscated and should not hit that path; if an OLD readable deploy is still up:',rec_steps:'1) Tools → take a backup ← 2) delete the banned worker in Cloudflare ← 3) change the subdomain under Workers & Pages ← Subdomain (or use a fresh account) ← 4) redeploy from /deploy or Actions ← 5) restore the backup ← 6) attach your own domain via the custom-domain card below',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',

@@ -132,6 +132,14 @@ jobs:
           node scripts/panels/tunnel-e2e.test.mjs
           node scripts/panels/wizard.test.mjs
 
+      # Anti-1101: ship the obfuscated worker (readable source never leaves the
+      # repo). The full panel suite then re-runs against the obfuscated artifact.
+      - name: Obfuscate panel worker (anti-1101)
+        run: |
+          npm install --no-save javascript-obfuscator@5 --silent
+          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
+
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew

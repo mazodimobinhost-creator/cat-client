@@ -63,13 +63,16 @@ object PanelMonitor {
                     .putString("panel_monitor_state", health.state)
                     .putLong("panel_monitor_at", System.currentTimeMillis())
                     .apply()
-                if (health.state != "HEALTHY") notifyProblem(applicationContext, health.detail)
+                if (health.state != "HEALTHY") notifyProblem(applicationContext, health)
             }
             return Result.success()
         }
     }
 
-    private fun notifyProblem(context: Context, detail: String) {
+    private fun notifyProblem(context: Context, health: CloudflareWorker.PanelHealth) {
+        val blocked = health.state == "BLOCKED"
+        val title = if (blocked) context.getString(R.string.pm_title_1101) else context.getString(R.string.pm_title)
+        val detail = if (blocked) context.getString(R.string.pm_detail_1101) else health.detail
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -83,7 +86,7 @@ object PanelMonitor {
         }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_cloud_tab)
-            .setContentTitle(context.getString(R.string.pm_title))
+            .setContentTitle(title)
             .setContentText(detail)
             .setAutoCancel(true)
             .build()

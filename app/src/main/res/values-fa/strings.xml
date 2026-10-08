@@ -682,6 +682,8 @@
     <string name="scanner_ai_row">%1$d · %2$dms</string>
     <string name="pm_channel">مانیتور پنل</string>
     <string name="pm_title">⚠️ پنل کت بالا نمی‌آید</string>
+    <string name="pm_title_1101">🚫 پنل کت توسط کلادفلر بن شد (1101)</string>
+    <string name="pm_detail_1101">ورکر توسط اسکنِ کدِ کلادفلر دیسیبل شده. بازیابی: بکاپ در ابزارها ← ورکر را پاک کن ← روی ساب‌دامینه یا اکانت تازه دیپلوی کن ← بکاپ را ری‌استور کن. دامنهٔ اختصاصی هم ریسک را کم می‌کند.</string>
     <string name="scanner_list_copied">لیست کپی شد — بخش IPv4 و IPv6 جدا</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>
