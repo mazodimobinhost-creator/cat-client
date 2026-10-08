@@ -15,6 +15,8 @@ combining one-tap connectivity with all the tools Iranian users need.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mazodimobinhost-creator/cat-client)
 
+> 🔒 The button deploys the **committed obfuscated snapshot** (`dist-panel/catpanel.obf.js`) — Cloudflare statically scans deployed worker sources (plaintext `vless`/`trojan` signatures get a worker disabled with «Error 1101»). The readable AGPL source lives at `app/src/main/assets/panels/catclient.worker.js`; CI refreshes the snapshot on every push.
+
 *(استقرار پنل شخصی خودت روی حساب کلودفلرت — بدون نصب هیچ اپی)*
 
 ### 🤖 ربات دیپلوی تلگرام (جدید)

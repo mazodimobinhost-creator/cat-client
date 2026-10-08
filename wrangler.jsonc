@@ -1,10 +1,13 @@
 // Cat Panel — one-file Cloudflare Worker.
-// This config powers the official "Deploy to Cloudflare" button (README):
+// This config powers the official "Deploy to Cloudflare" button (README).
+// main = the COMMITTED OBFUSCATED snapshot (anti-1101): Cloudflare statically
+// scans deployed sources; the readable AGPL source stays at
+// app/src/main/assets/panels/catclient.worker.js (CI refreshes the snapshot on every push).
 // anyone can deploy their own panel on their own account in one click,
 // no app required. KV is auto-provisioned and bound as CAT_KV.
 {
   "name": "cat-panel",
-  "main": "app/src/main/assets/panels/catclient.worker.js",
+  "main": "dist-panel/catpanel.obf.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "kv_namespaces": [

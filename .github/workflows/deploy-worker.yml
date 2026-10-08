@@ -85,8 +85,15 @@ jobs:
           sleep 6
           HEALTH=$(curl -s --max-time 20 "$URL/health" || true)
           echo "health: $HEALTH"
+<<<<<<< HEAD
           echo "$HEALTH" | grep -q "\\"version\\":\\"$PVER\\"" || { echo "::error::deployed /health does not report $PVER — deploy did not take effect (open the URL, check Workers logs)"; exit 1; }
           echo "✅ health verify OK: $URL reports $PVER"
+=======
+          # Anonymous /health is intentionally BARE (anti-fingerprint): {"ok":true}.
+          # The version is owner-only — accept the bare contract here (beta69+).
+          echo "$HEALTH" | grep -q '"ok":true' || { echo "::error::deployed /health does not answer ok:true — deploy did not take effect (open the URL, check Workers logs)"; exit 1; }
+          echo "✅ health verify OK: $URL is up (target panel $PVER)"
+>>>>>>> 60682e7 (fix(anti-1101): deploy-button gap + deploy health gate)
 
       - name: Notify Telegram
         if: always() && env.TG_TOKEN != '' && env.TG_CHAT != ''

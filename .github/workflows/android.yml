@@ -137,9 +137,26 @@ jobs:
       - name: Obfuscate panel worker (anti-1101)
         run: |
           npm install --no-save javascript-obfuscator@5 --silent
+<<<<<<< HEAD
           node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
 
+=======
+          # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
+          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
+          # ship artifact: obfuscate the checkout in place, then re-run the full suite against it
+          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
+
+      - name: Commit refreshed public obfuscated snapshot (button deploy)
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist-panel/catpanel.obf.js
+          if git diff --cached --quiet; then echo "snapshot unchanged"; else git commit -m "[skip ci] refresh public obfuscated panel snapshot (deploy button)" && (git push || echo "::warning::snapshot push skipped (non-fatal)"); fi
+
+>>>>>>> 60682e7 (fix(anti-1101): deploy-button gap + deploy health gate)
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew
