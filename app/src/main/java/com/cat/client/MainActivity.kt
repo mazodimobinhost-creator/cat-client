@@ -40,6 +40,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
@@ -533,12 +534,7 @@ class MainActivity : Activity() {
             appTabsPending = this
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             minimumHeight = dp(64)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(32).toFloat()
-                setColor(palette.surfaceElevated1)
-                setStroke(dp(1), withAlpha(palette.outline, 110))
-            }
+            background = glassDockBackground()
             elevation = dp(6).toFloat()
             setSelectedTabIndicatorHeight(0)
             setSelectedTabIndicatorColor(TEAL)
@@ -696,7 +692,7 @@ class MainActivity : Activity() {
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
-            visibility = if (selected) View.VISIBLE else View.GONE
+            visibility = View.GONE
         }
         val pill = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -717,6 +713,34 @@ class MainActivity : Activity() {
         appTabsPending.addTab(tab, selected)
     }
 
+    /** Telegram-iOS style frosted glass dock: translucent gradient fill + hairline. */
+    private fun glassDockBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(32).toFloat()
+        orientation = GradientDrawable.Orientation.TL_BR
+        colors = intArrayOf(withAlpha(palette.surfaceElevated1, 214), withAlpha(palette.surface, 182))
+        setStroke(dp(1), withAlpha(palette.outline, 150))
+    }
+
+    /** Dock opens (labels spring in) only while the tunnel is up; collapsed icon-only otherwise. */
+    private var dockExpanded = false
+    private var dockActiveIndex = 0
+
+    private fun setDockExpanded(expanded: Boolean) {
+        if (!::appTabsPending.isInitialized) return
+        if (dockExpanded == expanded) return
+        dockExpanded = expanded
+        appTabsPending.let { bar ->
+            bar.animate().cancel()
+            bar.scaleX = 0.97f
+            bar.scaleY = 0.97f
+            bar.animate().scaleX(1f).scaleY(1f).setDuration(340)
+                .setInterpolator(OvershootInterpolator(1.7f))
+                .start()
+        }
+        renderDockSelection(dockActiveIndex)
+    }
+
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(24).toFloat()
@@ -731,12 +755,28 @@ class MainActivity : Activity() {
 
     /** Repaints every dock cell so only the active one is the filled lime pill with a label. */
     private fun renderDockSelection(activeIndex: Int) {
+        dockActiveIndex = activeIndex
         dockTabs.forEachIndexed { index, tab ->
             val active = index == activeIndex
             tab.pill.background = dockPillBackground(active)
             tab.icon.setColorFilter(if (active) palette.onAccent else TEXT_SECONDARY)
             tab.label.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
-            tab.label.visibility = if (active) View.VISIBLE else View.GONE
+            val showLabel = active && dockExpanded
+            if (showLabel) {
+                tab.label.visibility = View.VISIBLE
+                tab.label.animate().cancel()
+                tab.label.alpha = 0f
+                tab.label.scaleX = 0.4f
+                tab.label.scaleY = 0.4f
+                tab.label.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320)
+                    .setInterpolator(OvershootInterpolator(2f))
+                    .start()
+            } else {
+                tab.label.animate().cancel()
+                tab.label.visibility = View.GONE
+            }
+            val vPad = if (dockExpanded) 10 else 7
+            tab.pill.setPadding(dp(12), dp(vPad), dp(12), dp(vPad))
         }
     }
 
@@ -13186,6 +13226,7 @@ class MainActivity : Activity() {
         connectActionButton.isEnabled = buttonModel.isEnabled()
         connectActionButton.contentDescription = getString(buttonModel.labelRes())
         applyConnectPillStyle(state)
+        setDockExpanded(state == VpnState.Started)
         // Update status dot color based on state
         (statusDot.background as? GradientDrawable)?.setColor(
             when (state) {
