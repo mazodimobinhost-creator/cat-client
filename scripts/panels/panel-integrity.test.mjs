@@ -59,6 +59,19 @@ try {
 }
 check('inline panel script parses (a broken script kills every button)', parseError === '', parseError);
 
+/* ── 1b: exactly one submit handler per <form> ──────────────────────────────
+ * Two `$('#form').addEventListener('submit', …)` on one form both fire: every Save sends TWO concurrent PUTs and
+ * the stale copy silently overwrites the real one's result and hides its toast (the 🎭 form once kept splitting the
+ * Proxy-IP box on spaces through a leftover copy). NO handler is just as bad: a Save button that does nothing.
+ * (Duplicate CLICK handlers are legitimate — e.g. #btnBrowserTest runs the test and logs an event.) */
+{ const formIds = [...html.matchAll(/<form[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+  const counts = new Map();
+  for (const m of inline.matchAll(/\$\('#([A-Za-z0-9_-]+)'\)\.addEventListener\('submit'/g)) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
+  const bad = formIds.filter((id) => counts.get(id) !== 1).map((id) => '#' + id + ' ×' + (counts.get(id) || 0));
+  const orphan = [...counts.keys()].filter((id) => !formIds.includes(id)).map((id) => '#' + id);
+  check('every <form> has exactly one submit handler (none = a dead Save, two = racing PUTs)', formIds.length >= 3 && bad.length === 0, bad.join(', ') + ' (forms: ' + formIds.join(',') + ')');
+  check('every submit handler belongs to a real <form>', orphan.length === 0, orphan.join(', ')); }
+
 /* ── 2: fa and en must carry the same keys ─────────────────────────────── */
 function tableKeys(lang) {
   const marker = lang === 'fa' ? 'var I18N={' : 'var I18N={';

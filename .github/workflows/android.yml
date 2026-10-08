@@ -146,6 +146,8 @@ jobs:
           node scripts/panels/sni-host.test.mjs
           # ProxyIPs added in the panel must reach every sub, including the config builder's ?limit= links
           node scripts/panels/proxyip-sub.test.mjs
+          # …and the generated path really steers the worker (🎯 pins one relay; 🧦 exits through the owner's SOCKS5)
+          node scripts/panels/proxyip-dataplane.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
@@ -167,6 +169,7 @@ jobs:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-host.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-sub.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-dataplane.test.mjs
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'

@@ -32,7 +32,7 @@ console.log('✓ syntax check passed');
 globalThis.fetch = () => Promise.reject(new Error('net-stubbed-in-tests'));
 // The worker keeps settings in a module-level cache (KV_READ_TTL_MS), so every panel below gets its OWN module
 // instance (cache-busting query) — otherwise a «fresh» panel would see the previous panel's settings.
-const instance = async (tag) => (await import(pathToFileURL(workerPath).href + '?panel=' + tag)).default;
+const loadModule = async (tag) => import(pathToFileURL(workerPath).href + '?panel=' + tag);
 
 let failures = 0;
 const check = (name, cond, extra) => {
@@ -50,12 +50,13 @@ class FakeKV {
 const UUID = '78d0b256-8174-444d-9553-84ec9d8f84ee';
 const HOST = 'edge-pedre.catclient-0ltgml5i.workers.dev';
 async function panel(tag) {
-  const worker = await instance(tag);
+  const mod = await loadModule(tag);
+  const worker = mod.default;
   const env = { CAT_KV: new FakeKV(), UUID, OPEN_PANEL: 'true' };
   const call = (p, method = 'GET', body) => worker.fetch(
     new Request('https://' + HOST + p, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body && JSON.stringify(body) }),
     env, { waitUntil() {} });
-  return { env, call };
+  return { env, call, T: mod._testing };
 }
 const jsonOf = async (r) => { try { return await r.json(); } catch { return null; } };
 const dec = (v) => { try { return decodeURIComponent(v || ''); } catch { return String(v || ''); } };
@@ -77,9 +78,12 @@ const isPx = (e) => e.name.includes('🎯');
 const isSocks = (e) => e.name.includes('🧦');
 const isSpoofSni = (e) => e.name.includes('🧬');
 const pxValue = (e) => { const q = e.wsPath.split('?')[1] || ''; const m = /(?:^|&)proxyip=([^&]*)/.exec(q); return m ? dec(m[1]) : null; };
-const fromClash = (yaml) => String(yaml).split(/\n\s*- name:/).slice(1).filter((b) => /\btype:\s*(vless|trojan)\b/.test(b)).map((b) => ({ name: (/^\s*"?([^"\n]*)/.exec(b) || [])[1] || '' }));
-const fromSingbox = (t) => (JSON.parse(t).outbounds || []).filter((o) => o.type === 'vless' || o.type === 'trojan').map((o) => ({ name: o.tag || '' }));
-const fromXray = (t) => { const doc = JSON.parse(maybeB64(t).trim().startsWith('[') ? maybeB64(t) : t); return (Array.isArray(doc) ? doc : [doc]).map((o) => ({ name: o.remarks || '' })); };
+const fromClash = (yaml) => String(yaml).split(/\n\s*- name:/).slice(1).filter((b) => /\btype:\s*(vless|trojan)\b/.test(b)).map((b) => ({ name: (/^\s*"?([^"\n]*)/.exec(b) || [])[1] || '', wsPath: ((/\n\s*path:\s*"?([^"\n]+)"?/.exec(b) || [])[1] || '') }));
+const fromSingbox = (t) => (JSON.parse(t).outbounds || []).filter((o) => o.type === 'vless' || o.type === 'trojan').map((o) => ({ name: o.tag || '', wsPath: (o.transport && o.transport.path) || '' }));
+const fromXray = (t) => {
+  const doc = JSON.parse(maybeB64(t).trim().startsWith('[') ? maybeB64(t) : t);
+  return (Array.isArray(doc) ? doc : [doc]).map((o) => { let p = ''; const walk = (n) => { if (n && typeof n === 'object') { if (n.wsSettings && n.wsSettings.path) p = n.wsSettings.path; Object.values(n).forEach(walk); } }; walk(o); return { name: o.remarks || '', wsPath: p }; });
+};
 
 const MY_PX = ['203.0.113.10', '203.0.113.11:8443', '198.51.100.7'];
 const DEFAULT_PX = ['proxyip.cmliussss.net', 'di.nscl.ir', 'tr.diam4.ggff.net'];
@@ -170,6 +174,63 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
   check('no ProxyIP configured: a limited link carries no 🎯 line (defaults are not injected)', !lim.some(isPx), lim.filter(isPx).length);
   const nolim = fromLinks(await (await D.call('/sub/' + UUID)).text());
   check('no ProxyIP configured: a sub without a limit keeps the built-in defaults (unchanged)', nolim.filter(isPx).length === 6 && nolim.filter(isPx).every((x) => DEFAULT_PX.includes(pxValue(x))), nolim.filter(isPx).length); }
+
+// ═══ E) every format pins the ProxyIP its NAME promises (Clash/sing-box/Xray used the generic path: labels only) ═══
+{ const E = await panel('E');
+  await E.call('/api/ips', 'POST', { ips: ['104.16.88.20'], source: 'manual' });
+  await E.call('/api/settings', 'PUT', { proxyIps: MY_PX.concat(['socks5://u:p@192.0.2.9:1080']) });
+  const pinOf = (wsPath) => { const q = String(wsPath).split('?')[1] || ''; const m = /(?:^|&)proxyip=([^&]*)/.exec(q); return m ? dec(m[1]) : null; };
+  const pxName = (n) => { const m = /^🎯 \d+\. (.+)$/.exec(n); return m ? m[1] : null; };
+  const checkFormat = (label, entries) => {
+    const px = entries.filter((e) => e.name.includes('🎯'));
+    check(label + ': 6 🎯 entries (3 ProxyIPs × 2 protocols)', px.length === 6, px.length);
+    check(label + ': every 🎯 entry pins EXACTLY the ProxyIP in its name', px.length > 0 && px.every((e) => pinOf(e.wsPath) === pxName(e.name)), px.map((e) => e.name + ' → ' + pinOf(e.wsPath)).join(' | '));
+    check(label + ': the pins differ per entry (not 6 copies of one config)', new Set(px.map((e) => pinOf(e.wsPath))).size === 3, [...new Set(px.map((e) => pinOf(e.wsPath)))].join(','));
+    const sk = entries.filter((e) => e.name.includes('🧦'));
+    check(label + ': the 🧦 SOCKS entries carry their relay in the path', sk.length === 2 && sk.every((e) => /^socks5:\/\/u:p@192\.0\.2\.9:1080$/.test(pinOf(e.wsPath) || '')), sk.map((e) => e.name + ' → ' + pinOf(e.wsPath)).join(' | '));
+    check(label + ': ordinary entries carry no pin', entries.filter((e) => !/🎯|🧦/.test(e.name)).every((e) => pinOf(e.wsPath) === null));
+  };
+  checkFormat('links', fromLinks(await (await E.call('/sub/' + UUID + '?limit=40')).text()));
+  checkFormat('clash', fromClash(await (await E.call('/clash/' + UUID + '?limit=40')).text()));
+  checkFormat('sing-box', fromSingbox(await (await E.call('/singbox/' + UUID + '?limit=40')).text()));
+  checkFormat('xray', fromXray(await (await E.call('/xray/' + UUID + '?limit=40')).text())); }
+
+// ═══ F) what may be typed in the «Proxy IP» box ═════════════════════════════════
+{ const LINE = 'socks5://83.147.217.103:1080#SOCKS5 83.147.217.103'; // verbatim: the app's proxy scanner exports this shape
+  const put = async (P, proxyIps) => jsonOf(await P.call('/api/settings', 'PUT', { proxyIps }));
+  const subNames = async (P) => fromLinks(await (await P.call('/sub/' + UUID + '?limit=24')).text()).map((e) => e.name).filter((n) => /🎯|🧦/.test(n));
+
+  { const P = await panel('F1'); const r = await put(P, LINE); // what the browser sends now: the raw text
+    check('app-scanner line (raw text): stored as a clean socks5:// entry, nothing else', JSON.stringify(r.settings.proxyIps) === '["socks5://83.147.217.103:1080"]', JSON.stringify(r.settings.proxyIps));
+    check('app-scanner line: nothing reported as ignored', Array.isArray(r.ignored) && r.ignored.length === 0, JSON.stringify(r.ignored));
+    const n = await subNames(P);
+    check('app-scanner line: the sub gets its 🧦 SOCKS configs (VLESS+Trojan) …', n.filter((x) => x.startsWith('🧦 1. 83.147.217.103:1080')).length === 2, JSON.stringify(n));
+    check('app-scanner line: … and NO stray 🎯 relay for the same IP', !n.some((x) => x.includes('🎯')), JSON.stringify(n)); }
+  { const P = await panel('F2'); const r = await put(P, ['socks5://83.147.217.103:1080#SOCKS5', '83.147.217.103']); // what the OLD form stored (split on spaces)
+    check('data stored by the old form is repaired (remark dropped, stray portless IP removed)', JSON.stringify(r.settings.proxyIps) === '["socks5://83.147.217.103:1080"]', JSON.stringify(r.settings.proxyIps)); }
+  { const P = await panel('F3'); const r = await put(P, [LINE]); // the whole line as ONE element (API / env)
+    check('the whole line as one element is cleaned too', JSON.stringify(r.settings.proxyIps) === '["socks5://83.147.217.103:1080"]', JSON.stringify(r.settings.proxyIps)); }
+  { const P = await panel('F4'); const r = await put(P, 'https://t.me/socks?server=203.0.113.9&port=1080&user=u&pass=p');
+    check('a t.me/socks share becomes a socks5:// relay (the box promises it)', JSON.stringify(r.settings.proxyIps) === '["socks5://u:p@203.0.113.9:1080"]', JSON.stringify(r.settings.proxyIps));
+    check('… and it is used as a SOCKS relay, not as a Cloudflare ProxyIP', P.T.socksRelayList(P.env, r.settings).length === 1 && P.T.proxyIpList(P.env, r.settings, { explicitOnly: true }).length === 0); }
+  { const P = await panel('F5');
+    const r = await put(P, ['203.0.113.10', '203.0.113.11:8443 # my relay', '[2001:db8::1]:8443', '2001:db8::2', 'proxyip.example.com', '# only a comment', '', 'http://203.0.113.20:8080#HTTP proxy', 'not a host!!', '1.2.3.4:99999'].join('\n'));
+    check('valid relays kept: ip, ip:port, [v6]:port, bare v6, dotted name; remarks stripped', JSON.stringify(r.settings.proxyIps) === '["203.0.113.10","203.0.113.11:8443","[2001:db8::1]:8443","2001:db8::2","proxyip.example.com"]', JSON.stringify(r.settings.proxyIps));
+    check('everything else is REPORTED, not silently kept (http://, junk words, port out of range)', JSON.stringify(r.ignored) === '["http://203.0.113.20:8080","not","a","host!!","1.2.3.4:99999"]', JSON.stringify(r.ignored));
+    check('a comment-only line is not an «ignored entry»', Array.isArray(r.ignored) && !r.ignored.includes('only') && !r.ignored.includes('#'));
+    const again = await put(P, r.settings.proxyIps);
+    check('saving the cleaned list again changes nothing and ignores nothing', JSON.stringify(again.settings.proxyIps) === JSON.stringify(r.settings.proxyIps) && Array.isArray(again.ignored) && again.ignored.length === 0);
+    const other = await jsonOf(await P.call('/api/settings', 'PUT', { sniFront: false }));
+    check('a save that does not touch the list reports nothing ignored', Array.isArray(other.ignored) && other.ignored.length === 0); }
+  { const P = await panel('F6'); // the fixed-exit «chain» setting shares the parser: a remark must not break it either
+    const c = P.T.parseChain('socks5://u:p@192.0.2.9:1080#my exit');
+    check('parseChain accepts a #remark (also for the fixed-exit chain setting)', c && c.type === 'socks5' && c.host === '192.0.2.9' && c.port === 1080 && c.user === 'u' && c.pass === 'p', JSON.stringify(c)); } }
+
+// ═══ G) the page sends the RAW text (the old split on spaces tore «#remark with spaces» apart) ═══
+{ const G = await panel('G'); const T = G.T;
+  const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), HOST, 'u123');
+  check('🎭 form posts the Proxy IP box as raw text (server splits lines and strips remarks)', html.includes('proxyIps:f.elements.proxyIps.value}') && !html.includes('proxyIps:f.elements.proxyIps.value.split('));
+  check('🎭 form tells the owner what was ignored', html.includes("j.ignored.slice(0,3)") && html.includes('px_ignored')); }
 
 console.log(failures ? '\nPROXYIP SUB TESTS FAILED (' + failures + ')' : '\nPROXYIP SUB TESTS PASSED');
 process.exit(failures ? 1 : 0);
