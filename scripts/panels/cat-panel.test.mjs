@@ -47,6 +47,19 @@ let cookie='';
   const r2 = await req('/api/login', { method:'POST', body:{ password: MASTER } }); const j = await r2.json(); cookie = (r2.headers.get('set-cookie')||'').split(';')[0];
   check('login with UUID ok', r2.status===200 && j.ok && cookie.startsWith('cat_session=')); }
 const auth = { cookie };
+// beta68 regression (user report): manually added IPs (v4/v6/domain/pinned-port)
+// MUST lead the sub in panel order — rotation shuffles only the defaults, and
+// port-pinned scanner imports must appear at all (they never did).
+{
+  await req('/api/ips', { method:'POST', headers: auth, body:{ ips: ['104.16.1.1','2606:4700:d1::1','cf.example.com','104.17.1.2:2053#DE','[2606:4700::6810:84e5]:8443'], source:'manual' } });
+  const sub = await (await req('/sub/' + MASTER)).text();
+  check('manual v4 leads the sub', sub.indexOf('104.16.1.1') > -1 && sub.indexOf('104.16.1.1') < sub.indexOf('speed.cloudflare.com'));
+  check('manual v6 bracketed in link', sub.includes('[2606:4700:d1::1]:443'));
+  check('manual domain kept as address', sub.includes('cf.example.com]:443') || sub.includes('cf.example.com:443'));
+  check('pinned v4 emitted on its verified port only', /104\.17\.1\.2:2053\?/.test(sub));
+  check('pinned v6 emitted bracketed on 8443', sub.includes('[2606:4700::6810:84e5]:8443'));
+  await req('/api/ips', { method:'POST', headers: auth, body:{ ips: [], replace: true } }); // restore baseline for later tests
+}
 { const r = await req('/panel', { headers: auth }); const b = await r.text(); check('/panel shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
 { const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
 // subscription master
@@ -620,7 +633,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.47.0', T.CAT_PANEL_VERSION === '6.47.0');
+  check('panel version is 6.48.0', T.CAT_PANEL_VERSION === '6.48.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

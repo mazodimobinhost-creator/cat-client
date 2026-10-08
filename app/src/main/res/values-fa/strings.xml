@@ -670,6 +670,8 @@
     <string name="scanner_profile_deep">🔬 عمیق</string>
     <string name="scanner_profile_gentle">🌙 ملایم</string>
         <string name="scanner_share_btn">⤴ هم‌رسانی نتایج</string>
+    <string name="scanner_copy_list">📋 کپی لیست (IPv4 / IPv6)</string>
+    <string name="scanner_list_copied">لیست کپی شد — بخش IPv4 و IPv6 جدا</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>
         <string name="scanner_history_last_nobest">اسکن قبلی: %1$s · %2$d سالم</string>

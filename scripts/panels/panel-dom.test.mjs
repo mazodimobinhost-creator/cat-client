@@ -104,6 +104,10 @@ check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').
   check('chain card comes before telegram card', order >= 0 && tg >= 0 && order < tg);
 }
 
+// 6.48.0: service-proof card (BPB parity) in the nodes view
+document.querySelector('[data-view="nodes"]').click();
+check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
+
 // 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
 check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
 const css = document.querySelector('style') ? Array.from(document.querySelectorAll('style')).map(x => x.textContent).join('') : '';

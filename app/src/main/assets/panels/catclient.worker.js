@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.47.0';
+const CAT_PANEL_VERSION = '6.48.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -2758,9 +2758,18 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   const pinKeys = (settings.pinnedIps || []).map((p) => String(p).trim().toLowerCase()).filter(Boolean);
   const pinKeyOf = (a) => { const pin = pinnedPortOf(a); const b = pin ? a.slice(0, a.lastIndexOf(':')) : a; return b.replace(/^\[/, '').replace(/\]$/, '').toLowerCase(); };
   const fixedAddrs = pinKeys.length ? addresses.filter((a) => pinKeys.includes(pinKeyOf(a))) : [];
-  const rotAddrs = pinKeys.length ? addresses.filter((a) => !pinKeys.includes(pinKeyOf(a))) : addresses;
-  if (rot !== 'off' && rotAddrs.length > 1) shuffleArr(rotAddrs, rseed0);
-  addresses = fixedAddrs.concat(rotAddrs);
+  // The owner's own list (manual add / scanner import) leads in PANEL order —
+  // rotation shuffles only the defaults/env extras, never the owner's entries
+  // to the tail (regression: manual adds seemed to "never reach the configs").
+  const ownSet = new Set((settings.ips || []).map((a) => String(a).trim().toLowerCase()).filter(Boolean));
+  const ownAddrs = addresses.filter((a) => ownSet.has(a.toLowerCase()));
+  const restAddrs = addresses.filter((a) => !ownSet.has(a.toLowerCase()));
+  // Rotation keeps its «fresh set every update» promise by shuffling WITHIN each
+  // block — the owner's entries always stay ahead of the defaults, so the entry
+  // limit can no longer crowd them out of the sub.
+  if (rot !== 'off' && ownAddrs.length > 1) shuffleArr(ownAddrs, rseed0);
+  if (rot !== 'off' && restAddrs.length > 1) shuffleArr(restAddrs, rseed0 ^ 0x5f5f);
+  addresses = fixedAddrs.concat(ownAddrs, restAddrs);
   if (q.proto === 'vless') ctx.protocols.trojan = false;
   if (q.proto === 'trojan') ctx.protocols.vless = false;
   if (q.port && q.port.length) {
@@ -2788,6 +2797,19 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   let vi = 0;
   let ti = 0;
   const limit = settings.entryLimit;
+  // Scan-pinned addresses (`ip:port`) go FIRST — the owner imported them with a
+  // verified entry point; the generic port walk must never crowd them out past
+  // the entry limit (regression: pinned imports silently never appeared).
+  for (const addr of addresses) {
+    if (entries.length >= limit) break;
+    const pin = pinnedPortOf(addr);
+    if (!pin) continue;
+    const bare = addr.slice(0, addr.lastIndexOf(':')).replace(/^\[/, '').replace(/\]$/, '');
+    const cc = ccOf(addr);
+    const ptls = !PLAIN_PORTS.includes(pin);
+    if (ctx.protocols.vless) { vi++; const esni = ptls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', bare, pin, ptls, cc, host, vi); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: vlessLink(ectx, bare, pin, ptls, cc, { name: nm }), name: nm }); }
+    if (ctx.protocols.trojan) { ti++; const esni = ptls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', bare, pin, ptls, cc, host, ti); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port: pin, tls: ptls, cc, sni: esni, link: trojanLink(ectx, bare, pin, ptls, cc, { name: tm }), name: tm }); }
+  }
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
   outer: for (const { port, tls } of ports) {
@@ -3909,6 +3931,35 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, results, exit: exitInfo });
   }
 
+  if (path === '/api/ai-test' && method === 'POST') {
+    // BPB-parity service proofs: can the worker's exit (or the chain, if set)
+    // actually reach the AI services? 403/404 from their edge = preflight-ok
+    // (the route is open, auth happens later); 200 = fully served.
+    const targets = [
+      { name: 'ChatGPT', url: 'https://chatgpt.com/', preflight: true },
+      { name: 'Claude', url: 'https://claude.ai/', preflight: true },
+      { name: 'Gemini API', url: 'https://generativelanguage.googleapis.com/', preflight: true },
+      { name: 'Gemini Web', url: 'https://gemini.google.com/', preflight: false },
+      { name: 'AI Studio', url: 'https://aistudio.google.com/', preflight: false },
+    ];
+    const probe = async (t) => {
+      const t0 = Date.now();
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4000);
+        const res = await fetch(t.url, { redirect: 'manual', signal: ctrl.signal, headers: { 'user-agent': 'Mozilla/5.0' } });
+        clearTimeout(timer);
+        const ms = Date.now() - t0;
+        const verdict = res.status === 200 ? 'ok' : (t.preflight && (res.status === 403 || res.status === 404) ? 'preflight' : (res.status === 429 ? 'rate' : 'check'));
+        return { name: t.name, status: res.status, ms, verdict };
+      } catch (e) {
+        return { name: t.name, status: 0, ms: Date.now() - t0, verdict: 'fail' };
+      }
+    };
+    const results = await Promise.all(targets.map(probe));
+    return json({ ok: true, results });
+  }
+
   if (path === '/api/chain-test' && method === 'POST') {
     // One outbound connection through the chain: handshake + ip-api echo, so
     // the owner sees WHICH ip/country the fixed exit shows. Click-only.
@@ -4824,6 +4875,13 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="row" id="svcChips" style="flex-wrap:wrap;gap:4px;margin-top:6px"></div>
   <div class="row small" style="margin-top:6px;gap:10px;flex-wrap:wrap"><a class="mono" href="https://ipcheck.ing" target="_blank" rel="noreferrer nofollow">🌐 IPCheck.ing</a><span class="mute" data-i="exit_hint"></span></div>
  </div>
+
+ <div class="card sec">
+  <h2>🛡 <span data-i="ai_title"></span></h2>
+  <div class="small mute" data-i="ai_hint"></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" id="btnAiTest" type="button">🧪 <span data-i="ai_btn"></span></button><span class="small mute" id="aiOut"></span></div>
+  <div id="aiRows" style="margin-top:10px"></div>
+ </div>
 </section>
 
 <!-- ================= SETTINGS ================= -->
@@ -5100,7 +5158,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -5122,7 +5180,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -5265,6 +5323,7 @@ $('#swFrag').addEventListener('click',async function(){if($('#swFrag').classList
 $('#btnPathRnd').addEventListener('click',function(){var c='abcdefghijklmnopqrstuvwxyz0123456789',s='';for(var i=0;i<10;i++)s+=c[Math.floor(Math.random()*c.length)];$('#fSettings').elements.panelPath.value=s;});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
+$('#btnAiTest').addEventListener('click',function(){var o=$('#aiOut'),rows=$('#aiRows');o.textContent='…';rows.innerHTML='';api('/api/ai-test',{method:'POST',body:{}}).then(function(j){o.textContent='✓';rows.innerHTML=(j.results||[]).map(function(r){var v=r.verdict==='ok'?'<span class="chip ok">'+t('ai_ok')+'</span>':(r.verdict==='preflight'?'<span class="chip ok">'+t('ai_pre')+'</span>':(r.verdict==='rate'?'<span class="chip warn">⏳ rate</span>':'<span class="chip bad">'+t('ai_fail')+'</span>'));return '<div class="row small" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><b>'+esc(r.name)+'</b><span>'+r.status+' · '+r.ms+'ms '+v+'</span></div>'}).join('')}).catch(function(){o.textContent='✗'})});
 $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms'+(j.exitIp?' · '+t('chain_exit')+': '+j.exitIp+(j.country||j.cc?' ('+(j.country||j.cc)+')':''):''):'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
 
 /* ---------- users ---------- */

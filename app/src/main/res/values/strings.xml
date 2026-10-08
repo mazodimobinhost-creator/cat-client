@@ -671,6 +671,8 @@
     <string name="scanner_profile_deep">🔬 Deep</string>
     <string name="scanner_profile_gentle">🌙 Gentle</string>
         <string name="scanner_share_btn">⤴ Share results</string>
+    <string name="scanner_copy_list">Copy IPv4/IPv6 list</string>
+    <string name="scanner_list_copied">List copied (IPv4 / IPv6 sections)</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>
         <string name="scanner_history_last_nobest">Last scan: %1$s · %2$d verified</string>

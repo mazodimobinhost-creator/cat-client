@@ -5594,6 +5594,19 @@ class MainActivity : Activity() {
         }
         body.addView(scannerNeighborButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         // ⤴ Share the verified hits anywhere (Telegram, clipboard apps, …).
+        val scannerListButton = MaterialButton(this).apply {
+            setText(R.string.scanner_copy_list)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 90))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { copyScannerPlainList() }
+        }
+        body.addView(scannerListButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val scannerShareButton = MaterialButton(this).apply {
             setText(R.string.scanner_share_btn)
             textSize = 13.5f
@@ -6382,6 +6395,34 @@ class MainActivity : Activity() {
             chip.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
             chip.background = glassSurfaceDrawable(radiusDp = 14, highlighted = active)
         }
+    }
+
+    /** 📋 BPB-style plain list: bare IPv4 lines then bare IPv6 lines — ready to
+     * paste into any panel (ours or BPB's) manual-import box. */
+    private fun scannerPlainList(): String {
+        val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+            .filter { it.tlsOk }
+            .distinctBy { it.ip }
+        val v4 = verified.filter { !it.ip.contains(':') }.map { it.ip }
+        val v6 = verified.filter { it.ip.contains(':') }.map { it.ip }
+        val sb = StringBuilder()
+        if (v4.isNotEmpty()) sb.append("IPv4:\n\n").append(v4.joinToString("\n")).append("\n")
+        if (v6.isNotEmpty()) {
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append("IPv6:\n\n").append(v6.joinToString("\n")).append("\n")
+        }
+        return sb.toString()
+    }
+
+    private fun copyScannerPlainList() {
+        val text = scannerPlainList()
+        if (text.isBlank()) {
+            Toast.makeText(this, R.string.scanner_share_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cb = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cb.setPrimaryClip(android.content.ClipData.newPlainText("cat-scanner-list", text))
+        Toast.makeText(this, R.string.scanner_list_copied, Toast.LENGTH_SHORT).show()
     }
 
     /** ⤴ Shares the verified hits (ip:port#CC lines) with any app. */
