@@ -7581,6 +7581,34 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
+        // No Cloudflare account yet? These two are plain dashboard URLs, so the
+        // account can always be created/opened first — the token template link
+        // only works once a session exists (see CloudflareAccountLinks).
+        val accountRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val accountParams = LinearLayout.LayoutParams(0, -2).apply { weight = 1f }
+        accountRow.addView(
+            cloudActionButton(R.string.cloud_account_signup, R.drawable.ic_cloud_tab, accent = false) {
+                openAccountEntry(CloudflareAccountLinks.SIGNUP)
+            },
+            accountParams.apply { marginEnd = dp(4) },
+        )
+        accountRow.addView(
+            cloudActionButton(R.string.cloud_account_login, R.drawable.ic_cloud_tab, accent = false) {
+                openAccountEntry(CloudflareAccountLinks.LOGIN)
+            },
+            LinearLayout.LayoutParams(0, -2).apply { weight = 1f; marginStart = dp(4) },
+        )
+        catPanelCard.addView(
+            accountRow,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        catPanelCard.addView(
+            advancedSectionDetail(getString(R.string.cloud_account_hint)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
         catPanelCard.addView(
             advancedSectionDetail(getString(R.string.cloud_get_token_steps)),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
@@ -8515,18 +8543,43 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** Opens dash.cloudflare.com with the Cat Panel permissions pre-selected. */
+    /**
+     * Cloudflare account + token entry, in the ONLY order that works when the
+     * user is not signed in yet.
+     *
+     * The token template link carries query parameters; opened while signed
+     * out, Cloudflare's login page validates the whole URL as an OAuth
+     * redirect_uri and rejects it — the user gets «Invalid redirect_uri» at the
+     * exact moment they are creating an account. So this dialog leads with the
+     * two parameter-free links (sign-up / login), then the template link, and
+     * keeps a plain tokens link as the escape hatch.
+     */
     private fun openCloudflareTokenPage() {
-        val opened = runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.CF_TOKEN_TEMPLATE_URL)))
-        }.isSuccess
-        if (!opened) {
-            runCatching {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cf-token-url", CloudflareWorker.CF_TOKEN_TEMPLATE_URL))
-            }
-        }
-        Toast.makeText(this, R.string.cloud_get_token_toast, Toast.LENGTH_LONG).show()
+        var dialog: androidx.appcompat.app.AlertDialog? = null
+        val body = wizardBody(
+            wizardText(getString(R.string.cloud_account_tip), secondary = true),
+            cloudAccountLinkButton(R.string.cloud_account_signup, CloudflareAccountLinks.SIGNUP) { dialog },
+            cloudAccountLinkButton(R.string.cloud_account_login, CloudflareAccountLinks.LOGIN) { dialog },
+            cloudAccountLinkButton(R.string.cloud_get_token_open, CloudflareWorker.CF_TOKEN_TEMPLATE_URL) { dialog },
+            cloudAccountLinkButton(R.string.cloud_token_plain, CloudflareAccountLinks.TOKENS) { dialog },
+        )
+        dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_get_token)
+            .setView(body)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.show()
+    }
+
+    /** Full-width link button for the account/token chooser. */
+    private fun cloudAccountLinkButton(
+        @StringRes labelRes: Int,
+        url: String,
+        dialog: () -> androidx.appcompat.app.AlertDialog?,
+    ): MaterialButton = cloudActionButton(labelRes, R.drawable.ic_cloud_tab, accent = false) {
+        openExternalUrl(url)
+        Toast.makeText(this, R.string.cloud_account_after, Toast.LENGTH_LONG).show()
+        dialog()?.dismiss()
     }
 
     /**
@@ -13842,6 +13895,12 @@ class MainActivity : Activity() {
             Toast.makeText(this, url, Toast.LENGTH_SHORT).show()
             DiagnosticLogger.warn(this, "external.open.failed", "url=$url", error)
         }
+    }
+
+    /** Opens a parameter-free Cloudflare account link and explains the order. */
+    private fun openAccountEntry(url: String) {
+        openExternalUrl(url)
+        Toast.makeText(this, R.string.cloud_account_after, Toast.LENGTH_LONG).show()
     }
 
     @Suppress("DEPRECATION")

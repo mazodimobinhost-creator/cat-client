@@ -588,7 +588,7 @@
     <string name="cloud_share_deploy_link">🔗 اشتراک لینک نصب یک‌کلیکی (بدون نیاز به اپ)</string>
     <string name="cloud_share_deploy_copied">لینک نصب کپی شد — هر کسی این لینک را داشته باشد پنل خودش را نصب می‌کند</string>
     <string name="cloud_share_deploy_subject">Cat Panel — نصب یک‌کلیکی</string>
-    <string name="cloud_share_deploy_text">Cat Panel — پنل VPN شخصی روی اکانت کلادفلر خودت، فقط با یک کلیک و بدون نصب هیچ اپی:\n%1$s</string>
+    <string name="cloud_share_deploy_text">Cat Panel — پنل VPN شخصی روی اکانت کلادفلر خودت، فقط با یک کلیک و بدون نصب هیچ اپی:\n%1$s\n(نکته: اول در dash.cloudflare.com وارد شو — باز کردن لینک دیپلوی بدون لاگین می‌تواند خطای Invalid redirect_uri بدهد.)</string>
     <string name="cloud_worker_name_hint">نام Worker (حرف، عدد، -)</string>
     <string name="cloud_token_required">اول توکن API کلادفلر را وارد کنید</string>
     <string name="cloud_verifying">در حال بررسی توکن…</string>
@@ -703,6 +703,13 @@
     <string name="cloud_get_token">🔑 دریافت توکن کلودفلر (یک ضربه، دسترسی‌ها آماده)</string>
     <string name="cloud_get_token_steps">صفحهٔ کلودفلر با دسترسی‌های لازم از قبل انتخاب‌شده باز می‌شود → پایین صفحه Continue to summary → Create Token → Copy. توکن را پایین بچسبان. حساب کلودفلر نداری؟ همان‌جا رایگان بساز.</string>
     <string name="cloud_get_token_toast">صفحهٔ توکن کلودفلر باز شد. Continue to summary → Create Token → Copy، بعد اینجا بچسبان.</string>
+    <string name="cloud_account_tip">ترتیب مهم است: اول اکانت بساز یا وارد شو (دو لینک سادهٔ پایین) — بعد صفحهٔ توکن را باز کن. اگر بدون لاگین مستقیم روی صفحهٔ توکن بروی، کلادفلر آن لینک پارامتردار را به‌عنوان «آدرس بازگشت» اعتبارسنجی می‌کند و خطای Invalid redirect_uri می‌دهد؛ همین صفحه دقیقاً همان بن‌بست را حل می‌کند.</string>
+    <string name="cloud_account_signup">🆕 ساخت اکانت رایگان کلودفلر</string>
+    <string name="cloud_account_login">🔑 ورود به اکانت کلودفلر</string>
+    <string name="cloud_get_token_open">📄 صفحهٔ توکن (دسترسی‌ها از قبل انتخاب‌شده)</string>
+    <string name="cloud_token_plain">🧾 صفحهٔ توکن‌ها بدون پیش‌انتخاب (جایگزین)</string>
+    <string name="cloud_account_after">به اپ برگرد و دوباره «🔑 دریافت توکن کلودفلر» را بزن — بعد از لاگین، صفحهٔ توکن مستقیم روی داشبورد باز می‌شود.</string>
+    <string name="cloud_account_hint">هنوز اکانت کلودفلر نداری یا صفحهٔ توکن خطای Invalid redirect_uri داد؟ اول این دو دکمه را بزن (این دو لینک هیچ پارامتری ندارند، پس کلادفلر نمی‌تواند ردشان کند) و بعد دکمهٔ بالای آن‌ها.</string>
     <string name="cloud_get_token_short">ساخت توکن</string>
 
     <!-- بروزرسانی پنل Cat از داخل اپ -->

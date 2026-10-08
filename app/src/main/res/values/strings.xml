@@ -589,7 +589,7 @@
     <string name="cloud_share_deploy_link">🔗 Share one-click deploy link (no app needed)</string>
     <string name="cloud_share_deploy_copied">Deploy link copied — anyone with it can install their own panel</string>
     <string name="cloud_share_deploy_subject">Cat Panel — one-click deploy</string>
-    <string name="cloud_share_deploy_text">Cat Panel — your own VPN panel on your own Cloudflare account, one click and no app needed:\n%1$s</string>
+    <string name="cloud_share_deploy_text">Cat Panel — your own VPN panel on your own Cloudflare account, one click and no app needed:\n%1$s\n(Tip: sign in at dash.cloudflare.com first — opening the deploy link while signed out can show «Invalid redirect_uri».)</string>
     <string name="cloud_worker_name_hint">Worker name (letters, numbers, -)</string>
     <string name="cloud_token_required">Paste a Cloudflare API token first</string>
     <string name="cloud_verifying">Checking token…</string>
@@ -704,6 +704,13 @@
     <string name="cloud_get_token">🔑 Get a Cloudflare token (1 tap, permissions pre-filled)</string>
     <string name="cloud_get_token_steps">Cloudflare opens with the exact permissions already selected → scroll down → Continue to summary → Create Token → Copy. Paste it below. No Cloudflare account? Create a free one on that page first.</string>
     <string name="cloud_get_token_toast">Cloudflare token page opened. Continue to summary → Create Token → Copy, then paste it here.</string>
+    <string name="cloud_account_tip">Order matters: create an account or sign in FIRST (the two plain links) — then open the token page. Opened while signed out, Cloudflare validates the parameter-rich token link as a redirect target and answers «Invalid redirect_uri», which is exactly the dead end this screen removes.</string>
+    <string name="cloud_account_signup">🆕 Create a free Cloudflare account</string>
+    <string name="cloud_account_login">🔑 Sign in to Cloudflare</string>
+    <string name="cloud_get_token_open">📄 Token page (permissions pre-filled)</string>
+    <string name="cloud_token_plain">🧾 Plain tokens page (fallback)</string>
+    <string name="cloud_account_after">Back in the app, tap «Get a Cloudflare token» again — the token page opens straight on the dashboard once you are signed in.</string>
+    <string name="cloud_account_hint">No Cloudflare account yet, or the token page showed «Invalid redirect_uri»? Use these two links first (they carry no parameters, so Cloudflare cannot reject them), then tap the token button above.</string>
     <string name="cloud_get_token_short">Get a token</string>
 
     <!-- Cat Panel in-app updates -->
