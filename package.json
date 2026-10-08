@@ -5,7 +5,7 @@
   "name": "cat-client",
   "private": true,
   "scripts": {
-    "test": "node --test scripts/panels/cat-panel.test.mjs scripts/panels/ccq.test.mjs scripts/panels/ech.test.mjs scripts/panels/panel-dom.test.mjs scripts/panels/wizard.test.mjs scripts/panels/multipart-upload.test.mjs scripts/panels/chain-protocols.test.mjs scripts/panels/android-guard.test.mjs scripts/panels/link-shape.test.mjs scripts/panels/panel-integrity.test.mjs scripts/panels/kv-persistence.test.mjs scripts/panels/panel-update-contract.test.mjs",
+    "test": "node --test scripts/panels/cat-panel.test.mjs scripts/panels/ccq.test.mjs scripts/panels/ech.test.mjs scripts/panels/panel-dom.test.mjs scripts/panels/wizard.test.mjs scripts/panels/multipart-upload.test.mjs scripts/panels/chain-protocols.test.mjs scripts/panels/android-guard.test.mjs scripts/panels/link-shape.test.mjs scripts/panels/panel-integrity.test.mjs scripts/panels/kv-persistence.test.mjs scripts/panels/panel-update-contract.test.mjs scripts/panels/panel-selfupdate.test.mjs",
     "test:e2e": "node --test scripts/panels/tunnel-e2e.test.mjs"
   },
   "engines": {

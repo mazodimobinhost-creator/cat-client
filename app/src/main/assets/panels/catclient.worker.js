@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.53.0';
+const CAT_PANEL_VERSION = '6.53.1';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -83,18 +83,36 @@ function catLogo(n) {
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/download/catclient.worker.js';
-// Update sources in order: the release asset, then jsDelivr (usually reachable
-// where github.com is filtered), then the raw file on the default branch.
+// Update sources in order: the release asset, then the committed OBFUSCATED snapshot via
+// jsDelivr. NEVER the readable worker source (app/src/main/assets/panels/…): Cloudflare
+// disables deployments of it (Error 1101), and `main` is not the release branch — it served
+// panel 5.23.13 while 6.5x was current, so «update available» could advertise (and
+// /api/update-download serve) a downgrade.
 const PANEL_SOURCE_URLS = [
   PANEL_SOURCE_URL,
-  'https://cdn.jsdelivr.net/gh/' + REPO + '@latest/app/src/main/assets/panels/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+  'https://cdn.jsdelivr.net/gh/' + REPO + '@main/dist-panel/catpanel.obf.js',
 ];
+// The plaintext first line scripts/panels/obfuscate.mjs writes into every shipped artifact.
+const PANEL_VERSION_LINE = /CAT_PANEL_VERSION\s*=\s*'([0-9]+(?:\.[0-9]+)+)'/;
+// >0 when dotted version a is newer than b (numeric per part; missing parts are 0).
+function panelVersionCompare(a, b) {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+// First source that carries a readable version line. Unmarked text is skipped, not trusted.
 async function fetchNewestPanelSource() {
   for (const u of PANEL_SOURCE_URLS) {
     try {
       const r = await fetch(u, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
-      if (r.ok) return r;
+      if (!r.ok) continue;
+      const text = await r.text();
+      const m = PANEL_VERSION_LINE.exec(text);
+      if (m) return { text, version: m[1] };
     } catch (e) { /* try the next mirror */ }
   }
   return null;
@@ -4069,20 +4087,22 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/update-download') {
     try {
-      const res = await fetchNewestPanelSource();
-      if (!res) return json({ ok: false, error: 'all sources failed' }, 502);
-      return new Response(res.body, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'content-disposition': 'attachment; filename="catclient.worker.js"', 'cache-control': 'no-store' } });
+      const src = await fetchNewestPanelSource();
+      if (!src) return json({ ok: false, error: 'all sources failed' }, 502);
+      // a stale mirror must never be offered as the «update»
+      if (panelVersionCompare(src.version, CAT_PANEL_VERSION) < 0) return json({ ok: false, error: 'source is older than this panel', latest: src.version }, 409);
+      return new Response(src.text, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'content-disposition': 'attachment; filename="catclient.worker.js"', 'cache-control': 'no-store' } });
     } catch (e) {
       return json({ ok: false, error: 'fetch failed' }, 502);
     }
   }
   if (path === '/api/update-check') {
     try {
-      const res = await fetchNewestPanelSource();
-      if (!res) return json({ ok: false, error: 'all sources failed' }, 502);
-      const src = await res.text();
-      const m = src.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/);
-      return json({ ok: true, current: CAT_PANEL_VERSION, latest: m ? m[1] : '', source: PANEL_SOURCE_URL });
+      const src = await fetchNewestPanelSource();
+      if (!src) return json({ ok: false, error: 'all sources failed' }, 502);
+      // The UI flags ANY difference as «⬆️ update», so an older mirror is reported as «same as current».
+      const latest = panelVersionCompare(src.version, CAT_PANEL_VERSION) > 0 ? src.version : CAT_PANEL_VERSION;
+      return json({ ok: true, current: CAT_PANEL_VERSION, latest, source: PANEL_SOURCE_URL });
     } catch (e) {
       return json({ ok: false, error: 'fetch failed' }, 502);
     }

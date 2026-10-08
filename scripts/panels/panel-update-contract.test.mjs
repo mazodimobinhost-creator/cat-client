@@ -98,6 +98,17 @@ check('/api/version of the artifact reports panel=cat-panel (what deployedVersio
 check('marker equals the version the running artifact reports', marked === live.version, marked + ' vs ' + live.version);
 if (sourceVersion) check('marker equals the readable source version', marked === sourceVersion, marked + ' vs ' + sourceVersion);
 
+// the panel's OWN «check for updates» (/api/update-check): fed the real artifact text, pretending
+// it is a newer release — before 6.53.1 this always answered `latest: ""` (button showed «?»)
+const asNewer = artifact.replace("CAT_PANEL_VERSION = '" + marked + "'", "CAT_PANEL_VERSION = '99.1.0'");
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u) => String(u).includes('/releases/latest/download/catclient.worker.js')
+  ? new Response(asNewer, { status: 200 }) : new Response('', { status: 404 });
+const uc = await mod.default.fetch(new Request('https://x.workers.dev/api/update-check'), env, { waitUntil() {} });
+const ucj = await uc.json();
+globalThis.fetch = realFetch;
+check("the panel's own update-check reads the shipped artifact's version line", ucj.ok === true && ucj.latest === '99.1.0', JSON.stringify(ucj));
+
 // ── 3/4/5) shape ─────────────────────────────────────────────────────────────
 check('marker is the very first line (survives a truncated download)', /^\/\* CAT_PANEL_VERSION = '[0-9]+(?:\.[0-9]+)+' \*\/\n/.test(artifact));
 check("artifact passes PanelUpdate's module check (contains «export default»)", artifact.includes('export default'));

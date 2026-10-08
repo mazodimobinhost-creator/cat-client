@@ -141,6 +141,7 @@ jobs:
           # The shipped (obfuscated) worker must stay identifiable by every consumer's regex —
           # without it «Update panel» installed panel 5.23.13 over a live 6.x deployment.
           node scripts/panels/panel-update-contract.test.mjs
+          node scripts/panels/panel-selfupdate.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
@@ -159,6 +160,7 @@ jobs:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
           # exactly the file that goes into the APK and the release assets:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'
