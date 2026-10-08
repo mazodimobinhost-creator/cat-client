@@ -634,6 +634,11 @@ object CloudflareWorker {
         script: PanelUpdate.PanelScript,
         secretValues: Map<String, String> = emptyMap(),
     ): PanelUpdateOutcome = withContext(Dispatchers.IO) {
+        // Last line of defence — every update path funnels through here: a live panel is
+        // never moved backwards (a stale source once put 5.23.13 over a working 6.x panel).
+        if (PanelUpdate.isDowngrade(fromVersion, script.version)) {
+            throw IllegalStateException("Refusing to downgrade the panel from $fromVersion to ${script.version}")
+        }
         val normalized = workerUrl.trimEnd('/')
         val workerName = workerNameFromUrl(normalized)
         val uuid = PanelDeploymentStore(context).uuidFor(normalized)

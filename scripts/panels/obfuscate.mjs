@@ -19,7 +19,15 @@
  *      flattening → no plaintext signatures, no original identifiers, no
  *      comments. `cloudflare:sockets` stays reserved (dynamic import arg).
  *   3. Post: append the export statements back.
- *   4. --check: node --check + import + public-path smoke + signature count.
+ *   4. Version marker: ONE plaintext first line, a one-line block comment holding
+ *      CAT_PANEL_VERSION = 'x.y.z' (exactly that spelling).
+ *      The string-array encoding hides the real constant, and every consumer that
+ *      identifies a build by regex (the in-app updater, deploy-bot, the wizard) then
+ *      saw «no version». The in-app updater treated its own bundle as 0.0.0 and
+ *      installed the stale `main` copy (5.23.13) over a 6.53 panel. Never ship an
+ *      artifact without this line (--check enforces it).
+ *   5. --check: node --check + import + public-path smoke + signature count +
+ *      marker == the version the running worker reports.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -33,6 +41,14 @@ if (!inPath || !outPath) {
 }
 
 const src = readFileSync(inPath, 'utf8');
+// The marker consumers parse — keep these three in lockstep with PanelUpdate.kt,
+// deploy-bot/worker.js and catclient.wizard.js (panel-update-contract.test.mjs pins all of them).
+const VERSION_RE = /CAT_PANEL_VERSION\s*=\s*'([0-9]+(?:\.[0-9]+)+)'/;
+const version = (VERSION_RE.exec(src) || [])[1];
+if (!version) {
+  console.error('obfuscate: CAT_PANEL_VERSION marker not found in the source — refusing to ship an unversioned artifact');
+  process.exit(1);
+}
 // 1) hide the export statements from the obfuscator
 const DEFAULT_MARK = 'export default {';
 const TESTING_MARK = 'export const _testing = {';
@@ -46,7 +62,7 @@ const prepped = src
   + '\n;Object.assign(globalThis, { __CAT_DEFAULT: __catDefault, __CAT_TESTING: __catTesting });\n';
 
 // 2) obfuscate
-const result = JavaScriptObfuscator.obfuscate(prepped, {
+const OPTIONS = {
   compact: true,
   controlFlowFlattening: true,
   controlFlowFlatteningThreshold: 0.25,
@@ -63,9 +79,25 @@ const result = JavaScriptObfuscator.obfuscate(prepped, {
   transformObjectKeys: true,
   unicodeEscapeSequence: false,
   reservedStrings: ['^cloudflare:sockets$'],
-});
-const out = result.getObfuscatedCode()
-  + '\nexport default globalThis.__CAT_DEFAULT;\nexport const _testing = globalThis.__CAT_TESTING;\n';
+};
+// The string array is base64 noise, so a plaintext signature can appear by pure chance
+// (~1% of builds for «vless»). Cloudflare's scan — and the app/wizard «is it readable?»
+// check — are plaintext matches, so re-roll the random shuffle instead of shipping that build.
+const SIGNATURE_RE = /vless|trojan|proxyip/i;
+let out = '';
+let attempts = 0;
+do {
+  attempts += 1;
+  const result = JavaScriptObfuscator.obfuscate(prepped, OPTIONS);
+  out = "/* CAT_PANEL_VERSION = '" + version + "' */\n"
+    + result.getObfuscatedCode()
+    + '\nexport default globalThis.__CAT_DEFAULT;\nexport const _testing = globalThis.__CAT_TESTING;\n';
+} while (SIGNATURE_RE.test(out) && attempts < 8);
+if (SIGNATURE_RE.test(out)) {
+  console.error('obfuscate: a plaintext panel signature survived ' + attempts + ' independent builds — refusing to ship');
+  process.exit(1);
+}
+if (attempts > 1) console.log('obfuscate: re-rolled ' + (attempts - 1) + 'x (a signature appeared by chance in the string array)');
 writeFileSync(outPath, out);
 const sig = (needle) => (out.match(new RegExp(needle, 'gi')) || []).length;
 console.log('obfuscated: ' + outPath + ' · ' + out.length + ' bytes (source was ' + src.length + ')');
@@ -84,5 +116,14 @@ if (process.argv.includes('--check')) {
   const p = await mod.default.fetch(new Request('https://x.workers.dev/panel'), env, { waitUntil() {} });
   const html = await p.text();
   if (!html.includes('v-dash') && !html.includes('login')) throw new Error('panel smoke failed');
-  console.log('verify: syntax OK · import OK · _testing OK · /health OK · /panel OK');
+  // The marker must be readable by the app's own regex AND tell the truth.
+  const APP_MARKER = /CAT_PANEL_VERSION\s*=\s*'([0-9]+(?:\.[0-9]+)+)'/;
+  const marked = (APP_MARKER.exec(out) || [])[1];
+  if (marked !== version) throw new Error('version marker unreadable in artifact: ' + marked + ' vs ' + version);
+  if (!out.startsWith("/* CAT_PANEL_VERSION = '")) throw new Error('version marker must be the first line');
+  const v = await mod.default.fetch(new Request('https://x.workers.dev/api/version'), env, { waitUntil() {} });
+  const vj = await v.json();
+  if (vj.version !== version) throw new Error('marker says ' + version + ' but the worker reports ' + vj.version);
+  if (/vless|trojan|proxyip/i.test(out)) throw new Error('plaintext panel signature leaked into the artifact');
+  console.log('verify: syntax OK · import OK · _testing OK · /health OK · /panel OK · marker ' + version + ' == /api/version');
 }

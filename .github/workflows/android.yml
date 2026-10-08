@@ -136,8 +136,11 @@ jobs:
           node scripts/panels/kv-persistence.test.mjs
           # Real DOM run: every button on every view is clicked; a single broken
           # inline script leaves them all dead (the «options don't work» report).
-          npm install --no-save jsdom --silent
+          npm install --no-save jsdom javascript-obfuscator@5 --silent
           node scripts/panels/panel-dom.test.mjs
+          # The shipped (obfuscated) worker must stay identifiable by every consumer's regex —
+          # without it «Update panel» installed panel 5.23.13 over a live 6.x deployment.
+          node scripts/panels/panel-update-contract.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
@@ -154,6 +157,8 @@ jobs:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
+          # exactly the file that goes into the APK and the release assets:
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'
@@ -375,6 +380,14 @@ jobs:
             "$apksigner" verify --verbose --print-certs "$destination"
             "$zipalign" -c -p 4 "$destination"
             "$aapt2" dump badging "$destination" | grep -F "package: name='com.cat.client' versionCode='${APP_CODE}' versionName='${APP_VERSION}'"
+            # The panel bundled in the APK must carry its readable version line. The in-app
+            # updater compares versions by it: without it the APK read its own panel as 0.0.0
+            # and a stale source (5.23.13) won. (|| true: head closing the pipe is SIGPIPE.)
+            panel_head="$(unzip -p "$destination" assets/panels/catclient.worker.js 2>/dev/null | head -c 200 || true)"
+            grep -Eq "^/\* CAT_PANEL_VERSION = '[0-9]+(\.[0-9]+)+' \*/" <<<"$panel_head" || {
+              echo "::error::$base: the bundled panel has no readable version line (in-app panel update would misjudge versions)" >&2
+              exit 1
+            }
             found+=("$variant")
           done
           for variant in "${expected[@]}"; do

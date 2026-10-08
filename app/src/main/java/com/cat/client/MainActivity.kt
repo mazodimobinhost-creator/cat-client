@@ -7216,7 +7216,8 @@ class MainActivity : Activity() {
 
     /** Version + update + delete for a healthy panel (deployed from this app). */
     private fun showPanelManageDialog(dep: PanelDeploymentRecord, deployed: String?, newest: PanelUpdate.PanelScript?) {
-        val updateAvailable = newest != null && newest.version != deployed
+        // Strictly newer — `!=` used to flag an OLDER source as «⬆ update available».
+        val updateAvailable = newest != null && (deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed))
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 getString(R.string.panel_manage_title) +
@@ -7236,6 +7237,7 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.panel_no_source, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
+                if (blockPanelDowngrade(deployed, script.version)) return@setPositiveButton
                 val token = PanelDeploymentStore(this).tokenFor(dep.workerUrl).orEmpty()
                 panelUpdateInProgress = true
                 // No token? Token-free guided update — NEVER a token prompt.
@@ -8256,6 +8258,22 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * A live panel is never moved backwards — not offered, not performed. A stale source once
+     * installed panel 5.23.13 over a working 6.x deployment («the panel went back to the old
+     * version»). Returns true when the move was blocked (the user has been told why).
+     */
+    private fun blockPanelDowngrade(deployed: String?, candidate: String): Boolean {
+        if (!PanelUpdate.isDowngrade(deployed, candidate)) return false
+        panelUpdateInProgress = false
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_downgrade_title)
+            .setMessage(getString(R.string.cloud_update_downgrade_msg, deployed.orEmpty(), candidate))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+        return true
+    }
+
     private fun showPanelUpdateDialog(deployment: PanelDeploymentRecord) {
         if (panelUpdateInProgress) return
         panelUpdateInProgress = true
@@ -8264,6 +8282,8 @@ class MainActivity : Activity() {
             try {
                 val newest = newestPanelScript()
                 val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
+                // (The old dialog ignored hasUpdate and installed whatever source it had found.)
+                if (blockPanelDowngrade(deployed, newest.version)) return@launch
                 val hasUpdate = deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed)
                 presentPanelUpdateDialog(deployment, deployed, newest, hasUpdate)
             } catch (e: Exception) {

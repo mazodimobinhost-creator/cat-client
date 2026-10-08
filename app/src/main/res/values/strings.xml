@@ -734,6 +734,8 @@
     <string name="cloud_panel_dead_forced_update">Panel is not responding — forced update will be applied.</string>
     <string name="cloud_update_done">Panel updated to v%1$s</string>
     <string name="cloud_update_failed">Panel update failed: %1$s</string>
+    <string name="cloud_update_downgrade_title">Update blocked — it would move your panel backwards</string>
+    <string name="cloud_update_downgrade_msg">Your panel is on version %1$s, but the newest source this app could reach is %2$s, which is OLDER. Nothing was changed on your deployment.\n\nInstall the latest app version and try again; if GitHub is unreachable on your network, use a VPN for the update.</string>
     <string name="cloud_update_blocked">This deployment has protected secrets (%1$s) that an app can never read. Enter their values to keep them through the update — or update the worker from the Cloudflare dashboard instead.</string>
 
     <!-- Update failure reasons -->
