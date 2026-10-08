@@ -22,6 +22,7 @@
  *   4. --check: node --check + import + public-path smoke + signature count.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import JavaScriptObfuscator from 'javascript-obfuscator';
 
@@ -73,7 +74,7 @@ console.log('plaintext signatures: vless=' + sig('vless') + ' trojan=' + sig('tr
 // 3) optional verification
 if (process.argv.includes('--check')) {
   execFileSync(process.execPath, ['--check', outPath]);
-  const mod = await import('file://' + outPath.replace(/^\//, '/'));
+  const mod = await import(pathToFileURL(outPath).href);
   if (typeof mod.default?.fetch !== 'function') throw new Error('default.fetch missing');
   if (typeof mod._testing?.panelPage !== 'function') throw new Error('_testing broken');
   const env = { CAT_KV: { get: async () => null, put: async () => {}, delete: async () => {} }, UUID: '11111111-2222-4333-8444-555555555555', OPEN_PANEL: 'true', OPEN_SUB: 'true' };
