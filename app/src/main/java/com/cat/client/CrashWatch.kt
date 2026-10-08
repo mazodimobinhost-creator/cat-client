@@ -47,15 +47,38 @@ object CrashWatch {
     private const val NOTIFY_ID = 4243
     private const val MAX_NOTIFY_CHARS = 1500
 
-    /** Call first thing in Application.onCreate. Never throws. */
-    fun install(app: Application) {
+    @Volatile
+    private var installed = false
+
+    /**
+     * Installs the uncaught handler as early as Android allows: called from
+     * EarlyCrashProvider.onCreate, which runs before Application.onCreate.
+     * Idempotent and never throws.
+     */
+    fun installEarly(context: Context) {
+        val app = context.applicationContext ?: context
+        synchronized(this) {
+            if (installed) return
+            installed = true
+        }
         runCatching {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+                // Evidence first, in every channel available, then let the
+                // process die the normal way (no swallowing: a zombie process
+                // helps nobody).
                 runCatching { persistCrash(app, thread, error) }
                 runCatching { announceCrash(app, force = true) }
                 runCatching { previous?.uncaughtException(thread, error) }
             }
+            markSessionOpen(app)
+        }
+    }
+
+    /** Call first thing in Application.onCreate. Never throws. */
+    fun install(app: Application) {
+        runCatching {
+            installEarly(app)
             announceCrash(app, force = false)
             checkPreviousSession(app)
             markSessionOpen(app)
@@ -103,12 +126,46 @@ object CrashWatch {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) append(Build.FINGERPRINT).append('\n')
             append(writer.toString())
         }
-        runCatching { crashFile(context).writeText(text.take(20_000)) }
-        runCatching { DiagnosticLogger.error(context, "crash.uncaught", text.take(400)) }
+        val trimmed = text.take(20_000)
+        runCatching { crashFile(context).writeText(trimmed) }
+        runCatching { DiagnosticLogger.error(context, "crash.uncaught", trimmed.take(400)) }
+        exportCrash(context, trimmed)
     }
 
     private fun readCrash(context: Context): String =
         runCatching { crashFile(context).readText() }.getOrNull()?.take(20_000).orEmpty()
+
+    /**
+     * Copies the crash to the phone's Downloads folder so the user can send the
+     * file WITHOUT notification permission and WITHOUT adb — the report must
+     * survive every device configuration. MediaStore (API 29+) needs no
+     * permission; older releases keep file + notification only.
+     */
+    private fun exportCrash(context: Context, text: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        runCatching {
+            val resolver = context.contentResolver
+            val collection = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val name = "catclient-crash.txt"
+            runCatching {
+                resolver.delete(
+                    collection,
+                    "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                    arrayOf(name),
+                )
+            }
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(
+                    android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                )
+            }
+            val uri = resolver.insert(collection, values) ?: return@runCatching
+            resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        }
+    }
 
     private fun crashFile(context: Context) = File(context.filesDir, CRASH_FILE)
     private fun sessionFile(context: Context) = File(context.filesDir, SESSION_FILE)

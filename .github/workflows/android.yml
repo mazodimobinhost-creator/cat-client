@@ -247,6 +247,38 @@ jobs:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         run: chmod +x gradlew && ./gradlew assembleRelease
 
+      - name: Guard - WorkManager auto-init stays disabled in the merged manifest
+        if: success()
+        run: |
+          set -euo pipefail
+          # WorkManager's androidx.startup initializer runs BEFORE Application.onCreate
+          # and creates a Room database by reflection; a failure there kills the
+          # process with nothing able to catch it (the app «opens then closes»).
+          # The manifest therefore removes that initializer (tools:node="remove")
+          # and CatClientApplication initializes WorkManager itself, guarded. If a
+          # future manifest merge silently brings the initializer back, this step
+          # fails and the crash-on-open class cannot return unnoticed.
+          manifest=$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml 2>/dev/null | grep -i release | head -1 || true)
+          if [[ -z "$manifest" ]]; then
+            manifest=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml 2>/dev/null | head -1 || true)
+          fi
+          if [[ -z "$manifest" ]]; then
+            echo "::error::merged manifest not found — cannot verify WorkManager auto-init removal"
+            exit 1
+          fi
+          echo "merged manifest: $manifest"
+          echo "--- providers in merged manifest ---"
+          grep -oE '<provider[^>]*android:name="[^"]*"' "$manifest" | sed -E 's/.*name="([^"]*)".*/  \1/' || true
+          if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then
+            echo "::error::androidx.work.WorkManagerInitializer is present again in the merged manifest — its pre-Application.onCreate Room initialization can crash the app before any code of ours runs. Restore tools:node=\"remove\" in AndroidManifest.xml."
+            exit 1
+          fi
+          if ! grep -q 'EarlyCrashProvider' "$manifest"; then
+            echo "::error::EarlyCrashProvider missing from the merged manifest — pre-Application.onCreate crashes would go unreported again."
+            exit 1
+          fi
+          echo "manifest guard OK: WorkManager auto-init removed, EarlyCrashProvider present"
+
       - name: Guard - R8 kept the Room/WorkManager database constructor
         if: success()
         run: |
@@ -323,12 +355,23 @@ jobs:
           echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
 
       - name: Emulator capability check (KVM)
+        id: kvm
         if: success() && github.event_name == 'push'
         run: |
-          echo "═══ /dev/kvm:"; ls -l /dev/kvm 2>&1 || true
-          echo "═══ cpu virt flags:"; grep -cE 'vmx|svm' /proc/cpuinfo 2>/dev/null || echo 0
-          echo "═══ kvm module:"; lsmod 2>/dev/null | grep -i kvm || echo "no kvm module"
-          echo "═══ nested:"; cat /sys/module/kvm_intel/parameters/nested 2>/dev/null || cat /sys/module/kvm_amd/parameters/nested 2>/dev/null || echo "unknown"
+          set -uo pipefail
+          {
+            echo "run: ${GITHUB_RUN_ID} commit: ${GITHUB_SHA:0:7}"
+            echo "/dev/kvm: $(ls -l /dev/kvm 2>&1 || echo absent)"
+            echo "cpu virt flags (vmx/svm): $(grep -cE 'vmx|svm' /proc/cpuinfo 2>/dev/null || echo 0)"
+            echo "kvm modules: $(lsmod 2>/dev/null | grep -ci kvm || echo 0)"
+            echo "nested: $(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null || cat /sys/module/kvm_amd/parameters/nested 2>/dev/null || echo unknown)"
+          } | tee emulator-capability.txt
+          if [[ -e /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]; then
+            echo "kvm_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "kvm_available=false" >> "$GITHUB_OUTPUT"
+            echo "KVM is NOT available to this runner — an x86_64 emulator cannot boot here, so the on-device launch check is skipped (never silently: see the CI-LOG comment)."
+          fi
 
       - name: Smoke test - release APK launches on an emulator
         # Push runs only: the PR run of the same commit is a duplicate, and two
@@ -341,11 +384,12 @@ jobs:
         # evidence we need from real devices. The smoke result is still
         # reported loudly (issue comment + artifact + annotation); once the
         # crash is fixed, flip this back to a hard gate.
-        if: success() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && steps.kvm.outputs.kvm_available == 'true'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
+          emulator-boot-timeout: 480
           target: google_apis
           arch: x86_64
           disable-animations: true
@@ -413,14 +457,20 @@ jobs:
             exec 1>&- 2>&-  # stop tee
             exit $rc
 
-      - name: Report emulator smoke outcome to CI-LOG issue
-        if: always() && github.event_name == 'push' && hashFiles('smoke-report.md') != ''
+      - name: Report emulator capability/outcome to CI-LOG issue
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
+          BODY="ci-emulator-report.md"
+          {
+            echo "### Emulator launch check (${GITHUB_SHA:0:7})"
+            if [[ -f emulator-capability.txt ]]; then echo '```text'; cat emulator-capability.txt; echo '```'; else echo "_no capability file (step did not run)"; fi
+            if [[ -f smoke-report.md ]]; then cat smoke-report.md; else echo "_no smoke transcript (script did not run — the emulator did not boot)_"; fi
+          } > "$BODY"
           ISSUE="$(gh issue list --state open --search "in:title CI-LOG" --json number --jq '.[0].number // empty' || true)"
-          if [[ -n "$ISSUE" ]]; then gh issue comment "$ISSUE" --body-file smoke-report.md || true; fi
+          if [[ -n "$ISSUE" ]]; then gh issue comment "$ISSUE" --body-file "$BODY" || true; fi
 
       - name: Upload emulator smoke logs (on failure)
         if: failure()
