@@ -44,7 +44,7 @@ object PanelMonitor {
             wm.enqueueUniquePeriodicWork(
                 WORK,
                 ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<PanelMonitorWorker>(30, TimeUnit.MINUTES).build(),
+                PeriodicWorkRequestBuilder<Worker>(30, TimeUnit.MINUTES).build(),
             )
         }
     }
@@ -84,7 +84,7 @@ object PanelMonitor {
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_cloud_tab)
             .setContentTitle(context.getString(R.string.pm_title))
-            .setText(detail)
+            .setContentText(detail)
             .setAutoCancel(true)
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(NOTIFY_ID, notification) }
