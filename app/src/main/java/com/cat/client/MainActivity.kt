@@ -704,11 +704,11 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = dockPillBackground(selected)
-            ZedIosMotion.press(pill)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
             addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
         icon.setColorFilter(if (selected) palette.onAccent else TEXT_SECONDARY)
+        ZedIosMotion.press(pill)
         dockTabs += DockTab(pill, icon, label)
         val tab = appTabsPending.newTab()
         tab.customView = pill

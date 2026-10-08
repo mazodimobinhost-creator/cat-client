@@ -288,11 +288,11 @@ class ZedRouteConnectorView(context: Context) : View(context) {
 object ZedIosMotion {
     fun press(view: View, pressedScale: Float = 0.94f) {
         fun animateTo(scale: Float, durationMs: Long) {
-            val interpolator = if (scale < 1f) DecelerateInterpolator() else OvershootInterpolator(2.2f)
+            val ti = if (scale < 1f) DecelerateInterpolator() else OvershootInterpolator(2.2f)
             for (prop in listOf(View.SCALE_X, View.SCALE_Y)) {
                 ObjectAnimator.ofFloat(view, prop, scale).apply {
                     duration = durationMs
-                    interpolator = interpolator
+                    interpolator = ti
                     start()
                 }
             }
