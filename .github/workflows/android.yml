@@ -247,6 +247,36 @@ jobs:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         run: chmod +x gradlew && ./gradlew assembleRelease
 
+      - name: Guard - R8 kept the Room/WorkManager database constructor
+        if: success()
+        run: |
+          set -euo pipefail
+          # beta75 root cause: R8 full mode (AGP 8 default) removed the no-arg
+          # <init> of WorkDatabase_Impl (Room keeps the class name but, in older
+          # Room, not the constructor). WorkManager builds that database by
+          # reflection at app startup — before any app code — so the minified
+          # release APK died at launch with:
+          #   RuntimeException: Unable to get provider androidx.startup.InitializationProvider
+          # Fix is the explicit -keep in app/proguard-rules.pro; this guard reads
+          # R8's own usage.txt (removed members) and fails the build if the
+          # constructor is stripped again.
+          usage=$(find app/build/outputs/mapping -name usage.txt 2>/dev/null | head -1)
+          if [[ -z "$usage" ]]; then
+            echo "::error::R8 usage.txt not found — cannot verify the WorkDatabase_Impl constructor (startup-crash guard)"
+            exit 1
+          fi
+          echo "usage report: $usage"
+          bad=$(awk '
+            /^androidx\.work\.impl\.WorkDatabase_Impl:$/ { inblk=1; next }
+            inblk && /^[^ \t]/ { inblk=0 }
+            inblk && /<init>/ { print; exit }
+          ' "$usage")
+          if [[ -n "$bad" ]]; then
+            echo "::error::R8 removed WorkDatabase_Impl.<init>() — a release APK with this dex crashes at launch (androidx.startup InitializationProvider / WorkManager Room DB). Restore the -keep rule in app/proguard-rules.pro."
+            exit 1
+          fi
+          echo "startup guard OK: Room/WorkManager database constructor intact in the minified release"
+
       - name: Validate and package release APKs
         if: success()
         env:
