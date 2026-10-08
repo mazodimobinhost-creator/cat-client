@@ -89,6 +89,11 @@ document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
 
+// 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
+check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
+const css = document.querySelector('style') ? Array.from(document.querySelectorAll('style')).map(x => x.textContent).join('') : '';
+check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyframes marq') && css.includes('prefers-reduced-motion'));
+
 // beta58: ✍️ manual add — real click, real POST, real storage (regression:
 // a template-literal escape bug once mangled every entry into «a.com:443»)
 {

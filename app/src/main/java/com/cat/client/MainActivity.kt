@@ -704,6 +704,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = dockPillBackground(selected)
+            ZedIosMotion.press(pill)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
             addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
@@ -719,7 +720,13 @@ class MainActivity : Activity() {
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(24).toFloat()
-        setColor(if (selected) TEAL else Color.TRANSPARENT)
+        if (selected) {
+            // iOS-flavored capsule: accent gradient instead of a flat fill
+            orientation = GradientDrawable.Orientation.TL_BR
+            colors = intArrayOf(palette.tealGradientStart, palette.secondary)
+        } else {
+            setColor(Color.TRANSPARENT)
+        }
     }
 
     /** Repaints every dock cell so only the active one is the filled lime pill with a label. */
@@ -2742,6 +2749,7 @@ class MainActivity : Activity() {
                 setColor(TEAL)
             }
             setTextColor(palette.onAccent)
+            ZedIosMotion.press(this)
             setOnClickListener { handleButtonClick() }
         }
         publicServerNotice = TextView(this).apply {

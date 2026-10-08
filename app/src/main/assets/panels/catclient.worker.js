@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.45.0';
+const CAT_PANEL_VERSION = '6.46.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -4378,6 +4378,48 @@ function panelPage(env, settings, host, masterUuid) {
 .vicon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;font-size:22px;flex:none;background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(0,225,193,.16));border:1px solid var(--line)}
 .vhead h1{font-size:17px;font-weight:800;margin:0;line-height:1.3}
 .vhead p{margin:2px 0 0;font-size:11.5px;color:var(--mute);line-height:1.5}
+/* ── iOS × devigner motion system ── */
+:root{--spring:cubic-bezier(.34,1.35,.44,1);--io:cubic-bezier(.32,.72,0,1)}
+.btn{border-radius:999px;transition:transform .3s var(--spring),box-shadow .3s var(--io),background .2s,border-color .2s,color .2s}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:scale(.955)}
+.btn:focus-visible,.ib:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.btn.p{background:linear-gradient(135deg,var(--violet),#00c9ad);border-color:transparent;color:#fff;box-shadow:0 6px 22px rgba(124,58,237,.32)}
+.btn.p:hover{box-shadow:0 10px 32px rgba(124,58,237,.44);transform:translateY(-2px)}
+.ib{transition:transform .3s var(--spring),background .2s,border-color .2s,color .2s}
+.ib:active{transform:scale(.9)}
+.chip{transition:transform .3s var(--spring)}
+.st{transition:transform .45s var(--spring),border-color .3s}
+/* drawer: spring slide + backdrop fade (was display toggle — now animatable) */
+.mwrap{position:fixed;inset:0;z-index:60;display:block;visibility:hidden;pointer-events:none}
+.mwrap.show{visibility:visible;pointer-events:auto}
+.mbg{position:absolute;inset:0;background:rgba(0,0,0,.66);opacity:0;transition:opacity .32s var(--io)}
+.mwrap.show .mbg{opacity:1}
+.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background:var(--flat);border-inline-end:1px solid var(--line);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom));transform:translateX(var(--mslide,-112%));transition:transform .5s var(--spring)}
+[dir=rtl] .mpanel{--mslide:112%}
+.mwrap.show .mpanel{transform:none}
+.mlist>button{transition:transform .25s var(--spring),background .2s,border-color .2s}
+.mlist>button:active{transform:scale(.97)}
+/* modals: spring pop */
+.ask.show .askbox{animation:zin .38s var(--spring)}
+.modal.show>div{animation:zin .38s var(--spring)}
+@keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+/* view switches: fade-up + card stagger */
+.view.on{animation:vin .42s var(--io)}
+.view.on>*{animation:vin .5s var(--io) backwards}
+.view.on>*:nth-child(2){animation-delay:.05s}
+.view.on>*:nth-child(3){animation-delay:.1s}
+.view.on>*:nth-child(4){animation-delay:.15s}
+@keyframes vin{from{opacity:0;transform:translateY(12px)}}
+/* toast: spring slide-up */
+/* marquee strip (devigner signature) */
+.marq{overflow:hidden;border:1px solid var(--line);border-radius:999px;padding:8px 0;margin:0 0 14px;background:var(--nav-bg)}
+.marq .mi2{display:inline-flex;white-space:nowrap;animation:marq 26s linear infinite}
+.marq span{padding-inline-end:38px;font-size:11px;font-weight:700;letter-spacing:1px;color:var(--mute)}
+@keyframes marq{to{transform:translateX(-50%)}}
+[dir=rtl] .marq .mi2{animation-name:marqr}
+@keyframes marqr{to{transform:translateX(50%)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 /* mobile sizing: 16px inputs kill iOS focus-zoom (no more pinch-shrinking) */
 @media(max-width:640px){
  .main{padding:12px 12px 26px}
@@ -4423,6 +4465,11 @@ function panelPage(env, settings, host, masterUuid) {
 code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;direction:ltr;unicode-bidi:embed}
 .skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--input-bg),var(--line),var(--input-bg));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* toast: iOS spring slide-up (overrides base rule above) */
+.toast{transform:translate(-50%,18px);transition:opacity .32s var(--io),transform .5s var(--spring)}
+[dir=rtl] .toast{transform:translate(50%,18px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+[dir=rtl] .toast.show{transform:translate(50%,0)}
 </style></head><body>
 <!-- hamburger menu (mobile nav) -->
 <div class="mwrap" id="menu">
@@ -4492,6 +4539,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <!-- ================= DASHBOARD ================= -->
 <section class="view on" id="v-dash">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><div><h1 data-i="n_dash"></h1><p data-i="d_dash"></p></div></div>
+ <div class="marq" aria-hidden="true"><div class="mi2"><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span></div></div>
  <div class="card sec" id="heroCard">
   <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
   <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>

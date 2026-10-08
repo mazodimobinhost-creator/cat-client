@@ -1,6 +1,8 @@
 package com.cat.client
 
+import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.view.MotionEvent
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -14,6 +16,7 @@ import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.animation.LinearInterpolator
 import kotlin.math.PI
 import kotlin.math.cos
@@ -274,5 +277,32 @@ class ZedRouteConnectorView(context: Context) : View(context) {
         val x = w * travel
         paint.alpha = 64; canvas.drawCircle(x, y, 6f * d, paint)
         paint.alpha = 255; canvas.drawCircle(x, y, 2.6f * d, paint)
+    }
+}
+
+/**
+ * iOS-style press squish: the view scales down under the finger and springs
+ * back with a slight overshoot on release. Purely visual — the touch listener
+ * never consumes the event, so clicks and ripples keep working untouched.
+ */
+object ZedIosMotion {
+    fun press(view: View, pressedScale: Float = 0.94f) {
+        fun animateTo(scale: Float, durationMs: Long) {
+            val interpolator = if (scale < 1f) DecelerateInterpolator() else OvershootInterpolator(2.2f)
+            for (prop in listOf(View.SCALE_X, View.SCALE_Y)) {
+                ObjectAnimator.ofFloat(view, prop, scale).apply {
+                    duration = durationMs
+                    interpolator = interpolator
+                    start()
+                }
+            }
+        }
+        view.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> animateTo(pressedScale, 120)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> animateTo(1f, 260)
+            }
+            false // never consume
+        }
     }
 }

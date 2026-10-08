@@ -140,6 +140,48 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .vicon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;font-size:22px;flex:none;background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(0,225,193,.16));border:1px solid var(--line)}
 .vhead h1{font-size:17px;font-weight:800;margin:0;line-height:1.3}
 .vhead p{margin:2px 0 0;font-size:11.5px;color:var(--mute);line-height:1.5}
+/* ── iOS × devigner motion system ── */
+:root{--spring:cubic-bezier(.34,1.35,.44,1);--io:cubic-bezier(.32,.72,0,1)}
+.btn{border-radius:999px;transition:transform .3s var(--spring),box-shadow .3s var(--io),background .2s,border-color .2s,color .2s}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:scale(.955)}
+.btn:focus-visible,.ib:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.btn.p{background:linear-gradient(135deg,var(--violet),#00c9ad);border-color:transparent;color:#fff;box-shadow:0 6px 22px rgba(124,58,237,.32)}
+.btn.p:hover{box-shadow:0 10px 32px rgba(124,58,237,.44);transform:translateY(-2px)}
+.ib{transition:transform .3s var(--spring),background .2s,border-color .2s,color .2s}
+.ib:active{transform:scale(.9)}
+.chip{transition:transform .3s var(--spring)}
+.st{transition:transform .45s var(--spring),border-color .3s}
+/* drawer: spring slide + backdrop fade (was display toggle — now animatable) */
+.mwrap{position:fixed;inset:0;z-index:60;display:block;visibility:hidden;pointer-events:none}
+.mwrap.show{visibility:visible;pointer-events:auto}
+.mbg{position:absolute;inset:0;background:rgba(0,0,0,.66);opacity:0;transition:opacity .32s var(--io)}
+.mwrap.show .mbg{opacity:1}
+.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background:var(--flat);border-inline-end:1px solid var(--line);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom));transform:translateX(var(--mslide,-112%));transition:transform .5s var(--spring)}
+[dir=rtl] .mpanel{--mslide:112%}
+.mwrap.show .mpanel{transform:none}
+.mlist>button{transition:transform .25s var(--spring),background .2s,border-color .2s}
+.mlist>button:active{transform:scale(.97)}
+/* modals: spring pop */
+.ask.show .askbox{animation:zin .38s var(--spring)}
+.modal.show>div{animation:zin .38s var(--spring)}
+@keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+/* view switches: fade-up + card stagger */
+.view.on{animation:vin .42s var(--io)}
+.view.on>*{animation:vin .5s var(--io) backwards}
+.view.on>*:nth-child(2){animation-delay:.05s}
+.view.on>*:nth-child(3){animation-delay:.1s}
+.view.on>*:nth-child(4){animation-delay:.15s}
+@keyframes vin{from{opacity:0;transform:translateY(12px)}}
+/* toast: spring slide-up */
+/* marquee strip (devigner signature) */
+.marq{overflow:hidden;border:1px solid var(--line);border-radius:999px;padding:8px 0;margin:0 0 14px;background:var(--nav-bg)}
+.marq .mi2{display:inline-flex;white-space:nowrap;animation:marq 26s linear infinite}
+.marq span{padding-inline-end:38px;font-size:11px;font-weight:700;letter-spacing:1px;color:var(--mute)}
+@keyframes marq{to{transform:translateX(-50%)}}
+[dir=rtl] .marq .mi2{animation-name:marqr}
+@keyframes marqr{to{transform:translateX(50%)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 /* mobile sizing: 16px inputs kill iOS focus-zoom (no more pinch-shrinking) */
 @media(max-width:640px){
  .main{padding:12px 12px 26px}
@@ -185,12 +227,17 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;direction:ltr;unicode-bidi:embed}
 .skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--input-bg),var(--line),var(--input-bg));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* toast: iOS spring slide-up (overrides base rule above) */
+.toast{transform:translate(-50%,18px);transition:opacity .32s var(--io),transform .5s var(--spring)}
+[dir=rtl] .toast{transform:translate(50%,18px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+[dir=rtl] .toast.show{transform:translate(50%,0)}
 </style></head><body>
 <!-- hamburger menu (mobile nav) -->
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.45.0</div></div><button class="ib" data-mclose>✕</button></div>
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.46.0</div></div><button class="ib" data-mclose>✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -227,10 +274,10 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
  </div>
  <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sb-foot"><span class="dot"></span> Cat Panel v6.45.0</div>
+ <div class="sb-foot"><span class="dot"></span> Cat Panel v6.46.0</div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.45.0</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.46.0</span></div>
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></button>
   <button class="ib" data-c="green" data-view="clients" title="Clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg></button>
@@ -254,6 +301,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <!-- ================= DASHBOARD ================= -->
 <section class="view on" id="v-dash">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><div><h1 data-i="n_dash"></h1><p data-i="d_dash"></p></div></div>
+ <div class="marq" aria-hidden="true"><div class="mi2"><span>🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦</span><span>🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦</span></div></div>
  <div class="card sec" id="heroCard">
   <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
   <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
@@ -281,7 +329,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="kv" style="margin:6px 0">
    <div><span data-i="ov_loc"></span><span class="mono" id="ovLoc">…</span></div>
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.45.0</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.46.0</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -693,7 +741,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <section class="view" id="v-about">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.45.0</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.46.0</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -744,7 +792,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <script>
 (function(){
 'use strict';
-var HOST="p.workers.dev", UUID="u1", VERSION="6.45.0";
+var HOST="p.workers.dev", UUID="u1", VERSION="6.46.0";
 var I18N={
 fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
