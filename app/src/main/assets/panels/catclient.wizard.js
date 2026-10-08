@@ -21,17 +21,28 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.0.0';
+const CAT_WIZARD_VERSION = '1.1.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const BRANCH = 'arena/01a0c678-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const COMPAT_DATE = '2025-03-04';
 
+/* ANTI-1101: NEVER auto-deploy the READABLE repo source. Cloudflare statically
+ * scans a deployed worker for plaintext panel signatures (vless/trojan/proxyip)
+ * and disables the script — that's the «Error 1101» page users hit. Every
+ * candidate below is an OBFUSCATED artifact: the release asset (CI obfuscates
+ * before packaging), the committed snapshot that powers the Deploy button
+ * (dist-panel/catpanel.obf.js), and ghproxy mirrors for networks where
+ * github/raw is blocked (common in Iran). */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.obf.js';
+const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/app/src/main/assets/panels/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  RAW_SNAPSHOT,
+  'https://ghproxy.net/' + RAW_SNAPSHOT,
+  'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
 ];
 const WIZARD_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.wizard.js',
@@ -215,6 +226,11 @@ async function enableRoute(token, accountId, name) {
 
 const sourceCache = new Map();
 
+/** Anti-1101 detector: a READABLE panel source carries plaintext signatures. */
+function srcLooksReadable(text) {
+  return /vless|trojan|proxyip/i.test(String(text || ''));
+}
+
 async function fetchSource(kind, env) {
   const override = kind === 'wizard' ? env.WIZARD_SOURCE_URL : env.PANEL_SOURCE_URL;
   const marker = kind === 'wizard' ? 'CAT_WIZARD_VERSION' : 'CAT_PANEL_VERSION';
@@ -222,6 +238,7 @@ async function fetchSource(kind, env) {
   const cached = sourceCache.get(kind);
   if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached;
   let lastError = '';
+  let risky = null;
   for (const url of urls) {
     try {
       const res = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow' });
@@ -230,12 +247,22 @@ async function fetchSource(kind, env) {
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
       const entry = { text, url, version: versionMatch ? versionMatch[1] : '?', at: Date.now() };
+      // ANTI-1101: an obfuscated artifact has ZERO plaintext signatures. A
+      // readable source gets the deployed worker disabled by Cloudflare, so it
+      // is skipped in favour of the next (obfuscated) candidate and kept only
+      // as a flagged last resort when nothing else answers.
+      if (kind === 'panel' && srcLooksReadable(text)) {
+        risky = entry;
+        lastError = url + ' -> readable source (anti-1101: would risk Error 1101)';
+        continue;
+      }
       sourceCache.set(kind, entry);
       return entry;
     } catch (e) {
       lastError = url + ' → ' + (e && e.message ? e.message : e);
     }
   }
+  if (risky) { risky.risky = true; sourceCache.set(kind, risky); return risky; }
   throw new Error('could not download the ' + kind + ' source (' + lastError + ')');
 }
 
@@ -285,6 +312,7 @@ async function* runInstall(input, env) {
 
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
+  if (source.risky) log('source', 'warn', 'WARNING: readable source — Cloudflare may disable this worker later (Error 1101). Prefer the release asset.', { version: source.version, url: source.url, risky: true });
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
 
   log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
@@ -731,6 +759,7 @@ export default {
 
 export const _testing = {
   CAT_WIZARD_VERSION,
+  srcLooksReadable,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
   PANEL_SOURCES,
