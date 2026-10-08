@@ -346,13 +346,19 @@ jobs:
           git push origin "$TAG" || true
           # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
           cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          # Panel HTML snapshot generated from THIS commit's worker (6.44.0+):
+          # a ready cat-panel.html rides every release for preview/backup.
+          node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
           release_assets=(
             "$release_dir"/CatClient-V${APP_VERSION}-*.apk
             "$release_dir"/SHA256SUMS
             app/build/outputs/apk/debug/*.apk
             catclient.worker.js
             catclient.wizard.js
+            cat-panel.html
           )
+          # Google-Doc bundle(s), if present in this branch's docs/
+          for d in docs/CatPanel-*-GoogleDoc.docx; do [[ -e "$d" ]] && release_assets+=("$d"); done
           notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
