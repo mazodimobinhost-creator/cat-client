@@ -424,7 +424,8 @@ object IpScanner {
     fun hasIpv6Connectivity(timeoutMs: Int = 1800): Boolean =
         tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null ||
             tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null ||
-            tcpConnect("2a06:98c0::6810:84e5", 443, timeoutMs) != null
+            tcpConnect("2a06:98c0::6810:84e5", 443, timeoutMs) != null ||
+            tcpConnect("2606:4700::6810:84e5", 80, timeoutMs) != null
 
     fun isIpv6(value: String): Boolean = value.contains(':')
 
@@ -768,6 +769,10 @@ object IpScanner {
         "2606:4700::6810:84e5",
         "2606:4700:d0::a29f:c001",
         "2606:4700:d0::a29f:c002",
+        "2606:4700:d0::1",
+        "2606:4700:d1::1",
+        "2606:4700::6812:1a2e",
+        "2606:4700::6812:3ed",
         "2606:4700:3033::6810:84e5",
         "2a06:98c0::6810:84e5",
     )

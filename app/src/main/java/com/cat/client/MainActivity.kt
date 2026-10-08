@@ -5638,6 +5638,55 @@ class MainActivity : Activity() {
         scannerSpeedTestButton = scannerSpeedButton
         body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // 🌐 force-IPv6 toggle (persisted): for lines where the quick probe
+        // fails but v6 actually works (BPB scans showed 538ms on such a line).
+        val v6Row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val v6Chip = TextView(this).apply {
+            text = getString(R.string.scanner_force_v6)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setOnClickListener {
+                scannerForceV6 = !scannerForceV6
+                getSharedPreferences("cat_client_theme", MODE_PRIVATE)
+                    .edit().putBoolean("scanner_force_v6", scannerForceV6).apply()
+                runCatching {
+                    background = glassSurfaceDrawable(radiusDp = 16, highlighted = scannerForceV6)
+                    setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
+                }
+            }
+        }
+        v6Chip.background = glassSurfaceDrawable(radiusDp = 16, highlighted = scannerForceV6)
+        v6Chip.setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
+        v6Row.addView(v6Chip, LinearLayout.LayoutParams(-2, -2))
+        body.addView(v6Row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // 🛡 Service proofs (BPB parity): probe AI sites over the CURRENT network
+        // (through the tunnel when connected) so the user SEES what opens.
+        scannerAiList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val aiButton = MaterialButton(this).apply {
+            setText(R.string.scanner_ai_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(AMBER, 70))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerAiTest() }
+        }
+        body.addView(aiButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(scannerAiList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
         body.addView(
             scannerFilterRow(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
@@ -5928,10 +5977,14 @@ class MainActivity : Activity() {
         scannerJob = activityScope.launch {
             // Dual-stack: probe once whether v6 really works here; if so the v6
             // ranges join the walk and results of both families are ranked together.
-            val ipv6 = withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
+            val ipv6 = scannerForceV6 || withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
             mainHandler.post {
                 scannerStatusText.setText(
-                    if (ipv6) R.string.scanner_ipv6_detected else R.string.scanner_ipv6_absent,
+                    when {
+                        scannerForceV6 -> R.string.scanner_ipv6_forced
+                        ipv6 -> R.string.scanner_ipv6_detected
+                        else -> R.string.scanner_ipv6_absent
+                    },
                 )
             }
             val found = runCatching {
@@ -6425,6 +6478,93 @@ class MainActivity : Activity() {
         Toast.makeText(this, R.string.scanner_list_copied, Toast.LENGTH_SHORT).show()
     }
 
+    /** 🛡 Probes the AI services over the current network (through the tunnel
+     * when connected). 403/404 on login-gated edges = route open (auth happens
+     * in the app); 200 = fully served; 429 = rate limited; else failed. */
+    private fun runScannerAiTest() {
+        if (scannerAiRunning) return
+        scannerAiRunning = true
+        scannerAiList.removeAllViews()
+        val status = TextView(this).apply {
+            setText(R.string.scanner_ai_running)
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+        }
+        scannerAiList.addView(status)
+        activityScope.launch {
+            val targets = listOf(
+                Triple("ChatGPT", "https://chatgpt.com/", true),
+                Triple("Claude", "https://claude.ai/", true),
+                Triple("Gemini API", "https://generativelanguage.googleapis.com/", true),
+                Triple("Gemini Web", "https://gemini.google.com/", false),
+                Triple("AI Studio", "https://aistudio.google.com/", false),
+            )
+            for ((name, url, preflight) in targets) {
+                val t0 = System.currentTimeMillis()
+                val code = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                            instanceFollowRedirects = false
+                            connectTimeout = 5000
+                            readTimeout = 5000
+                            setRequestProperty("User-Agent", "Mozilla/5.0")
+                            requestMethod = "GET"
+                            responseCode
+                        }
+                        val c = conn.responseCode
+                        runCatching { conn.disconnect() }
+                        c
+                    }.getOrDefault(0)
+                }
+                val ms = (System.currentTimeMillis() - t0).toInt()
+                val verdict = when {
+                    code == 200 -> R.string.scanner_ai_ok
+                    preflight && (code == 403 || code == 404) -> R.string.scanner_ai_pre
+                    code == 429 -> R.string.scanner_ai_rate
+                    else -> R.string.scanner_ai_fail
+                }
+                val color = if (verdict == R.string.scanner_ai_fail) AMBER else TEAL
+                mainHandler.post {
+                    val row = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        background = glassSurfaceDrawable(radiusDp = 12)
+                        addView(TextView(this@MainActivity).apply {
+                            text = name
+                            textSize = 13f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(TEXT_PRIMARY)
+                        }, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(TextView(this@MainActivity).apply {
+                            text = getString(R.string.scanner_ai_row, code, ms)
+                            textSize = 11.5f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(color)
+                        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+                        addView(TextView(this@MainActivity).apply {
+                            setText(verdict)
+                            textSize = 11f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(color)
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dp(6).toFloat()
+                                setColor(withAlpha(color, 26))
+                            }
+                            setPadding(dp(6), dp(2), dp(6), dp(2))
+                        })
+                    }
+                    if (status.parent === scannerAiList) scannerAiList.removeView(status)
+                    scannerAiList.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                }
+            }
+            scannerAiRunning = false
+        }
+    }
+
     /** ⤴ Shares the verified hits (ip:port#CC lines) with any app. */
     private fun shareScannerResults() {
         val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
@@ -6510,6 +6650,12 @@ class MainActivity : Activity() {
     // ⚡ Advanced scanner (beta57): profile «fast/std/deep», jitter of the top
     // hits, country distribution of the visible results, run history line.
     private var scannerProfile: String = "std"
+    // 🌐 Force-IPv6: bypass the connectivity gate — some carriers answer v6
+    // even when the quick probe fails (the user's own line, per BPB scans).
+    private var scannerForceV6: Boolean =
+        getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("scanner_force_v6", false)
+    private var scannerAiRunning: Boolean = false
+    private var scannerAiList: LinearLayout = LinearLayout(this)
     private var scannerJitterMs: Map<String, Int> = emptyMap()
     private var scannerCountryText: TextView? = null
     private var scannerHistoryText: TextView? = null
@@ -6591,15 +6737,41 @@ class MainActivity : Activity() {
             return
         }
         val hasVerifiedResult = visible.any { it.tlsOk }
-        scannerApplyButton.isEnabled = hasVerifiedResult
+        runCatching { scannerApplyButton.isEnabled = hasVerifiedResult }
         if (::scannerBuildButton.isInitialized) scannerBuildButton.isEnabled = hasVerifiedResult
+        // Count header: the user must always see THAT results exist, even if a
+        // fancy row fails to build (regression: chips showed 1114 but zero rows
+        // rendered — an exception anywhere in the styled-row loop left the list
+        // blank with no trace).
+        scannerResultsList.addView(
+            TextView(this).apply {
+                text = getString(R.string.scanner_results_header, visible.size, minOf(visible.size, SCANNER_VISIBLE_RESULTS))
+                textSize = 11f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_SECONDARY)
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
+        )
         visible.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
+            val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
             scannerResultsList.addView(
-                scannerResultRow(index + 1, result),
+                row ?: fallbackScannerRow(result),
                 LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
             )
         }
     }
+
+    /** Cannot-throw plain row — the guaranteed-visible last resort. */
+    private fun fallbackScannerRow(result: IpScanner.ScanResult): View =
+        TextView(this).apply {
+            text = "${result.flag} ${result.ip}:${result.port} · ${result.pingMs}ms${if (result.tlsOk) " · TLS ✓" else ""}"
+            textSize = 12.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_PRIMARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
 
     private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
         val row = LinearLayout(this).apply {

@@ -672,6 +672,15 @@
     <string name="scanner_profile_gentle">🌙 Gentle</string>
         <string name="scanner_share_btn">⤴ Share results</string>
     <string name="scanner_copy_list">Copy IPv4/IPv6 list</string>
+    <string name="scanner_results_header">%1$d results · showing first %2$d</string>
+    <string name="scanner_force_v6">🌐 Force IPv6 (skip the probe gate)</string>
+    <string name="scanner_ai_btn">🛡 Test AI services</string>
+    <string name="scanner_ai_running">Probing… (through the tunnel when connected)</string>
+    <string name="scanner_ai_ok">open</string>
+    <string name="scanner_ai_pre">preflight</string>
+    <string name="scanner_ai_rate">rate</string>
+    <string name="scanner_ai_fail">failed</string>
+    <string name="scanner_ai_row">%1$d · %2$dms</string>
     <string name="scanner_list_copied">List copied (IPv4 / IPv6 sections)</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>
@@ -683,6 +692,7 @@
     <string name="scanner_neighbor_done">%1$d fresh neighbours found (of %2$d tried)</string>
     <string name="scanner_ipv6_detected">IPv6 works on this network — scanning IPv4 + IPv6…</string>
     <string name="scanner_ipv6_absent">No real IPv6 on this network — scanning IPv4 only (v6 needs a v6-capable carrier)…</string>
+    <string name="scanner_ipv6_forced">IPv6 forced ON — v6 candidates in the walk even without the probe…</string>
     <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
     <string name="scanner_sent_panel">%1$d addresses sent to the panel — press “Append” there</string>
     <string name="scanner_copied_panel">%1$d addresses copied as addr#CC — paste them into the panel’s IP box</string>

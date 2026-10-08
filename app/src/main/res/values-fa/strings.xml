@@ -671,6 +671,15 @@
     <string name="scanner_profile_gentle">🌙 ملایم</string>
         <string name="scanner_share_btn">⤴ هم‌رسانی نتایج</string>
     <string name="scanner_copy_list">📋 کپی لیست (IPv4 / IPv6)</string>
+    <string name="scanner_results_header">%1$d نتیجه — نمایش اولین %2$d</string>
+    <string name="scanner_force_v6">🌐 IPv6 اجباری (بدون تستِ درگاه)</string>
+    <string name="scanner_ai_btn">🛡 تست سرویس‌های AI</string>
+    <string name="scanner_ai_running">در حال تست… (وقتی وصل باشی از داخل تونل)</string>
+    <string name="scanner_ai_ok">باز</string>
+    <string name="scanner_ai_pre">پیش‌پروفه</string>
+    <string name="scanner_ai_rate">محدود</string>
+    <string name="scanner_ai_fail">ناموفق</string>
+    <string name="scanner_ai_row">%1$d · %2$dms</string>
     <string name="scanner_list_copied">لیست کپی شد — بخش IPv4 و IPv6 جدا</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>
@@ -682,6 +691,7 @@
     <string name="scanner_neighbor_done">%1$d همسایهٔ تازه پیدا شد (از %2$d تست)</string>
     <string name="scanner_ipv6_detected">این شبکه IPv6 دارد — اسکن IPv4 و IPv6 با هم…</string>
     <string name="scanner_ipv6_absent">این شبکه IPv6 واقعی ندارد — فقط IPv4 اسکن می‌شود (IPv6 به اپراتور v6‌دار نیاز دارد)…</string>
+    <string name="scanner_ipv6_forced">IPv6 اجباری روشن است — کاندیدهای v6 داخل اسکن…</string>
     <string name="scanner_send_panel">ارسال به Cat Panel (با کشور)</string>
     <string name="scanner_sent_panel">%1$d آدرس به پنل فرستاده شد — آنجا «افزودن به لیست» را بزن</string>
     <string name="scanner_copied_panel">%1$d آدرس به شکل addr#CC کپی شد — در کادر آی‌پی پنل بچسبان</string>
