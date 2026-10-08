@@ -6361,23 +6361,30 @@ class MainActivity : Activity() {
 
     private fun renderScanHistory() {
         val view = scannerHistoryText ?: return
-        val rows = scanHistoryRaw().split("|").filter { it.isNotBlank() }
-        if (rows.isEmpty()) {
-            view.setText(R.string.scanner_history_never)
-            return
-        }
-        val parts = rows.first().split(":")
-        val at = parts.getOrNull(0)?.toLongOrNull() ?: 0L
-        val best = parts.getOrNull(1)?.toIntOrNull() ?: -1
-        val ok = parts.getOrNull(2)?.toIntOrNull() ?: 0
-        val bestEver = rows.mapNotNull { it.split(":").getOrNull(1)?.toIntOrNull() }.filter { it > 0 }.minOrNull()
-        val ago = android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
-        view.text = if (best > 0) {
-            val line = getString(R.string.scanner_history_last, ago, best, ok)
-            if (bestEver != null && bestEver > 0) "$line · ${getString(R.string.scanner_history_record, bestEver)}" else line
-        } else {
-            getString(R.string.scanner_history_last, ago, getString(R.string.scanner_history_na), ok)
-        }
+        // ⚠️ The scanner screen is built AT STARTUP (createAndAttachViews) — a
+        // throw here kills the whole app. A run with zero TLS-verified IPs
+        // stores best = -1; formatting «%2$d» with a String crashed every cold
+        // start (IllegalFormatConversionException). Proper branch string now,
+        // and the whole render is guarded so history can never crash again.
+        runCatching {
+            val rows = scanHistoryRaw().split("|").filter { it.isNotBlank() }
+            if (rows.isEmpty()) {
+                view.setText(R.string.scanner_history_never)
+                return
+            }
+            val parts = rows.first().split(":")
+            val at = parts.getOrNull(0)?.toLongOrNull() ?: 0L
+            val best = parts.getOrNull(1)?.toIntOrNull() ?: -1
+            val ok = parts.getOrNull(2)?.toIntOrNull() ?: 0
+            val bestEver = rows.mapNotNull { it.split(":").getOrNull(1)?.toIntOrNull() }.filter { it > 0 }.minOrNull()
+            val ago = android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+            view.text = if (best > 0) {
+                val line = getString(R.string.scanner_history_last, ago, best, ok)
+                if (bestEver != null && bestEver > 0) "$line · ${getString(R.string.scanner_history_record, bestEver)}" else line
+            } else {
+                getString(R.string.scanner_history_last_nobest, ago, ok)
+            }
+        }.onFailure { view.setText(R.string.scanner_history_never) }
     }
 
     /** 🌐 Country distribution of the visible results (line under the filters). */

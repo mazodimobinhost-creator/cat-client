@@ -673,6 +673,7 @@
         <string name="scanner_share_btn">⤴ Share results</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>
+        <string name="scanner_history_last_nobest">Last scan: %1$s · %2$d verified</string>
     <string name="scanner_history_last">Last scan: %1$s · best %2$d ms · %3$d verified</string>
     <string name="scanner_history_record">network record %1$d ms</string>
     <string name="scanner_history_never">No scan recorded yet</string>

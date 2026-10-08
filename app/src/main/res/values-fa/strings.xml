@@ -672,6 +672,7 @@
         <string name="scanner_share_btn">⤴ هم‌رسانی نتایج</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>
+        <string name="scanner_history_last_nobest">اسکن قبلی: %1$s · %2$d سالم</string>
     <string name="scanner_history_last">اسکن قبلی: %1$s · بهترین %2$d ms · %3$d سالم</string>
     <string name="scanner_history_record">رکورد شبکهٔ تو %1$d ms</string>
     <string name="scanner_history_never">هنوز اسکنی ثبت نشده</string>
