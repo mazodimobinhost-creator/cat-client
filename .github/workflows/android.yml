@@ -322,6 +322,59 @@ jobs:
           (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk > SHA256SUMS)
           echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
 
+      - name: Smoke test - release APK launches on an emulator
+        if: success()
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set -uo pipefail
+            adb wait-for-device
+            adb shell input keyevent 82 >/dev/null 2>&1 || true
+
+            check_app() {
+              local label="$1" apk="$2" log="$3" pid1 pid2
+              if [ ! -f "$apk" ]; then echo "::error::$label APK not found: $apk"; return 1; fi
+              adb uninstall com.cat.client >/dev/null 2>&1 || true
+              adb install -r -t "$apk" >/dev/null
+              adb logcat -c || true
+              adb shell am start -W -n com.cat.client/.MainActivity >"$label-start.txt" 2>&1 || true
+              sleep 15
+              pid1=$(adb shell pidof com.cat.client | tr -d '\r' || true)
+              sleep 8
+              pid2=$(adb shell pidof com.cat.client | tr -d '\r' || true)
+              adb logcat -d >"$log" 2>&1 || true
+              if [ -z "$pid1" ] || [ -z "$pid2" ]; then
+                echo "::error::$label APK is NOT alive 8s after launch — startup crash"
+                grep -aE "FATAL|AndroidRuntime|Process: com.cat.client|Caused by|ClassNotFound|NoSuchMethod" "$log" | tail -50 || true
+                return 1
+              fi
+              echo "$label APK launch OK (pid $pid2)"
+              adb shell am force-stop com.cat.client >/dev/null 2>&1 || true
+              return 0
+            }
+
+            rc=0
+            debug_apk=$(ls app/build/outputs/apk/debug/*x86_64*.apk 2>/dev/null | head -1)
+            if [ -n "$debug_apk" ]; then check_app debug "$debug_apk" debug-smoke-logcat.txt || rc=1; fi
+            rel_apk=$(ls "$RELEASE_DIR"/*x86_64*.apk 2>/dev/null | head -1)
+            check_app release "$rel_apk" release-smoke-logcat.txt || rc=1
+            exit $rc
+
+      - name: Upload emulator smoke logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emulator-smoke-${{ github.sha }}
+          if-no-files-found: ignore
+          path: |
+            *-smoke-logcat.txt
+            *-start.txt
+
       - name: Upload debug APKs
         if: success()
         uses: actions/upload-artifact@v7
