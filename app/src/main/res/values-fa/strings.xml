@@ -679,6 +679,7 @@
     <string name="scanner_history_na">—</string>
     <string name="scanner_neighbor_done">%1$d همسایهٔ تازه پیدا شد (از %2$d تست)</string>
     <string name="scanner_ipv6_detected">این شبکه IPv6 دارد — اسکن IPv4 و IPv6 با هم…</string>
+    <string name="scanner_ipv6_absent">این شبکه IPv6 واقعی ندارد — فقط IPv4 اسکن می‌شود (IPv6 به اپراتور v6‌دار نیاز دارد)…</string>
     <string name="scanner_send_panel">ارسال به Cat Panel (با کشور)</string>
     <string name="scanner_sent_panel">%1$d آدرس به پنل فرستاده شد — آنجا «افزودن به لیست» را بزن</string>
     <string name="scanner_copied_panel">%1$d آدرس به شکل addr#CC کپی شد — در کادر آی‌پی پنل بچسبان</string>

@@ -35,7 +35,7 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
   return worker.fetch(new Request('https://' + HOST + path, init), env, { waitUntil(){} });
 }
 // health
-{ const r = await req('/health'); const j = await r.json(); check('/health ok', r.status===200 && j.ok===true && j.version===T.CAT_PANEL_VERSION); }
+{ const r = await req('/health'); const j = await r.json(); check('/health anonymous = bare ok (no fingerprint)', r.status===200 && j.ok===true && j.version===undefined && j.kv===undefined); }
 // beta57 stealth default: / = camouflage landing, real UI at /panel
 { const r = await req('/'); const b = await r.text(); check('/ serves camouflage when locked', r.status===200 && b.includes('Sora') && !b.includes('/api/login')); }
 { const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows login when locked', rp.status===200 && bp.includes('/api/login')); }
@@ -145,7 +145,7 @@ let user;
 { const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER, OPEN_PANEL:'true' }; const r = await req('/panel', { env: env3 }); check('OPEN_PANEL serves panel without login', (await r.text()).includes('v-dash'));
   const r2 = await req('/api/settings', { env: env3 }); check('OPEN_PANEL api open', r2.status===200 && (await r2.json()).open===true); T.kvCacheClear(); }
 // no KV
-{ const envNo = { UUID: MASTER }; const r = await req('/sub/' + MASTER, { env: envNo }); check('works without KV', r.status===200); const h = await req('/health', { env: envNo }); check('health reports kv:false', (await h.json()).kv===false); }
+{ const envNo = { UUID: MASTER }; const r = await req('/sub/' + MASTER, { env: envNo }); check('works without KV', r.status===200); const ho = await req('/health', { env: envNo, headers: { cookie } }); check('health (owner) reports kv:false', (await ho.json()).kv===false); }
 // derived uuid
 { const u = await T.resolveUuid(HOST, {}); check('derived uuid stable + valid', T.isUuid(u) && u === await T.resolveUuid(HOST, {})); }
 // qr
@@ -620,7 +620,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.46.0', T.CAT_PANEL_VERSION === '6.46.0');
+  check('panel version is 6.47.0', T.CAT_PANEL_VERSION === '6.47.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

@@ -421,8 +421,10 @@ object IpScanner {
      * True when the device can actually open a v6 TCP connection to Cloudflare —
      * a routable v6 address on an interface is not enough on many Iranian carriers.
      */
-    fun hasIpv6Connectivity(timeoutMs: Int = 1200): Boolean =
-        tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null || tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null
+    fun hasIpv6Connectivity(timeoutMs: Int = 1800): Boolean =
+        tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null ||
+            tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null ||
+            tcpConnect("2a06:98c0::6810:84e5", 443, timeoutMs) != null
 
     fun isIpv6(value: String): Boolean = value.contains(':')
 

@@ -89,6 +89,21 @@ document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
 
+// 6.47.0 grouping: settings form split into 10 labeled topic cards (chain no
+// longer sits next to the deploy block); health endpoint de-fingerprinted
+document.querySelector('[data-view="settings"]').click();
+check('settings = 10 topic cards', document.querySelectorAll('#fSettings > .card.sec').length === 10, document.querySelectorAll('#fSettings > .card.sec').length);
+check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').textContent.length > 3);
+{
+  const cards = Array.from(document.querySelectorAll('#fSettings > .card.sec'));
+  const chainCard = cards.find(c => c.querySelector('[data-i="g_chain"]'));
+  const ghCard = cards.find(c => c.querySelector('[data-i="g_gh"]'));
+  check('chain card separate from deploy card', !!chainCard && !!ghCard && chainCard !== ghCard);
+  const order = cards.findIndex(c => c.querySelector('input[name="chain"]'));
+  const tg = cards.findIndex(c => c.querySelector('input[name="tgToken"]'));
+  check('chain card comes before telegram card', order >= 0 && tg >= 0 && order < tg);
+}
+
 // 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
 check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
 const css = document.querySelector('style') ? Array.from(document.querySelectorAll('style')).map(x => x.textContent).join('') : '';

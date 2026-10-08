@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.46.0';
+const CAT_PANEL_VERSION = '6.47.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -3467,7 +3467,11 @@ async function handleApi(request, url, env, ctx) {
   const settings = await readSettings(env);
   const masterUuid = await resolveUuid(host, env);
 
-  if (path === '/api/health' || path === '/health') return json({ ok: true, version: CAT_PANEL_VERSION, kv: !!kvBinding(env) });
+  if (path === '/api/health' || path === '/health') {
+    // BPB-style hygiene: anonymous probes get a bare ok — version/KV state only for the owner.
+    const owner = await isOwner(request, env, settings, masterUuid);
+    return json(owner ? { ok: true, version: CAT_PANEL_VERSION, kv: !!kvBinding(env) } : { ok: true });
+  }
   if (path === '/api/version') {
     // Stealth hygiene: the repo URL only ships to the owner — anonymous probes get a bare version.
     const owner = await isOwner(request, env, settings, masterUuid);
@@ -4420,6 +4424,30 @@ function panelPage(env, settings, host, masterUuid) {
 [dir=rtl] .marq .mi2{animation-name:marqr}
 @keyframes marqr{to{transform:translateX(50%)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* per-view color identity: colored rail on every card of each section */
+#v-dash .sec{border-inline-start:3px solid rgba(124,58,237,.5)}
+#v-clients .sec{border-inline-start:3px solid rgba(16,185,129,.5)}
+#v-inbounds .sec{border-inline-start:3px solid rgba(59,130,246,.5)}
+#v-scan .sec{border-inline-start:3px solid rgba(6,182,212,.5)}
+#v-build .sec{border-inline-start:3px solid rgba(132,204,22,.5)}
+#v-nodes .sec{border-inline-start:3px solid rgba(245,158,11,.5)}
+#v-spoof .sec{border-inline-start:3px solid rgba(236,72,153,.5)}
+#v-settings .sec{border-inline-start:3px solid rgba(148,163,184,.45)}
+#v-backup .sec{border-inline-start:3px solid rgba(249,115,22,.5)}
+#v-about .sec{border-inline-start:3px solid rgba(99,102,241,.5)}
+/* settings topic cards: each group its own hue (rainbow rails) */
+#fSettings>.card.sec:nth-child(1){border-inline-start:3px solid rgba(148,163,184,.45)}
+#fSettings>.card.sec:nth-child(2){border-inline-start:3px solid rgba(124,58,237,.5)}
+#fSettings>.card.sec:nth-child(3){border-inline-start:3px solid rgba(16,185,129,.5)}
+#fSettings>.card.sec:nth-child(4){border-inline-start:3px solid rgba(59,130,246,.5)}
+#fSettings>.card.sec:nth-child(5){border-inline-start:3px solid rgba(236,72,153,.5)}
+#fSettings>.card.sec:nth-child(6){border-inline-start:3px solid rgba(245,158,11,.5)}
+#fSettings>.card.sec:nth-child(7){border-inline-start:3px solid rgba(6,182,212,.5)}
+#fSettings>.card.sec:nth-child(8){border-inline-start:3px solid rgba(132,204,22,.5)}
+#fSettings>.card.sec:nth-child(9){border-inline-start:3px solid rgba(99,102,241,.5)}
+#fSettings>.card.sec:nth-child(10){border-inline-start:3px solid rgba(249,115,22,.5)}
+/* app-style glassy buttons: subtle top-light gradient on every button */
+.btn{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02))}
 /* mobile sizing: 16px inputs kill iOS focus-zoom (no more pinch-shrinking) */
 @media(max-width:640px){
  .main{padding:12px 12px 26px}
@@ -4866,18 +4894,24 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <section class="view" id="v-settings">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><div><h1 data-i="n_settings"></h1><p data-i="d_settings"></p></div></div>
- <form class="card sec frm" id="fSettings">
-  <h2><span class="ic">⚙️</span><span data-i="settings"></span></h2>
+ <form class="frm" id="fSettings">
+ <div class="card sec">
+  <h2>🪪 <span data-i="g_ident"></span></h2>
   <div class="two">
    <div><label data-i="s_title"></label><input name="ptitle" maxlength="60"></div>
    <div><label data-i="s_lang"></label><select name="plang"><option value="fa">فارسی</option><option value="en">English</option></select></div>
   </div>
+  </div>
+ <div class="card sec">
+  <h2>🔒 <span data-i="g_sec"></span></h2>
   <label data-i="s_pass"></label>
   <div class="row"><input name="password" type="password" autocomplete="new-password" data-ph="s_pass_ph" style="flex:1"><span class="chip" id="passState"></span></div>
   <label data-i="s_stealth"></label>
   <div class="row"><input name="panelPath" class="mono" dir="ltr" spellcheck="false" data-ph="s_stealth_ph" style="flex:1"><button type="button" class="btn sm" id="btnPathRnd">🎲</button></div>
   <div class="small dim" data-i="s_stealth_hint"></div>
-  <div class="hr"></div>
+  </div>
+ <div class="card sec">
+  <h2>🔌 <span data-i="g_conn"></span></h2>
   <label data-i="s_protocols"></label>
   <div class="proto">
    <label id="pVless"><span class="ic" style="background:rgba(0,225,193,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" style="width:auto;margin-inline-start:auto"></label>
@@ -4891,6 +4925,9 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
    <div class="pick" id="subRotatePick"><button type="button" data-v="off" data-i="s_rot_off"></button><button type="button" data-v="fetch" data-i="s_rot_fetch"></button><button type="button" data-v="daily" data-i="s_rot_daily"></button></div>
    <div class="small dim" style="margin-top:6px" data-i="s_rot_hint"></div>
   </div>
+  </div>
+ <div class="card sec">
+  <h2>🧬 <span data-i="g_sni"></span></h2>
   <div class="two" style="margin-top:12px">
    <div><label data-i="s_sni"></label><input name="sni" class="mono" data-ph="s_sni_ph"></div>
    <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option><option>unsafe</option></select></div>
@@ -4899,7 +4936,9 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
    <div><label data-i="s_limit"></label><input name="entryLimit" type="number" min="4" max="200"></div>
    <div><label data-i="s_flags"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swDefaults"></span><span data-i="s_defaults"></span></div><div class="row small" style="margin-top:8px"><span class="sw" id="swHost"></span><span data-i="s_host"></span></div></div>
   </div>
-  <div class="hr"></div>
+  </div>
+ <div class="card sec">
+  <h2>🧭 <span data-i="g_route"></span></h2>
   <label data-i="s_route"></label>
   <div class="row small" style="margin-top:6px"><span class="sw" id="swIran"></span><span data-i="s_iran"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swAds"></span><span data-i="s_ads"></span></div>
@@ -4910,7 +4949,9 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="row" style="margin-top:6px"><input id="sniPoolCsv" data-ph="i_snipool_ph" style="width:100%"></div>
   <div class="row small muted" data-i="s_snir_hint"></div>
   <div class="small dim" data-i="s_route_hint"></div>
-  <div class="hr"></div>
+  </div>
+ <div class="card sec">
+  <h2>🪄 <span data-i="g_frag"></span></h2>
   <label data-i="s_frag"></label>
   <div class="row small" style="margin-top:6px"><span class="sw" id="swFrag"></span><span data-i="s_frag_on"></span></div>
   <div class="two" style="margin-top:8px">
@@ -4922,7 +4963,20 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
    <div><label>Cipher suites (Xray) · <button type="button" class="btn sm" id="btnPattn" data-i="pattn_btn" style="padding:2px 10px"></button></label><input name="cipherSuites" class="mono" dir="ltr" placeholder="TLS_ECDHE_..:TLS_.."></div>
   </div>
   <div class="small dim" data-i="s_frag_hint"></div>
-  <div class="hr"></div>
+  </div>
+ <div class="card sec">
+  <h2>🎯 <span data-i="g_chain"></span></h2>
+  <label><span data-i="s_chain"></span> <span class="chip" id="chainState"></span></label>
+  <input name="chain" class="mono" dir="ltr" data-ph="s_chain_ph">
+  <div class="small dim" data-i="s_chain_hint"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="s_chain_mode"></label><select name="chainMode"><option value="all" data-i="s_chain_all"></option><option value="cf" data-i="s_chain_cf"></option></select></div>
+   <div><label data-i="s_chain_strict"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swStrict"></span><span data-i="s_chain_strict_on"></span></div></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnChainTest" data-i="s_chain_test"></button><span class="small mute" id="chainTestOut"></span></div>
+  </div>
+ <div class="card sec">
+  <h2>🤖 <span data-i="g_tg"></span></h2>
   <label><span data-i="s_tg"></span> <span class="chip" id="tgState"></span></label>
   <div class="two">
    <div><label>Bot token</label><input name="tgToken" class="mono" dir="ltr" placeholder="123456:ABC…"></div>
@@ -4930,7 +4984,9 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   </div>
   <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnTgHook" data-i="s_tg_hook"></button><span class="small mute" id="tgHookOut"></span></div>
   <div class="small dim" data-i="s_tg_hint"></div>
-  <div class="hr"></div>
+  </div>
+ <div class="card sec">
+  <h2>🚀 <span data-i="g_gh"></span></h2>
   <label data-i="s_gh_title"></label>
   <div class="two" style="margin-top:8px">
    <div><label data-i="s_gh_repo"></label><input name="ghRepo" class="mono" dir="ltr" placeholder="owner/repo"></div>
@@ -4941,18 +4997,13 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
    <div><label data-i="s_gh_wf"></label><input name="ghWorkflow" class="mono" dir="ltr" placeholder="deploy-worker.yml"></div>
   </div>
   <div class="small dim" data-i="s_gh_hint"></div>
-  <div class="hr"></div>
-  <label><span data-i="s_chain"></span> <span class="chip" id="chainState"></span></label>
-  <input name="chain" class="mono" dir="ltr" data-ph="s_chain_ph">
-  <div class="small dim" data-i="s_chain_hint"></div>
-  <div class="two" style="margin-top:8px">
-   <div><label data-i="s_chain_mode"></label><select name="chainMode"><option value="all" data-i="s_chain_all"></option><option value="cf" data-i="s_chain_cf"></option></select></div>
-   <div><label data-i="s_chain_strict"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swStrict"></span><span data-i="s_chain_strict_on"></span></div></div>
   </div>
-  <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnChainTest" data-i="s_chain_test"></button><span class="small mute" id="chainTestOut"></span></div>
+ <div class="card sec">
+  <h2>💾 <span data-i="g_save"></span></h2>
   <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><span class="small mute" id="saveState"></span></div>
   <div class="row" style="margin-top:10px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
- </form>
+  </div>
+</form>
  <div class="card sec">
   <h2><span class="ic">🔗</span><span data-i="paths"></span></h2>
   <div class="small mute" id="pathsBox"></div>
@@ -5049,7 +5100,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -5071,7 +5122,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',

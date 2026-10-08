@@ -732,6 +732,8 @@ class MainActivity : Activity() {
         dockExpanded = expanded
         appTabsPending.let { bar ->
             bar.animate().cancel()
+            bar.minimumHeight = dp(if (expanded) 64 else 52) // collapsed bar is genuinely shorter
+            bar.requestLayout()
             bar.scaleX = 0.97f
             bar.scaleY = 0.97f
             bar.animate().scaleX(1f).scaleY(1f).setDuration(340)
@@ -5795,16 +5797,18 @@ class MainActivity : Activity() {
                         ?: r.colo?.takeIf { it.isNotBlank() }
                         ?: "Cloudflare edge"
                     val transport = if (tls) tlsParams else "security=none"
+                    // IPv6 hosts must be bracketed in URI authority (bare :: breaks the URL)
+                    val hostLit = if (r.ip.contains(':')) "[$r.ip]" else r.ip
                     val vlessLabel = "🐱 Cat · " + location + " · VLESS · " + port + " · " + r.flag
                     val vlessCommon = "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host)
                     add(
-                        "vless://" + identity.uuid + "@" + r.ip + ":" + port + "?encryption=none&" +
+                        "vless://" + identity.uuid + "@" + hostLit + ":" + port + "?encryption=none&" +
                             transport + vlessCommon + "#" + Uri.encode(vlessLabel),
                     )
                     val trojanLabel = "🐱 Cat · " + location + " · Trojan · " + port + " · " + r.flag
                     val trojanCommon = "&type=ws&path=" + Uri.encode(identity.trojanPath) + "&host=" + Uri.encode(identity.host)
                     add(
-                        "trojan://" + Uri.encode(identity.trojanPassword) + "@" + r.ip + ":" + port + "?" +
+                        "trojan://" + Uri.encode(identity.trojanPassword) + "@" + hostLit + ":" + port + "?" +
                             transport + trojanCommon + "#" + Uri.encode(trojanLabel),
                     )
                 }
@@ -5912,7 +5916,11 @@ class MainActivity : Activity() {
             // Dual-stack: probe once whether v6 really works here; if so the v6
             // ranges join the walk and results of both families are ranked together.
             val ipv6 = withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
-            if (ipv6) mainHandler.post { scannerStatusText.setText(R.string.scanner_ipv6_detected) }
+            mainHandler.post {
+                scannerStatusText.setText(
+                    if (ipv6) R.string.scanner_ipv6_detected else R.string.scanner_ipv6_absent,
+                )
+            }
             val found = runCatching {
                 IpScanner.scan(this@MainActivity, options.copy(includeIpv6 = ipv6)) { done, total, result ->
                     // Called from an IO thread for every finished candidate.

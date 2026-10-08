@@ -680,6 +680,7 @@
     <string name="scanner_history_na">n/a</string>
     <string name="scanner_neighbor_done">%1$d fresh neighbours found (of %2$d tried)</string>
     <string name="scanner_ipv6_detected">IPv6 works on this network — scanning IPv4 + IPv6…</string>
+    <string name="scanner_ipv6_absent">No real IPv6 on this network — scanning IPv4 only (v6 needs a v6-capable carrier)…</string>
     <string name="scanner_send_panel">Send to Cat Panel (with countries)</string>
     <string name="scanner_sent_panel">%1$d addresses sent to the panel — press “Append” there</string>
     <string name="scanner_copied_panel">%1$d addresses copied as addr#CC — paste them into the panel’s IP box</string>
