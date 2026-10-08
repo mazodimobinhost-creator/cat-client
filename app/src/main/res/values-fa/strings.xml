@@ -985,11 +985,14 @@
     <string name="sni_action_main">⚡ SNI اصلی پنل شود</string>
     <string name="sni_main_title">SNI اصلی پنل: %1$s</string>
     <string name="sni_main_ok">🟢 شد — همهٔ کانفیگ‌های پنل با sni=%1$s ساخته می‌شوند؛ ساب را رفرش کن</string>
+    <string name="sni_main_warn">⚠️ کلادفلر وقتی SNI با آدرس پنل فرق دارد ۴۰۳ می‌دهد، پس کانفیگ‌های TLS با %1$s وصل نمی‌شوند — مگر اینکه %1$s یک دامنهٔ سفارشی برای ورکر خودت باشد. معمولاً SNI را همان آدرس ورکر بگذار (تنظیمات ← اسپوف SNI خاموش).</string>
     <string name="sni_main_fail">نشد: %1$s</string>
     <string name="panel_status_btn">📊 وضعیت کامل</string>
     <string name="panel_status_title">وضعیت کامل پنل</string>
     <string name="panel_status_close">بستن</string>
-    <string name="panel_st_sni_default">⚠️ پیش‌فرض (skk.moe) — اگر اپراتور ببندد همه می‌میرند</string>
+    <string name="panel_st_sni_default">⚠️ پیش‌فرض (skk.moe) — پنل قدیمی است: کلادفلر SNI متفاوت با Host را رد می‌کند (۴۰۳). پنل را به‌روز کن</string>
+    <string name="panel_st_sni_host">✅ آدرس ورکر (تنها SNI که کلادفلر می‌پذیرد)</string>
+    <string name="panel_st_sni_spoof">⚠️ اسپوف‌شده: %1$s — کلادفلر وقتی SNI با Host فرق دارد ۴۰۳ می‌دهد</string>
     <string name="panel_st_chain_off">— (خروجی خود کلادفلر)</string>
     <string name="panel_rot_fetch">هر بروزرسانی</string>
     <string name="panel_rot_daily">روزانه</string>

@@ -986,11 +986,14 @@
     <string name="sni_action_main">⚡ Make panel main SNI</string>
     <string name="sni_main_title">Panel main SNI: %1$s</string>
     <string name="sni_main_ok">🟢 done — every panel config now builds with sni=%1$s; refresh the sub</string>
+    <string name="sni_main_warn">⚠️ Cloudflare answers 403 when the TLS SNI differs from the panel host, so TLS configs with %1$s will NOT connect — unless %1$s is a custom domain of YOUR worker. Normally leave the SNI as the worker host (Settings → SNI spoofing off).</string>
     <string name="sni_main_fail">failed: %1$s</string>
     <string name="panel_status_btn">📊 Full status</string>
     <string name="panel_status_title">Panel full status</string>
     <string name="panel_status_close">Close</string>
-    <string name="panel_st_sni_default">⚠️ default (skk.moe) — dies everywhere if the carrier blocks it</string>
+    <string name="panel_st_sni_default">⚠️ default (skk.moe) — an OLD panel: Cloudflare rejects an SNI that differs from the host (403). Update the panel</string>
+    <string name="panel_st_sni_host">✅ the worker host (the only SNI Cloudflare accepts)</string>
+    <string name="panel_st_sni_spoof">⚠️ spoofed: %1$s — Cloudflare answers 403 when the SNI differs from the host</string>
     <string name="panel_st_chain_off">— (Cloudflare egress)</string>
     <string name="panel_rot_fetch">Every update</string>
     <string name="panel_rot_daily">Daily</string>

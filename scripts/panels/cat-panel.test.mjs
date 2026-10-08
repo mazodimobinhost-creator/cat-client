@@ -636,7 +636,11 @@ let user;
     const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
-    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1 · '), pxs[0] && pxs[0].name);
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1', pxs[0] && pxs[0].name);
+    { // spoofing is opt-in: the rotation pool (and the ' · <sni>' remark suffix) only exist while sniFront is on
+      const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
+      const pxf = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, {}).entries.filter((e) => e.name.includes('🎯'));
+      check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1 · '), pxf[0] && pxf[0].name); }
     // Path params must be real query params: one '?' only, `ed` and `proxyip`
     // as separate entries (a second '?' — «?ed=2560?proxyip=…» — made the relay
     // override unparseable for every client; regression-pinned in link-shape.test.mjs).
@@ -651,7 +655,7 @@ let user;
     }), pxs[0] && pxs[0].link);
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
-    check('en locale → English country label', een.some((e) => e.name.startsWith('🎯 1. 🇩🇪 Germany · 203.0.113.1 · ')), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
+    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
@@ -664,17 +668,23 @@ let user;
   const st2 = T.normalizeSettings({ tlsPorts: [443, 8443, 2096], plainPorts: [80, 8080] });
   check('normalize keeps custom ports', st2.tlsPorts.map(Number).includes(2096) && st2.tlsPorts.map(Number).includes(8443) && st2.plainPorts.map(Number).includes(8080));
 }
-// SNI hygiene: the panel host must never be the default SNI (DPI burns panels that way)
+// SNI: Cloudflare answers an early 403 when the TLS SNI differs from the HTTP Host («domain fronting» is
+// blocked), so the DEFAULT SNI of generated configs is the worker host. Spoofing (a different SNI) is strictly
+// opt-in (settings.sniFront); it stays fully supported for owners who ask for it.
 {
-  check('default SNI is NOT the panel host', T.effectiveSni(HOST, {}, {}) === 'skk.moe', T.effectiveSni(HOST, {}, {}));
-  check('SNI: settings beat default', T.effectiveSni(HOST, {}, T.normalizeSettings({ sni: 'example.com' })) === 'example.com');
-  check('SNI: env beats default', T.effectiveSni(HOST, { SNI: 'env.example' }, {}) === 'env.example');
+  check('default SNI is the worker host (Cloudflare rejects SNI ≠ Host)', T.effectiveSni(HOST, {}, T.normalizeSettings({})) === HOST.toLowerCase(), T.effectiveSni(HOST, {}, T.normalizeSettings({})));
+  check('spoofing is OFF by default (absent in old data ⇒ false)', T.normalizeSettings({}).sniFront === false && T.normalizeSettings({ sniRotate: true, sni: 'example.com' }).sniFront === false);
+  check('explicit settings.sni / env.SNI are ignored while spoofing is off', T.effectiveSni(HOST, { SNI: 'env.example' }, T.normalizeSettings({ sni: 'example.com' })) === HOST.toLowerCase());
+  check('spoofing on, nothing set → the skk.moe scan/default SNI', T.effectiveSni(HOST, {}, T.normalizeSettings({ sniFront: true })) === 'skk.moe');
+  check('SNI: settings beat default (spoofing on)', T.effectiveSni(HOST, {}, T.normalizeSettings({ sni: 'example.com', sniFront: true })) === 'example.com');
+  check('SNI: env beats default (spoofing on)', T.effectiveSni(HOST, { SNI: 'env.example' }, T.normalizeSettings({ sniFront: true })) === 'env.example');
+  check('scan SNI keeps its own meaning (skk.moe / explicit), independent of the link SNI', T.scanSniOf({}, T.normalizeSettings({})) === 'skk.moe' && T.scanSniOf({}, T.normalizeSettings({ sni: 'example.com' })) === 'example.com');
   const subSt = T.normalizeSettings({});
   const sub = mod ? null : null;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.53.1', T.CAT_PANEL_VERSION === '6.53.1');
+  check('panel version is 6.54.0', T.CAT_PANEL_VERSION === '6.54.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -707,9 +717,15 @@ let user;
     const bad = await T.withDomMap(env5, T.normalizeSettings({ ips: ['h.dev'], useDefaults: false, includeHost: false }));
     check('poisoned cache entry ignored (must be CF-range)', !T.addressList('h.dev', env5, bad).includes('6.6.6.6'));
   }
-  // beta46: SNI rotation — every TLS config a different fronting SNI
+  // beta46: SNI rotation — every TLS config a different fronting SNI (opt-in since 6.54: sniFront)
   {
-    const st = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false });
+    const stDef = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false });
+    const outDef = T.buildConfigEntries('panelx.workers.dev', ENV, stDef, 'u1', null, {});
+    const snisDef = new Set(outDef.entries.filter((e) => e.tls).map((e) => e.sni));
+    check('default: every TLS config carries sni == worker host (no rotation)', snisDef.size === 1 && snisDef.has('panelx.workers.dev'), [...snisDef].join(','));
+    check('default: no SNI suffix in the remarks', !outDef.entries.filter((e) => e.tls).some((e) => / · /.test(e.name)), outDef.entries[0] && outDef.entries[0].name);
+    check('default: sni= in every TLS link equals host=', outDef.entries.filter((e) => e.tls).every((e) => { const sni = decodeURIComponent((e.link.match(/[?&]sni=([^&#]*)/) || [])[1] || ''); const host = decodeURIComponent((e.link.match(/[?&]host=([^&#]*)/) || [])[1] || ''); return sni && sni === host; }));
+    const st = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, sniFront: true });
     const out = T.buildConfigEntries('panelx.workers.dev', ENV, st, 'u1', null, {});
     const vls = out.entries.filter((e) => e.proto === 'vless' && e.tls);
     const snis = vls.map((e) => e.sni);
@@ -721,7 +737,7 @@ let user;
     const outP = T.buildConfigEntries('panelx.workers.dev', ENV, st, 'u1', null, { sni: 'time.is' });
     const snisP = new Set(outP.entries.filter((e) => e.tls).map((e) => e.sni));
     check('?sni= pins a single SNI', snisP.size === 1 && snisP.has('time.is'), [...snisP].join(','));
-    const stOff = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, sniRotate: false });
+    const stOff = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, sniFront: true, sniRotate: false });
     const snisOff = new Set(T.buildConfigEntries('panelx.workers.dev', ENV, stOff, 'u1', null, {}).entries.filter((e) => e.tls).map((e) => e.sni));
     check('sniRotate=false → single shared SNI (skk.moe default)', snisOff.size === 1 && snisOff.has('skk.moe'), [...snisOff].join(','));
     const pool = T.sniPoolOf('panelx.workers.dev', {}, { sniPool: ['panelx.workers.dev', 'skk.moe', 'BAD!!', 'www.visa.com', 'www.visa.com'] });
@@ -1083,7 +1099,7 @@ let user;
   let fetched = ''; const fakeF = async (u) => { fetched = String(u); return { ok: true, text: async () => 'vless://x' }; };
   await T.extSubContent({ CAT_PANEL_KV: new Map() }, 'https://x/sub?a=1&amp;b=2', fakeF);
   check('ext sub fetch sanitizes &amp;', fetched === 'https://x/sub?a=1&b=2', fetched); }
-check('generated configs do not put panel host into sni param', !ctx.sni.includes(HOST), ctx.sni);
+check('generated TLS configs put the worker host into the sni param (Cloudflare answers 403 on a mismatch)', ctx.sni === HOST.toLowerCase(), ctx.sni);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

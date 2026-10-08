@@ -8037,7 +8037,15 @@ class MainActivity : Activity() {
         if (get.responseCode != 200) throw IllegalStateException("HTTP ${get.responseCode}")
         val st = org.json.JSONObject(getBody).optJSONObject("settings") ?: org.json.JSONObject()
         val sni = st.optString("sni", "")
-        val sniLine = if (sni.isBlank()) getString(R.string.panel_st_sni_default) else sni
+        // Panel >= 6.54 reports sniFront: false means every TLS config carries the worker host as SNI — the only
+        // value Cloudflare accepts (it answers 403 when SNI != Host). Older panels have no such key and still
+        // front through the skk.moe default / pool, which Cloudflare rejects.
+        val sniLine = when {
+            st.has("sniFront") && !st.optBoolean("sniFront") -> getString(R.string.panel_st_sni_host)
+            st.has("sniFront") -> getString(R.string.panel_st_sni_spoof, sni.ifBlank { "skk.moe" })
+            sni.isBlank() -> getString(R.string.panel_st_sni_default)
+            else -> sni
+        }
         val ips = st.optJSONArray("ips"); var pins = 0
         if (ips != null) { for (i in 0 until ips.length()) if (ips.optString(i).contains(":")) pins++ }
         val px = st.optJSONArray("proxyIps")?.length() ?: 0
@@ -9367,7 +9375,7 @@ class MainActivity : Activity() {
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(getString(R.string.sni_main_title, sni))
-                .setMessage(base.removePrefix("https://"))
+                .setMessage(base.removePrefix("https://") + "\n\n" + getString(R.string.sni_main_warn, sni))
                 .setView(box)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.sni_action_main) { d, _ ->
@@ -9398,7 +9406,7 @@ class MainActivity : Activity() {
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
-        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("sni", sni).toString(), cookie)
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("sni", sni).put("sniFront", true).toString(), cookie)
         val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
         put.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
