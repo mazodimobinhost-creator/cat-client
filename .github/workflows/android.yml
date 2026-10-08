@@ -131,6 +131,13 @@ jobs:
           node scripts/panels/cat-panel.test.mjs
           node scripts/panels/tunnel-e2e.test.mjs
           node scripts/panels/wizard.test.mjs
+          node scripts/panels/link-shape.test.mjs
+          node scripts/panels/panel-integrity.test.mjs
+          node scripts/panels/kv-persistence.test.mjs
+          # Real DOM run: every button on every view is clicked; a single broken
+          # inline script leaves them all dead (the «options don't work» report).
+          npm install --no-save jsdom --silent
+          node scripts/panels/panel-dom.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
@@ -144,6 +151,9 @@ jobs:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ccq.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ech.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'
@@ -166,6 +176,16 @@ jobs:
           # that shape ever returns anywhere in the app sources.
           python3 scripts/android-startup-guard.py
           node --test scripts/panels/android-guard.test.mjs
+
+      - name: Guard - every panel login carries a username
+        run: |
+          set -euo pipefail
+          # Six copies of the panel login sent the password alone. On a panel
+          # deployed with a username (PANEL_USER) the worker then rejects every
+          # request, so «send to panel» could never add clean IPs — it looked
+          # like the button was broken. The guard fails the build if any
+          # /api/login payload stops carrying a username.
+          python3 scripts/panel-login-guard.py
 
       - name: Pre-check Kotlin compile (fail fast)
         run: |

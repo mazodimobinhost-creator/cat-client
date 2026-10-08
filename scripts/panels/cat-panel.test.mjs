@@ -637,7 +637,18 @@ let user;
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
     check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1 · '), pxs[0] && pxs[0].name);
-    check('PX config carries ?proxyip= relay path', pxs.every((e) => decodeURIComponent(e.link).includes('?proxyip=203.0.113.1')));
+    // Path params must be real query params: one '?' only, `ed` and `proxyip`
+    // as separate entries (a second '?' — «?ed=2560?proxyip=…» — made the relay
+    // override unparseable for every client; regression-pinned in link-shape.test.mjs).
+    check('PX config carries a parseable proxyip relay path', pxs.every((e) => {
+      const enc = e.link.split('#')[0];
+      const pathVal = (enc.match(/[?&]path=([^&]*)/) || [])[1] || '';
+      const wsPath = decodeURIComponent(pathVal);
+      const query = wsPath.split('?')[1];
+      if (!query || (wsPath.match(/\?/g) || []).length !== 1) return false;
+      const params = new Map(query.split('&').map((kv) => [kv.split('=')[0], kv.split('=').slice(1).join('=')]));
+      return params.get('proxyip') === '203.0.113.1' && params.has('ed');
+    }), pxs[0] && pxs[0].link);
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
     check('en locale → English country label', een.some((e) => e.name.startsWith('🎯 1. 🇩🇪 Germany · 203.0.113.1 · ')), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
@@ -663,7 +674,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.52.0', T.CAT_PANEL_VERSION === '6.52.0');
+  check('panel version is 6.53.0', T.CAT_PANEL_VERSION === '6.53.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

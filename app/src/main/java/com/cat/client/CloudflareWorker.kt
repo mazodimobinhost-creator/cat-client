@@ -469,6 +469,8 @@ object CloudflareWorker {
         val uuid: String = "",
         val panelUrl: String = workerUrl,
         val kvBound: Boolean = false,
+        /** Why the KV binding could not be attached ("" when it was). */
+        val kvError: String = "",
     )
 
     /**
@@ -534,7 +536,11 @@ object CloudflareWorker {
         val uuid = PanelDeploymentStore(context).uuidFor(workerUrl)
 
         // 3. KV namespace so users / clean IPs / ports survive restarts (optional: token may lack the scope).
-        val kvId = runCatching { ensureKvNamespace(token, accountId, "${workerName}-catpanel") }.getOrNull()
+        //    A deployment WITHOUT it looks alive but forgets everything (clean IPs
+        //    «disappear», every save button seems broken) — so the failure is kept
+        //    and surfaced instead of being swallowed by runCatching{}.
+        val kvAttempt = runCatching { ensureKvNamespace(token, accountId, "${workerName}-catpanel") }
+        val kvId = kvAttempt.getOrNull()
 
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
         val script = builtInWorkerScript(context)
@@ -570,6 +576,9 @@ object CloudflareWorker {
 
         // 7. Stealth hardening: snapshot settings into the local recovery backup
         // and move the panel UI to a random hidden path (root then 404s neutrally).
+        // The panel may require a username (PANEL_USER binding): keep it so every
+        // later «send to panel» / «update panel» action can log in.
+        PanelCredentials.remember(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
         val stealthPath = runCatching {
             applyPanelStealth(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
         }.getOrDefault("")
@@ -588,6 +597,7 @@ object CloudflareWorker {
                 "$workerUrl/$stealthPath" + if (panelUser.isNotBlank()) "/" else "/?p=$uuid"
             } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
             kvBound = kvId != null,
+            kvError = if (kvId == null) (kvAttempt.exceptionOrNull()?.message ?: "KV unavailable").take(160) else "",
         )
     }
 

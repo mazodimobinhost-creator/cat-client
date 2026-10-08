@@ -645,7 +645,7 @@
     <string name="cloud_section_catalog">پنل‌های دیگر (پیدا شده و بررسی شده)</string>
     <string name="cloud_panel_open">باز کردن ↗</string>
     <string name="cloud_kv_bound">✓ فضای KV وصل شد (کاربران، آی‌پی‌های تمیز و پورت‌ها داخل پنل ذخیره می‌شوند).</string>
-    <string name="cloud_kv_missing">⚠ KV وصل نشد (توکن دسترسی Workers KV Storage: Edit ندارد). پنل کار می‌کند؛ تنظیمات داخل خود لینک ساب می‌نشیند.</string>
+    <string name="cloud_kv_missing">⚠ فضای KV وصل نشد — پنل هیچ‌چیز را ذخیره نمی‌کند: IP تمیز، کاربر و تنظیمات بعد از چند دقیقه می‌روند و ساب خالی درمی‌آید. راه‌حل: توکن را با دسترسی «Workers KV Storage: Edit» بساز و «به‌روزرسانی پنل» را بزن (یا دوباره دیپلوی کن).</string>
     <string name="cloud_panel_url">پنل (با UUID تو باز شده)</string>
     <string name="cloud_uuid_is_password">UUID = هم رمز سابسکریپشن و هم رمز ورود پنل: %1$s</string>
     <string name="cloud_copy_all">کپی همه</string>
@@ -998,7 +998,7 @@
     <string name="pip_password_hint">رمز پنل</string>
     <string name="pip_saved_direct">ذخیره شد — پنل الان %1$d ProxyIP دارد و کانفیگ‌ها از آن‌ها استفاده می‌کنند</string>
     <string name="pip_save_failed">ذخیره نشد: %1$s</string>
-    <string name="pip_wrong_password">رمز پنل اشتباه است</string>
+    <string name="pip_wrong_password">رمز یا نام کاربری پنل اشتباه است — همان‌هایی که موقع دیپلوی گذاشتی (رمز پیش‌فرض = UUID پنل)</string>
     <string name="scanner_unverified_only">هیچ آی‌پی تأییدشده‌ای روی شبکهٔ تو نیست — فقط سبزها (TLS-OK) ارسال می‌شوند تا کانفیگ مرده نسازی. اسکن را تکرار کن یا رنج را عوض کن.</string>
     <string name="scanner_panel_clipboard">%1$d آی‌پی تاییدشده کپی شد — اگر ارسال خودکار نشد: پنل → جعبه‌ابزار → بچسبان داخل «وارد کردن نتیجهٔ اسکن»</string>
     <string name="scanner_panel_saved">اضافه شد — پنل الان %1$d آی‌پی تمیز دارد؛ پین‌شده‌ها روی پورتِ اسکن‌شده می‌مانند</string>

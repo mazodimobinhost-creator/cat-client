@@ -2029,7 +2029,7 @@ class MainActivity : Activity() {
             val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
             return conn to stream.bufferedReader().readText()
         }
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
@@ -6957,6 +6957,22 @@ class MainActivity : Activity() {
         return row
     }
 
+    /**
+     * True when the live panel was deployed with a username (PANEL_USER): its
+     * /api/login then needs both fields. Asked over the public /api/version,
+     * which reports the same flag its login page uses to render the field.
+     */
+    private fun panelNeedsUsername(base: String): Boolean = runCatching {
+        val conn = URL("$base/api/version").openConnection() as HttpURLConnection
+        conn.connectTimeout = 6_000
+        conn.readTimeout = 6_000
+        conn.instanceFollowRedirects = false
+        val text = (if (conn.responseCode < 400) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+        conn.disconnect()
+        org.json.JSONObject(text).optBoolean("needsUser", false)
+    }.getOrDefault(false)
+
     private fun sendScanToPanel() = activityScope.launch { sendScanToPanelSuspend() }
 
     private suspend fun sendScanToPanelSuspend() {
@@ -6995,6 +7011,15 @@ class MainActivity : Activity() {
             return
         }
         val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        // A panel deployed with a username rejects password-only logins, so ask
+        // for it right here (once — it is remembered per panel) instead of
+        // letting the push fail with «wrong password».
+        val storedUser = PanelCredentials.username(this, base)
+        val needsUser = storedUser.isBlank() && withContext(Dispatchers.IO) { panelNeedsUsername(base) }
+        val userInput = TextInputEditText(this).apply {
+            hint = getString(R.string.cloud_panel_user_hint)
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
         val input = TextInputEditText(this).apply {
             hint = getString(R.string.pip_password_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -7012,6 +7037,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
             addView(replaceToggle, LinearLayout.LayoutParams(-1, -2))
+            if (needsUser) addView(userInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         MaterialAlertDialogBuilder(this)
@@ -7021,6 +7047,7 @@ class MainActivity : Activity() {
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { dialog, _ ->
                 val password = input.text?.toString().orEmpty()
+                if (needsUser) PanelCredentials.remember(this, base, userInput.text?.toString().orEmpty(), "")
                 activityScope.launch {
                     val replacing = replaceToggle.isChecked
                     val neighborLines = selected.filter { scannerNeighborIps.contains(it.ip) }.map { it.panelLine }
@@ -7057,7 +7084,7 @@ class MainActivity : Activity() {
             val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
             return conn to stream.bufferedReader().readText()
         }
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
@@ -7999,7 +8026,7 @@ class MainActivity : Activity() {
             val (v, vb) = call("/api/version", "GET", null, null); v.disconnect()
             org.json.JSONObject(vb).optString("version", "?")
         }.getOrDefault("?")
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
@@ -9347,7 +9374,7 @@ class MainActivity : Activity() {
             val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
             return conn to stream.bufferedReader().readText()
         }
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
@@ -9395,7 +9422,7 @@ class MainActivity : Activity() {
             val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
             return conn to stream.bufferedReader().readText()
         }
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()

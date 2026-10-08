@@ -358,7 +358,7 @@ class ProxyIpScannerPage(
             val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
             return conn to stream.bufferedReader().readText()
         }
-        val (login, loginBody) = call("/api/login", "POST", org.json.JSONObject().put("password", password).toString(), null)
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(activity, base, password).toString(), null)
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(ctx.getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
