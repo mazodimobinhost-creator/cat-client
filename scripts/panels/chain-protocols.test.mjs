@@ -127,3 +127,44 @@ test('dialViaChain: vless over httpupgrade+tls end-to-end (fake socket)', async 
   assert.equal(done.done, true); // prefix consumed by the handshake
   assert.ok(dec.decode(dialed.leftover).startsWith('HTTP/1.1 204')); // pure target data
 });
+
+test('chainProbe: full round-trip reports exit ip/country through the chain', async () => {
+  const enc = new TextEncoder(); const dec = new TextDecoder();
+  let sent = '';
+  const serverSock = {
+    readable: new ReadableStream({
+      start(c) {
+        const head = 'HTTP/1.1 101 Switching Protocols\r\n\r\n';
+        const vlessResp = new Uint8Array([0, 0]);
+        const body = enc.encode('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"status":"success","query":"5.6.7.8","country":"Germany","countryCode":"DE"}');
+        const all = new Uint8Array(head.length + vlessResp.length + body.length);
+        all.set(enc.encode(head), 0); all.set(vlessResp, head.length); all.set(body, head.length + vlessResp.length);
+        c.enqueue(all); c.close();
+      },
+    }),
+    writable: new WritableStream({ write(ch) { sent += dec.decode(ch); } }),
+    close() {}, opened: Promise.resolve(),
+    startTls() { return serverSock; },
+  };
+  const chain = T.parseChain('vless://a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d@free.example.com:443?security=tls&sni=free.example.com&type=httpupgrade&host=free.example.com&path=%2Fhu');
+  const r = await T.chainProbe({ connect: () => serverSock }, chain);
+  assert.equal(r.ok, true);
+  assert.equal(r.exitIp, '5.6.7.8');
+  assert.equal(r.cc, 'DE');
+  assert.equal(r.country, 'Germany');
+  assert.match(sent, /GET \/json\?fields=status,query,country,countryCode HTTP\/1\.1/);
+  assert.match(sent, /Host: ip-api\.com/);
+  // the probe request must be the FIRST bytes after the protocol handshake —
+  // no injected junk (regression: the old probe leaked into real traffic)
+  assert.ok(!sent.slice(0, sent.indexOf('GET /json')).includes('generate_204'));
+});
+
+test('chainProbe: dial failure rejects', async () => {
+  const deadSock = {
+    readable: new ReadableStream({ start(c) { c.close(); } }),
+    writable: new WritableStream({ write() { throw new Error('boom'); } }),
+    close() {}, opened: Promise.resolve(), startTls() { return deadSock; },
+  };
+  const chain = T.parseChain('vless://a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d@free.example.com:443?security=tls&sni=free.example.com&type=httpupgrade&host=free.example.com&path=%2Fhu');
+  await assert.rejects(() => T.chainProbe({ connect: () => deadSock }, chain));
+});

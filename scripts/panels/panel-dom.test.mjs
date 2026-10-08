@@ -22,6 +22,8 @@ const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', preten
       return r;
     };
     window.confirm = () => true;
+    if (!window.URL.createObjectURL) window.URL.createObjectURL = () => 'blob:mock';
+    if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = () => {};
     window.addEventListener('error', (e) => errors.push(e.error ? String(e.error.stack||e.error) : e.message));
     window.console.error = (...a) => errors.push(a.join(' '));
   } });
@@ -59,6 +61,26 @@ document.querySelector('[data-del]').click(); await sleep(100);
 check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
 document.querySelector('#askYes').click(); await sleep(300);
 check('user deleted', document.querySelectorAll('#rows tr').length===0);
+// settings export: real click → a download anchor appears (BPB-style backup)
+document.querySelector('[data-view="settings"]').click();
+document.querySelector('#btnSetExport').click(); await sleep(100);
+check('settings export → download anchor', !!document.querySelector('a[download="cat-panel-settings.json"]'));
+
+// settings import: real File → FileReader → merged PUT → UI re-renders
+{
+  const file = new window.File([JSON.stringify({ _cat: 'cat-panel-settings', v: 1, settings: { title: 'ImportedTitle' } })], 's.json', { type: 'application/json' });
+  const inp = document.querySelector('#setImportFile');
+  Object.defineProperty(inp, 'files', { value: [file] });
+  inp.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(400);
+  check('settings import → merged + rendered', document.querySelector('#brandTitle').textContent === 'ImportedTitle', document.querySelector('#brandTitle').textContent);
+  check('import did not touch chain field', inp && document.querySelector('#fSettings').elements.chain !== undefined);
+}
+
+// about view: supported clients card (BPB parity)
+document.querySelector('[data-view="about"]').click();
+check('supported clients card', document.querySelectorAll('.clients a').length === 6 && document.querySelector('.clients').textContent.includes('v2rayNG'));
+
 // beta58: ✍️ manual add — real click, real POST, real storage (regression:
 // a template-literal escape bug once mangled every entry into «a.com:443»)
 {

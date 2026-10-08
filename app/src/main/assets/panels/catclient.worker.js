@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.43.0';
+const CAT_PANEL_VERSION = '6.44.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -1822,6 +1822,46 @@ function wrapWithPrefix(socket, prefix) {
     writable: socket.writable,
     close() { try { socket.close(); } catch (_e) { /* ignore */ } },
   };
+}
+
+/** One full round-trip through the chain: protocol handshake + plain-HTTP
+ * echo of ip-api.com → {ok, ms, type, host, exitIp?, country?, cc?, status}.
+ * Throws when the chain itself cannot be dialed. */
+async function chainProbe(sockets, chain) {
+  const t0 = Date.now();
+  const dialed = await dialViaChain(sockets, chain, 'ip-api.com', 80);
+  try {
+    const writer = dialed.socket.writable.getWriter();
+    await writer.write(new TextEncoder().encode('GET /json?fields=status,query,country,countryCode HTTP/1.1\r\nHost: ip-api.com\r\nUser-Agent: cat-panel\r\nConnection: close\r\n\r\n'));
+    writer.releaseLock();
+    const reader = dialed.socket.readable.getReader();
+    let bin = dialed.leftover && dialed.leftover.byteLength ? dialed.leftover : new Uint8Array(0);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength) {
+        const merged = new Uint8Array(bin.byteLength + value.byteLength);
+        merged.set(bin); merged.set(value, bin.byteLength);
+        bin = merged;
+      }
+      if (bin.byteLength > 64 * 1024) break;
+    }
+    const text = new TextDecoder().decode(bin);
+    const head = text.split('\r\n')[0];
+    const ok = /^HTTP\/1\.[01] \d{3}/.test(head);
+    const i = text.indexOf('{');
+    const j = text.lastIndexOf('}');
+    let exit = {};
+    if (i >= 0 && j > i) {
+      try {
+        const jj = JSON.parse(text.slice(i, j + 1));
+        if (jj && jj.query) exit = { exitIp: jj.query, country: jj.country, cc: jj.countryCode };
+      } catch (e) { /* echo parse failure is not a chain failure */ }
+    }
+    return Object.assign({ ok, status: head, ms: Date.now() - t0, type: chain.type, host: chain.host }, exit);
+  } finally {
+    try { dialed.socket.close(); } catch (e) { /* ignore */ }
+  }
 }
 
 async function dialViaChain(sockets, chain, host, port) {
@@ -3866,27 +3906,17 @@ async function handleApi(request, url, env, ctx) {
   }
 
   if (path === '/api/chain-test' && method === 'POST') {
-    // One outbound connection through the chain; reports whether the handshake
-    // works. Costs the owner one click, never runs on its own.
+    // One outbound connection through the chain: handshake + ip-api echo, so
+    // the owner sees WHICH ip/country the fixed exit shows. Click-only.
     const body = (await readJsonBody(request)) || {};
     const chain = parseChain(body.chain || settings.chain);
     if (!chain) return json({ ok: false, error: 'invalid chain url' }, 400);
     const sockets = await loadSockets();
     if (!sockets) return json({ ok: false, error: 'cloudflare:sockets unavailable (preview?)' }, 501);
-    const t0 = Date.now();
     try {
-      const dialed = await dialViaChain(sockets, chain, 'www.gstatic.com', 80);
-      const writer = dialed.socket.writable.getWriter();
-      await writer.write(new TextEncoder().encode('GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n'));
-      writer.releaseLock();
-      const reader = dialed.socket.readable.getReader();
-      const { value } = await reader.read();
-      reader.releaseLock();
-      try { dialed.socket.close(); } catch (e) { /* ignore */ }
-      const head = new TextDecoder().decode(toBytes(value || new Uint8Array(0))).split('\r\n')[0];
-      return json({ ok: /HTTP\/1\.[01] 204/.test(head), status: head, ms: Date.now() - t0, type: chain.type, host: chain.host });
+      return json(await chainProbe(sockets, chain));
     } catch (e) {
-      return json({ ok: false, error: String(e && e.message ? e.message : e), ms: Date.now() - t0 }, 502);
+      return json({ ok: false, error: String(e && e.message ? e.message : e) }, 502);
     }
   }
 
@@ -4311,6 +4341,7 @@ function panelPage(env, settings, host, masterUuid) {
 .askmsg{font-size:14px;font-weight:600;line-height:1.6;margin-bottom:14px;word-break:break-word}
 .askin{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font-size:13px;margin-bottom:16px;font-family:inherit}
 .askrow{display:flex;gap:10px;justify-content:flex-end}
+.clients{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .modal .in{text-align:center}
 .note{padding:10px 12px;border-radius:12px;font-size:12px;border:1px solid}
 .note.i{background:rgba(43,127,255,.12);border-color:rgba(43,127,255,.25);color:var(--cyan)}
@@ -4815,6 +4846,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   </div>
   <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnChainTest" data-i="s_chain_test"></button><span class="small mute" id="chainTestOut"></span></div>
   <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><span class="small mute" id="saveState"></span></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
  </form>
  <div class="card sec">
   <h2><span class="ic">🔗</span><span data-i="paths"></span></h2>
@@ -4844,6 +4876,18 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="${REPO_URL}" target="_blank" rel="noopener">GitHub</a><a class="btn" href="${REPO_URL}/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">📱</span><span data-i="clients_title"></span></h2>
+  <div class="small mute" data-i="clients_hint"></div>
+  <div class="clients">
+   <a class="btn sm" href="${REPO_URL}/releases" target="_blank" rel="noopener">🐱 Cat Client · Android</a>
+   <a class="btn sm" href="https://github.com/2dust/v2rayNG/releases" target="_blank" rel="noopener">🤖 v2rayNG · Android</a>
+   <a class="btn sm" href="https://github.com/hiddify/hiddify-app/releases" target="_blank" rel="noopener">🅰️ Hiddify · Android/iOS/PC</a>
+   <a class="btn sm" href="https://github.com/chen08209/FlClash/releases" target="_blank" rel="noopener">⚡ FlClash · Android/PC</a>
+   <a class="btn sm" href="https://github.com/2dust/v2rayN/releases" target="_blank" rel="noopener">🪟 v2rayN · Windows</a>
+   <a class="btn sm" href="https://apps.apple.com/app/streisand/id6498794956" target="_blank" rel="noopener">🍎 Streisand · iOS</a>
+  </div>
  </div>
 </section>
 </div>
@@ -4910,7 +4954,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -4932,7 +4976,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',ip_clear_confirm:'Clear every IP from the list?',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',ip_clear_confirm:'Clear every IP from the list?',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -5057,6 +5101,9 @@ $$('#pVless input,#pTrojan input').forEach(function(i){i.addEventListener('chang
 $$('#uVless input,#uTrojan input').forEach(function(i){i.addEventListener('change',function(){syncProto('#uVless','#uTrojan')})});
 $$('.sw').forEach(function(s){s.addEventListener('click',function(){s.classList.toggle('on')})});
 
+$('#btnSetExport').addEventListener('click',function(){if(!CFG||!CFG.settings){toast('error',true);return}var st=Object.assign({},CFG.settings);delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;var out={_cat:'cat-panel-settings',v:1,at:new Date().toISOString(),settings:st};var b=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='cat-panel-settings.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},400);toast('✓')});
+$('#btnSetImport').addEventListener('click',function(){$('#setImportFile').click()});
+$('#setImportFile').addEventListener('change',function(){var f=this.files&&this.files[0];this.value='';if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(String(r.result));var st=j&&j.settings?j.settings:j;if(!st||typeof st!=='object'||Array.isArray(st))throw 0;delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;delete st.password;api('/api/settings',{method:'PUT',body:st}).then(function(x){if(!x.ok)throw 0;toast(t('saved'));return load()}).catch(function(){toast('error',true)})}catch(e){toast(t('set_import_bad'),true)}};r.readAsText(f)});
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
  subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
@@ -5072,7 +5119,7 @@ $('#swFrag').addEventListener('click',async function(){if($('#swFrag').classList
 $('#btnPathRnd').addEventListener('click',function(){var c='abcdefghijklmnopqrstuvwxyz0123456789',s='';for(var i=0;i<10;i++)s+=c[Math.floor(Math.random()*c.length)];$('#fSettings').elements.panelPath.value=s;});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
-$('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms':'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
+$('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms'+(j.exitIp?' · '+t('chain_exit')+': '+j.exitIp+(j.country||j.cc?' ('+(j.country||j.cc)+')':''):''):'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
 
 /* ---------- users ---------- */
 function protoChips(u){var h='';if(u.protocols.vless)h+='<span class="chip v">VLESS</span> ';if(u.protocols.trojan)h+='<span class="chip t">Trojan</span>';return h}
@@ -5451,7 +5498,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,
