@@ -1011,4 +1011,9 @@
     <string name="cloud_update_with_token">Automatic update (needs API token)</string>
     <string name="cloud_update_tokenless_go">New code copied — in Cloudflare: Workers → your panel → Edit code → paste → Deploy</string>
     <string name="pip_use_entry_short">⚡ entry</string>
+    <string name="crash_title">🐞 Cat Client crash captured — please send this screenshot</string>
+    <string name="crash_native_title">🐞 Last Cat Client run closed unexpectedly</string>
+    <string name="crash_native_detail">The previous launch ended without a Java exception (likely a native crash or a low-memory kill). If it keeps happening, send this screenshot to the developer together with your phone model and Android version.</string>
+    <string name="crash_channel">Crash reports</string>
+    <string name="crash_startup_failed">The app hit a startup error but kept running.\n\nPlease send this text to the developer:\n\n%1$s</string>
 </resources>

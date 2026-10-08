@@ -20,6 +20,9 @@ class CatClientApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First thing: never die silently — record any uncaught exception and
+        // surface it as a notification (see CrashWatch for why).
+        CrashWatch.install(this)
         initializeCatClientTypefaces(this)
         File(filesDir, "mihomo").mkdirs()
         File(cacheDir, "mihomo").mkdirs()

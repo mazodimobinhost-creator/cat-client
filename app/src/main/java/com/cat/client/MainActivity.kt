@@ -385,7 +385,8 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        theme.applyStyle(AppAccentPreferenceStore(this).read().overlayStyleRes, true)
+        runCatching { theme.applyStyle(AppAccentPreferenceStore(this).read().overlayStyleRes, true) }
+            .onFailure { DiagnosticLogger.warn(this, "activity.themeOverlay.failed", error = it) }
         super.onCreate(savedInstanceState)
         appLanguagePreferenceStore = AppLanguagePreferenceStore(this)
         appThemePreferenceStore = AppThemePreferenceStore(this)
@@ -416,11 +417,24 @@ class MainActivity : Activity() {
             "activity.onCreate",
             "restored=${savedInstanceState != null} connectPending=$connectFlowPending action=$connectFlowAction",
         )
-        configureSystemBars()
-        setContentView(buildAppShell())
-        renderState(VpnState.Stopped)
-        refreshLocationOptions()
-        fetchPrivateSubscriptionOnLoad()
+        runCatching { configureSystemBars() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.systemBars.failed", error = it) }
+        // Build the shell defensively: a failure anywhere in the UI construction
+        // must degrade to a readable message — never to a silent close. The rest
+        // of startup is skipped in that case because the views do not exist.
+        val shellError = runCatching { setContentView(buildAppShell()) }.exceptionOrNull()
+        if (shellError != null) {
+            DiagnosticLogger.warn(this, "activity.shell.failed", error = shellError)
+            runCatching { setContentView(CrashWatch.fallbackView(this, shellError.toString())) }
+            return
+        }
+        runCatching { renderState(VpnState.Stopped) }
+            .onFailure { DiagnosticLogger.warn(this, "activity.render.failed", error = it) }
+        runCatching { refreshLocationOptions() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.locationRefresh.failed", error = it) }
+        runCatching { fetchPrivateSubscriptionOnLoad() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.subscriptionLoad.failed", error = it) }
+        runCatching {
         if (savedInstanceState?.getBoolean(STATE_CONNECTION_TESTING_PAGE) == true) {
             val chainSlot = ConnectionChainSlot.fromWireName(
                 savedInstanceState.getString(STATE_CHAIN_PICKER_SLOT),
@@ -439,11 +453,15 @@ class MainActivity : Activity() {
                 }
             }
         }
+        }.onFailure { DiagnosticLogger.warn(this, "activity.restore.failed", error = it) }
         mainHandler.post {
-            val checkUpdatesAfterStartup = { if (savedInstanceState == null) checkForUpdates() }
-            if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
+            runCatching {
+                val checkUpdatesAfterStartup = { if (savedInstanceState == null) checkForUpdates() }
+                if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
+            }.onFailure { DiagnosticLogger.warn(this, "activity.startupTasks.failed", error = it) }
         }
-        handleCatClientDeepLink(intent)
+        runCatching { handleCatClientDeepLink(intent) }
+            .onFailure { DiagnosticLogger.warn(this, "activity.deepLink.failed", error = it) }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -2465,6 +2483,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Reached an interactive state → the previous session did not die silently.
+        CrashWatch.markHealthy(this)
         appUpdateUi.onResume()
     }
 

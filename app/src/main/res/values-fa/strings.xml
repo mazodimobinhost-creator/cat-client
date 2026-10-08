@@ -1010,4 +1010,9 @@
     <string name="cloud_update_with_token">آپدیت خودکار (با توکن کلادفلر)</string>
     <string name="cloud_update_tokenless_go">کد جدید کپی شد — در کلادفلر: Workers → پنلت → Edit code → پیست → Deploy</string>
     <string name="pip_use_entry_short">⚡ ورودی</string>
+    <string name="crash_title">🐞 کرش کت‌کلاینت ثبت شد — لطفاً از همین اسکرین‌شات بفرست</string>
+    <string name="crash_native_title">🐞 اجرای قبلی کت‌کلاینت غیرمنتظره بسته شد</string>
+    <string name="crash_native_detail">اجرای قبلی بدون استثنای جاوا تمام شد (احتمالاً کرش نیتیو یا کم‌بودن حافظه). اگر تکرار شد، همین اسکرین‌شات را همراه مدل گوشی و نسخهٔ اندروید برای توسعه‌دهنده بفرست.</string>
+    <string name="crash_channel">گزارش کرش</string>
+    <string name="crash_startup_failed">اپ با خطای راه‌اندازی روبه‌رو شد ولی بسته نشد.\n\nلطفاً همین متن را برای توسعه‌دهنده بفرست:\n\n%1$s</string>
 </resources>
