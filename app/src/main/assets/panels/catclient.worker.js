@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.48.0';
+const CAT_PANEL_VERSION = '6.49.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -2751,7 +2751,10 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // is untouched, so the first configs stay TLS :443 either way.
   const ROT_VALUES = ['off', 'fetch', 'daily'];
   const rot = ROT_VALUES.includes(String(q.rotate)) ? String(q.rotate) : (ROT_VALUES.includes(settings.subRotate) ? settings.subRotate : 'off');
-  const shuffleArr = (arr, seed) => { for (let ri = arr.length - 1; ri > 0; ri--) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; const rj = seed % (ri + 1); const tt = arr[ri]; arr[ri] = arr[rj]; arr[rj] = tt; } return arr; };
+  // mulberry32 — the old C-stdlib LCG was badly biased at small moduli: index 0
+  // was picked <1% of the time, silently FREEZING the first config despite
+  // subRotate=fetch (fresh set promise broken for small IP lists).
+  const shuffleArr = (arr, seed) => { let t = seed >>> 0; const rand = () => { t = (t + 0x6d2b79f5) >>> 0; let x = t; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; for (let ri = arr.length - 1; ri > 0; ri--) { const rj = Math.floor(rand() * (ri + 1)); const tt = arr[ri]; arr[ri] = arr[rj]; arr[rj] = tt; } return arr; };
   const rseed0 = rot === 'fetch' ? Math.floor(Math.random() * 2147483647) : (Number(new Date().toISOString().slice(0, 10).replace(/-/g, '')) % 2147483646) + 1;
   // Owner-pinned «fixed IPs» (settings.pinnedIps) always lead the sub and are
   // never shuffled — rotation applies to the REST of the list only.
@@ -3507,6 +3510,27 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, sni, has: !!ech, len: ech.length });
   }
 
+  if (path === '/api/cc-quality') {
+    const owner = await isOwner(request, env, settings, masterUuid);
+    if (!owner) return json({ ok: false, error: 'auth' }, 401);
+    const data = await readJsonKv(env, 'cat_cc_quality_v1', { at: 0, cc: {} });
+    return json({ ok: true, at: data.at || 0, cc: data.cc || {} });
+  }
+  if (path === '/api/domain-check') {
+    const owner = await isOwner(request, env, settings, masterUuid);
+    if (!owner) return json({ ok: false, error: 'auth' }, 401);
+    const host = String(url.searchParams.get('host') || '').trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return json({ ok: false, error: 'bad host' }, 400);
+    try {
+      const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=A', { headers: { accept: 'application/dns-json' } });
+      const j = await res.json();
+      const answers = ((j && j.Answer) || []).filter((a) => a.type === 1).map((a) => String(a.data || ''));
+      const cf = answers.filter((ip) => isCloudflareIp(ip));
+      return json({ ok: true, host, ips: answers, onCloudflare: answers.length > 0 && cf.length === answers.length });
+    } catch (e) {
+      return json({ ok: false, error: 'dns failed' }, 502);
+    }
+  }
   if (path === '/api/colo') {
     // Public + free (no KV, no subrequest): which Cloudflare datacenter THIS
     // connection landed in. Cat Client's scanner calls it through each entry
@@ -4882,6 +4906,17 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="row" style="margin-top:10px"><button class="btn sm" id="btnAiTest" type="button">🧪 <span data-i="ai_btn"></span></button><span class="small mute" id="aiOut"></span></div>
   <div id="aiRows" style="margin-top:10px"></div>
  </div>
+ <div class="card sec">
+  <h2>📊 <span data-i="ccq_title"></span></h2>
+  <div class="small mute" data-i="ccq_hint"></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" id="btnCcq" type="button">↻ <span data-i="ccq_btn"></span></button><span class="small mute" id="ccqOut"></span></div>
+  <div id="ccqRows" style="margin-top:10px"></div>
+ </div>
+ <div class="card sec">
+  <h2>🌐 <span data-i="v6p_title"></span></h2>
+  <div class="small mute" data-i="v6p_hint"></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" id="btnV6Pool" type="button">➕ <span data-i="v6p_btn"></span></button><span class="small mute" id="v6pOut"></span></div>
+ </div>
 </section>
 
 <!-- ================= SETTINGS ================= -->
@@ -4987,7 +5022,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
  <div class="card sec">
   <h2>🧬 <span data-i="g_sni"></span></h2>
   <div class="two" style="margin-top:12px">
-   <div><label data-i="s_sni"></label><input name="sni" class="mono" data-ph="s_sni_ph"></div>
+   <div><label data-i="s_sni"></label><input name="sni" class="mono" data-ph="s_sni_ph"><div class="small mute" id="echState" style="margin-top:4px"></div></div>
    <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option><option>unsafe</option></select></div>
   </div>
   <div class="two">
@@ -5094,6 +5129,13 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div id="updateBox" class="small" style="margin-top:12px"></div>
  </div>
  <div class="card sec">
+  <h2>🏠 <span data-i="dom_title"></span></h2>
+  <div class="small mute" data-i="dom_hint"></div>
+  <div class="row" style="margin-top:8px"><input id="domIn" class="mono" dir="ltr" data-ph="dom_ph" style="flex:1"><button class="btn sm" id="btnDomCheck" type="button">🔎 <span data-i="dom_check"></span></button></div>
+  <div class="small" id="domOut" style="margin-top:8px"></div>
+  <div class="small mute" style="margin-top:8px" data-i="dom_steps"></div>
+ </div>
+ <div class="card sec">
   <h2><span class="ic">📱</span><span data-i="clients_title"></span></h2>
   <div class="small mute" data-i="clients_hint"></div>
   <div class="clients">
@@ -5158,7 +5200,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانهٔ ورکر از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -5180,7 +5222,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -5219,7 +5261,7 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view=\"nodes"\]\');if(n)n.click();var b=document.querySelector('#btnIpAppend');if(b)b.style.boxShadow='0 0 0 3px rgba(0,225,197,.4)';toast(t('ip_import_ready'))},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};
@@ -5323,6 +5365,11 @@ $('#swFrag').addEventListener('click',async function(){if($('#swFrag').classList
 $('#btnPathRnd').addEventListener('click',function(){var c='abcdefghijklmnopqrstuvwxyz0123456789',s='';for(var i=0;i<10;i++)s+=c[Math.floor(Math.random()*c.length)];$('#fSettings').elements.panelPath.value=s;});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
+var V6POOL=['2606:4700:4700::1111','2606:4700:4700::1001','2606:4700::6810:84e5','2606:4700:d0::a29f:c001','2606:4700:d0::a29f:c002','2606:4700:d0::1','2606:4700:d1::1','2606:4700::6812:1a2e','2606:4700::6812:3ed','2606:4700:3033::6810:84e5','2a06:98c0::6810:84e5'];
+$('#btnV6Pool').addEventListener('click',function(){var o=$('#v6pOut');o.textContent='…';api('/api/ips',{method:'POST',body:{ips:V6POOL,source:'manual'}}).then(function(j){o.textContent=j.ok?(V6POOL.length+' ✓'):'✗';return load()}).catch(function(){o.textContent='✗'})});
+$('#btnCcq').addEventListener('click',function(){var o=$('#ccqOut'),rows=$('#ccqRows');o.textContent='…';api('/api/cc-quality').then(function(j){o.textContent='';var cc=j.cc||{};var keys=Object.keys(cc).sort(function(a,b){return (cc[a].p50||9e9)-(cc[b].p50||9e9)});if(!keys.length){rows.innerHTML='<div class="small mute">'+t('ccq_empty')+'</div>';return}rows.innerHTML=keys.map(function(k){var d=cc[k];var good=d.p50<=150;var col=good?'var(--teal,#00e1c1)':'var(--amber,#ffb84d)';var w=Math.max(6,Math.min(100,Math.round(100-Math.min(100,(d.p50||400)/6))));return '<div style="padding:6px 0;border-bottom:1px solid var(--line)"><div class="row small" style="justify-content:space-between"><b>'+flagOf(k)+' '+k+'</b><span>P50 '+d.p50+'ms · P95 '+d.p95+'ms · n'+d.n+'</span></div><div style="height:5px;border-radius:4px;background:var(--line);margin-top:4px"><div style="height:5px;border-radius:4px;width:'+w+'%;background:'+col+'"></div></div></div>'}).join('')}).catch(function(){o.textContent='✗'})});
+function refreshEchChip(){var el=$('#echState');if(!el)return;api('/api/ech').then(function(j){el.textContent=j.has?(t('ech_has')+' ('+j.sni+')'):t('ech_absent')}).catch(function(){el.textContent=''})}
+$('#btnDomCheck').addEventListener('click',function(){var o=$('#domOut');var h=$('#domIn').value.trim();if(!h){o.textContent=t('dom_need');return}o.textContent='…';api('/api/domain-check?host='+encodeURIComponent(h)).then(function(j){o.innerHTML=j.ok?(j.onCloudflare?'🟢 '+t('dom_yes'):'🟠 '+t('dom_no')+' ('+(j.ips||[]).join(', ')+')'):'✗'}).catch(function(){o.textContent='✗'})});
 $('#btnAiTest').addEventListener('click',function(){var o=$('#aiOut'),rows=$('#aiRows');o.textContent='…';rows.innerHTML='';api('/api/ai-test',{method:'POST',body:{}}).then(function(j){o.textContent='✓';rows.innerHTML=(j.results||[]).map(function(r){var v=r.verdict==='ok'?'<span class="chip ok">'+t('ai_ok')+'</span>':(r.verdict==='preflight'?'<span class="chip ok">'+t('ai_pre')+'</span>':(r.verdict==='rate'?'<span class="chip warn">⏳ rate</span>':'<span class="chip bad">'+t('ai_fail')+'</span>'));return '<div class="row small" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><b>'+esc(r.name)+'</b><span>'+r.status+' · '+r.ms+'ms '+v+'</span></div>'}).join('')}).catch(function(){o.textContent='✗'})});
 $('#btnChainTest').addEventListener('click',function(){var o=$('#chainTestOut');var c=$('#fSettings').elements.chain.value.trim();if(!c){o.textContent=t('chain_off');return}o.textContent='…';api('/api/chain-test',{method:'POST',body:{chain:c}}).then(function(j){o.textContent=(j.ok?'🟢 '+t('chain_ok')+' · '+j.ms+'ms'+(j.exitIp?' · '+t('chain_exit')+': '+j.exitIp+(j.country||j.cc?' ('+(j.country||j.cc)+')':''):''):'🔴 '+t('chain_fail')+' · '+(j.error||j.status||''))}).catch(function(e){o.textContent='🔴 '+t('chain_fail')+' · '+(e&&e.message||'')})});
 
@@ -5669,6 +5716,100 @@ api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.curr
 
 
 /* ------------------------------------------------------------------ */
+/* cron: internal monitor + country quality                            */
+/* ------------------------------------------------------------------ */
+
+/** Built-in IPv6 anycast pool (same set the app's scanner uses). */
+const CF_V6_POOL = [
+  '2606:4700:4700::1111', '2606:4700:4700::1001', '2606:4700::6810:84e5',
+  '2606:4700:d0::a29f:c001', '2606:4700:d0::a29f:c002', '2606:4700:d0::1',
+  '2606:4700:d1::1', '2606:4700::6812:1a2e', '2606:4700::6812:3ed',
+  '2606:4700:3033::6810:84e5', '2a06:98c0::6810:84e5',
+];
+
+/** Internal monitor (the INWARD half — the app's WorkManager is the outward
+ * half): while this worker is alive it proves KV read/write works and tells
+ * the owner the moment it breaks; plus one daily summary. If the worker gets
+ * suspended entirely, cron stops running and the app-side monitor catches it. */
+async function cronSelfCheck(env) {
+  try {
+    const st = await readSettings(env);
+    const settings = st.settings || st;
+    const cfg = tgConfig(env, settings);
+    const kv = kvBinding(env);
+    let kvOk = false;
+    if (kv) {
+      await kv.put('cat_monitor_ping', String(Date.now()));
+      kvOk = (await kv.get('cat_monitor_ping')) !== null;
+    }
+    const prev = await readJsonKv(env, 'cat_monitor_state_v1', { kvOk: true });
+    await kv.put('cat_monitor_state_v1', JSON.stringify({ kvOk, at: Date.now() }));
+    if (!cfg || !cfg.admins.length) return;
+    const tell = (text) => { for (const id of cfg.admins) tgApi(cfg.token, 'sendMessage', { chat_id: id, text }).catch(() => {}); };
+    if (prev.kvOk && !kvOk) tell('🔴 Cat Panel — KV پاسخ نمی‌دهد؛ تنظیمات دیگر ذخیره نمی‌شود. ربات: /doctor');
+    if (!prev.kvOk && kvOk) tell('🟢 Cat Panel — KV برگشت');
+    const day = new Date().toISOString().slice(0, 10);
+    const daily = await readJsonKv(env, 'cat_monitor_daily_v1', { day: '' });
+    if (daily.day === day || !kv) return;
+    await kv.put('cat_monitor_daily_v1', JSON.stringify({ day }));
+    const users = await readUsers(env);
+    tell([
+      '📊 گزارش روزانهٔ Cat Panel (' + day + ')',
+      '👥 کاربران: ' + users.length,
+      '🧹 آی‌پی‌ها: ' + (settings.ips || []).length,
+      '🎯 خروجی ثابت: ' + (settings.chain ? 'روشن ✓' : 'خاموش'),
+      '🛡 KV: ' + (kvOk ? 'سالم' : 'خراب!'),
+      'ver ' + CAT_PANEL_VERSION,
+    ].join('\n'));
+  } catch { /* cron must never throw */ }
+}
+
+/** Nightly (UTC-day guarded): TCP-connect latency samples per country tag from
+ * the owner's own IP list — powers the quality table in the panel. */
+async function cronCountryQuality(env) {
+  try {
+    const kv = kvBinding(env);
+    if (!kv) return;
+    const day = new Date().toISOString().slice(0, 10);
+    const mark = await readJsonKv(env, 'cat_ccq_day_v1', { day: '' });
+    if (mark.day === day) return;
+    const st = await readSettings(env);
+    const settings = st.settings || st;
+    const ips = settings.ips || [];
+    if (!ips.length) return;
+    const byCc = {};
+    for (const a of ips) {
+      const cc = countryOfAddr(a, env, settings);
+      if (!cc) continue;
+      (byCc[cc] = byCc[cc] || []).push(a);
+    }
+    const sockets = await loadSockets();
+    if (!sockets) return;
+    const out = {};
+    for (const cc of Object.keys(byCc).slice(0, 32)) {
+      const msList = [];
+      for (const a of byCc[cc].slice(0, 3)) {
+        const port = pinnedPortOf(a) || 443;
+        const host = String(a).replace(/^\[/, '').replace(/\]$/, '').split('/')[0];
+        try {
+          const t0 = Date.now();
+          const s2 = sockets.connect({ hostname: host, port }, { allowHalfOpen: false });
+          if (s2.opened) await s2.opened;
+          msList.push(Date.now() - t0);
+          try { s2.close(); } catch (_e) { /* ignore */ }
+        } catch (_e2) { /* unreachable sample — skipped */ }
+      }
+      if (msList.length) {
+        msList.sort((x, y) => x - y);
+        out[cc] = { p50: msList[Math.floor(msList.length / 2)], p95: msList[msList.length - 1], n: msList.length, at: Date.now() };
+      }
+    }
+    await kv.put('cat_ccq_day_v1', JSON.stringify({ day }));
+    await kv.put('cat_cc_quality_v1', JSON.stringify({ at: Date.now(), cc: out }));
+  } catch { /* cron must never throw */ }
+}
+
+/* ------------------------------------------------------------------ */
 /* entry                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -5677,7 +5818,7 @@ export default {
   async scheduled(controller, env, ctx) {
     void controller;
     try {
-      const job = Promise.allSettled([refreshRepos(env), refreshProxyRepos(env)]);
+      const job = Promise.allSettled([refreshRepos(env), refreshProxyRepos(env), cronSelfCheck(env), cronCountryQuality(env)]);
       if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job); else await job;
     } catch { /* cron must never throw */ }
   },
@@ -5706,7 +5847,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,

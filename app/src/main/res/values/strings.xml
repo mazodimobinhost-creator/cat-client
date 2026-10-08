@@ -681,6 +681,8 @@
     <string name="scanner_ai_rate">rate</string>
     <string name="scanner_ai_fail">failed</string>
     <string name="scanner_ai_row">%1$d · %2$dms</string>
+    <string name="pm_channel">Panel monitor</string>
+    <string name="pm_title">⚠️ Cat Panel is down</string>
     <string name="scanner_list_copied">List copied (IPv4 / IPv6 sections)</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>

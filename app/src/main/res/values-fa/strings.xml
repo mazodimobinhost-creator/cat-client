@@ -680,6 +680,8 @@
     <string name="scanner_ai_rate">محدود</string>
     <string name="scanner_ai_fail">ناموفق</string>
     <string name="scanner_ai_row">%1$d · %2$dms</string>
+    <string name="pm_channel">مانیتور پنل</string>
+    <string name="pm_title">⚠️ پنل کت بالا نمی‌آید</string>
     <string name="scanner_list_copied">لیست کپی شد — بخش IPv4 و IPv6 جدا</string>
     <string name="scanner_share_empty">نتیجهٔ تأییدشده‌ای برای هم‌رسانی نیست</string>
     <string name="scanner_jitter">جیتر %1$d ms</string>

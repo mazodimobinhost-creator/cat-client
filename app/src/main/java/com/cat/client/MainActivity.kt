@@ -392,6 +392,7 @@ class MainActivity : Activity() {
         if (savedInstanceState == null) {
             AnalyticsEvents.appOpened(this)
         }
+        runCatching { PanelMonitor.sync(this) } // outward panel health monitor (30min)
         privacyPolicyStore = PrivacyPolicyAcceptanceStore(this)
         locationPreferenceStore = ConnectionLocationPreferenceStore(this)
         splitTunnelPreferenceStore = SplitTunnelPreferenceStore(this)
