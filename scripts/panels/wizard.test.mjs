@@ -20,6 +20,10 @@ const T = mod._testing;
 const panelSrc = readFileSync(panelPath, 'utf8');
 // Version-proof pins: everything below compares against the real bundled source.
 const PANEL_VERSION = (panelSrc.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/) || [])[1];
+// Simulated OBFUSCATED artifact (release asset / committed dist-panel snapshot):
+// carries the version marker but ZERO plaintext signatures. The anti-1101 guard
+// in the wizard must accept this and skip the readable repo source.
+const obfPanelSrc = "var CAT_PANEL_VERSION = '" + PANEL_VERSION + "';\n" + '/* payload */\n'.repeat(300);
 
 let failures = 0;
 function check(name, cond, extra) {
@@ -49,8 +53,9 @@ T.__setFetch(async (input, init = {}) => {
     if (url.endsWith('catclient.worker.js')) {
       // first mirror fails to prove the fallback chain works
       if (url.includes('/releases/latest/')) return new Response('nope', { status: 404 });
-      return new Response(panelSrc, { status: 200 });
+      return new Response(obfPanelSrc, { status: 200 });
     }
+    if (url.endsWith('catpanel.obf.js')) return new Response(obfPanelSrc, { status: 200 });
     if (url.endsWith('catclient.wizard.js')) return new Response(readFileSync(wizardPath, 'utf8'), { status: 200 });
     return new Response('nf', { status: 404 });
   }
@@ -165,11 +170,12 @@ let first;
   check('install finishes ok', done && done.result && done.result.ok === true, JSON.stringify(done));
   first = done.result;
   check('worker name slugified', first.workerName === 'my-panel');
-  check('subdomain auto-created', /^catpanel-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
+  check('subdomain auto-created', /^edge-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
   check('KV namespace created + bound', first.kvBound && state.kv.length === 1 && state.kv[0].title === 'my-panel-catpanel');
   const s = state.scripts['my-panel'];
-  check('panel script uploaded (real Cat Panel source)', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
+  check('panel script uploaded with the version marker', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
   check('fallback source used after releases/latest 404', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com')));
+  check('anti-1101: obfuscated artifact accepted (no warn event)', !events.some((e) => e.step === 'source' && e.level === 'warn'));
   const bind = Object.fromEntries(s.bindings.map((b) => [b.name, b]));
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));
   check('CAT_KV bound', bind.CAT_KV && bind.CAT_KV.type === 'kv_namespace' && bind.CAT_KV.namespace_id === 'kv-1');
@@ -225,7 +231,17 @@ let first;
 
 /* 9. the panel itself advertises the wizard permissions */
 {
-  check('panel help links to a wizard/token template', panelSrc.includes('permissionGroupKeys') || panelSrc.includes('/wizard'));
+  check('panel deep-links back into Cat Client', panelSrc.includes('catclient://add-sub') && panelSrc.includes('catclient://scan'));
+}
+
+/* 10. anti-1101: the wizard must never auto-deploy the readable source */
+{
+  check('anti-1101: source chain never points at the readable repo file',
+    T.PANEL_SOURCES.every((u) => !u.includes('/app/src/main/assets/panels/')));
+  check('anti-1101: source chain targets the obfuscated snapshot / release asset',
+    T.PANEL_SOURCES.some((u) => u.includes('dist-panel/catpanel.obf.js')) && T.PANEL_SOURCES.some((u) => u.includes('releases/latest/download/catclient.worker.js')));
+  check('anti-1101: detector flags the readable source, clears the obfuscated one',
+    T.srcLooksReadable(panelSrc) === true && T.srcLooksReadable(obfPanelSrc) === false);
 }
 
 console.log(failures === 0 ? '\nWIZARD TESTS PASSED' : '\n' + failures + ' WIZARD TEST(S) FAILED');

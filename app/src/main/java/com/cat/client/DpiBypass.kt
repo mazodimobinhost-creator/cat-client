@@ -83,6 +83,10 @@ enum class DpiFragmentPreset(
     RIGHTEL("rightel", arrayOf("-Kt,h", "-d3", "-f2")),
     TCI("tci", arrayOf("-Kt", "-d2", "-f8")),
     GAMING("gaming", arrayOf("-Kt,h", "-f-2")),
+    // PattN-style aggressive split: disorder from byte 104 of the ClientHello,
+    // mimicking the popular two-stage tlshello 0/104/1 recipe as closely as
+    // socket-level fragmentation allows.
+    PATTN("pattn", arrayOf("-Kt,h", "-d1", "-f104")),
     ;
 
     companion object {

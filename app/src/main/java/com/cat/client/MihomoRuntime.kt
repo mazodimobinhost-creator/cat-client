@@ -60,6 +60,19 @@ object MihomoRuntimeDefaults {
         "www.gstatic.com",
         "connectivitycheck.gstatic.com",
     )
+    /** AI/service domains that must ALWAYS ride the tunnel — a subscription
+     * rule set routing them DIRECT leaks the Iranian egress (Gemini/OpenAI
+     * refuse it). DOMAIN-SUFFIX rules, injected first like the measurement
+     * domains so nothing shadows them. */
+    val SERVICE_DOMAINS = listOf(
+        "gemini.google.com",
+        "aistudio.google.com",
+        "generativelanguage.googleapis.com",
+        "chatgpt.com",
+        "openai.com",
+        "oaistatic.com",
+        "oaiusercontent.com",
+    )
     const val SPEED_TEST_BYTES = 1_000_000L
     const val SPEED_TEST_URL_PREFIX = "https://speed.cloudflare.com/__down?bytes="
 }
@@ -306,8 +319,16 @@ class RoutingModePreferenceStore(context: Context) {
         prefs.edit().putString(KEY_MODE, mode.wireName).apply()
     }
 
+    /** Ad networks (GEOSITE category-ads-all) → REJECT, independent of the routing mode. */
+    fun isAdBlockEnabled(): Boolean = prefs.getBoolean(KEY_AD_BLOCK, false)
+
+    fun saveAdBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AD_BLOCK, enabled).apply()
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
+        const val KEY_AD_BLOCK = "ad_block"
     }
 }
 
@@ -583,6 +604,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 dnsPrivacyMode = document.dns.mode,
                 dohUrl = document.dns.dohUrl,
                 dotEndpoint = document.dns.dotEndpoint,
+                adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
             ),
         )
         patchFinal.writeText(
@@ -736,6 +758,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             dnsPrivacyMode: DnsPrivacyMode = DnsPrivacyMode.Automatic,
             dohUrl: String = DnsPrivacyPolicy.DEFAULT_DOH_URL,
             dotEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT,
+            adBlock: Boolean = false,
         ): String {
             val routingTarget = routingTarget(rawYaml)
             val requiredRoutingTarget = if (routingMode == RoutingMode.Subscription) {
@@ -801,10 +824,20 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     RoutingMode.Subscription -> routingTarget(subscriptionYaml)
                     else -> requiredRoutingTarget
                 }
-                if (measureTarget != null) {
-                    val measurementRules = MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
-                        "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
-                    }
+                // Ad blocking rides on the bundled GEOSITE.dat (category-ads-all);
+                // injected right after the measurement rules so it wins over any
+                // subscription rule but never hides the app's own probes.
+                val adBlockRules = if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else ""
+                if (measureTarget != null || adBlock) {
+                    val measurementRules = if (measureTarget != null) {
+                        MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
+                        } + MihomoRuntimeDefaults.SERVICE_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN-SUFFIX,$domain,$measureTarget")}\n"
+                        }
+                    } else {
+                        ""
+                    } + adBlockRules
                     val rulesHeader = "rules:\n"
                     val at = indexOf(rulesHeader)
                     if (at >= 0) {
@@ -1396,8 +1429,11 @@ object MihomoFrontingPatcher {
         rawYaml: String,
         serverOverrideIp: String?,
         serverOverridePort: Int? = null,
+        sniOverride: String? = null,
     ): String {
-        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() } ?: return rawYaml
+        val sni = sniOverride?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() }
+            ?: return if (sni == null) rawYaml else patchSniOnly(rawYaml, sni)
         val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
         val output = mutableListOf<String>()
         var inProxies = false
@@ -1405,7 +1441,7 @@ object MihomoFrontingPatcher {
 
         fun flushProxy() {
             if (currentProxy.isEmpty()) return
-            output += patchProxyBlock(currentProxy, override, serverOverridePort)
+            output += patchSni(patchProxyBlock(currentProxy, override, serverOverridePort), sni)
             currentProxy = mutableListOf()
         }
 
@@ -1440,6 +1476,67 @@ object MihomoFrontingPatcher {
         if (inProxies) flushProxy()
 
         return output.joinToString("\n")
+    }
+
+    /** SNI-only pass (no server override): same block walk, only servername/sni fields change. */
+    private fun patchSniOnly(rawYaml: String, sni: String): String {
+        val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
+        val output = mutableListOf<String>()
+        var inProxies = false
+        var currentProxy = mutableListOf<String>()
+        fun flushProxy() {
+            if (currentProxy.isEmpty()) return
+            output += patchSni(currentProxy, sni)
+            currentProxy = mutableListOf()
+        }
+        normalized.split('\n').forEach { line ->
+            val topLevelKey = topLevelKey(line)
+            if (topLevelKey != null) {
+                if (inProxies) flushProxy()
+                inProxies = topLevelKey == "proxies"
+                output += line
+                return@forEach
+            }
+            if (!inProxies) { output += line; return@forEach }
+            val content = line.trimStart()
+            if (indentation(line) == 2 && content.startsWith("- ")) { flushProxy(); currentProxy += line; return@forEach }
+            if (currentProxy.isNotEmpty()) currentProxy += line else output += line
+        }
+        if (inProxies) flushProxy()
+        return output.joinToString("\n")
+    }
+
+    /**
+     * Apply the SNI override to one proxy block: rewrite `servername:` / `sni:` when present,
+     * otherwise add `servername:` to TLS-capable proxies. Only the TLS handshake name changes —
+     * HTTP Host / ws headers still carry the panel domain so the Worker keeps routing.
+     */
+    private fun patchSni(lines: List<String>, sni: String?): List<String> {
+        if (sni == null) return lines
+        val joined = lines.joinToString("\n")
+        val tlsCapable = Regex("type:\\s*(vless|vmess|trojan|anytls|hysteria2|hysteria|tuic)").containsMatchIn(joined) ||
+            Regex("tls:\\s*true").containsMatchIn(joined)
+        if (!tlsCapable) return lines
+        var replaced = false
+        val out = lines.map { line ->
+            when {
+                isProxyField(line, "servername") -> { replaced = true; replaceYamlValue(line, "servername", sni) }
+                isProxyField(line, "sni") -> { replaced = true; replaceYamlValue(line, "sni", sni) }
+                line.trimStart().startsWith("- {") -> {
+                    var l = line
+                    if (Regex("servername:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("servername:\\s*[^,}]+"), "servername: $sni"); replaced = true }
+                    if (Regex("[,{\\s]sni:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("sni:\\s*[^,}]+"), "sni: $sni"); replaced = true }
+                    if (!replaced && l.contains("server:")) { l = l.replace(Regex("server:\\s*([^,}]+)"), "server: $1, servername: $sni"); replaced = true }
+                    l
+                }
+                else -> line
+            }
+        }.toMutableList()
+        if (!replaced) {
+            val serverIndex = out.indexOfFirst { isProxyField(it, "server") }
+            if (serverIndex >= 0) out.add(serverIndex + 1, "    servername: $sni")
+        }
+        return out
     }
 
     private fun patchProxyBlock(lines: List<String>, override: String, portOverride: Int?): List<String> {

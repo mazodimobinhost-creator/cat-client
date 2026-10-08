@@ -70,14 +70,14 @@ async function runTunnel(ws, frames, env, record, options = {}) {
   T.__setSockets(sockets);
   const done = T.handleTunnelConnection(ws, env, Object.assign({ masterUuid: uuid }, options));
   // give the listener a tick to attach, then feed frames
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 25));
   for (const frame of frames) {
     ws.emit('message', { data: frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) });
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 25));
   }
-  await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 120));
   ws.close(1000, 'client done');
-  await Promise.race([done, new Promise((r) => setTimeout(r, 300))]);
+  await Promise.race([done, new Promise((r) => setTimeout(r, 1500))]);
   void originalImport;
 }
 
