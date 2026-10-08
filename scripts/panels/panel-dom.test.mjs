@@ -54,8 +54,10 @@ check('settings saved → brand title', document.querySelector('#brandTitle').te
 document.querySelector('#ipPaste').value='1.1.1.1, 2.2.2.2\nexample.com nope';
 document.querySelector('#btnIpAppend').click(); await sleep(300);
 check('ips imported', document.querySelector('#ipCount').textContent==='3', document.querySelector('#ipCount').textContent);
-// delete user
-document.querySelector('[data-del]').click(); await sleep(300);
+// delete user — goes through the ask() modal now (no native confirm)
+document.querySelector('[data-del]').click(); await sleep(100);
+check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
+document.querySelector('#askYes').click(); await sleep(300);
 check('user deleted', document.querySelectorAll('#rows tr').length===0);
 // beta58: ✍️ manual add — real click, real POST, real storage (regression:
 // a template-literal escape bug once mangled every entry into «a.com:443»)

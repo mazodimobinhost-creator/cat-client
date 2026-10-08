@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.42.0';
+const CAT_PANEL_VERSION = '6.43.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -229,15 +229,51 @@ function parseChain(value) {
     if (srv && prt) raw = (usr ? 'socks5://' + encodeURIComponent(usr) + ':' + encodeURIComponent(pwd) + '@' : 'socks5://') + srv + ':' + prt;
   }
   const m = raw.match(/^(socks5h?|socks|https?):\/\/(?:([^:@/]*)(?::([^@/]*))?@)?(\[[^\]]+\]|[^:/\s]+):(\d{1,5})\/?$/i);
-  if (!m) return null;
-  const port = Number(m[5]);
+  if (m) {
+    const port = Number(m[5]);
+    if (!(port > 0 && port < 65536)) return null;
+    return {
+      type: /^socks/i.test(m[1]) ? 'socks5' : 'http',
+      user: m[2] ? decodeURIComponent(m[2]) : '',
+      pass: m[3] ? decodeURIComponent(m[3]) : '',
+      host: m[4].replace(/^\[|\]$/g, ''),
+      port,
+    };
+  }
+  // 🧩 BPB-style chain: any vless:// / trojan:// config link becomes the fixed
+  // exit. ws / httpupgrade / tcp transports are handled in dialViaChain.
+  const stripped = raw.replace(/#.*/, ''); // drop the config-name fragment
+  const cfg = stripped.match(/^(vless|trojan):\/\/([^@\/?#]+)@([^\/?#:]+):(\d{1,5})\/?([^?#]*)\?(.*)$/i);
+  if (!cfg) return null;
+  const proto = cfg[1].toLowerCase();
+  const port = Number(cfg[4]);
   if (!(port > 0 && port < 65536)) return null;
+  const qp = {};
+  for (const kv of String(cfg[6] || '').split('&')) {
+    const i = kv.indexOf('=');
+    if (i > 0) qp[kv.slice(0, i).toLowerCase()] = decodeURIComponent(kv.slice(i + 1));
+  }
+  const sec = String(qp.security || '').toLowerCase();
+  if (sec === 'reality') return null; // reality needs pbk/session — not chainable here
+  if (proto === 'vless' && String(qp.flow || '').trim() && !/^$|^none$/i.test(qp.flow)) return null; // vision etc. needs xtls plumbing
+  const transport = ['ws', 'httpupgrade', 'tcp', ''].includes(String(qp.type || '').toLowerCase()) ? (String(qp.type || 'tcp').toLowerCase() || 'tcp') : '';
+  if (transport === '') return null;
+  const tls = sec === 'tls' || (sec === '' && port === 443);
+  // The wire path of a config link lives in its `path=` param (URL-encoded,
+  // often with ?ed=… inside) — the URL pathname itself is usually empty.
+  const rawPath = String(qp.path || '').trim();
+  const path = rawPath ? (rawPath.startsWith('/') ? rawPath : '/' + rawPath) : (cfg[5] || '/');
   return {
-    type: /^socks/i.test(m[1]) ? 'socks5' : 'http',
-    user: m[2] ? decodeURIComponent(m[2]) : '',
-    pass: m[3] ? decodeURIComponent(m[3]) : '',
-    host: m[4].replace(/^\[|\]$/g, ''),
+    type: proto,
+    user: proto === 'vless' ? decodeURIComponent(cfg[2]) : '',
+    pass: proto === 'trojan' ? decodeURIComponent(cfg[2]) : '',
+    host: cfg[3],
     port,
+    tls,
+    sni: String(qp.sni || qp.peer || qp.host || cfg[3] || ''),
+    wsHost: String(qp.host || cfg[3] || ''),
+    path,
+    transport,
   };
 }
 
@@ -1603,7 +1639,235 @@ async function httpConnectHandshake(socket, chain, host, port) {
   }
 }
 
+/** VLESS request header: ver0 + 16B uuid + cmd TCP + port BE + addr. */
+function vlessHeader(uuidText, host, port) {
+  const hex = String(uuidText || '').replace(/-/g, '');
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) throw new Error('chain vless: bad uuid');
+  const head = [0x00];
+  for (let i = 0; i < 16; i++) head.push(parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+  head.push(0x01, (port >> 8) & 0xff, port & 0xff);
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    head.push(0x01, ...host.split('.').map((x) => Number(x) & 0xff));
+  } else {
+    const b = new TextEncoder().encode(host);
+    head.push(0x02, b.length & 0xff, ...b);
+  }
+  return new Uint8Array(head);
+}
+
+/** Trojan request: hex(sha224(pass)) CRLF + socks5-ish addr + CRLF. */
+async function trojanRequest(pass, host, port) {
+  const hash = await trojanHash(pass);
+  const enc = new TextEncoder();
+  const addr = [];
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    addr.push(0x01, ...host.split('.').map((x) => Number(x) & 0xff));
+  } else {
+    const b = enc.encode(host);
+    addr.push(0x03, b.length & 0xff, ...b);
+  }
+  const crlf = enc.encode('\r\n');
+  const out = new Uint8Array(hash.length + crlf.length + addr.length + crlf.length);
+  let o = 0;
+  out.set(enc.encode(hash), o); o += hash.length;
+  out.set(crlf, o); o += crlf.length;
+  out.set(new Uint8Array(addr), o); o += addr.length;
+  out.set(crlf, o);
+  return out;
+}
+
+/** Minimal WebSocket client layer over a raw socket: masked frames out,
+ * payload-only stream in. Frames crossing chunk boundaries are buffered. */
+function wsClientLayer(socket) {
+  let carry = null;
+  const src = socket.readable.getReader();
+  function decodeFrames(buf) {
+    // → { payloads: Uint8Array[], rest: Uint8Array|null, closed: boolean }
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const payloads = [];
+    let o = 0;
+    while (o + 2 <= buf.byteLength) {
+      const opcode = view.getUint8(o) & 0x0f;
+      let len = view.getUint8(o + 1) & 0x7f;
+      let hdr = 2;
+      if (len === 126) { if (o + 4 > buf.byteLength) break; len = view.getUint16(o + 2); hdr = 4; }
+      else if (len === 127) { if (o + 10 > buf.byteLength) break; len = Number(view.getBigUint64(o + 2)); hdr = 10; }
+      if (o + hdr + len > buf.byteLength) break; // partial frame — wait
+      if (opcode === 0x8) return { payloads, rest: null, closed: true };
+      if (len > 0 && (opcode === 0x1 || opcode === 0x2 || opcode === 0x0)) payloads.push(buf.slice(o + hdr, o + hdr + len));
+      o += hdr + len;
+    }
+    return { payloads, rest: o < buf.byteLength ? buf.slice(o) : null, closed: false };
+  }
+  const readable = new ReadableStream({
+    async pull(controller) {
+      try {
+        for (;;) {
+          const { done, value } = await src.read();
+          if (done) { controller.close(); return; }
+          if (!value || !value.byteLength) continue;
+          const buf = carry ? concatBytes(carry, value) : value;
+          const { payloads, rest, closed } = decodeFrames(buf);
+          if (closed) { controller.close(); return; }
+          carry = rest;
+          if (payloads.length) {
+            for (const p of payloads) controller.enqueue(p);
+            return;
+          }
+        }
+      } catch (e) {
+        try { controller.error(e); } catch (_e2) { /* ignore */ }
+      }
+    },
+  });
+  async function sendFrame(data) {
+    const mask = crypto.getRandomValues(new Uint8Array(4));
+    const len = data.byteLength;
+    let hdr;
+    if (len < 126) { hdr = new Uint8Array(2); hdr[1] = 0x80 | len; }
+    else if (len < 65536) { hdr = new Uint8Array(4); hdr[1] = 0x80 | 126; hdr[2] = (len >> 8) & 0xff; hdr[3] = len & 0xff; }
+    else { hdr = new Uint8Array(10); hdr[1] = 0x80 | 127; const v = new DataView(hdr.buffer); v.setBigUint64(2, BigInt(len)); }
+    hdr[0] = 0x82; // FIN + binary
+    const out = new Uint8Array(hdr.byteLength + 4 + len);
+    out.set(hdr, 0); out.set(mask, hdr.byteLength);
+    for (let i = 0; i < len; i++) out[hdr.byteLength + 4 + i] = data[i] ^ mask[i % 4];
+    const w = socket.writable.getWriter();
+    await w.write(out);
+    w.releaseLock();
+  }
+  const writable = new WritableStream({ write(chunk) { return sendFrame(new Uint8Array(chunk)); } });
+  return {
+    readable,
+    writable,
+    close() { try { socket.close(); } catch (_e) { /* ignore */ } },
+  };
+}
+
+/** Chain transport: TLS (starttls) + ws/httpupgrade upgrade + returns a socket
+ * whose streams speak the inner protocol directly. */
+async function openChainTransport(sockets, chain) {
+  let socket;
+  if (chain.tls) {
+    socket = sockets.connect({ hostname: chain.host, port: chain.port, allowHalfOpen: false }, { secureTransport: 'starttls' });
+    if (socket.opened) await socket.opened;
+    await socket.startTls({ servername: chain.sni || chain.host });
+  } else {
+    socket = sockets.connect({ hostname: chain.host, port: chain.port, allowHalfOpen: false });
+    if (socket.opened) await socket.opened;
+  }
+  if (chain.transport === 'ws' || chain.transport === 'httpupgrade') {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
+    let key = '';
+    const b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    for (let i = 0; i < keyBytes.length; i += 3) {
+      const n = (keyBytes[i] << 16) | ((keyBytes[i + 1] || 0) << 8) | (keyBytes[i + 2] || 0);
+      key += b64[(n >> 18) & 63] + b64[(n >> 12) & 63] + b64[(n >> 6) & 63] + b64[n & 63];
+    }
+    const enc = new TextEncoder();
+    const head = 'GET ' + (chain.path || '/') + ' HTTP/1.1\r\n' +
+      'Host: ' + (chain.wsHost || chain.host) + '\r\n' +
+      'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
+      'Sec-WebSocket-Key: ' + key + '\r\nSec-WebSocket-Version: 13\r\n' +
+      'User-Agent: Mozilla/5.0\r\n\r\n';
+    const w0 = socket.writable.getWriter();
+    await w0.write(enc.encode(head));
+    w0.releaseLock();
+    // read until \r\n\r\n, expect 101
+    const reader = socket.readable.getReader();
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error('chain transport: remote closed');
+      const merged = new Uint8Array(buf.byteLength + value.byteLength);
+      merged.set(buf); merged.set(value, buf.byteLength);
+      buf = merged;
+      const idx = (() => { for (let i = 0; i + 3 < buf.byteLength; i++) if (buf[i] === 13 && buf[i + 1] === 10 && buf[i + 2] === 13 && buf[i + 3] === 10) return i; return -1; })();
+      if (idx >= 0) {
+        const headText = new TextDecoder().decode(buf.subarray(0, idx));
+        if (!/^HTTP\/1\.[01] 101/i.test(headText)) throw new Error('chain transport: no 101 (' + headText.split('\r\n')[0] + ')');
+        const surplus = buf.subarray(idx + 4);
+        reader.releaseLock();
+        if (chain.transport === 'httpupgrade') {
+          // unframed after upgrade — re-wrap readable with the surplus first
+          const wrapped = wrapWithPrefix(socket, surplus);
+          return wrapped;
+        }
+        const framed = wsClientLayer(socket);
+        if (surplus.byteLength) {
+          // push the surplus into the framed layer by re-wrapping once more
+          return wrapWithPrefix(framed, surplus);
+        }
+        return framed;
+      }
+      if (buf.byteLength > 64 * 1024) throw new Error('chain transport: header too big');
+    }
+  }
+  return socket;
+}
+
+/** readable = [prefix bytes, socket bytes…]; writable/close passthrough. */
+function wrapWithPrefix(socket, prefix) {
+  const pre = prefix && prefix.byteLength ? [prefix] : [];
+  const src = socket.readable.getReader();
+  const readable = new ReadableStream({
+    async pull(controller) {
+      if (pre.length) { controller.enqueue(pre.shift()); return; }
+      const { done, value } = await src.read();
+      if (done) { controller.close(); return; }
+      controller.enqueue(value);
+    },
+  });
+  return {
+    readable,
+    writable: socket.writable,
+    close() { try { socket.close(); } catch (_e) { /* ignore */ } },
+  };
+}
+
 async function dialViaChain(sockets, chain, host, port) {
+  if (chain.type === 'vless' || chain.type === 'trojan') {
+    // 🧩 config-link chain: transport (TLS/ws/httpupgrade) + inner protocol.
+    let socket;
+    try {
+      socket = await openChainTransport(sockets, chain);
+      const writer = socket.writable.getWriter();
+      if (chain.type === 'vless') {
+        await writer.write(vlessHeader(chain.user, host, port));
+      } else {
+        await writer.write(await trojanRequest(chain.pass, host, port));
+      }
+      writer.releaseLock(); // the caller's real payload (or the chain-test probe) follows
+      // Drain the protocol response prefix; every byte past it (already
+      // buffered here) is handed back as leftover for the pump.
+      const reader = socket.readable.getReader();
+      let rbuf = new Uint8Array(0);
+      const readExact = async (n) => {
+        while (rbuf.byteLength < n) {
+          const { done, value } = await reader.read();
+          if (done) throw new Error('chain: remote closed during handshake');
+          if (!value || !value.byteLength) continue;
+          const merged = new Uint8Array(rbuf.byteLength + value.byteLength);
+          merged.set(rbuf); merged.set(value, rbuf.byteLength);
+          rbuf = merged;
+        }
+        const out = rbuf.slice(0, n);
+        rbuf = rbuf.slice(n);
+        return out;
+      };
+      if (chain.type === 'vless') {
+        const head = await readExact(2);
+        if (head[1] > 0) await readExact(head[1]);
+      } else {
+        const resp = await readExact(2);
+        if (resp[0] !== 0x0d || resp[1] !== 0x0a) throw new Error('trojan chain: auth failed');
+      }
+      reader.releaseLock();
+      return { socket, leftover: rbuf };
+    } catch (e) {
+      try { socket && socket.close(); } catch (_e2) { /* ignore */ }
+      throw e;
+    }
+  }
   const socket = sockets.connect({ hostname: chain.host, port: chain.port }, { allowHalfOpen: false });
   if (socket.opened) await socket.opened;
   try {
@@ -4042,6 +4306,11 @@ function panelPage(env, settings, host, masterUuid) {
 .drawer .pn{position:absolute;top:0;bottom:0;inset-inline-end:0;width:min(520px,100%);background:var(--bg);border-inline-start:1px solid var(--line);overflow:auto;padding:18px 16px 40px;box-shadow:var(--sh)}
 .drawer .pn h3{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;margin-bottom:6px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}
+.ask{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;place-items:center;z-index:98;padding:20px}.ask.show{display:grid}
+.askbox{background:var(--bg,#14101f);border:1px solid var(--line);border-radius:18px;padding:22px;max-width:340px;width:100%;box-shadow:var(--sh,0 8px 40px rgba(0,0,0,.5))}
+.askmsg{font-size:14px;font-weight:600;line-height:1.6;margin-bottom:14px;word-break:break-word}
+.askin{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font-size:13px;margin-bottom:16px;font-family:inherit}
+.askrow{display:flex;gap:10px;justify-content:flex-end}
 .modal .in{text-align:center}
 .note{padding:10px 12px;border-radius:12px;font-size:12px;border:1px solid}
 .note.i{background:rgba(43,127,255,.12);border-color:rgba(43,127,255,.25);color:var(--cyan)}
@@ -4617,6 +4886,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <div class="modal" id="qrModal" onclick="this.classList.remove('show')"><div class="in"><div class="qrbox" id="qrBox"></div><div class="small mute" style="margin-top:10px" id="qrLabel"></div></div></div>
 <div class="toast" id="toast"></div>
+<div class="ask" id="ask"><div class="askbox"><div class="askmsg" id="askMsg"></div><input class="askin" id="askIn" dir="ltr" style="display:none"><div class="askrow"><button class="btn sm" id="askNo"></button><button class="btn sm" id="askYes" style="border-color:var(--violet);color:var(--violet)"></button></div></div></div>
 
 <script>
 (function(){
@@ -4631,7 +4901,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست دامنه‌ها در 
 ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_test_btn:'سلامت و تست',ip_test_reach:'از سمت ورکر سالم',svc_btn:'سرویس‌ها',svc_note:'آزمون اجرای آمریکا (ویژهٔ Gemini/AI): وضعیت باز/ردِ هر سرویس از خروجی فعلی — 404 یعنی قابل‌دسترس',svc_gemini_hint:'جمنای باز نمی‌شود؟ خروجیِ فعلی کلادفلری است و گوگل آن را نمی‌پسندد — یک socks5 خارجی در بخش 🎭 اضافه کن (🧦) و دوباره تست بزن',exit_hint:'وصل شو به کانفیگ، این را باز کن: آی‌پی/کشورِ خروجی، نشت DNS و WebRTC، پینگ جهانی و باز‌بودن جمنای — نیمه‌ای که فقط از خطِ خودت دیده می‌شود',ip_test_hint:'تست واقعی از سمت ورکر: 💦 با همان IP+پورت+TLS+Hostِ قالب کانفیگ؛ 🎯 روی پورتِ خودِ هر ProxyIP؛ 🧦 رله‌های socks5 با هندشیک واقعی socks (و احراز هویت user:pass). پورت 443 داخل کانفیگ 🎯/🧦 پورتِ ورود به ورکر است، نه پورتِ رله. رفتار SNI روی خط خودت فقط با اسکنر اپ دیده می‌شود.',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'پیش‌فرض: skk.moe — آدرس پنل هرگز در SNI نمی‌رود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
-s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'چرخش SNI — هر کانفیگ TLS یک SNI متفاوت (پیشنهادی). با ?sni=دامنه می‌توان همه را روی یک SNI pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',s_snir_hint:'استخر SNI (با کاما). خالی = پیش‌فرض: icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify — همگی کلادفلری. SNI پنل هرگز داخلش نمی‌رود.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  یا  http://host:3128',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور (VPS خودت) بیرون می‌فرستد؛ در نتیجه IP و کشور همیشه یکی است. خالی = خروجی خود کلودفلر (کشور ممکن است عوض شود).',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
+s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'چرخش SNI — هر کانفیگ TLS یک SNI متفاوت (پیشنهادی). با ?sni=دامنه می‌توان همه را روی یک SNI pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',s_snir_hint:'استخر SNI (با کاما). خالی = پیش‌فرض: icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify — همگی کلادفلری. SNI پنل هرگز داخلش نمی‌رود.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
 n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
@@ -4640,7 +4910,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -4653,7 +4923,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test domains in browser',scan_guid
 ip_append:'Append',ip_replace:'Replace list',ip_test_btn:'Health & test',ip_test_reach:'healthy from the worker',svc_btn:'Services',svc_note:'US egress test (Gemini/AI focus): open/refused per service through the current exit — 404 means reachable',svc_gemini_hint:'Gemini blocked? The current exit is Cloudflare and Google refuses it — add a FOREIGN socks5 in the 🎭 section (🧦) and re-run this test',exit_hint:'Connect to a config, then open it: exit IP/country, DNS & WebRTC leaks, global ping and whether Gemini opens — the half only YOUR line can see',ip_test_hint:'Real tests from the worker: 💦 dials the exact IP+port+TLS+Host of the config template; 🎯 is probed on each ProxyIP\u2019s OWN port; 🧦 socks5 relays get a REAL socks handshake (incl. user:pass auth). The 443 inside a 🎯 config is the worker ENTRY port, not the relay port — the relay port rides in ?proxyip= and the worker dials it directly. SNI behaviour on YOUR line only the app scanner sees.',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'default: skk.moe — your panel host is never exposed in SNI',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_port_bad:'Invalid port — enter a number between 1 and 65535',
-s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_snir:'SNI rotation — each TLS config gets a different SNI (recommended). ?sni=<host> pins one',s_snir_hint:'SNI pool (comma separated). Empty = default: icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify — all Cloudflare-fronted. The panel host is never included.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://user:pass@1.2.3.4:1080  or  http://host:3128',s_chain_hint:'The worker sends all traffic out through this server (your own VPS), so the IP/country never changes. Empty = Cloudflare egress (country may vary).',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
+s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_snir:'SNI rotation — each TLS config gets a different SNI (recommended). ?sni=<host> pins one',s_snir_hint:'SNI pool (comma separated). Empty = default: icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify — all Cloudflare-fronted. The panel host is never included.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',
 n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
@@ -4662,7 +4932,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',ip_clear_confirm:'Clear every IP from the list?',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -4673,6 +4943,13 @@ function $(s,r){return (r||document).querySelector(s)}
 function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function toast(m,bad){var el=$('#toast');el.textContent=m;el.style.borderColor=bad?'var(--red)':'var(--violet)';el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(function(){el.classList.remove('show')},2000)}
+var _askRes=null;
+function ask(msg,opt){opt=opt||{};return new Promise(function(res){_askRes=res;$('#askMsg').textContent=msg;var inp=$('#askIn');if(opt.ph!==undefined){inp.style.display='';inp.value=opt.val||'';inp.placeholder=opt.ph||'';}else inp.style.display='none';$('#askYes').textContent=opt.ok||'✓';$('#askNo').textContent=opt.cancel||t('ask_cancel');$('#ask').classList.add('show');if(opt.ph!==undefined)setTimeout(function(){inp.focus()},50)});}
+function _askDone(v){if(!_askRes)return;var r=_askRes;_askRes=null;$('#ask').classList.remove('show');r(v)}
+document.addEventListener('click',function(e){if(e.target.id==='ask')_askDone(null)});
+$('#askYes').addEventListener('click',function(){_askDone($('#askIn').style.display!=='none'?$('#askIn').value:true)});
+$('#askNo').addEventListener('click',function(){_askDone(null)});
+$('#askIn').addEventListener('keydown',function(e){if(e.key==='Enter')_askDone($('#askIn').value)});
 function copy(v){function fb(){var i=document.createElement('textarea');i.value=v;document.body.appendChild(i);i.select();try{document.execCommand('copy');toast(t('copied'))}catch(e){}document.body.removeChild(i)}
  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(v).then(function(){toast(t('copied'))},fb);else fb()}
 function api(path,opt){opt=opt||{};var o={method:opt.method||'GET',headers:{}};if(opt.body!==undefined){o.headers['content-type']='application/json';o.body=JSON.stringify(opt.body)}
@@ -4738,9 +5015,9 @@ function renderInbounds(){
 }
 function t_paths(){return CFG.paths||{vlessPath:'/vless',trojanPath:'/trojan'}}
 $('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}b.innerHTML=j.latest===j.current?'<span class="chip ok">\u2713 '+esc(j.current)+'</span>':'<span class="chip warn">\u2b06\ufe0f '+esc(j.latest)+'</span> <a class="btn sm p" href="/api/update-download" style="vertical-align:middle">\u2b07\ufe0f worker.js</a><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>'})});
-$('#btnBulk').addEventListener('click',function(){
- var n=Number(prompt(t('bulk_count'),'5'));if(!n||n<1)return;
- var prefix=prompt(t('bulk_prefix'),'user');if(prefix===null)return;
+$('#btnBulk').addEventListener('click',async function(){
+ var n=Number(await ask(t('bulk_count'),{ph:'5',val:'5'}));if(!n||Number(n)<1)return;
+ var prefix=await ask(t('bulk_prefix'),{ph:'user',val:'user'});if(prefix===null)return;
  var chain=Promise.resolve();var made=0;
  for(var i=1;i<=n;i++){(function(name){chain=chain.then(function(){return api('/api/users',{method:'POST',body:{name:name}})}).then(function(){made++})})(prefix+'-'+i)}
  chain.then(function(){toast(t('bulk_done')+made);return load()}).catch(function(){toast('error',true)});
@@ -4791,7 +5068,7 @@ $('#btnPattn').addEventListener('click',function(){var f=$('#fSettings');f.eleme
 document.addEventListener('click',function(e){var b=e.target.closest('[data-cc]');if(!b)return;api('/api/countries',{method:'PUT',body:{country:b.getAttribute('data-cc')}}).then(function(){toast(t('saved'));return load()}).catch(function(){toast('error',true)})});
 document.addEventListener('change',function(e){var sel=e.target.closest('[data-ipcc]');if(!sel)return;var ip=sel.getAttribute('data-ipcc'),cc=sel.value;var body=cc?{ipCountries:{}}:{clearIp:ip};if(cc)body.ipCountries[ip]=cc;api('/api/countries',{method:'PUT',body:body}).then(function(){return load()}).catch(function(){toast('error',true)})});
 $('#btnTgHook').addEventListener('click',function(){var o=$('#tgHookOut');o.textContent='…';api('/api/telegram/webhook',{method:'POST'}).then(function(j){o.textContent=j.ok?'🟢 @'+j.bot:'🔴 '+(j.error||j.description||'');return load()}).catch(function(){o.textContent='🔴'})});
-$('#swFrag').addEventListener('click',function(){if($('#swFrag').classList.contains('on')&&!confirm(t('s_frag_confirm'))){$('#swFrag').classList.remove('on')}});
+$('#swFrag').addEventListener('click',async function(){if($('#swFrag').classList.contains('on')&&!(await ask(t('s_frag_confirm'),{ok:'✓'}))){$('#swFrag').classList.remove('on')}});
 $('#btnPathRnd').addEventListener('click',function(){var c='abcdefghijklmnopqrstuvwxyz0123456789',s='';for(var i=0;i<10;i++)s+=c[Math.floor(Math.random()*c.length)];$('#fSettings').elements.panelPath.value=s;});
 $('#ccFallback').addEventListener('change',function(){api('/api/countries',{method:'PUT',body:{countryFallback:$('#ccFallback').value}}).then(function(){toast(t('saved'));return load()})});
 $('#btnProxyGeo').addEventListener('click',function(){var o=$('#proxyGeoOut');o.textContent='…';api('/api/proxy-geo',{method:'POST'}).then(function(j){var f=j.found||{};o.textContent=Object.keys(f).map(function(k){return flag(f[k])+' '+k}).join('  ')||'—';return load()}).catch(function(){o.textContent='✗'})});
@@ -4818,13 +5095,13 @@ function renderUsers(){var list=filtered();$('#empty').style.display=USERS.lengt
  $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
 ['input','change'].forEach(function(e){$('#q').addEventListener(e,renderUsers);$('#flt').addEventListener(e,renderUsers);$('#srt').addEventListener(e,renderUsers)});
 
-document.addEventListener('click',function(e){var b;
+document.addEventListener('click',async function(e){var b;
  if((b=e.target.closest('[data-copy]'))){copy(b.getAttribute('data-copy'));return}
  if((b=e.target.closest('[data-qr]'))){showQr(b.getAttribute('data-qr'),b.getAttribute('data-qrl')||'');return}
  if((b=e.target.closest('[data-edit]'))){openDrawer(USERS.filter(function(u){return u.id===b.getAttribute('data-edit')})[0]);return}
  if((b=e.target.closest('[data-renew]'))){api('/api/users/'+b.getAttribute('data-renew')+'/renew',{method:'POST',body:{days:30}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-toggle]'))){api('/api/users/'+b.getAttribute('data-toggle')+'/toggle',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
- if((b=e.target.closest('[data-del]'))){if(!confirm(t('confirm_del')))return;api('/api/users/'+b.getAttribute('data-del'),{method:'DELETE'}).then(function(){toast(t('deleted'));return load()});return}
+ if((b=e.target.closest('[data-del]'))){if(!(await ask(t('confirm_del'),{ok:t('del')})))return;api('/api/users/'+b.getAttribute('data-del'),{method:'DELETE'}).then(function(){toast(t('deleted'));return load()});return}
  if((b=e.target.closest('[data-close]'))){closeDrawer();return}
  if((b=e.target.closest('[data-ippin]'))){var pv=ipKey(b.getAttribute('data-ippin'));var pins=(CFG.settings.pinnedIps||[]).filter(function(p){return ipKey(p)!==pv});pins.push(b.getAttribute('data-ippin'));api('/api/settings',{method:'PUT',body:{pinnedIps:pins.slice(-5)}}).then(function(j){if(!j.ok)throw 0;CFG.settings.pinnedIps=j.settings.pinnedIps;toast(t('pin_saved'));return load()}).catch(function(){toast('error',true)});return}
  if((b=e.target.closest('[data-ipunpin]'))){var uv=ipKey(b.getAttribute('data-ipunpin'));var upins=(CFG.settings.pinnedIps||[]).filter(function(p){return ipKey(p)!==uv});api('/api/settings',{method:'PUT',body:{pinnedIps:upins}}).then(function(j){if(!j.ok)throw 0;CFG.settings.pinnedIps=j.settings.pinnedIps;toast(t('pin_removed'));return load()}).catch(function(){toast('error',true)});return}
@@ -4889,7 +5166,7 @@ $('#btnManualAdd').addEventListener('click',manualAdd);
 function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(/^\\[[0-9a-f:]+\\]:\\d{1,5}$/i.test(s))return s;s=s.replace(/^\\[/,'').replace(/\\]$/,'').replace(/[#|=][A-Za-z]{2}$/,'');return /^(?:\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-f:]+|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?$/i.test(s)?s:''}).filter(Boolean);
 if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,replace:!!replace}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
 $('#btnIpAppend').addEventListener('click',function(){importIps(false)});$('#btnIpReplace').addEventListener('click',function(){importIps(true)});
-$('#btnIpClear').addEventListener('click',function(){if(!confirm('?'))return;api('/api/ips',{method:'POST',body:{ips:[],replace:true}}).then(function(){return load()})});
+$('#btnIpClear').addEventListener('click',async function(){if(!(await ask(t('ip_clear_confirm'),{ok:'✓'})))return;api('/api/ips',{method:'POST',body:{ips:[],replace:true}}).then(function(){toast(t('saved'));return load()})});
 $('#btnIpCopy').addEventListener('click',function(){copy(CFG.settings.ips.join('\\n'))});
 var PLAIN_SET=[80,8080,8880,2052,2082,2086,2095];
 function pxSplit(list){var cf=[],sk=[];list.forEach(function(p){(/^socks5h?:\\/\\//i).test(p)?sk.push(p):cf.push(p)});return {cf:cf,sk:sk}}
@@ -5021,7 +5298,7 @@ function rpLoad(){return api('/api/repos').then(function(j){RP.d=j;rpRender()}).
 function rpPost(b){return api('/api/repos',{method:'POST',body:b})}
 if($('#rpRefresh'))$('#rpRefresh').addEventListener('click',function(){var b=this;b.disabled=true;rpPost({action:'refresh'}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return rpLoad()}).catch(function(){toast('✗',true)}).then(function(){b.disabled=false})});
 if($('#rpAuto'))$('#rpAuto').addEventListener('click',function(){rpPost({action:'auto',enabled:!(RP.d&&RP.d.auto)}).then(function(){return rpLoad()})});
-if($('#rpAdd'))$('#rpAdd').addEventListener('click',function(){var url=prompt(t('rp_add_url'));if(!url)return;var name=prompt(t('rp_add_name'),'repo'+((RP.d&&RP.d.repos||[]).length+1));if(!name)return;
+if($('#rpAdd'))$('#rpAdd').addEventListener('click',async function(){var url=await ask(t('rp_add_url'),{ph:'https://github.com/…'});if(!url)return;var name=await ask(t('rp_add_name'),{ph:'repo',val:'repo'+((RP.d&&RP.d.repos||[]).length+1)});if(!name)return;
  var list=(RP.d&&RP.d.repos||[]).slice(0,9);list.push({id:'r'+Date.now().toString(36),name:name,url:url,kind:/\\.json($|\\?)/i.test(url)?'json-speed':'txt',enabled:true});
  rpPost({action:'set',repos:list}).then(function(){return rpPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return rpLoad()})});
 document.addEventListener('click',function(e){var d=e.target.closest('[data-rpdel]');if(d){var id=d.getAttribute('data-rpdel');var list=(RP.d.repos||[]).filter(function(r){return r.id!==id});if(!list.length)list=null;rpPost({action:'set',repos:list||undefined}).then(function(){return rpLoad()});return}
@@ -5050,7 +5327,7 @@ function ppLoad(){return api('/api/prepos').then(function(j){PP.d=j;ppRender()})
 function ppPost(b){return api('/api/prepos',{method:'POST',body:b})}
 if($('#ppRefresh'))$('#ppRefresh').addEventListener('click',function(){var b=this;b.disabled=true;ppPost({action:'refresh'}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()}).catch(function(){toast('✗',true)}).then(function(){b.disabled=false})});
 if($('#ppAuto'))$('#ppAuto').addEventListener('click',function(){ppPost({action:'auto',enabled:!(PP.d&&PP.d.auto)}).then(function(){return ppLoad()})});
-if($('#ppAdd'))$('#ppAdd').addEventListener('click',function(){var url=prompt(t('rp_add_url'));if(!url)return;var name=prompt(t('rp_add_name'),'prepo'+((PP.d&&PP.d.repos||[]).length+1));if(!name)return;
+if($('#ppAdd'))$('#ppAdd').addEventListener('click',async function(){var url=await ask(t('rp_add_url'),{ph:'https://github.com/…'});if(!url)return;var name=await ask(t('rp_add_name'),{ph:'prepo',val:'prepo'+((PP.d&&PP.d.repos||[]).length+1)});if(!name)return;
  var kind=/.json($|[?])/i.test(url)?'json-speed':(/.csv($|[?])/i.test(url)?'csv-proxy':'txt');
  var list=(PP.d&&PP.d.repos||[]).slice(0,9);list.push({id:'p'+Date.now().toString(36),name:name,url:url,kind:kind,enabled:true});
  ppPost({action:'set',repos:list}).then(function(){return ppPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()})});
@@ -5082,7 +5359,7 @@ function renderExt(){var box=$('#extRows');if(!box)return;var list=CFG.settings.
  :'<span class="small dim">'+esc(t('ext_empty'))+'</span>';
  var core=$('#extCoreNote');if(core){core.setAttribute('data-i','ext_core');core.textContent=t('ext_core');core.style.display=list.some(function(x){return /Serverless-for-Iran/.test(x.url||'')})?'':'none'}
  var demo=$('#extLinkDemo');if(demo)demo.textContent=list.length?('/ext/1/'+CFG.uuid):''}
-if($('#btnExtAdd'))$('#btnExtAdd').addEventListener('click',function(){var name=prompt(t('ext_name'),'ext'+((CFG.settings.extSubs||[]).length+1));if(!name)return;var url=prompt(t('ext_url'));if(!url)return;
+if($('#btnExtAdd'))$('#btnExtAdd').addEventListener('click',async function(){var name=await ask(t('ext_name'),{ph:'ext',val:'ext'+((CFG.settings.extSubs||[]).length+1)});if(!name)return;var url=await ask(t('ext_url'),{ph:'https://…/sub'});if(!url)return;
  var list=(CFG.settings.extSubs||[]).slice(0,4);list.push({name:name,url:url});
  api('/api/settings',{method:'PUT',body:{extSubs:list}}).then(function(j){if(!j.ok)throw 0;CFG.settings.extSubs=j.settings.extSubs;renderExt()}).catch(function(){toast('error',true)})});
 if($('#btnExtPreset'))$('#btnExtPreset').addEventListener('click',function(){
@@ -5174,7 +5451,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,
