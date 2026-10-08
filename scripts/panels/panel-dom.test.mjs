@@ -81,6 +81,14 @@ check('settings export → download anchor', !!document.querySelector('a[downloa
 document.querySelector('[data-view="about"]').click();
 check('supported clients card', document.querySelectorAll('.clients a').length === 6 && document.querySelector('.clients').textContent.includes('v2rayNG'));
 
+// hamburger menu: burger opens the drawer, items are labeled, view switch closes it
+document.querySelector('#btnBurger').click(); await sleep(80);
+check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
+check('menu has 10 labeled items', document.querySelectorAll('#menu .mlist > button').length === 10 && document.querySelector('#menu .mtx b').textContent.length > 2);
+document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
+check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
+check('no bottom nav in DOM', !document.querySelector('.nav'));
+
 // beta58: ✍️ manual add — real click, real POST, real storage (regression:
 // a template-literal escape bug once mangled every entry into «a.com:443»)
 {

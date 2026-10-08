@@ -45,13 +45,12 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .brand .v{font-size:10px;color:var(--mute);background:var(--input-bg);border:1px solid var(--line);padding:2px 8px;border-radius:20px;font-weight:600}
 .tools{display:flex;gap:8px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
 .burger{display:none}
-.top.menu-open .tools{display:grid;position:absolute;top:100%;left:0;right:0;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 14px;background:var(--flat);border-bottom:1px solid var(--line);box-shadow:0 18px 40px rgba(0,0,0,.5)}
 @media(max-width:1079px){.tools{display:none}.burger{display:grid}}
 .ib{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background:var(--input-bg);color:var(--text);transition:background .2s,border-color .2s}
 .ib:hover{background:var(--nav-bg);border-color:var(--glow)}
 .ib.on{background:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
 .ib svg{width:16px;height:16px}
-.main{max-width:1180px;margin:0 auto;padding:16px 14px 90px}
+.main{max-width:1180px;margin:0 auto;padding:16px 14px 32px}
 .view{display:none}.view.on{display:block}
 .sec{padding:16px 18px;margin-bottom:14px}
 .sec h2{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text)}
@@ -117,9 +116,39 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .ipl .chip:hover{background:var(--nav-bg);border-color:var(--glow)}
 .res{display:grid;gap:8px}
 .res div{padding:10px 12px;border:1px solid var(--b05);border-radius:12px;background:var(--flat);font-size:12px}
-.nav{position:fixed;bottom:0;inset-inline:0;z-index:25;display:flex;background:rgba(0,0,0,.94);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
-.nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:10px;font-size:9.5px;color:var(--mute);background:none;border:0}
-.nav button.on{color:var(--violet)}
+/* hamburger drawer (mobile nav) */
+.mwrap{position:fixed;inset:0;z-index:60;display:none}
+.mwrap.show{display:block}
+.mbg{position:absolute;inset:0;background:rgba(0,0,0,.66)}
+.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background:var(--flat);border-inline-end:1px solid var(--line);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom))}
+.mhead{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.mhead .lg{width:38px;height:38px;display:grid;place-items:center;flex:none}
+.mhead .mt{font-weight:700;font-size:14px;line-height:1.3}
+.mhead .mv{font-size:10.5px;color:var(--mute)}
+.mhead .ib{margin-inline-start:auto}
+.mlist{display:flex;flex-direction:column;gap:4px}
+.mlist>button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border-radius:14px;border:1px solid transparent;background:none;color:var(--text);text-align:start;min-height:54px;cursor:pointer}
+.mlist>button:hover{background:rgba(255,255,255,.03)}
+.mlist>button.on{background:var(--nav-bg);border-color:var(--glow)}
+.mi{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex:none;border:1px solid var(--line);background:var(--input-bg)}
+.mtx{display:flex;flex-direction:column;line-height:1.4;min-width:0}
+.mtx b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mtx small{font-size:10.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mout{display:flex;align-items:center;gap:10px;margin-top:auto;padding:14px 10px 2px;border-top:1px solid var(--line);color:var(--red,#ff5d7a);font-size:13px;font-weight:600;text-decoration:none}
+/* view page headers */
+.vhead{display:flex;gap:12px;align-items:center;margin:2px 0 14px}
+.vicon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;font-size:22px;flex:none;background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(0,225,193,.16));border:1px solid var(--line)}
+.vhead h1{font-size:17px;font-weight:800;margin:0;line-height:1.3}
+.vhead p{margin:2px 0 0;font-size:11.5px;color:var(--mute);line-height:1.5}
+/* mobile sizing: 16px inputs kill iOS focus-zoom (no more pinch-shrinking) */
+@media(max-width:640px){
+ .main{padding:12px 12px 26px}
+ .btn{min-height:42px}
+ .ib{width:40px;height:40px}
+ input,select,textarea{font-size:16px!important}
+ .frm label{font-size:12px}
+ .sec{padding:14px}
+}
 .side{position:fixed;top:0;bottom:0;inset-inline-start:0;width:260px;background:var(--flat);border-inline-end:1px solid var(--line);display:none;flex-direction:column;z-index:30;overflow-y:auto;overflow-x:hidden;box-shadow:0 8px 32px rgba(0,0,0,.6)}
 .side .sbrand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
 .side .sbrand .lg{width:32px;height:32px;display:grid;place-items:center}
@@ -146,7 +175,6 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 @media(min-width:1080px){
  .side{display:flex}
  .top{display:none}
- .nav{display:none}
  .main{margin-inline-start:260px}
 }
 .search{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -158,6 +186,27 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 .skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--input-bg),var(--line),var(--input-bg));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style></head><body>
+<!-- hamburger menu (mobile nav) -->
+<div class="mwrap" id="menu">
+ <div class="mbg" data-mclose></div>
+ <div class="mpanel">
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.45.0</div></div><button class="ib" data-mclose>✕</button></div>
+  <div class="mlist">
+   <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
+   <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
+   <button data-view="inbounds"><span class="mi" style="background:linear-gradient(135deg,rgba(59,130,246,.20),rgba(59,130,246,.42))">🧩</span><span class="mtx"><b data-i="n_inbounds"></b><small data-i="d_inbounds"></small></span></button>
+   <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
+   <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
+   <button data-view="nodes"><span class="mi" style="background:linear-gradient(135deg,rgba(245,158,11,.20),rgba(245,158,11,.42))">🎯</span><span class="mtx"><b data-i="n_nodes"></b><small data-i="d_nodes"></small></span></button>
+   <button data-view="spoof"><span class="mi" style="background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(236,72,153,.42))">🎭</span><span class="mtx"><b data-i="n_spoof"></b><small data-i="d_spoof"></small></span></button>
+   <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
+   <button data-view="backup"><span class="mi" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><span class="mtx"><b data-i="n_backup"></b><small data-i="d_backup"></small></span></button>
+   <button data-view="about"><span class="mi" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><span class="mtx"><b data-i="n_about"></b><small data-i="d_about"></small></span></button>
+  </div>
+  <a class="mout" href="/logout">⏻ <span data-i="n_logout"></span></a>
+ </div>
+</div>
+
 <div class="side" id="sideNav">
  <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="sideTitle">Cat Panel</span></div>
  <div class="sb-nav">
@@ -178,10 +227,10 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
  </div>
  <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sb-foot"><span class="dot"></span> Cat Panel v6.44.0</div>
+ <div class="sb-foot"><span class="dot"></span> Cat Panel v6.45.0</div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.44.0</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.45.0</span></div>
  <div class="tools">
   <button class="ib" data-c="violet" data-view="dash" title="Dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></button>
   <button class="ib" data-c="green" data-view="clients" title="Clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg></button>
@@ -204,6 +253,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= DASHBOARD ================= -->
 <section class="view on" id="v-dash">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><div><h1 data-i="n_dash"></h1><p data-i="d_dash"></p></div></div>
  <div class="card sec" id="heroCard">
   <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
   <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
@@ -231,7 +281,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="kv" style="margin:6px 0">
    <div><span data-i="ov_loc"></span><span class="mono" id="ovLoc">…</span></div>
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.44.0</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.45.0</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -256,6 +306,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= CLIENTS (users) ================= -->
 <section class="view" id="v-clients">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><div><h1 data-i="n_clients"></h1><p data-i="d_clients"></p></div></div>
  <div class="card sec">
   <div class="row" style="justify-content:space-between;margin-bottom:12px">
    <h2 style="margin:0"><span class="ic">👥</span><span data-i="users"></span></h2>
@@ -281,6 +332,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= INBOUNDS ================= -->
 <section class="view" id="v-inbounds">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(59,130,246,.20),rgba(59,130,246,.42))">🧩</span><div><h1 data-i="n_inbounds"></h1><p data-i="d_inbounds"></p></div></div>
  <div class="card sec">
   <h2><span class="ic">🧩</span><span data-i="n_inbounds"></span></h2>
   <div class="stats" style="margin-top:8px">
@@ -298,6 +350,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= CLEAN IP / SCAN ================= -->
 <section class="view" id="v-scan">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
  <div class="card sec">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
   <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>
@@ -326,6 +379,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= CONFIG BUILDER ================= -->
 <section class="view" id="v-build">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><div><h1 data-i="n_build"></h1><p data-i="d_build"></p></div></div>
  <div class="card sec">
   <h2><span class="ic">🛠️</span><span data-i="b_title"></span></h2>
   <div class="note i small" data-i="b_hint"></div>
@@ -397,6 +451,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= NODES (clean IPs) ================= -->
 <section class="view" id="v-nodes">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(245,158,11,.20),rgba(245,158,11,.42))">🎯</span><div><h1 data-i="n_nodes"></h1><p data-i="d_nodes"></p></div></div>
  <div class="card sec">
   <h2><span class="ic">📡</span><span data-i="rp_title"></span><span class="chip v" id="rpState">…</span><button class="btn sm" id="rpRefresh" type="button" style="margin-inline-start:auto">⟳ <span data-i="rp_refresh"></span></button></h2>
   <div class="note i small" data-i="rp_hint"></div>
@@ -459,6 +514,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= SETTINGS ================= -->
 <section class="view" id="v-spoof">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(236,72,153,.42))">🎭</span><div><h1 data-i="n_spoof"></h1><p data-i="d_spoof"></p></div></div>
  <form class="card sec frm" id="fWarp">
   <h2><span class="ic">🌐</span><span data-i="warp_title"></span></h2>
   <div class="note i small" data-i="warp_hint"></div>
@@ -523,6 +579,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 </section>
 
 <section class="view" id="v-settings">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><div><h1 data-i="n_settings"></h1><p data-i="d_settings"></p></div></div>
  <form class="card sec frm" id="fSettings">
   <h2><span class="ic">⚙️</span><span data-i="settings"></span></h2>
   <div class="two">
@@ -618,6 +675,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= BACKUP ================= -->
 <section class="view" id="v-backup">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><div><h1 data-i="n_backup"></h1><p data-i="d_backup"></p></div></div>
  <div class="card sec">
   <h2><span class="ic">💾</span><span data-i="backup"></span></h2>
   <div class="small mute" data-i="backup_hint"></div>
@@ -633,8 +691,9 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 
 <!-- ================= ABOUT ================= -->
 <section class="view" id="v-about">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.44.0</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.45.0</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -652,18 +711,6 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   </div>
  </div>
 </section>
-</div>
-
-<!-- bottom nav (mobile) -->
-<div class="nav">
- <button data-view="dash"><span>📊</span><i data-i="n_dash"></i></button>
- <button data-view="clients"><span>👥</span><i data-i="n_clients"></i></button>
- <button data-view="inbounds"><span>🧩</span><i data-i="n_inbounds"></i></button>
- <button data-view="scan"><span>📡</span><i data-i="n_scan"></i></button>
- <button data-view="build"><span>🛠️</span><i data-i="n_build"></i></button>
- <button data-view="spoof"><span>🎭</span><i data-i="n_spoof"></i></button>
- <button data-view="settings"><span>⚙️</span><i data-i="n_set"></i></button>
- <button data-view="backup"><span>💾</span><i data-i="n_bak"></i></button>
 </div>
 
 <!-- user drawer -->
@@ -697,7 +744,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <script>
 (function(){
 'use strict';
-var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.44.0";
+var HOST="p.workers.dev", UUID="u1", VERSION="6.45.0";
 var I18N={
 fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
@@ -716,7 +763,7 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز هیچ نود تمیزی ثبت نکردی — کانفیگ‌ها فقط با آدرس ورکر ساخته می‌شوند. از اسکنر بفرست یا دستی اضافه کن:',n_set:'تنظیمات',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'مرورگر فقط دامنه‌ها را می‌تواند تست کند (آی‌پی خام گواهی TLS ندارد). برای اسکن آی‌پی از Cat Client استفاده کن.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
@@ -738,7 +785,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No clean nodes yet — configs fall back to the worker address. Send from the scanner or add manually:',n_set:'Settings',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',ip_clear_confirm:'Clear every IP from the list?',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Browsers can only test domains (raw IPs have no TLS certificate). Use Cat Client to scan IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -772,11 +819,11 @@ var CFG=null, USERS=[], editing=null, dirtyScan=false;
 /* ---------- views ---------- */
 function show(v){$$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  location.hash=v;window.scrollTo(0,0)}
-$$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'))})});
+$$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
-(function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"');if(n)n.click();var b=document.querySelector('#btnIpAppend');if(b)b.style.boxShadow='0 0 0 3px rgba(0,225,197,.4)';toast(t('ip_import_ready'))},300)}}catch(e){}})();
+(function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view="nodes"]');if(n)n.click();var b=document.querySelector('#btnIpAppend');if(b)b.style.boxShadow='0 0 0 3px rgba(0,225,197,.4)';toast(t('ip_import_ready'))},300)}}catch(e){}})();
 function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block'})}
 function renderOverview(){
  var s=CFG.settings;
@@ -1202,8 +1249,11 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-ppcc
  list.push({id:'wanwu-'+c.toLowerCase(),name:'Wanwu ProxyIP · '+c,url:'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/'+c+'.txt',kind:'txt',cc:c,enabled:true});
  ppPost({action:'set',repos:list}).then(function(){return ppPost({action:'refresh'})}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return ppLoad()})});
 
-if($('#btnBurger'))$('#btnBurger').addEventListener('click',function(){document.querySelector('.top').classList.toggle('menu-open')});
-document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('.tools button,.tools a')){var tp=document.querySelector('.top');if(tp)tp.classList.remove('menu-open')}},true);
+var menuEl=$('#menu');
+function menuSet(o){if(menuEl)menuEl.classList.toggle('show',!!o)}
+if($('#btnBurger'))$('#btnBurger').addEventListener('click',function(){menuSet(!menuEl.classList.contains('show'))});
+document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('[data-mclose]'))menuSet(false)});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')menuSet(false)});
 
 /* ---------- backup ---------- */
 $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(r.result);if(!j.settings&&!j.users)throw 0;api('/api/backup',{method:'POST',body:{settings:j.settings,users:j.users}}).then(function(){$('#restoreState').textContent=t('restore_ok');return load()})}catch(e){$('#restoreState').textContent=t('restore_bad')}};r.readAsText(f)});
