@@ -155,6 +155,18 @@ jobs:
           git add dist-panel/catpanel.obf.js cat-panel.html
           if git diff --cached --quiet; then echo "snapshot unchanged"; else git commit -m "[skip ci] refresh public obfuscated panel snapshot + panel page (deploy button)" && (git push || echo "::warning::snapshot push skipped (non-fatal)"); fi
 
+      - name: Guard - no Context access in Activity/Application constructors
+        run: |
+          set -euo pipefail
+          # beta70..beta77 shipped a property initializer in MainActivity that
+          # called getSharedPreferences — constructor phase, where the Activity
+          # context is still null (Class.newInstance() runs before
+          # attachBaseContext): every launch died with NullPointerException while
+          # the user saw only «opens, then closes». This guard fails the build if
+          # that shape ever returns anywhere in the app sources.
+          python3 scripts/android-startup-guard.py
+          node --test scripts/panels/android-guard.test.mjs
+
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew

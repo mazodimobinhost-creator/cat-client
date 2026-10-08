@@ -394,6 +394,11 @@ class MainActivity : Activity() {
             AnalyticsEvents.appOpened(this)
         }
         runCatching { PanelMonitor.sync(this) } // outward panel health monitor (30min)
+        // Fields must not touch Context in their initializers (constructor phase);
+        // persisted scanner preferences load here instead.
+        scannerForceV6 = runCatching {
+            getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("scanner_force_v6", false)
+        }.getOrDefault(false)
         privacyPolicyStore = PrivacyPolicyAcceptanceStore(this)
         locationPreferenceStore = ConnectionLocationPreferenceStore(this)
         splitTunnelPreferenceStore = SplitTunnelPreferenceStore(this)
@@ -6673,10 +6678,13 @@ class MainActivity : Activity() {
     private var scannerProfile: String = "std"
     // 🌐 Force-IPv6: bypass the connectivity gate — some carriers answer v6
     // even when the quick probe fails (the user's own line, per BPB scans).
-    private var scannerForceV6: Boolean =
-        getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("scanner_force_v6", false)
+    // Persisted flag (loaded in onCreate — reading prefs in a property
+    // initializer runs inside the Activity constructor, where the base context
+    // is still null and getSharedPreferences throws NullPointerException:
+    // «the app opens and closes instantly». See scripts/android-startup-guard.py.)
+    private var scannerForceV6: Boolean = false
     private var scannerAiRunning: Boolean = false
-    private var scannerAiList: LinearLayout = LinearLayout(this)
+    private lateinit var scannerAiList: LinearLayout
     private var scannerJitterMs: Map<String, Int> = emptyMap()
     private var scannerCountryText: TextView? = null
     private var scannerHistoryText: TextView? = null
