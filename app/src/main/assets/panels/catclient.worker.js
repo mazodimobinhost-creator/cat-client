@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.54.0';
+const CAT_PANEL_VERSION = '6.55.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -1493,11 +1493,13 @@ function splitHostPort(value, fallbackPort) {
   return { hostname: raw, port: fallbackPort };
 }
 
-function proxyIpList(env, settings) {
+function proxyIpList(env, settings, opts) {
   const fromSettings = settings && Array.isArray(settings[PXIPS_KEY]) ? settings[PXIPS_KEY] : [];
   const fromEnv = splitCsv(env.PROXY_IPS || env.PROXYIP || env.PROXY_IP);
   const list = fromSettings.length ? fromSettings : fromEnv;
-  const all = (list.length ? list : DEFAULT_PROXY_IPS).map((e) => String(e).trim()).filter(Boolean).filter((e) => !/^socks5h?:\/\//i.test(e));
+  // opts.explicitOnly: only what the owner (panel list) or the deployer (env) configured — never the built-in defaults.
+  const base = list.length ? list : ((opts && opts.explicitOnly) ? [] : DEFAULT_PROXY_IPS);
+  const all = base.map((e) => String(e).trim()).filter(Boolean).filter((e) => !/^socks5h?:\/\//i.test(e));
   // Preferred country first: Cloudflare-hosted destinations exit through the
   // proxy ip, so its country is what ip-check sites show for those sites.
   const pref = settings && settings.country;
@@ -2891,15 +2893,25 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (entries.length >= limit) break outer;
     }
   }
-  // Spoof section (Panel → 🎭): extra-SNI configs (🧬) and per-ProxyIP configs
-  // (🎯, path /?proxyip=) — deliberately named apart from the flag-named clean-IP
-  // entries. Skipped when a link pins ?addr= / ?limit= (deliberate single exit),
-  // or when a STRICT country is requested (strict=1 must mean ONLY that country).
+  // Spoof section (Panel → 🎭): extra-SNI configs (🧬), per-ProxyIP configs (🎯, path /?proxyip=) and SOCKS
+  // relays (🧦) — deliberately named apart from the flag-named clean-IP entries.
+  // Skipped for a deliberate SINGLE-EXIT pin: ?addr=, a STRICT country (strict=1 must mean ONLY that country) or
+  // a tiny ?limit=1|2 (one address, both protocols).
   // NOTE: `!q.addr` alone is always false for an empty-array query (truthy []!),
   // which silently disabled PX/SNI-spoof configs on every real sub URL.
-  if (!(q.addr && q.addr.length) && !q.limit && !(strict && wantCc)) {
+  // A link-level ?limit=N (the config builder ALWAYS sets it) used to drop this whole section, so ProxyIPs added in
+  // the panel never reached any builder link. Now they share the limit: it counts EVERY line, the 🎭 part getting
+  // at most half of it and only what the owner configured (no built-in default ProxyIPs; 🧬 spoof SNIs stay a
+  // no-limit extra — Cloudflare rejects an SNI that differs from the Host).
+  const PIN_LIMIT = 2;
+  const limited = !!q.limit;
+  if (!(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
+    const cleanCount = entries.length;
     const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
-    for (const sniHost of (settings.extraSnis || [])) {
+    // 🎯/🧦 ride the ports the link asked for: TLS when any TLS port is selected, else the first plain port.
+    const pxTls = (settings.tlsPorts || []).length > 0 || !(settings.plainEnabled && (settings.plainPorts || []).length);
+    const pxPort = pxTls ? tlsPort : Number(settings.plainPorts[0]);
+    for (const sniHost of (limited ? [] : (settings.extraSnis || []))) {
       if (entries.length >= 200) break;
       if (!sniHost || sniHost === ctx.sni) continue;
       const sctx = Object.assign({}, ctx, { sni: sniHost });
@@ -2909,33 +2921,44 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     }
     const faUi = settings.lang !== 'en';
     let pxi = 0;
-    for (const px of proxyIpList(env, settings)) {
+    for (const px of proxyIpList(env, settings, { explicitOnly: limited })) {
       if (entries.length >= 224) break;
       pxi++;
       const pxcc = (settings.proxyCountries || {})[px] || '';
       // Screenshot style: «🎯 3. 🇩🇪 آلمان · 1.2.3.4» — a separate config PER
       // ProxyIP that exits through that relay (?proxyip= on the WS path).
       const pxlabel = pxcc ? (faUi ? (PX_FA_NAMES[pxcc] || pxcc) : (COUNTRY_NAMES[pxcc] || pxcc)) : '';
-      const pxsni = sniFor(pxi - 1);
-      const pxname = '🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px + sniSuffix(pxsni);
+      const pxsni = pxTls ? sniFor(pxi - 1) : ctx.sni;
+      const pxname = '🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px + (pxTls ? sniSuffix(pxsni) : '');
       const pxc = pxsni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: pxsni });
-      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: vlessLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(px)) }), name: pxname });
-      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: pxcc, sni: pxsni, link: trojanLink(pxc, workerDial, tlsPort, true, pxcc, { name: pxname, path: withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(px)) }), name: pxname });
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: pxPort, tls: pxTls, cc: pxcc, sni: pxsni, link: vlessLink(pxc, workerDial, pxPort, pxTls, pxcc, { name: pxname, path: withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(px)) }), name: pxname });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: pxPort, tls: pxTls, cc: pxcc, sni: pxsni, link: trojanLink(pxc, workerDial, pxPort, pxTls, pxcc, { name: pxname, path: withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(px)) }), name: pxname });
     }
     // 🧦 SOCKS5 relays — exit through the user's own proxies (Gemini etc).
     let sxi = 0;
     for (const sr of socksRelayList(env, settings)) {
       if (entries.length >= 240) break;
       sxi++;
-      const ssni = sniFor(pxi + sxi - 1);
-      const ssname = '🧦 ' + sxi + '. ' + sr.host + ':' + sr.port + sniSuffix(ssni);
+      const ssni = pxTls ? sniFor(pxi + sxi - 1) : ctx.sni;
+      const ssname = '🧦 ' + sxi + '. ' + sr.host + ':' + sr.port + (pxTls ? sniSuffix(ssni) : '');
       const sctx = ssni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: ssni });
       const svless = withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(sr.url));
       const strojan = withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(sr.url));
-      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: vlessLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: svless }), name: ssname });
-      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: ssni, link: trojanLink(sctx, workerDial, tlsPort, true, '', { name: ssname, path: strojan }), name: ssname });
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: pxPort, tls: pxTls, cc: '', sni: ssni, link: vlessLink(sctx, workerDial, pxPort, pxTls, '', { name: ssname, path: svless }), name: ssname });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: pxPort, tls: pxTls, cc: '', sni: ssni, link: trojanLink(sctx, workerDial, pxPort, pxTls, '', { name: ssname, path: strojan }), name: ssname });
+    }
+    if (limited) {
+      // ?limit=N is a hard TOTAL (the builder's «config count»): the 🎭 lines share it instead of being dropped —
+      // as many as they need up to half of it; the clean-IP tail makes room (TLS-first order is kept).
+      const L = settings.entryLimit;
+      const extra = entries.splice(cleanCount);
+      const reserve = Math.min(extra.length, Math.max(2, Math.floor(L / 2)));
+      const take = Math.min(extra.length, Math.max(L - cleanCount, reserve));
+      entries.length = Math.min(cleanCount, L - take);
+      for (const e of extra.slice(0, take)) entries.push(e);
     }
   }
+
   // ?fam=v4|v6 — strict address-family filter over the FINAL entry list, so the
   // always-on worker-host anchor and domain defaults are dropped too: the link
   // then means exactly "only raw IPs of this family".
@@ -5309,7 +5332,7 @@ settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'خالی = آدرس ورکر (پیشنهادی؛ کلادفلر فقط همین را می‌پذیرد) — فقط وقتی «اسپوف SNI» روشن است اعمال می‌شود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_ech:'ECH (پنهان‌سازی SNI)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'مقدار ECH برای کانفیگ‌های TLS؛ با ?ech=1 اعمال می‌شود. خالی = پیش‌فرض مشترک کلادفلر (cloudflare-ech.com+udp://1.1.1.1) که SNI واقعی را روی هر میزبان پشت کلادفلر رمز می‌کند؛ auto = فقط رکورد خود SNI؛ off = خاموش',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
 s_flags:'گزینه‌ها',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک آدرس یا host:port. فقط وقتی مقصد خودش پشت کلودفلر باشد استفاده می‌شود.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'اسپوف SNI (چرخش استخر / SNI دلخواه) — خاموش (پیش‌فرض) = SNI همان آدرس ورکر است. ⚠️ کلادفلر SNI متفاوت با Host را با ۴۰۳ رد می‌کند؛ فقط برای آزمایش یا دامنهٔ سفارشی خودت روشن کن. با ?sni=دامنه می‌توان یک لینک را pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',s_snir_hint:'فقط وقتی اسپوف روشن است: استخر SNI (با کاما)؛ خالی = icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify. برای پنهان‌کردن آدرس ورکر از DPI به‌جای اسپوف از ECH (گزینهٔ «ECH» در ساخت ساب) یا پورت‌های بدون TLS استفاده کن.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
-n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
+n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن. لینک‌های «کانفیگ‌ساز» هم 🎯 PX و 🧦 را می‌گیرند و جزو «تعداد کانفیگ» حساب می‌شوند (حداکثر نصف آن)؛ فقط لینک‌های پین‌شده (limit ۱ یا ۲، یا addr=) بدون آن‌ها هستند. 🧬 فقط در ساب بدون limit می‌آید.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
@@ -5331,7 +5354,7 @@ settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel 
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'empty = the worker host (recommended; the only SNI Cloudflare accepts) — used only while SNI spoofing is on',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_ech:'ECH (SNI encryption)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'ECH value for TLS configs; applied with ?ech=1. Empty = the shared Cloudflare default (cloudflare-ech.com+udp://1.1.1.1) which encrypts the real SNI on any CF-fronted host; auto = only the SNI own HTTPS record; off = disabled',s_port_bad:'Invalid port — enter a number between 1 and 65535',
 s_flags:'Options',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line, host or host:port. Only used when the destination itself is behind Cloudflare.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_fml:'Fragment and cs inside TLS links (fm/cs — SNI-filter bypass in newer clients: PattNG, new v2rayNG, Streisand)',s_snir:'SNI spoofing (rotating pool / custom SNI) — OFF (default) = the SNI is the worker host. ⚠️ Cloudflare answers 403 when the SNI differs from the Host; enable only to experiment or for your own custom domain. ?sni=<host> pins one link',s_snir_hint:'Only while spoofing is on: SNI pool (comma separated); empty = icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify. To hide the worker host from DPI use ECH (the «ECH» toggle in the sub builder) or non-TLS ports instead of spoofing.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',
-n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
+n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription. Config-builder links include 🎯 PX and 🧦 too and they count toward «Config count» (at most half of it); only pinned links (limit 1–2, or addr=) leave them out. 🧬 appears only in subs without a limit.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
