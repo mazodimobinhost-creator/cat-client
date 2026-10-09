@@ -73,6 +73,7 @@ const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', preten
   } });
 const { window } = dom; const { document } = window;
 await sleep(400);
+for (let w = 0; w < 50 && !window.CFG; w++) await sleep(100);   // page load finished (settings in)
 
 check('no JS errors on load', errors.length === 0, errors.join('\n').slice(0, 400));
 check('prune button exists and is hidden before any scan', !!document.querySelector('#btnBrowserPrune') && document.querySelector('#btnBrowserPrune').style.display === 'none');
@@ -100,7 +101,8 @@ check('domain alive via cdn-cgi probe', BS['alive.dom'] && BS['alive.dom'].ok ==
 check('domain black-holed → dead', BS['dead.dom'] && BS['dead.dom'].ok === false, JSON.stringify(BS['dead.dom']));
 check('plain port skipped, never probed', BS['203.0.113.30:8080'] && BS['203.0.113.30:8080'].skip === true && !probeUrls.some(u => u.indexOf('203.0.113.30') > -1), JSON.stringify(BS['203.0.113.30:8080']));
 check('no http:// probe (mixed content safe)', probeUrls.every(u => u.startsWith('https://')));
-check('summary rendered with dead count', document.querySelector('#scanRes').textContent.includes('1') && document.querySelector('#scanRes').firstElementChild.textContent.includes('/'), document.querySelector('#scanRes').firstElementChild.textContent.slice(0, 120));
+const scanSum = document.querySelectorAll('#scanRes div')[1];
+check('summary rendered with dead count', !!scanSum && /\d+\/\d+/.test(scanSum.textContent) && scanSum.textContent.includes('1'), scanSum ? scanSum.textContent.slice(0, 120) : 'no summary');
 check('prune button revealed after dead found', document.querySelector('#btnBrowserPrune').style.display !== 'none');
 
 // ── prune: dead-on-my-line IPs leave the list, the rest stay ───────────────

@@ -154,6 +154,8 @@ jobs:
           node scripts/panels/proxyip-feeds.test.mjs
           # beta88: the browser scan must probe raw IPs from the USER's network and prune the dead ones
           node scripts/panels/browser-probe.test.mjs
+          # beta89: the real-connection test must open the tunnel's /ws from the browser (domains only)
+          node scripts/panels/ws-probe.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
