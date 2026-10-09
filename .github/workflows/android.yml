@@ -152,6 +152,8 @@ jobs:
           node scripts/panels/addr-port-query.test.mjs
           # ProxyIP feed formats (daily validated pool + space-separated country files) keep their ports
           node scripts/panels/proxyip-feeds.test.mjs
+          # beta88: the browser scan must probe raw IPs from the USER's network and prune the dead ones
+          node scripts/panels/browser-probe.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.

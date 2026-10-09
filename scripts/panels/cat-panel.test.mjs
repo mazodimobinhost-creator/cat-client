@@ -684,7 +684,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.56.0', T.CAT_PANEL_VERSION === '6.56.0');
+  check('panel version is 6.57.0', T.CAT_PANEL_VERSION === '6.57.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

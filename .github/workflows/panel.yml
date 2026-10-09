@@ -43,7 +43,7 @@ jobs:
         if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
         run: |
           # Every suite file, not just the four old ones — a failure in ANY of them must be visible.
-          for t in cat-panel ccq ech panel-dom wizard multipart-upload chain-protocols android-guard link-shape panel-integrity kv-persistence panel-update-contract panel-selfupdate sni-host proxyip-sub proxyip-dataplane addr-port-query proxyip-feeds; do
+          for t in cat-panel ccq ech panel-dom wizard multipart-upload chain-protocols android-guard link-shape panel-integrity kv-persistence panel-update-contract panel-selfupdate sni-host proxyip-sub proxyip-dataplane addr-port-query proxyip-feeds browser-probe; do
             if node scripts/panels/$t.test.mjs > "/tmp/$t.out" 2>&1; then
               echo "PASS $t" >> FAILED-TESTS.md
             else
