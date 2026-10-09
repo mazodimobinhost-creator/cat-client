@@ -50,8 +50,10 @@ check('toggle → disabled chip', document.querySelector('#rows').textContent.in
 document.querySelector('[data-view="settings"]').click();
 check('settings view shown', document.querySelector('#v-settings').classList.contains('on'));
 const fs = document.querySelector('#fSettings'); fs.elements.ptitle.value='My Cat'; fs.elements.entryLimit.value='20';
+document.querySelector('#swHealth').click();
 fs.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(300);
 check('settings saved → brand title', document.querySelector('#brandTitle').textContent==='My Cat');
+check('health-order control persists scanner ordering', (await (await window.fetch('/api/settings')).json()).settings.healthOrder === true);
 // ip import
 document.querySelector('#ipPaste').value='1.1.1.1, 2.2.2.2\nexample.com nope';
 document.querySelector('#btnIpAppend').click(); await sleep(300);
@@ -127,6 +129,20 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   check('manual add: list grew by 3', ips.length === before + 3, before + ' → ' + ips.length);
   check('manual add: src=manual badge', !!(st.ipSources && Object.values(st.ipSources).some((v) => v && v.src === 'manual')));
 }
+// beta90 survival card: the real button reaches the owner-only API, applies
+// the safe SNI=Host fallback set, and renders the emergency subscription URL.
+{
+  check('survival pack card + button are present', !!document.querySelector('#survCard #btnSurvival') && document.querySelector('#survCard [data-i="surv_title"]').textContent.length > 3);
+  document.querySelector('#btnSurvival').click();
+  await sleep(700);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  check('survival button applies fallback settings', st.subRotate === 'daily' && st.sniFront === false && st.sniRotate === false && st.plainEnabled && st.healthOrder === true && st.protocols.vless && st.protocols.trojan, JSON.stringify([st.subRotate, st.sniFront, st.sniRotate, st.plainEnabled, st.healthOrder, st.protocols]));
+  const a = document.querySelector('#survOut a');
+  check('survival button renders shareable ?survive=1 link', !!a && a.href.endsWith('?survive=1'), a && a.href);
+  const surviveFormats = Array.from(document.querySelectorAll('#survOut [data-copy]')).map(b => b.getAttribute('data-copy'));
+  check('survival has raw, base64, Clash, sing-box and Xray format links', surviveFormats.length === 5 && surviveFormats.some(u => u.includes('/clash/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/singbox/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/xray/') && u.endsWith('?survive=1')), surviveFormats.join(' | '));
+}
+
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
 check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));
 // login page + info page parse
