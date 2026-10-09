@@ -42,7 +42,8 @@ jobs:
       - name: Report panel test failures back to the branch
         if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
         run: |
-          for t in cat-panel panel-dom wizard multipart-upload; do
+          # Every suite file, not just the four old ones — a failure in ANY of them must be visible.
+          for t in cat-panel ccq ech panel-dom wizard multipart-upload chain-protocols android-guard link-shape panel-integrity kv-persistence panel-update-contract panel-selfupdate sni-host proxyip-sub proxyip-dataplane addr-port-query; do
             if node scripts/panels/$t.test.mjs > "/tmp/$t.out" 2>&1; then
               echo "PASS $t" >> FAILED-TESTS.md
             else
@@ -51,6 +52,13 @@ jobs:
           done
           git config user.name "ci-report-bot"
           git config user.email "ci@users.noreply.github.com"
+          # On pull_request events github.ref_name is «N/merge» (unpushable) and the checkout is a
+          # detached MERGE commit — build the report commit on the real head ref instead, rebase
+          # over anything that landed meanwhile (snapshot commits), then push.
+          TARGET_REF="${{ github.event.pull_request.head.ref || github.ref_name }}"
+          git fetch origin "$TARGET_REF" || true
+          git checkout -B ci-report FETCH_HEAD || true
+          git pull --rebase origin "$TARGET_REF" || true
           git add FAILED-TESTS.md
           git commit -m "CI panel test failure report [skip ci]" || true
-          git push origin HEAD:"${GITHUB_REF_NAME}" || true
+          git push origin HEAD:"$TARGET_REF" || true
