@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.55.2';
+const CAT_PANEL_VERSION = '6.56.0';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -2491,6 +2491,9 @@ const PROXY_REPO_TTL_MS = 12 * 3600 * 1000;
 const PROXY_REPO_FAILS_DROP = 3;
 const DEFAULT_PROXY_REPOS = [
   { id: 'xgonce', name: 'XGonce ProxyIP (CSV, 6h, speed-sorted)', url: 'https://raw.githubusercontent.com/xgonce/Cloudflare_IP/main/result.csv', kind: 'csv-proxy', enabled: true },
+  // Daily-scanned validated pool (76 countries, port 443 verified, risk-scored) —
+  // only the low-risk rows survive the parser (the long tail carries real risk scores).
+  { id: 'nirevil-daily', name: 'NiREvil Daily ProxyIP (76 countries, 24h)', url: 'https://raw.githubusercontent.com/NiREvil/vless/main/sub/ProxyIP-Daily.md', kind: 'md-daily', enabled: true },
   { id: 'wanwu-de', name: 'Wanwu ProxyIP · Germany', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/DE.txt', kind: 'txt', cc: 'DE', enabled: true },
   { id: 'wanwu-gb', name: 'Wanwu ProxyIP · UK', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/GB.txt', kind: 'txt', cc: 'GB', enabled: true },
   { id: 'wanwu-us', name: 'Wanwu ProxyIP · USA', url: 'https://raw.githubusercontent.com/wanwushequ/ProxyIP/main/US.txt', kind: 'txt', cc: 'US', enabled: true },
@@ -2505,7 +2508,7 @@ function sanitizeProxyRepos(list) {
     if (!r || typeof r !== 'object') continue;
     const url = String(r.url || '').trim();
     if (!/^https:\/\/[^\s"'<>]+$/.test(url)) continue;
-    const kind = r.kind === 'csv-proxy' || r.kind === 'json-speed' ? r.kind : 'txt';
+    const kind = r.kind === 'csv-proxy' || r.kind === 'json-speed' || r.kind === 'md-daily' ? r.kind : 'txt';
     const ccRaw = String(r.cc || '').trim().toUpperCase();
     const id = (String(r.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)) || 'prepo' + (out.length + 1);
     out.push({ id, name: String(r.name || 'repo').slice(0, 48), url, kind, cc: /^[A-Z]{2}$/.test(ccRaw) ? ccRaw : '', enabled: r.enabled !== false });
@@ -2516,6 +2519,21 @@ function sanitizeProxyRepos(list) {
 /** ProxyIP entries may be IPv4/IPv6/domains (resolved at dial time), optional #CC. */
 function parseProxyFeed(kind, body) {
   const out = [];
+  if (kind === 'md-daily') {
+    // NiREvil daily-scanned markdown table (validated pool, ~76 countries, port 443
+    // verified): «| <pre><code>IP</code></pre> | ISP | Location | risk badge/-N-…»
+    // rows. Keep only risk ≤ 5 — the long tail (6…51) carries real risk scores and
+    // mostly CAPTCHA-spamming exits (the «Oracle IPs keep showing CAPTCHAs» reports).
+    const re = /\|\s*<pre><code>\s*([^<\s]+)\s*<\/code><\/pre>\s*\|[^|]*\|[^|]*\|\s*<img[^>]*badge\/-(\d+)-/g;
+    let m;
+    while ((m = re.exec(String(body || ''))) !== null) {
+      const ip = m[1].trim();
+      if (!(isIpv4(ip) || isIpv6(ip))) continue;
+      if (Number(m[2]) > 5) continue;
+      out.push({ ip, cc: '', ms: 9999 });
+    }
+    return out.slice(0, 400);
+  }
   if (kind === 'json-speed') {
     let j = null; try { j = JSON.parse(body); } catch { return out; }
     const rs = Array.isArray(j && j.results) ? j.results : [];
@@ -2547,14 +2565,21 @@ function parseProxyFeed(kind, body) {
     return out.slice(0, 400);
   }
   for (const raw of String(body || '').split(/\r?\n/)) {
-    const line = raw.trim();
+    let line = raw.trim();
     if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    // NiREvil country files are SPACE-separated «ip port» (103.109.234.61 443) —
+    // normalize to a port pin before the shared parse, or the whole line dies.
+    const sp = /^(\S+)\s+(\d{1,5})$/.exec(line);
+    if (sp) line = sp[1] + ':' + sp[2];
     const t = splitAddrTag(line);
     let ip = t.addr;
     const pin = pinnedPortOf(ip);
     if (pin) ip = ip.slice(0, ip.lastIndexOf(':'));
     ip = ip.replace(/^\[/, '').replace(/\]$/, '');
-    if (isIpv4(ip) || isIpv6(ip) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(ip)) out.push({ ip, cc: t.cc || '', ms: 9999 });
+    // The pin is KEPT, not just stripped: a feed's verified port must reach the
+    // pool (x.ip + ':' + (x.port || 443)) — dropping it silently re-pinned every
+    // txt entry to 443, the exact dead-config failure the csv PORT column fixed.
+    if (isIpv4(ip) || isIpv6(ip) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(ip)) out.push({ ip, port: pin || null, cc: t.cc || '', ms: 9999 });
   }
   return out.slice(0, 400);
 }

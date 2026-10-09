@@ -150,6 +150,8 @@ jobs:
           node scripts/panels/proxyip-dataplane.test.mjs
           # The config builder's pin links (?addr= / ?port=) must never emit an undialable config
           node scripts/panels/addr-port-query.test.mjs
+          # ProxyIP feed formats (daily validated pool + space-separated country files) keep their ports
+          node scripts/panels/proxyip-feeds.test.mjs
 
       # Anti-1101: ship the obfuscated worker (readable source never leaves the
       # repo). The full panel suite then re-runs against the obfuscated artifact.
@@ -173,6 +175,7 @@ jobs:
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-sub.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-dataplane.test.mjs
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/addr-port-query.test.mjs
+          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'
