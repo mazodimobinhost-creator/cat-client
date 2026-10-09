@@ -84,10 +84,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -5692,8 +5694,54 @@ class MainActivity : Activity() {
         v6Row.addView(v6Chip, LinearLayout.LayoutParams(-2, -2))
         body.addView(v6Row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // 🛡 Service proofs (BPB parity): probe AI sites over the CURRENT network
-        // (through the tunnel when connected) so the user SEES what opens.
+        // 🌍 Probe commonly requested foreign services from this device's CURRENT
+        // network (through the VPN tunnel when it is connected). Results stay on
+        // device unless the user explicitly shares the redacted report.
+        scannerForeignList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val foreignButton = MaterialButton(this).apply {
+            setText(R.string.scanner_foreign_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 78))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerForeignTest() }
+        }
+        body.addView(foreignButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val foreignHint = TextView(this).apply {
+            setText(R.string.scanner_foreign_hint)
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(4), dp(4), dp(4), dp(2))
+        }
+        body.addView(foreignHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        body.addView(scannerForeignList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        scannerForeignShareButton = MaterialButton(this).apply {
+            setText(R.string.scanner_foreign_share)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 105))
+            setTextColor(TEAL)
+            insetTop = 0
+            insetBottom = 0
+            visibility = View.GONE
+            setOnClickListener { shareScannerForeignReport() }
+        }
+        body.addView(scannerForeignShareButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        // Keep the existing AI service checks alongside the broader foreign-site probe.
         scannerAiList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -6504,9 +6552,8 @@ class MainActivity : Activity() {
         Toast.makeText(this, R.string.scanner_list_copied, Toast.LENGTH_SHORT).show()
     }
 
-    /** 🛡 Probes the AI services over the current network (through the tunnel
-     * when connected). 403/404 on login-gated edges = route open (auth happens
-     * in the app); 200 = fully served; 429 = rate limited; else failed. */
+    /** 🛡 Retains the existing AI endpoint checks over the current network. A
+     * 403/404 means the endpoint replied but does not prove the app is usable. */
     private fun runScannerAiTest() {
         if (scannerAiRunning) return
         scannerAiRunning = true
@@ -6546,7 +6593,7 @@ class MainActivity : Activity() {
                 val ms = (System.currentTimeMillis() - t0).toInt()
                 val verdict = when {
                     code == 200 -> R.string.scanner_ai_ok
-                    preflight && (code == 403 || code == 404) -> R.string.scanner_ai_pre
+                    preflight && code in 401..404 -> R.string.scanner_ai_pre
                     code == 429 -> R.string.scanner_ai_rate
                     else -> R.string.scanner_ai_fail
                 }
@@ -6589,6 +6636,167 @@ class MainActivity : Activity() {
             }
             scannerAiRunning = false
         }
+    }
+
+    /** 🌍 Probe selected HTTPS endpoints from the current app network. */
+    private fun runScannerForeignTest() {
+        if (scannerForeignRunning) return
+        scannerForeignRunning = true
+        scannerForeignResults.clear()
+        scannerForeignShareButton.visibility = View.GONE
+        scannerForeignList.removeAllViews()
+        val status = TextView(this).apply {
+            setText(R.string.scanner_foreign_running)
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        scannerForeignList.addView(status)
+
+        activityScope.launch {
+            val gate = Semaphore(3)
+            try {
+                val results = ForeignServiceCatalog.targets.map { target ->
+                    async(Dispatchers.IO) {
+                        gate.withPermit {
+                            val result = probeForeignService(target)
+                            mainHandler.post {
+                                if (isDestroyed) return@post
+                                if (status.parent === scannerForeignList) scannerForeignList.removeView(status)
+                                scannerForeignList.addView(
+                                    scannerForeignResultRow(result),
+                                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+                                )
+                            }
+                            result
+                        }
+                    }
+                }.awaitAll()
+                if (!isDestroyed) {
+                    results.forEach { result -> scannerForeignResults[result.target.id] = result }
+                    scannerForeignShareButton.visibility = if (results.isEmpty()) View.GONE else View.VISIBLE
+                }
+            } finally {
+                scannerForeignRunning = false
+            }
+        }
+    }
+
+    /** Performs a tiny range GET and always closes the connection without reading page content. */
+    private fun probeForeignService(target: ForeignServiceTarget): ForeignServiceProbeResult {
+        val startedAt = SystemClock.elapsedRealtime()
+        var httpStatus = 0
+        var failure: ForeignServiceFailure? = null
+        try {
+            val connection = (URL(target.url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = true
+                connectTimeout = 4_500
+                readTimeout = 4_500
+                useCaches = false
+                setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+                )
+                setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
+                setRequestProperty("Range", "bytes=0-0")
+            }
+            try {
+                httpStatus = connection.responseCode
+            } finally {
+                connection.disconnect()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            failure = classifyForeignServiceFailure(error)
+        }
+        val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L).toInt()
+        return ForeignServiceProbeResult(target, httpStatus, elapsed, failure)
+    }
+
+    private fun foreignServiceVerdict(result: ForeignServiceProbeResult): Pair<Int, Int> {
+        if (result.httpStatus == 0) {
+            return when (result.failure) {
+                ForeignServiceFailure.DNS -> R.string.scanner_foreign_dns to AMBER
+                ForeignServiceFailure.TIMEOUT -> R.string.scanner_foreign_timeout to AMBER
+                ForeignServiceFailure.TLS -> R.string.scanner_foreign_tls to AMBER
+                ForeignServiceFailure.NETWORK, null -> R.string.scanner_foreign_network to ERROR
+            }
+        }
+        return when (result.status) {
+            ForeignServiceStatus.OPEN -> R.string.scanner_foreign_open to TEAL
+            ForeignServiceStatus.HTTP_RESPONSE -> R.string.scanner_foreign_response to AMBER
+            ForeignServiceStatus.RATE_LIMITED -> R.string.scanner_foreign_rate to AMBER
+            ForeignServiceStatus.SERVER_ERROR -> R.string.scanner_foreign_server_error to AMBER
+            ForeignServiceStatus.UNREACHABLE -> R.string.scanner_foreign_network to ERROR
+        }
+    }
+
+    private fun scannerForeignResultRow(result: ForeignServiceProbeResult): View {
+        val (verdictRes, color) = foreignServiceVerdict(result)
+        val codeLabel = if (result.httpStatus > 0) result.httpStatus.toString() else "—"
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = glassSurfaceDrawable(radiusDp = 12)
+            addView(TextView(this@MainActivity).apply {
+                text = result.target.label
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.scanner_foreign_row, codeLabel, result.latencyMs)
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(color)
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+            addView(TextView(this@MainActivity).apply {
+                setText(verdictRes)
+                textSize = 11f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(color)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(6).toFloat()
+                    setColor(withAlpha(color, 26))
+                }
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+            })
+        }
+    }
+
+    /** Shares only service, HTTP result, timing and a coarse failure category; never config or account data. */
+    private fun shareScannerForeignReport() {
+        val results = ForeignServiceCatalog.targets.mapNotNull { scannerForeignResults[it.id] }
+        if (results.isEmpty()) return
+        val rows = results.joinToString("\n") { result ->
+            val (verdictRes, _) = foreignServiceVerdict(result)
+            val codeLabel = if (result.httpStatus > 0) result.httpStatus.toString() else "—"
+            getString(
+                R.string.scanner_foreign_report_row,
+                result.target.label,
+                codeLabel,
+                getString(verdictRes),
+                result.latencyMs,
+            )
+        }
+        val report = buildString {
+            appendLine(getString(R.string.scanner_foreign_report_title))
+            appendLine(getString(R.string.scanner_foreign_report_context))
+            appendLine()
+            append(rows)
+        }
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(sendIntent, getString(R.string.scanner_foreign_share)))
     }
 
     /** ⤴ Shares the verified hits (ip:port#CC lines) with any app. */
@@ -6685,6 +6893,10 @@ class MainActivity : Activity() {
     private var scannerForceV6: Boolean = false
     private var scannerAiRunning: Boolean = false
     private lateinit var scannerAiList: LinearLayout
+    private var scannerForeignRunning: Boolean = false
+    private lateinit var scannerForeignList: LinearLayout
+    private lateinit var scannerForeignShareButton: MaterialButton
+    private val scannerForeignResults = linkedMapOf<String, ForeignServiceProbeResult>()
     private var scannerJitterMs: Map<String, Int> = emptyMap()
     private var scannerCountryText: TextView? = null
     private var scannerHistoryText: TextView? = null

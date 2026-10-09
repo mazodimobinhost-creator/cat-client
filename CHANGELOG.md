@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta91] — 2026-10-09
+
+### Added
+- Scanner: test Google, YouTube, Play Store, Telegram, WhatsApp and Instagram over the device's current network/VPN tunnel; show HTTP status, latency and separate DNS/TLS/timeout/server/rate-limit outcomes.
+- Optional, user-initiated sharing of a redacted diagnostic report. Results remain on-device unless the user shares them; the report excludes IPs, UUIDs, subscription links, configs and credentials.
+- Preserve the existing ChatGPT, Claude, Gemini API/Web and AI Studio checks, with clearer wording that an HTTP response alone does not prove the service is fully usable.
+
+### Limits
+- An endpoint response is not proof that every page, login, API or app feature works. This is a connectivity diagnostic, not a new transport or a guarantee of access.
+
+See [docs/release-notes-v1.10.0-beta91.md](docs/release-notes-v1.10.0-beta91.md).
+
 ## [1.10.0-beta2] — 2026-10-01
 
 ### Added
@@ -38,6 +50,7 @@ See [docs/release-notes-v1.10.0-beta1.md](docs/release-notes-v1.10.0-beta1.md).
 
 1.1.0 → 1.9.51: see the per-version notes in [`docs/`](docs/).
 
-[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta2...HEAD
+[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta91...HEAD
+[1.10.0-beta91]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta90...v1.10.0-beta91
 [1.10.0-beta2]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta2
 [1.10.0-beta1]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta1
