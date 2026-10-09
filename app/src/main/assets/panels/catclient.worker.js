@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.55.1';
+const CAT_PANEL_VERSION = '6.55.2';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -2847,7 +2847,43 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // Per-link overrides (?addr=a,b&port=443&proto=vless&limit=1) let a user pin
   // ONE address → one Cloudflare entry point → a stable exit.
   let addresses = addressList(host, env, settings);
-  if (q.addr && q.addr.length) addresses = uniq(q.addr);
+  if (q.addr && q.addr.length) {
+    // ?addr= travels inside links users copy and share, so it speaks the SAME vocabulary the
+    // scanner imports through /api/ips («ip#CC» country tags, scan-pinned «ip:port») — but it
+    // skipped ALL of that validation, handing users silently undialable configs three ways:
+    //  1. «1.2.3.4#DE» → the tag became part of the server name; once pasted into any client the
+    //     «#» starts the remark, so the port/path/security params are swallowed and the config is dead;
+    //  2. «1.2.3.4:99999» → pinnedPortOf refused the out-of-range port, then the WHOLE string was
+    //     treated as one hostname and bracketed as IPv6 → garbage «[1.2.3.4:99999]:443»;
+    //  3. junk tokens («exa», «a..b») were emitted verbatim as server names.
+    // Now the tokens are normalized exactly like /api/ips: tags become an ipCountries overlay
+    // (country chips + strict filtering keep working on pin links), an out-of-range pin falls
+    // back to the bare host on the normal port walk, junk is dropped, and a list where NOTHING
+    // survives falls back to the panel's address list (a pin link must never serve an empty sub).
+    const qTags = {};
+    const clean = [];
+    for (const token of uniq(q.addr)) {
+      const t = splitAddrTag(token);
+      let a = t.addr;
+      const pin = pinnedPortOf(a);
+      if (pin) a = a.slice(0, a.lastIndexOf(':'));
+      else {
+        // a trailing :port that pinnedPortOf refused (0 or > 65535) — drop the pin, keep the
+        // host; a BARE IPv6 («::1», «2001:db8::5») also ends in digits and must survive
+        // (isIpv6 alone is no guard: it happily accepts «1.2.3.4:99999»)
+        const pm = /^(.*):(\d{1,5})$/.exec(a);
+        if (pm && !/^[0-9a-f:]+$/i.test(a)) a = pm[1];
+      }
+      a = a.replace(/^\[/, '').replace(/\]$/, '');
+      if (!(isIpv4(a) || isIpv6(a) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(a))) continue;
+      if (t.cc) qTags[a] = t.cc;
+      clean.push(pin ? formatAddr(a) + ':' + pin : formatAddr(a));
+    }
+    if (clean.length) {
+      addresses = clean;
+      if (Object.keys(qTags).length) settings = Object.assign({}, settings, { ipCountries: Object.assign({}, settings.ipCountries, qTags) });
+    }
+  }
   // Country: ?country=DE (link) beats the panel's preferred country. Entries of
   // that country come FIRST; with ?strict=1 (or countryFallback=none) nothing
   // else is emitted, otherwise the other countries follow as fallback.
@@ -3052,7 +3088,10 @@ function subQuery(url) {
     : url.searchParams;
   return {
     addr: splitCsv(q.get('addr') || q.get('ip') || ''),
-    port: splitCsv(q.get('port') || q.get('ports') || '').map(Number).filter((p) => p > 0),
+    // 1..65535 — the link-level override used to keep anything > 0, so «?port=70000»
+    // produced subscriptions full of configs no client can ever dial (the settings
+    // PUT validates the range; the query bypassed it).
+    port: splitCsv(q.get('port') || q.get('ports') || '').map(Number).filter((p) => Number.isInteger(p) && p > 0 && p < 65536),
     proto: String(q.get('proto') || '').toLowerCase(),
     limit: Number(q.get('limit') || q.get('count') || 0) || 0,
     country: normalizeCountry(q.get('country') || q.get('cc') || ''),
