@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.1';
+const CAT_PANEL_VERSION = '6.66.2';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -716,6 +716,8 @@ function normalizeSettings(raw) {
     .slice(0, 8);
   s.ipCountries = normalizeCountryMap(s.ipCountries, 500);
   s.ipSources = (s.ipSources && typeof s.ipSources === 'object' && !Array.isArray(s.ipSources)) ? s.ipSources : {};
+  // Free library addresses injected at sub time (never part of the owner's saved list).
+  s.repoIps = uniq((Array.isArray(s.repoIps) ? s.repoIps : []).map((v) => String(v || '').trim()).filter(Boolean)).slice(0, 8);
   s.proxyCountries = normalizeCountryMap(s.proxyCountries, 64);
   s.country = normalizeCountry(s.country) || '';
   s.countryFallback = s.countryFallback === 'none' ? 'none' : 'auto';
@@ -2523,7 +2525,12 @@ async function withRepoPool(env, settings, url) {
     const ips = [];
     const cc = {};
     for (const r of pool) { const line = r.ip + ':443'; ips.push(line); if (r.cc) cc[line] = r.cc; }
-    return Object.assign({}, settings, { ips: uniq(settings.ips.concat(ips)).slice(0, 400), ipCountries: Object.assign({}, settings.ipCountries, cc) });
+    // repoIps marks these as «free library» entries: they are pinned to :443 so a
+    // feed address is never advertised on a port it was not verified on, but they
+    // must NOT ride the «pinned addresses first» pass — that pass would put the
+    // library ahead of the owner's own list, which is the opposite of what
+    // «append after the owner's list» promises.
+    return Object.assign({}, settings, { ips: uniq(settings.ips.concat(ips)).slice(0, 400), ipCountries: Object.assign({}, settings.ipCountries, cc), repoIps: ips.slice(0, 8) });
   } catch { return settings; }
 }
 /** Panel-page lazy trigger: if the cache is older than 12h, refresh in the background. */
@@ -3075,10 +3082,14 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // Scan-pinned addresses (`ip:port`) go FIRST — the owner imported them with a
   // verified entry point; the generic port walk must never crowd them out past
   // the entry limit (regression: pinned imports silently never appeared).
+  const repoIps = new Set((settings.repoIps || []).map((v) => String(v).trim().toLowerCase()));
   for (const addr of addresses) {
     if (entries.length >= limit) break;
     const pin = pinnedPortOf(addr);
     if (!pin) continue;
+    // Free library IPs are pinned to :443 too, but they belong BEHIND the owner's
+    // own addresses — the 443 wave picks them up in their normal position.
+    if (repoIps.has(String(addr).trim().toLowerCase())) continue;
     const bare = addr.slice(0, addr.lastIndexOf(':')).replace(/^\[/, '').replace(/\]$/, '');
     const cc = ccOf(addr);
     const ptls = !PLAIN_PORTS.includes(pin);

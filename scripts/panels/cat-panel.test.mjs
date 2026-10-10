@@ -759,7 +759,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.66.1', T.CAT_PANEL_VERSION === '6.66.1');
+  check('panel version is 6.66.2', T.CAT_PANEL_VERSION === '6.66.2');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -1239,6 +1239,31 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
   const addrs2 = [...new Set(bigLines.map((l) => { const m = /@(\[[^\]]+\]|[^:@?]+):(\d{1,5})\?/.exec(l); return m ? m[1] : '?'; }))];
   check('wave rotation keeps address diversity (>= 12 distinct addresses)', addrs2.length >= 12, 'distinct=' + addrs2.length);
   check('entry limit still respected with many addresses', bigLines.length <= 48 + 8, 'lines=' + bigLines.length);
+}
+// beta93 regression: the free library (repo feed) IPs are pinned to :443, and the
+// «pinned entries first» pass used to hoist them ahead of the owner's own list —
+// on any worker with a populated feed cache (i.e. in production) the library
+// overtook the addresses the owner actually saved. The cache is seeded straight
+// into KV here so this runs without network, exactly like CI does with one.
+{
+  const kv3 = new FakeKV();
+  const feed = ['172.64.151.179', '104.27.140.203', '188.114.97.77', '162.159.192.77', '104.16.132.229', '172.64.32.1', '104.26.1.99', '108.162.192.1'];
+  kv3.m.set('cat_repo_cache_v1', JSON.stringify({ ts: Date.now(), ips: feed.map((ip) => ip + '#US') }));
+  const env3 = { CAT_KV: kv3, UUID: 'cccccccc-dddd-4eee-8fff-000000000000' };
+  const req3 = (path, { method = 'GET', headers = {}, body } = {}) => {
+    const init = { method, headers: Object.assign({}, headers) };
+    if (body !== undefined) { init.body = JSON.stringify(body); init.headers['content-type'] = 'application/json'; }
+    return worker.fetch(new Request('https://' + HOST + path, init), env3, { waitUntil() {} });
+  };
+  const lg3 = await req3('/api/login', { method: 'POST', body: { password: env3.UUID } });
+  const c3 = (lg3.headers.get('set-cookie') || '').split(';')[0];
+  await req3('/api/settings', { method: 'PUT', headers: { cookie: c3 }, body: { ips: ['1.2.3.4', 'www.example.com'], tlsPorts: [443, 2053], plainEnabled: false, protocols: { vless: true, trojan: false }, entryLimit: 10, subRotate: 'off' } });
+  const feedSub = await (await req3('/sub/' + env3.UUID)).text();
+  const feedAddrs = [...feedSub.matchAll(/@(\[[^\]]+\]|[^:@?]+):(\d{1,5})\?/g)].map((m) => m[1]);
+  check('owner IPs lead a sub that also carries free library IPs', feedAddrs[0] === '1.2.3.4' && feedAddrs[1] === 'www.example.com', 'order=' + feedAddrs.slice(0, 3).join(','));
+  check('free library IPs still appear, on :443, behind the owner', feedAddrs.indexOf('172.64.151.179') > 1 && /172\.64\.151\.179:443\?/.test(feedSub), 'idx=' + feedAddrs.indexOf('172.64.151.179'));
+  const noRepo = await (await req3('/sub/' + env3.UUID + '?norepo=1')).text();
+  check('?norepo=1 still drops the library IPs', !noRepo.includes('172.64.151.179'));
 }
 console.log(failures ? ('\n' + failures + ' FAILED\n- ' + failed.join('\n- ')) : '\nALL PASSED');
 process.exit(failures ? 1 : 0);
