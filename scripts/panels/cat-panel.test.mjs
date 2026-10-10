@@ -1043,7 +1043,7 @@ let user;
     const outV6 = T.buildConfigEntries('panelx.workers.dev', ENV, stV6, 'u1', null, {});
     const v6e = outV6.entries.find((e) => String(e.addr).startsWith('2606:4700:'));
     check('v6: sub emits bracketed IPv6 endpoint link', !!v6e && v6e.link.includes('@[2606:4700:'), v6e && v6e.link.slice(0, 90));
-    check('svc: host list now covers Claude + AI Studio', T.SVC_TEST_HOSTS.includes('claude.ai') && T.SVC_TEST_HOSTS.includes('aistudio.google.com') && T.SVC_TEST_HOSTS.length === 6);
+    check('svc: hosts cover ChatGPT, Claude, Gemini web + API and AI Studio', T.SVC_TEST_HOSTS.includes('claude.ai') && T.SVC_TEST_HOSTS.includes('chatgpt.com') && T.SVC_TEST_HOSTS.includes('gemini.google.com') && T.SVC_TEST_HOSTS.includes('aistudio.google.com') && T.SVC_TEST_HOSTS.includes('generativelanguage.googleapis.com') && T.SVC_TEST_HOSTS.length === 7);
     // 404 = reachable (API root) — the verdict used for Gemini API in the screenshots
     const chunks404 = [new TextEncoder().encode('HTTP/1.1 404 Not Found\r\n\r\nnope')];
     const mod404 = { _made: [] };
@@ -1057,6 +1057,37 @@ let user;
     check('svc: 404 on an API root counts as reachable (open)', r404.ok === true && r404.status === 404, JSON.stringify(r404));
     const html7 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('panel: v6 accepted hint + svc exit chip handler', html7.includes('2606:4700') && html7.includes('__svcExit'));
+  }
+  // entry-address source (?src=): mixed (default) / qos / host / custom / ech
+  {
+    const st = T.normalizeSettings({
+      ips: ['104.16.1.1', '8.8.8.8', 'relay.example.com', '188.114.97.7'],
+      useDefaults: false, includeHost: true, tlsPorts: [443], plainEnabled: false,
+      proxyIps: [], socksRelays: [], extraSnis: [],
+    });
+    // relay entries (ProxyIP / socks / extra SNI) always dial the worker host — the relay
+    // itself rides in the WS path (entry.wsPath) — so ?src= is asserted over the plain
+    // clean-IP entries only.
+    const addrs = (q) => [...new Set(T.buildConfigEntries('h.dev', ENV, st, 'u1', null, q).entries
+      .filter((e) => !e.wsPath).map((e) => String(e.addr)))];
+    const mixed = addrs({});
+    const qos = addrs({ src: 'qos' });
+    const host = addrs({ src: 'host' });
+    const custom = addrs({ src: 'custom', addr: ['104.16.1.1'] });
+    check('src: mixed (default) keeps the owner IPs and the host anchor',
+      mixed.includes('104.16.1.1') && mixed.includes('8.8.8.8') && mixed.includes('relay.example.com') && mixed.includes('h.dev'),
+      JSON.stringify(mixed));
+    check('src: qos drops non-Cloudflare IPs and bare domains',
+      qos.includes('104.16.1.1') && qos.includes('188.114.97.7') && !qos.includes('8.8.8.8') && !qos.includes('relay.example.com') && !qos.includes('h.dev'),
+      JSON.stringify(qos));
+    check('src: qos never empties the sub (list left intact when nothing is a CF IP)',
+      addrs({ src: 'qos' }).length > 0);
+    check('src: host serves only the worker hostname', host.length === 1 && host[0] === 'h.dev', JSON.stringify(host));
+    check('src: custom serves only ?addr=', custom.length === 1 && custom[0] === '104.16.1.1', JSON.stringify(custom));
+    const htmlS = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
+    check('panel: entry-source picker, note box and src= link param',
+      htmlS.includes('id="bSrc"') && htmlS.includes('id="bSrcNote"') && htmlS.includes('b_src_qos') && htmlS.includes("q.set('src',B.src)"),
+      'bSrc picker wired');
   }
   // beta55: per-country exit latency card (P50/P95) + neighbor badge + svc note
   {
