@@ -24,7 +24,10 @@ globalThis.fetch = (input, init) => {
 };
 const worker = mod.default; const T = mod._testing;
 let failures = 0;
-function check(name, cond, extra) { if (cond) console.log('✓ ' + name); else { failures++; console.error('✗ ' + name + (extra ? ' — ' + extra : '')); } }
+const failed = [];
+// CI's failure report only keeps the tail of the log, so the names are repeated
+// at the very end — otherwise a failure in the middle of this file is invisible.
+function check(name, cond, extra) { if (cond) console.log('✓ ' + name); else { failures++; failed.push(name + (extra ? ' — ' + extra : '')); console.error('✗ ' + name + (extra ? ' — ' + extra : '')); } }
 class FakeKV { constructor(){this.m=new Map();this.writes=0;this.reads=0;} async get(k){this.reads++;return this.m.has(k)?this.m.get(k):null;} async put(k,v){this.writes++;this.m.set(k,v);} async list(){return {keys:[...this.m.keys()].map(name=>({name}))};} async delete(k){this.m.delete(k);} }
 const HOST = 'catpanel-demo.workers.dev';
 const KV = new FakeKV();
@@ -1237,5 +1240,5 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
   check('wave rotation keeps address diversity (>= 12 distinct addresses)', addrs2.length >= 12, 'distinct=' + addrs2.length);
   check('entry limit still respected with many addresses', bigLines.length <= 48 + 8, 'lines=' + bigLines.length);
 }
-console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
+console.log(failures ? ('\n' + failures + ' FAILED\n- ' + failed.join('\n- ')) : '\nALL PASSED');
 process.exit(failures ? 1 : 0);
