@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 67
-        versionName = "1.9.51"
+        versionCode = 160
+        versionName = "1.10.0-beta93"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
@@ -179,6 +179,8 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation(libs.material)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.caverock:androidsvg-aar:1.4")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 

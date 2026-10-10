@@ -105,6 +105,11 @@ class IpHealthStore(context: Context) {
         prefs.edit().putString("events", array.toString()).apply()
     }
 
+    /** Country lock for the pool (empty = follow the active IP's country). */
+    var preferredCountry: String
+        get() = prefs.getString("country", "").orEmpty()
+        set(value) = prefs.edit().putString("country", value.uppercase()).apply()
+
     var autoEnabled: Boolean
         get() = prefs.getBoolean("auto", false)
         set(value) = prefs.edit().putBoolean("auto", value).apply()
@@ -178,10 +183,19 @@ object IpHealthMonitor {
         onProgress: (String) -> Unit = {},
         failFast: Boolean = false,
         extraSnis: List<String> = emptyList(),
+        genomes: NetworkGenomeStore? = null,
+        network: String = "unknown",
+        baseIntervalMinutes: Int = 15,
     ): IpSweepResult = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val entries = store.entries()
-        if (entries.isEmpty()) return@withContext IpSweepResult(emptyList(), emptyList(), emptyList(), 0)
+        val allEntries = store.entries()
+        if (allEntries.isEmpty()) return@withContext IpSweepResult(emptyList(), emptyList(), emptyList(), 0)
+        // Adaptive probing (cognitive engine): stable endpoints are re-checked less often,
+        // suspicious ones more; "replace now" (failFast) always probes everything.
+        val schedule = genomes?.nextProbeAt.orEmpty()
+        val skipped = if (failFast || genomes == null) emptyList() else allEntries.filter { (schedule[it.ip] ?: 0L) > now && it.fails == 0 }
+        val entries = allEntries - skipped.toSet()
+        if (entries.isEmpty()) return@withContext IpSweepResult(allEntries, emptyList(), emptyList(), 0)
 
         val options = IpScanner.ScanOptions(
             sni = sni,
@@ -199,6 +213,11 @@ object IpHealthMonitor {
             }.forEach { deferred ->
                 val (entry, result) = deferred.await()
                 val nowStamp = System.currentTimeMillis()
+                if (genomes != null) {
+                    val g = genomes.genome(entry.ip)
+                    val cls = CognitiveEngine.classify(result, SLOW_MS, g)
+                    genomes.record(entry.ip, Observation(nowStamp, network, result?.pingMs ?: -1L, result?.tlsMs ?: -1L, cls == FailureClass.OK || cls == FailureClass.LATENCY_EXCURSION, cls))
+                }
                 if (result != null && result.tlsOk && result.pingMs <= SLOW_MS) {
                     var best = entry.copy(
                         pingMs = result.pingMs,
@@ -270,7 +289,14 @@ object IpHealthMonitor {
                     } else {
                         null
                     }
-                }.take(need)
+                }
+            }.let { fresh ->
+                // Replacements from the same country as the pool's dominant / preferred country first.
+                val wanted = store.preferredCountry.ifBlank {
+                    kept.groupingBy { it.countryCode.orEmpty() }.eachCount().filterKeys { it.isNotBlank() }.maxByOrNull { it.value }?.key.orEmpty()
+                }
+                if (wanted.isBlank()) fresh.take(need)
+                else (fresh.filter { it.countryCode.equals(wanted, true) } + fresh.filterNot { it.countryCode.equals(wanted, true) }).take(need)
             }
             added += fresh
             // Pair each replacement with the oldest eviction for the log.
@@ -284,7 +310,22 @@ object IpHealthMonitor {
             }
         }
 
-        val finalList = (kept + added).sortedByDescending { it.pingMs == 0L }.take(POOL_SIZE)
+        val merged = kept + added + skipped
+        val finalList = if (genomes != null) {
+            // Multi-objective ranking from each endpoint's history on THIS network.
+            CognitiveEngine.rank(merged, genomes.genomes(merged.map { it.ip }), network).take(POOL_SIZE)
+        } else {
+            merged.sortedByDescending { it.pingMs == 0L }.take(POOL_SIZE)
+        }
+        if (genomes != null) {
+            removed.forEach { genomes.forget(it.removedIp) }
+            val next = HashMap<String, Long>()
+            finalList.forEach { e ->
+                val delay = genomes.genome(e.ip).nextProbeDelayMinutes(baseIntervalMinutes)
+                next[e.ip] = (if (e in skipped) schedule[e.ip] ?: now else now + delay * 60_000L)
+            }
+            genomes.nextProbeAt = next
+        }
         store.saveEntries(finalList)
         store.recordEvents(removed)
         store.lastSweepAt = now

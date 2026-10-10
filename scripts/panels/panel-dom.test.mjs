@@ -1,233 +1,239 @@
+import { JSDOM } from 'jsdom';
 /**
- * Cat Panel DOM test — loads the panel HTML in jsdom, runs the embedded client
- * script and asserts the UI actually renders and reacts.
- *
- * Optional dev tool (needs `npm i jsdom`); the dependency-free suite is
- * scripts/panels/cat-panel.test.mjs. If jsdom is missing this script skips.
- *
+ * DOM smoke test of the v6 panel UI (needs `npm i` for jsdom).
  * Usage: node scripts/panels/panel-dom.test.mjs
  */
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-
 const here = path.dirname(fileURLToPath(import.meta.url));
-const workerPath = path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
-
-let JSDOM;
-let VirtualConsole;
-try {
-  ({ JSDOM, VirtualConsole } = await import('jsdom'));
-} catch (e) {
-  console.log('SKIP: jsdom is not installed (npm i jsdom).');
-  process.exit(0);
-}
-
-const mod = await import(workerPath);
+const mod = await import(path.join(here, '../../app/src/main/assets/panels/catclient.worker.js'));
 const worker = mod.default;
-const HOST = 'catpanel-demo.workers.dev';
-const ENV = {
-  OPEN_PANEL: 'true', // the panel is locked by default in v5; DOM tests look at the unlocked shell
- CF_IPS: '104.16.6.62,172.67.181.32', SNI_LIST: 'cdn.example.ir' };
-
-const html = await (await worker.fetch(new Request('https://' + HOST + '/', { headers: { Host: HOST } }), ENV)).text();
-
+const KV = { m: new Map(), async get(k){return this.m.get(k)??null}, async put(k,v){this.m.set(k,v)}, async list(){return {keys:[]}} };
+const env = { CAT_KV: KV, UUID: '11111111-2222-4333-8444-555555555555', OPEN_PANEL: 'true' };
+const HOST='https://p.workers.dev';
+// beta57 stealth default: the UI lives at /panel — / is the camouflage page.
+const htmlRes = await worker.fetch(new Request(HOST + '/panel'), env, {});
+const html = await htmlRes.text();
 const errors = [];
-const virtualConsole = new VirtualConsole();
-virtualConsole.on('jsdomError', (e) => errors.push('jsdomError: ' + e.message));
-virtualConsole.on('error', (...args) => errors.push('console.error: ' + args.join(' ')));
-
-const pings = [];
-const dom = new JSDOM(html, {
-  runScripts: 'dangerously',
-  url: 'https://' + HOST + '/',
-  pretendToBeVisual: true,
-  virtualConsole,
+let failUserCreate = false;
+let failUserList = false;
+let failIpTest = false;
+let failSubscription = false;
+let emptySubscription = false;
+const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
   beforeParse(window) {
-    window.localStorage.clear();
-    window.confirm = () => false;
-    window.open = () => null;
-    window.fetch = async (url) => {
-      const target = String(url);
-      pings.push(target);
-      await new Promise((r) => setTimeout(r, 1));
-      return new Response('fl=1\ncolo=FRA\n', { status: 200 });
+    window.fetch = async (path, init={}) => {
+      const url = new URL(path, HOST);
+      if (failUserList && url.pathname === '/api/users' && (init.method || 'GET') === 'GET') {
+        return new Response('user-list unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
+      }
+      if (failIpTest && url.pathname === '/api/ip-test') {
+        return new Response('probe unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
+      }
+      if (failUserCreate && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'internal', message: 'diagnostic detail https://example.test/private/11111111-2222-4333-8444-555555555555' }), {
+          status: 500, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (failSubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('worker-private-body', { status: 502, headers: { 'content-type': 'text/plain' } });
+      }
+      if (emptySubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('\n', { status: 200, headers: { 'content-type': 'text/plain' } });
+      }
+      const r = await worker.fetch(new Request(url, { method: init.method||'GET', headers: init.headers||{}, body: init.body }), env, {});
+      return r;
     };
-  },
-});
+    window.confirm = () => true;
+    if (!window.URL.createObjectURL) window.URL.createObjectURL = () => 'blob:mock';
+    if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = () => {};
+    window.addEventListener('error', (e) => errors.push(e.error ? String(e.error.stack||e.error) : e.message));
+    window.console.error = (...a) => errors.push(a.join(' '));
+  } });
+const { window } = dom; const { document } = window;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+await sleep(300);
+let failures=0; const check=(n,c,x)=>{ if(c) console.log('✓ '+n); else { failures++; console.error('✗ '+n+(x?' — '+x:'')); } };
+check('no JS errors on load', errors.length===0, errors.join('\n'));
+check('stats rendered', document.querySelector('#stUsers').textContent==='0');
+check('i18n applied (fa)', document.querySelector('[data-i="users"]').textContent.length>2 && document.documentElement.dir==='rtl');
+check('kv chip ok', document.querySelector('#chipKv').classList.contains('ok'));
+// add user via drawer
+document.querySelector('#btnAdd').click();
+check('drawer opens', document.querySelector('#drawer').classList.contains('show'));
+const f = document.querySelector('#fUser'); f.elements.uname.value='sara'; f.elements.days.value='15';
+f.dispatchEvent(new window.Event('submit', { cancelable: true }));
+await sleep(300);
+check('user created + rendered', document.querySelectorAll('#rows tr').length===1 && document.querySelector('#rows').textContent.includes('sara'), document.querySelector('#rows').innerHTML.slice(0,200));
+check('stat updated', document.querySelector('#stUsers').textContent==='1');
+// toggle
+document.querySelector('[data-toggle]').click(); await sleep(300);
+check('toggle → disabled chip', document.querySelector('#rows').textContent.includes('غیرفعال'));
+// settings save
+document.querySelector('[data-view="settings"]').click();
+check('settings view shown', document.querySelector('#v-settings').classList.contains('on'));
+const fs = document.querySelector('#fSettings'); fs.elements.ptitle.value='My Cat'; fs.elements.entryLimit.value='20';
+document.querySelector('#swHealth').click();
+fs.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(300);
+check('settings saved → brand title', document.querySelector('#brandTitle').textContent==='My Cat');
+check('health-order control persists scanner ordering', (await (await window.fetch('/api/settings')).json()).settings.healthOrder === true);
+// IP list: scanner handoff is visible from Nodes; pasted country tags survive,
+// append is the default, and only the separate Replace button clears the list.
+await window.fetch('/api/ips', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ips:['203.0.113.4:443#FR'],source:'manual'}) });
+document.querySelector('#ipPaste').value='1.1.1.1#DE, 2.2.2.2#NL\nexample.com#GB nope';
+document.querySelector('#btnIpAppend').click(); await sleep(300);
+let importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
+check('Nodes offers direct Cat Client scanner handoff', document.querySelector('#btnNodeScanApp').href.startsWith('catclient://scan?') && document.querySelector('#btnNodeScanApp').href.includes('panel='+encodeURIComponent(HOST)));
+check('scan import appends and preserves country tags', document.querySelector('#ipCount').textContent==='4' && importedSettings.ips.includes('203.0.113.4:443') && importedSettings.ipCountries['1.1.1.1']==='DE' && importedSettings.ipCountries['2.2.2.2']==='NL' && importedSettings.ipCountries['example.com']==='GB' && importedSettings.ipSources['1.1.1.1'].src==='scanner', JSON.stringify({ips:importedSettings.ips,tags:importedSettings.ipCountries}));
+document.querySelector('#ipPaste').value='198.51.100.42#US';
+document.querySelector('#btnIpReplace').click(); await sleep(300);
+importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
+check('replace only clears the list when its explicit button is clicked', importedSettings.ips.length===1 && importedSettings.ips[0]==='198.51.100.42' && importedSettings.ipCountries['198.51.100.42']==='US');
+// delete user — goes through the ask() modal now (no native confirm)
+document.querySelector('[data-del]').click(); await sleep(100);
+check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
+document.querySelector('#askYes').click(); await sleep(300);
+check('user deleted', document.querySelectorAll('#rows tr').length===0);
+// A failed write must show a useful, redacted API reason instead of the generic «error» toast.
+failUserCreate = true;
+document.querySelector('#btnAdd').click();
+const fFail = document.querySelector('#fUser'); fFail.elements.uname.value='diagnostic-user'; fFail.elements.days.value='30';
+fFail.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
+const saveError = document.querySelector('#toast').textContent;
+check('user-save error shows detail but redacts URLs + UUIDs', saveError.includes('HTTP 500') && saveError.includes('internal') && saveError.includes('diagnostic detail') && !saveError.includes('example.test') && !saveError.includes('11111111-2222-4333-8444-555555555555'), saveError);
+failUserCreate = false;
+document.querySelector('[data-close]').click();
+// A 201 create followed by a failed GET is not a failed save; don't mislead the owner into retrying.
+failUserList = true;
+document.querySelector('#btnAdd').click();
+const fRefresh = document.querySelector('#fUser'); fRefresh.elements.uname.value='saved-but-refresh-failed'; fRefresh.elements.days.value='30';
+fRefresh.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(200);
+const refreshError = document.querySelector('#toast').textContent;
+check('post-save refresh error says the user was saved', refreshError.includes('ذخیره شد') && refreshError.includes('HTTP 503'), refreshError);
+failUserList = false;
+const usersAfterRefreshError = await (await window.fetch('/api/users')).json();
+check('user persists after refresh-only failure', usersAfterRefreshError.users.some(u => u.name === 'saved-but-refresh-failed'));
+// settings export: real click → a download anchor appears (BPB-style backup)
+document.querySelector('[data-view="settings"]').click();
+document.querySelector('#btnSetExport').click(); await sleep(100);
+check('settings export → download anchor', !!document.querySelector('a[download="cat-panel-settings.json"]'));
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-await wait(200);
-const { document } = dom.window;
-const win = dom.window;
-
-let failures = 0;
-const check = (name, cond, extra) => {
-  const ok = !!cond;
-  if (!ok) failures++;
-  console.log((ok ? '✓ ' : '✗ ') + name + (!ok && extra ? ' — ' + extra : ''));
-};
-const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-
-const realErrors = errors.filter((e) => !e.includes('scrollTo'));
-check('no script errors', realErrors.length === 0, realErrors.join(' | '));
-check('state injected', win.CAT_STATE?.host === HOST);
-check('nine tabs render (spoof + precise included)', document.querySelectorAll('.side-nav button').length === 9, String(document.querySelectorAll('.side-nav button').length));
-check('precise scanner tab section renders', !!document.querySelector('[data-tab-panel="precise"]') && !!document.getElementById('preciseStart') && !!document.getElementById('preciseTable'));
-check('cipherSuites edit card renders in Spoof', !!document.getElementById('spoofCipherSuites') && !!document.getElementById('cipherSuitesSave'));
-check('operator chips render in scanner + builder', document.querySelectorAll('#scanOps .chip[data-op]').length >= 6 && document.querySelectorAll('#cfgOps .chip[data-op]').length >= 6, String(document.querySelectorAll('#scanOps .chip[data-op]').length) + '/' + String(document.querySelectorAll('#cfgOps .chip[data-op]').length));
-check('users tab exists', !!document.querySelector('[data-tab-panel="users"]'));
-check('tools tab exists', !!document.querySelector('[data-tab-panel="tools"]'));
-check('home tab active by default', document.querySelector('[data-tab-panel="home"]').classList.contains('active'));
-check('config table filled', document.querySelectorAll('#cfgTable tr').length >= 5);
-check('IR clean-IP library listed', (document.querySelector('#irIpsOut')?.textContent || '').includes('104.16.0.1'));
-check('tools expose KV state', !!document.querySelector('#tSave') && !!document.querySelector('#selfTable'));
-const allLinks = document.querySelector('#cfgAllText')?.textContent || '';
-check('links include vless/trojan/warp', allLinks.includes('vless://') && allLinks.includes('trojan://') && allLinks.includes('warp://'));
-check('clean-IP variants built', allLinks.includes('104.16.6.62'));
-const dnsRows = document.querySelectorAll('#dnsTable tr').length;
-check('dns table filled', dnsRows >= 6, 'rows=' + dnsRows);
-check('dns presets include new resolvers', (document.querySelector('#dnsTable')?.textContent || '').includes('dns.mullvad.net'));
-check('custom DoH/DoT inputs render', !!document.querySelector('#dohCustom') && !!document.querySelector('#dotCustom'));
-check('DoT presets render', document.querySelectorAll('#dotTable tr').length >= 6 || document.body.innerHTML.includes('one.one.one.one'));
-check('theme picker renders options', document.querySelectorAll('[data-theme-pick]').length === 5);
-check('single-config builder renders', !!document.querySelector('#singleBuild') && !!document.querySelector('#singleAddr'));
-check('single config builds a vless link', (() => {
-  document.querySelector('#singleAddr').value = '104.16.6.62';
-  document.querySelector('#singleName').value = 'Cat Single';
-  click(document.querySelector('#singleBuild'));
-  const out = document.querySelector('#singleOut').textContent;
-  return out.startsWith('vless://') && out.includes('104.16.6.62') && out.includes(HOST);
-})(), (document.querySelector('#singleOut') || {}).textContent);
-check('single config add link points at the app', (document.querySelector('#singleAdd')?.getAttribute('href') || '').startsWith('catclient://add-sub?url='));
-check('theme switch toggles the body attribute', (() => {
-  click(document.querySelector('[data-theme-pick="mono"]'));
-  return win.document.documentElement.getAttribute('data-theme') === 'mono';
-})());
-check('sub + doh urls shown', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub') && (document.querySelector('#dohUrlText')?.textContent || '').includes('/dns-query'));
-check('deep link present', document.body.innerHTML.includes('catclient://add-sub?url='));
-check('scan targets embedded', (win.CAT_STATE?.scanTargets || []).length > 20);
-check('scanner sni prefilled with panel host', document.querySelector('#scanSni')?.value === HOST);
-check('config builder lists CF_IPS as addresses', (document.querySelector('#cfgAddresses')?.value || '').includes('104.16.6.62'));
-check('sub url carries the uuid', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub/' + win.CAT_STATE.uuid));
-check('config table has address × port rows', document.querySelectorAll('#cfgTable tr').length >= 6);
-
-click(document.querySelector('#subFormats .chip[data-fmt="/clash"]'));
-check('format chip switches url', (document.querySelector('#subUrlText')?.textContent || '').includes('/clash'));
-
-// --- BPB-style builder: pick ports + protocol, apply, url + table update ---
-check('BPB default ports preselected (80,443,2053,8443,8080)', ['80', '443', '2053', '8443', '8080'].every((p) => document.querySelector('#cfgPorts .chip[data-port="' + p + '"]')?.classList.contains('active')));
-click(document.querySelector('#cfgPorts .chip[data-port="8443"]')); // off
-click(document.querySelector('#cfgPorts .chip[data-port="8080"]')); // off
-click(document.querySelector('#cfgPorts .chip[data-port="2083"]')); // on
-click(document.querySelector('#cfgProtos .chip[data-proto="trojan"]')); // turn trojan off
-document.querySelector('#cfgSni').value = 'cdn.example.ir';
-click(document.querySelector('#cfgApply'));
-await wait(20);
-const cfgUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
-check('apply embeds ports in the sub url', cfgUrl.includes('ports=443,2053,2083,80'), cfgUrl);
-check('apply embeds protocol filter', cfgUrl.includes('proto=vless'), cfgUrl);
-check('apply embeds custom sni', cfgUrl.includes('sni=cdn.example.ir'), cfgUrl);
-const allText = document.querySelector('#cfgAllText')?.textContent || '';
-check('table drops trojan after toggle', !allText.includes('trojan://'));
-check('table has plain-http port-80 config', allText.includes(':80?encryption=none&security=none'));
-check('table has tls port-2053 config', allText.includes(':2053?encryption=none&security=tls'));
-const embeddedSub = await (await worker.fetch(new Request(cfgUrl.replace('/clash', ''), { headers: { Host: HOST } }), ENV)).text();
-const decodedSub = Buffer.from(embeddedSub, 'base64').toString('utf8');
-check('worker honours the embedded options', decodedSub.includes('@104.16.6.62:2053') && decodedSub.includes('sni=cdn.example.ir') && !decodedSub.includes('trojan://'));
-
-click(document.querySelector('#langBtn'));
-check('language toggles to EN', document.body.getAttribute('data-lang') === 'en');
-check('nav labels translated', document.querySelector('[data-nav-label="home"]').textContent === 'Home');
-click(document.querySelector('#langBtn'));
-check('language toggles back to FA', document.body.getAttribute('data-lang') === 'fa');
-
-// --- §52 control-center drawer ---
-check('nav badge shows clean-ip count', document.querySelector('.side-nav button[data-tab="configs"] .nav-badge')?.textContent === '2');
-check('nav badges are numeric', Array.from(document.querySelectorAll('.side-nav .nav-badge')).every((b) => /^\d+$/.test(b.textContent)));
-check('side brand shows control-center subtitle', document.querySelector('#sideSub')?.textContent.includes('مرکز کنترل'));
-click(document.querySelector('#burgerBtn'));
-check('burger opens the drawer + backdrop', document.querySelector('#hmenu').classList.contains('show') && document.querySelector('#drawerBg').classList.contains('show'));
-click(document.querySelector('#drawerBg'));
-check('backdrop click closes the drawer', !document.querySelector('#hmenu').classList.contains('show') && !document.querySelector('#drawerBg').classList.contains('show'));
-click(document.querySelector('#burgerBtn'));
-click(document.querySelector('#hmenu [data-setlang="en"]'));
-check('drawer lang pill switches to EN + active sync', document.body.getAttribute('data-lang') === 'en' && document.querySelector('#hmenu [data-setlang="en"]').classList.contains('active'));
-check('drawer nav is translated', document.querySelector('#hmenu [data-nav-label="home"]').textContent === 'Home');
-click(document.querySelector('#hmenu [data-setlang="fa"]'));
-check('drawer lang pill back to FA', document.body.getAttribute('data-lang') === 'fa');
-check('drawer has its own lang pill + meta', document.querySelectorAll('#hmenu [data-setlang]').length === 2 && !!document.querySelector('#hmenu .drawer-foot'));
-check('BUGFIX: drawer + backdrop are body-level (not inside the sticky glass header)', !document.querySelector('#hmenu').closest('header.top') && !document.querySelector('#drawerBg').closest('header.top'));
-check('hero has the Aras-style connect pill', (document.querySelector('.hero-cta .cta-main')?.getAttribute('href') || '').startsWith('catclient://add-sub') && !!document.querySelector('.hero-cta [data-copy-sub]'));
-check('builder shows the SNI-filter diagnosis hint (FA)', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.includes('workers.dev'));
-click(document.querySelector('#langBtn'));
-check('builder hint translated to EN', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.startsWith('💡 Most configs get no ping'));
-click(document.querySelector('#langBtn'));
-
-click(document.querySelector('.side-nav button[data-tab="scanner"]'));
-check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));
-
-click(document.querySelector('[data-qr-target="subUrlText"]'));
-check('QR modal opens with svg url', (document.querySelector('#qrImg')?.getAttribute('src') || '').includes('/qr.svg?d='));
-
-// --- run a scan against the stubbed fetch and use the results ---
-document.querySelector('#scanLimit').value = '8';
-click(document.querySelector('#scanStart'));
-await wait(600);
-const scanRows = document.querySelectorAll('#scanTable tr').length;
-check('scan produced result rows', scanRows >= 1, 'rows=' + scanRows);
-check('scan probed the CDN trace endpoint', pings.some((u) => u.includes('/cdn-cgi/trace')), pings.slice(0, 2).join(','));
-check('scan status reports completion', (document.querySelector('#scanStatus')?.textContent || '').length > 0);
-document.querySelectorAll('#scanTable [data-ip-check]').forEach((cb) => { cb.checked = true; cb.dispatchEvent(new win.Event('change', { bubbles: true })); });
-click(document.querySelector('#useIpsInConfigs'));
-await wait(50);
-check('scan → configs moves ips into the builder', document.querySelector('[data-tab-panel="configs"]').classList.contains('active') && (document.querySelector('#cfgAddresses')?.value || '').split('\n').length >= 2);
-check('scan → configs rebuilt the sub url', (document.querySelector('#cfgSubUrl')?.textContent || '').includes('ips='));
-
-// --- scanner multi-port (5.23.7): add 8080 to the scan set ---
-document.querySelector('#scanClear').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-click(document.querySelector('#scanPortChips .chip[data-port="8080"]'));
-document.querySelector('#scanLimit').value = '8';
-click(document.querySelector('#scanStart'));
-await wait(600);
-check('scanner probes user-added ports (8080) from the browser', pings.some((u) => u.includes(':8080/')));
-check('added-port results render in the row', (document.querySelector('#scanTable')?.textContent || '').includes('8080:'));
-click(document.querySelector('#useIpsInConfigs'));
-await wait(50);
-const ports2 = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
-check('applied configs keep 80+443 and gain 8080 when it answers', ['80', '443', '8080'].every((x) => ports2.includes(x)), ports2.join(','));
-
-const activePorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
-check('scan → configs syncs the ALIVE port chips (80+443)', activePorts.includes('80') && activePorts.includes('443'), 'chips=' + activePorts.join(','));
-const portsParam = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
-check('sub url keeps the proven ports on', portsParam.includes('80') && portsParam.includes('443'), portsParam.join(','));
-
-// --- quick build (recommended recipe, 5.23.8): env SNI prefill 'cdn.example.ir' -> TLS recipe ---
-click(document.querySelector('#cfgQuickBuild'));
-await wait(50);
-const qbPorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
-check('quick build picks the TLS recipe (clean SNI present)', ['443', '2053', '2083', '8443'].every((x) => qbPorts.includes(x)) && !qbPorts.includes('80'), qbPorts.join(','));
-const qbAddr = (document.querySelector('#cfgAddresses')?.value || '').split('\n').filter(Boolean);
-check('quick build fills ≤10 verified/default IPs', qbAddr.length >= 1 && qbAddr.length <= 10, 'rows=' + qbAddr.length);
-check('quick build drops host + v6 entries', !document.querySelector('#cfgProtos .chip[data-flag="host"]').classList.contains('active') && !document.querySelector('#cfgProtos .chip[data-flag="v6"]').classList.contains('active'));
-const qbUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
-check('quick build sub: no host, no v6, TLS ports on', qbUrl.includes('host=0') && qbUrl.includes('v6=0') && qbUrl.includes('443'), qbUrl.slice(0, 130));
-
-// --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
-const payload = 'https://' + HOST + '/sub';
-const svg = await (await worker.fetch(new Request('https://' + HOST + '/qr.svg?d=' + encodeURIComponent(payload)), ENV)).text();
-const countSvg = ((svg.match(/<path d="([^"]*)"/) || [])[1]?.match(/M/g) || []).length;
-const encoded = mod._testing.qrEncode(payload, 'M');
-const countLocal = encoded.modules.reduce((n, row) => n + row.filter(Boolean).length, 0);
-check('qr svg served', svg.startsWith('<svg') && countSvg > 0);
-check('qr svg module count matches the encoder', countLocal === countSvg, `${countLocal} encoder vs ${countSvg} svg`);
-try {
-  const { default: QRCode } = await import('qrcode');
-  const ref = QRCode.create([{ data: payload, mode: 'byte' }], { errorCorrectionLevel: 'M' });
-  const countRef = ref.modules.data.reduce((n, v) => n + (v ? 1 : 0), 0);
-  check('qr svg module count matches the reference library', countRef === countSvg, `${countRef} ref vs ${countSvg} svg`);
-} catch (e) {
-  console.log('· skipped cross-library QR comparison (npm i qrcode)');
+// settings import: real File → FileReader → merged PUT → UI re-renders
+{
+  const file = new window.File([JSON.stringify({ _cat: 'cat-panel-settings', v: 1, settings: { title: 'ImportedTitle' } })], 's.json', { type: 'application/json' });
+  const inp = document.querySelector('#setImportFile');
+  Object.defineProperty(inp, 'files', { value: [file] });
+  inp.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(400);
+  check('settings import → merged + rendered', document.querySelector('#brandTitle').textContent === 'ImportedTitle', document.querySelector('#brandTitle').textContent);
+  check('import did not touch chain field', inp && document.querySelector('#fSettings').elements.chain !== undefined);
 }
 
-console.log(failures === 0 ? '\nPANEL DOM TESTS PASSED' : `\n${failures} DOM TEST(S) FAILED`);
-process.exit(failures ? 1 : 0);
+// about view: supported clients card (BPB parity)
+document.querySelector('[data-view="about"]').click();
+check('supported clients card', document.querySelectorAll('.clients a').length === 6 && document.querySelector('.clients').textContent.includes('v2rayNG'));
+
+// hamburger menu: burger opens the drawer, items are labeled, view switch closes it
+document.querySelector('#btnBurger').click(); await sleep(80);
+check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
+check('menu has 10 labeled items', document.querySelectorAll('#menu .mlist > button').length === 10 && document.querySelector('#menu .mtx b').textContent.length > 2);
+document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
+check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
+check('no bottom nav in DOM', !document.querySelector('.nav'));
+
+// 6.47.0 grouping: settings form split into 10 labeled topic cards (chain no
+// longer sits next to the deploy block); health endpoint de-fingerprinted
+document.querySelector('[data-view="settings"]').click();
+check('settings = 10 topic cards', document.querySelectorAll('#fSettings > .card.sec').length === 10, document.querySelectorAll('#fSettings > .card.sec').length);
+check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').textContent.length > 3);
+{
+  const cards = Array.from(document.querySelectorAll('#fSettings > .card.sec'));
+  const chainCard = cards.find(c => c.querySelector('[data-i="g_chain"]'));
+  const ghCard = cards.find(c => c.querySelector('[data-i="g_gh"]'));
+  check('chain card separate from deploy card', !!chainCard && !!ghCard && chainCard !== ghCard);
+  const order = cards.findIndex(c => c.querySelector('input[name="chain"]'));
+  const tg = cards.findIndex(c => c.querySelector('input[name="tgToken"]'));
+  check('chain card comes before telegram card', order >= 0 && tg >= 0 && order < tg);
+}
+
+// 6.48.0: service-proof card (BPB parity) in the nodes view
+document.querySelector('[data-view="nodes"]').click();
+check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
+await sleep(100);
+check('Clean-IP auto-append visibly starts ON', document.querySelector('#rpAuto').textContent.includes('روشن'));
+document.querySelector('#rpAuto').click(); await sleep(180);
+let repoUiState=(await (await window.fetch('/api/repos')).json());
+check('Clean-IP toggle explicitly turns auto-append OFF', repoUiState.auto===false && document.querySelector('#rpAuto').textContent.includes('خاموش'));
+document.querySelector('#rpAuto').click(); await sleep(180);
+repoUiState=(await (await window.fetch('/api/repos')).json());
+check('Clean-IP toggle can turn auto-append back ON', repoUiState.auto===true && document.querySelector('#rpAuto').textContent.includes('روشن'));
+
+// 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
+check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
+const css = document.querySelector('style') ? Array.from(document.querySelectorAll('style')).map(x => x.textContent).join('') : '';
+check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyframes marq') && css.includes('prefers-reduced-motion'));
+
+// beta58: ✍️ manual add — real click, real POST, real storage (regression:
+// a template-literal escape bug once mangled every entry into «a.com:443»)
+{
+  const before = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  document.querySelector('#manualIps').value = '198.51.100.55';
+  document.querySelector('#manualTest').checked = true;
+  failIpTest = true;
+  document.querySelector('#btnManualAdd').click();
+  await sleep(120);
+  failIpTest = false;
+  const afterFailedProbe = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  check('failed manual test does not silently add untested IPs', afterFailedProbe === before && document.querySelector('#toast').textContent.includes('HTTP 503'));
+  document.querySelector('#manualIps').value = '198.51.100.9\n2606:4700:4700::1111\nwww.visa.com';
+  document.querySelector('#manualTest').checked = false;
+  document.querySelector('#btnManualAdd').click();
+  await sleep(400);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  const ips = st.ips || [];
+  check('manual add: 3 entries stored', ips.includes('198.51.100.9:443') && ips.includes('[2606:4700:4700::1111]:443') && ips.includes('www.visa.com:443'), JSON.stringify(ips));
+  check('manual add: list grew by 3', ips.length === before + 3, before + ' → ' + ips.length);
+  check('manual add: src=manual badge', !!(st.ipSources && Object.values(st.ipSources).some((v) => v && v.src === 'manual')));
+}
+// beta90 survival card: the real button reaches the owner-only API, applies
+// the safe SNI=Host fallback set, and renders the emergency subscription URL.
+{
+  check('survival pack card + button are present', !!document.querySelector('#survCard #btnSurvival') && document.querySelector('#survCard [data-i="surv_title"]').textContent.length > 3);
+  document.querySelector('#btnSurvival').click();
+  await sleep(700);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  check('survival button applies fallback settings', st.subRotate === 'daily' && st.sniFront === false && st.sniRotate === false && st.plainEnabled && st.healthOrder === true && st.protocols.vless && st.protocols.trojan, JSON.stringify([st.subRotate, st.sniFront, st.sniRotate, st.plainEnabled, st.healthOrder, st.protocols]));
+  const a = document.querySelector('#survOut a');
+  check('survival button renders shareable ?survive=1 link', !!a && a.href.endsWith('?survive=1'), a && a.href);
+  const surviveFormats = Array.from(document.querySelectorAll('#survOut [data-copy]')).map(b => b.getAttribute('data-copy'));
+  check('survival has raw, base64, Clash, sing-box and Xray format links', surviveFormats.length === 5 && surviveFormats.some(u => u.includes('/clash/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/singbox/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/xray/') && u.endsWith('?survive=1')), surviveFormats.join(' | '));
+}
+
+// The builder must surface HTTP failures rather than mislabeling them «no clean IPs».
+{
+  document.querySelector('[data-view="build"]').click();
+  failSubscription = true;
+  document.querySelector('#bGen').click();
+  await sleep(100);
+  check('builder shows HTTP status when subscription request fails', document.querySelector('#bEmpty').textContent.includes('HTTP 502'), document.querySelector('#bEmpty').textContent);
+  check('builder does not expose the raw response body', !document.querySelector('#bEmpty').textContent.includes('worker-private-body'));
+  failSubscription = false;
+  document.querySelector('#bGen').click();
+  await sleep(250);
+  const generatedCount = Number(document.querySelector('#bCount').textContent);
+  const generatedPreview = document.querySelector('#bPrev').value;
+  check('builder counts successful URI lines', generatedCount > 0 && generatedCount <= 24, String(generatedCount));
+  check('builder preview contains generated configs', /^(vless|trojan):\/\//m.test(generatedPreview), generatedPreview.slice(0, 100));
+  emptySubscription = true;
+  document.querySelector('#bGen').click();
+  await sleep(150);
+  check('builder distinguishes a successful but empty HTTP response', document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'));
+  emptySubscription = false;
+}
+
+// lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
+check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));
+// login page + info page parse
+const login = await (await worker.fetch(new Request(HOST + '/panel'), { CAT_KV: KV, UUID: env.UUID }, {})).text();
+const d2 = new JSDOM(login, { runScripts:'dangerously' }); check('login page has form', !!d2.window.document.querySelector('#f'));
+console.log(failures ? failures+' FAILED' : 'DOM PASSED'); process.exit(failures?1:0);

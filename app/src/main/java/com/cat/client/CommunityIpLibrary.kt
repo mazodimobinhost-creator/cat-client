@@ -90,10 +90,17 @@ object CommunityIpLibrary {
         "199.181.197.246,199.181.197.247,199.181.197.248,199.181.197.250,199.181.197.252,199.181.197.253,199.181.197.254,199.181.197.255,203.32.121.53,209.46.30.18",
     )
 
-    /** Deduplicated candidate IPs, in stable order. */
+    /**
+     * Deduplicated candidate IPs, in stable order — CLOUDFLARE RANGES ONLY.
+     * The imported public lists carried ~183 non-CF VPS relays (96.44.x,
+     * 64.181.x, 107.175.x, …). A non-CF address can never complete a
+     * CF-fronting TLS handshake, so as scan candidates they only produced
+     * dead configs («این‌ها پینگ نمی‌دهند»). They belong to ProxyIP feeds.
+     */
     val ips: List<String> = raw
         .flatMap { it.split(',') }
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinct()
+        .filter { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(false) }
 }

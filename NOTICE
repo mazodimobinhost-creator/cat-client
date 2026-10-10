@@ -1,0 +1,8 @@
+Cat Client — third-party notices
+
+The Map screen's world outline asset (app/src/main/assets/map/world.bin) and the
+visual design of the Map, Home hero and traffic indicators are derived from
+ZedSecure by CluvexStudio (https://github.com/CluvexStudio/ZedSecure), licensed
+under the GNU Affero General Public License v3.0. The ported pieces
+(WorldMap.kt, ZedWorldMapView.kt, ZedMotion.kt, ZedBlobView.kt) remain available
+under AGPL-3.0 alongside this project's GPL-3.0 licence.
