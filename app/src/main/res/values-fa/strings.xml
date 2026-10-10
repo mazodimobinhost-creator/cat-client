@@ -994,7 +994,7 @@
     <string name="chain_push_title">خروجی ثابت پنل: %1$s</string>
     <string name="chain_push_ok">🟢 شد — همهٔ کانفیگ‌های پنل از %1$s رد می‌شوند؛ ساب را رفرش کن</string>
     <string name="chain_push_fail">نشد: %1$s</string>
-    <string name="scanner_replace_mode">🧹 جایگزینی کل لیست پنل (به‌جای افزودن)</string>
+    <string name="scanner_replace_mode">🧹 جایگزینی کل لیست پنل (تیک بزن؛ پیش‌فرض افزودن)</string>
     <string name="scanner_panel_replaced">🧹 جایگزین شد — لیست پنل الان %1$d آی‌پی است</string>
     <string name="pip_replace_mode">🧹 جایگزینی کل لیست ProxyIP (فقط همین‌ها)</string>
     <string name="pip_ports">پورت‌های اسکن — پورتِ نتیجه دقیقاً همین می‌ماند</string>

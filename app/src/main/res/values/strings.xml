@@ -995,7 +995,7 @@
     <string name="chain_push_title">Panel fixed exit: %1$s</string>
     <string name="chain_push_ok">🟢 done — every panel config now exits via %1$s; refresh the sub</string>
     <string name="chain_push_fail">failed: %1$s</string>
-    <string name="scanner_replace_mode">🧹 Replace the whole panel list (instead of appending)</string>
+    <string name="scanner_replace_mode">🧹 Replace whole panel list (unchecked = append by default)</string>
     <string name="scanner_panel_replaced">🧹 replaced — panel list is now %1$d IPs</string>
     <string name="pip_replace_mode">🧹 Replace the whole ProxyIP list (only these)</string>
     <string name="pip_ports">Scan ports — result keeps exactly this port</string>

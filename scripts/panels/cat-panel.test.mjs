@@ -91,7 +91,9 @@ const auth = { cookie };
   check('built-in v6 pool exported (11 anycast)', Array.isArray(T.CF_V6_POOL) && T.CF_V6_POOL.length === 11);
 }
 { const r = await req('/panel', { headers: auth }); const b = await r.text(); check('/panel shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
-{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
+{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER));
+  check('Clean-IP auto-append defaults on, migrates legacy implicit false, and keeps an explicit opt-out', j.settings.repoAuto === true && j.settings._repoAutoConfigured === undefined && T.normalizeSettings({ repoAuto: false }).repoAuto === true && T.normalizeSettings({ repoAuto: false, _repoAutoConfigured: true }).repoAuto === false);
+}
 // subscription master
 { const r = await req('/sub/' + MASTER + '?rotate=off'); const b = await r.text();
   check('/sub/<uuid> 200', r.status===200);
@@ -729,7 +731,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.60.0', T.CAT_PANEL_VERSION === '6.60.0');
+  check('panel version is 6.61.0', T.CAT_PANEL_VERSION === '6.61.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -740,10 +742,10 @@ let user;
   const prov = T.normalizeSettings({ ipSources: { '9.9.9.9:443': { src: 'scanner', ms: 210, at: 9 } } });
   check('ip provenance (src+ping) persisted', !!(prov.ipSources && prov.ipSources['9.9.9.9:443'] && prov.ipSources['9.9.9.9:443'].src === 'scanner'), JSON.stringify(prov.ipSources));
   {
-    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.77:443#DE'], source:'scanner', pingMs:{ '198.51.100.77:443#DE': 341 } } }); const j = await r.json();
+    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.77:443#DE'], source:'scanner', pingMs:{ '198.51.100.77:443#DE': 341 }, countries:{ '198.51.100.77:443#DE':'DE' } } }); const j = await r.json();
     check('ips import accepted provenance payload', j.ok === true && j.ips.includes('198.51.100.77:443'), JSON.stringify(j.ips));
     const st3 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-    check('provenance badge stored (scanner + 341ms)', !!(st3.ipSources && st3.ipSources['198.51.100.77:443#DE'] && st3.ipSources['198.51.100.77:443#DE'].ms === 341), JSON.stringify(st3.ipSources));
+    check('scanner provenance and country map normalize to stored address', !!(st3.ipSources && st3.ipSources['198.51.100.77:443'] && st3.ipSources['198.51.100.77:443'].src === 'scanner' && st3.ipSources['198.51.100.77:443'].ms === 341 && st3.ipCountries['198.51.100.77:443'] === 'DE' && !st3.ipSources['198.51.100.77:443#DE']), JSON.stringify({ sources: st3.ipSources, countries: st3.ipCountries }));
     const anon = await req('/api/ip-test', { method:'POST', body:{ ips:['1.2.3.4'] } }); check('ip-test 401 without session', anon.status === 401);
     const emp = await req('/api/ip-test', { method:'POST', headers: auth, body:{ ips: [] } }); const je = await emp.json();
     check('ip-test empty list → empty results', je.ok === true && Object.keys(je.results).length === 0);
@@ -1005,8 +1007,8 @@ let user;
     const j = await r.json();
     check('neighbor: import ok with neighborIps', j.ok === true && j.ips.includes('203.0.113.90:443') && j.ips.includes('203.0.113.91:443'), JSON.stringify(j));
     const st6 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-    const s90 = st6.ipSources && st6.ipSources['203.0.113.90:443#DE'];
-    const s91 = st6.ipSources && st6.ipSources['203.0.113.91:443#DE'];
+    const s90 = st6.ipSources && st6.ipSources['203.0.113.90:443'];
+    const s91 = st6.ipSources && st6.ipSources['203.0.113.91:443'];
     check('neighbor: flagged IP gets src=neighbor', !!s91 && s91.src === 'neighbor' && s91.ms === 102, JSON.stringify(s91));
     check('neighbor: regular scanner IP keeps src=scanner', !!s90 && s90.src === 'scanner', JSON.stringify(s90));
     const html9 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');

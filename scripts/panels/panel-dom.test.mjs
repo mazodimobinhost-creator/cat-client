@@ -17,6 +17,7 @@ const html = await htmlRes.text();
 const errors = [];
 let failUserCreate = false;
 let failUserList = false;
+let failIpTest = false;
 let failSubscription = false;
 let emptySubscription = false;
 const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
@@ -25,6 +26,9 @@ const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', preten
       const url = new URL(path, HOST);
       if (failUserList && url.pathname === '/api/users' && (init.method || 'GET') === 'GET') {
         return new Response('user-list unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
+      }
+      if (failIpTest && url.pathname === '/api/ip-test') {
+        return new Response('probe unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
       }
       if (failUserCreate && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
         return new Response(JSON.stringify({ ok: false, error: 'internal', message: 'diagnostic detail https://example.test/private/11111111-2222-4333-8444-555555555555' }), {
@@ -73,10 +77,18 @@ document.querySelector('#swHealth').click();
 fs.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(300);
 check('settings saved → brand title', document.querySelector('#brandTitle').textContent==='My Cat');
 check('health-order control persists scanner ordering', (await (await window.fetch('/api/settings')).json()).settings.healthOrder === true);
-// ip import
-document.querySelector('#ipPaste').value='1.1.1.1, 2.2.2.2\nexample.com nope';
+// IP list: scanner handoff is visible from Nodes; pasted country tags survive,
+// append is the default, and only the separate Replace button clears the list.
+await window.fetch('/api/ips', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ips:['203.0.113.4:443#FR'],source:'manual'}) });
+document.querySelector('#ipPaste').value='1.1.1.1#DE, 2.2.2.2#NL\nexample.com#GB nope';
 document.querySelector('#btnIpAppend').click(); await sleep(300);
-check('ips imported', document.querySelector('#ipCount').textContent==='3', document.querySelector('#ipCount').textContent);
+let importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
+check('Nodes offers direct Cat Client scanner handoff', document.querySelector('#btnNodeScanApp').href.startsWith('catclient://scan?') && document.querySelector('#btnNodeScanApp').href.includes('panel='+encodeURIComponent(HOST)));
+check('scan import appends and preserves country tags', document.querySelector('#ipCount').textContent==='4' && importedSettings.ips.includes('203.0.113.4:443') && importedSettings.ipCountries['1.1.1.1']==='DE' && importedSettings.ipCountries['2.2.2.2']==='NL' && importedSettings.ipCountries['example.com']==='GB' && importedSettings.ipSources['1.1.1.1'].src==='scanner', JSON.stringify({ips:importedSettings.ips,tags:importedSettings.ipCountries}));
+document.querySelector('#ipPaste').value='198.51.100.42#US';
+document.querySelector('#btnIpReplace').click(); await sleep(300);
+importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
+check('replace only clears the list when its explicit button is clicked', importedSettings.ips.length===1 && importedSettings.ips[0]==='198.51.100.42' && importedSettings.ipCountries['198.51.100.42']==='US');
 // delete user — goes through the ask() modal now (no native confirm)
 document.querySelector('[data-del]').click(); await sleep(100);
 check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
@@ -147,6 +159,14 @@ check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').
 // 6.48.0: service-proof card (BPB parity) in the nodes view
 document.querySelector('[data-view="nodes"]').click();
 check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
+await sleep(100);
+check('Clean-IP auto-append visibly starts ON', document.querySelector('#rpAuto').textContent.includes('روشن'));
+document.querySelector('#rpAuto').click(); await sleep(180);
+let repoUiState=(await (await window.fetch('/api/repos')).json());
+check('Clean-IP toggle explicitly turns auto-append OFF', repoUiState.auto===false && document.querySelector('#rpAuto').textContent.includes('خاموش'));
+document.querySelector('#rpAuto').click(); await sleep(180);
+repoUiState=(await (await window.fetch('/api/repos')).json());
+check('Clean-IP toggle can turn auto-append back ON', repoUiState.auto===true && document.querySelector('#rpAuto').textContent.includes('روشن'));
 
 // 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
 check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
@@ -157,6 +177,14 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
 // a template-literal escape bug once mangled every entry into «a.com:443»)
 {
   const before = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  document.querySelector('#manualIps').value = '198.51.100.55';
+  document.querySelector('#manualTest').checked = true;
+  failIpTest = true;
+  document.querySelector('#btnManualAdd').click();
+  await sleep(120);
+  failIpTest = false;
+  const afterFailedProbe = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  check('failed manual test does not silently add untested IPs', afterFailedProbe === before && document.querySelector('#toast').textContent.includes('HTTP 503'));
   document.querySelector('#manualIps').value = '198.51.100.9\n2606:4700:4700::1111\nwww.visa.com';
   document.querySelector('#manualTest').checked = false;
   document.querySelector('#btnManualAdd').click();
