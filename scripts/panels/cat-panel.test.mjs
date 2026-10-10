@@ -54,7 +54,13 @@ const auth = { cookie };
 {
   await req('/api/ips', { method:'POST', headers: auth, body:{ ips: ['104.16.1.1','2606:4700:d1::1','cf.example.com','104.17.1.2:2053#DE','[2606:4700::6810:84e5]:8443'], source:'manual' } });
   const sub = await (await req('/sub/' + MASTER)).text();
-  check('manual v4 leads the sub', sub.indexOf('104.16.1.1') > -1 && sub.indexOf('104.16.1.1') < sub.indexOf('speed.cloudflare.com'));
+  // Compare positions in the ADDRESS order, not raw text offsets: the limit is
+  // now shared between port waves, so any single default address may legitimately
+  // fall outside the emitted window, and raw text also matches SNI values.
+  const addrOrder = [...sub.matchAll(/@(\[[^\]]+\]|[^:@?]+):(\d{1,5})\?/g)].map((m) => m[1]);
+  const iManual = addrOrder.indexOf('104.16.1.1');
+  const iDefault = addrOrder.indexOf('speed.cloudflare.com');
+  check('manual v4 leads the sub', iManual > -1 && (iDefault === -1 || iManual < iDefault), 'manual@' + iManual + ' default@' + iDefault);
   check('manual v6 bracketed in link', sub.includes('[2606:4700:d1::1]:443'));
   check('manual domain kept as address', sub.includes('cf.example.com]:443') || sub.includes('cf.example.com:443'));
   check('pinned v4 emitted on its verified port only', /104\.17\.1\.2:2053\?/.test(sub));
@@ -750,7 +756,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.66.0', T.CAT_PANEL_VERSION === '6.66.0');
+  check('panel version is 6.66.1', T.CAT_PANEL_VERSION === '6.66.1');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -1207,6 +1213,29 @@ let user;
   await T.extSubContent({ CAT_PANEL_KV: new Map() }, 'https://x/sub?a=1&amp;b=2', fakeF);
   check('ext sub fetch sanitizes &amp;', fetched === 'https://x/sub?a=1&b=2', fetched); }
 check('generated TLS configs put the worker host into the sni param (Cloudflare answers 403 on a mismatch)', ctx.sni === HOST.toLowerCase(), ctx.sni);
+}
+// beta93 regression: the entry limit used to be eaten by the first port wave, so
+// plain-port (80/8080) configs vanished for everyone with a normal address list.
+// Reproduced with 30 addresses: before the fix the sub was 443-only.
+{
+  const kv2 = new FakeKV();
+  const env2 = { CAT_KV: kv2, UUID: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' };
+  const req2 = (path, { method = 'GET', headers = {}, body } = {}) => {
+    const init = { method, headers: Object.assign({}, headers) };
+    if (body !== undefined) { init.body = JSON.stringify(body); init.headers['content-type'] = 'application/json'; }
+    return worker.fetch(new Request('https://' + HOST + path, init), env2, { waitUntil() {} });
+  };
+  const lg = await req2('/api/login', { method: 'POST', body: { password: env2.UUID } });
+  const c2 = (lg.headers.get('set-cookie') || '').split(';')[0];
+  const many = []; for (let i = 1; i <= 30; i++) many.push('104.16.' + (i % 250) + '.' + ((i * 7) % 250));
+  await req2('/api/ips', { method: 'POST', headers: { cookie: c2 }, body: { ips: many, source: 'manual', replace: true } });
+  const big = await (await req2('/sub/' + env2.UUID + '?rotate=off')).text();
+  const bigLines = big.trim().split('\n').filter((l) => /:\d{1,5}\?/.test(l));
+  const portsSeen = [...new Set(bigLines.map((l) => { const m = /:(\d{1,5})\?/.exec(l); return m ? m[1] : '?'; }))];
+  check('30 addresses still yield plain-port entries (entry limit is shared between waves)', /:8080\?encryption=none&security=none/.test(big) && /:80\?encryption=none&security=none/.test(big), 'ports=' + portsSeen.join(','));
+  const addrs2 = [...new Set(bigLines.map((l) => { const m = /@(\[[^\]]+\]|[^:@?]+):(\d{1,5})\?/.exec(l); return m ? m[1] : '?'; }))];
+  check('wave rotation keeps address diversity (>= 12 distinct addresses)', addrs2.length >= 12, 'distinct=' + addrs2.length);
+  check('entry limit still respected with many addresses', bigLines.length <= 48 + 8, 'lines=' + bigLines.length);
 }
 console.log(failures ? ('\n' + failures + ' FAILED') : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

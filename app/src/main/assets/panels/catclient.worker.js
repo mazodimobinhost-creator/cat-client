@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.0';
+const CAT_PANEL_VERSION = '6.66.1';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -3087,8 +3087,25 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   }
   // Interleave: iterate ports in the outer loop so the first N entries span
   // many addresses on 443/80 rather than every port of one address.
-  outer: for (const { port, tls } of ports) {
-    for (const addr of addresses) {
+  // Every port wave gets a fair slice of the entry limit. The old walk let the
+  // first wave (443) consume all ~48 slots, so the plain-port configs (80/8080)
+  // silently vanished for anyone with a normal-sized address list — they only
+  // ever appeared on panels with fewer than ~8 addresses.
+  const protosPerAddr = Math.max(1, (ctx.protocols[PROTO_VLESS] ? 1 : 0) + (ctx.protocols[TROJAN_KEY] ? 1 : 0));
+  outer: for (let wi = 0; wi < ports.length; wi++) {
+    const { port, tls } = ports[wi];
+    const wavesLeft = Math.max(1, ports.length - wi);
+    const waveBudget = Math.max(protosPerAddr, Math.floor((limit - entries.length) / wavesLeft));
+    let waveUsed = 0;
+    // Each wave starts where the previous one stopped, so the limit is spread
+    // over different addresses instead of repeating the same handful on every
+    // port (address diversity is the point of a clean-IP subscription).
+    const waveStart = (wi * Math.max(1, Math.round(waveBudget / protosPerAddr))) % Math.max(1, addresses.length);
+    for (let ak = 0; ak < addresses.length; ak++) {
+      if (entries.length >= limit) break outer;
+      if (waveUsed >= waveBudget) break; // hand the remaining slots to the next wave
+      const addr = addresses[(waveStart + ak) % addresses.length];
+      const waveBefore = entries.length;
       const pin = pinnedPortOf(addr); // pinned address → only its verified port (ports may arrive as strings)
       if (pin && pin !== Number(port)) continue;
       // A pinned `ip:port` (what the scanner imports) must connect to the BARE
@@ -3100,6 +3117,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const naddr = (workerDial !== host && bare === String(workerDial)) ? String(host) : bare; // keep the 🔌 WorkerOnly remark on the resolved dial IP
       if (ctx.protocols[PROTO_VLESS]) { vi++; const esni = tls ? sniFor(vi - 1) : ctx.sni; const nm = configName('vless', naddr, port, tls, cc, host, vi) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'vless', addr: bare, port, tls, cc, sni: esni, link: vlessLink(ectx, bare, port, tls, cc, { name: nm }), name: nm }); }
       if (ctx.protocols[TROJAN_KEY]) { ti++; const esni = tls ? sniFor(ti - 1) : ctx.sni; const tm = configName('trojan', naddr, port, tls, cc, host, ti) + (tls ? sniSuffix(esni) : ''); const ectx = esni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: esni }); entries.push({ proto: 'trojan', addr: bare, port, tls, cc, sni: esni, link: trojanLink(ectx, bare, port, tls, cc, { name: tm }), name: tm }); }
+      waveUsed += entries.length - waveBefore;
       if (entries.length >= limit) break outer;
     }
   }
