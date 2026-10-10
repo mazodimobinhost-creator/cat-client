@@ -62,7 +62,12 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.61.0';
+const CAT_PANEL_VERSION = '6.66.0';
+// v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
+// BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
+// self-contained file: no image assets, no CDN, no network request.
+const PANEL_THEMES = ['aurora', 'nebula', 'ocean', 'ember', 'forest', 'steel'];
+const DEFAULT_PANEL_THEME = 'aurora';
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = atob('dmxlc3M=');
@@ -366,8 +371,31 @@ const FINAL_MASK_PROFILE = JSON.stringify({ tcp: [
   { type: 'fragment', settings: { packets: 'tlshello', lengths: ['0-6', '100-140', '1-3'], delays: ['1-3'], maxSplit: '8' } },
   { type: 'fragment', settings: { packets: '1-3', lengths: ['80-160', '1-3'], delays: ['1-3'], maxSplit: '8' } },
 ] });
+// BlueKnight's v5.2.7 F&F recipe, copied as a small client profile (not a repo
+// import). It is advertised only for Xray-compatible links/JSON: standard
+// Mihomo, sing-box and Clash subscriptions cannot represent Xray finalmask.
+const FIREWALL_FF_FINAL_MASK = JSON.stringify({ tcp: [
+  { type: 'fragment', settings: { packets: 'tlshello', lengths: ['5', '94', '1'], delays: ['0'], maxSplit: '0' } },
+  { type: 'fragment', settings: { packets: '1-1', lengths: ['109', '1'], delays: ['1'], maxSplit: '355' } },
+] });
+const FIREWALL_FF_CIPHER_SUITES = 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256';
+const FIREWALL_BYPASS_PRESETS = Object.freeze({
+  'mci-ech': { address: '188.114.97.6', fingerprint: 'chrome', echList: 'cloudflare-ech.com+udp://1.1.1.1', finalMask: '', cipherSuites: '', note: 'b_fw_mci_ech_n' },
+  'mci-ipv6': { address: '2a06:98c1:3121::7', fingerprint: 'chrome', echList: '', finalMask: '', cipherSuites: '', note: 'b_fw_mci_ipv6_n' },
+  'mci-ipv6-ff': { address: '2a06:98c1:3121::7', fingerprint: 'chrome', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: '', note: 'b_fw_mci_ff_n' },
+  'irancell-ff': { address: '188.114.97.6', fingerprint: 'unsafe', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: FIREWALL_FF_CIPHER_SUITES, note: 'b_fw_irancell_ff_n' },
+});
 function maskParams(ctx, tls) {
   if (!tls || !ctx.settings || ctx.settings.fmLinks === false) return '';
+  const s = ctx.settings;
+  // Firewall profiles have an explicit finalMask/cipher-suite pair. An empty
+  // value is meaningful: don't silently substitute the panel's generic mask.
+  if (Object.prototype.hasOwnProperty.call(s, 'finalMaskProfile')) {
+    const params = [];
+    if (s.finalMaskCipherSuites) params.push('cs=' + encodeURIComponent(s.finalMaskCipherSuites));
+    if (s.finalMaskProfile) params.push('fm=' + encodeURIComponent(s.finalMaskProfile));
+    return params.length ? '&' + params.join('&') : '';
+  }
   return '&cs=' + encodeURIComponent(CIPHER_SUITES_DEFAULT) + '&fm=' + encodeURIComponent(FINAL_MASK_PROFILE);
 }
 
@@ -586,9 +614,10 @@ function defaultSettings() {
     title: '',
     passwordHash: '',   // sha256(password); empty → PANEL_PASSWORD env or UUID
     lang: 'fa',
+    uiTheme: 'aurora',  // «Cat Glass» skin id — cosmetic only, never affects configs
     ips: [],            // owner's clean IPs / domains (first in every subscription)
-    repoAuto: true,     // append up to 8 cached public clean-IP feed entries after the owner's list
-    _repoAutoConfigured: false, // legacy false was the old implicit default; explicit opt-outs set this marker
+    repoAuto: true,     // append up to 8 free feed IPs to subs by default; never persists them to ips
+    repoAutoDefaultMigrated: true, // legacy default-off values are migrated once, preserving an explicit recent opt-out
     useDefaults: true,  // append DEFAULT_CLEAN_ADDRESSES after the owner's list
     tlsPorts: TLS_PORTS.slice(0, 3),
     // BPB signature order: 443 → 8080. (Previously 80 came before 8080 and the
@@ -646,12 +675,11 @@ function normalizeSettings(raw) {
   s.title = String(s.title || '').slice(0, 60);
   s.passwordHash = String(s.passwordHash || '');
   s.lang = s.lang === 'en' ? 'en' : 'fa';
+  // Cosmetic only: an unknown id (hand-edited JSON, older panel) falls back to the default skin.
+  s.uiTheme = PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME;
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
-  // Clean-IP feeds now auto-append by default. Old builds persisted `false`
-  // even when the owner had never touched the toggle, so only an explicit
-  // post-migration choice (recorded by writeSettings) is allowed to keep OFF.
-  s._repoAutoConfigured = s._repoAutoConfigured === true;
-  s.repoAuto = s._repoAutoConfigured ? s.repoAuto === true : true;
+  // Default ON for fresh panels; an owner's saved false remains an explicit opt-out.
+  s.repoAuto = s.repoAuto !== false;
   s.repos = sanitizeRepos(s.repos);
   s.proxyRepoAuto = s.proxyRepoAuto !== false; // default ON — repo ProxyIPs become separate 🎯 configs
   s.proxyRepos = sanitizeProxyRepos(s.proxyRepos);
@@ -731,19 +759,26 @@ function normalizeSettings(raw) {
 }
 
 async function readSettings(env) {
-  return normalizeSettings(await kvGetJson(env, KV_KEYS.settings, null));
+  const raw = await kvGetJson(env, KV_KEYS.settings, null);
+  // beta92 made clean-IP feed injection opt-in by default. Migrate that legacy
+  // default once so existing panels get the requested BPB-style auto-add too;
+  // if the owner's latest recorded toggle was explicitly OFF, preserve it.
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.repoAutoDefaultMigrated !== true) {
+    const next = Object.assign({}, raw, { repoAutoDefaultMigrated: true });
+    if (raw.repoAuto === false) {
+      const last = (await readEvents(env)).find((e) => e && e.ev === 'repo-auto');
+      if (!last || last.d !== 'off') next.repoAuto = true;
+    }
+    const migrated = normalizeSettings(next);
+    await kvPutJson(env, KV_KEYS.settings, migrated);
+    return migrated;
+  }
+  return normalizeSettings(raw);
 }
 
 async function writeSettings(env, patch) {
   const current = await readSettings(env);
-  const p = patch && typeof patch === 'object' ? patch : {};
-  const nextRaw = Object.assign({}, current, p, {
-    // Do not accept the private marker from a client. A PATCH that actually
-    // names repoAuto is an explicit choice; other saves keep the prior marker.
-    _repoAutoConfigured: Object.prototype.hasOwnProperty.call(p, 'repoAuto') || current._repoAutoConfigured === true,
-    updatedAt: Date.now(),
-  });
-  const next = normalizeSettings(nextRaw);
+  const next = normalizeSettings(Object.assign({}, current, patch || {}, { updatedAt: Date.now() }));
   const persisted = await kvPutJson(env, KV_KEYS.settings, next);
   return { settings: next, persisted };
 }
@@ -1603,7 +1638,10 @@ function normalizeCountryMap(raw, max) {
   if (!raw || typeof raw !== 'object') return out;
   let n = 0;
   for (const k of Object.keys(raw)) {
-    const addr = String(k).trim().replace(/^\[|\]$/g, '');
+    const rawAddr = String(k).trim();
+    // Keep bracketed IPv6+port scan results intact; stripping only one bracket
+    // made their country tag impossible to find after a panel write.
+    const addr = /^\[[0-9a-f:.]+\]:\d{1,5}$/i.test(rawAddr) ? rawAddr : rawAddr.replace(/^\[|\]$/g, '');
     const cc = normalizeCountry(raw[k]);
     if (!addr || !cc || n >= max) continue;
     out[addr] = cc; n++;
@@ -1641,8 +1679,9 @@ function pinnedPortOf(addr) {
 }
 
 function countryOfAddr(addr, env, settings) {
-  const a = String(addr).replace(/^\[|\]$/g, '');
-  if (settings.ipCountries && settings.ipCountries[a]) return settings.ipCountries[a];
+  const raw = String(addr);
+  const a = raw.replace(/^\[|\]$/g, '');
+  if (settings.ipCountries && (settings.ipCountries[raw] || settings.ipCountries[a])) return settings.ipCountries[raw] || settings.ipCountries[a];
   for (const raw of splitCsv(env.CF_IPS)) { const t = splitAddrTag(raw); if (t.addr === a && t.cc) return t.cc; }
   return '';
 }
@@ -2474,7 +2513,7 @@ async function repoHealthyPool(env, cap) {
   }
   return out;
 }
-/** When auto-append is enabled (the default), append up to 8 cached feed IPs (pinned to :443, country-tagged) AFTER the user's own list. */
+/** ?repoAuto=on: append up to 8 library IPs (pinned to :443, country-tagged) AFTER the user's own list. */
 async function withRepoPool(env, settings, url) {
   try {
     if (!settings || settings.repoAuto !== true) return settings;
@@ -3148,6 +3187,27 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   return { ctx, entries, preferredCc };
 }
 
+/** Apply one bounded, link-local firewall recipe. This never writes panel settings. */
+function applyFirewallBypassPreset(settings, q) {
+  const preset = q && FIREWALL_BYPASS_PRESETS[q.firewall];
+  if (!preset) return { settings, q };
+  const nextSettings = Object.assign({}, settings, {
+    fingerprint: preset.fingerprint,
+    alpn: 'http/1.1',
+    echList: preset.echList,
+    fmLinks: !!preset.finalMask,
+    cipherSuites: preset.cipherSuites,
+    finalMaskProfile: preset.finalMask,
+    finalMaskCipherSuites: preset.cipherSuites,
+  });
+  const nextQ = Object.assign({}, q);
+  if (!Array.isArray(nextQ.addr) || !nextQ.addr.length) nextQ.addr = [preset.address];
+  // A direct /sub?...fw=mci-ech link gets the preset ECH unless it explicitly
+  // carries ech=0; the builder records the user's on/off choice in that case.
+  if (!nextQ.echSpecified && preset.echList) nextQ.ech = true;
+  return { settings: nextSettings, q: nextQ };
+}
+
 function subscriptionHeaders(user, title, webUrl) {
   const expire = user && user.expiresAt ? Math.floor(user.expiresAt / 1000) : 0;
   const headers = {
@@ -3189,6 +3249,8 @@ function subQuery(url) {
     survive: q.get('survive') === '1' || q.get('survive') === 'true',
     health: q.get('health') === '1' || q.get('health') === 'true',
     ech: q.get('ech') === '1',
+    echSpecified: q.has('ech'),
+    firewall: Object.prototype.hasOwnProperty.call(FIREWALL_BYPASS_PRESETS, String(q.get('fw') || '')) ? String(q.get('fw')) : '',
     sni: sniHostnameOk(q.get('sni') || '') ? String(q.get('sni')).trim().toLowerCase() : '',
     nofm: q.get('nofm') === '1',
     noext: q.get('noext') === '1' || q.get('noext') === 'true',
@@ -3389,7 +3451,16 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
   if (settings.bypassIran) rules.push({ type: 'field', domain: ['geosite:category-ir', 'domain:ir'], outboundTag: 'direct' }, { type: 'field', ip: ['geoip:ir'], outboundTag: 'direct' });
   rules.push({ type: 'field', port: '0-65535', outboundTag: 'proxy' });
   const warpOut = buildWarpOutbounds(settings);
-  const fragOn = !!(frag && frag.enabled);
+  let finalMask = null;
+  if (settings.fmLinks !== false && settings.finalMaskProfile) {
+    try {
+      const parsed = JSON.parse(settings.finalMaskProfile);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) finalMask = parsed;
+    } catch { /* an invalid optional profile must not break the subscription */ }
+  }
+  // F&F finalMask already fragments the TLS hello; do not stack the legacy
+  // fragment outbound on top of it (matches the Xray client profile contract).
+  const fragOn = !!(frag && frag.enabled && !finalMask);
   const one = (e) => {
     const stream = {
       network: 'ws',
@@ -3403,6 +3474,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
       // ECH per Xray docs: tlsSettings.echConfigList accepts a base64 ECHConfig
       // OR the «domain+udp://server» live-query form.
       if (ctx.ech) stream.tlsSettings.echConfigList = ctx.ech;
+      if (finalMask) stream.finalmask = finalMask;
     }
     const proxy = e.proto === 'vless'
       ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
@@ -3415,7 +3487,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
         outbounds.push(wo);
       }
     }
-    if (frag.enabled) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
+    if (fragOn) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
     outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
     return {
       remarks: e.name,
@@ -3585,7 +3657,13 @@ async function readJsonBody(request) {
 async function subResponse(kind, host, env, settings, uuid, user, url) {
   const title = panelTitle(env, settings) + (user ? ' · ' + user.name : '');
   const headers = subscriptionHeaders(user, title, url && url.origin ? url.origin + '/info/' + uuid : '');
-  const q = subQuery(url);
+  let q = subQuery(url);
+  ({ settings, q } = applyFirewallBypassPreset(settings, q));
+  // BlueKnight-compatible firewall presets are Xray-only: returning a partial
+  // Clash/sing-box document would silently discard finalmask/cipher settings.
+  if (q.firewall && (kind === 'clash' || kind === 'singbox')) {
+    return text('This firewall-bypass preset requires an Xray-compatible output. Use the VLESS/Trojan subscription or /xray link.', 400);
+  }
   // beta90 «survival link»: one URL that applies every resilience flag for THIS
   // render only — nothing is persisted. Health ordering rides along so the
   // addresses proven fastest on real scanners lead the shuffled blocks.
@@ -3906,7 +3984,7 @@ async function handleApi(request, url, env, ctx) {
         kv: !!kvBinding(env),
         open: panelIsOpen(env, settings),
         passwordSource: (await panelPassword(env, settings, masterUuid)).source,
-        settings: Object.assign({}, settings, { _repoAutoConfigured: undefined, passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
+        settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
         telegram: { configured: !!tgConfig(env, settings) },
         defaults: { addresses: DEFAULT_CLEAN_ADDRESSES,[PXIPS_KEY]: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
         links: subLinks(origin, masterUuid, null),
@@ -3937,7 +4015,7 @@ async function handleApi(request, url, env, ctx) {
         extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid));
       }
       await pushEvent(env, 'settings', 'update');
-      return json({ ok: true, persisted: saved.persisted, ignored: pxIgnored, settings: Object.assign({}, saved.settings, { _repoAutoConfigured: undefined, passwordHash: undefined, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '', ghPat: saved.settings.ghPat ? '••••' + saved.settings.ghPat.slice(-4) : '' }) }, 200, extra);
+      return json({ ok: true, persisted: saved.persisted, ignored: pxIgnored, settings: Object.assign({}, saved.settings, { passwordHash: undefined, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '', ghPat: saved.settings.ghPat ? '••••' + saved.settings.ghPat.slice(-4) : '' }) }, 200, extra);
     }
     return json({ ok: false, error: 'method' }, 405);
   }
@@ -4091,15 +4169,7 @@ async function handleApi(request, url, env, ctx) {
     // saw via /cdn-cgi/trace) → stored in ipCountries, address stays clean.
     const tags = Object.assign({}, settings.ipCountries);
     const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((raw) => { const t = splitAddrTag(raw); if (t.cc) tags[t.addr] = t.cc; return t.addr; }).filter((s) => { const pin = pinnedPortOf(s); let a = pin ? s.slice(0, s.lastIndexOf(':')) : s; a = a.replace(/^\[/, '').replace(/\]$/, ''); return isIpv4(a) || isIpv6(a) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(a); }));
-    // Cat Client can send country maps keyed by its display line (ip:port#CC).
-    // Normalize those keys to the exact stored address, not a duplicate #CC key.
-    if (body.countries && typeof body.countries === 'object') {
-      for (const key of Object.keys(body.countries).slice(0, 400)) {
-        const tagged = splitAddrTag(key);
-        const cc = normalizeCountry(body.countries[key]) || tagged.cc;
-        if (tagged.addr && cc) tags[tagged.addr] = cc;
-      }
-    }
+    if (body.countries && typeof body.countries === 'object') Object.assign(tags, normalizeCountryMap(body.countries, 500));
     const next = body.replace ? incoming : uniq(incoming.concat(settings.ips));
     // Provenance: where each IP came from + latency measured on the SENDER's
     // network («🏷 از اسکنر · 📶 320ms از شبکهٔ فرستنده») + worker checks later
@@ -4109,22 +4179,12 @@ async function handleApi(request, url, env, ctx) {
     // 👑 Neighbor provenance: Cat Client's «اسکن همسایه» flags the IPs it found
     // around known-good neighbours; those get src=neighbor (crown badge) even
     // though they arrive in the same scanner batch.
-    const addressKey = (raw) => splitAddrTag(String(raw || '').trim()).addr;
     const neighborRaw = Array.isArray(body.neighborIps) ? body.neighborIps : splitCsv(body.neighborIps);
-    const neighborSet = new Set((neighborRaw || []).map(addressKey).filter(Boolean));
-    const incomingSet = new Set(incoming);
+    const neighborSet = new Set((neighborRaw || []).map((v) => String(v).split('#')[0].trim()).filter(Boolean));
     const srcMap = Object.assign({}, settings.ipSources || {});
-    for (const k of Object.keys(pings).slice(0, 400)) {
-      if (pings[k] == null) continue;
-      const addr = addressKey(k);
-      if (!incomingSet.has(addr)) continue;
-      srcMap[addr] = { src: neighborSet.has(addr) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
-    }
-    // ✍️ Manual/scanner imports keep provenance even when a paste fallback has
-    // no latency metadata; the UI omits the 0ms placeholder in that case.
-    if (src === 'manual' || src === 'scanner') {
-      for (const e of incoming.slice(0, 400)) if (!srcMap[e]) srcMap[e] = { src, ms: 0, at: Date.now() };
-    }
+    for (const k of Object.keys(pings).slice(0, 400)) if (pings[k] != null) srcMap[k] = { src: neighborSet.has(String(k).split('#')[0]) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
+    // ✍️ Manually added IPs get their own provenance («ورودی دستی» badge).
+    if (src === 'manual') for (const e of incoming.slice(0, 400)) if (!srcMap[e]) srcMap[e] = { src: 'manual', ms: 0, at: Date.now() };
     const saved = await writeSettings(env, { ips: next, ipCountries: tags, ipSources: srcMap });
     await pushEvent(env, body.replace ? 'ips-replace' : 'ips-add', String(next.length) + ' ips');
     return json({ ok: true, persisted: saved.persisted, count: saved.settings.ips.length, ips: saved.settings.ips });
@@ -4590,48 +4650,122 @@ async function handleRequest(request, env, ctx) {
 /* ------------------------------------------------------------------ */
 
 const BASE_CSS = `
-:root{--bg:#000000;--bg2:#000000;--card:#0a0a0d;--card2:#121216;--line:rgba(255,255,255,.06);--line2:rgba(255,255,255,.16);--text:#ffffff;--mute:#c9c9ce;--dim:#8f8f96;
---violet:#00e1c1;--violet2:#2ef2d6;--fuchsia:#00b398;--pink:#b9a6ff;--green:#00e1c1;--amber:#ffab00;--red:#ff6b6b;--cyan:#9db4ff;--blue:#9db4ff;--lime:#2ef2d6;
---r:14px;--sh:0 8px 32px rgba(0,0,0,.6);--input-bg:#121216;--nav-bg:rgba(0,225,193,.14);--glow:rgba(0,225,193,.4);--flat:#0a0a0d;--b05:rgba(255,255,255,.05)}
+/* ───────── Cat Panel design system v2 — «Cat Glass» ─────────
+   Token-driven: every surface reads the variables below, so a theme is only a
+   handful of values (see the [data-theme=…] blocks at the bottom). Written
+   from scratch for this project: no web fonts, no image files, no CDN — every
+   wallpaper is a stack of CSS gradients that ships inside the page.
+*/
+:root{
+--bg:#07060d;--bg2:#0b0a14;--flat:rgba(16,17,24,.62);--card:rgba(16,17,24,.62);--card2:rgba(24,26,36,.62);
+--line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.22);--b05:rgba(255,255,255,.045);
+--text:#f4f6fb;--mute:#aab2c6;--dim:#7b8496;
+--violet:#00e1c1;--violet2:#2ef2d6;--fuchsia:#7c5cff;--pink:#b9a6ff;
+--green:#00e1c1;--amber:#ffab00;--red:#ff6b6b;--cyan:#9db4ff;--blue:#9db4ff;--lime:#2ef2d6;
+--glow:rgba(0,225,193,.40);--nav-bg:rgba(0,225,193,.15);--input-bg:rgba(255,255,255,.045);
+--glass:rgba(16,17,24,.62);--sheen:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.012));
+--blur:18px;--r:14px;--sh:0 18px 46px -22px rgba(0,0,0,.85);--sb-w:264px;
+--spring:cubic-bezier(.34,1.35,.44,1);--io:cubic-bezier(.32,.72,0,1);
+--wall:radial-gradient(1100px 680px at 8% -12%,rgba(0,225,193,.20),transparent 62%),radial-gradient(920px 620px at 94% 2%,rgba(124,58,237,.22),transparent 60%),radial-gradient(1000px 780px at 52% 110%,rgba(59,130,246,.16),transparent 62%),linear-gradient(180deg,#090a12,#06060c 62%);
+--wall2:radial-gradient(560px 420px at 16% 10%,rgba(0,225,193,.34),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(124,58,237,.30),transparent 72%)}
+[data-theme=nebula]{
+--violet:#a78bfa;--violet2:#c4b5fd;--fuchsia:#f472b6;--pink:#f0abfc;--cyan:#a5b4fc;--blue:#a5b4fc;--lime:#c4b5fd;
+--glow:rgba(167,139,250,.40);--nav-bg:rgba(167,139,250,.16);
+--wall:radial-gradient(1100px 700px at 6% -12%,rgba(124,58,237,.30),transparent 62%),radial-gradient(900px 640px at 96% 4%,rgba(236,72,153,.24),transparent 60%),radial-gradient(1000px 800px at 50% 112%,rgba(59,130,246,.20),transparent 62%),linear-gradient(180deg,#0c0918,#07060e 62%);
+--wall2:radial-gradient(580px 440px at 14% 12%,rgba(139,92,246,.40),transparent 70%),radial-gradient(620px 470px at 86% 82%,rgba(236,72,153,.28),transparent 72%)}
+[data-theme=ocean]{
+--violet:#38bdf8;--violet2:#7dd3fc;--fuchsia:#6366f1;--pink:#a5f3fc;--cyan:#7dd3fc;--blue:#7dd3fc;--lime:#67e8f9;
+--glow:rgba(56,189,248,.40);--nav-bg:rgba(56,189,248,.16);
+--wall:radial-gradient(1100px 700px at 8% -12%,rgba(14,165,233,.28),transparent 62%),radial-gradient(940px 620px at 94% 4%,rgba(99,102,241,.24),transparent 60%),radial-gradient(1000px 800px at 50% 112%,rgba(6,182,212,.20),transparent 62%),linear-gradient(180deg,#071019,#050810 62%);
+--wall2:radial-gradient(560px 440px at 16% 12%,rgba(56,189,248,.36),transparent 70%),radial-gradient(640px 480px at 84% 80%,rgba(79,70,229,.30),transparent 72%)}
+[data-theme=ember]{
+--violet:#ffb020;--violet2:#ffd27d;--fuchsia:#ff7a59;--pink:#ffc9a3;--cyan:#ffd27d;--blue:#ffd27d;--lime:#ffd27d;
+--glow:rgba(255,176,32,.38);--nav-bg:rgba(255,176,32,.15);
+--wall:radial-gradient(1100px 700px at 8% -12%,rgba(255,176,32,.24),transparent 62%),radial-gradient(920px 620px at 94% 4%,rgba(255,122,89,.20),transparent 60%),radial-gradient(1000px 800px at 50% 112%,rgba(190,92,255,.14),transparent 62%),linear-gradient(180deg,#120d08,#08070a 62%);
+--wall2:radial-gradient(560px 440px at 16% 12%,rgba(255,176,32,.34),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(244,63,94,.24),transparent 72%)}
+[data-theme=forest]{
+--violet:#34d399;--violet2:#6ee7b7;--fuchsia:#22d3ee;--pink:#a7f3d0;--cyan:#6ee7b7;--blue:#6ee7b7;--lime:#86efac;
+--glow:rgba(52,211,153,.40);--nav-bg:rgba(52,211,153,.15);
+--wall:radial-gradient(1100px 700px at 8% -12%,rgba(16,185,129,.26),transparent 62%),radial-gradient(940px 620px at 94% 4%,rgba(6,182,212,.20),transparent 60%),radial-gradient(1000px 800px at 50% 112%,rgba(132,204,22,.16),transparent 62%),linear-gradient(180deg,#061310,#05070b 62%);
+--wall2:radial-gradient(560px 440px at 16% 12%,rgba(52,211,153,.34),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(6,182,212,.26),transparent 72%)}
+[data-theme=steel]{
+--violet:#cbd5e1;--violet2:#e2e8f0;--fuchsia:#94a3b8;--pink:#e2e8f0;--cyan:#cbd5e1;--blue:#cbd5e1;--lime:#e2e8f0;
+--glow:rgba(203,213,225,.30);--nav-bg:rgba(203,213,225,.13);
+--wall:radial-gradient(1100px 700px at 10% -12%,rgba(148,163,184,.18),transparent 62%),radial-gradient(900px 620px at 92% 4%,rgba(100,116,139,.18),transparent 60%),radial-gradient(1000px 800px at 50% 112%,rgba(71,85,105,.20),transparent 62%),linear-gradient(180deg,#0b0d12,#07080b 62%);
+--wall2:radial-gradient(560px 440px at 18% 12%,rgba(148,163,184,.24),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(71,85,105,.28),transparent 72%)}
+/* Browsers without backdrop-filter get opaque surfaces instead of unreadable ones. */
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){:root{--glass:rgba(10,11,16,.94);--flat:rgba(10,11,16,.94);--card:rgba(10,11,16,.94);--card2:rgba(14,15,22,.94)}}
 *{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-text-size-adjust:100%}
-body{background:var(--bg);color:var(--text);-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;min-height:100vh;line-height:1.5}
+html{-webkit-text-size-adjust:100%;scrollbar-color:rgba(255,255,255,.22) transparent}
+body{background-color:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Vazirmatn','Tahoma',sans-serif;min-height:100vh;line-height:1.55;-webkit-font-smoothing:antialiased}
+html[data-theme] body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;background:var(--wall);background-attachment:fixed}
+html[data-theme] body::after{content:"";position:fixed;inset:-12%;z-index:-1;pointer-events:none;background:var(--wall2);filter:blur(64px);opacity:.5;animation:drift 30s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(3%,2%,0) scale(1.1)}}
+@media(prefers-reduced-motion:reduce){html[data-theme] body::after{animation:none}}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.28);background-clip:content-box}
 a{color:var(--violet2);text-decoration:none}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
-input,select,textarea{font:inherit;color:var(--text);background:var(--input-bg);border:1px solid var(--line);border-radius:12px;padding:11px 14px;width:100%;outline:none;transition:border-color .2s,box-shadow .2s;font-size:13px}
-input:focus,select:focus,textarea:focus{border-color:var(--glow);box-shadow:0 0 0 4px rgba(0,225,193,.08)}
+input,select,textarea{font:inherit;color:var(--text);background:var(--input-bg);border:1px solid var(--line);border-radius:12px;padding:11px 14px;width:100%;outline:none;transition:border-color .2s,box-shadow .2s;font-size:13px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+input:focus,select:focus,textarea:focus{border-color:var(--glow);box-shadow:0 0 0 3px var(--glow)}
+input::placeholder,textarea::placeholder{color:var(--dim)}
+select option{background:#111319;color:var(--text)}
 textarea{min-height:110px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;direction:ltr;text-align:left}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;direction:ltr;unicode-bidi:embed}
-.card{background:var(--flat);border:1px solid var(--b05);border-radius:16px;box-shadow:var(--sh)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 18px;border-radius:14px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font-weight:600;font-size:12px;transition:background .2s,border-color .2s;white-space:nowrap;-webkit-tap-highlight-color:transparent}
-.btn:hover{background:var(--nav-bg);border-color:var(--glow)}.btn:active{background:var(--nav-bg)}
-.btn.p{background:var(--input-bg);border-color:var(--line);color:var(--text)}
-.btn.g,.btn.r,.btn.a,.btn.c{background:var(--input-bg);border-color:var(--line);color:var(--text)}
-.btn.sm{padding:5px 12px;font-size:11px;border-radius:10px}
+/* glass surfaces: one sheen, one blur, one hairline — the whole look is these three lines */
+.card,.sec{background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(var(--blur)) saturate(140%);backdrop-filter:blur(var(--blur)) saturate(140%);border:1px solid var(--line);border-radius:18px;box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.05)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 18px;border-radius:999px;border:1px solid var(--line);background-image:var(--sheen);background-color:rgba(255,255,255,.04);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:var(--text);font-weight:600;font-size:12px;transition:transform .3s var(--spring),box-shadow .3s var(--io),background .2s,border-color .2s,color .2s;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.btn:hover{background-color:var(--nav-bg);border-color:var(--glow);transform:translateY(-1px)}
+.btn:active{transform:scale(.955)}
+.btn:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.btn.p{background-image:linear-gradient(135deg,var(--violet),var(--fuchsia));border-color:transparent;color:#08111a;font-weight:700;box-shadow:0 8px 26px -8px var(--glow)}
+.btn.p:hover{background-image:linear-gradient(135deg,var(--violet2),var(--violet));transform:translateY(-2px)}
+.btn.g,.btn.r,.btn.a,.btn.c{background-color:rgba(255,255,255,.04)}
+.btn.sm{padding:6px 13px;font-size:11px}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .btn,.chip,.nav button,.pick button,.ib,.side a,.side button,th,td{-webkit-user-select:none;user-select:none}
 button,a,.btn,.chip,.side a,.side button{outline:none}
-.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:10px;font-weight:600;border:0;background:rgba(255,255,255,.06);color:var(--mute)}
-.chip.v{color:var(--cyan);background:rgba(43,127,255,.15)}.chip.t{color:var(--pink);background:rgba(123,97,255,.15)}
-.chip.ok{color:#34c759;background:rgba(22,163,74,.15)}.chip.bad{color:#ff6b6b;background:rgba(255,35,82,.15)}.chip.warn{color:var(--amber);background:rgba(255,171,0,.15)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:10px;font-weight:600;border:1px solid var(--line);background:rgba(255,255,255,.05);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:var(--mute);transition:transform .3s var(--spring)}
+.chip.v{color:var(--cyan);background:rgba(43,127,255,.15);border-color:rgba(43,127,255,.28)}
+.chip.t{color:var(--pink);background:rgba(123,97,255,.15);border-color:rgba(123,97,255,.28)}
+.chip.ok{color:#4ade80;background:rgba(22,163,74,.15);border-color:rgba(22,163,74,.28)}
+.chip.bad{color:#ff8a8a;background:rgba(255,35,82,.15);border-color:rgba(255,35,82,.28)}
+.chip.warn{color:var(--amber);background:rgba(255,171,0,.15);border-color:rgba(255,171,0,.28)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .grid{display:grid;gap:14px}
 .mute{color:var(--mute)}.dim{color:var(--dim)}.small{font-size:12px}.b{font-weight:700}
-.sw{position:relative;width:46px;height:26px;border-radius:999px;background:#2a2342;border:1px solid var(--line2);transition:background .15s;flex:none}
+.sw{position:relative;width:46px;height:26px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid var(--line2);transition:background .15s;flex:none}
 .sw::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
-.sw.on{background:linear-gradient(135deg,var(--violet),var(--fuchsia));border-color:transparent}
+.sw.on{background-image:linear-gradient(135deg,var(--violet),var(--fuchsia));border-color:transparent}
 [dir=rtl] .sw.on::after{transform:translateX(-20px)}[dir=ltr] .sw.on::after{transform:translateX(20px)}
-.toast{position:fixed;bottom:22px;inset-inline-start:50%;transform:translateX(-50%);background:#1a1430;border:1px solid var(--violet);color:#fff;padding:10px 18px;border-radius:12px;z-index:99;box-shadow:var(--sh);font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:92vw;text-align:center}
-[dir=rtl] .toast{transform:translateX(50%)}
-.toast.show{opacity:1}
-.qrbox{background:#fff;border-radius:14px;padding:10px;display:inline-block;line-height:0}
+.toast{position:fixed;bottom:22px;inset-inline-start:50%;transform:translate(-50%,18px);background:rgba(16,17,24,.86);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border:1px solid var(--line2);color:#fff;padding:11px 20px;border-radius:14px;z-index:99;box-shadow:0 20px 44px -18px rgba(0,0,0,.9);font-size:13px;font-weight:600;opacity:0;transition:opacity .32s var(--io),transform .5s var(--spring);pointer-events:none;max-width:92vw;text-align:center}
+[dir=rtl] .toast{transform:translate(50%,18px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+[dir=rtl] .toast.show{transform:translate(50%,0)}
+.qrbox{background:#fff;border-radius:16px;padding:10px;display:inline-block;line-height:0}
 .qrbox img,.qrbox svg{width:220px;height:220px;max-width:70vw;max-height:70vw}
-`;
+/* theme picker */
+.tpick{position:fixed;inset:0;z-index:70;display:none;place-items:center;padding:20px}
+.tpick.show{display:grid}
+.tpick .tpbg{position:absolute;inset:0;background:rgba(4,5,9,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.tpick .tpbox{position:relative;width:min(420px,100%);padding:18px;border-radius:20px;background-image:var(--sheen);background-color:rgba(16,17,24,.86);-webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);border:1px solid var(--line2);box-shadow:0 30px 70px -24px rgba(0,0,0,.95);animation:zin .38s var(--spring)}
+.tpick h3{font-size:14px;font-weight:800;margin-bottom:2px}
+.tpick .tpsub{font-size:11.5px;color:var(--mute);margin-bottom:14px}
+.tpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tpgrid button{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:14px;padding:0;height:78px;background-image:var(--tpw);background-size:cover;cursor:pointer;transition:transform .3s var(--spring),border-color .2s,box-shadow .2s}
+.tpgrid button:hover{transform:translateY(-3px);border-color:var(--glow)}
+.tpgrid button span{position:absolute;inset-inline:0;bottom:0;padding:5px 6px;font-size:10.5px;font-weight:700;color:#fff;background:linear-gradient(180deg,transparent,rgba(0,0,0,.78));text-align:center}
+.tpgrid button i{position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 2px transparent;transition:box-shadow .2s}
+.tpgrid button.on i{box-shadow:inset 0 0 0 2px var(--violet)}
+.tpgrid button.on span{color:var(--violet2)}
+@keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}`;
 
 function loginPage(env, settings, needsUser) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}
+  const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}
 .wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
 .box{width:100%;max-width:380px;padding:28px 24px}
 .logo{width:56px;height:56px;display:grid;place-items:center;margin:0 auto 14px;filter:drop-shadow(0 10px 26px rgba(0,225,193,.28))}
@@ -4737,50 +4871,85 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-copy
 
 function panelPage(env, settings, host, masterUuid) {
   const fa = settings.lang !== 'en';
+  // Cosmetic only: a bad id can never break the page, it just falls back to the default skin.
+  const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
   const title = panelTitle(env, settings);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
+  const firewallPresetUi = Object.fromEntries(Object.entries(FIREWALL_BYPASS_PRESETS).map(([id, p]) => [id, { address: p.address, fingerprint: p.fingerprint, ech: !!p.echList, note: p.note, finalMask: !!p.finalMask }]));
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(catLogo('f'))}">
 <style>${BASE_CSS}
-.top{position:sticky;top:0;z-index:20;background:var(--flat);border-bottom:1px solid var(--line)}
+.top{position:sticky;top:0;z-index:20;background-image:var(--sheen);background-color:rgba(10,11,17,.66);-webkit-backdrop-filter:blur(20px) saturate(150%);backdrop-filter:blur(20px) saturate(150%);border-bottom:1px solid var(--line)}
 .topin{max-width:1180px;margin:0 auto;padding:10px 14px;display:flex;align-items:center;gap:10px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px;letter-spacing:.2px}
 .brand .lg{width:36px;height:36px;display:grid;place-items:center}
-.brand .v{font-size:10px;color:var(--mute);background:var(--input-bg);border:1px solid var(--line);padding:2px 8px;border-radius:20px;font-weight:600}
+.brand .v{font-size:10px;color:var(--mute);background:rgba(255,255,255,.05);border:1px solid var(--line);padding:2px 8px;border-radius:20px;font-weight:600}
 .tools{display:flex;gap:8px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end}
 .burger{display:none}
 @media(max-width:1079px){.tools{display:none}.burger{display:grid}}
-.ib{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background:var(--input-bg);color:var(--text);transition:background .2s,border-color .2s}
-.ib:hover{background:var(--nav-bg);border-color:var(--glow)}
-.ib.on{background:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
+.ib{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background-image:var(--sheen);background-color:rgba(255,255,255,.04);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:var(--text);transition:transform .3s var(--spring),background .2s,border-color .2s,color .2s}
+.ib:hover{background-color:var(--nav-bg);border-color:var(--glow);transform:translateY(-1px)}
+.ib:active{transform:scale(.9)}
+.ib.on{background-color:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
 .ib svg{width:16px;height:16px}
 .main{max-width:1180px;margin:0 auto;padding:16px 14px 32px}
 .view{display:none}.view.on{display:block}
 .sec{padding:16px 18px;margin-bottom:14px}
-.sec h2{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text)}
-.sec h2 .ic{display:none}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.st{padding:14px 10px;border-radius:16px;background:var(--flat);border:1px solid var(--b05);position:relative;overflow:hidden;text-align:center;transition:border-color .3s,transform .3s}
-.st:hover{border-color:var(--glow);transform:translateY(-3px)}
-.st .k{font-size:11px;color:var(--mute)}
-.st .n{font-size:26px;font-weight:800;color:var(--violet);margin-top:2px}
-.st .s{font-size:11px;color:var(--dim);margin-top:2px}
-.st .ic{display:none}
-.st[data-c=violet] .n,.st[data-c=green] .n,.st[data-c=amber] .n,.st[data-c=cyan] .n,.st[data-c=pink] .n{color:var(--violet)}
-.bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#00e1c1,#2ef2d6)}
-.bar.w i{background:linear-gradient(90deg,#ffab00,#ffd54d)}.bar.d i{background:linear-gradient(90deg,#ff6b6b,#ff9b9b)}
-.fab{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-size:18px;border:1px solid var(--line);background:var(--input-bg);color:var(--text)}
-.fab:hover{background:var(--nav-bg);border-color:var(--glow)}
+.sec h2{font-size:13px;font-weight:800;display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text);letter-spacing:.2px}
+.sec h2 .ic{display:grid;place-items:center;width:26px;height:26px;border-radius:9px;font-size:13px;background-image:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.02));border:1px solid var(--line)}
+/* ── dashboard stat cards: glass tile, gradient numeral, accent rail ── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
+.st{padding:14px;border-radius:18px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(var(--blur)) saturate(140%);backdrop-filter:blur(var(--blur)) saturate(140%);border:1px solid var(--line);box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.05);position:relative;overflow:hidden;text-align:start;transition:transform .45s var(--spring),border-color .3s,box-shadow .3s}
+.st::after{content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:3px;background-image:linear-gradient(180deg,var(--violet),var(--fuchsia));opacity:.9}
+.st:hover{border-color:var(--line2);transform:translateY(-4px);box-shadow:0 26px 50px -26px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.07)}
+.st .ic{display:grid;place-items:center;width:32px;height:32px;border-radius:11px;font-size:15px;background-image:linear-gradient(135deg,rgba(255,255,255,.14),rgba(255,255,255,.02));border:1px solid var(--line);margin-bottom:4px}
+.st .k{font-size:11px;color:var(--mute);font-weight:600}
+.st .n{font-size:30px;font-weight:800;line-height:1.15;margin-top:1px;color:var(--violet);background-image:linear-gradient(135deg,var(--violet),var(--fuchsia));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.st .s { display:inline-block;margin-top:7px;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;color:var(--mute);background:rgba(255,255,255,.055);border:1px solid var(--line);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+.st .ic { transition:transform .45s var(--spring) }
+.st:hover .ic { transform:translateY(-1px) scale(1.06) }
+.st .n { font-variant-numeric:tabular-nums }
+.st[data-c=violet]::after{background-image:linear-gradient(180deg,var(--violet),var(--fuchsia))}
+.st[data-c=green]::after{background-image:linear-gradient(180deg,#22c55e,#4ade80)}
+.st[data-c=amber]::after{background-image:linear-gradient(180deg,#f59e0b,#fbbf24)}
+.st[data-c=cyan]::after{background-image:linear-gradient(180deg,#2b7fff,#67e8f9)}
+.st[data-c=pink]::after{background-image:linear-gradient(180deg,#7b61ff,#f472b6)}
+.st[data-c=blue]::after{background-image:linear-gradient(180deg,#3b82f6,#60a5fa)}
+.st[data-c=lime]::after{background-image:linear-gradient(180deg,#84cc16,#a3e635)}
+.st[data-c=red]::after{background-image:linear-gradient(180deg,#ef4444,#ff8a8a)}
+.st[data-c=gray]::after{background-image:linear-gradient(180deg,#94a3b8,#cbd5e1)}
+.st[data-c=green] .n{background-image:linear-gradient(135deg,#16a34a,#4ade80)}
+.st[data-c=amber] .n{background-image:linear-gradient(135deg,#d97706,#fbbf24)}
+.st[data-c=cyan] .n{background-image:linear-gradient(135deg,#2b7fff,#67e8f9)}
+.st[data-c=pink] .n{background-image:linear-gradient(135deg,#7b61ff,#f472b6)}
+.st[data-c=blue] .n{background-image:linear-gradient(135deg,#2563eb,#60a5fa)}
+.st[data-c=lime] .n{background-image:linear-gradient(135deg,#65a30d,#a3e635)}
+.st[data-c=red] .n{background-image:linear-gradient(135deg,#dc2626,#ff8a8a)}
+.st[data-c=gray] .n{background-image:linear-gradient(135deg,#64748b,#cbd5e1)}
+.st[data-c=violet] .n,.st[data-c=green] .n,.st[data-c=amber] .n,.st[data-c=cyan] .n,.st[data-c=pink] .n{background-image:linear-gradient(135deg,var(--violet),var(--fuchsia))}
+/* hero card: gradient hairline + accent bloom */
+#heroCard{position:relative;overflow:hidden}
+#heroCard::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background-image:linear-gradient(135deg,var(--violet),transparent 45%,var(--fuchsia));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;opacity:.5;pointer-events:none}
+#heroCard::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 90% at 100% 0,var(--glow),transparent 62%);opacity:.20;pointer-events:none}
+.bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.bar i{display:block;height:100%;border-radius:999px;background-image:linear-gradient(90deg,var(--violet),var(--violet2))}
+.bar.w i{background-image:linear-gradient(90deg,#ffab00,#ffd54d)}.bar.d i{background-image:linear-gradient(90deg,#ff6b6b,#ff9b9b)}
+.fab{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-size:18px;border:1px solid var(--line);background-image:var(--sheen);background-color:rgba(255,255,255,.04);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:var(--text)}
+.fab:hover{background-color:var(--nav-bg);border-color:var(--glow)}
 .tbl{width:100%;border-collapse:separate;border-spacing:0 6px}
-.tbl th{font-size:11px;color:var(--mute);font-weight:600;padding:4px 10px;text-align:start;text-transform:uppercase;letter-spacing:.4px}
-.tbl td{background:var(--flat);padding:10px;border-top:1px solid var(--b05);border-bottom:1px solid var(--b05);vertical-align:middle}
-[dir=rtl] .tbl td:first-child,[dir=ltr] .tbl td:last-child{border-inline-end:1px solid var(--b05);border-start-end-radius:14px;border-end-end-radius:14px}
-[dir=rtl] .tbl td:last-child,[dir=ltr] .tbl td:first-child{border-inline-start:1px solid var(--b05);border-start-start-radius:14px;border-end-start-radius:14px}
-.tbl tr:hover td{border-color:rgba(255,255,255,.16)}
+.tbl th { font-size:10px;color:var(--dim);font-weight:700;padding:4px 10px 7px;text-align:start;text-transform:uppercase;letter-spacing:.9px;border-bottom:1px solid var(--line2) }
+.tbl td { background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);padding:10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);vertical-align:middle;transition:background-color .25s,border-color .25s }
+.tbl td:first-child { border-inline-start:1px solid var(--line);border-start-start-radius:12px;border-end-start-radius:12px }
+.tbl td:last-child { border-inline-end:1px solid var(--line);border-start-end-radius:12px;border-end-end-radius:12px }
+.tbl tbody tr:nth-child(even) td { background-color:rgba(255,255,255,.035) }
+.tbl tbody tr:hover td { background-color:rgba(255,255,255,.075) }
+[dir=rtl] .tbl td:first-child,[dir=ltr] .tbl td:last-child{border-inline-end:1px solid var(--line);border-start-end-radius:14px;border-end-end-radius:14px}
+[dir=rtl] .tbl td:last-child,[dir=ltr] .tbl td:first-child{border-inline-start:1px solid var(--line);border-start-start-radius:14px;border-end-start-radius:14px}
+.tbl tbody tr:hover td { border-color:var(--line2) }
+.tbl tbody tr:hover td:first-child { box-shadow:inset 3px 0 0 0 var(--violet) }
 .act{display:flex;gap:6px;flex-wrap:wrap}
 .act .ib{width:30px;height:30px}
 .ucard{display:none}
 @media(max-width:860px){.tbl{display:none}.ucard{display:block}}
-.uc{padding:12px 14px;margin-bottom:10px;background:var(--flat);border:1px solid var(--b05);border-radius:16px}
+.uc{padding:12px 14px;margin-bottom:10px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));border:1px solid var(--line);border-radius:18px;box-shadow:var(--sh)}
 .uc .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .uc .hd .nm{font-weight:700;font-size:14px}
 .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin:8px 0}
@@ -4789,25 +4958,25 @@ function panelPage(env, settings, host, masterUuid) {
 .frm .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:640px){.frm .two{grid-template-columns:1fr}}
 .pick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.pick button{padding:5px 12px;border-radius:10px;border:1px solid var(--line);background:var(--input-bg);font-size:11px;font-weight:600;color:var(--text)}
-.pick button.on{background:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
+.pick button{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);font-size:11px;font-weight:600;color:var(--text)}
+.pick button.on{background-color:var(--nav-bg);border-color:var(--glow);color:var(--violet)}
 .proto{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.proto label{display:flex;align-items:center;gap:10px;margin:0;padding:12px;border:1px solid var(--b05);border-radius:14px;background:var(--flat);cursor:pointer;color:var(--text)}
-.proto label.on{border-color:var(--glow);background:var(--nav-bg)}
+.proto label{display:flex;align-items:center;gap:10px;margin:0;padding:12px;border:1px solid var(--line);border-radius:16px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);cursor:pointer;color:var(--text)}
+.proto label.on{border-color:var(--glow);background-color:var(--nav-bg)}
 .proto .ic{display:none}
 .drawer{position:fixed;inset:0;z-index:40;display:none}.drawer.show{display:block}
 .drawer .bg{position:absolute;inset:0;background:rgba(0,0,0,.65)}
-.drawer .pn{position:absolute;top:0;bottom:0;inset-inline-end:0;width:min(520px,100%);background:var(--bg);border-inline-start:1px solid var(--line);overflow:auto;padding:18px 16px 40px;box-shadow:var(--sh)}
-.drawer .pn h3{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;margin-bottom:6px}
+.drawer .pn{position:absolute;top:0;bottom:0;inset-inline-end:0;width:min(520px,100%);background-image:var(--sheen);background-color:rgba(12,13,19,.88);-webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);border-inline-start:1px solid var(--line2);overflow:auto;padding:18px 16px 40px;box-shadow:0 30px 70px -30px rgba(0,0,0,.95)}
+.drawer .pn h3{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;margin-bottom:6px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}
 .ask{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;place-items:center;z-index:98;padding:20px}.ask.show{display:grid}
-.askbox{background:var(--bg,#14101f);border:1px solid var(--line);border-radius:18px;padding:22px;max-width:340px;width:100%;box-shadow:var(--sh,0 8px 40px rgba(0,0,0,.5))}
+.askbox{background-image:var(--sheen);background-color:rgba(16,17,24,.9);-webkit-backdrop-filter:blur(26px);backdrop-filter:blur(26px);border:1px solid var(--line2);border-radius:20px;padding:22px;max-width:340px;width:100%;box-shadow:0 30px 70px -26px rgba(0,0,0,.95)}
 .askmsg{font-size:14px;font-weight:600;line-height:1.6;margin-bottom:14px;word-break:break-word}
 .askin{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--input-bg);color:var(--text);font-size:13px;margin-bottom:16px;font-family:inherit}
 .askrow{display:flex;gap:10px;justify-content:flex-end}
 .clients{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .modal .in{text-align:center}
-.note{padding:10px 12px;border-radius:12px;font-size:12px;border:1px solid}
+.note{padding:10px 12px;border-radius:14px;font-size:12px;border:1px solid;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .note.i{background:rgba(43,127,255,.12);border-color:rgba(43,127,255,.25);color:var(--cyan)}
 .note.w{background:rgba(255,171,0,.12);border-color:rgba(255,171,0,.25);color:var(--amber)}
 .note.e{background:rgba(255,35,82,.12);border-color:rgba(255,35,82,.25);color:var(--red)}
@@ -4815,60 +4984,52 @@ function panelPage(env, settings, host, masterUuid) {
 .lk{display:flex;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}.lk:first-child{border-top:0}
 .lk input{font-size:12px;flex:1}
 .ipl{display:flex;flex-wrap:wrap;gap:6px;max-height:220px;overflow:auto;padding:4px 0}
-.ipl .chip{cursor:pointer;background:var(--input-bg);color:var(--text);font-size:11px}
-.ipl .chip:hover{background:var(--nav-bg);border-color:var(--glow)}
+.ipl .chip{cursor:pointer;background:rgba(255,255,255,.05);color:var(--text);font-size:11px}
+.ipl .chip:hover{background-color:var(--nav-bg);border-color:var(--glow)}
 .res{display:grid;gap:8px}
-.res div{padding:10px 12px;border:1px solid var(--b05);border-radius:12px;background:var(--flat);font-size:12px}
+.res div{padding:10px 12px;border:1px solid var(--line);border-radius:14px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);font-size:12px}
 /* hamburger drawer (mobile nav) */
 .mwrap{position:fixed;inset:0;z-index:60;display:none}
 .mwrap.show{display:block}
 .mbg{position:absolute;inset:0;background:rgba(0,0,0,.66)}
-.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background:var(--flat);border-inline-end:1px solid var(--line);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom))}
+.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background-image:var(--sheen);background-color:rgba(12,13,19,.9);-webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);border-inline-end:1px solid var(--line2);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom))}
 .mhead{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
 .mhead .lg{width:38px;height:38px;display:grid;place-items:center;flex:none}
-.mhead .mt{font-weight:700;font-size:14px;line-height:1.3}
+.mhead .mt{font-weight:800;font-size:14px;line-height:1.3}
 .mhead .mv{font-size:10.5px;color:var(--mute)}
 .mhead .ib{margin-inline-start:auto}
 .mlist{display:flex;flex-direction:column;gap:4px}
-.mlist>button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border-radius:14px;border:1px solid transparent;background:none;color:var(--text);text-align:start;min-height:54px;cursor:pointer}
-.mlist>button:hover{background:rgba(255,255,255,.03)}
-.mlist>button.on{background:var(--nav-bg);border-color:var(--glow)}
-.mi{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex:none;border:1px solid var(--line);background:var(--input-bg)}
+.mlist>button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border-radius:14px;border:1px solid transparent;background:none;color:var(--text);text-align:start;min-height:54px;cursor:pointer;transition:transform .25s var(--spring),background .2s,border-color .2s}
+.mlist>button:hover{background:rgba(255,255,255,.04)}
+.mlist>button:active{transform:scale(.97)}
+.mlist>button.on{background-image:linear-gradient(90deg,var(--nav-bg),rgba(255,255,255,.02));border-color:var(--line2)}
+.mi{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex:none;border:1px solid var(--line);background:rgba(255,255,255,.04)}
 .mtx{display:flex;flex-direction:column;line-height:1.4;min-width:0}
 .mtx b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mtx small{font-size:10.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mout{display:flex;align-items:center;gap:10px;margin-top:auto;padding:14px 10px 2px;border-top:1px solid var(--line);color:var(--red,#ff5d7a);font-size:13px;font-weight:600;text-decoration:none}
+.mout{display:flex;align-items:center;gap:10px;margin-top:auto;padding:14px 10px 2px;border-top:1px solid var(--line);color:var(--red);font-size:13px;font-weight:600;text-decoration:none}
 /* view page headers */
-.vhead{display:flex;gap:12px;align-items:center;margin:2px 0 14px}
-.vicon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;font-size:22px;flex:none;background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(0,225,193,.16));border:1px solid var(--line)}
-.vhead h1{font-size:17px;font-weight:800;margin:0;line-height:1.3}
+.vhead { display:flex;gap:12px;align-items:center;margin:2px 0 18px;padding-bottom:14px;border-bottom:1px solid var(--line) }
+.vhead>div:last-child { min-width:0 }
+.vicon{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;font-size:22px;flex:none;background-image:linear-gradient(135deg,var(--nav-bg),rgba(255,255,255,.03));border:1px solid var(--line2);box-shadow:0 12px 28px -14px var(--glow)}
+.vhead h1{font-size:18px;font-weight:800;margin:0;line-height:1.3;letter-spacing:.2px}
 .vhead p{margin:2px 0 0;font-size:11.5px;color:var(--mute);line-height:1.5}
 /* ── iOS × devigner motion system ── */
 :root{--spring:cubic-bezier(.34,1.35,.44,1);--io:cubic-bezier(.32,.72,0,1)}
-.btn{border-radius:999px;transition:transform .3s var(--spring),box-shadow .3s var(--io),background .2s,border-color .2s,color .2s}
-.btn:hover{transform:translateY(-1px)}
-.btn:active{transform:scale(.955)}
 .btn:focus-visible,.ib:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
-.btn.p{background:linear-gradient(135deg,var(--violet),#00c9ad);border-color:transparent;color:#fff;box-shadow:0 6px 22px rgba(124,58,237,.32)}
-.btn.p:hover{box-shadow:0 10px 32px rgba(124,58,237,.44);transform:translateY(-2px)}
-.ib{transition:transform .3s var(--spring),background .2s,border-color .2s,color .2s}
-.ib:active{transform:scale(.9)}
-.chip{transition:transform .3s var(--spring)}
-.st{transition:transform .45s var(--spring),border-color .3s}
+.chip { transition:transform .3s var(--spring) }
+.chip.v::before,.chip.t::before,.chip.ok::before,.chip.bad::before,.chip.warn::before { content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.9;flex:0 0 auto }
 /* drawer: spring slide + backdrop fade (was display toggle — now animatable) */
 .mwrap{position:fixed;inset:0;z-index:60;display:block;visibility:hidden;pointer-events:none}
 .mwrap.show{visibility:visible;pointer-events:auto}
-.mbg{position:absolute;inset:0;background:rgba(0,0,0,.66);opacity:0;transition:opacity .32s var(--io)}
+.mbg{position:absolute;inset:0;background:rgba(4,5,9,.72);opacity:0;transition:opacity .32s var(--io)}
 .mwrap.show .mbg{opacity:1}
-.mpanel{position:absolute;top:0;bottom:0;inset-inline-start:0;width:min(86vw,340px);background:var(--flat);border-inline-end:1px solid var(--line);box-shadow:0 12px 48px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow-y:auto;padding:14px 12px calc(16px + env(safe-area-inset-bottom));transform:translateX(var(--mslide,-112%));transition:transform .5s var(--spring)}
+.mpanel{transform:translateX(var(--mslide,-112%));transition:transform .5s var(--spring)}
 [dir=rtl] .mpanel{--mslide:112%}
 .mwrap.show .mpanel{transform:none}
-.mlist>button{transition:transform .25s var(--spring),background .2s,border-color .2s}
-.mlist>button:active{transform:scale(.97)}
 /* modals: spring pop */
 .ask.show .askbox{animation:zin .38s var(--spring)}
 .modal.show>div{animation:zin .38s var(--spring)}
-@keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
 /* view switches: fade-up + card stagger */
 .view.on{animation:vin .42s var(--io)}
 .view.on>*{animation:vin .5s var(--io) backwards}
@@ -4876,9 +5037,8 @@ function panelPage(env, settings, host, masterUuid) {
 .view.on>*:nth-child(3){animation-delay:.1s}
 .view.on>*:nth-child(4){animation-delay:.15s}
 @keyframes vin{from{opacity:0;transform:translateY(12px)}}
-/* toast: spring slide-up */
 /* marquee strip (devigner signature) */
-.marq{overflow:hidden;border:1px solid var(--line);border-radius:999px;padding:8px 0;margin:0 0 14px;background:var(--nav-bg)}
+.marq{overflow:hidden;border:1px solid var(--line);border-radius:999px;padding:8px 0;margin:0 0 14px;background-image:var(--sheen);background-color:rgba(255,255,255,.04);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 .marq .mi2{display:inline-flex;white-space:nowrap;animation:marq 26s linear infinite}
 .marq span{padding-inline-end:38px;font-size:11px;font-weight:700;letter-spacing:1px;color:var(--mute)}
 @keyframes marq{to{transform:translateX(-50%)}}
@@ -4907,8 +5067,6 @@ function panelPage(env, settings, host, masterUuid) {
 #fSettings>.card.sec:nth-child(8){border-inline-start:3px solid rgba(132,204,22,.5)}
 #fSettings>.card.sec:nth-child(9){border-inline-start:3px solid rgba(99,102,241,.5)}
 #fSettings>.card.sec:nth-child(10){border-inline-start:3px solid rgba(249,115,22,.5)}
-/* app-style glassy buttons: subtle top-light gradient on every button */
-.btn{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02))}
 /* mobile sizing: 16px inputs kill iOS focus-zoom (no more pinch-shrinking) */
 @media(max-width:640px){
  .main{padding:12px 12px 26px}
@@ -4917,25 +5075,29 @@ function panelPage(env, settings, host, masterUuid) {
  input,select,textarea{font-size:16px!important}
  .frm label{font-size:12px}
  .sec{padding:14px}
+ .stats{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 }
-.side{position:fixed;top:0;bottom:0;inset-inline-start:0;width:260px;background:var(--flat);border-inline-end:1px solid var(--line);display:none;flex-direction:column;z-index:30;overflow-y:auto;overflow-x:hidden;box-shadow:0 8px 32px rgba(0,0,0,.6)}
-.side .sbrand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
-.side .sbrand .lg{width:32px;height:32px;display:grid;place-items:center}
-.side a,.side button{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;border:0;background:transparent;color:var(--mute);font-size:13px;font-weight:500;cursor:pointer;text-align:start;width:100%}
-.side a:hover,.side button:hover{color:var(--text);background:rgba(255,255,255,.03)}
-.side button.on,.side a.on{color:var(--violet);background:var(--nav-bg);border:1px solid var(--glow)}
+/* ── sidebar: glass panel + a wallpaper window on the inner edge ── */
+.side{position:fixed;top:0;bottom:0;inset-inline-start:0;width:var(--sb-w);background-image:var(--sheen);background-color:rgba(12,13,19,.66);-webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%);border-inline-end:1px solid var(--line);display:none;flex-direction:column;z-index:30;overflow:visible;box-shadow:26px 0 60px -44px rgba(0,0,0,.95)}
+.side::after{content:"";position:absolute;top:50%;inset-inline-end:-13px;width:26px;height:108px;transform:translateY(-50%);border-radius:999px;background-image:var(--wall);background-attachment:fixed;box-shadow:inset 0 0 0 1px var(--line2),0 8px 22px -8px rgba(0,0,0,.8);pointer-events:none}
+.side .sbrand{display:flex;align-items:center;gap:10px;padding:18px 16px 12px;font-weight:800;font-size:15px;letter-spacing:.2px}
+.side .sbrand .lg{width:34px;height:34px;display:grid;place-items:center;flex:none;border-radius:12px;background-image:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.02));border:1px solid var(--line)}
+.side a,.side button{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid transparent;background:none;color:var(--mute);font-size:13px;font-weight:600;cursor:pointer;text-align:start;width:100%;transition:background .2s,color .2s,border-color .2s,transform .25s var(--spring)}
+.side a:hover,.side button:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.side button.on,.side a.on{color:var(--text);background-image:linear-gradient(90deg,var(--nav-bg),rgba(255,255,255,.02));border-color:var(--line2)}
 .side a svg,.side button svg{width:18px;height:18px;flex:0 0 auto}
-.sb-nav{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:10px}
-.side .sb-nav button.on{color:var(--violet);background:var(--nav-bg);border:1px solid var(--glow)}
+.sb-nav{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:3px;padding:6px 10px}
+.sb-nav>button.on,.nav-acc-body button.on{position:relative}
+.sb-nav>button.on::before,.nav-acc-body button.on::before{content:"";position:absolute;inset-inline-start:0;top:50%;transform:translateY(-50%);width:3px;height:18px;border-radius:999px;background-image:linear-gradient(180deg,var(--violet),var(--fuchsia));box-shadow:0 0 10px var(--glow)}
 .nav-acc{margin:0 -10px}
-.nav-acc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 18px;font-size:13px;font-weight:600;color:var(--text);background:#111;border:0;border-bottom:1px solid #2a2a2a;cursor:pointer;width:100%;text-align:start}
-.nav-acc-head .ar{color:var(--dim);font-size:11px}
-.nav-acc-body{display:none;flex-direction:column;background:#000}
-[dir=rtl] .nav-acc-body{padding:0}
-.nav-acc-body button{border-radius:0!important;border:0!important;border-bottom:1px solid #1d1d1d!important;background:#000!important;margin:0!important;padding:11px 16px!important}
-.nav-acc-body button.on{background:#171717!important;color:#fff!important;box-shadow:inset 3px 0 0 #fff;border:0!important}
-[dir=rtl] .nav-acc-body button.on{box-shadow:inset -3px 0 0 #fff}
-.sb-foot{padding:16px 20px;border-top:1px solid var(--line);font-size:11px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.nav-acc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;font-size:12px;font-weight:700;color:var(--mute);background:none;border:0;cursor:pointer;width:100%;text-align:start;border-radius:12px}
+.nav-acc-head>span:first-child{display:flex;align-items:center;gap:10px}
+.nav-acc-head:hover{color:var(--text)}
+.nav-acc-head .ar{color:var(--dim);font-size:10px}
+.nav-acc-body{display:none;flex-direction:column;gap:2px;margin:2px 0 4px;padding-inline-start:12px;border-inline-start:1px dashed var(--line)}
+.nav-acc-body button{border-radius:12px!important;border:1px solid transparent!important;background:none!important;margin:0!important;padding:9px 12px!important}
+.nav-acc-body button.on{background-image:linear-gradient(90deg,var(--nav-bg),rgba(255,255,255,.02))!important;color:var(--text)!important;border-color:var(--line2)!important;box-shadow:none!important}
+.sb-foot{padding:14px 18px;border-top:1px solid var(--line);font-size:11px;color:var(--mute);display:flex;align-items:center;gap:6px}
 .sb-foot .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;animation:sbpulse 2s infinite}
 @keyframes sbpulse{0%,100%{opacity:1}50%{opacity:.3}}
 .side .sb-out{color:var(--red)!important}
@@ -4944,27 +5106,32 @@ function panelPage(env, settings, host, masterUuid) {
 @media(min-width:1080px){
  .side{display:flex}
  .top{display:none}
- .main{margin-inline-start:260px}
+ .main{margin-inline-start:var(--sb-w);max-width:none;padding:20px 26px 40px}
+ .main>*{max-width:1180px;margin-inline:auto}
 }
 .search{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .search input{flex:1;min-width:200px}.search select{width:auto}
 .hr{height:1px;background:var(--line);margin:14px 0}
-.empty{text-align:center;padding:40px 10px;color:var(--dim)}
-.empty div{font-size:40px}
-code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;direction:ltr;unicode-bidi:embed}
-.skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--input-bg),var(--line),var(--input-bg));background-size:200% 100%;animation:sk 1.2s infinite}
+.empty { text-align:center;padding:38px 14px;color:var(--dim);border:1px dashed var(--line2);border-radius:18px;margin:8px 0 }
+.empty>div:first-child { display:grid;place-items:center;width:62px;height:62px;margin:0 auto 12px;border-radius:20px;font-size:28px;background-image:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.02));border:1px solid var(--line) }
+.empty>:not(:first-child) { font-size:12.5px;color:var(--mute);line-height:1.7;max-width:44ch;margin:0 auto }
+code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12px;direction:ltr;unicode-bidi:embed}
+.skel{height:14px;border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.04),var(--line),rgba(255,255,255,.04));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
-/* toast: iOS spring slide-up (overrides base rule above) */
-.toast{transform:translate(-50%,18px);transition:opacity .32s var(--io),transform .5s var(--spring)}
-[dir=rtl] .toast{transform:translate(50%,18px)}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-[dir=rtl] .toast.show{transform:translate(50%,0)}
 </style></head><body>
+<!-- «Cat Glass» skin picker -->
+<div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
+ <h3 data-i="th_title"></h3>
+ <div class="tpsub" data-i="th_sub"></div>
+ <div class="tpgrid" id="themeGrid"></div>
+ <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" type="button" data-tpclose data-i="th_close"></button></div>
+</div></div>
+
 <!-- hamburger menu (mobile nav) -->
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg">${catLogo(3)}</div><div><div class="mt" id="menuTitle">${escapeHtml(title)}</div><div class="mv">Cat Panel v${CAT_PANEL_VERSION}</div></div><button class="ib" data-mclose>✕</button></div>
+  <div class="mhead"><div class="lg">${catLogo(3)}</div><div><div class="mt" id="menuTitle">${escapeHtml(title)}</div><div class="mv">Cat Panel v${CAT_PANEL_VERSION}</div></div><button class="ib" type="button" data-theme-open title="Theme" aria-label="Theme">🎨</button><button class="ib" data-mclose>✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -5000,6 +5167,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <button data-view="backup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> <span data-i="n_bak"></span></button>
   <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
  </div>
+ <button type="button" data-theme-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7a9.3 9.3 0 100 18.6c1.4 0 2.2-.9 2.2-2 0-1.5-1.2-2-1.2-3.2 0-1 .8-1.8 1.9-1.8h1.8A4.3 4.3 0 0021.3 10c0-4.1-4.2-7.3-9.3-7.3z"/><circle cx="7.6" cy="11.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="11" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.6" cy="8.6" r="1.1" fill="currentColor" stroke="none"/></svg> <span data-i="n_theme"></span></button>
  <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
  <div class="sb-foot"><span class="dot"></span> Cat Panel v${CAT_PANEL_VERSION}</div>
 </div>
@@ -5183,6 +5351,18 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
    <button type="button" data-isp="direct" data-i="isp_direct"></button>
   </div>
   <div class="small mute" id="bIspNote" style="margin-top:6px;min-height:16px"></div>
+  <label data-i="b_fw" style="margin-top:12px"></label>
+  <div class="pick" id="bFw">
+   <button type="button" data-v="" class="on" data-i="b_fw_default"></button>
+   <button type="button" data-v="mci-ech" data-i="b_fw_mci_ech"></button>
+   <button type="button" data-v="mci-ipv6" data-i="b_fw_mci_ipv6"></button>
+   <button type="button" data-v="mci-ipv6-ff" data-i="b_fw_mci_ff"></button>
+   <button type="button" data-v="irancell-ff" data-i="b_fw_irancell_ff"></button>
+  </div>
+  <div class="note i small" id="bFwNote" data-i="b_fw_hint" style="margin-top:8px"></div>
+  <div class="two" style="margin-top:10px">
+   <div><label data-i="b_fw_addr"></label><input id="bAddr" class="mono" dir="ltr" autocomplete="off" data-ph="b_fw_addr_ph"></div>
+  </div>
   <div class="two" style="margin-top:10px">
    <div><label data-i="b_proto"></label><div class="pick" id="bProto"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="vless">VLESS</button><button type="button" data-v="trojan">TROJAN</button></div></div>
    <div><label data-i="b_fam"></label><div class="pick" id="bFam"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
@@ -5203,6 +5383,11 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   </div>
   <label data-i="b_link" style="margin-top:12px"></label>
   <input id="bLink" readonly class="mono" dir="ltr" value="">
+  <div id="bXrayWrap" style="display:none">
+   <label data-i="b_xray_link" style="margin-top:10px"></label>
+   <div class="row" style="flex-wrap:nowrap"><input id="bXrayLink" readonly class="mono" dir="ltr" value=""><button class="btn sm" id="bXrayCopy" type="button">📋</button></div>
+   <div class="small dim" data-i="b_xray_hint" style="margin-top:5px"></div>
+  </div>
   <label data-i="b_open" style="margin-top:10px"></label>
   <div class="row" id="bApps" style="display:none">
    <a class="btn sm p" id="bCat" href="#">🐱 Cat Client</a>
@@ -5218,7 +5403,7 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <div class="small mute" data-i="b_frag_hint"></div>
   <div class="two" style="margin-top:8px">
    <div><label>Fragment</label><input id="bFrag" dir="ltr" value="tlshello,100-200,5-10"></div>
-   <div><label data-i="b_fp"></label><select id="bFp"><option value="">—</option><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option></select></div>
+   <div><label data-i="b_fp"></label><select id="bFp"><option value="">—</option><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>unsafe</option></select></div>
   </div>
   <div class="row" style="margin-top:8px"><button class="btn sm" id="bFragCopy" type="button">📋 <span data-i="copy_all"></span></button></div>
  </div>
@@ -5226,9 +5411,14 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
   <h2><span class="ic">🧬</span><span data-i="aether_title"></span></h2>
   <div class="note i small" data-i="aether_hint"></div>
   <label data-i="aether_mode"></label>
-  <div class="pick" id="aePick"><button type="button" data-v="warp">WARP</button><button type="button" data-v="gool" class="on" data-i="aether_gool"></button><button type="button" data-v="masque">MASQUE/H2</button></div>
+  <div class="pick" id="aePick">
+   <button type="button" data-v="warp">WARP</button>
+   <button type="button" data-v="gool-classic" class="on" data-i="aether_gool_classic"></button>
+   <button type="button" data-v="wg-over-masque" data-i="aether_gool_masque"></button>
+   <button type="button" data-v="masque" data-i="aether_masque_h2"></button>
+  </div>
   <div class="two" style="margin-top:10px">
-   <div><label data-i="aether_name"></label><input id="aeName" value="Omni WARP-in-WARP"></div>
+   <div><label data-i="aether_name"></label><input id="aeName" value="Omni"></div>
    <div><label data-i="aether_family"></label><div class="pick" id="aeFam"><button type="button" data-v="both" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
   </div>
   <label data-i="b_link" style="margin-top:12px"></label>
@@ -5260,9 +5450,6 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
  <div class="card sec">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
-  <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
-   <a class="btn p" id="btnNodeScanApp" href="#">📱 <span data-i="scan_app"></span></a>
-  </div>
   <textarea id="ipPaste" placeholder="104.16.1.1#DE&#10;104.16.1.1:2053#DE&#10;www.example.com"></textarea>
   <div class="row" style="margin-top:10px">
    <button class="btn p" id="btnIpAppend" data-i="ip_append"></button>
@@ -5595,13 +5782,18 @@ code{background:var(--input-bg);border:1px solid var(--line);border-radius:6px;p
 <script>
 (function(){
 'use strict';
+/* Skin: the server already rendered the saved one on <html data-theme>. This fallback
+   only matters on KV-less panels, where settings cannot persist — the cookie keeps the
+   owner's choice instead of resetting to the default skin on every reload. */
+try{var tm=document.cookie.match(/(?:^|;\\s*)catTheme=([a-z]+)/);if(tm&&${JSON.stringify(PANEL_THEMES)}.indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
 var HOST=${JSON.stringify(host)}, UUID=${JSON.stringify(masterUuid)}, VERSION=${JSON.stringify(CAT_PANEL_VERSION)};
+var FIREWALL_PRESETS_UI=${JSON.stringify(firewallPresetUi)};
 var I18N={
-fa:{stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
+fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
-scan_app:'اسکن با Cat Client',scan_browser:'تست از شبکهٔ من (مرورگر)',scan_guide:'راهنمای اسکنرها',warp_title:'WARP روی خروجی Xray (کلیدهای خودت)',warp_hint:'اتصال به پنل داخل تونل WARP خودت می‌رود (آی‌پی واقعی‌ات حتی برای ورکر پنهان می‌شود). کلیدها را از wgcf یا خروجی Aether بردار — ورکر هیچ‌وقت با کلادفلر ثبت‌نام نمی‌کند (بن نمی‌شود). با روشن‌بودن WARP، فرگمنت کنار گذاشته می‌شود (تونل UDP است).',warp_mode:'حالت',warp_off:'خاموش',warp_chain:'WARP-در-WARP (زنجیره)',warp_sk:'SecretKey وایرگارد',warp_pk:'PublicKey همتا (Cloudflare)',warp_reserved:'reserved (اختیاری — با ویرگول)',warp_endpoint:'اندپوینت',warp_warn:'هیچ کلیدی را که مال خودت نیست اینجا نگذار. برای خاموش‌کردن موقت، حالت را «خاموش» بگذار — کلیدها می‌مانند.',ext_title:'ساب‌های خارجی (ترکیب با ساب تو)',ext_hint:'محتوای ساب‌های خارجی از دامنهٔ خود پنل سرو می‌شود (raw.github از ایران باز نمی‌شود) + اگر لیست URI باشد بعد از کانفیگ‌های خودت به ساب اضافه می‌شود. ?noext=1 = بدون این‌ها.',ext_add:'افزودن ساب',ext_preset:'ساب آمادهٔ سرورلس (PattNG)',ext_preset_free:'کانفیگ‌های رایگان پترنیها',ext_core:'ساب سرورلس به هستهٔ Xray تازه نیاز دارد (PattNG یا v2rayNG ≥2.2.6) و باید مستقیم در اپ ایمپورت شود، نه داخل ساب پنل.',ext_empty:'هنوز ساب خارجی نداری — پیش‌تنظیم سرورلس را امتحان کن.',ext_name:'نام',ext_url:'آدرس https ساب',mitm_title:'MITM + DomainFronting (سمت کلاینت)',mitm_body:'روشِ پترنیها برای باز کردن مستقیم یوتیوب/اینستاگرام/واتس‌اپ/فیسبوک/رددیت بدون سرور — راه‌اندازی روی خود دستگاه (ویندوز/لینوکس/مک/اندروید بدون روت) انجام می‌شود؛ سرتیفیکیت شخصی بساز و به سیستم اعتماد بده. راهنمای کامل در مخزن:',aether_title:'کانفیگ‌های ویژهٔ Aether (PattNG)',aether_hint:'لینک aether:// می‌سازد — با دکمهٔ باز کردن مستقیم در PattNG (هستهٔ Aether) باز می‌شود. WARP تک‌لایه، WARP-در-WARP (Gool) و MASQUE/HTTP-2 با فرگمنت.',aether_mode:'نوع',aether_gool:'WARP-در-WARP (Gool)',aether_name:'نام کانفیگ',aether_family:'خانوادهٔ آی‌پی',aether_open:'افزودن به PattNG',pp_countries:'افزودن مخزن کشوری (وان‌وو):',px_addrs:'افزودن استخر سالم به لیست اتصال (به‌عنوان آی‌پی)',px_addrs_hint:'پروکسی‌آی‌پی‌های سالم استخر، با تگ کشورشان به لیست آی‌پی‌های اتصال اضافه می‌شوند و کانفیگ 💦 می‌گیرند. هر پروکسی‌آی‌پی لزوماً به‌عنوان آدرس اتصال جواب نمی‌دهد — بعد از افزودن با تست اتصال اپ/اسکنر فیلترشان کن.',px_none:'چیزی برای افزودن نبود — اول «بروزرسانی» استخر را بزن',b_ech:'ECH (رمزگذاری ClientHello — سبک تیکه‌های ECH/SIIT) — طبق گزارش میدانی مهر ۱۴۰۵، روشن‌کردنش مهم‌ترین عامل وصل‌ماندن پنل‌های کلادفلری است',b_ech_off:'خاموش',ech_none:'SNI فعلی ECH ندارد (یا دسترسی DNS نبود) — خاموش نگه دار',rot_btn_off:'ایپی ثابت (چرخش روشنه — بزن تا ثابت شه)',rot_btn_on:'ایپی ثابته (بزن تا چرخش روشن شه)',rot_fixed_lbl:'ایپی ثابت',rot_rot_lbl:'چرخش',rot_now_fixed:'📌 چرخش خاموش شد — ایپی‌ها ثابت ماندند',rot_now_rotating:'⚡ چرخش روشن شد — هر آپدیت ست تازه',hero_inuse:'در حال استفاده (همین لحظه)',hero_ports:'پورت‌ها',hero_sni_host:'آدرس ورکر ✓',hero_sni_pool:'چرخش فعال · استخر',px_ignored:'نادیده گرفته شد (نه آدرس ProxyIP است و نه socks5://):',hero_ips:'آی‌پی تمیز',hero_px:'رله ProxyIP',hero_exit:'خروجی ثابت',hero_rot:'چرخش',hero_warn:'⚠️ SNI پیش‌فرض skk.moe است — چرخش SNI (هر کانفیگ یک SNI متفاوت) ریسک را کم کرده، ولی اگر اپراتورت skk.moe را ببندد باز بهتر است از اسکنر SNI اپ، SNI سالمِ خط خودت را بگیری و «⚡ SNI اصلی پنل شود» را بزنی.',hero_build:'کانفیگ‌ساز',ip_pin:'پین به‌عنوان ایپی ثابت (همیشه اول ساب)',ip_unpin:'برداشتن پین',pin_saved:'📌 این آی‌پی همیشه اول ساب می‌ماند — حتی با چرخش',pin_removed:'پین برداشته شد',s_rot:'چرخش خودکار کانفیگ‌ها',s_rot_off:'ثابت (مثل BPB)',s_rot_fetch:'هر بروزرسانی',s_rot_daily:'روزانه',s_rot_hint:'با هر آپدیت ساب، چیدمان آی‌پی‌ها و شمارهٔ کانفیگ‌ها عوض می‌شود — هر بار ستِ تازه می‌گیری. «روزانه» در طول روز ثابت است؛ «ثابت» همان ترتیب همیشگی است.',pp_title:'مخزن‌های ProxyIP (آپدیت ۱۲ساعته)',pp_hint:'فیدهای عمومی ProxyIP (آی‌پی یا دامنه)؛ هر ۱۲ ساعت خودکار بروز می‌شوند. ProxyIP = IP واسط برای بازکردن سایت‌های کلادفلریِ روی همان IP؛ خراب‌ها بعد از ۳ گزارش حذف و جایگزین می‌شوند.',pp_cc:'کشورهای استخر ProxyIP — + = افزودن ۸ عدد آن کشور به لیست ProxyIP پنل',pp_auto:'افزودن خودکار ۶ ProxyIP تازه به ساب‌ها',pp_src:'منابع: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'گزارش مرده: POST /api/prepos {action:"health",dead:[…]} ×۳ — بعدش جایگزین می‌شود.',rp_title:'مخزن‌ها (آپدیت ۱۲ساعته)',rp_refresh:'بروزرسانی',rp_hint:'فیدهای عمومی Clean-IP هر ۱۲ ساعت از کران یا بازشدن پنل تازه می‌شوند. پیش‌فرض روشن: تا ۸ IP کش‌شده بعد از IPهای خودت به ساب اضافه می‌شود؛ با دکمهٔ زیر خاموش کن. اگر تازه نصب شده، اولین ساب ممکن است پیش از تکمیل دریافت فید ساخته شود؛ «بروزرسانی» را بزن یا دوباره بگیر. سه گزارش مرگ، IP را از استخر حذف می‌کند. این فید IP اتصال است، نه ProxyIP؛ روی شبکه و کلاینت خودت تست کن.',rp_cc:'کشورهای استخر مخزن — + = افزودن ۱۶ آی‌پی آن کشور به لیست پنل',rp_auto:'افزودن خودکار ۸ آی‌پی تازه به ساب‌ها',rp_auto_on:'افزودن خودکار: روشن · برای خاموش‌کردن بزن',rp_auto_off:'افزودن خودکار: خاموش · برای روشن‌کردن بزن',rp_add:'مخزن جدید',rp_add_url:'آدرس raw مخزن (https://…)',rp_add_name:'نام مخزن',rp_empty:'استخر مخزن خالی است — «بروزرسانی» را بزن.',rp_nokv:'بدون KV ذخیره نمی‌شود',rp_src:'منابع: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'گزارش آی‌پی مرده؟ سه بار «health» با POST /api/repos {action:"health",dead:[…]} — بعدش خودکار عوضش می‌کند.',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'فرگمنت داخل لینک ساب نمی‌آید؛ در خود کلاینت واردش کن (v2rayNG: ویرایش کانفیگ → Fragment). مقدارش با پروفایل اپراتور عوض می‌شود.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'«تست از شبکهٔ من» دامنه‌ها و آی‌پی‌های خام را از خط خودت می‌سنجد (اتصال مستقیم مرورگر) و مرده‌ها را با یک کلیک از لیستت حذف می‌کند. پروکسی‌آی‌پی‌ها مسیرشان از ورکر است — آن‌ها با «تست با کارگر».',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'واردکردن نتیجهٔ اسکن (افزودن پیش‌فرض)',ip_import_ready:'نتیجهٔ اسکن پیش‌پر شد — دکمهٔ «افزودن» را بزن',ip_manual:'افزودن دستی IP',ip_manual_hint:'هر خط یک آی‌پی یا دامنه (پورت اختیاری). با «اول تست» فقط سالم‌ها اضافه می‌شوند — نتیجهٔ تست کارگرِ پنل است، نه ادعای من.',ip_manual_port:'پورت (پیش‌فرض 443)',ip_manual_cc:'کشور (اختیاری، مثل DE)',ip_manual_test:'اول تست، بعد افزودن',ip_manual_add:'افزودن',ip_manual_none:'چیزی برای افزودن نبود',ip_manual_dead:'هیچ‌کدام زنده نبود — چیزی اضافه نشد',ip_manual_test_error:'تست پنل خطا داد؛ برای ایمنی چیزی اضافه نشد (%1)', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'برای ارسال مستقیم: Cat Client → اسکنر → «ارسال به Cat Panel»؛ فقط نتیجه‌هایی می‌آیند که TLS روی همان دستگاه/شبکه موفق بوده. حالت عادی افزودن است. یا اینجا IP/دامنه را بچسبان (هر خط یا کاما، IPv6 هم قبول است؛ #DE = کشور). پورت مثل 104.16.1.1:2053#DE فقط روی همان پورت ساخته می‌شود. «جایگزینی کل لیست» جداست و فقط با انتخابش لیست قبلی پاک می‌شود. IPهای فید هم کاندیدند؛ روی خط خودت تست کن.',
+scan_app:'اسکن با Cat Client',scan_browser:'تست از شبکهٔ من (مرورگر)',scan_guide:'راهنمای اسکنرها',warp_title:'WARP روی خروجی Xray (کلیدهای خودت)',warp_hint:'اتصال به پنل داخل تونل WARP خودت می‌رود (آی‌پی واقعی‌ات حتی برای ورکر پنهان می‌شود). کلیدها را از wgcf یا خروجی Aether بردار — ورکر هیچ‌وقت با کلادفلر ثبت‌نام نمی‌کند (بن نمی‌شود). با روشن‌بودن WARP، فرگمنت کنار گذاشته می‌شود (تونل UDP است).',warp_mode:'حالت',warp_off:'خاموش',warp_chain:'WARP-در-WARP (زنجیره)',warp_sk:'SecretKey وایرگارد',warp_pk:'PublicKey همتا (Cloudflare)',warp_reserved:'reserved (اختیاری — با ویرگول)',warp_endpoint:'اندپوینت',warp_warn:'هیچ کلیدی را که مال خودت نیست اینجا نگذار. برای خاموش‌کردن موقت، حالت را «خاموش» بگذار — کلیدها می‌مانند.',ext_title:'ساب‌های خارجی (ترکیب با ساب تو)',ext_hint:'محتوای ساب‌های خارجی از دامنهٔ خود پنل سرو می‌شود (raw.github از ایران باز نمی‌شود) + اگر لیست URI باشد بعد از کانفیگ‌های خودت به ساب اضافه می‌شود. ?noext=1 = بدون این‌ها.',ext_add:'افزودن ساب',ext_preset:'ساب آمادهٔ سرورلس (PattNG)',ext_preset_free:'کانفیگ‌های رایگان پترنیها',ext_core:'ساب سرورلس به هستهٔ Xray تازه نیاز دارد (PattNG یا v2rayNG ≥2.2.6) و باید مستقیم در اپ ایمپورت شود، نه داخل ساب پنل.',ext_empty:'هنوز ساب خارجی نداری — پیش‌تنظیم سرورلس را امتحان کن.',ext_name:'نام',ext_url:'آدرس https ساب',mitm_title:'MITM + DomainFronting (سمت کلاینت)',mitm_body:'روشِ پترنیها برای باز کردن مستقیم یوتیوب/اینستاگرام/واتس‌اپ/فیسبوک/رددیت بدون سرور — راه‌اندازی روی خود دستگاه (ویندوز/لینوکس/مک/اندروید بدون روت) انجام می‌شود؛ سرتیفیکیت شخصی بساز و به سیستم اعتماد بده. راهنمای کامل در مخزن:',aether_title:'کانفیگ‌های ویژهٔ Aether (PattNG)',aether_hint:'لینک aether:// می‌سازد و مستقیم در PattNG باز می‌کند: WARP، Gool کلاسیک (WARP-در-WARP)، Gool جدید (WireGuard-over-MASQUE روی HTTP/2) و MASQUE/H2. لینک‌های H2 از fingerprint و Fragment بومی Aether استفاده می‌کنند؛ Gool جدید به PattNG 2.3.10-P63+ نیاز دارد.',aether_mode:'نوع',aether_gool_classic:'Gool کلاسیک · WARP-در-WARP',aether_gool_masque:'Gool جدید · WireGuard-over-MASQUE/H2',aether_masque_h2:'MASQUE/H2',aether_name:'نام کانفیگ',aether_family:'خانوادهٔ آی‌پی',aether_open:'افزودن به PattNG',pp_countries:'افزودن مخزن کشوری (وان‌وو):',px_addrs:'افزودن استخر سالم به لیست اتصال (به‌عنوان آی‌پی)',px_addrs_hint:'پروکسی‌آی‌پی‌های سالم استخر، با تگ کشورشان به لیست آی‌پی‌های اتصال اضافه می‌شوند و کانفیگ 💦 می‌گیرند. هر پروکسی‌آی‌پی لزوماً به‌عنوان آدرس اتصال جواب نمی‌دهد — بعد از افزودن با تست اتصال اپ/اسکنر فیلترشان کن.',px_none:'چیزی برای افزودن نبود — اول «بروزرسانی» استخر را بزن',b_ech:'ECH (رمزگذاری ClientHello — سبک تیکه‌های ECH/SIIT) — طبق گزارش میدانی مهر ۱۴۰۵، روشن‌کردنش مهم‌ترین عامل وصل‌ماندن پنل‌های کلادفلری است',b_ech_off:'خاموش',ech_none:'SNI فعلی ECH ندارد (یا دسترسی DNS نبود) — خاموش نگه دار',rot_btn_off:'ایپی ثابت (چرخش روشنه — بزن تا ثابت شه)',rot_btn_on:'ایپی ثابته (بزن تا چرخش روشن شه)',rot_fixed_lbl:'ایپی ثابت',rot_rot_lbl:'چرخش',rot_now_fixed:'📌 چرخش خاموش شد — ایپی‌ها ثابت ماندند',rot_now_rotating:'⚡ چرخش روشن شد — هر آپدیت ست تازه',hero_inuse:'در حال استفاده (همین لحظه)',hero_ports:'پورت‌ها',hero_sni_host:'آدرس ورکر ✓',hero_sni_pool:'چرخش فعال · استخر',px_ignored:'نادیده گرفته شد (نه آدرس ProxyIP است و نه socks5://):',hero_ips:'آی‌پی تمیز',hero_px:'رله ProxyIP',hero_exit:'خروجی ثابت',hero_rot:'چرخش',hero_warn:'⚠️ SNI پیش‌فرض skk.moe است — چرخش SNI (هر کانفیگ یک SNI متفاوت) ریسک را کم کرده، ولی اگر اپراتورت skk.moe را ببندد باز بهتر است از اسکنر SNI اپ، SNI سالمِ خط خودت را بگیری و «⚡ SNI اصلی پنل شود» را بزنی.',hero_build:'کانفیگ‌ساز',ip_pin:'پین به‌عنوان ایپی ثابت (همیشه اول ساب)',ip_unpin:'برداشتن پین',pin_saved:'📌 این آی‌پی همیشه اول ساب می‌ماند — حتی با چرخش',pin_removed:'پین برداشته شد',s_rot:'چرخش خودکار کانفیگ‌ها',s_rot_off:'ثابت (مثل BPB)',s_rot_fetch:'هر بروزرسانی',s_rot_daily:'روزانه',s_rot_hint:'با هر آپدیت ساب، چیدمان آی‌پی‌ها و شمارهٔ کانفیگ‌ها عوض می‌شود — هر بار ستِ تازه می‌گیری. «روزانه» در طول روز ثابت است؛ «ثابت» همان ترتیب همیشگی است.',pp_title:'مخزن‌های ProxyIP (آپدیت ۱۲ساعته)',pp_hint:'فیدهای عمومی ProxyIP (آی‌پی یا دامنه)؛ هر ۱۲ ساعت خودکار بروز می‌شوند. ProxyIP = IP واسط برای بازکردن سایت‌های کلادفلریِ روی همان IP؛ خراب‌ها بعد از ۳ گزارش حذف و جایگزین می‌شوند.',pp_cc:'کشورهای استخر ProxyIP — + = افزودن ۸ عدد آن کشور به لیست ProxyIP پنل',pp_auto:'افزودن خودکار ۶ ProxyIP تازه به ساب‌ها',pp_src:'منابع: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'گزارش مرده: POST /api/prepos {action:"health",dead:[…]} ×۳ — بعدش جایگزین می‌شود.',rp_title:'مخزن‌ها (آپدیت ۱۲ساعته)',rp_refresh:'بروزرسانی',rp_hint:'فیدهای رایگان Clean-IP هر ۱۲ ساعت تازه می‌شوند. با روشن بودن افزودن خودکار، حداکثر ۸ آی‌پی فید فقط به ساب اضافه می‌شوند (در فهرست ذخیره نمی‌شوند) و بعد از آی‌پی‌های خودت می‌آیند؛ با اسکنر روی خط خودت تستشان کن. موارد خرابِ گزارش‌شده پس از ۳ گزارش حذف می‌شوند.',rp_cc:'کشورهای استخر مخزن — + = افزودن ۱۶ آی‌پی آن کشور به لیست پنل',rp_auto:'افزودن خودکار ۸ آی‌پی تازه به ساب‌ها',rp_add:'مخزن جدید',rp_add_url:'آدرس raw مخزن (https://…)',rp_add_name:'نام مخزن',rp_empty:'استخر مخزن خالی است — «بروزرسانی» را بزن.',rp_nokv:'بدون KV ذخیره نمی‌شود',rp_src:'منابع: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'گزارش آی‌پی مرده؟ سه بار «health» با POST /api/repos {action:"health",dead:[…]} — بعدش خودکار عوضش می‌کند.',n_build:'کانفیگ‌ساز',b_title:'کانفیگ‌ساز',b_hint:'برای هر اپراتور، کشور و پورت یک لینک سابِ دقیق می‌سازد؛ تنظیمات اصلی پنل را تغییر نمی‌دهد.',b_isp:'پروفایل اپراتور (پیشنهاد — روی خط خودت تست کن)',isp_mtn:'ایرانسل (MTN)',isp_mci:'همراه اول (MCI)',isp_rtl:'رایتل / شاتل',isp_tdsl:'مخابرات',isp_direct:'مستقیم / خودکار',b_isp_mtn_n:'ایرانسل: فرگمنت حتماً روشن؛ پورت‌های 443 و 8443 با اثر انگشت chrome.',b_isp_mci_n:'همراه اول: 443 و 2053؛ اگر IPv6 داری خانواده را روی «هر دو» بگذار.',b_isp_rtl_n:'رایتل/شاتل: پورت‌های بدون TLS (80/8080) معمولاً بهتر جواب می‌دهد؛ فرگمنت کوتاه.',b_isp_tdsl_n:'مخابرات: 443 با اثر انگشت iOS معمولاً پایدارتر است.',b_isp_direct_n:'آماده‌سازی‌ای اعمال نشد — فیلترها را خودت انتخاب کن.',b_fw:'پروفایل عبور از فایروال (اختیاری)',b_fw_default:'پیش‌فرض',b_fw_mci_ech:'همراه اول · ECH',b_fw_mci_ipv6:'همراه اول · IPv6',b_fw_mci_ff:'همراه اول · IPv6 + F&F',b_fw_irancell_ff:'ایرانسل · F&F',b_fw_hint:'فایروال واقعی را انتخاب کن، نه صرفاً نام سیم‌کارت. پروفایل فقط لینک‌های همین کانفیگ‌ساز را تغییر می‌دهد. F&F به Xray Core 26.9+ نیاز دارد؛ Cat Client/Mihomo، sing-box و Clash این finalMask را اعمال نمی‌کنند.',b_fw_mci_ech_n:'آدرس 188.114.97.6 با ECH از cloudflare-ech.com روی DNS 1.1.1.1؛ اگر شبکه این DNS را ببندد، پروفایل ممکن است وصل نشود.',b_fw_mci_ipv6_n:'آدرس IPv6 ثابت 2a06:98c1:3121::7؛ فقط اگر IPv6 روی خطت کار می‌کند و دامنهٔ Worker فیلتر نیست.',b_fw_mci_ff_n:'IPv6 + Final Mask اختصاصی؛ برای دامنهٔ فیلترشده. به IPv6 و Xray Core 26.9+ نیاز دارد.',b_fw_irancell_ff_n:'188.114.97.6 + fingerprint unsafe + Final Mask و cipher suites؛ فقط Xray Core 26.9+؛ روی خط خودت تست کن.',b_fw_addr:'IP ورودی (خالی = IP پیشنهادی پروفایل)',b_fw_addr_ph:'188.114.97.6 یا 2a06:98c1:3121::7',b_xray_link:'لینک JSON برای Xray',b_xray_hint:'برای F&F از Xray Core 26.9+ استفاده کن. Cat Client/Mihomo، Clash و sing-box این finalMask را اعمال نمی‌کنند؛ این پروفایل‌ها فقط برای لینک URI/Xray JSON هستند.',b_proto:'پروتکل',b_fam:'خانوادهٔ آی‌پی',b_both:'هر دو',b_ports:'پورت‌ها (چندتایی)',b_cc:'کشور خروجی',b_cc_all:'همه کشورها',b_limit:'تعداد کانفیگ (۱ تا ۲۰۰)',b_strict:'رفتار کشور',b_fb_ok:'سقوط به بقیهٔ کشورها',b_only:'فقط همین کشور',b_gen:'ساخت ساب زنده',b_copy:'کپی همه',b_link:'لینک ساب ساخته‌شده',b_prev:'پیش‌نمایش زنده (اولین خط‌ها)',b_open:'باز کردن در',b_frag:'فرگمنت و اثر انگشت (تنظیمِ خودِ کلاینت)',b_frag_hint:'Fragment عمومی پایین فقط راهنماست و در لینک عادی نمی‌آید؛ در خود کلاینت واردش کن. پروفایل فایروال بالا fingerprint/ECH/Final Mask/Cipher را در لینک VLESS/Trojan و Xray JSON می‌گذارد؛ F&F به Xray Core 26.9+ نیاز دارد.',b_fp:'اثر انگشت TLS',scan_cat:'دستهٔ آی‌پی',scan_region:'منطقه',scan_cc:'کشورهای لیست پنل',scan_search:'جستجوی کشور',scan_search_ph:'آلمان یا DE…',scan_cidr:'افزودن از رنج CIDR یا دامنه',scan_cidr_ph:'104.16.0.0/24 یا cdn.example.com',cidr_add:'افزودن به لیست',cidr_ok:'%1 آی‌پی اضافه شد',cidr_bad:'رنج نامعتبر است (نمونه: 104.16.0.0/24)',loc_now:'لوکیشن فعلی',loc_refresh:'بروزرسانی',loc_fail:'لوکیشن خوانده نشد',scan_jump:'⚙ ساب فقط این کشور',scan_empty:'با این فیلتر آی‌پی‌ای نیست.',scan_note_browser:'«تست از شبکهٔ من» دامنه‌ها و آی‌پی‌های خام را از خط خودت می‌سنجد (اتصال مستقیم مرورگر) و مرده‌ها را با یک کلیک از لیستت حذف می‌کند. پروکسی‌آی‌پی‌ها مسیرشان از ورکر است — آن‌ها با «تست با کارگر».',reg_eu:'🇪🇺 اروپا',reg_me:'🕌 خاورمیانه',reg_as:'🌏 آسیا',reg_am:'🌎 آمریکا',reg_af:'🌍 آفریقا',ev_title:'گزارش رویدادها',ev_time:'زمان',ev_ev:'رویداد',ev_d:'شرح',ev_empty:'هنوز رویدادی ثبت نشده است.',ev_ago_h:'%1 ساعت پیش',ev_ago_d:'%1 روز پیش',ip_import:'وارد کردن نتیجهٔ اسکن',ip_import_ready:'نتیجهٔ اسکن پیش‌پر شد — دکمهٔ «افزودن» را بزن',ip_manual:'افزودن دستی IP',ip_manual_hint:'هر خط یک آی‌پی یا دامنه (پورت اختیاری). با «اول تست» فقط سالم‌ها اضافه می‌شوند — نتیجهٔ تست کارگرِ پنل است، نه ادعای من.',ip_manual_port:'پورت (پیش‌فرض 443)',ip_manual_cc:'کشور (اختیاری، مثل DE)',ip_manual_test:'اول تست، بعد افزودن',ip_manual_add:'افزودن',ip_manual_none:'چیزی برای افزودن نبود',ip_manual_dead:'هیچ‌کدام زنده نبود — چیزی اضافه نشد', proxyip_import: 'ProxyIPها از Cat Client وارد شد — ذخیره کن',ip_import_hint:'فهرست IP خام خروجی WhiteDNS Scanner یا هر اسکنر دیگری را اینجا بچسبان (هر خط یکی؛ ستون پینگ و متن اضافه را حذف کن). IPv6 هم قبول است. پورت و کشور اختیاری است: 104.16.1.1:2053#DE — آن IP فقط روی همان پورت ساخته می‌شود. می‌توانی نتیجه را مستقیم از Cat Client هم به پنل بفرستی.',
 kv_warn_title:'حافظهٔ پنل وصل نیست — تغییرات ذخیره نمی‌شوند',kv_warn_body:'هر تغییری که بدهی (کاربر، IP تمیز، تنظیمات) فقط چند دقیقه می‌ماند و بعد از بین می‌رود؛ ساب هم بدون IP تمیز خالی درمی‌آید. راه‌حل: در اپ Cat Client → «دیپلوی‌های من» → همین دیپلوی → «به‌روزرسانی پنل» را بزن تا حافظه دوباره وصل شود.',kv_warn_ok:'فهمیدم',kv_save_failed:'ذخیره نشد — حافظهٔ پنل وصل نیست',b_empty_title:'ساب خالی است — هیچ کانفیگی ساخته نشد',b_empty_body:'فهرست IPهای اختصاصی پنل خالی است. ورکر فقط در این حالت به آدرس‌های پیش‌فرض و دامنهٔ خودش برمی‌گردد؛ پیش‌نمایش خالی معمولاً یعنی درخواست ساب شکست خورده. جزئیات HTTP زیر را ببین.',b_fetch_error:'گرفتن ساب ساخته‌شده ناموفق بود: %1',b_empty_reply:'پاسخ HTTP هیچ خط کانفیگی نداشت: %1',b_bad_reply:'پاسخ دریافتی ساب کانفیگ نیست: %1',b_user_save_error:'ذخیرهٔ کاربر ناموفق بود: %1',b_user_saved_refresh_error:'کاربر ذخیره شد، اما تازه‌سازی فهرست کاربران شکست خورد: %1',ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_test_btn:'سلامت و تست',ip_test_reach:'از سمت ورکر سالم',svc_btn:'سرویس‌ها',svc_note:'آزمون اجرای آمریکا (ویژهٔ Gemini/AI): وضعیت باز/ردِ هر سرویس از خروجی فعلی — 404 یعنی قابل‌دسترس',svc_gemini_hint:'جمنای باز نمی‌شود؟ خروجیِ فعلی کلادفلری است و گوگل آن را نمی‌پسندد — یک socks5 خارجی در بخش 🎭 اضافه کن (🧦) و دوباره تست بزن',exit_hint:'وصل شو به کانفیگ، این را باز کن: آی‌پی/کشورِ خروجی، نشت DNS و WebRTC، پینگ جهانی و باز‌بودن جمنای — نیمه‌ای که فقط از خطِ خودت دیده می‌شود',ip_test_hint:'تست واقعی از سمت ورکر: 💦 با همان IP+پورت+TLS+Hostِ قالب کانفیگ؛ 🎯 روی پورتِ خودِ هر ProxyIP؛ 🧦 رله‌های socks5 با هندشیک واقعی socks (و احراز هویت user:pass). پورت 443 داخل کانفیگ 🎯/🧦 پورتِ ورود به ورکر است، نه پورتِ رله. رفتار SNI روی خط خودت فقط با اسکنر اپ دیده می‌شود.',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'خالی = آدرس ورکر (پیشنهادی؛ کلادفلر فقط همین را می‌پذیرد) — فقط وقتی «اسپوف SNI» روشن است اعمال می‌شود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_ech:'ECH (پنهان‌سازی SNI)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'مقدار ECH برای کانفیگ‌های TLS؛ با ?ech=1 اعمال می‌شود. خالی = پیش‌فرض مشترک کلادفلر (cloudflare-ech.com+udp://1.1.1.1) که SNI واقعی را روی هر میزبان پشت کلادفلر رمز می‌کند؛ auto = فقط رکورد خود SNI؛ off = خاموش',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
@@ -5614,16 +5806,16 @@ about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ 
 n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز IP تمیز اختصاصی نداری — اگر فهرست مؤثر خالی باشد، ساب به آدرس‌های پیش‌فرض و دامنهٔ ورکر برمی‌گردد. افزودن IPهای فید عمومی به ساب جداست و فقط با روشن‌کردن «افزودن خودکار از مخزن‌ها» انجام می‌شود. IPهای تست‌شده را اضافه کن تا اول ساب بیایند:',n_set:'تنظیمات',n_settings:'تنظیمات',n_backup:'پشتیبان‌گیری',s_backup:'پشتیبان‌گیری و بازیابی پنل',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
-unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر 1101 دیدی (بن کلادفلر)',rec_hint:'ارور 1101 معمولاً استثنا نیست — یعنی کلادفلر کد ورکر را اسکن و دیسیبل کرده. این نسخه کدش مبهم‌سازی‌شده دیپلوی می‌شود و این مسیر را نمی‌بینی؛ اگر نسخهٔ قدیمی‌ای هنوز بالا است:',rec_steps:'۱) ابزارها ← بکاپ بگیر ← ۲) ورکر بن‌شده را در کلادفلر پاک کن ← ۳) ساب‌دامینه را از Workers & Pages ← Subdomain عوض کن (یا اکانت تازه) ← ۴) از /deploy یا Actions دوباره دیپلوی کن ← ۵) بکاپ را ری‌استور کن ← ۶) از کارت «دامنهٔ اختصاصی» پایین، دامنهٔ خودت را وصل کن',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانه (۸ کشور در هر شب، چرخشی) از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
+unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر خطای 1101 دیدی',rec_hint:'طبق مستندات Cloudflare، خطای 1101 معمولاً یعنی Worker هنگام اجرا استثنای JavaScript داده است؛ به‌تنهایی بن‌شدن را ثابت نمی‌کند. در Workers & Pages ← Worker ← Logs/Observability متن خطا و stack trace را بررسی کن.',rec_steps:'۱) نسخهٔ پاسخ /api/version و زمان درخواست را ثبت کن؛ ۲) همان درخواست را در Logs یا wrangler tail پیدا کن؛ ۳) متن exception/stack trace و تنظیمات همان نسخه را بررسی کن؛ ۴) پس از اصلاح، /health و مسیر خطادار را دوباره آزمایش کن. اگر داشبورد صراحتاً پیام تعلیق یا سیاست نشان می‌دهد، همان اعلان رسمی را پیگیری کن.',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانه (۸ کشور در هر شب، چرخشی) از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز = UUID (تغییرش بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
 update_check:'بررسی نسخهٔ جدید…',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box'},
-en:{stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
+en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
-scan_app:'Scan with Cat Client',scan_browser:'Test from my network (browser)',scan_guide:'Scanner guide',warp_title:'WARP on Xray output (your own keys)',warp_hint:'Your connection to the panel rides inside your own WARP tunnel (your real IP stays hidden even from the worker). Grab keys from wgcf or an Aether export — the worker never registers with Cloudflare (nothing to ban). With WARP on, fragment is bypassed (the tunnel is UDP).',warp_mode:'Mode',warp_off:'Off',warp_chain:'WARP-in-WARP (chained)',warp_sk:'WireGuard SecretKey',warp_pk:'Peer PublicKey (Cloudflare)',warp_reserved:'reserved (optional, comma sep)',warp_endpoint:'Endpoint',warp_warn:'Never paste keys that are not yours. Set mode to Off to disable temporarily — keys are kept.',ext_title:'External subs (merged into yours)',ext_hint:'External sub content is served through the panel\u2019s own domain (raw.github is unreachable from Iran) + URI-list subs are appended after your own configs. ?noext=1 = skip them.',ext_add:'Add sub',ext_preset:'Serverless preset (PattNG)',ext_preset_free:'Patterniha free configs',ext_core:'The Serverless sub needs a recent Xray core (PattNG or v2rayNG ≥2.2.6) and must be imported directly into the app, not merged into the panel sub.',ext_empty:'No external subs yet — try the Serverless preset.',ext_name:'Name',ext_url:'https sub URL',mitm_title:'MITM + DomainFronting (client-side)',mitm_body:'Patterniha\u2019s method to open YouTube/Instagram/WhatsApp/Facebook/Reddit directly without a server — set up on the device (Win/Linux/mac/Android, no root). Create a PERSONAL certificate and trust it. Full guide:',aether_title:'Aether special configs (PattNG)',aether_hint:'Builds aether:// links — the open button launches PattNG (Aether core) directly. Single WARP, WARP-in-WARP (Gool) and MASQUE/HTTP-2 with fragment.',aether_mode:'Type',aether_gool:'WARP-in-WARP (Gool)',aether_name:'Config name',aether_family:'Address family',aether_open:'Add to PattNG',pp_countries:'Add a country repo (Wanwu):',px_addrs:'Import healthy pool as connection IPs',px_addrs_hint:'Healthy pool ProxyIPs are added to your connection-IP list with their country tags and get 💦 configs. Not every ProxyIP also works as an entry address — test/filter them with the app or scanner after importing.',px_none:'Nothing to import — hit pool Refresh first',b_ech:'ECH (encrypted ClientHello — ECH/SIIT-style configs) — per field reports (Oct 2026), the single most important switch to stay connected',b_ech_off:'Off',ech_none:'Current SNI has no ECH (or DNS unreachable) — keep it off',rot_btn_off:'Fixed IP (rotation ON — tap to freeze)',rot_btn_on:'Fixed IP active (tap to resume rotation)',rot_fixed_lbl:'Fixed IP',rot_rot_lbl:'Rotating',rot_now_fixed:'📌 Rotation off — IPs stay fixed',rot_now_rotating:'⚡ Rotation on — fresh set every update',hero_inuse:'In use right now',hero_ports:'Ports',hero_sni_host:'worker host ✓',hero_sni_pool:'rotating pool',px_ignored:'Ignored (neither a ProxyIP nor a socks5:// proxy):',hero_ips:'Clean IPs',hero_px:'ProxyIP relays',hero_exit:'Fixed exit',hero_rot:'Rotation',hero_warn:'⚠️ SNI defaults to skk.moe — SNI rotation (one different SNI per config) lowers the risk, but if your carrier blocks skk.moe, still scan a healthy SNI on your line and hit “⚡ Make panel main SNI”.',hero_build:'Builder',ip_pin:'Pin as fixed IP (always first in sub)',ip_unpin:'Unpin',pin_saved:'📌 This IP stays first — even with rotation on',pin_removed:'Pin removed',s_rot:'Auto config rotation',s_rot_off:'Stable (BPB-like)',s_rot_fetch:'Every update',s_rot_daily:'Daily',s_rot_hint:'Each sub refresh reshuffles the IP order and numbering — a fresh set every time. Daily keeps one arrangement per day; Stable keeps the classic order.',pp_title:'ProxyIP repos (12h auto-update)',pp_hint:'Public ProxyIP feeds (IPs or domains); refreshed every 12h. A ProxyIP is the relay address for opening Cloudflare-fronted sites; IPs reported dead 3× are replaced.',pp_cc:'ProxyIP pool countries — + adds 8 of that country to the panel ProxyIP list',pp_auto:'Auto-append 6 fresh ProxyIPs to subs',pp_src:'Sources: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'Dead? POST /api/prepos {action:"health",dead:[…]} ×3 — replaced automatically.',rp_title:'Repos (12h auto-update)',rp_refresh:'Refresh',rp_hint:'Public Clean-IP feeds refresh every 12 hours via cron or panel opens. Auto-append is ON by default: up to 8 cached candidates go after your own IPs in generated subs; use the toggle below to turn it off. On a fresh install, the first sub may arrive before the initial feed refresh—hit Refresh or fetch the sub again. Three dead reports remove an entry. These are connection IPs, not ProxyIPs; test on your own network/client.',rp_cc:'Repo pool countries — + adds 16 IPs of that country to your panel list',rp_auto:'Auto-append 8 fresh IPs to subs',rp_auto_on:'Auto-add: ON · tap to turn off',rp_auto_off:'Auto-add: OFF · tap to enable',rp_add:'Add repo',rp_add_url:'Raw repo URL (https://…)',rp_add_name:'Repo name',rp_empty:'Repo pool is empty — hit Refresh.',rp_nokv:'no KV, not persisted',rp_src:'Sources: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'Dead IP? POST /api/repos {action:"health",dead:[…]} three times — it gets replaced automatically.',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'Fragment is NOT carried in the link — set it in your client (v2rayNG: edit config → Fragment). The value follows the carrier profile.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'“Test from my network” probes domains and raw IPs directly from your line (browser connections) and can prune the dead ones from your list with one tap. ProxyIPs route via the worker — use the worker test for those.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results (append by default)',ip_import_ready:'Scan results pre-filled — press Append',ip_manual:'Add IPs manually',ip_manual_hint:'One IP or domain per line (port optional). With “test first”, only healthy ones are added — tested by the panel worker, not taken on faith.',ip_manual_port:'Port (default 443)',ip_manual_cc:'Country (optional, e.g. DE)',ip_manual_test:'Test first, then add',ip_manual_add:'Add',ip_manual_none:'Nothing to add',ip_manual_dead:'None of them answered — nothing added',ip_manual_test_error:'Panel test failed; nothing was added for safety (%1)', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Direct: Cat Client → Scanner → Send to Cat Panel sends only IPs whose TLS handshake passed on that device/network; it appends by default. Or paste IPs/domains here (one per line/comma, IPv6 accepted; #DE tags country). A port such as 104.16.1.1:2053#DE is emitted only on that port. Replace list is a separate explicit action. Feed IPs are candidates too; test on your own network.',
+scan_app:'Scan with Cat Client',scan_browser:'Test from my network (browser)',scan_guide:'Scanner guide',warp_title:'WARP on Xray output (your own keys)',warp_hint:'Your connection to the panel rides inside your own WARP tunnel (your real IP stays hidden even from the worker). Grab keys from wgcf or an Aether export — the worker never registers with Cloudflare (nothing to ban). With WARP on, fragment is bypassed (the tunnel is UDP).',warp_mode:'Mode',warp_off:'Off',warp_chain:'WARP-in-WARP (chained)',warp_sk:'WireGuard SecretKey',warp_pk:'Peer PublicKey (Cloudflare)',warp_reserved:'reserved (optional, comma sep)',warp_endpoint:'Endpoint',warp_warn:'Never paste keys that are not yours. Set mode to Off to disable temporarily — keys are kept.',ext_title:'External subs (merged into yours)',ext_hint:'External sub content is served through the panel\u2019s own domain (raw.github is unreachable from Iran) + URI-list subs are appended after your own configs. ?noext=1 = skip them.',ext_add:'Add sub',ext_preset:'Serverless preset (PattNG)',ext_preset_free:'Patterniha free configs',ext_core:'The Serverless sub needs a recent Xray core (PattNG or v2rayNG ≥2.2.6) and must be imported directly into the app, not merged into the panel sub.',ext_empty:'No external subs yet — try the Serverless preset.',ext_name:'Name',ext_url:'https sub URL',mitm_title:'MITM + DomainFronting (client-side)',mitm_body:'Patterniha\u2019s method to open YouTube/Instagram/WhatsApp/Facebook/Reddit directly without a server — set up on the device (Win/Linux/mac/Android, no root). Create a PERSONAL certificate and trust it. Full guide:',aether_title:'Aether special configs (PattNG)',aether_hint:'Builds aether:// links that open in PattNG: WARP, classic Gool (WireGuard-in-WireGuard), new Gool (WireGuard-over-MASQUE on HTTP/2), and MASQUE/H2. H2 links use Aether-native fingerprint and fragmentation parameters; new Gool requires PattNG 2.3.10-P63 or newer.',aether_mode:'Type',aether_gool_classic:'Classic Gool · WARP-in-WARP',aether_gool_masque:'New Gool · WireGuard-over-MASQUE/H2',aether_masque_h2:'MASQUE/H2',aether_name:'Config name',aether_family:'Address family',aether_open:'Add to PattNG',pp_countries:'Add a country repo (Wanwu):',px_addrs:'Import healthy pool as connection IPs',px_addrs_hint:'Healthy pool ProxyIPs are added to your connection-IP list with their country tags and get 💦 configs. Not every ProxyIP also works as an entry address — test/filter them with the app or scanner after importing.',px_none:'Nothing to import — hit pool Refresh first',b_ech:'ECH (encrypted ClientHello — ECH/SIIT-style configs) — per field reports (Oct 2026), the single most important switch to stay connected',b_ech_off:'Off',ech_none:'Current SNI has no ECH (or DNS unreachable) — keep it off',rot_btn_off:'Fixed IP (rotation ON — tap to freeze)',rot_btn_on:'Fixed IP active (tap to resume rotation)',rot_fixed_lbl:'Fixed IP',rot_rot_lbl:'Rotating',rot_now_fixed:'📌 Rotation off — IPs stay fixed',rot_now_rotating:'⚡ Rotation on — fresh set every update',hero_inuse:'In use right now',hero_ports:'Ports',hero_sni_host:'worker host ✓',hero_sni_pool:'rotating pool',px_ignored:'Ignored (neither a ProxyIP nor a socks5:// proxy):',hero_ips:'Clean IPs',hero_px:'ProxyIP relays',hero_exit:'Fixed exit',hero_rot:'Rotation',hero_warn:'⚠️ SNI defaults to skk.moe — SNI rotation (one different SNI per config) lowers the risk, but if your carrier blocks skk.moe, still scan a healthy SNI on your line and hit “⚡ Make panel main SNI”.',hero_build:'Builder',ip_pin:'Pin as fixed IP (always first in sub)',ip_unpin:'Unpin',pin_saved:'📌 This IP stays first — even with rotation on',pin_removed:'Pin removed',s_rot:'Auto config rotation',s_rot_off:'Stable (BPB-like)',s_rot_fetch:'Every update',s_rot_daily:'Daily',s_rot_hint:'Each sub refresh reshuffles the IP order and numbering — a fresh set every time. Daily keeps one arrangement per day; Stable keeps the classic order.',pp_title:'ProxyIP repos (12h auto-update)',pp_hint:'Public ProxyIP feeds (IPs or domains); refreshed every 12h. A ProxyIP is the relay address for opening Cloudflare-fronted sites; IPs reported dead 3× are replaced.',pp_cc:'ProxyIP pool countries — + adds 8 of that country to the panel ProxyIP list',pp_auto:'Auto-append 6 fresh ProxyIPs to subs',pp_src:'Sources: xgonce/Cloudflare_IP · wanwushequ/ProxyIP',pp_dead_note:'Dead? POST /api/prepos {action:"health",dead:[…]} ×3 — replaced automatically.',rp_title:'Repos (12h auto-update)',rp_refresh:'Refresh',rp_hint:'Free Clean-IP feeds refresh every 12 hours. With auto-add on, up to 8 feed IPs are appended to generated subscriptions after your saved IPs (not saved into your list); test them from your own network with the scanner. Reported dead entries are dropped after 3 reports.',rp_cc:'Repo pool countries — + adds 16 IPs of that country to your panel list',rp_auto:'Auto-append 8 fresh IPs to subs',rp_add:'Add repo',rp_add_url:'Raw repo URL (https://…)',rp_add_name:'Repo name',rp_empty:'Repo pool is empty — hit Refresh.',rp_nokv:'no KV, not persisted',rp_src:'Sources: arista-project/cf-clean-ips · imatixofficel/Scanner-matix',rp_dead_note:'Dead IP? POST /api/repos {action:"health",dead:[…]} three times — it gets replaced automatically.',n_build:'Config builder',b_title:'Config builder',b_hint:'Build a precise subscription link per carrier, country and port set — never touches the main panel settings.',b_isp:'Carrier profile (advisory — test on your line)',isp_mtn:'Irancell (MTN)',isp_mci:'MCI (Hamrah-e Aval)',isp_rtl:'Rightel / Shatel',isp_tdsl:'TCI',isp_direct:'Direct / Auto',b_isp_mtn_n:'Irancell: keep fragment ON; ports 443 & 8443 with chrome fingerprint.',b_isp_mci_n:'MCI: 443 & 2053; if you have IPv6 keep the family on Both.',b_isp_rtl_n:'Rightel/Shatel: plain ports (80/8080) often work better; short fragment.',b_isp_tdsl_n:'TCI: 443 with iOS fingerprint is usually the most stable.',b_isp_direct_n:'No preset applied — choose the filters yourself.',b_fw:'Firewall-bypass profile (optional)',b_fw_default:'Default',b_fw_mci_ech:'MCI · ECH',b_fw_mci_ipv6:'MCI · IPv6',b_fw_mci_ff:'MCI · IPv6 + F&F',b_fw_irancell_ff:'Irancell · F&F',b_fw_hint:'Choose the actual firewall, not just the SIM brand. This changes only links from this builder; it does not save panel settings. F&F requires Xray-core 26.9+; Cat Client/Mihomo, sing-box and Clash do not apply this Xray finalmask.',b_fw_mci_ech_n:'Uses 188.114.97.6 with ECH from cloudflare-ech.com via DNS 1.1.1.1; the preset may fail if your network blocks that resolver.',b_fw_mci_ipv6_n:'Uses 2a06:98c1:3121::7; requires working IPv6 on your access network and an unfiltered Worker domain.',b_fw_mci_ff_n:'IPv6 plus the dedicated Final Mask for a filtered Worker domain; requires IPv6 and Xray-core 26.9+.',b_fw_irancell_ff_n:'188.114.97.6 + unsafe fingerprint + Final Mask and cipher suites; Xray-core 26.9+ only. Test on your own line.',b_fw_addr:'Entry IP (blank = profile suggestion)',b_fw_addr_ph:'188.114.97.6 or 2a06:98c1:3121::7',b_xray_link:'Xray JSON link',b_xray_hint:'For F&F use Xray-core 26.9+. Cat Client/Mihomo, Clash and sing-box do not apply this finalmask; these presets are for URI/Xray JSON output only.',b_proto:'Protocol',b_fam:'Address family',b_both:'Both',b_ports:'Ports (multi)',b_cc:'Exit country',b_cc_all:'All countries',b_limit:'Config count (1–200)',b_strict:'Country behaviour',b_fb_ok:'Fall back to others',b_only:'Only this country',b_gen:'Build live sub',b_copy:'Copy all',b_link:'Built subscription link',b_prev:'Live preview (first lines)',b_open:'Open in',b_frag:'Fragment & fingerprint (client-side settings)',b_frag_hint:'The general Fragment field below is advisory and is not encoded in the normal link; set it in your client. A firewall profile above encodes fingerprint/ECH/Final Mask/cipher suites in VLESS/Trojan and Xray JSON. F&F requires Xray-core 26.9+.',b_fp:'TLS fingerprint',scan_cat:'IP category',scan_region:'Region',scan_cc:'Panel list countries',scan_search:'Search country',scan_search_ph:'Germany or DE…',scan_cidr:'Add from CIDR range or domain',scan_cidr_ph:'104.16.0.0/24 or cdn.example.com',cidr_add:'Add to list',cidr_ok:'Added %1 IPs',cidr_bad:'Invalid range (example: 104.16.0.0/24)',loc_now:'Current exit',loc_refresh:'Refresh',loc_fail:'Could not read location',scan_jump:'⚙ Sub for this country only',scan_empty:'No IPs match this filter.',scan_note_browser:'“Test from my network” probes domains and raw IPs directly from your line (browser connections) and can prune the dead ones from your list with one tap. ProxyIPs route via the worker — use the worker test for those.',reg_eu:'🇪🇺 Europe',reg_me:'🕌 Middle East',reg_as:'🌏 Asia',reg_am:'🌎 Americas',reg_af:'🌍 Africa',ev_title:'Events log',ev_time:'Time',ev_ev:'Event',ev_d:'Detail',ev_empty:'No events yet.',ev_ago_h:'%1 h ago',ev_ago_d:'%1 d ago',ip_import:'Import scan results',ip_import_ready:'Scan results pre-filled — press Append',ip_manual:'Add IPs manually',ip_manual_hint:'One IP or domain per line (port optional). With “test first”, only healthy ones are added — tested by the panel worker, not taken on faith.',ip_manual_port:'Port (default 443)',ip_manual_cc:'Country (optional, e.g. DE)',ip_manual_test:'Test first, then add',ip_manual_add:'Add',ip_manual_none:'Nothing to add',ip_manual_dead:'None of them answered — nothing added', proxyip_import: 'ProxyIPs imported from Cat Client — press Save',ip_import_hint:'Paste the plain IP list exported by WhiteDNS Scanner or another scanner here (one per line; remove ping/extra columns). IPv6 is accepted too. Optional port+country tags work, e.g. 104.16.1.1:2053#DE; that IP is emitted only on that port. You can also send results directly from Cat Client.',
 b_empty_title:'The subscription is empty — no config was built',b_empty_body:'The custom IP list is empty. The Worker falls back to built-in addresses + its hostname; a blank preview usually means the subscription request failed. Check the HTTP detail below.',b_fetch_error:'Could not fetch the generated subscription: %1',b_empty_reply:'The HTTP response contained no config lines: %1',b_bad_reply:'The response is not a config subscription: %1',b_user_save_error:'Could not save user: %1',b_user_saved_refresh_error:'User was saved, but the user list could not be refreshed: %1',kv_warn_title:'Panel storage is not attached — changes are not saved',kv_warn_body:'Any change (users, clean IPs, settings) survives only a few minutes and then disappears; subscriptions also come out empty without clean IPs. Fix: in the Cat Client app → My deployments → this deployment → “Update panel”, which re-attaches storage.',kv_warn_ok:'Got it',kv_save_failed:'Not saved — panel storage is not attached',ip_append:'Append',ip_replace:'Replace list',ip_test_btn:'Health & test',ip_test_reach:'healthy from the worker',svc_btn:'Services',svc_note:'US egress test (Gemini/AI focus): open/refused per service through the current exit — 404 means reachable',svc_gemini_hint:'Gemini blocked? The current exit is Cloudflare and Google refuses it — add a FOREIGN socks5 in the 🎭 section (🧦) and re-run this test',exit_hint:'Connect to a config, then open it: exit IP/country, DNS & WebRTC leaks, global ping and whether Gemini opens — the half only YOUR line can see',ip_test_hint:'Real tests from the worker: 💦 dials the exact IP+port+TLS+Host of the config template; 🎯 is probed on each ProxyIP\u2019s OWN port; 🧦 socks5 relays get a REAL socks handshake (incl. user:pass auth). The 443 inside a 🎯 config is the worker ENTRY port, not the relay port — the relay port rides in ?proxyip= and the worker dials it directly. SNI behaviour on YOUR line only the app scanner sees.',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'empty = the worker host (recommended; the only SNI Cloudflare accepts) — used only while SNI spoofing is on',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_ech:'ECH (SNI encryption)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'ECH value for TLS configs; applied with ?ech=1. Empty = the shared Cloudflare default (cloudflare-ech.com+udp://1.1.1.1) which encrypts the real SNI on any CF-fronted host; auto = only the SNI own HTTPS record; off = disabled',s_port_bad:'Invalid port — enter a number between 1 and 65535',
@@ -5636,7 +5828,7 @@ about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traff
 n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No custom clean IPs yet — if the effective list is empty, the subscription falls back to built-in addresses + the worker host. Public feed IPs are appended only when «Auto-add from repositories» is enabled. Add tested IPs to put them first:',n_set:'Settings',n_settings:'Settings',n_backup:'Backup',s_backup:'Panel backup & restore',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
-unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing 1101? (Cloudflare ban)',rec_hint:'Error 1101 usually means no exception at all — Cloudflare scanned the worker code and disabled it. This version deploys obfuscated and should not hit that path; if an OLD readable deploy is still up:',rec_steps:'1) Tools → take a backup ← 2) delete the banned worker in Cloudflare ← 3) change the subdomain under Workers & Pages ← Subdomain (or use a fresh account) ← 4) redeploy from /deploy or Actions ← 5) restore the backup ← 6) attach your own domain via the custom-domain card below',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples (8 countries per night, rotating) of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
+unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing Error 1101?',rec_hint:'Cloudflare documents Error 1101 as a Worker JavaScript runtime exception; it does not by itself prove a ban. Check Workers & Pages → your Worker → Logs/Observability for the exception and stack trace.',rec_steps:'1) Note the /api/version response and request time; 2) find that request in Logs or wrangler tail; 3) inspect the exception/stack trace and that deployment’s bindings; 4) after fixing it, retest /health and the failing route. If the dashboard explicitly shows a suspension or policy notice, follow that official notice.',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples (8 countries per night, rotating) of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'password = UUID (change it!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Tested from YOUR network (browser): domains via /cdn-cgi/trace and raw IPs via a TLS connection attempt — a fast answer = alive on your line, timeout = ✗ dead on your line. Plain (non-TLS) ports cannot be probed in a browser (⊘). Test ProxyIPs with the worker test instead — their path goes through the worker.',scan_prune:'Prune dead IPs from my list',scan_prune_confirm:'Remove %1 dead IPs (as seen from your line) from the list?',scan_prune_none:'Run “Test from my network” first — nothing to prune yet',scan_sum_alive:'IPs alive on your line',scan_sum_dead:'dead',scan_sum_skip:'plain-port',ws_test:'Real connection test (domains)',ws_note:'Opens a real WebSocket to the tunnel path (/ws) for each domain — the exact route a config takes: if it opens, configs really connect on your line. Your panel’s own address is always tested first (baseline). Raw IPs have no “real test” in a browser (it cannot send the Host header); a domain that is not routed to your worker fails too.',ws_base:'baseline — the panel itself',ws_ok:'config route opened',ws_fail:'no connection — dead on your line, or not routed to the worker',ws_sum:'domains verified with a real tunnel handshake',ws_noway:'This browser has no WebSocket',surv_title:'Survival pack — more fallbacks, not a guarantee',surv_hint:'One click enables daily rotation, both protocols, default addresses plus the worker host, ports 80/8080 as fallbacks, and ordering by scanner ping reported within 7 days. SNI stays on the worker hostname: fake/rotating SNI can make Cloudflare itself return 403. Fragment is supported only by Xray/sing-box. None of this guarantees 100% across carriers or clients; test the link on each real mobile/Wi-Fi network and client. Ping is from the scanner sender’s line, not every user.',surv_apply:'Apply survival pack',surv_done:'🛡 Survival pack applied',surv_applied:'Applied',surv_changed:'settings changed',surv_already:'Survival pack already active',surv_link:'Survive link',surv_formats:'Copy the format your client expects:',ov_seen:'Authenticated user attempts:',ov_seen_24:'connected in the last 24h',ov_seen_never:'no connection recorded yet (the user may simply not have used it)',ov_seen_hint:'Counts only tunnel attempts with a valid identity, not successful access to a destination. Cloudflare hides which clean-IP entry was used, so this cannot prove full connectivity or identify dead IPs.',
 update_check:'Checking for updates…',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
@@ -5656,8 +5848,9 @@ $('#askNo').addEventListener('click',function(){_askDone(null)});
 $('#askIn').addEventListener('keydown',function(e){if(e.key==='Enter')_askDone($('#askIn').value)});
 function copy(v){function fb(){var i=document.createElement('textarea');i.value=v;document.body.appendChild(i);i.select();try{document.execCommand('copy');toast(t('copied'))}catch(e){}document.body.removeChild(i)}
  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(v).then(function(){toast(t('copied'))},fb);else fb()}
+function httpFailure(r){var parts=['HTTP '+(r&&r.status||'?')];var ct=r&&r.headers&&r.headers.get('content-type');var ray=r&&r.headers&&r.headers.get('cf-ray');if(ct)parts.push(ct.split(';')[0]);if(ray)parts.push('CF-Ray '+ray);return parts.join(' · ')}
 function api(path,opt){opt=opt||{};var o={method:opt.method||'GET',headers:{}};if(opt.body!==undefined){o.headers['content-type']='application/json';o.body=JSON.stringify(opt.body)}
- return fetch(path,o).then(function(r){if(r.status===401){location.href='/';throw new Error('HTTP 401 — session expired or credentials changed')}return r.text().then(function(raw){var j;try{j=raw?JSON.parse(raw):{}}catch(e){if(!r.ok)throw new Error('HTTP '+r.status+' — non-JSON response');throw e}if(!r.ok&&j&&typeof j==='object')j._httpStatus=r.status;return j})}).then(function(j){
+ return fetch(path,o).then(function(r){if(r.status===401){location.href='/';throw new Error('HTTP 401 — session expired or credentials changed')}return r.text().then(function(raw){var j;try{j=raw?JSON.parse(raw):{}}catch(e){if(!r.ok)throw new Error(httpFailure(r)+' — non-JSON response');throw e}if(!r.ok&&j&&typeof j==='object'){j._httpStatus=r.status;var ct=r.headers&&r.headers.get('content-type');var ray=r.headers&&r.headers.get('cf-ray');if(ct)j._contentType=ct.split(';')[0];if(ray)j._cfRay=ray}return j})}).then(function(j){
   // Honesty: a write that could not be persisted used to look like a success
   // («3 ✓») while the value only lived in this isolate's memory — the user saw
   // their clean IPs vanish, so say it out loud instead.
@@ -5680,7 +5873,23 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
 /* ---------- load ---------- */
 (function(){try{var p=new URLSearchParams(location.search).get('proxyips');if(p){window.__pendingProxyIps=p.split(',').map(function(s){return s.trim()}).filter(Boolean).slice(0,32);history.replaceState(null,'',location.pathname)}}catch(e){}})();
 (function(){try{var q=new URLSearchParams(location.search).get('ips');if(q){$('#ipPaste').value=q.split(',').join('\\n');history.replaceState(null,'',location.pathname);setTimeout(function(){var n=document.querySelector('[data-view=\"nodes"\]\');if(n)n.click();var b=document.querySelector('#btnIpAppend');if(b)b.style.boxShadow='0 0 0 3px rgba(0,225,197,.4)';toast(t('ip_import_ready'))},300)}}catch(e){}})();
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderSurvival()})}
+/* ── «Cat Glass» skin picker ─────────────────────────────────────────────
+   Cosmetic only: the skin is a data-theme attribute (CSS variables) plus a
+   cookie so the next paint is already correct. When KV exists the choice is
+   also stored in panel settings, so every device gets it. */
+function themeSwatch(a,b){return 'radial-gradient(90% 80% at 15% 10%,'+a+',transparent 62%),radial-gradient(90% 80% at 88% 92%,'+b+',transparent 60%),linear-gradient(160deg,#0c0e16,#06060c)'}
+var THEME_META={aurora:['th_aurora',themeSwatch('rgba(0,225,193,.55)','rgba(124,58,237,.50)')],nebula:['th_nebula',themeSwatch('rgba(139,92,246,.60)','rgba(236,72,153,.45)')],ocean:['th_ocean',themeSwatch('rgba(56,189,248,.55)','rgba(79,70,229,.50)')],ember:['th_ember',themeSwatch('rgba(255,176,32,.50)','rgba(244,63,94,.42)')],forest:['th_forest',themeSwatch('rgba(52,211,153,.50)','rgba(6,182,212,.45)')],steel:['th_steel',themeSwatch('rgba(148,163,184,.42)','rgba(71,85,105,.50)')]};
+function buildThemeGrid(){var g=$('#themeGrid');if(!g||g.__built)return;g.__built=1;Object.keys(THEME_META).forEach(function(id){var m=THEME_META[id];var b=document.createElement('button');b.type='button';b.setAttribute('data-t',id);b.style.setProperty('--tpw',m[1]);b.innerHTML='<i></i><span></span>';b.querySelector('span').textContent=t(m[0]);g.appendChild(b)})}
+function renderTheme(){var cur=document.documentElement.getAttribute('data-theme')||'aurora';$$('#themeGrid button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-t')===cur)})}
+function openThemePick(){buildThemeGrid();renderTheme();var p=$('#themePick');if(p)p.classList.add('show')}
+function closeThemePick(){var p=$('#themePick');if(p)p.classList.remove('show')}
+function setTheme(id,persist){if(!THEME_META[id])return;document.documentElement.setAttribute('data-theme',id);try{document.cookie='catTheme='+id+';path=/;max-age=31536000;samesite=lax'}catch(e){}
+ renderTheme();if(!persist)return;api('/api/settings',{method:'PUT',body:{uiTheme:id}}).then(function(j){if(!j.ok)throw 0;CFG.settings.uiTheme=id;toast(j.persisted?t('th_saved'):t('saved_nokv'),!j.persisted)}).catch(function(){toast(t('saved_nokv'),true)})}
+document.addEventListener('click',function(e){var o=e.target.closest('[data-theme-open]');if(o){openThemePick();return}
+ var c=e.target.closest('[data-tpclose]');if(c){closeThemePick();return}
+ var s2=e.target.closest('#themeGrid button');if(s2){setTheme(s2.getAttribute('data-t'),1);return}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeThemePick()});
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadLoc();rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderSurvival();renderTheme()})}
 /* The most confusing failure mode of all: a worker deployed WITHOUT its KV
    binding answers «saved ✓» while the value only lives in one isolate's memory.
    Clean IPs, users and settings then vanish — «the buttons don't work». Say it
@@ -5850,7 +6059,7 @@ $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
  var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0};
  var p=editing?api('/api/users/'+editing.id,{method:'PUT',body:body}):api('/api/users',{method:'POST',body:body});
- p.then(function(j){if(!j||!j.ok){var why=j&&(j.error||j.message)||'request rejected';if(j&&j.error&&j.message)why=j.error+': '+j.message;if(j&&j._httpStatus)why='HTTP '+j._httpStatus+' · '+why;toast(t('b_user_save_error').replace('%1',safeDiag(why)),true);return}toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);closeDrawer();return load().catch(function(e){toast(t('b_user_saved_refresh_error').replace('%1',safeDiag(e&&e.message||e)),true)})}).catch(function(e){toast(t('b_user_save_error').replace('%1',safeDiag(e&&e.message||e)),true)})});
+ p.then(function(j){if(!j||!j.ok){var why=j&&(j.error||j.message)||'request rejected';if(j&&j.error&&j.message)why=j.error+': '+j.message;if(j&&j._httpStatus)why='HTTP '+j._httpStatus+' · '+why;if(j&&j._contentType)why+=' · '+j._contentType;if(j&&j._cfRay)why+=' · CF-Ray '+j._cfRay;toast(t('b_user_save_error').replace('%1',safeDiag(why)),true);return}toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);closeDrawer();return load().catch(function(e){toast(t('b_user_saved_refresh_error').replace('%1',safeDiag(e&&e.message||e)),true)})}).catch(function(e){toast(t('b_user_save_error').replace('%1',safeDiag(e&&e.message||e)),true)})});
 
 /* ---------- master links / self ---------- */
 $('#btnMasterLinks').addEventListener('click',function(){openMasterLinks()});
@@ -5872,9 +6081,9 @@ function renderCountries(){var S=CFG.countries||{countries:[],untagged:[]};var s
 function ipKey(a){var st=String(a);var c=st.lastIndexOf(':');if(c>-1&&/^\\d{1,5}$/.test(st.slice(c+1))&&st.indexOf(':')===c)st=st.slice(0,c);return st.replace(/^\\[/,'').replace(/\\]$/,'').toLowerCase()}
 function renderIps(){var ips=CFG.settings.ips,tags=CFG.settings.ipCountries||{},pins=CFG.settings.pinnedIps||[],SRC=CFG.settings.ipSources||{};$('#ipCount').textContent=ips.length;var TT=window.__ipTest||{};
 $('#ipList').innerHTML=ips.length?ips.map(function(ip){var isPin=pins.some(function(p){return ipKey(p)===ipKey(ip)});var st=TT[ip]||TT[ipKey(ip)];var w=st?(st.ok?'<span style="color:#34d399">worker\u2713'+st.ms+'ms'+(st.cc?' '+flag(st.cc):'')+'</span>':'<span style="color:#f87171">worker\u2717</span>'):'';
-var so=SRC[ip]||SRC[ipKey(ip)]||SRC[String(ip).split('#')[0]]||SRC[ipKey(String(ip).split('#')[0])];var src=so&&so.src==='neighbor'?'<span style="color:#fbbf24">👑 همسایه</span>':so?'<span style="color:#7dd3fc">\ud83c\udff7 '+(so.src==='scanner'?'\u0627\u0632 \u0627\u0633\u06a9\u0646\u0631':'\u0648\u0631\u0648\u062f \u062f\u0633\u062a\u06cc')+(so.ms>0?' \u00b7 \ud83d\udcf6 '+so.ms+'ms':'')+'</span>':'';
+var tagged=tags[ip]?String(ip)+'#'+tags[ip]:'';var so=SRC[ip]||SRC[ipKey(ip)]||(tagged&&SRC[tagged])||SRC[String(ip).split('#')[0]]||SRC[ipKey(String(ip).split('#')[0])];var src=so&&so.src==='neighbor'?'<span style="color:#fbbf24">👑 همسایه</span>':so?'<span style="color:#7dd3fc">\ud83c\udff7 '+(so.src==='scanner'?'\u0627\u0632 \u0627\u0633\u06a9\u0646\u0631':'\u0648\u0631\u0648\u062f \u062f\u0633\u062a\u06cc')+' \u00b7 \ud83d\udcf6 '+so.ms+'ms</span>':'';
 return '<span class="chip mono'+(isPin?' v':'')+'">'+ccSelect(ip,tags[ip]||'')+' '+esc(ip)+(src?' '+src:'')+(w?' '+w:'')+' <b data-ip'+(isPin?'unpin':'pin')+'="'+esc(ip)+'" title="'+t(isPin?'ip_unpin':'ip_pin')+'" style="cursor:pointer">'+(isPin?'\ud83d\udccc':'\ud83d\udccd')+'</b> <b data-ipdel="'+esc(ip)+'" title="remove" style="cursor:pointer">\u2715</b></span>'}).join(''):'<span class="dim small">\u2014</span>';renderCountries();renderRotBtn();renderPxTest();renderSvc();renderLatency();
- var scanAppUrl='catclient://scan?sni='+encodeURIComponent(CFG.sni||CFG.host)+'&panel='+encodeURIComponent(location.origin);['#btnScanApp','#btnNodeScanApp'].forEach(function(sel){var a=$(sel);if(a)a.href=scanAppUrl})}
+ $('#btnScanApp').href='catclient://scan?sni='+encodeURIComponent(CFG.sni||CFG.host)+'&panel='+encodeURIComponent(location.origin)}
 function manualAdd(){var raw=$('#manualIps').value,port=($('#manualPort').value||'').replace(/[^0-9]/g,'')||'443',cc=($('#manualCC').value||'').trim().toUpperCase().slice(0,2);
 var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(!s)return '';var v=null;
 if(s.charAt(0)==='[')v=s.charAt(s.length-1)===']'?s+':'+port:s;
@@ -5888,11 +6097,11 @@ var save=function(list){api('/api/ips',{method:'POST',body:{ips:list,source:'man
 if($('#manualTest').checked){api('/api/ip-test',{method:'POST',body:{tests:ips.map(function(a){var m=a.match(/:(\\d{1,5})$/);return {addr:a,port:m?+m[1]:443,kind:'clean'}})}}).then(function(j){var res=(j&&j.results)||{};var good=Object.keys(res).filter(function(k){return res[k]&&res[k].ok});var dead=Object.keys(res).length-good.length;
 if(!good.length){toast(t('ip_manual_dead'),true);return}
 if(dead>0)toast(good.length+' ✓ / '+dead+' ✗');
-save(good)}).catch(function(e){toast(t('ip_manual_test_error').replace('%1',safeDiag(e&&e.message||e)),true)});return}
+save(good)}).catch(function(){save(ips)});return}
 save(ips)}
 $('#btnManualAdd').addEventListener('click',manualAdd);
-function importIps(replace){var raw=$('#ipPaste').value,countries={};var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(!s)return '';var cc='',m=s.match(/^(.*?)[#|=]([A-Za-z]{2})$/);if(m){s=m[1].trim();cc=m[2].toUpperCase()}var valid='';if(/^\\[[0-9a-f:]+\\]:\\d{1,5}$/i.test(s))valid=s;else{var clean=s.replace(/^\\[/,'').replace(/\\]$/,'');valid=/^(?:\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-f:]+|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?$/i.test(clean)?clean:''}if(valid&&cc)countries[valid]=cc;return valid}).filter(Boolean);
-if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,countries:countries,replace:!!replace,source:'scanner'}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
+function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(!s)return '';var tag='',tm=s.match(/([#|=])([A-Za-z]{2})$/i);if(tm){tag='#'+tm[2].toUpperCase();s=s.slice(0,-tm[0].length)}if(/^\\[[0-9a-f:.]+\\](?::\\d{1,5})?$/i.test(s))return s+tag;s=s.replace(/^\\[/,'').replace(/\\]$/,'');return /^(?:\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-f:]+|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?$/i.test(s)?s+tag:''}).filter(Boolean);
+if(!ips.length){toast('0',true);return}api('/api/ips',{method:'POST',body:{ips:ips,replace:!!replace}}).then(function(j){toast(j.count+' ✓');$('#ipPaste').value='';return load()})}
 $('#btnIpAppend').addEventListener('click',function(){importIps(false)});$('#btnIpReplace').addEventListener('click',function(){importIps(true)});
 $('#btnIpClear').addEventListener('click',async function(){if(!(await ask(t('ip_clear_confirm'),{ok:'✓'})))return;api('/api/ips',{method:'POST',body:{ips:[],replace:true}}).then(function(){toast(t('saved'));return load()})});
 $('#btnIpCopy').addEventListener('click',function(){copy(CFG.settings.ips.join('\\n'))});
@@ -5990,7 +6199,7 @@ function famOf(a){var st=String(a);var c=st.lastIndexOf(':');
  if(/^[0-9a-f:]+$/i.test(st)&&st.indexOf(':')>-1)return 'v6';
  return ''}
 /* builder state */
-var B={proto:'',fam:'',ports:{},cc:'',strict:0,limit:24,ech:0},bText='',bLive=false,bT=null;
+var B={proto:'',fam:'',ports:{},cc:'',strict:0,limit:24,ech:0,fw:'',addr:''},bText='',bLive=false,bT=null;
 var ISP={mtn:{p:['443','8443'],fam:'',frag:'tlshello,10-50,5-10',fp:'chrome',n:'b_isp_mtn_n'},mci:{p:['443','2053'],fam:'',frag:'tlshello,100-200,5-10',fp:'chrome',n:'b_isp_mci_n'},rtl:{p:['80','8080','443'],fam:'',frag:'tlshello,10-30,3-8',fp:'chrome',n:'b_isp_rtl_n'},tdsl:{p:['443'],fam:'',frag:'tlshello,50-150,4-8',fp:'ios',n:'b_isp_tdsl_n'},direct:{p:[],fam:'',frag:'',fp:'',n:'b_isp_direct_n'}};
 function pickSel(box,btn){$$('#'+box+' button').forEach(function(x){x.classList.remove('on')});if(btn)btn.classList.add('on')}
 function bPortList(){var st=CFG.settings;var l=(st.tlsPorts||[]).map(String);if(st.plainEnabled)l=l.concat((st.plainPorts||[]).map(String));return l.filter(function(v,i,a){return a.indexOf(v)===i})}
@@ -5999,33 +6208,38 @@ function renderB(){var pb=$('#bPorts');if(!pb)return;
  pb.innerHTML=bPortList().map(function(p){return '<button type="button" data-v="'+p+'" class="'+(B.ports[p]?'on':'')+'">'+esc(p)+'</button>'}).join('');
  var cb=$('#bCc');cb.innerHTML='<button type="button" data-v="" class="'+(B.cc?'':'on')+'">'+esc(t('b_cc_all'))+'</button>'+ccList().map(function(c){return '<button type="button" data-v="'+c+'" class="'+(B.cc===c?'on':'')+'">'+ccFlag(c)+' '+esc(ccName(c))+'</button>'}).join('')}
 function bUrl(kind){var u=new URL(CFG.links[kind]||CFG.links.sub);var q=new URLSearchParams();
- if(B.proto)q.set('proto',B.proto);if(B.fam)q.set('fam',B.fam);if(B.ech)q.set('ech','1');
+ if(B.proto)q.set('proto',B.proto);if(B.fam)q.set('fam',B.fam);
+ if(B.fw){q.set('fw',B.fw);q.set('ech',B.ech?'1':'0')}else if(B.ech)q.set('ech','1');
+ if(B.addr&&B.addr.trim())q.set('addr',B.addr.trim());
  var ps=Object.keys(B.ports).filter(function(k){return B.ports[k]});if(ps.length)q.set('ports',ps.join(','));
  if(B.cc){q.set('country',B.cc);if(B.strict)q.set('strict','1')}
  q.set('limit',String(B.limit||24));u.search=q.toString();return u.toString()}
-function bGen(){var link=bUrl('sub');$('#bLink').value=link;$('#bApps').style.display='flex';$('#bCopyAll').style.display='';$('#bQr').style.display='';
+function bGen(){var link=bUrl('sub');var xrayLink=bUrl('xray');var hasFw=!!B.fw;$('#bLink').value=link;$('#bXrayLink').value=xrayLink;$('#bXrayWrap').style.display=hasFw?'block':'none';$('#bApps').style.display='flex';$('#bCat').style.display=hasFw?'none':'';$('#bHid').style.display=hasFw?'none':'';$('#bCopyAll').style.display='';$('#bQr').style.display='';
  $('#bCat').href='catclient://add-sub?url='+encodeURIComponent(link)+'&name='+encodeURIComponent((CFG.settings.title||'Cat Panel')+' · '+t('b_title'));
  $('#bV2rn').href='v2rayng://install-sub?url='+encodeURIComponent(link)+'&name=CatPanel';
  $('#bHid').href='hiddify://import/'+link;
  $('#bQr').setAttribute('data-qr',link);$('#bQr').setAttribute('data-qrl',t('b_title'));
  api('/api/events',{method:'POST',body:{ev:'builder',d:(link.split('?')[1]||'').slice(0,110)}});
- fetch(link,{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);var status=r.status;return r.text().then(function(tx){return {status:status,text:tx}})}).then(function(res){var raw=String(res.text||''),lines=raw.trim()?raw.trim().split('\\n').map(function(x){return x.trim()}).filter(Boolean):[],uris=lines.filter(function(x){return /^[a-z][a-z0-9+.-]*:\\/\\//i.test(x)});if(!uris.length){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:raw.trim()?'b_bad_reply':'b_empty_reply',detail:'HTTP '+res.status});return}bText=raw;$('#bCount').textContent=uris.length;$('#bPrev').value=uris.slice(0,10).join('\\n');bEmptyNote(uris.length)}).catch(function(e){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:'b_fetch_error',detail:safeDiag(e&&e.message||e)})})}
+ fetch(link,{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error(httpFailure(r));var status=r.status;return r.text().then(function(tx){return {status:status,text:tx}})}).then(function(res){var raw=String(res.text||''),lines=raw.trim()?raw.trim().split('\\n').map(function(x){return x.trim()}).filter(Boolean):[],uris=lines.filter(function(x){return /^[a-z][a-z0-9+.-]*:\\/\\//i.test(x)});if(!uris.length){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:raw.trim()?'b_bad_reply':'b_empty_reply',detail:'HTTP '+res.status});return}bText=raw;$('#bCount').textContent=uris.length;$('#bPrev').value=uris.slice(0,10).join('\\n');bEmptyNote(uris.length)}).catch(function(e){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:'b_fetch_error',detail:safeDiag(e&&e.message||e)})})}
 function safeDiag(v){return String(v||'unknown').replace(/[0-9a-f-]{36}/ig,'[UUID]').replace(/https?:[^\\s]+/ig,'[URL]').replace(/\\s+/g,' ').slice(0,120)}
 /* «0 configs» must tell the owner whether the response was empty or the request failed. */
 function bEmptyNote(n,problem){var el=$('#bEmpty');if(!el)return;if(n){el.style.display='none';return}
  el.style.display='block';var body=problem?t(problem.key||'b_fetch_error').replace('%1',safeDiag(problem.detail)):t('b_empty_body');el.innerHTML='<b>⚠️ '+esc(t('b_empty_title'))+'</b><div style="margin-top:6px">'+esc(body)+'</div>'}
 function bMaybe(){if(bLive){clearTimeout(bT);bT=setTimeout(bGen,300)}}
 $$('#bIsp button').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-isp');pickSel('bIsp',b);var sp=ISP[k]||{};B.ports={};(sp.p||[]).forEach(function(p){B.ports[p]=true});B.fam=sp.fam||'';if(sp.frag)$('#bFrag').value=sp.frag;if(sp.fp)$('#bFp').value=sp.fp;$('#bIspNote').textContent=t(sp.n||'b_isp_direct_n');renderB();bMaybe()})});
+$$('#bFw button').forEach(function(b){b.addEventListener('click',function(){pickSel('bFw',b);B.fw=b.getAttribute('data-v')||'';var p=FIREWALL_PRESETS_UI[B.fw];B.addr=p?p.address:'';$('#bAddr').value=B.addr;$('#bFp').value=p?p.fingerprint:'';B.ech=p&&p.ech?1:0;$$('#bEch button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===String(B.ech))});var note=$('#bFwNote');note.textContent=t(p?p.note:'b_fw_hint');note.className='note '+(p&&p.finalMask?'w':'i')+' small';$('#bEchState').textContent='';bMaybe()})});
+if($('#bAddr'))$('#bAddr').addEventListener('input',function(){B.addr=this.value;bMaybe()});
 $$('#bProto button').forEach(function(b){b.addEventListener('click',function(){pickSel('bProto',b);B.proto=b.getAttribute('data-v');bMaybe()})});
 $$('#bFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('bFam',b);B.fam=b.getAttribute('data-v');bMaybe()})});
 var bPortsBox=$('#bPorts');if(bPortsBox)bPortsBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;b.classList.toggle('on');B.ports[b.getAttribute('data-v')]=b.classList.contains('on');bMaybe()});
 var bCcBox=$('#bCc');if(bCcBox)bCcBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('bCc',b);B.cc=b.getAttribute('data-v');bMaybe()});
 $$('#bStrict button').forEach(function(b){b.addEventListener('click',function(){pickSel('bStrict',b);B.strict=Number(b.getAttribute('data-v'))||0;bMaybe()})});
-$$('#bEch button').forEach(function(b){b.addEventListener('click',function(){pickSel('bEch',b);B.ech=Number(b.getAttribute('data-v'))||0;bMaybe();if(B.ech&&!bEchChecked){bEchChecked=1;api('/api/ech').then(function(j){var el=$('#bEchState');if(el)el.textContent=j.has?(('⚡ ECH ✓ ('+j.sni+')')):(t('ech_none'))}).catch(function(){var el=$('#bEchState');if(el)el.textContent=t('ech_none')})}})});
+$$('#bEch button').forEach(function(b){b.addEventListener('click',function(){pickSel('bEch',b);B.ech=Number(b.getAttribute('data-v'))||0;bMaybe();if(B.fw){$('#bEchState').textContent='';return}if(B.ech&&!bEchChecked){bEchChecked=1;api('/api/ech').then(function(j){var el=$('#bEchState');if(el)el.textContent=j.has?(('⚡ ECH ✓ ('+j.sni+')')):(t('ech_none'))}).catch(function(){var el=$('#bEchState');if(el)el.textContent=t('ech_none')})}else if(!B.ech)$('#bEchState').textContent=''})});
 var bEchChecked=0;
 if($('#bLimit'))$('#bLimit').addEventListener('change',function(){B.limit=Math.min(200,Math.max(1,Number(this.value)||24));this.value=B.limit;bMaybe()});
 if($('#bGen'))$('#bGen').addEventListener('click',function(){bLive=true;bGen()});
 if($('#bCopyAll'))$('#bCopyAll').addEventListener('click',function(){copy(bText)});
+if($('#bXrayCopy'))$('#bXrayCopy').addEventListener('click',function(){copy($('#bXrayLink').value)});
 if($('#bFragCopy'))$('#bFragCopy').addEventListener('click',function(){copy($('#bFrag').value)});
 /* scanner */
 var SF={fam:'',region:'',cc:'',q:''};
@@ -6065,7 +6279,7 @@ if($('#btnCidrAdd'))$('#btnCidrAdd').addEventListener('click',function(){var raw
   else if(r)bad=true});
  if(!ips.length){toast(t('cidr_bad'));return}
  api('/api/ips',{method:'POST',body:{ips:ips}}).then(function(j){toast((t('cidr_ok').replace('%1',ips.length))+(j&&j.persisted===false?' (memory)':''));$('#scanCidr').value='';return load()}).catch(function(){toast(t('cidr_bad'))})});
-$$('#btnScanApp,#btnNodeScanApp').forEach(function(b){b.addEventListener('click',function(){api('/api/events',{method:'POST',body:{ev:'scan',d:'app'}})})});
+if($('#btnScanApp'))$('#btnScanApp').addEventListener('click',function(){api('/api/events',{method:'POST',body:{ev:'scan',d:'app'}})});
 if($('#btnBrowserTest'))$('#btnBrowserTest').addEventListener('click',function(){api('/api/events',{method:'POST',body:{ev:'scan',d:'browser'}})});
 /* events log */
 function ago(ts){var sec=Math.max(0,(Date.now()-ts)/1000);if(sec<60)return t('seen_now');var m=Math.floor(sec/60);if(m<60)return t('seen_min').replace('%1',m);var h=Math.floor(m/60);if(h<24)return t('ev_ago_h').replace('%1',h);return t('ev_ago_d').replace('%1',Math.floor(h/24))}
@@ -6091,7 +6305,7 @@ function rpRender(){if(!RP.d)return;var box=$('#rpRows');if(!box)return;
   return c.join('')}).join('');
  var ccbox=$('#rpCcs');var ccs=RP.d.ccs||{};var keys=Object.keys(ccs).sort();
  ccbox.innerHTML=keys.length?keys.map(function(c){return '<span class="chip" style="font-size:11px">'+ccFlag(c)+' '+esc(ccName(c))+' <b>'+ccs[c]+'</b> <button class="btn sm" type="button" data-rpimp="'+esc(c)+'" style="padding:1px 8px;margin:0">+</button></span>'}).join(''):'<span class="small dim">'+esc(t('rp_empty'))+'</span>';
- var ab=$('#rpAuto');if(ab){var autoOn=RP.d.auto===true;ab.innerHTML=(autoOn?'⚡ ':'⏸ ')+t(autoOn?'rp_auto_on':'rp_auto_off');ab.title=t(autoOn?'rp_auto_on':'rp_auto_off');ab.className='btn sm '+(autoOn?'p':'')}}
+ var ab=$('#rpAuto');if(ab){ab.innerHTML=(RP.d.auto?'⚡ ':'⏸ ')+t('rp_auto');ab.className='btn sm '+(RP.d.auto?'p':'')}}
 function rpLoad(){return api('/api/repos').then(function(j){RP.d=j;rpRender()}).catch(function(){})}
 function rpPost(b){return api('/api/repos',{method:'POST',body:b})}
 if($('#rpRefresh'))$('#rpRefresh').addEventListener('click',function(){var b=this;b.disabled=true;rpPost({action:'refresh'}).then(function(j){toast(j.ok?('⚡ '+j.total):'✗');return rpLoad()}).catch(function(){toast('✗',true)}).then(function(){b.disabled=false})});
@@ -6169,12 +6383,12 @@ if($('#btnExtPresetFree'))$('#btnExtPresetFree').addEventListener('click',functi
 document.addEventListener('click',function(e){var d=e.target.closest('[data-extdel]');if(!d)return;var i=Number(d.getAttribute('data-extdel'));var list=(CFG.settings.extSubs||[]).filter(function(x,xi){return xi!==i});
  api('/api/settings',{method:'PUT',body:{extSubs:list}}).then(function(j){if(!j.ok)throw 0;CFG.settings.extSubs=j.settings.extSubs;renderExt()}).catch(function(){toast('error',true)})});
 /* aether builder */
-var AE={mode:'gool',fam:'both'};
-function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Omni';var ip=AE.fam==='both'?'&ip=both':('&ip='+AE.fam);var u='';
- if(AE.mode==='warp')u='aether://?protocol=warp'+ip+'&scan=balanced#'+encodeURIComponent(name+' WARP');
- else if(AE.mode==='gool')u='aether://?protocol=gool'+ip+'&scan=balanced#'+encodeURIComponent(name+' WARP-in-WARP');
- else{var fm=JSON.stringify({tcp:[{type:'fragment',settings:{packets:'tlshello',lengths:['100-200'],interval:'5-10'}}]});
-  u='aether://?protocol=masque&transport=h2&fingerPrint=semi-python'+ip+'&fm='+encodeURIComponent(fm)+'#'+encodeURIComponent(name+' MASQUE/H2')}
+var AE={mode:'gool-classic',fam:'both'};
+function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Omni';var ip=AE.fam==='both'?'&ip=both':('&ip='+AE.fam);var scan='&scan=balanced';var h2='&transport=h2&fingerprint=semi-python&fragment=1&fragment_size=8-16&fragment_delay=5-10';var u='';
+ if(AE.mode==='warp')u='aether://?protocol=wg'+ip+scan+'#'+encodeURIComponent(name+' WARP');
+ else if(AE.mode==='gool-classic')u='aether://?protocol=gool'+ip+scan+'#'+encodeURIComponent(name+' WARP-in-WARP (classic)');
+ else if(AE.mode==='wg-over-masque')u='aether://?protocol=wg-over-masque'+h2+ip+scan+'#'+encodeURIComponent(name+' WireGuard-over-MASQUE (Gool H2)');
+ else u='aether://?protocol=masque'+h2+ip+scan+'#'+encodeURIComponent(name+' MASQUE/H2');
  $('#aeLink').value=u;$('#aeQr').setAttribute('data-qr',u);$('#aeQr').setAttribute('data-qrl',name);$('#aeOpen').href=u;return u}
 $$('#aePick button').forEach(function(b){b.addEventListener('click',function(){pickSel('aePick',b);AE.mode=b.getAttribute('data-v');aeBuild()})});
 $$('#aeFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('aeFam',b);AE.fam=b.getAttribute('data-v');aeBuild()})});
@@ -6350,10 +6564,11 @@ export default {
 
 export const _testing = {
   CAT_PANEL_VERSION,
-  splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
+  splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
   deriveUuid, resolveUuid,
   KV_KEYS, kvBinding, kvCacheClear, KV_READ_TTL_MS, DEFAULT_ECH_VALUE,
   defaultSettings, normalizeSettings, readSettings, writeSettings,
+  PANEL_THEMES, DEFAULT_PANEL_THEME,
   normalizeUser, readUsers, writeUsers, userBlockedReason, findUser,
   panelPassword, panelIsOpen, makeSession, verifySession, isOwner, checkLogin,
   qrEncode, qrSvg,

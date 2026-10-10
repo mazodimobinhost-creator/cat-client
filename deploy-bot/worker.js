@@ -8,23 +8,26 @@
  *   /deploy  →  latest GitHub release  →  Cloudflare Workers API  →  ✅ URL
  *
  * Fully standalone (no panel, no KV binding). Provisioned once with the
- * "Deploy to Cloudflare" button, then configured with 4 secrets:
+ * "Deploy to Cloudflare" button, then configured with 5 secrets:
  *
  *   TG_TOKEN       Telegram bot token (@BotFather)
  *   CF_API_TOKEN   Cloudflare token: Workers Scripts:Edit + Workers KV Storage:Edit
  *   CF_ACCOUNT_ID  Cloudflare account id (dashboard → Workers → right side)
  *   TG_ADMIN_ID    your numeric Telegram id (@userinfobot)
+ *   PANEL_UUID    stable master UUID; generate once and keep it unchanged
  * Optional:
  *   WORKER_NAME    deployed worker name (default "cat-panel")
  *   GH_REPO        panel repo               (default mazodimobinhost-creator/cat-client)
  *
- * After adding secrets: open <bot-url>/register?key=<TG_TOKEN secret hash>
- * (the /start reply prints the exact link) — then send /deploy in Telegram.
+ * After adding secrets: compute the first 16 hex chars of SHA-256(TG_TOKEN)
+ * locally, then open <bot-url>/register?key=<hash>. Use commands only in the
+ * bot's private chat. New panels are locked by default; UUID/KV/custom bindings
+ * are preserved on update, and readiness requires a matching /health response.
  * The Cloudflare token lives ONLY in this worker's secrets — never in chat,
  * never in the repo. Send /revoke in BotFather if a token ever leaks.
  */
 
-const BOT_VERSION = '2.0.0';
+const BOT_VERSION = '2.2.0';
 const KV_TITLE = 'cat-panel-kv';
 const DEFAULT_REPO = 'mazodimobinhost-creator/cat-client';
 const DEFAULT_WORKER = 'cat-panel';
@@ -41,6 +44,7 @@ function cfg(env) {
     cf: String(env.CF_API_TOKEN || '').trim(),
     acc: String(env.CF_ACCOUNT_ID || '').trim(),
     admin: String(env.TG_ADMIN_ID || '').trim(),
+    panelUuid: String(env.PANEL_UUID || '').trim().toLowerCase(),
     name: String(env.WORKER_NAME || DEFAULT_WORKER).replace(/[^A-Za-z0-9_-]/g, '') || DEFAULT_WORKER,
     repo: String(env.GH_REPO || DEFAULT_REPO).replace(/[^A-Za-z0-9._/-]/g, '') || DEFAULT_REPO,
   };
@@ -59,6 +63,52 @@ async function cfApi(F, c, method, path, body, isForm) {
   return { ok: r.ok, status: r.status, json: j };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value) => UUID_RE.test(String(value || '').trim());
+
+/** Read bindings before replacement so updates keep the panel identity and KV. */
+async function readExistingSettings(F, c) {
+  const res = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/settings');
+  if (res.status === 404) return { ok: true, exists: false, bindings: [] };
+  if (!res.ok) return { ok: false, error: 'could not read current Worker settings (' + res.status + '); update stopped to avoid losing its identity or bindings' };
+  const bindings = res.json && res.json.result && res.json.result.bindings;
+  if (!Array.isArray(bindings)) return { ok: false, error: 'Cloudflare returned no readable binding list; update stopped to avoid rotating panel access' };
+  return { ok: true, exists: true, bindings };
+}
+
+/** Keep readable custom bindings and preserve secret values server-side. */
+function inspectExistingBindings(bindings) {
+  const result = { uuid: '', kvId: '', extras: [], keepSecrets: false, hasPanelPassword: false, unsafeManagedSecret: '' };
+  for (const binding of bindings || []) {
+    if (!binding || !binding.name) continue;
+    const name = String(binding.name);
+    const type = String(binding.type || '');
+    if (name === 'UUID') {
+      if (type === 'plain_text' && isUuid(binding.text)) result.uuid = String(binding.text).toLowerCase();
+      else if (type === 'secret_text') result.unsafeManagedSecret = name;
+      continue;
+    }
+    if (name === 'CAT_KV') {
+      if (type === 'kv_namespace') result.kvId = String(binding.namespace_id || '');
+      continue;
+    }
+    // These flags are deliberately forced closed on every deploy.
+    if (name === 'OPEN_PANEL' || name === 'OPEN_SUB') {
+      if (type === 'secret_text') result.unsafeManagedSecret = name;
+      continue;
+    }
+    if (name === 'PANEL_PASSWORD') result.hasPanelPassword = true;
+    if (type === 'secret_text') {
+      result.keepSecrets = true;
+      continue;
+    }
+    // Bindings returned by Cloudflare are JSON-safe metadata. Copy them so a
+    // panel update does not silently remove an owner's custom plain-text/KV/etc.
+    try { result.extras.push(JSON.parse(JSON.stringify(binding))); } catch (e) { }
+  }
+  return result;
+}
+
 function panelSourceUrl(c, ref) {
   if (ref) return 'https://raw.githubusercontent.com/' + c.repo + '/refs/heads/' + ref + '/app/src/main/assets/panels/catclient.worker.js'; // ref is regex-validated (slashes allowed)
   return 'https://github.com/' + c.repo + '/releases/latest/download/catclient.worker.js';
@@ -66,32 +116,60 @@ function panelSourceUrl(c, ref) {
 
 /** Fetch the panel worker script (branch or latest release) and deploy it. */
 async function deployPanel(F, c, ref) {
+  if (!isUuid(c.panelUuid)) {
+    return { ok: false, error: 'PANEL_UUID is missing or invalid. Add a stable UUID as the bot Worker Secret before deploying; no Cloudflare request was made.' };
+  }
   const src = await F(panelSourceUrl(c, ref), { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
   if (!src.ok) return { ok: false, error: 'source ' + src.status + (ref ? ' — branch «' + ref + '» پیدا نشد' : ' — releases/latest در دسترس نیست') };
   const code = await src.text();
   if (!code.includes('export default') || !code.includes('CAT_PANEL_VERSION')) return { ok: false, error: 'source fetched but does not look like catclient.worker.js' };
   const ver = (code.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '?';
 
-  // KV namespace: reuse or create (panel needs CAT_KV).
-  let kvId = '';
-  const list = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/storage/kv/namespaces?per_page=100');
-  const ns = ((list.json && list.json.result) || []).find((n) => n.title === KV_TITLE);
-  if (ns) kvId = ns.id;
-  else {
-    const made = await cfApi(F, c, 'POST', '/accounts/' + c.acc + '/storage/kv/namespaces', { title: KV_TITLE });
-    if (!made.ok) return { ok: false, error: 'KV create failed (' + made.status + ')' };
-    kvId = made.json && made.json.result && made.json.result.id;
+  // Read before replacing metadata: preserve identity, storage and user bindings.
+  const previous = await readExistingSettings(F, c);
+  if (!previous.ok) return { ok: false, error: previous.error };
+  const old = inspectExistingBindings(previous.bindings);
+  if (old.unsafeManagedSecret) {
+    return { ok: false, error: 'existing ' + old.unsafeManagedSecret + ' is a secret binding; remove it or repair the worker in Cloudflare Dashboard before updating' };
+  }
+  // The bot's PANEL_UUID Worker Secret is the persistent source of truth.
+  // Never mint a replacement during deploy; the deployed panel gets this value
+  // as its compatibility binding named UUID.
+  const uuid = c.panelUuid;
+  const uuidRotated = previous.exists && old.uuid !== uuid;
+
+  // Reuse the actual bound namespace first (including Wizard-created KV names),
+  // then the legacy fixed name; never silently replace a panel's data store.
+  let kvId = old.kvId;
+  let kvReused = !!kvId;
+  if (!kvId) {
+    const list = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/storage/kv/namespaces?per_page=100');
+    if (!list.ok) return { ok: false, error: 'KV list failed (' + list.status + '); update stopped to protect existing panel data' };
+    const namespaces = Array.isArray(list.json && list.json.result) ? list.json.result : [];
+    const ns = namespaces.find((n) => n && n.title === KV_TITLE);
+    if (ns && ns.id) { kvId = ns.id; kvReused = true; }
+    else {
+      const made = await cfApi(F, c, 'POST', '/accounts/' + c.acc + '/storage/kv/namespaces', { title: KV_TITLE });
+      if (!made.ok) return { ok: false, error: 'KV create failed (' + made.status + ')' };
+      kvId = made.json && made.json.result && made.json.result.id;
+      if (!kvId) return { ok: false, error: 'KV create returned no namespace id; update stopped before upload' };
+    }
   }
 
-  // Upload the module worker with bindings (fresh installs start open, like the button).
+  // Locked by default. The stable PANEL_UUID secret supplies the Worker UUID
+  // binding, initial password and master subscription secret on every deploy.
+  const bindings = [
+    { type: 'plain_text', name: 'UUID', text: uuid },
+    { type: 'kv_namespace', name: 'CAT_KV', namespace_id: kvId },
+    { type: 'plain_text', name: 'OPEN_PANEL', text: 'false' },
+    { type: 'plain_text', name: 'OPEN_SUB', text: 'false' },
+    ...old.extras,
+  ];
   const meta = {
     main_module: 'worker.js',
     compatibility_date: '2026-09-01',
-    bindings: [
-      { type: 'kv_namespace', name: 'CAT_KV', namespace_id: kvId },
-      { type: 'plain_text', name: 'OPEN_PANEL', text: 'true' },
-      { type: 'plain_text', name: 'OPEN_SUB', text: 'true' },
-    ],
+    bindings,
+    ...(old.keepSecrets ? { keep_secrets: true } : {}),
   };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }), 'metadata.json');
@@ -108,9 +186,7 @@ async function deployPanel(F, c, ref) {
   const sub = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/subdomain');
   const subd = sub.json && sub.json.result && sub.json.result.subdomain;
   const url = subd ? 'https://' + c.name + '.' + subd + '.workers.dev' : '';
-  // Post-deploy health gate: upload returning 200 is NOT enough — the RUNNING
-  // worker must answer /health with the SAME version. This catches half-applied
-  // scripts and the whole 1101 class before the user ever sees them.
+  // Upload success is not readiness: only the running, matching version passes.
   let health = { ok: false, status: 0 };
   if (url) {
     try {
@@ -119,24 +195,39 @@ async function deployPanel(F, c, ref) {
       health = { ok: !!(hr.ok && hj && hj.ok === true && hj.version === ver), status: hr.status, version: hj && hj.version };
     } catch (e) { health = { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 60) }; }
   }
-  return { ok: true, ver, url, ref: ref || 'latest release', health };
+  return {
+    ok: true, ver, url, ref: ref || 'latest release', health, uuid,
+    subUrl: url ? url + '/sub/' + uuid : '',
+    firstInstall: !previous.exists && !kvReused,
+    uuidRotated,
+    kvReused,
+    hasPanelPassword: old.hasPanelPassword,
+  };
 }
 
-const setupChecklist = (c) =>
-  '⚙️ <b>Secrets needed</b> (Workers → your bot → Settings → Variables → + Add):\n' +
-  (c.token ? '✅' : '▫️') + ' <code>TG_TOKEN</code>\n' +
-  (c.cf ? '✅' : '▫️') + ' <code>CF_API_TOKEN</code> (Workers Scripts:Edit + KV:Edit)\n' +
-  (c.acc ? '✅' : '▫️') + ' <code>CF_ACCOUNT_ID</code>\n' +
-  (c.admin ? '✅' : '▫️') + ' <code>TG_ADMIN_ID</code>\n' +
-  'Then open /register link from /start.';
+const setupChecklist = (c) => {
+  const panelUuidValid = isUuid(c.panelUuid);
+  const panelUuidNote = panelUuidValid
+    ? ''
+    : c.panelUuid
+      ? '\n❗ PANEL_UUID is present but invalid. Replace it with a valid UUID Secret; deploy is blocked until fixed.'
+      : '\n❗ PANEL_UUID is required. Generate one once locally, add it as a Secret, and keep it unchanged across bot redeploys.';
+  return '⚙️ <b>Secrets needed</b> (Workers → your bot → Settings → Variables → + Add → type Secret):\n' +
+    (c.token ? '✅' : '▫️') + ' <code>TG_TOKEN</code>\n' +
+    (c.cf ? '✅' : '▫️') + ' <code>CF_API_TOKEN</code> (Workers Scripts:Edit + KV:Edit)\n' +
+    (c.acc ? '✅' : '▫️') + ' <code>CF_ACCOUNT_ID</code>\n' +
+    (c.admin ? '✅' : '▫️') + ' <code>TG_ADMIN_ID</code>\n' +
+    (panelUuidValid ? '✅' : c.panelUuid ? '🔴' : '▫️') + ' <code>PANEL_UUID</code> (stable UUID Secret; copied to the deployed panel as <code>UUID</code>)' +
+    panelUuidNote + '\nThen compute the TG_TOKEN hash locally and open /register?key=… (see docs/deploy-bot.md).';
+};
 
-async function runCommand(F, c, text) {
+async function runCommand(F, c, text, chatId) {
   const parts = String(text || '').trim().split(/\s+/);
   const cmd = (parts[0] || '').toLowerCase().replace(/@.*$/, '');
   const arg = parts.slice(1);
   switch (cmd) {
     case '/start': case '/help': {
-      const ready = c.token && c.cf && c.acc && c.admin;
+      const ready = c.token && c.cf && c.acc && c.admin && isUuid(c.panelUuid);
       return '🐱 <b>Cat Deploy Bot</b> ' + BOT_VERSION + '\n🚀 یک دکمه = آخرین نسخهٔ پنل روی کلادفلر تو\n\n' +
         '/deploy [branch] — deploy/update the panel\n/doctor — چک کامل: توکن/ورکر/KV/health\n/rollback — برگشت به نسخهٔ قبلی\n/status — panel + token health\n\n' +
         (ready ? '✅ configured — send /deploy' : setupChecklist(c)) +
@@ -144,16 +235,39 @@ async function runCommand(F, c, text) {
     }
     case '/setup': return setupChecklist(c);
     case '/deploy': {
-      if (!c.token || !c.cf || !c.acc) return setupChecklist(c);
+      if (!c.token || !c.cf || !c.acc || !isUuid(c.panelUuid)) return setupChecklist(c);
       const ref = String(arg[0] || '').trim();
       if (ref && !/^[A-Za-z0-9._/-]{1,120}$/.test(ref)) return 'bad branch name';
-      const ping = await tgApi(F, c.token, 'sendMessage', { text: '⏳ گرفتن ' + (ref || 'آخرین رلیز') + ' و دیپلوی روی کلادفلر…' });
+      if (chatId !== undefined && chatId !== null) {
+        await tgApi(F, c.token, 'sendMessage', { chat_id: chatId, text: '⏳ گرفتن ' + (ref || 'آخرین رلیز') + ' و دیپلوی روی کلادفلر…', protect_content: true });
+      }
       const res = await deployPanel(F, c, ref);
       if (!res.ok) return '🔴 deploy failed:\n<code>' + esc(res.error) + '</code>';
-      const hl = res.health && res.health.ok
-        ? '🫀 health OK — پنل زنده است و همین نسخه را سرو می‌کند'
-        : '⚠️ health FAILED ' + (res.health && res.health.status ? '(HTTP ' + res.health.status + (res.health.version ? ' — سرو‌شده: ' + res.health.version : '') + ')' : (res.health && res.health.error ? '(' + res.health.error + ')' : '')) + '\n⏪ برگشت به نسخهٔ قبل: /rollback';
-      return '✅ <b>Cat Panel ' + esc(res.ver) + '</b> deployed\n' + hl + '\n📦 منبع: ' + esc(res.ref) + '\n🔗 ' + (res.url ? '<code>' + esc(res.url) + '</code>' : '(workers.dev off — از داشبورد کلادفلر باز کن)') + '\n\n⚠️ دامنهٔ پنل عوض نشده؛ تنظیمات قبلی در KV می‌ماند.';
+      const verified = !!(res.health && res.health.ok);
+      const title = verified
+        ? '✅ <b>Cat Panel ' + esc(res.ver) + '</b> دیپلوی و سلامت نسخه تأیید شد'
+        : '⚠️ <b>Cat Panel ' + esc(res.ver) + '</b> آپلود شد، اما سلامت آن تأیید نشد';
+      const healthLine = verified
+        ? '🫀 health OK — Worker همان نسخه را سرو می‌کند'
+        : '🔴 health ناموفق' + (res.health && res.health.status ? ' (HTTP ' + res.health.status + (res.health.version ? '؛ نسخهٔ پاسخ‌داده‌شده: ' + esc(res.health.version) : '') + ')' : (res.health && res.health.error ? ' (' + esc(res.health.error) + ')' : '')) + ' — پنل را آماده/سالم فرض نکن؛ /doctor یا /rollback را اجرا کن.';
+      const lines = [
+        title,
+        healthLine,
+        '📦 منبع: ' + esc(res.ref),
+        '🔗 پنل: ' + (res.url ? '<code>' + esc(res.url) + '</code>' : '(نشانی workers.dev در دسترس نیست؛ از داشبورد Cloudflare بررسی کن)'),
+        '🧬 UUID اصلی (از PANEL_UUID): <code>' + esc(res.uuid) + '</code>',
+      ];
+      if (res.subUrl) lines.push('📥 اشتراک اصلی: <code>' + esc(res.subUrl) + '</code>');
+      if (res.firstInstall && !res.hasPanelPassword) {
+        lines.push('🔑 رمز اولیهٔ پنل = UUID ثابت PANEL_UUID بالاست؛ پس از ورود، اگر خواستی آن را از تنظیمات پنل تغییر بده.');
+      } else if (res.hasPanelPassword) {
+        lines.push('🔒 binding رمز اختصاصی قبلی حفظ شد؛ ربات مقدار مخفی آن را نمی‌خواند.');
+      } else {
+        lines.push('🔑 اگر رمز پنل را قبلاً عوض کرده‌ای، همان رمز ذخیره‌شده حفظ است؛ در غیر این صورت رمز پیش‌فرض PANEL_UUID است.');
+      }
+      if (res.uuidRotated) lines.push('⚠️ UUID قبلی خالی یا متفاوت بود؛ secret ثابت PANEL_UUID روی Worker اعمال شد. لینک‌های اشتراک قبلی عوض می‌شوند و باید لینک جدید را وارد کنی؛ داده‌های KV به همین صورت حفظ می‌شوند.');
+      lines.push(res.kvReused ? '💾 KV قبلی دوباره وصل شد.' : '💾 KV تازه ساخته شد.');
+      return lines.join('\n');
     }
     case '/doctor': {
       if (!c.cf || !c.acc) return setupChecklist(c);
@@ -209,7 +323,7 @@ export default {
     const url = new URL(request.url);
     const F = env.__fetch || fetch;
     const c = cfg(env);
-    if (url.pathname === '/health') return new Response(JSON.stringify({ ok: true, bot: BOT_VERSION, configured: !!(c.token && c.cf && c.acc && c.admin) }), { headers: { 'content-type': 'application/json' } });
+    if (url.pathname === '/health') return new Response(JSON.stringify({ ok: true, bot: BOT_VERSION, configured: !!(c.token && c.cf && c.acc && c.admin && isUuid(c.panelUuid)) }), { headers: { 'content-type': 'application/json' } });
 
     // Self-register the Telegram webhook: /register?key=<first16(sha256(TG_TOKEN))>
     if (url.pathname === '/register') {
@@ -227,15 +341,23 @@ export default {
       if (url.pathname !== '/tg/' + secret || request.headers.get('x-telegram-bot-api-secret-token') !== secret) return new Response(JSON.stringify({ ok: false }), { status: 403, headers: { 'content-type': 'application/json' } });
       const up = await request.json().catch(() => ({}));
       const msg = up.message || {};
-      const chatId = msg.chat && msg.chat.id;
+      const chat = msg.chat || {};
+      const chatId = chat.id;
       const from = msg.from && String(msg.from.id);
       if (!chatId || !msg.text) return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } });
+      const privateChat = chat.type === 'private' && String(chatId) === String(from);
       let reply;
-      if (!c.admin) reply = '⚙️ TG_ADMIN_ID خالی است. آیدی تو: <code>' + esc(from) + '</code> — آن را در Secrets بگذار و /register را دوباره باز کن.';
+      if (!privateChat) reply = '🔒 برای امنیت، ربات دیپلوی را فقط در گفت‌وگوی خصوصی با خودش استفاده کن.';
+      else if (!c.admin) reply = '⚙️ TG_ADMIN_ID خالی است. آیدی تو: <code>' + esc(from) + '</code> — آن را در Secrets بگذار و /register را دوباره باز کن.';
       else if (from !== c.admin) reply = '⛔ فقط ادمین (TG_ADMIN_ID)';
-      else reply = await runCommand(F, c, msg.text);
-      const withMenu = /^\s*\/(start|help)\b/.test(String(msg.text || ''));
-      await tgApi(F, c.token, 'sendMessage', Object.assign({ chat_id: chatId, text: reply, parse_mode: 'HTML', disable_web_page_preview: true }, withMenu ? { reply_markup: { keyboard: [['/deploy'], ['/status', '/help']], resize_keyboard: true, is_persistent: true } } : {}));
+      else reply = await runCommand(F, c, msg.text, chatId);
+      const text = String(msg.text || '');
+      const withMenu = /^\s*\/(start|help)\b/.test(text);
+      const isDeploy = /^\s*\/deploy(?:@\w+)?(?:\s|$)/i.test(text);
+      const outgoing = Object.assign({ chat_id: chatId, text: reply, parse_mode: 'HTML', disable_web_page_preview: true }, withMenu ? { reply_markup: { keyboard: [['/deploy'], ['/status', '/help']], resize_keyboard: true, is_persistent: true } } : {});
+      // Deployment replies include the master UUID/subscription credential.
+      if (isDeploy) outgoing.protect_content = true;
+      await tgApi(F, c.token, 'sendMessage', outgoing);
       return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } });
     }
 

@@ -91,9 +91,7 @@ const auth = { cookie };
   check('built-in v6 pool exported (11 anycast)', Array.isArray(T.CF_V6_POOL) && T.CF_V6_POOL.length === 11);
 }
 { const r = await req('/panel', { headers: auth }); const b = await r.text(); check('/panel shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
-{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER));
-  check('Clean-IP auto-append defaults on, migrates legacy implicit false, and keeps an explicit opt-out', j.settings.repoAuto === true && j.settings._repoAutoConfigured === undefined && T.normalizeSettings({ repoAuto: false }).repoAuto === true && T.normalizeSettings({ repoAuto: false, _repoAutoConfigured: true }).repoAuto === false);
-}
+{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
 // subscription master
 { const r = await req('/sub/' + MASTER + '?rotate=off'); const b = await r.text();
   check('/sub/<uuid> 200', r.status===200);
@@ -585,6 +583,24 @@ let user;
     const offFirst = (await (await req('/sub/' + MASTER + '?rotate=off&limit=1', { env: ENV })).text()).trim();
     check('rotation keeps port walk: first config is TLS :443', offFirst.includes(':443?') && offFirst.includes('security=tls'), offFirst.slice(0, 90));
   }
+  // Legacy panels saved repoAuto=false solely because beta92's default was opt-in.
+  // Upgrade once to on, but keep a recorded explicit OFF choice.
+  {
+    const legacyKv = new FakeKV();
+    await legacyKv.put(T.KV_KEYS.settings, JSON.stringify({ repoAuto: false }));
+    T.kvCacheClear();
+    const migrated = await T.readSettings({ CAT_KV: legacyKv });
+    const saved = JSON.parse(await legacyKv.get(T.KV_KEYS.settings));
+    check('legacy default-off feed setting migrates to auto-on once', migrated.repoAuto === true && migrated.repoAutoDefaultMigrated === true && saved.repoAuto === true && saved.repoAutoDefaultMigrated === true);
+
+    const optedOutKv = new FakeKV();
+    await optedOutKv.put(T.KV_KEYS.settings, JSON.stringify({ repoAuto: false }));
+    await optedOutKv.put('cat_events_v1', JSON.stringify([{ ev: 'repo-auto', d: 'off', t: Date.now() }]));
+    T.kvCacheClear();
+    const optedOut = await T.readSettings({ CAT_KV: optedOutKv });
+    check('legacy explicit feed-off choice remains off after migration', optedOut.repoAuto === false && optedOut.repoAutoDefaultMigrated === true);
+    T.kvCacheClear();
+  }
   // ================= repo library: 12h feeds + dead replacement =================
   {
     const fakeFeed = async (url) => {
@@ -595,7 +611,8 @@ let user;
     check('repo refresh merges both feeds, uniq + junk-filtered', rep.ok && rep.total === 5, JSON.stringify(rep.per));
     const st = await req('/api/repos', { headers: auth });
     const j = await st.json();
-    check('/api/repos GET status', j.ok && j.total === 5 && Array.isArray(j.repos) && j.repos.length >= 2, 'total=' + j.total);
+    check('/api/repos GET status + auto-on default', j.ok && j.total === 5 && Array.isArray(j.repos) && j.repos.length >= 2 && j.auto === true, 'total=' + j.total + ', auto=' + j.auto);
+    check('repoAuto defaults on but keeps explicit opt-out', T.defaultSettings().repoAuto === true && T.normalizeSettings({}).repoAuto === true && T.normalizeSettings({ repoAuto: false }).repoAuto === false);
     const pool0 = (await T.repoHealthyPool(ENV, 10)).map((p) => p.ip);
     check('json-speed sort within feed: fastest first', pool0.indexOf('198.51.20.2') < pool0.indexOf('198.51.20.1'), JSON.stringify(pool0));
     // dead reports: <3 = kept, >=3 = dropped and replaced on next refresh
@@ -606,6 +623,8 @@ let user;
     const hr = await (await req('/api/repos', { method: 'POST', headers: auth, body: { action: 'health', dead: ['198.51.10.1'] } })).json();
     const poolAfter3 = (await T.repoHealthyPool(ENV, 10)).map((p) => p.ip);
     check('dead≥3 dropped from pool', hr.dropped === 1 && !poolAfter3.includes('198.51.10.1') && poolAfter3.length === 4, JSON.stringify(poolAfter3));
+    const subDefaultAuto = await (await req('/sub/' + MASTER + '?limit=200', { env: ENV })).text();
+    check('default-on repoAuto appends feed IPs to the subscription', subDefaultAuto.includes('@198.51.20.2:443') || subDefaultAuto.includes('@198.51.10.2:443') || subDefaultAuto.includes('@198.51.10.3:443') || subDefaultAuto.includes('@198.51.20.1:443'));
     // repoAuto → sub gains library IPs (pinned :443), off/norepo → not
     await req('/api/settings', { method: 'PUT', headers: auth, body: { repoAuto: true } });
     const subAuto = await (await req('/sub/' + MASTER + '?limit=200&norepo=0', { env: ENV })).text();
@@ -731,7 +750,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.61.0', T.CAT_PANEL_VERSION === '6.61.0');
+  check('panel version is 6.66.0', T.CAT_PANEL_VERSION === '6.66.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');
@@ -739,13 +758,16 @@ let user;
     check('blockQuic in singbox', sb.includes('"network":"udp"'));
     const xr = JSON.stringify(T.buildXrayConfigs('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {}));
     check('blockQuic in xray', xr.includes('"network":"udp"') || xr.includes('"udp"')); }
+  const ipv6Pinned = T.normalizeSettings({ ips: ['[2606:4700::1]:2053'], ipCountries: { '[2606:4700::1]:2053': 'DE' }, useDefaults: false, includeHost: false });
+  const ipv6PinnedEntries = T.buildConfigEntries(HOST, ENV, ipv6Pinned, MASTER, null, {}).entries;
+  check('bracketed IPv6 scan keeps its verified port and country', ipv6Pinned.ipCountries['[2606:4700::1]:2053'] === 'DE' && ipv6PinnedEntries.some((e) => e.addr === '2606:4700::1' && e.port === 2053 && e.cc === 'DE'));
   const prov = T.normalizeSettings({ ipSources: { '9.9.9.9:443': { src: 'scanner', ms: 210, at: 9 } } });
   check('ip provenance (src+ping) persisted', !!(prov.ipSources && prov.ipSources['9.9.9.9:443'] && prov.ipSources['9.9.9.9:443'].src === 'scanner'), JSON.stringify(prov.ipSources));
   {
-    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.77:443#DE'], source:'scanner', pingMs:{ '198.51.100.77:443#DE': 341 }, countries:{ '198.51.100.77:443#DE':'DE' } } }); const j = await r.json();
+    const r = await req('/api/ips', { method:'POST', headers: auth, body:{ ips:['198.51.100.77:443#DE'], source:'scanner', pingMs:{ '198.51.100.77:443#DE': 341 } } }); const j = await r.json();
     check('ips import accepted provenance payload', j.ok === true && j.ips.includes('198.51.100.77:443'), JSON.stringify(j.ips));
     const st3 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-    check('scanner provenance and country map normalize to stored address', !!(st3.ipSources && st3.ipSources['198.51.100.77:443'] && st3.ipSources['198.51.100.77:443'].src === 'scanner' && st3.ipSources['198.51.100.77:443'].ms === 341 && st3.ipCountries['198.51.100.77:443'] === 'DE' && !st3.ipSources['198.51.100.77:443#DE']), JSON.stringify({ sources: st3.ipSources, countries: st3.ipCountries }));
+    check('provenance badge stored (scanner + 341ms)', !!(st3.ipSources && st3.ipSources['198.51.100.77:443#DE'] && st3.ipSources['198.51.100.77:443#DE'].ms === 341), JSON.stringify(st3.ipSources));
     const anon = await req('/api/ip-test', { method:'POST', body:{ ips:['1.2.3.4'] } }); check('ip-test 401 without session', anon.status === 401);
     const emp = await req('/api/ip-test', { method:'POST', headers: auth, body:{ ips: [] } }); const je = await emp.json();
     check('ip-test empty list → empty results', je.ok === true && Object.keys(je.results).length === 0);
@@ -966,6 +988,44 @@ let user;
     check('fm/cs: toggle off → legacy links', !T.buildConfigEntries('p.workers.dev', ENV, stNo, 'u1', null, {}).entries.find((e) => e.proto === 'vless' && e.tls).link.includes('&fm='));
     check('fm/cs: CIPHER_SUITES_DEFAULT is a colon-separated TLS list', /^[A-Z0-9_]+(:[A-Z0-9_]+)+$/.test(T.CIPHER_SUITES_DEFAULT));
   }
+  // BlueKnight 5.2.7 firewall recipes: link-local, Xray-compatible output only.
+  {
+    const before = await (await req('/api/settings', { headers: auth })).json();
+    const ffRes = await req('/sub/' + MASTER + '?fw=irancell-ff&proto=vless&port=443&limit=1&rotate=off&noext=1');
+    const ffBody = (await ffRes.text()).trim();
+    const ffLink = ffBody.split('\n')[0];
+    const ffUri = new URL(ffLink);
+    check('Irancell F&F preset pins 188.114.97.6 and Xray TLS options', ffRes.status === 200 && ffUri.hostname === '188.114.97.6' && ffUri.searchParams.get('fp') === 'unsafe' && ffUri.searchParams.get('alpn') === 'http/1.1' && !ffUri.searchParams.has('ech'), ffLink.slice(0, 200));
+    check('Irancell F&F uses BlueKnight finalMask + exact cipher suites', ffUri.searchParams.get('fm') === T.FIREWALL_FF_FINAL_MASK && ffUri.searchParams.get('cs') === T.FIREWALL_FF_CIPHER_SUITES);
+    const ffTrojanEnv = Object.assign({}, ENV, { CAT_KV: new FakeKV() });
+    const ffTrojanSettings = T.defaultSettings();
+    ffTrojanSettings.protocols = { vless: true, trojan: true };
+    await ffTrojanEnv.CAT_KV.put(T.KV_KEYS.settings, JSON.stringify(ffTrojanSettings));
+    T.kvCacheClear();
+    const ffTrojanRes = await req('/sub/' + MASTER + '?fw=irancell-ff&proto=trojan&port=443&limit=1&rotate=off&noext=1', { env: ffTrojanEnv });
+    const ffTrojanBody = await ffTrojanRes.text();
+    T.kvCacheClear();
+    const ffTrojanUri = new URL(ffTrojanBody.trim().split('\n')[0]);
+    check('Irancell F&F also emits a Trojan URI with the same exact TLS profile', ffTrojanRes.status === 200 && ffTrojanUri.protocol === 'trojan:' && ffTrojanUri.hostname === '188.114.97.6' && ffTrojanUri.searchParams.get('fp') === 'unsafe' && ffTrojanUri.searchParams.get('alpn') === 'http/1.1' && ffTrojanUri.searchParams.get('fm') === T.FIREWALL_FF_FINAL_MASK && ffTrojanUri.searchParams.get('cs') === T.FIREWALL_FF_CIPHER_SUITES);
+    const xrayRes = await req('/xray/' + MASTER + '?fw=irancell-ff&proto=vless&port=443&limit=1&rotate=off&survive=1&raw=1');
+    const xray = JSON.parse(await xrayRes.text());
+    const proxy = xray[0] && xray[0].outbounds.find((o) => o.tag === 'proxy');
+    const stream = proxy && proxy.streamSettings;
+    check('Xray JSON carries preset fingerprint, ALPN, cipher suites and finalmask', xrayRes.status === 200 && stream && stream.tlsSettings.fingerprint === 'unsafe' && stream.tlsSettings.alpn.join(',') === 'http/1.1' && stream.tlsSettings.cipherSuites === T.FIREWALL_FF_CIPHER_SUITES && JSON.stringify(stream.finalmask) === T.FIREWALL_FF_FINAL_MASK);
+    check('F&F finalmask replaces (does not stack with) survival Fragment outbound', !(xray[0].outbounds || []).some((o) => o.tag === 'fragment'));
+    const mciEch = await (await req('/sub/' + MASTER + '?fw=mci-ech&proto=vless&port=443&limit=1&rotate=off&noext=1')).text();
+    const mciUri = new URL(mciEch.trim().split('\n')[0]);
+    check('MCI ECH preset emits its documented address, ECH resolver and no F&F', mciUri.hostname === '188.114.97.6' && mciUri.searchParams.get('fp') === 'chrome' && mciUri.searchParams.get('ech') === 'cloudflare-ech.com+udp://1.1.1.1' && !mciUri.searchParams.has('fm') && !mciUri.searchParams.has('cs'));
+    const mciV6 = await (await req('/sub/' + MASTER + '?fw=mci-ipv6-ff&proto=vless&port=443&limit=1&rotate=off&noext=1')).text();
+    const mciV6Uri = new URL(mciV6.trim().split('\n')[0]);
+    check('MCI IPv6 + F&F preset pins IPv6 and omits the Irancell-only cipher list', mciV6Uri.hostname === '[2a06:98c1:3121::7]' && mciV6Uri.searchParams.get('fm') === T.FIREWALL_FF_FINAL_MASK && !mciV6Uri.searchParams.has('cs'));
+    const unsupported = await req('/clash/' + MASTER + '?fw=irancell-ff');
+    check('Clash rejects an Xray-only firewall preset instead of silently dropping finalmask', unsupported.status === 400 && (await unsupported.text()).includes('Xray-compatible'));
+    const unsupportedSingbox = await req('/singbox/' + MASTER + '?fw=irancell-ff');
+    check('sing-box rejects an Xray-only firewall preset instead of silently dropping finalmask', unsupportedSingbox.status === 400 && (await unsupportedSingbox.text()).includes('Xray-compatible'));
+    const after = await (await req('/api/settings', { headers: auth })).json();
+    check('firewall presets are per-link and do not persist into panel settings', before.settings.fingerprint === after.settings.fingerprint && before.settings.echList === after.settings.echList && before.settings.cipherSuites === after.settings.cipherSuites);
+  }
   // beta54: IPv6 endpoints first-class + service test v2 (+claude/aistudio, 404=alive) + exit-info
   {
     check('v6: 2606:4700 endpoints are recognized CF IPs', T.isCloudflareIp('2606:4700:d0::a29f:c001') && T.isCloudflareIp('2606:4700:4700::1111'));
@@ -1007,8 +1067,8 @@ let user;
     const j = await r.json();
     check('neighbor: import ok with neighborIps', j.ok === true && j.ips.includes('203.0.113.90:443') && j.ips.includes('203.0.113.91:443'), JSON.stringify(j));
     const st6 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-    const s90 = st6.ipSources && st6.ipSources['203.0.113.90:443'];
-    const s91 = st6.ipSources && st6.ipSources['203.0.113.91:443'];
+    const s90 = st6.ipSources && st6.ipSources['203.0.113.90:443#DE'];
+    const s91 = st6.ipSources && st6.ipSources['203.0.113.91:443#DE'];
     check('neighbor: flagged IP gets src=neighbor', !!s91 && s91.src === 'neighbor' && s91.ms === 102, JSON.stringify(s91));
     check('neighbor: regular scanner IP keeps src=scanner', !!s90 && s90.src === 'scanner', JSON.stringify(s90));
     const html9 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');

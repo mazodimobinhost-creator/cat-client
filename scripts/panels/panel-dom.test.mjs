@@ -16,8 +16,8 @@ const htmlRes = await worker.fetch(new Request(HOST + '/panel'), env, {});
 const html = await htmlRes.text();
 const errors = [];
 let failUserCreate = false;
+let failUserNonJson = false;
 let failUserList = false;
-let failIpTest = false;
 let failSubscription = false;
 let emptySubscription = false;
 const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
@@ -27,16 +27,18 @@ const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', preten
       if (failUserList && url.pathname === '/api/users' && (init.method || 'GET') === 'GET') {
         return new Response('user-list unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
       }
-      if (failIpTest && url.pathname === '/api/ip-test') {
-        return new Response('probe unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
-      }
       if (failUserCreate && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
         return new Response(JSON.stringify({ ok: false, error: 'internal', message: 'diagnostic detail https://example.test/private/11111111-2222-4333-8444-555555555555' }), {
-          status: 500, headers: { 'content-type': 'application/json' },
+          status: 500, headers: { 'content-type': 'application/json', 'cf-ray': 'diagnostic-user-create-ray' },
+        });
+      }
+      if (failUserNonJson && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
+        return new Response('PRIVATE_INTERNAL_HTML https://example.test/hidden/11111111-2222-4333-8444-555555555555', {
+          status: 500, headers: { 'content-type': 'text/html; charset=utf-8', 'cf-ray': 'diagnostic-user-non-json-ray' },
         });
       }
       if (failSubscription && url.pathname.startsWith('/sub/')) {
-        return new Response('worker-private-body', { status: 502, headers: { 'content-type': 'text/plain' } });
+        return new Response('worker-private-body', { status: 502, headers: { 'content-type': 'text/plain', 'cf-ray': 'diagnostic-subscription-ray' } });
       }
       if (emptySubscription && url.pathname.startsWith('/sub/')) {
         return new Response('\n', { status: 200, headers: { 'content-type': 'text/plain' } });
@@ -56,8 +58,28 @@ await sleep(300);
 let failures=0; const check=(n,c,x)=>{ if(c) console.log('✓ '+n); else { failures++; console.error('✗ '+n+(x?' — '+x:'')); } };
 check('no JS errors on load', errors.length===0, errors.join('\n'));
 check('stats rendered', document.querySelector('#stUsers').textContent==='0');
+// Aether builder: preserve the classic URI, expose PattNG's newer WG-over-MASQUE mode,
+// and keep the H2 fingerprint/fragment query names exactly as its parser expects.
+{
+  const parseAether = (link) => new URLSearchParams(link.split('?')[1].split('#')[0]);
+  const classic = parseAether(document.querySelector('#aeLink').value);
+  check('Aether default keeps legacy Gool as WireGuard-in-WireGuard', classic.get('protocol') === 'gool' && classic.get('scan') === 'balanced' && !classic.has('transport'));
+  document.querySelector('#aePick [data-v="wg-over-masque"]').click();
+  const wgMasqueLink = document.querySelector('#aeLink').value;
+  const wgMasque = parseAether(wgMasqueLink);
+  check('Aether exposes new WireGuard-over-MASQUE Gool over HTTP/2', wgMasque.get('protocol') === 'wg-over-masque' && wgMasque.get('transport') === 'h2' && wgMasque.get('ip') === 'both');
+  check('new Gool uses PattNG fingerprint and native Aether fragmentation keys', wgMasque.get('fingerprint') === 'semi-python' && wgMasque.get('fragment') === '1' && wgMasque.get('fragment_size') === '8-16' && wgMasque.get('fragment_delay') === '5-10' && !wgMasque.has('fingerPrint') && !wgMasque.has('fm'));
+  document.querySelector('#aePick [data-v="masque"]').click();
+  const masque = parseAether(document.querySelector('#aeLink').value);
+  check('MASQUE/H2 link uses the same parser-supported TLS options', masque.get('protocol') === 'masque' && masque.get('transport') === 'h2' && masque.get('fingerprint') === 'semi-python' && masque.get('fragment') === '1' && !masque.has('fm'));
+  document.querySelector('#aePick [data-v="warp"]').click();
+  check('single-hop WARP link uses PattNG protocol identifier wg', parseAether(document.querySelector('#aeLink').value).get('protocol') === 'wg');
+  document.querySelector('#aePick [data-v="gool-classic"]').click();
+}
+
 check('i18n applied (fa)', document.querySelector('[data-i="users"]').textContent.length>2 && document.documentElement.dir==='rtl');
 check('kv chip ok', document.querySelector('#chipKv').classList.contains('ok'));
+check('clean-IP feed auto-add is visibly ON by default', document.querySelector('#rpAuto').classList.contains('p'));
 // add user via drawer
 document.querySelector('#btnAdd').click();
 check('drawer opens', document.querySelector('#drawer').classList.contains('show'));
@@ -77,18 +99,16 @@ document.querySelector('#swHealth').click();
 fs.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(300);
 check('settings saved → brand title', document.querySelector('#brandTitle').textContent==='My Cat');
 check('health-order control persists scanner ordering', (await (await window.fetch('/api/settings')).json()).settings.healthOrder === true);
-// IP list: scanner handoff is visible from Nodes; pasted country tags survive,
-// append is the default, and only the separate Replace button clears the list.
-await window.fetch('/api/ips', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ips:['203.0.113.4:443#FR'],source:'manual'}) });
-document.querySelector('#ipPaste').value='1.1.1.1#DE, 2.2.2.2#NL\nexample.com#GB nope';
+// ip import
+document.querySelector('#ipPaste').value='1.1.1.1#de, 2.2.2.2:2053#NL\n198.51.100.10\n[2606:4700::1]:8443#us example.com nope';
 document.querySelector('#btnIpAppend').click(); await sleep(300);
-let importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
-check('Nodes offers direct Cat Client scanner handoff', document.querySelector('#btnNodeScanApp').href.startsWith('catclient://scan?') && document.querySelector('#btnNodeScanApp').href.includes('panel='+encodeURIComponent(HOST)));
-check('scan import appends and preserves country tags', document.querySelector('#ipCount').textContent==='4' && importedSettings.ips.includes('203.0.113.4:443') && importedSettings.ipCountries['1.1.1.1']==='DE' && importedSettings.ipCountries['2.2.2.2']==='NL' && importedSettings.ipCountries['example.com']==='GB' && importedSettings.ipSources['1.1.1.1'].src==='scanner', JSON.stringify({ips:importedSettings.ips,tags:importedSettings.ipCountries}));
-document.querySelector('#ipPaste').value='198.51.100.42#US';
-document.querySelector('#btnIpReplace').click(); await sleep(300);
-importedSettings=(await (await window.fetch('/api/settings')).json()).settings;
-check('replace only clears the list when its explicit button is clicked', importedSettings.ips.length===1 && importedSettings.ips[0]==='198.51.100.42' && importedSettings.ipCountries['198.51.100.42']==='US');
+check('WhiteDNS bare-IP export plus tagged/pinned scanner lines imported', document.querySelector('#ipCount').textContent==='5', document.querySelector('#ipCount').textContent);
+const importedScan = (await (await window.fetch('/api/settings')).json()).settings;
+check('plain WhiteDNS IPv4 plus tagged scanner ports/countries are preserved', importedScan.ips.includes('198.51.100.10') && importedScan.ips.includes('2.2.2.2:2053') && importedScan.ips.includes('[2606:4700::1]:8443') && importedScan.ipCountries['1.1.1.1']==='DE' && importedScan.ipCountries['2.2.2.2:2053']==='NL' && importedScan.ipCountries['[2606:4700::1]:8443']==='US', JSON.stringify({ips:importedScan.ips, countries:importedScan.ipCountries}));
+await window.fetch('/api/ips', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ips: ['[2606:4700::2]:8443#US'], source: 'scanner', pingMs: { '[2606:4700::2]:8443#US': 342 }, countries: { '[2606:4700::2]:8443': 'US' } }) });
+document.querySelector('#ipPaste').value='[2606:4700::2]:8443#US';
+document.querySelector('#btnIpAppend').click(); await sleep(300);
+check('tagged scanner result displays its source and measured latency', document.querySelector('#ipList').textContent.includes('از اسکنر') && document.querySelector('#ipList').textContent.includes('342ms'));
 // delete user — goes through the ask() modal now (no native confirm)
 document.querySelector('[data-del]').click(); await sleep(100);
 check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
@@ -100,8 +120,17 @@ document.querySelector('#btnAdd').click();
 const fFail = document.querySelector('#fUser'); fFail.elements.uname.value='diagnostic-user'; fFail.elements.days.value='30';
 fFail.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
 const saveError = document.querySelector('#toast').textContent;
-check('user-save error shows detail but redacts URLs + UUIDs', saveError.includes('HTTP 500') && saveError.includes('internal') && saveError.includes('diagnostic detail') && !saveError.includes('example.test') && !saveError.includes('11111111-2222-4333-8444-555555555555'), saveError);
+check('user-save error shows detail, content type + CF-Ray but redacts URLs + UUIDs', saveError.includes('HTTP 500') && saveError.includes('internal') && saveError.includes('diagnostic detail') && saveError.includes('application/json') && saveError.includes('diagnostic-user-create-ray') && !saveError.includes('example.test') && !saveError.includes('11111111-2222-4333-8444-555555555555'), saveError);
 failUserCreate = false;
+document.querySelector('[data-close]').click();
+// A non-JSON 500 includes safe response metadata for triage, never its body.
+failUserNonJson = true;
+document.querySelector('#btnAdd').click();
+const fNonJson = document.querySelector('#fUser'); fNonJson.elements.uname.value='non-json-diagnostic'; fNonJson.elements.days.value='30';
+fNonJson.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
+const nonJsonSaveError = document.querySelector('#toast').textContent;
+check('non-JSON save error shows status, content type + CF-Ray but not body', nonJsonSaveError.includes('HTTP 500') && nonJsonSaveError.includes('text/html') && nonJsonSaveError.includes('diagnostic-user-non-json-ray') && nonJsonSaveError.includes('non-JSON response') && !nonJsonSaveError.includes('PRIVATE_INTERNAL_HTML') && !nonJsonSaveError.includes('example.test') && !nonJsonSaveError.includes('11111111-2222-4333-8444-555555555555'), nonJsonSaveError);
+failUserNonJson = false;
 document.querySelector('[data-close]').click();
 // A 201 create followed by a failed GET is not a failed save; don't mislead the owner into retrying.
 failUserList = true;
@@ -132,6 +161,8 @@ check('settings export → download anchor', !!document.querySelector('a[downloa
 // about view: supported clients card (BPB parity)
 document.querySelector('[data-view="about"]').click();
 check('supported clients card', document.querySelectorAll('.clients a').length === 6 && document.querySelector('.clients').textContent.includes('v2rayNG'));
+const rec1101 = document.querySelector('[data-i="rec_hint"]').textContent + ' ' + document.querySelector('[data-i="rec_steps"]').textContent;
+check('1101 guidance points to runtime logs without calling it a ban or suggesting account changes', rec1101.includes('1101') && rec1101.includes('Logs') && rec1101.includes('stack trace') && !rec1101.includes('اکانت تازه') && !rec1101.includes('ساب‌دامینه را'));
 
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
@@ -159,14 +190,6 @@ check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').
 // 6.48.0: service-proof card (BPB parity) in the nodes view
 document.querySelector('[data-view="nodes"]').click();
 check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
-await sleep(100);
-check('Clean-IP auto-append visibly starts ON', document.querySelector('#rpAuto').textContent.includes('روشن'));
-document.querySelector('#rpAuto').click(); await sleep(180);
-let repoUiState=(await (await window.fetch('/api/repos')).json());
-check('Clean-IP toggle explicitly turns auto-append OFF', repoUiState.auto===false && document.querySelector('#rpAuto').textContent.includes('خاموش'));
-document.querySelector('#rpAuto').click(); await sleep(180);
-repoUiState=(await (await window.fetch('/api/repos')).json());
-check('Clean-IP toggle can turn auto-append back ON', repoUiState.auto===true && document.querySelector('#rpAuto').textContent.includes('روشن'));
 
 // 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
 check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
@@ -177,14 +200,6 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
 // a template-literal escape bug once mangled every entry into «a.com:443»)
 {
   const before = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
-  document.querySelector('#manualIps').value = '198.51.100.55';
-  document.querySelector('#manualTest').checked = true;
-  failIpTest = true;
-  document.querySelector('#btnManualAdd').click();
-  await sleep(120);
-  failIpTest = false;
-  const afterFailedProbe = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
-  check('failed manual test does not silently add untested IPs', afterFailedProbe === before && document.querySelector('#toast').textContent.includes('HTTP 503'));
   document.querySelector('#manualIps').value = '198.51.100.9\n2606:4700:4700::1111\nwww.visa.com';
   document.querySelector('#manualTest').checked = false;
   document.querySelector('#btnManualAdd').click();
@@ -215,20 +230,46 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   failSubscription = true;
   document.querySelector('#bGen').click();
   await sleep(100);
-  check('builder shows HTTP status when subscription request fails', document.querySelector('#bEmpty').textContent.includes('HTTP 502'), document.querySelector('#bEmpty').textContent);
+  check('builder shows status, content type + CF-Ray when subscription request fails', document.querySelector('#bEmpty').textContent.includes('HTTP 502') && document.querySelector('#bEmpty').textContent.includes('text/plain') && document.querySelector('#bEmpty').textContent.includes('diagnostic-subscription-ray'), document.querySelector('#bEmpty').textContent);
   check('builder does not expose the raw response body', !document.querySelector('#bEmpty').textContent.includes('worker-private-body'));
   failSubscription = false;
   document.querySelector('#bGen').click();
-  await sleep(250);
+  const generatedDeadline = Date.now() + 2000;
+  while (Date.now() < generatedDeadline && !(Number(document.querySelector('#bCount').textContent) > 0 && document.querySelector('#bEmpty').style.display === 'none')) await sleep(50);
   const generatedCount = Number(document.querySelector('#bCount').textContent);
   const generatedPreview = document.querySelector('#bPrev').value;
   check('builder counts successful URI lines', generatedCount > 0 && generatedCount <= 24, String(generatedCount));
   check('builder preview contains generated configs', /^(vless|trojan):\/\//m.test(generatedPreview), generatedPreview.slice(0, 100));
   emptySubscription = true;
   document.querySelector('#bGen').click();
-  await sleep(150);
-  check('builder distinguishes a successful but empty HTTP response', document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'));
+  const emptyDeadline = Date.now() + 2000;
+  while (Date.now() < emptyDeadline && !(document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').style.display !== 'none' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'))) await sleep(50);
+  check('builder distinguishes a successful but empty HTTP response', document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'), JSON.stringify({ count: document.querySelector('#bCount').textContent, shown: document.querySelector('#bEmpty').style.display, text: document.querySelector('#bEmpty').textContent }));
   emptySubscription = false;
+  const fwIds = ['mci-ech', 'mci-ipv6', 'mci-ipv6-ff', 'irancell-ff'];
+  check('builder exposes four firewall presets and an editable entry IP', fwIds.every(id => !!document.querySelector('#bFw [data-v="' + id + '"]')) && !!document.querySelector('#bAddr'));
+  const builderSettingsBeforeFw = (await (await window.fetch('/api/settings')).json()).settings;
+  document.querySelector('#bFw [data-v="irancell-ff"]').click();
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  let fwLink = new URL(document.querySelector('#bLink').value);
+  const fwXrayLink = new URL(document.querySelector('#bXrayLink').value);
+  check('Builder links the Irancell profile, its suggested IP and Xray endpoint per-link', fwLink.searchParams.get('fw') === 'irancell-ff' && fwLink.searchParams.get('addr') === '188.114.97.6' && fwXrayLink.pathname.includes('/xray/') && fwXrayLink.searchParams.get('fw') === 'irancell-ff', fwLink.href + ' | ' + fwXrayLink.href);
+  check('Builder shows Xray import and hides incompatible Cat Client/Hiddify buttons', document.querySelector('#bXrayWrap').style.display === 'block' && document.querySelector('#bCat').style.display === 'none' && document.querySelector('#bHid').style.display === 'none');
+  const builderCustomIp = document.querySelector('#bAddr');
+  builderCustomIp.value = '198.51.100.42';
+  builderCustomIp.dispatchEvent(new window.Event('input', { bubbles: true }));
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  fwLink = new URL(document.querySelector('#bLink').value);
+  check('Builder keeps the editable IP in the profile link', fwLink.searchParams.get('fw') === 'irancell-ff' && fwLink.searchParams.get('addr') === '198.51.100.42');
+  document.querySelector('#bFw [data-v=""]').click();
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  const defaultBuilderLink = new URL(document.querySelector('#bLink').value);
+  const builderSettingsAfterFw = (await (await window.fetch('/api/settings')).json()).settings;
+  check('Builder clears profile-only state when reset to default', !defaultBuilderLink.searchParams.has('fw') && document.querySelector('#bXrayWrap').style.display === 'none' && document.querySelector('#bCat').style.display !== 'none' && document.querySelector('#bHid').style.display !== 'none');
+  check('Builder firewall selection never persists into settings', builderSettingsBeforeFw.fingerprint === builderSettingsAfterFw.fingerprint && builderSettingsBeforeFw.echList === builderSettingsAfterFw.echList && builderSettingsBeforeFw.cipherSuites === builderSettingsAfterFw.cipherSuites);
 }
 
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)

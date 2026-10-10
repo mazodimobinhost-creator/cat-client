@@ -32,7 +32,7 @@ const MASTER = '11111111-2222-4333-8444-555555555555';
 function makeEnv(ips, ipCountries, prevQuality) {
   const kv = new FakeKV();
   /* exactly what the panel persists: clean addresses in ips + an addr→CC map */
-  kv.m.set(SETTINGS_KEY, JSON.stringify({ ips, ipCountries, updatedAt: Date.now() }));
+  kv.m.set(SETTINGS_KEY, JSON.stringify({ ips, ipCountries, updatedAt: Date.now(), repoAuto: true, repoAutoDefaultMigrated: true }));
   if (prevQuality) kv.m.set(QUALITY_KEY, JSON.stringify(prevQuality));
   return { kv, env: { CAT_KV: kv, UUID: MASTER } };
 }

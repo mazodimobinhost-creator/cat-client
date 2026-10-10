@@ -52,13 +52,13 @@ jobs:
       - name: Syntax check
         run: node --check app/src/main/assets/panels/catclient.worker.js
 
-      # Anti-1101: Cloudflare statically scans deployed worker sources for
-      # VPN-panel fingerprints and disables matches (Error 1101). Deploy the
-      # obfuscated artifact — never the readable source (the BPB model).
-      - name: Obfuscate panel worker (anti-1101)
+      # wrangler.jsonc's `main` is dist-panel/catpanel.obf.js. Build that exact
+      # entrypoint from the current readable source; obfuscating the source in
+      # place does not change what Wrangler deploys.
+      - name: Build configured worker artifact
         run: |
           npm install --no-save javascript-obfuscator@5 --silent
-          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
+          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
 
       - name: Deploy to Cloudflare
         id: deploy
@@ -76,19 +76,19 @@ jobs:
           echo "::warning::Deploy SKIPPED — set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repository secrets. This green run deployed NOTHING."
           echo '### ⚠️ NOT deployed — no Cloudflare secrets configured' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify deployed health (anti-1101 gate)
+      - name: Verify deployed health + version
         if: steps.deploy.outcome == 'success'
         run: |
           set -e
           URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
           if [ -z "$URL" ]; then echo "::warning::could not parse workers.dev URL from deploy.log — skipping health verify"; exit 0; fi
           sleep 6
-          HEALTH=$(curl -s --max-time 20 "$URL/health" || true)
+          HEALTH=$(curl -fsS --max-time 20 "$URL/health")
           echo "health: $HEALTH"
-          # Anonymous /health is intentionally BARE (anti-fingerprint): {"ok":true}.
-          # The version is owner-only — accept the bare contract here (beta69+).
-          echo "$HEALTH" | grep -q '"ok":true' || { echo "::error::deployed /health does not answer ok:true — deploy did not take effect (open the URL, check Workers logs)"; exit 1; }
-          echo "✅ health verify OK: $URL is up (target panel $PVER)"
+          echo "$HEALTH" | grep -q '"ok":true' || { echo "::error::deployed /health does not answer ok:true — check Workers logs"; exit 1; }
+          VERSION_JSON=$(curl -fsS --max-time 20 "$URL/api/version")
+          node -e 'let j; try { j=JSON.parse(process.argv[1]); } catch { console.error("/api/version returned invalid JSON"); process.exit(1); } const want=process.argv[2]; if(j.ok!==true || j.version!==want){ console.error("deployed panel version mismatch: expected "+want+", got "+(j.version||"unknown")); process.exit(1); } console.log("deployed panel version: "+j.version);' "$VERSION_JSON" "$PVER"
+          echo "✅ health + version verify OK: $URL is running panel $PVER"
 
       - name: Notify Telegram
         if: always() && env.TG_TOKEN != '' && env.TG_CHAT != ''

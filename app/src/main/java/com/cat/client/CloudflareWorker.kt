@@ -8,20 +8,23 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.Base64
 
 /**
  * PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09.
  *
- * Two deployment styles:
- *  - AUTO_UPLOAD_SCRIPT: Cat Client uploads a bundled JS module to the user's
- *    Cloudflare account directly through the API (only for the built-in panel).
- *  - GUIDE: the user opens the official repository / installer and completes the
- *    deployment in the Cloudflare dashboard or on a VPS.
+ * Deployment styles:
+ *  - AUTO_UPLOAD_SCRIPT: Cat Client uploads its built-in Cat Panel.
+ *  - PINNED_EXTERNAL_SCRIPT: an optional third-party bundle, downloaded from an
+ *    immutable commit, hash-checked, and uploaded only after user confirmation.
+ *  - GUIDE: the user opens a repository / installer and deploys manually.
  */
 object CloudflareWorker {
 
@@ -58,6 +61,8 @@ object CloudflareWorker {
     enum class DeployKind {
         /** We upload a JS module to Workers for this panel via API directly. */
         AUTO_UPLOAD_SCRIPT,
+        /** A pinned, external bundle; always reviewed and confirmed before upload. */
+        PINNED_EXTERNAL_SCRIPT,
         /** We walk the user through creating a token + guide them to the panel URL. */
         GUIDE,
     }
@@ -177,6 +182,17 @@ object CloudflareWorker {
             deployKind = DeployKind.GUIDE,
             url = "https://github.com/BlueKnightNet/Blue-Knight-Panel",
             defaultWorkerName = "blueknight",
+        ),
+        Panel(
+            id = "technamooz-worker",
+            displayName = "TechNamooz Worker (video · third-party)",
+            displayNameFa = "Worker تکناموز (ویدیویی · شخص ثالث)",
+            scope = PanelScope.CF_WORKER,
+            description = "Opt-in install of the exact pinned Cloudflare Worker shown in the video. External, minified source; review the warning before upload.",
+            descriptionFa = "نصب اختیاری همان Cloudflare Worker ویدیو از نسخهٔ ثابت‌شده. سورس فشردهٔ بیرونی است؛ پیش از نصب هشدار را بخوانید.",
+            deployKind = DeployKind.PINNED_EXTERNAL_SCRIPT,
+            url = "https://github.com/technamooz/panel-technamooz-VPN-cloudflare",
+            defaultWorkerName = "technamooz",
         ),
         Panel(
             id = "marzban",
@@ -414,6 +430,163 @@ object CloudflareWorker {
         val wizardUrl: String,
         val verifiedOnline: Boolean,
     )
+
+    data class TechNamoozWorkerDeploymentResult(
+        val workerName: String,
+        val workerUrl: String,
+        val panelUrl: String,
+        val subscriptionUrl: String,
+        val uuid: String,
+        val panelPassword: String,
+        val subPath: String,
+        val kvNamespaceTitle: String,
+        val workersDevEnabled: Boolean,
+        val sourceCommit: String = TechNamoozWorkerSource.PINNED_COMMIT,
+        val sourceSha256: String = TechNamoozWorkerSource.EXPECTED_SHA256,
+    )
+
+    /**
+     * Install the pinned upstream Worker as a separate, opt-in deployment.
+     * The script is downloaded from the GitHub Contents API and both its exact
+     * size and SHA-256 are checked before any Cloudflare resource is created.
+     * This verifies identity only; the third-party source is not independently
+     * audited by Cat Client.
+     */
+    suspend fun deployTechNamoozWorker(
+        token: String,
+        accountId: String,
+        workerName: String,
+        panelPassword: String,
+    ): TechNamoozWorkerDeploymentResult = withContext(Dispatchers.IO) {
+        val safeName = TechNamoozWorkerSource.normalizeWorkerName(workerName)
+        require(TechNamoozWorkerSource.isValidWorkerName(safeName)) {
+            "Worker name must be 1–63 lowercase letters, digits or hyphens, and start/end with a letter or digit."
+        }
+        require(TechNamoozWorkerSource.isValidPanelPassword(panelPassword)) {
+            "Use a panel password of 16–128 characters with no whitespace."
+        }
+
+        // Fetch and pin-check before calling any Cloudflare write endpoint.
+        val script = fetchPinnedTechNamoozWorker()
+        val uploadUrl =
+            "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$safeName"
+        ensureWorkerNameAvailable(token, uploadUrl, safeName)
+
+        val subdomain = resolveWorkersSubdomain(token, accountId)
+        val kvTitle = "$safeName-technamooz-kv"
+        val kvId = ensureKvNamespace(token, accountId, kvTitle)
+        val uuid = UUID.randomUUID().toString()
+        val subPath = TechNamoozWorkerSource.newSecret(32).lowercase(Locale.US)
+        val bindings = JSONArray()
+            .put(JSONObject().put("type", "secret_text").put("name", "UUID").put("text", uuid))
+            .put(JSONObject().put("type", "secret_text").put("name", "TR_PASS").put("text", panelPassword))
+            .put(JSONObject().put("type", "secret_text").put("name", "SUB_PATH").put("text", subPath))
+            .put(JSONObject().put("type", "kv_namespace").put("name", "kv").put("namespace_id", kvId))
+        val uploaded = cfUploadWorker(
+            token = token,
+            url = uploadUrl,
+            script = script,
+            extraBindings = bindings,
+        )
+        if (!uploaded.optBoolean("success", false)) {
+            throw RuntimeException(
+                "TechNamooz Worker upload failed: " +
+                    (uploaded.optJSONArray("errors")?.toString() ?: uploaded.optString("message", "unknown")),
+            )
+        }
+
+        val workersDevEnabled = runCatching {
+            cfPost(
+                token,
+                "$uploadUrl/subdomain",
+                JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
+            ).optBoolean("success", false)
+        }.getOrDefault(false)
+        val workerUrl = "https://$safeName.$subdomain.workers.dev"
+        TechNamoozWorkerDeploymentResult(
+            workerName = safeName,
+            workerUrl = workerUrl,
+            panelUrl = "$workerUrl/panel",
+            subscriptionUrl = TechNamoozWorkerSource.normalXraySubscriptionUrl(workerUrl, subPath),
+            uuid = uuid,
+            panelPassword = panelPassword,
+            subPath = subPath,
+            kvNamespaceTitle = kvTitle,
+            workersDevEnabled = workersDevEnabled,
+        )
+    }
+
+    /** Fetch the immutable upstream commit without executing its JavaScript. */
+    private fun fetchPinnedTechNamoozWorker(): String {
+        val endpoint = "https://api.github.com/repos/${TechNamoozWorkerSource.REPOSITORY}" +
+            "/contents/worker.js?ref=${TechNamoozWorkerSource.PINNED_COMMIT}"
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            instanceFollowRedirects = false
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            setRequestProperty("User-Agent", "CatClient/${BuildConfig.VERSION_NAME} (pinned-third-party-worker)")
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                throw RuntimeException("Could not fetch the pinned TechNamooz source from GitHub API (HTTP $code).")
+            }
+            val response = String(conn.inputStream.use { readBounded(it, maxBytes = 900_000) }, Charsets.UTF_8)
+            val json = JSONObject(response)
+            if (json.optString("encoding") != "base64" || json.optInt("size", -1) != TechNamoozWorkerSource.EXPECTED_SIZE_BYTES) {
+                throw RuntimeException("GitHub returned unexpected metadata for the pinned TechNamooz source.")
+            }
+            val encoded = json.optString("content").replace(Regex("\\s+"), "")
+            val bytes = try {
+                Base64.getDecoder().decode(encoded)
+            } catch (_: IllegalArgumentException) {
+                throw RuntimeException("GitHub returned invalid base64 for the pinned TechNamooz source.")
+            }
+            return try {
+                TechNamoozWorkerSource.verifyAndDecode(bytes)
+            } catch (e: IllegalArgumentException) {
+                throw RuntimeException(e.message ?: "Pinned TechNamooz source integrity check failed.")
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
+        val out = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) throw RuntimeException("GitHub response exceeded the size limit.")
+            out.write(buffer, 0, count)
+        }
+        return out.toByteArray()
+    }
+
+    private fun ensureWorkerNameAvailable(token: String, uploadUrl: String, workerName: String) {
+        val conn = (URL(uploadUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            when (val code = conn.responseCode) {
+                404 -> Unit
+                in 200..299 -> throw RuntimeException("Worker name '$workerName' already exists; choose another name to avoid overwriting it.")
+                else -> throw RuntimeException("Could not safely check whether Worker name '$workerName' is available (HTTP $code). No upload was made.")
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     /**
      * Deploy the Cat Wizard on the user's account. Anyone who opens the resulting URL

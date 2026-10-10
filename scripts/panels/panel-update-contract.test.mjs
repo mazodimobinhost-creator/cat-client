@@ -128,5 +128,16 @@ check('«Update panel» dialog blocks a downgrade before anything else', /blockP
 check('«Manage panel» dialog blocks a downgrade before copying/uploading', /blockPanelDowngrade\(deployed, script\.version\)\) return@setPositiveButton/.test(ma));
 check('«Manage panel» no longer calls an OLDER source an update (was `newest.version != deployed`)', !/newest != null && newest\.version != deployed/.test(ma));
 
+// The Cloudflare deploy job must build the exact artifact named by wrangler.jsonc,
+// then compare the live version with the source marker. A generic /health ok is
+// insufficient: an old snapshot can answer health successfully.
+const wranglerConfig = read('wrangler.jsonc');
+const configuredMain = (/'main'\s*:\s*'([^']+)'/.exec(wranglerConfig) || /"main"\s*:\s*"([^"]+)"/.exec(wranglerConfig) || [])[1];
+const deployWorkflow = read('.github/workflows/deploy-worker.yml');
+check('Wrangler configured entrypoint is discoverable', configuredMain === 'dist-panel/catpanel.obf.js', configuredMain);
+const deployBuildCommand = configuredMain && 'node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js ' + configuredMain + ' --check';
+check('deploy workflow builds the current source into Wrangler’s actual entrypoint', !!deployBuildCommand && deployWorkflow.includes(deployBuildCommand), deployBuildCommand);
+check('deploy workflow checks live /api/version against the source marker', deployWorkflow.includes('$URL/api/version') && deployWorkflow.includes('"$VERSION_JSON" "$PVER"'));
+
 console.log(failures ? '\nPANEL UPDATE CONTRACT FAILED (' + failures + ')' : '\nPANEL UPDATE CONTRACT PASSED');
 process.exit(failures ? 1 : 0);

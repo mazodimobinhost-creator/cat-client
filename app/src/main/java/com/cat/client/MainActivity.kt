@@ -5444,24 +5444,67 @@ class MainActivity : Activity() {
                     setOnClickListener {
                         val value = manualIpInput.text?.toString()?.trim().orEmpty()
                         if (value.isEmpty()) return@setOnClickListener
-                        val target = value.removePrefix("[").substringBefore("]")
+                        // `1.2.3.4:2053`, `[2606:4700::1]:443`, a bare v6 or a host name —
+                        // the old code only stripped brackets, so any ip:port input kept
+                        // its colon, the TCP connect failed and the box looked broken.
+                        val (target, portOverride) = IpScanner.parseManualTarget(value)
+                        val portNow = portOverride ?: scannerPort
+                        if (target.isBlank() || !(
+                                IpScanner.isValidIpv4(target) || IpScanner.isValidIpv6(target) ||
+                                    IpScanner.isValidHostname(target)
+                                )
+                        ) {
+                            Toast.makeText(this@MainActivity, R.string.scanner_manual_ip_invalid, Toast.LENGTH_LONG).show()
+                            return@setOnClickListener
+                        }
                         val sniNow = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
                         it.isEnabled = false
                         activityScope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching { IpScanner.reprobeOnce(target, sniNow, scannerPort) }.getOrNull()
+                            val tcpMs = withContext(Dispatchers.IO) {
+                                runCatching { IpScanner.tcpConnect(target, portNow, SCANNER_CONNECT_TIMEOUT_MS) }.getOrNull()
+                            }
+                            val result = if (tcpMs == null) null else withContext(Dispatchers.IO) {
+                                runCatching { IpScanner.reprobeOnce(target, sniNow, portNow) }.getOrNull()
                             }
                             it.isEnabled = true
-                            if (result == null) {
-                                Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_dead, value), Toast.LENGTH_LONG).show()
-                            } else {
-                                if (scannerResults.none { r -> r.ip == result.ip }) {
-                                    scannerResults = (scannerResults + result).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                            when {
+                                tcpMs == null -> Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.scanner_manual_tcp_fail, target, portNow),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                result == null -> {
+                                    // Reachable, but no valid TLS/HTTP answer for this SNI: show the
+                                    // row (the address IS up) and never send it to the panel.
+                                    val tcpOnly = IpScanner.ScanResult(
+                                        ip = target,
+                                        pingMs = tcpMs,
+                                        sni = sniNow,
+                                        port = portNow,
+                                        countryName = "Cloudflare edge",
+                                        sourceRange = "manual",
+                                    )
+                                    if (scannerResults.none { r -> r.ip == target }) {
+                                        scannerResults = (scannerResults + tcpOnly).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                                    }
+                                    manualIpInput.setText("")
+                                    scannerFilter = "all"
+                                    renderScannerResults()
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        getString(R.string.scanner_manual_tls_fail, target, tcpMs.toInt()),
+                                        Toast.LENGTH_LONG,
+                                    ).show()
                                 }
-                                manualIpInput.setText("")
-                                scannerFilter = "all"
-                                renderScannerResults()
-                                Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_ok, result.ip, result.pingMs.toInt()), Toast.LENGTH_LONG).show()
+                                else -> {
+                                    if (scannerResults.none { r -> r.ip == result.ip }) {
+                                        scannerResults = (scannerResults + result).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                                    }
+                                    manualIpInput.setText("")
+                                    scannerFilter = "all"
+                                    renderScannerResults()
+                                    Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_ok, result.ip, result.pingMs.toInt()), Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
                     }
@@ -5765,6 +5808,22 @@ class MainActivity : Activity() {
             scannerFilterRow(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
+        body.addView(
+            scannerSelectionBar(),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(scannerHeaderRow(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(
+            TextView(this).apply {
+                setText(R.string.scanner_sort_hint)
+                textSize = 10f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(dp(12), dp(2), dp(12), 0)
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
         scannerCountryText = TextView(this).apply {
             textSize = 11.5f
             typeface = CatClientBodyBoldTypeface
@@ -6016,6 +6075,7 @@ class MainActivity : Activity() {
         scannerProgressBar.visibility = View.VISIBLE
         scannerStatusText.setText(R.string.scanner_progress_hint)
         scannerLiveResults.clear()
+        scannerSelected.clear()
         scannerResultsList.removeAllViews()
         scannerApplyButton.isEnabled = false
         val options = IpScanner.ScanOptions(
@@ -6094,6 +6154,8 @@ class MainActivity : Activity() {
             scannerStopButton.isEnabled = false
             scannerProgressBar.visibility = View.GONE
             scannerResults = found.sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+            // Drop ticks left over from an earlier run (rows this scan did not produce).
+            scannerSelected.removeAll { key -> scannerResults.none { scannerRowKey(it) == key } }
             IpHealthMonitor.seed(
                 IpHealthStore(this@MainActivity),
                 scannerResults,
@@ -6115,10 +6177,12 @@ class MainActivity : Activity() {
             renderScanHistory()
             renderScannerResults()
             renderScannerIpHealth()
+            val v6Hint = if (!ipv6) " · " + getString(R.string.scanner_ipv6_hint) else ""
             scannerStatusText.text = if (found.isEmpty()) {
-                getString(R.string.scanner_no_results)
+                getString(R.string.scanner_no_results) + v6Hint
             } else {
-                getString(R.string.scanner_done_detailed, found.size, found.count { it.tlsOk })
+                getString(R.string.scanner_done_detailed, found.size, found.count { it.tlsOk }) +
+                    if (!ipv6 && found.none { IpScanner.isIpv6(it.ip) }) v6Hint else ""
             }
         }
     }
@@ -6877,6 +6941,16 @@ class MainActivity : Activity() {
     private var scannerFilterV4: android.widget.TextView? = null
     private var scannerFilterV6: android.widget.TextView? = null
     private var scannerFilter: String = "all"
+    /** Results table: which column is sorted, and in which direction. */
+    private var scannerSortKey: String = "ping"
+    private var scannerSortAsc: Boolean = true
+    /** `ip:port` of every row the owner ticked; survives re-renders and re-sorts. */
+    private val scannerSelected = linkedSetOf<String>()
+    /** Header cells, rebuilt once per page: (view, sort key, base label). */
+    private val scannerHeaderCells = mutableListOf<Triple<TextView, String, String>>()
+    private var scannerSelectionText: TextView? = null
+    private lateinit var scannerCopySelectedButton: MaterialButton
+    private lateinit var scannerSendSelectedButton: MaterialButton
     private var scannerNeighborRunning: Boolean = false
     /** IPs the 👑 neighbor scan added this session — sent to the panel with
      * source=neighbor so the 🩺 provenance badge shows «👑 همسایه». */
@@ -6956,12 +7030,233 @@ class MainActivity : Activity() {
         scannerFilterV6?.text = getString(R.string.scanner_filter_v6) + " " + v6Count
     }
 
+    /** `ip:port` — the stable identity of a row across re-sorts and re-renders. */
+    private fun scannerRowKey(result: IpScanner.ScanResult): String = "${result.ip}:${result.port}"
+
+    /** The list the table renders from: live rows while a run is in flight, final rows after it. */
+    private fun scannerSourceList(): List<IpScanner.ScanResult> =
+        if (scannerRunning) scannerLiveResults.toList() else scannerResults
+
+    /** Applies the column the owner sorted on; rows with no value for it sink to the bottom. */
+    private fun scannerSortedRows(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> {
+        val cmp: Comparator<IpScanner.ScanResult> = when (scannerSortKey) {
+            "jitter" -> compareBy<IpScanner.ScanResult> { scannerJitterMs[it.ip] ?: Int.MAX_VALUE }
+            "speed" -> compareByDescending<IpScanner.ScanResult> { it.speedBps ?: -1L }
+            "country" -> compareBy<IpScanner.ScanResult>({ it.countryCode ?: "zz" }, { it.pingMs })
+            "ip" -> compareBy<IpScanner.ScanResult> { it.ip }
+            else -> compareBy<IpScanner.ScanResult> { it.pingMs }
+        }
+        val ordered = list.sortedWith(cmp.thenBy { it.pingMs }.thenBy { it.ip })
+        return if (scannerSortAsc) ordered else ordered.reversed()
+    }
+
+    /** Ticked rows, in the order they are currently displayed (copy/send keep that order). */
+    private fun scannerSelectedResults(): List<IpScanner.ScanResult> {
+        if (scannerSelected.isEmpty()) return emptyList()
+        val visible = scannerSortedRows(scannerFilterVisible(scannerSourceList()))
+        return visible.filter { scannerSelected.contains(scannerRowKey(it)) }
+    }
+
+    private fun toggleScannerRow(result: IpScanner.ScanResult) {
+        val key = scannerRowKey(result)
+        if (!scannerSelected.add(key)) scannerSelected.remove(key)
+        renderScannerResults()
+    }
+
+    private fun selectAllScannerResults(selected: Boolean) {
+        if (selected) scannerFilterVisible(scannerSourceList()).forEach { scannerSelected += scannerRowKey(it) }
+        else scannerSelected.clear()
+        renderScannerResults()
+    }
+
+    private fun selectVerifiedScannerResults() {
+        scannerSelected.clear()
+        scannerFilterVisible(scannerSourceList()).filter { it.tlsOk }.forEach { scannerSelected += scannerRowKey(it) }
+        renderScannerResults()
+    }
+
+    /** Copies the ticked rows as `ip:port#CC` lines — the shape the panel's import box eats. */
+    private fun copySelectedScannerResults() {
+        val rows = scannerSelectedResults()
+        if (rows.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_none_selected, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", rows.joinToString("\n") { it.panelLine }))
+        Toast.makeText(this, getString(R.string.scanner_copy_selected_done, rows.size), Toast.LENGTH_LONG).show()
+    }
+
+    /** Sends ONLY the ticked rows — and only the TLS-verified ones among them. */
+    private fun sendSelectedScannerResults() {
+        val rows = scannerSelectedResults()
+        if (rows.isEmpty()) {
+            Toast.makeText(this, R.string.scanner_none_selected, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (rows.none { it.tlsOk }) {
+            Toast.makeText(this, R.string.scanner_unverified_only, Toast.LENGTH_LONG).show()
+            return
+        }
+        activityScope.launch { sendScanToPanelSuspend(rows) }
+    }
+
+    private fun refreshScannerHeader() {
+        scannerHeaderCells.forEach { (view, key, label) ->
+            val active = scannerSortKey == key
+            view.text = if (active) label + (if (scannerSortAsc) " ▲" else " ▼") else label
+            view.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+        }
+    }
+
+    /** Sortable column headers; the widths mirror [scannerResultRow] so the columns line up. */
+    private fun scannerHeaderRow(): LinearLayout {
+        // The page can be rebuilt (screen re-entry); stale cells would leak and be
+        // repainted by refreshScannerHeader for views nobody shows any more.
+        scannerHeaderCells.clear()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(12), dp(2), dp(12), dp(2))
+        }
+        fun head(label: String, key: String, align: Int): TextView =
+            TextView(this).apply {
+                text = label
+                textSize = 10.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_SECONDARY)
+                gravity = align
+                includeFontPadding = false
+                setPadding(dp(3), dp(5), dp(3), dp(5))
+                isClickable = true
+                isFocusable = true
+                setSelectableBackground()
+                setOnClickListener {
+                    if (scannerSortKey == key) {
+                        scannerSortAsc = !scannerSortAsc
+                    } else {
+                        scannerSortKey = key
+                        // Speed reads best high-to-low; every other column low-to-high.
+                        scannerSortAsc = key != "speed"
+                    }
+                    renderScannerResults()
+                }
+                scannerHeaderCells += Triple(this, key, label)
+            }
+        row.addView(
+            TextView(this).apply {
+                text = "☑"
+                textSize = 11f
+                setTextColor(TEXT_SECONDARY)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                isClickable = true
+                isFocusable = true
+                setSelectableBackground()
+                setOnClickListener {
+                    val visible = scannerFilterVisible(scannerSourceList())
+                    val every = visible.isNotEmpty() && visible.all { scannerSelected.contains(scannerRowKey(it)) }
+                    selectAllScannerResults(!every)
+                }
+            },
+            LinearLayout.LayoutParams(dp(26), -2),
+        )
+        row.addView(head(getString(R.string.scanner_col_address), "ip", Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(head(getString(R.string.scanner_col_country), "country", Gravity.CENTER), LinearLayout.LayoutParams(dp(54), -2))
+        row.addView(head(getString(R.string.scanner_col_ping), "ping", Gravity.CENTER), LinearLayout.LayoutParams(dp(56), -2))
+        row.addView(head(getString(R.string.scanner_col_jitter), "jitter", Gravity.CENTER), LinearLayout.LayoutParams(dp(46), -2))
+        row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(58), -2))
+        return row
+    }
+
+    /** Bulk-select chips + the two things the owner actually asked for: copy, send to the panel. */
+    private fun scannerSelectionBar(): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fun chip(label: String, onClick: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            setPadding(dp(13), dp(6), dp(13), dp(6))
+            includeFontPadding = false
+            background = glassSurfaceDrawable(radiusDp = 14)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        chipRow.addView(chip(getString(R.string.scanner_select_all)) { selectAllScannerResults(true) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        chipRow.addView(chip(getString(R.string.scanner_select_verified)) { selectVerifiedScannerResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        chipRow.addView(chip(getString(R.string.scanner_select_none)) { selectAllScannerResults(false) }, LinearLayout.LayoutParams(-2, -2))
+        scannerSelectionText = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        chipRow.addView(scannerSelectionText, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.addView(chipRow, LinearLayout.LayoutParams(-1, -2))
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        scannerCopySelectedButton = MaterialButton(this).apply {
+            setText(R.string.scanner_copy_selected)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            insetTop = 0
+            insetBottom = 0
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 90))
+            setTextColor(palette.onAccent)
+            setOnClickListener { copySelectedScannerResults() }
+        }
+        scannerSendSelectedButton = MaterialButton(this).apply {
+            setText(R.string.scanner_send_selected)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            insetTop = 0
+            insetBottom = 0
+            isEnabled = false
+            backgroundTintList = ColorStateList.valueOf(TEAL)
+            setTextColor(palette.onAccent)
+            setOnClickListener { sendSelectedScannerResults() }
+        }
+        actionRow.addView(scannerCopySelectedButton, LinearLayout.LayoutParams(0, -2, 1f))
+        actionRow.addView(scannerSendSelectedButton, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+        bar.addView(actionRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        return bar
+    }
+
+    private fun refreshScannerSelection(total: Int) {
+        val n = scannerSelected.size
+        scannerSelectionText?.text = getString(R.string.scanner_selected_count, n, total)
+        if (::scannerCopySelectedButton.isInitialized) scannerCopySelectedButton.isEnabled = n > 0
+        if (::scannerSendSelectedButton.isInitialized) scannerSendSelectedButton.isEnabled = n > 0
+    }
+
     private fun renderScannerResults() {
         if (!::scannerResultsList.isInitialized) return
-        val visible = scannerFilterVisible(if (scannerRunning) scannerLiveResults.toList() else scannerResults)
+        val all = scannerSourceList()
+        val visible = scannerFilterVisible(all)
         scannerResultsList.removeAllViews()
         refreshScannerFilters()
+        refreshScannerHeader()
         refreshScannerCountrySummary(visible)
+        refreshScannerSelection(all.size)
         if (visible.isEmpty()) {
             scannerResultsList.addView(
                 TextView(this).apply {
@@ -6994,11 +7289,11 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
         )
-        visible.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
+        scannerSortedRows(visible).take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
             val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
             scannerResultsList.addView(
                 row ?: fallbackScannerRow(result),
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
             )
         }
     }
@@ -7014,157 +7309,117 @@ class MainActivity : Activity() {
             setPadding(dp(10), dp(8), dp(10), dp(8))
         }
 
+    /**
+     * One result as a column row: ☑ · address (+ provenance) · country · ping ·
+     * jitter · speed. Tapping the row ticks it; long-press copies the address.
+     */
     private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
+        val selected = scannerSelected.contains(scannerRowKey(result))
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER_VERTICAL
-            background = glassSurfaceDrawable(radiusDp = 12)
+            background = glassSurfaceDrawable(radiusDp = 12, highlighted = selected)
             clipToOutline = true
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(9), dp(10), dp(9))
             isClickable = true
             isFocusable = true
             setSelectableBackground()
-            setOnClickListener {
-                copyScannerIp(result)
-            }
+            setOnClickListener { toggleScannerRow(result) }
+            setOnLongClickListener { copyScannerIp(result); true }
         }
+        // ① selection box — the whole row is the tap target, so it must not swallow it.
         row.addView(
-            TextView(this).apply {
-                text = if (result.tlsOk) "TLS ✓" else "TCP"
-                textSize = 10.5f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(if (result.tlsOk) TEAL else TEXT_SECONDARY)
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(6).toFloat()
-                    setColor(withAlpha(if (result.tlsOk) TEAL else TEXT_SECONDARY, 24))
-                }
-                setPadding(dp(6), dp(2), dp(6), dp(2))
-                includeFontPadding = false
+            android.widget.CheckBox(this).apply {
+                isChecked = selected
+                buttonTintList = ColorStateList.valueOf(TEAL)
+                isClickable = false
+                isFocusable = false
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(0, 0, 0, 0)
             },
-            LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+            LinearLayout.LayoutParams(dp(26), -2),
         )
-        row.addView(
-            TextView(this).apply {
-                text = getString(R.string.scanner_result_rank, rank, result.flag)
-                textSize = 12.5f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEXT_SECONDARY)
-                includeFontPadding = false
-            },
-            LinearLayout.LayoutParams(-2, -2),
-        )
-        val locationColumn = LinearLayout(this).apply {
+        // ② address + what it is and where it lands
+        val addressColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(TextView(this@MainActivity).apply {
+        }
+        addressColumn.addView(
+            TextView(this).apply {
                 text = "${result.ip}:${result.port}"
-                textSize = 14f
+                textSize = 12.5f
                 typeface = CatClientDataTypeface
                 setTextColor(TEXT_PRIMARY)
                 layoutDirection = View.LAYOUT_DIRECTION_LTR
                 textDirection = View.TEXT_DIRECTION_LTR
                 includeFontPadding = false
-            }, LinearLayout.LayoutParams(-1, -2))
-            val location = if (result.countryCode != null) {
-                result.countryName ?: getString(R.string.scanner_result_edge_fallback)
-            } else {
-                result.colo?.takeIf { it.isNotBlank() }
-                    ?: getString(R.string.scanner_result_edge_fallback)
-            }
-            if (location.isNotBlank()) {
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_result_location, result.flag, location)
-                    textSize = 10.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
-            }
-            result.speedBps?.let { bps ->
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_result_speed, bps / 1_000_000.0)
-                    textSize = 10f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                    maxLines = 1
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
-            result.sourceRange?.takeIf { it.isNotBlank() }?.let { range ->
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_result_range, range)
-                    textSize = 9.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
-            scannerJitterMs[result.ip]?.let { jitter ->
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_jitter, jitter)
-                    textSize = 9.5f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
-            if (rank == 1) {
-                addView(TextView(this@MainActivity).apply {
-                    setText(R.string.scanner_recommended)
-                    textSize = 9.5f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.MIDDLE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        val location = if (!result.countryCode.isNullOrBlank()) {
+            result.countryName ?: getString(R.string.scanner_result_edge_fallback)
+        } else {
+            result.colo?.takeIf { it.isNotBlank() } ?: getString(R.string.scanner_result_edge_fallback)
         }
-        row.addView(
-            locationColumn,
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-        )
-        row.addView(
+        addressColumn.addView(
             TextView(this).apply {
-                text = getString(R.string.scanner_result_ping, result.pingMs)
-                textSize = 13f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(
-                    when {
-                        result.pingMs < SCANNER_GOOD_MS -> TEAL
-                        result.pingMs < SCANNER_FAIR_MS -> AMBER
-                        else -> ERROR
-                    },
-                )
+                text = buildString {
+                    append(if (result.tlsOk) "TLS ✓" else "TCP")
+                    append(" · ")
+                    append(location)
+                    if (rank == 1 && result.tlsOk) append(" · " + getString(R.string.scanner_recommended))
+                }
+                textSize = 9.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(if (result.tlsOk) TEAL else TEXT_SECONDARY)
                 includeFontPadding = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             },
-            LinearLayout.LayoutParams(-2, -2),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
         )
+        row.addView(addressColumn, LinearLayout.LayoutParams(0, -2, 1f))
+
+        fun cell(value: String, color: Int, bold: Boolean = true, size: Float = 11.5f) =
+            TextView(this).apply {
+                text = value
+                textSize = size
+                typeface = if (bold) CatClientBodyBoldTypeface else CatClientBodyTypeface
+                setTextColor(color)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                maxLines = 1
+            }
+
+        // ③ country · ④ ping · ⑤ jitter · ⑥ speed
+        row.addView(cell(result.flag, TEXT_PRIMARY, bold = false, size = 13f), LinearLayout.LayoutParams(dp(54), -2))
         row.addView(
-            MaterialButton(this).apply {
-                setText(if (rank == 1) R.string.scanner_apply_best else R.string.scanner_use)
-                textSize = 12f
-                typeface = CatClientBodyBoldTypeface
-                isAllCaps = false
-                cornerRadius = dp(15)
-                minWidth = 0
-                minimumWidth = 0
-                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 38))
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 150))
-                elevation = dp(1).toFloat()
-                stateListAnimator = null
-                setTextColor(TEAL)
-                insetTop = 0
-                insetBottom = 0
-                setPadding(dp(12), 0, dp(12), 0)
-                setOnClickListener { applyScannerResult(result) }
-            },
-            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+            cell(
+                getString(R.string.scanner_result_ping, result.pingMs),
+                when {
+                    result.pingMs < SCANNER_GOOD_MS -> TEAL
+                    result.pingMs < SCANNER_FAIR_MS -> AMBER
+                    else -> ERROR
+                },
+            ),
+            LinearLayout.LayoutParams(dp(56), -2),
+        )
+        val jitter = scannerJitterMs[result.ip]
+        row.addView(
+            cell(if (jitter == null) "—" else "±$jitter", if (jitter == null) TEXT_SECONDARY else TEAL),
+            LinearLayout.LayoutParams(dp(46), -2),
+        )
+        val speed = result.speedBps
+        row.addView(
+            cell(
+                if (speed == null) "—" else getString(R.string.scanner_result_speed, speed / 1_000_000.0),
+                if (speed == null) TEXT_SECONDARY else TEAL,
+            ),
+            LinearLayout.LayoutParams(dp(58), -2),
         )
         return row
     }
@@ -7187,8 +7442,8 @@ class MainActivity : Activity() {
 
     private fun sendScanToPanel() = activityScope.launch { sendScanToPanelSuspend() }
 
-    private suspend fun sendScanToPanelSuspend() {
-        val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
+    private suspend fun sendScanToPanelSuspend(override: List<IpScanner.ScanResult>? = null) {
+        val source = override ?: (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
         // ONLY IPs whose TLS handshake actually passed ON THIS NETWORK are sent
         // (checked → then → panel). No unchecked fallback: an unverified IP in
         // the panel produces dead 💦 configs, which is exactly what the user
@@ -8116,8 +8371,27 @@ class MainActivity : Activity() {
                 },
                 LinearLayout.LayoutParams(-1, -2),
             )
+            if (panel.id == "technamooz-worker") {
+                row.addView(
+                    TextView(this).apply {
+                        setText(R.string.cloud_technamooz_native_match)
+                        textSize = 12f
+                        setTextColor(TEXT_SECONDARY)
+                        setLineSpacing(dp(2).toFloat(), 1f)
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        setPadding(0, dp(8), 0, 0)
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            }
             val openButton = MaterialButton(this).apply {
-                setText(if (panel.scope == CloudflareWorker.PanelScope.CF_WORKER) R.string.cloud_open_builder else R.string.cloud_panel_open)
+                setText(
+                    when {
+                        panel.id == "technamooz-worker" -> R.string.cloud_technamooz_open_source
+                        panel.scope == CloudflareWorker.PanelScope.CF_WORKER -> R.string.cloud_open_builder
+                        else -> R.string.cloud_panel_open
+                    },
+                )
                 setAllCaps(false)
                 textSize = 12f
                 typeface = CatClientBodyBoldTypeface
@@ -8148,6 +8422,14 @@ class MainActivity : Activity() {
                 openButton,
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
             )
+            if (panel.deployKind == CloudflareWorker.DeployKind.PINNED_EXTERNAL_SCRIPT) {
+                row.addView(
+                    cloudActionButton(R.string.cloud_technamooz_deploy, R.drawable.ic_cloud_tab, accent = true) {
+                        showTechNamoozInstallDialog(tokenInput.text?.toString()?.trim().orEmpty())
+                    },
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+                )
+            }
             catalogCard.addView(row, LinearLayout.LayoutParams(-1, -2))
             if (index < CloudflareWorker.PANELS.size - 2) {
                 catalogCard.addView(
@@ -8163,6 +8445,191 @@ class MainActivity : Activity() {
 
         scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
         return scroll
+    }
+
+    private var techNamoozDeployInProgress = false
+
+    /** Explicit, opt-in install of the exact pinned third-party Worker from the video. */
+    private fun showTechNamoozInstallDialog(token: String) {
+        if (token.isBlank()) {
+            Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (techNamoozDeployInProgress) return
+
+        val workerNameInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setText(CloudflareWorker.randomWorkerName())
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        }
+        val workerNameLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_technamooz_worker_name_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxStrokeColor = TEAL
+            addView(workerNameInput)
+        }
+        val passwordInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(TechNamoozWorkerSource.newSecret(24))
+        }
+        val passwordLayout = TextInputLayout(this).apply {
+            hint = getString(R.string.cloud_technamooz_password_hint)
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxStrokeColor = TEAL
+            addView(passwordInput)
+        }
+        val acknowledgement = android.widget.CheckBox(this).apply {
+            setText(R.string.cloud_technamooz_ack)
+            textSize = 12f
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val review = TextView(this).apply {
+            text = getString(
+                R.string.cloud_technamooz_review_body,
+                TechNamoozWorkerSource.PINNED_COMMIT,
+                TechNamoozWorkerSource.EXPECTED_SHA256,
+            )
+            textSize = 12.5f
+            setTextColor(TEXT_SECONDARY)
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setTextIsSelectable(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(6), dp(22), 0)
+            addView(review, LinearLayout.LayoutParams(-1, -2))
+            addView(workerNameLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(passwordLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(acknowledgement, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_technamooz_review_title)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.cloud_technamooz_deploy, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+            isEnabled = false
+            setOnClickListener {
+                val name = TechNamoozWorkerSource.normalizeWorkerName(
+                    workerNameInput.text?.toString().orEmpty(),
+                )
+                if (!TechNamoozWorkerSource.isValidWorkerName(name)) {
+                    workerNameLayout.error = getString(R.string.cloud_technamooz_name_error)
+                    return@setOnClickListener
+                }
+                workerNameLayout.error = null
+                val password = passwordInput.text?.toString().orEmpty()
+                if (!TechNamoozWorkerSource.isValidPanelPassword(password)) {
+                    passwordLayout.error = getString(R.string.cloud_technamooz_password_error)
+                    return@setOnClickListener
+                }
+                passwordLayout.error = null
+                if (!acknowledgement.isChecked) return@setOnClickListener
+                dialog.dismiss()
+                runTechNamoozDeployment(token, name, password)
+            }
+        }
+        acknowledgement.setOnCheckedChangeListener { _, checked ->
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = checked
+        }
+    }
+
+    private fun runTechNamoozDeployment(token: String, workerName: String, password: String) {
+        if (techNamoozDeployInProgress) return
+        techNamoozDeployInProgress = true
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_technamooz_deploying)
+            .setView(wizardBody(ProgressBar(this), wizardText(getString(R.string.cloud_technamooz_deploying_detail))))
+            .setCancelable(false)
+            .create()
+        progress.show()
+        activityScope.launch {
+            try {
+                val permissions = CloudflareWorker.verifyToken(token)
+                val accountId = permissions.accountId
+                if (!permissions.valid || accountId == null) {
+                    progress.dismiss()
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                val result = CloudflareWorker.deployTechNamoozWorker(
+                    token = token,
+                    accountId = accountId,
+                    workerName = workerName,
+                    panelPassword = password,
+                )
+                progress.dismiss()
+                showTechNamoozDeploymentResult(result)
+            } catch (e: Exception) {
+                progress.dismiss()
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                techNamoozDeployInProgress = false
+            }
+        }
+    }
+
+    private fun showTechNamoozDeploymentResult(result: CloudflareWorker.TechNamoozWorkerDeploymentResult) {
+        val details = buildString {
+            append(getString(R.string.cloud_technamooz_result_panel, result.panelUrl))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_password, result.panelPassword))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_uuid, result.uuid))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_subpath, result.subPath))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_subscription, result.subscriptionUrl))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_kv, result.kvNamespaceTitle))
+            append("\n")
+            append(getString(R.string.cloud_technamooz_result_source, result.sourceCommit, result.sourceSha256))
+            if (!result.workersDevEnabled) {
+                append("\n\n")
+                append(getString(R.string.cloud_technamooz_route_disabled))
+            }
+            append("\n\n")
+            append(getString(R.string.cloud_technamooz_result_note))
+        }
+        val detailsView = TextView(this).apply {
+            text = details
+            textSize = 12.5f
+            setTextColor(TEXT_PRIMARY)
+            setTextIsSelectable(true)
+            setPadding(dp(22), dp(8), dp(22), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_technamooz_result_title)
+            .setView(ScrollView(this).apply { addView(detailsView) })
+            .setPositiveButton(R.string.cloud_technamooz_add_sub) { _, _ ->
+                showAddSubscriptionDialog(result.subscriptionUrl, "TechNamooz Worker")
+            }
+            .setNeutralButton(R.string.cloud_technamooz_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .setNegativeButton(R.string.cloud_technamooz_copy_details) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("technamooz-worker-setup", details))
+                Toast.makeText(this, R.string.cloud_technamooz_copied, Toast.LENGTH_LONG).show()
+            }
+            .show()
     }
 
     private var panelUpdateInProgress = false
@@ -14307,7 +14774,7 @@ class MainActivity : Activity() {
         const val DEFAULT_SCANNER_SNI = "skk.moe"
         const val SCANNER_BUILD_LIMIT = 12
         val SCANNER_BUILD_PORTS = listOf(80, 443, 2053)
-        const val SCANNER_VISIBLE_RESULTS = 24
+        const val SCANNER_VISIBLE_RESULTS = 40
         const val SCANNER_LIVE_REFRESH_EVERY = 5
         const val SCANNER_CONCURRENCY = 24
         const val SCANNER_CONNECT_TIMEOUT_MS = 1500

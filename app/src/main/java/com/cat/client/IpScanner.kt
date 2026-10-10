@@ -418,14 +418,90 @@ object IpScanner {
     val IPV6_RANGES: List<String> = listOf("2606:4700::/32", "2a06:98c0::/29")
 
     /**
+     * The v6 /48s where Cloudflare edges really answer.
+     *
+     * Sampling the whole `/32` used to be the strategy and it found nothing: the
+     * block holds 2^96 addresses and only a handful of /48s inside it are
+     * actually announced to the edges, so a random draw lands in the dark ~every
+     * time. These are the slices we know answer (the first one is the v4-mapped
+     * anycast block that [deriveIpv6Candidates] builds addresses in).
+     */
+    val IPV6_SUBNETS: List<String> = listOf(
+        "2606:4700::/48",        // v4-mapped anycast: 104.16.132.229 → 2606:4700::6810:84e5
+        "2a06:98c0::/48",        // same mapping, European anycast block
+        "2606:4700:4700::/48",   // 1.1.1.1 / 1.0.0.1
+        "2606:4700:d0::/48",
+        "2606:4700:3033::/48",
+    )
+
+    /**
+     * Cloudflare's dual-stack edge mapping: an IPv4 edge address is reachable as
+     * `2606:4700::<hi>:<lo>` and `2a06:98c0::<hi>:<lo>` (104.16.132.229 →
+     * 2606:4700::6810:84e5, because 104.16 = 0x6810 and 132.229 = 0x84e5).
+     *
+     * Deriving v6 candidates from v4 addresses we already believe in is worth far
+     * more than another random draw: the hit rate is near 100% on networks with
+     * working v6, and it costs two extra probes per v4 address.
+     */
+    fun deriveIpv6Candidates(v4: String): List<String> {
+        val parts = v4.trim().split(".")
+        if (parts.size != 4) return emptyList()
+        val octets = parts.map { it.toIntOrNull() ?: return emptyList() }
+        if (octets.any { it !in 0..255 }) return emptyList()
+        val hi = "%02x%02x".format(octets[0], octets[1])
+        val lo = "%02x%02x".format(octets[2], octets[3])
+        return listOf("2606:4700::$hi:$lo", "2a06:98c0::$hi:$lo")
+    }
+
+    /**
+     * Accepts everything the manual box should tolerate and returns
+     * `(host, port?)`: `1.2.3.4`, `1.2.3.4:2053`, `[2606:4700::1]:443`,
+     * `2606:4700::1` and `host.example.com`.
+     *
+     * The UI used to strip only the square brackets, so any `ip:port` input kept
+     * its colon and the TCP connect failed with a bogus host name — the manual
+     * add looked broken.
+     */
+    fun parseManualTarget(raw: String): Pair<String, Int?> {
+        val value = raw.trim()
+        if (value.isEmpty()) return "" to null
+        // Bracketed form first: `[2606:4700::1]:443` — the brackets are what make
+        // the port unambiguous, so they must survive until the split is done.
+        if (value.startsWith("[")) {
+            val end = value.indexOf(']')
+            if (end > 1) {
+                val host = value.substring(1, end)
+                val port = value.substring(end + 1).removePrefix(":").trim().toIntOrNull()
+                return host to port?.takeIf { it in 1..65535 }
+            }
+        }
+        // A bare v6 literal has 2+ colons and can never carry a port unbracketed.
+        if (value.count { it == ':' } > 1) return value.trim('[', ']') to null
+        val idx = value.lastIndexOf(':')
+        if (idx > 0) {
+            val port = value.substring(idx + 1).trim().toIntOrNull()
+            if (port != null && port in 1..65535) return value.substring(0, idx).trim('[', ']') to port
+        }
+        return value.trim('[', ']') to null
+    }
+
+    /**
      * True when the device can actually open a v6 TCP connection to Cloudflare —
      * a routable v6 address on an interface is not enough on many Iranian carriers.
+     * Two ports per host: some carriers route v6 but filter 443, and vice versa.
      */
-    fun hasIpv6Connectivity(timeoutMs: Int = 1800): Boolean =
-        tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null ||
-            tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null ||
-            tcpConnect("2a06:98c0::6810:84e5", 443, timeoutMs) != null ||
-            tcpConnect("2606:4700::6810:84e5", 80, timeoutMs) != null
+    fun hasIpv6Connectivity(timeoutMs: Int = 2000): Boolean {
+        val hosts = listOf(
+            "2606:4700:4700::1111",
+            "2606:4700::6810:84e5",
+            "2a06:98c0::6810:84e5",
+            "2606:4700:d0::a29f:c001",
+        )
+        for (port in listOf(443, 80)) {
+            for (host in hosts) if (tcpConnect(host, port, timeoutMs) != null) return true
+        }
+        return false
+    }
 
     fun isIpv6(value: String): Boolean = value.contains(':')
 
@@ -473,7 +549,12 @@ object IpScanner {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
 
         /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
-        val panelLine: String get() = if (countryCode != null) "$ip:$port#$countryCode" else "$ip:$port"
+        val panelLine: String get() {
+            // Bracket IPv6 literals so the panel can distinguish the address's
+            // final hextet from the verified TCP port (e.g. [2606:4700::1]:2053).
+            val address = if (ip.contains(':')) "[${ip.removePrefix("[").removeSuffix("]")}]" else ip
+            return if (countryCode != null) "$address:$port#$countryCode" else "$address:$port"
+        }
 
         /** Colour band used by the UI: green < 300 ms, amber < 700 ms, red above. */
         val band: Int get() = when {
@@ -792,7 +873,12 @@ object IpScanner {
             }
         }
         if (options.includeIpv6) {
-            IPV6_RANGES.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
+            // v6 discovery order: derived from the v4 pool (proven mapping) → the
+            // /48s we know answer → the static library. The old code sampled the
+            // whole /32 at random, which is why v6 rows almost never appeared.
+            val v4Pool = ips.toList().filter { isValidIpv4(it) }.take(120)
+            v4Pool.forEach { v4 -> ips += deriveIpv6Candidates(v4) }
+            IPV6_SUBNETS.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
             ips += V6_LIBRARY
         } else {
             // No usable v6 on this network → drop v6 literals/ranges the user typed too.
