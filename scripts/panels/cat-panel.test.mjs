@@ -146,6 +146,48 @@ const auth = { cookie };
   const bearer = await req('/api/settings', { headers:{ authorization:'Bearer s3cret' } }); check('bearer password works', bearer.status===200);
   const uuidLogin = await req('/api/login', { method:'POST', body:{ password: MASTER } }); check('uuid no longer a password', uuidLogin.status===401);
   auth.cookie = newCookie; check('settings save persists settings + events ring (tolerating throttled last-seen writes)', KV.writes >= writes + 2, String(KV.writes - writes)); }
+// beta92: an empty address list must not produce a blank master/user sub. The
+// fallback to built-in addresses + worker hostname is render-only and never
+// rewrites the owner's disabled defaults / host switches.
+{
+  const fallbackMod = await import(workerPath + '?empty-sub-fallback=1');
+  const fallbackWorker = fallbackMod.default;
+  const FT = fallbackMod._testing;
+  const fallbackKv = new FakeKV();
+  const fallbackEnv = { CAT_KV: fallbackKv, UUID: MASTER, OPEN_PANEL: 'true' };
+  FT.kvCacheClear();
+  await FT.writeSettings(fallbackEnv, {
+    ips: [], useDefaults: false, includeHost: false,
+    protocols: { vless: true, trojan: true },
+    tlsPorts: [443], plainEnabled: false, plainPorts: [],
+  });
+  const fallbackResponse = await fallbackWorker.fetch(
+    new Request('https://' + HOST + '/sub/' + MASTER), fallbackEnv, { waitUntil() {} },
+  );
+  const fallbackSub = await fallbackResponse.text();
+  check('empty address list falls back to built-in configs + worker host',
+    fallbackResponse.status === 200 && fallbackSub.includes('vless://') && fallbackSub.includes('trojan://') &&
+      fallbackSub.includes('104.16.132.229') && fallbackSub.includes(HOST),
+    fallbackSub.slice(0, 180));
+  const unchanged = await FT.readSettings(fallbackEnv);
+  check('empty-list fallback is not persisted', unchanged.useDefaults === false &&
+    unchanged.includeHost === false && unchanged.ips.length === 0);
+
+  // Screenshot-equivalent values are valid input; a production failure should
+  // therefore be diagnosed from its API response, not blamed on this username or expiry.
+  const formResponse = await fallbackWorker.fetch(new Request('https://' + HOST + '/api/users', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'cat-rdwma2', protocols: { vless: true, trojan: true }, days: 365, enabled: true }),
+  }), fallbackEnv, { waitUntil() {} });
+  const formResult = await formResponse.json();
+  const expectedExpiry = Date.now() + 365 * 86400000;
+  check('screenshot new-user values are accepted (201, active, VLESS+Trojan, 365 days)',
+    formResponse.status === 201 && formResult.ok && formResult.user.name === 'cat-rdwma2' &&
+      formResult.user.enabled === true && formResult.user.protocols.vless === true &&
+      formResult.user.protocols.trojan === true && Math.abs(formResult.user.expiresAt - expectedExpiry) < 5000,
+    JSON.stringify(formResult));
+}
+
 // users
 let user;
 { const r = await req('/api/users', { method:'POST', headers: auth, body:{ name:'ali', days:30 } }); const j = await r.json(); user = j.user;
@@ -684,7 +726,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.59.0', T.CAT_PANEL_VERSION === '6.59.0');
+  check('panel version is 6.60.0', T.CAT_PANEL_VERSION === '6.60.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

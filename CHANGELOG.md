@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta92] — 2026-10-10
+
+### Fixed
+- Subscriptions no longer come back blank when the owner has no saved addresses and both default/worker-host switches are off: built-in addresses and the worker hostname are used as a render-only fallback, without changing saved settings.
+- The config builder now reports HTTP/request failures and empty or malformed subscription responses instead of misdiagnosing every failure as «no clean IPs».
+- New-user save failures now show the HTTP status and server error detail (with UUIDs and URLs redacted) rather than a generic «error» toast. If the create succeeds but the follow-up user-list refresh fails, the panel says the user was saved and reports the refresh error separately.
+
+### Tests
+- Add worker regression coverage for empty-list fallback/non-persistence and the screenshot's exact new-user values; extend DOM tests for POST failure, post-save refresh failure, and successful/empty/failed subscription previews.
+
+See [docs/release-notes-v1.10.0-beta92.md](docs/release-notes-v1.10.0-beta92.md).
+
 ## [1.10.0-beta91] — 2026-10-09
 
 ### Added
@@ -50,7 +62,8 @@ See [docs/release-notes-v1.10.0-beta1.md](docs/release-notes-v1.10.0-beta1.md).
 
 1.1.0 → 1.9.51: see the per-version notes in [`docs/`](docs/).
 
-[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta91...HEAD
+[Unreleased]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta92...HEAD
+[1.10.0-beta92]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta91...v1.10.0-beta92
 [1.10.0-beta91]: https://github.com/mazodimobinhost-creator/cat-client/compare/v1.10.0-beta90...v1.10.0-beta91
 [1.10.0-beta2]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta2
 [1.10.0-beta1]: https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta1

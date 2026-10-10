@@ -15,10 +15,29 @@ const HOST='https://p.workers.dev';
 const htmlRes = await worker.fetch(new Request(HOST + '/panel'), env, {});
 const html = await htmlRes.text();
 const errors = [];
+let failUserCreate = false;
+let failUserList = false;
+let failSubscription = false;
+let emptySubscription = false;
 const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
   beforeParse(window) {
     window.fetch = async (path, init={}) => {
-      const r = await worker.fetch(new Request(HOST + path, { method: init.method||'GET', headers: init.headers||{}, body: init.body }), env, {});
+      const url = new URL(path, HOST);
+      if (failUserList && url.pathname === '/api/users' && (init.method || 'GET') === 'GET') {
+        return new Response('user-list unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
+      }
+      if (failUserCreate && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'internal', message: 'diagnostic detail https://example.test/private/11111111-2222-4333-8444-555555555555' }), {
+          status: 500, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (failSubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('worker-private-body', { status: 502, headers: { 'content-type': 'text/plain' } });
+      }
+      if (emptySubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('\n', { status: 200, headers: { 'content-type': 'text/plain' } });
+      }
+      const r = await worker.fetch(new Request(url, { method: init.method||'GET', headers: init.headers||{}, body: init.body }), env, {});
       return r;
     };
     window.confirm = () => true;
@@ -63,6 +82,25 @@ document.querySelector('[data-del]').click(); await sleep(100);
 check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
 document.querySelector('#askYes').click(); await sleep(300);
 check('user deleted', document.querySelectorAll('#rows tr').length===0);
+// A failed write must show a useful, redacted API reason instead of the generic «error» toast.
+failUserCreate = true;
+document.querySelector('#btnAdd').click();
+const fFail = document.querySelector('#fUser'); fFail.elements.uname.value='diagnostic-user'; fFail.elements.days.value='30';
+fFail.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
+const saveError = document.querySelector('#toast').textContent;
+check('user-save error shows detail but redacts URLs + UUIDs', saveError.includes('HTTP 500') && saveError.includes('internal') && saveError.includes('diagnostic detail') && !saveError.includes('example.test') && !saveError.includes('11111111-2222-4333-8444-555555555555'), saveError);
+failUserCreate = false;
+document.querySelector('[data-close]').click();
+// A 201 create followed by a failed GET is not a failed save; don't mislead the owner into retrying.
+failUserList = true;
+document.querySelector('#btnAdd').click();
+const fRefresh = document.querySelector('#fUser'); fRefresh.elements.uname.value='saved-but-refresh-failed'; fRefresh.elements.days.value='30';
+fRefresh.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(200);
+const refreshError = document.querySelector('#toast').textContent;
+check('post-save refresh error says the user was saved', refreshError.includes('ذخیره شد') && refreshError.includes('HTTP 503'), refreshError);
+failUserList = false;
+const usersAfterRefreshError = await (await window.fetch('/api/users')).json();
+check('user persists after refresh-only failure', usersAfterRefreshError.users.some(u => u.name === 'saved-but-refresh-failed'));
 // settings export: real click → a download anchor appears (BPB-style backup)
 document.querySelector('[data-view="settings"]').click();
 document.querySelector('#btnSetExport').click(); await sleep(100);
@@ -141,6 +179,28 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   check('survival button renders shareable ?survive=1 link', !!a && a.href.endsWith('?survive=1'), a && a.href);
   const surviveFormats = Array.from(document.querySelectorAll('#survOut [data-copy]')).map(b => b.getAttribute('data-copy'));
   check('survival has raw, base64, Clash, sing-box and Xray format links', surviveFormats.length === 5 && surviveFormats.some(u => u.includes('/clash/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/singbox/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/xray/') && u.endsWith('?survive=1')), surviveFormats.join(' | '));
+}
+
+// The builder must surface HTTP failures rather than mislabeling them «no clean IPs».
+{
+  document.querySelector('[data-view="build"]').click();
+  failSubscription = true;
+  document.querySelector('#bGen').click();
+  await sleep(100);
+  check('builder shows HTTP status when subscription request fails', document.querySelector('#bEmpty').textContent.includes('HTTP 502'), document.querySelector('#bEmpty').textContent);
+  check('builder does not expose the raw response body', !document.querySelector('#bEmpty').textContent.includes('worker-private-body'));
+  failSubscription = false;
+  document.querySelector('#bGen').click();
+  await sleep(250);
+  const generatedCount = Number(document.querySelector('#bCount').textContent);
+  const generatedPreview = document.querySelector('#bPrev').value;
+  check('builder counts successful URI lines', generatedCount > 0 && generatedCount <= 24, String(generatedCount));
+  check('builder preview contains generated configs', /^(vless|trojan):\/\//m.test(generatedPreview), generatedPreview.slice(0, 100));
+  emptySubscription = true;
+  document.querySelector('#bGen').click();
+  await sleep(150);
+  check('builder distinguishes a successful but empty HTTP response', document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'));
+  emptySubscription = false;
 }
 
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
