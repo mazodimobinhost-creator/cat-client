@@ -566,7 +566,10 @@ let user;
     check('subRotate defaults to fetch (fresh set every update)', T.normalizeSettings({}).subRotate === 'fetch' && T.normalizeSettings({ subRotate: 'daily' }).subRotate === 'daily');
     await req('/api/settings', { method: 'PUT', headers: auth, body: { subRotate: 'fetch' } });
     const firsts = new Set();
-    for (let i = 0; i < 8; i++) {
+    // A short random sample had a measurable chance of picking the same first
+    // node every time despite healthy fetch-rotation; sample more updates so
+    // the assertion tests the feature instead of unlucky randomness.
+    for (let i = 0; i < 32; i++) {
       const b = await (await req('/sub/' + MASTER + '?limit=48', { env: ENV })).text();
       firsts.add((b.split('\n')[0] || '').split('@')[1] || '');
     }

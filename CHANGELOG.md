@@ -9,6 +9,7 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 ### Fixed
 - Subscriptions no longer come back blank when the owner has no saved addresses and both default/worker-host switches are off: built-in addresses and the worker hostname are used as a render-only fallback, without changing saved settings.
 - The config builder now reports HTTP/request failures and empty or malformed subscription responses instead of misdiagnosing every failure as «no clean IPs».
+- The empty-IP hint distinguishes built-in fallback from repository feeds: clean-IP feed auto-append remains opt-in and fetched entries are not silently persisted into the owner's IP list.
 - New-user save failures now show the HTTP status and server error detail (with UUIDs and URLs redacted) rather than a generic «error» toast. If the create succeeds but the follow-up user-list refresh fails, the panel says the user was saved and reports the refresh error separately.
 
 ### Tests
