@@ -69,6 +69,9 @@ object IpScanner {
     /** 5 samples keeps a scan of a few hundred IPs inside a couple of minutes. */
     const val DEFAULT_SAMPLES = 5
 
+    /** Upload probe body cap: an upload test spends the user's own mobile data. */
+    const val MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+
     /** Any Cloudflare-hosted SNI works on any edge; the official speed endpoint rides along. */
     const val SPEED_TEST_SNI = "speed.cloudflare.com"
 
@@ -141,6 +144,91 @@ object IpScanner {
             val elapsed = System.currentTimeMillis() - startedAt
             if (elapsed < 300 || total < 256 * 1024) return null // too little data to trust
             total * 1000 / elapsed
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { socket?.close() }
+        }
+    }
+
+    /**
+     * Upload throughput probe against the same Cloudflare speed endpoint:
+     * TLS to the edge IP with the speed-test SNI, then POST /__up with
+     * [bytes] of body and wait for the edge to answer.
+     *
+     * Timing note: we stop the clock when the RESPONSE arrives, not when the
+     * last byte leaves the socket. Writing to a socket only fills the kernel
+     * buffer, so "time to write" measures the buffer, not the network; the
+     * edge answers only after it has read the whole body, which is what makes
+     * the number comparable to the download probe.
+     *
+     * Body size is deliberately small (1 MB by default): an upload probe spends
+     * the user's own mobile data, unlike the download probe.
+     */
+    fun measureUploadSpeed(
+        ip: String,
+        port: Int,
+        timeoutMs: Int = 9_000,
+        bytes: Int = 1_000_000,
+    ): Long? {
+        val capped = bytes.coerceIn(64 * 1024, MAX_UPLOAD_BYTES)
+        val tls = !PLAIN_HTTP_PORTS.contains(port)
+        var socket: java.net.Socket? = null
+        return try {
+            val connected: java.net.Socket = if (tls) {
+                val ssl = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+                ssl.apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                    val params = sslParameters
+                    params.serverNames = listOf(SNIHostName(SPEED_TEST_SNI))
+                    params.endpointIdentificationAlgorithm = null
+                    sslParameters = params
+                    startHandshake()
+                }
+            } else {
+                java.net.Socket().apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                }
+            }
+            socket = connected
+            val body = ByteArray(capped)
+            val head = buildString {
+                append("POST /__up HTTP/1.1\r\n")
+                append("Host: ").append(SPEED_TEST_SNI).append("\r\n")
+                append("User-Agent: CatClient\r\n")
+                append("Content-Type: application/octet-stream\r\n")
+                append("Content-Length: ").append(body.size).append("\r\n")
+                append("Connection: close\r\n\r\n")
+            }.toByteArray(Charsets.ISO_8859_1)
+            val out = connected.getOutputStream()
+            val startedAt = System.currentTimeMillis()
+            out.write(head)
+            val chunk = ByteArray(64 * 1024)
+            var sent = 0
+            while (sent < body.size) {
+                val n = minOf(chunk.size, body.size - sent)
+                out.write(chunk, 0, n)
+                sent += n
+                if (System.currentTimeMillis() - startedAt >= timeoutMs) return null // too slow to bother
+            }
+            out.flush()
+            // The clock stops when the edge confirms it read everything.
+            val input = connected.getInputStream()
+            var sawResponse = false
+            while (System.currentTimeMillis() - startedAt < timeoutMs) {
+                val b = try { input.read() } catch (e: Exception) { -1 }
+                if (b == -1) break
+                sawResponse = true
+                break
+            }
+            if (!sawResponse) return null
+            val elapsed = System.currentTimeMillis() - startedAt
+            if (elapsed < 300) return null // too little time to trust
+            body.size * 1000L / elapsed
         } catch (e: Exception) {
             null
         } finally {
@@ -558,6 +646,8 @@ object IpScanner {
         val sourceRange: String? = null,
         /** Download throughput measured against this edge (bytes/sec), null = not measured. */
         val speedBps: Long? = null,
+        /** Upload throughput measured against this edge (bytes/sec), null = not measured. */
+        val uploadBps: Long? = null,
         /** Share of the ping samples that never connected (0..100). */
         val lossPct: Float = 0f,
         /** Mean deviation between samples in ms — how steady the path is. */

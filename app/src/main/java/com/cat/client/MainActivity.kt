@@ -6219,10 +6219,19 @@ class MainActivity : Activity() {
                 val speed = withContext(Dispatchers.IO) {
                     runCatching { IpScanner.measureDownloadSpeed(target.ip, target.port) }.getOrNull()
                 }
+                // Upload runs after the download probe on the same target: it spends
+                // the user's own mobile data, so it is capped (see MAX_UPLOAD_BYTES)
+                // and never runs on its own — only when a speed test was asked for.
+                val up = withContext(Dispatchers.IO) {
+                    runCatching { IpScanner.measureUploadSpeed(target.ip, target.port) }.getOrNull()
+                }
                 if (speed != null) measured[target.ip] = speed
                 mainHandler.post {
                     val updated = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
-                        .map { if (it.ip == target.ip && speed != null) it.copy(speedBps = speed) else it }
+                        .map {
+                            if (it.ip == target.ip) it.copy(speedBps = speed ?: it.speedBps, uploadBps = up ?: it.uploadBps)
+                            else it
+                        }
                     scannerResults = updated
                     renderScannerResults()
                 }
@@ -7414,12 +7423,19 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(dp(46), -2),
         )
         val speed = result.speedBps
+        val up = result.uploadBps
         row.addView(
             cell(
-                if (speed == null) "—" else getString(R.string.scanner_result_speed, speed / 1_000_000.0),
-                if (speed == null) TEXT_SECONDARY else TEAL,
+                when {
+                    speed != null && up != null ->
+                        getString(R.string.scanner_result_speeds, speed / 1_000_000.0, up / 1_000_000.0)
+                    speed != null -> getString(R.string.scanner_result_speed, speed / 1_000_000.0)
+                    up != null -> getString(R.string.scanner_result_upload, up / 1_000_000.0)
+                    else -> "—"
+                },
+                if (speed == null && up == null) TEXT_SECONDARY else TEAL,
             ),
-            LinearLayout.LayoutParams(dp(58), -2),
+            LinearLayout.LayoutParams(dp(78), -2),
         )
         return row
     }

@@ -989,6 +989,8 @@
     <string name="scanner_speed_done">سریع‌ترین: %1$s (%2$s)</string>
     <string name="scanner_speed_mbps">%1$.1f MB/s</string>
     <string name="scanner_result_speed">⬇ %1$.1f MB/s</string>
+    <string name="scanner_result_speeds">⬇%1$.1f ↑%2$.1f</string>
+    <string name="scanner_result_upload">⬆ %1$.1f مگابایت/ثانیه</string>
     <string name="static_ip_use_current">همین IP فعلی</string>
     <string name="static_ip_no_current">هنوز IP فعالی نیست — اول اسکن کن</string>
     <string name="static_ip_pool_empty">استخر IP خالی است — اول اسکن کن</string>
