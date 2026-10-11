@@ -27,6 +27,15 @@ combining one-tap connectivity with all the tools Iranian users need.
 > If you do not want a password sitting in KV, run the relay without authentication (or with an
 > IP allowlist) and add it as `socks5://host:port`.
 
+**The credentials never travel in a subscription.** Older builds put the whole relay URL into every
+config as `?proxyip=socks5://user:pass@host:port`, which published the password to anyone who saw
+the link (and wrote it into client logs). Now a link carries only an opaque reference,
+`?proxyip=relay:<16-hex-id>`, and the worker resolves that id back to the real relay from its own
+settings (KV) at dial time — the URL itself never leaves the worker. Two consequences worth knowing:
+the relay's **address** (`host:port`) still appears as the config's display name, the same way any
+server address does; and if you **remove a relay from the panel**, links carrying its id stop
+resolving — they fail closed instead of dialing something else.
+
 > 📦 The button deploys the **committed minified build** (`dist-panel/catpanel.min.js`, 120 KB gzipped) — the same code, readable on your own account, with nothing renamed or encoded away. CI rebuilds it from the AGPL source at `app/src/main/assets/panels/catclient.worker.js` on every push.
 >
 > ⚠️ **Hypothesis, not a documented fact.** The obfuscated snapshot (`dist-panel/catpanel.obf.js`) was added on the belief that *"Cloudflare statically scans deployed worker sources for `vless`/`trojan` signatures and disables the worker with Error 1101"*. That belief could **not** be confirmed: Cloudflare's own documentation defines **1101 as "Worker threw a JavaScript exception"** — a runtime failure (uncaught exception, CPU/memory limit, crash in the global scope) — and the scanning story traces back only to community reports from November 2024, never to a Cloudflare statement. So it is recorded here as a **hypothesis**, and the deploy path no longer pays its price (533 KB gzipped, ~4.4× heavier, and unauditable). If you have a deployment that was disabled with 1101 and a Cloudflare ticket or log showing a source scan, open an issue — that would turn this from a hypothesis into a fact. The obfuscated snapshot is still built for the in-app updater, but it is **not** deployed.

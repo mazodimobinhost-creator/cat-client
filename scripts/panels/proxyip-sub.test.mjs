@@ -147,7 +147,9 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
   check('🧬 extra-SNI lines: not in limited links (SNI ≠ Host is rejected by Cloudflare)', !lim.some(isSpoofSni));
   await A.call('/api/settings', 'PUT', { extraSnis: [], proxyIps: MY_PX.concat(['socks5://u:p@192.0.2.9:1080']) });
   const withSocks = await sub('?limit=24'); const sk = withSocks.filter(isSocks);
-  check('🧦 own SOCKS relay: 2 lines (VLESS+Trojan) in a limited link, relay carried in the path', sk.length === 2 && sk.every((x) => /socks5:\/\/u:p@192\.0\.2\.9:1080/.test(pxValue(x) || '')), sk.length + ' ' + (sk[0] && pxValue(sk[0])));
+  check('🧦 own SOCKS relay: 2 lines (VLESS+Trojan) in a limited link, relay referenced (not inlined)',
+    sk.length === 2 && sk.every((x) => /^relay:[0-9a-f]{16}$/.test(pxValue(x) || '')), sk.map(pxValue).join(','));
+  check('🧦 the link never contains the relay username/password', sk.every((x) => !/socks5:\/\//i.test(String(x)))); 
   check('🧦 relay does not displace the ProxyIP lines', withSocks.filter(isPx).length === 6 && withSocks.length <= 24); }
 
 // ═══ B) many ProxyIPs: the limit stays a hard total, the 🎭 part takes at most half ═══
@@ -190,7 +192,12 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
     check(label + ': every 🎯 entry pins EXACTLY the ProxyIP in its name', px.length > 0 && px.every((e) => pinOf(e.wsPath) === pxName(e.name)), px.map((e) => e.name + ' → ' + pinOf(e.wsPath)).join(' | '));
     check(label + ': the pins differ per entry (not 6 copies of one config)', new Set(px.map((e) => pinOf(e.wsPath))).size === 3, [...new Set(px.map((e) => pinOf(e.wsPath)))].join(','));
     const sk = entries.filter((e) => e.name.includes('🧦'));
-    check(label + ': the 🧦 SOCKS entries carry their relay in the path', sk.length === 2 && sk.every((e) => /^socks5:\/\/u:p@192\.0\.2\.9:1080$/.test(pinOf(e.wsPath) || '')), sk.map((e) => e.name + ' → ' + pinOf(e.wsPath)).join(' | '));
+    // The relay travels as an opaque reference, NOT as socks5://u:p@host:port:
+    // a subscription is shared around, and that URL would publish the password.
+    check(label + ': the 🧦 SOCKS entries carry an opaque relay reference, never the credentials',
+      sk.length === 2 && sk.every((e) => /^relay:[0-9a-f]{16}$/.test(pinOf(e.wsPath) || '')),
+      sk.map((e) => e.name + ' → ' + pinOf(e.wsPath)).join(' | '));
+    check(label + ': no 🧦 entry leaks a socks5 URL', sk.every((e) => !/socks5:\/\//i.test(String(e.wsPath))));
     check(label + ': ordinary entries carry no pin', entries.filter((e) => !/🎯|🧦/.test(e.name)).every((e) => pinOf(e.wsPath) === null));
   };
   checkFormat('links', fromLinks(await (await E.call('/sub/' + UUID + '?limit=40')).text()));

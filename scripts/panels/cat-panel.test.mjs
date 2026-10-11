@@ -940,7 +940,12 @@ let user;
     const outS = T.buildConfigEntries('panelx.workers.dev', ENV, stS, 'u1', null, {});
     const sk = outS.entries.filter((e) => e.name.startsWith('🧦 1.'));
         const pathDec = decodeURIComponent(sk[0].link.split('path=')[1].split('&')[0]);
-    check('sub: 🧦 config emitted with encoded socks path + sni', sk.length === 2 && pathDec.includes('proxyip=') && decodeURIComponent(pathDec.split('proxyip=')[1]) === 'socks5://bob:hunter2@198.51.100.9:1080' && sk[0].link.includes('sni='), pathDec);
+    const relayVal = decodeURIComponent(pathDec.split('proxyip=')[1]);
+    check('sub: 🧦 config emitted with an encoded relay reference (never the credentials)',
+      sk.length === 2 && pathDec.includes('proxyip=') && /^relay:[0-9a-f]{16}$/.test(relayVal),
+      sk.length + ' | ' + relayVal);
+    check('sub: the 🧦 path exposes no username or password',
+      !/bob|hunter2|socks5:\/\//i.test(pathDec), pathDec);
     const p1 = await T.healthProbe(socksSockets([[5, 0], [5, 0, 0, 1, 1, 2, 3, 4, 0, 0]]), { addr: 'socks5://198.51.100.9:1080', kind: 'socks' });
     check('health: socks probe ok (no auth)', p1.ok === true, JSON.stringify(p1));
     const p2 = await T.healthProbe(socksSockets([[5, 2], [1, 0], [5, 0, 0, 1, 1, 2, 3, 4, 0, 0]]), { addr: 'socks5://bob:hunter2@198.51.100.9:1080', kind: 'socks' });

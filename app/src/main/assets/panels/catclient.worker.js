@@ -1634,6 +1634,70 @@ function normalizeProxyToken(tok) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return ''; // http(s)://, vless:// … are not relays
   return proxyHostOk(t) ? t : '';
 }
+/** RFC 1123 hostname: labels of letters/digits/hyphen that never START or END
+ *  with a hyphen. Without this, «-bad.com:443» was not recognised as
+ *  «host:port» (the host is invalid), so the default port was appended to the
+ *  whole token and the panel stored «-bad.com:443:443». */
+function isProxyHostName(h) {
+  if (!h || h.length > 253) return false;
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/.test(h);
+}
+
+/** Normalise ONE relay token: pin the default port, or return null when the
+ *  host is not something we can dial (that token is then reported as ignored
+ *  instead of being silently mangled). */
+function pinProxyEntry(e) {
+  if (/^socks5h?:\/\//i.test(e)) return e; // socks5 keeps its own port + is validated where it is parsed
+  const portOk = (n) => Number(n) > 0 && Number(n) < 65536;
+  const br = /^\[([^\]]+)\]:(\d{1,5})$/.exec(e);
+  if (br) return (portOk(br[2]) && isIpv6(br[1])) ? e : null;
+  const host = e.replace(/^\[/, '').replace(/\]$/, '');
+  if (isIpv6(host)) return '[' + host + ']:443';
+  const m = /^(.*):(\d{1,5})$/.exec(host);
+  if (m) return (portOk(m[2]) && (isIpv4(m[1]) || isProxyHostName(m[1]))) ? e : null;
+  return (isIpv4(host) || isProxyHostName(host)) ? host + ':443' : null;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Relay references: a link carries an ID, never the credentials       */
+/* ------------------------------------------------------------------ */
+/* A socks5 relay is saved as socks5://user:pass@host:port. Putting that in a
+   subscription link publishes the password to anyone who sees the link (and
+   it lands in client logs too). So the LINK only carries relay:<id>, and the
+   worker resolves the id back to the real URL from its own settings (KV),
+   server-side, at dial time.
+
+   The id is a plain 64-bit FNV-1a hash: it has to be computable SYNCHRONOUSLY
+   while links are being built, and its job is to be an opaque reference, not a
+   secret - the secret is that the URL never travels at all. If a relay is
+   removed from the panel, links carrying its id simply stop resolving. */
+function fnv1a64Hex(str) {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 ^= c; h1 = (h1 + (h1 << 1) + (h1 << 4) + (h1 << 7) + (h1 << 8) + (h1 << 24)) >>> 0;
+    h2 ^= c; h2 = (h2 + (h2 << 1) + (h2 << 4) + (h2 << 7) + (h2 << 8) + (h2 << 24)) >>> 0;
+  }
+  return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
+}
+function relayTokenFor(url) { return 'relay:' + fnv1a64Hex(url); }
+/** Resolve a relay reference back to its URL, or '' when it is unknown. */
+function resolveRelayToken(settings, token) {
+  const t = String(token || '');
+  const m = /^relay:([0-9a-f]{16})$/i.exec(t);
+  if (!m) return t; // not a relay reference (a plain ProxyIP) — pass through
+  const want = m[1].toLowerCase();
+  const list = (settings && settings[PXIPS_KEY]) || [];
+  for (const e of list) {
+    const u = String(e || '');
+    if (!/^socks5h?:\/\//i.test(u)) continue;
+    if (fnv1a64Hex(u) === want) return u;
+  }
+  return '';
+}
+
 function normalizeProxyList(input) {
   const list = [];
   const ignored = [];
@@ -1650,18 +1714,17 @@ function normalizeProxyList(input) {
   // port it will be dialed on invisible). It now gets the default 443 pinned so
   // the panel SHOWS «1.2.3.4:443» and the worker dials exactly that. socks5://
   // always carries its own port; a bracketed IPv6 gets the port after the bracket.
-  const pinned = kept.map((e) => {
-    if (/^socks5h?:\/\//i.test(e)) return e;
-    // Already pinned? «host:port» or «[v6]:port» — and the port must be real.
-    // Bare IPv6 («2001:db8::2») is NOT «host:2»: its last group only looks like
-    // a port, so it must be bracketed before the default port is appended.
-    const br = /^\[([^\]]+)\]:(\d{1,5})$/.exec(e);
-    if (br && Number(br[2]) > 0 && Number(br[2]) < 65536 && isIpv6(br[1])) return e;
-    const host = e.replace(/^\[/, '').replace(/\]$/, '');
-    const m = /^(.*):(\d{1,5})$/.exec(host);
-    if (m && Number(m[2]) > 0 && Number(m[2]) < 65536 && (isIpv4(m[1]) || isHostname(m[1]))) return e;
-    return (isIpv6(host) ? '[' + host + ']' : host) + ':443';
-  });
+  // Pin the default port, validate the host, and dedupe AFTER pinning:
+  // «[2606:4700::6812:1a2e]:443» and the bare «2606:4700::6812:1a2e» must
+  // collapse into ONE entry — deduping before the port is pinned leaves both.
+  const pinned = [];
+  const rejected = [];
+  for (const e of kept) {
+    const v = pinProxyEntry(e);
+    if (!v) rejected.push(e);
+    else if (!pinned.includes(v)) pinned.push(v);
+  }
+  for (const e of rejected) ignored.push(e);
   // «ignored» = junk (not a relay, not socks5://). «capped» = valid relays the
   // 32-entry limit had to leave out — a different reason, so it is reported
   // separately instead of looking like a typo (beta94).
@@ -2339,6 +2402,10 @@ async function handleTunnelConnection(ws, env, options = {}) {
   // proxyip VALUE once more) — decode twice, keep the value if the second
   // decode is not valid percent-encoding.
   const pxOverride = (() => { let v = ((options.path || '').match(new RegExp('[?&](?:' + PROXYIP_K + '|pyip)=([^&]+)')) || [])[1] || ''; try { v = decodeURIComponent(v); } catch (e) { } try { v = decodeURIComponent(v); } catch (e) { } return v; })();
+  // A relay reference (relay:<id>) is resolved here, on the server, from the
+  // panel's own settings — the credentials behind it never travelled in the link.
+  const pxResolved = /^relay:/i.test(pxOverride) ? resolveRelayToken(settings, pxOverride) : pxOverride;
+  const pxRelay = pxOverride && !/^relay:/i.test(pxOverride) ? pxOverride : pxResolved;
 
   let first;
   try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }
@@ -2415,7 +2482,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
 
   let dialed;
   try {
-    dialed = await dialTarget(target.host, target.port, env, settings, log, pxOverride || null);
+    dialed = await dialTarget(target.host, target.port, env, settings, log, pxRelay || null);
   } catch (e) {
     log('no route to ' + target.host + ':' + target.port);
     safeCloseWs(ws, 1011, 'dial failed');
@@ -3420,8 +3487,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const ssni = pxTls ? sniFor(pxi + sxi - 1) : ctx.sni;
       const ssname = '🧦 ' + sxi + '. ' + sr.host + ':' + sr.port + (pxTls ? sniSuffix(ssni) : '');
       const sctx = ssni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: ssni });
-      const svless = withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(sr.url));
-      const strojan = withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(sr.url));
+      const svless = withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
+      const strojan = withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
       if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: pxPort, tls: pxTls, cc: '', sni: ssni, wsPath: svless, link: vlessLink(sctx, workerDial, pxPort, pxTls, '', { name: ssname, path: svless }), name: ssname });
       if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: pxPort, tls: pxTls, cc: '', sni: ssni, wsPath: strojan, link: trojanLink(sctx, workerDial, pxPort, pxTls, '', { name: ssname, path: strojan }), name: ssname });
     }
@@ -5678,6 +5745,10 @@ code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius
   <table class="tbl"><thead><tr><th data-i="ev_time"></th><th data-i="ev_ev"></th><th data-i="ev_d"></th></tr></thead><tbody id="errRows"></tbody></table>
   <div class="small dim" id="errEmpty" data-i="err_empty" style="display:none"></div>
   <div class="small" id="errExhausted" data-i="err_exhausted" style="display:none;color:#f59e0b"></div>
+  <p style="margin:12px 0 0;display:flex;gap:8px">
+   <button class="btn44" id="errRefresh" type="button" style="flex:1" data-i="hm_refresh"></button>
+   <button class="btn44" id="errClear" type="button" style="flex:1" data-i="err_clear"></button>
+  </p>
  </div>
 
  <div class="ncard">
@@ -6755,14 +6826,12 @@ function loadErrors(){var tb=$('#errRows');if(!tb)return;
 if($('#errRefresh'))$('#errRefresh').addEventListener('click',loadErrors);
 
 /* ---------- mobile shell: 5 sections, fixed bottom nav ---------- */
-var SECTITLE={home:'hm_title',users:'hm_users',addr:'hm_addr',loc:'hm_loc',set:'hm_set'};
 function goSec(sec){
   document.body.setAttribute('data-sec',sec);
   [].forEach.call(document.querySelectorAll('.view'),function(v){
     v.style.display=(v.getAttribute('data-sec')===sec)?'block':'none';});
   [].forEach.call(document.querySelectorAll('.tabbar button'),function(b){
     if(b.getAttribute('data-sec')===sec)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
-  var h=$('#secTitle');if(h&&SECTITLE[sec]){h.setAttribute('data-i',SECTITLE[sec]);h.textContent=t(SECTITLE[sec]);}
   if(sec==='home'){renderHome();loadErrors();}
   if(sec==='users'){renderSubLinks();}
   if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');}
@@ -6866,6 +6935,7 @@ function addSock(){
   b.addEventListener('click',function(){goSec(b.getAttribute('data-sec'));});});
 [].forEach.call(document.querySelectorAll('.addrtabs button'),function(b){b.addEventListener('click',function(){setAddrTab(b.getAttribute('data-atab-go'));});});
 if($('#skAdd'))$('#skAdd').addEventListener('click',addSock);
+if($('#errRefresh'))$('#errRefresh').addEventListener('click',function(){loadErrors();});
 if($('#hmRefresh'))$('#hmRefresh').addEventListener('click',function(){load();toast(t('hm_copied'),false);});
 
 if($('#errClear'))$('#errClear').addEventListener('click',function(){
@@ -7176,5 +7246,7 @@ export const _testing = {
   USAGE_KEY, ERROR_RING, DAILY_WRITE_BUDGET, FLUSH_MIN_GAP_MS, FLUSH_BATCH, FLUSH_MIN_REQS,
   usageDay, countRequest, recordError, readUsage, flushUsage, clearErrors, scheduleFlush,
   maskCreds,
+  isProxyHostName, pinProxyEntry,
+  fnv1a64Hex, relayTokenFor, resolveRelayToken,
   loginPage, panelPage, userInfoPage, camouflagePage,
 };
