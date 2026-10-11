@@ -50,7 +50,7 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   ok('…and a one-tap sign-in link', html.includes('?p=' + encodeURIComponent(UUID)));
   ok('…and the KV steps by name (CAT_KV)', html.includes('CAT_KV'));
   ok('…and warns that nothing is stored and anyone can sign in',
-    /nothing is stored|ذخیره.*ندارد/.test(html));
+    /nothing is stored|هیچ تنظیمی ذخیره نمی‌شود/.test(html));
 
   // The one-tap link has to actually work, otherwise the card is decoration.
   const tap = await get(env, '/panel?p=' + UUID);
@@ -70,14 +70,30 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   const env = { CAT_KV: kv };
   const settings = await T.readSettings(env);
   await kv.put((T.KV_KEYS && T.KV_KEYS.settings) || 'cat_settings_v1', JSON.stringify(settings));
+  T.kvCacheClear(); // settings are cached per isolate — a direct KV write must invalidate it
+
+  // KV bound but NO password: still first-run. Workers Builds auto-provisions the
+  // KV namespace, so this is exactly what the first deploy of a fresh Worker
+  // looks like — hiding the card here was the bug.
+  const kvOnly = await get(env, '/panel');
+  const kvOnlyHtml = await kvOnly.text();
+  ok('KV bound but no password yet → the setup card stays (this is the auto-provisioned state)',
+    kvOnlyHtml.includes(UUID) && /Storage \(KV\) is bound|ذخیره‌سازی \(KV\) بایند شده/.test(kvOnlyHtml));
+  ok('…and it says the one remaining step is to set a password',
+    /set a password|رمز بگذار/.test(kvOnlyHtml));
+
+  // The real configured state: a password exists.
+  settings.passwordHash = await T.sha256Hex('owner-password-here');
+  await kv.put((T.KV_KEYS && T.KV_KEYS.settings) || 'cat_settings_v1', JSON.stringify(settings));
+  T.kvCacheClear(); // settings are cached per isolate — a direct KV write must invalidate it
 
   const root = await get(env, '/');
   const rootHtml = await root.text();
-  ok('with KV bound, the root is camouflaged again (unchanged behaviour)', root.status === 200 && !rootHtml.includes(UUID), root.status);
+  ok('with a password set, the root is camouflaged again (unchanged behaviour)', root.status === 200 && !rootHtml.includes(UUID), root.status);
 
   const panel = await get(env, '/panel');
   const html = await panel.text();
-  ok('…and the panel path is a plain login form', panel.status === 200 && html.includes('type="password"'));
+  ok('…and the panel path is a plain login form', panel.status === 200 && html.includes('type="password"') && !/<div class="card" style="margin-top:14px/.test(html));
   ok('…with no UUID printed anywhere', !html.includes(UUID));
   ok('…and no setup card', !html.includes('CAT_KV'));
 }

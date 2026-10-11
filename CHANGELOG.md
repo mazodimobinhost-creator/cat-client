@@ -4,6 +4,10 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+- **Worker 6.66.5 — the setup card also appears when KV exists but no password is set.** Workers Builds (and Wrangler's automatic provisioning) creates the `CAT_KV` namespace during the deploy, so the first deploy of a fresh Worker has KV *and* no password — which was exactly the state the 6.66.4 guard excluded. The owner landed back on a login form that never shows the UUID. The card (and the root redirect) is now keyed on «no password yet» alone, and it says whether KV is bound or still needs creating.
+- `wrangler.jsonc` `name` must equal the dashboard Worker for Workers Builds, or the build fails with «The name in your Wrangler configuration file (X) must match the name of your Worker». Documented in the file.
+
 ### Added
 - **Paste-and-go panel (Worker 6.66.4).** A file dropped into a brand-new Worker — no KV namespace, no environment variables — used to be a dead end: the panel path answered a login form saying «the default password is the panel UUID» without ever showing that UUID. The root URL meanwhile served the camouflage blog, so the person who had just pasted the file concluded it was broken. Now, while the install is unconfigured, the root redirects to the panel path and the login screen carries a setup card with the panel UUID, the subscription link, a one-tap sign-in link (`?p=<uuid>`, which the worker already supported), the KV binding steps, and a warning that nothing is stored and anyone can sign in. Binding a KV namespace as `CAT_KV` — or setting any password — closes the card and restores the previous camouflage/login behaviour byte for byte. Guarded by `scripts/panels/paste-and-go.test.mjs` (16 checks, both directions).
 

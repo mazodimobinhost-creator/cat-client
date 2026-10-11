@@ -41,8 +41,19 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
 // health
 { const r = await req('/health'); const j = await r.json(); check('/health anonymous = bare ok (no fingerprint)', r.status===200 && j.ok===true && j.version===undefined && j.kv===undefined); }
 // beta57 stealth default: / = camouflage landing, real UI at /panel
-{ const r = await req('/'); const b = await r.text(); check('/ serves camouflage when locked', r.status===200 && b.includes('Sora') && !b.includes('/api/login')); }
-{ const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows login when locked', rp.status===200 && bp.includes('/api/login')); }
+// 6.66.5 paste-and-go: «no password yet» is its own state. The root points at the
+// setup screen (the card that shows the UUID and the one-tap login) instead of a
+// dead-end login form. Camouflage still applies the moment a password exists —
+// proven right here by setting one temporarily.
+{ const r = await req('/'); check('first run (no password yet): / points at the setup screen', r.status===302 && r.headers.get('location')==='/panel'); }
+{ const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows the setup card (UUID + one-tap) before a password exists', rp.status===200 && bp.includes('/api/login') && bp.includes(MASTER)); }
+{ const key = T.KV_KEYS.settings; const before = await T.readSettings(ENV);
+  await KV.put(key, JSON.stringify(Object.assign({}, before, { passwordHash: await T.sha256Hex('temporary-check') }))); T.kvCacheClear();
+  const r = await req('/'); const b = await r.text();
+  check('/ serves camouflage once a password is set (locked)', r.status===200 && b.includes('Sora') && !b.includes('/api/login'));
+  const rp = await req('/panel'); const bp = await rp.text();
+  check('/panel is a plain login (no UUID) once a password is set', rp.status===200 && bp.includes('/api/login') && !bp.includes(MASTER));
+  await KV.put(key, JSON.stringify(before)); T.kvCacheClear(); }
 // api unauthorized
 { const r = await req('/api/settings'); check('/api/settings 401 without session', r.status===401); }
 // login with uuid
@@ -775,7 +786,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.66.4', T.CAT_PANEL_VERSION === '6.66.4');
+  check('panel version is 6.66.5', T.CAT_PANEL_VERSION === '6.66.5');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

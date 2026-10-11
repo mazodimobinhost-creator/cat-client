@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.4';
+const CAT_PANEL_VERSION = '6.66.5';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -5006,7 +5006,7 @@ async function handleRequest(request, env, ctx) {
     // panel path, where the setup card shows the UUID and the KV steps. As soon
     // as a KV namespace is bound as CAT_KV (or a password exists) this stops and
     // the camouflage applies again, unchanged.
-    if (!kvBinding(env) && !settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim() && (path === '/' || path === '/login')) {
+    if (!settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim() && (path === '/' || path === '/login')) {
       return new Response(null, { status: 302, headers: { location: '/' + pp } });
     }
     if (path === '/' || path === '/login' || path === '/panel') return html(camouflagePage());
@@ -5168,7 +5168,12 @@ function loginPage(env, settings, needsUser, uuid) {
   // set, this whole block disappears and the normal login applies.
   const noKv = !kvBinding(env);
   const noPass = !settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim();
-  const fresh = noKv && noPass;
+  // NOTE: this is deliberately keyed on «no password yet», NOT on «no KV».
+  // Workers Builds (and Wrangler's automatic provisioning) create the KV
+  // namespace during the deploy, so the very first deploy of a fresh Worker has
+  // KV and no password — the earlier guard hid the card exactly there and sent
+  // the owner back to a login form that never shows the UUID.
+  const fresh = noPass;
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}
 .wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
 .box{width:100%;max-width:380px;padding:28px 24px}
@@ -5188,7 +5193,9 @@ ${fresh ? `
 <div class="small" style="margin-top:8px;line-height:2">${fa ? 'رمز پنل (UUID):' : 'Panel password (UUID):'}<br><code id="freshUuid" style="word-break:break-all;font-size:12px">${escapeHtml(uuid)}</code></div>
 <div class="small" style="margin-top:6px;line-height:2">${fa ? 'لینک ساب:' : 'Subscription:'}<br><code style="word-break:break-all;font-size:12px">/sub/${escapeHtml(uuid)}</code></div>
 <a class="btn p" style="width:100%;margin-top:10px" href="?p=${encodeURIComponent(uuid)}">${fa ? 'ورود یک‌لمسی' : 'One-tap sign in'}</a>
-<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${fa ? '⚠ این حالت ذخیره‌سازی ندارد و هر کسی که این صفحه را باز کند می‌تواند وارد شود. برای امن‌کردن: Cloudflare → Storage &amp; Databases → KV → Create (نام: هرچه خواستی) → برگرد به ورکر → Settings → Bindings → KV namespace با نام متغیر CAT_KV → و بعد در تب تنظیمات یک رمز بگذار.' : '⚠ Nothing is stored and anyone who opens this page can sign in. To secure it: Cloudflare → Storage &amp; Databases → KV → Create, then Worker → Settings → Bindings → KV namespace bound as CAT_KV, then set a password in the settings tab.'}</div>
+<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${noKv
+  ? (fa ? '⚠ ذخیره‌سازی (KV) بایند نشده و هیچ تنظیمی ذخیره نمی‌شود؛ هر کسی هم که این صفحه را باز کند می‌تواند وارد شود. برای امن‌کردن: Cloudflare → Storage &amp; Databases → KV → Create (نام: هرچه خواستی) → برگرد به ورکر → Settings → Bindings → KV namespace با نام متغیر CAT_KV → و بعد در تب تنظیمات یک رمز بگذار.' : '⚠ No KV namespace is bound, so nothing is stored — and anyone who opens this page can sign in. To secure it: Cloudflare → Storage &amp; Databases → KV → Create, then Worker → Settings → Bindings → KV namespace bound as CAT_KV, then set a password in the settings tab.')
+  : (fa ? '✓ ذخیره‌سازی (KV) بایند شده است. فقط یک کار مانده: بعد از ورود، در تبِ تنظیمات یک رمز بگذار تا این کارت و این صفحه برای بقیه بسته شود.' : '✓ Storage (KV) is bound. One thing left: after signing in, set a password in the settings tab so this card closes for everyone else.')}</div>
 </div>` : `<div class="dim small" style="text-align:center;margin-top:16px">${fa ? 'رمز پیش‌فرض همان UUID پنل است' : 'Default password is the panel UUID'}</div>`}
 </form></div>
 <script>

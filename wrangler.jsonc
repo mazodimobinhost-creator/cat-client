@@ -23,10 +23,14 @@
 // Verified with `wrangler deploy --dry-run` (wrangler 4.149.0), not on a live
 // account.
 {
-  // The Worker name. ⚠ If you already run a panel under another name, put THAT
-  // name here before connecting Workers Builds: Wrangler deploys to the name in
-  // this file, so a mismatch creates a second Worker instead of updating yours.
-  "name": "cat-panel",
+  // The Worker name. ⚠ Workers Builds REQUIRES this to equal the name of the
+  // Worker in the Cloudflare dashboard — the build fails otherwise with
+  // «The name in your Wrangler configuration file (X) must match the name of
+  // your Worker». Wrangler deploys to THIS name, so a mismatch either fails the
+  // build or publishes a second Worker instead of updating the one you opened.
+  // Set to the worker being deployed while testing; change it to your own name
+  // before connecting Workers Builds.
+  "name": "empty-wave-5d02",
   "main": "dist-panel/catpanel.min.js",
   // A snapshot date, not a version. Keep it at or below today's date. It is left
   // at the date the current panel code was deployed with on purpose: raising it
