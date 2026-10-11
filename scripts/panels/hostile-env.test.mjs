@@ -122,6 +122,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
     get headers() { throw new Error('boom headers'); },
   });
 
+  T.kvCacheClear();
   const freshEnv = {};
   const fresh = await worker.fetch(boomRequest('/api/users'), freshEnv, { waitUntil() {} });
   const freshBody = await fresh.json();
@@ -226,6 +227,49 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   ok('a missing KV binding is named, not hidden', /NOT BOUND/.test((await noKv.json()).kv || ''));
 }
 
+/* ---------- F2) /api/selfcheck — the owner can prove the handler works ---------- */
+{
+  const kv = memKv();
+  const env = { CAT_KV: kv };
+  const settings = Object.assign({}, await T.readSettings(env), { passwordHash: await T.sha256Hex('owner-secret') });
+  await kv.put(T.KV_KEYS.settings, JSON.stringify(settings));
+  T.kvCacheClear();
+
+  const anon = await T.handleRequest(new Request('https://' + HOST + '/api/selfcheck'), env, { waitUntil() {} });
+  ok('/api/selfcheck is owner-only (a stranger cannot even reach the throw)',
+    anon.status === 401, anon.status);
+
+  const login = await T.handleRequest(
+    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
+    env, { waitUntil() {} });
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+
+  const alive = await T.handleRequest(new Request('https://' + HOST + '/api/selfcheck', { headers: { cookie } }), env, { waitUntil() {} });
+  const aliveBody = await alive.json();
+  ok('the owner gets a plain health answer without the flag',
+    alive.status === 200 && aliveBody.ok === true && aliveBody.version === T.CAT_PANEL_VERSION,
+    JSON.stringify(aliveBody).slice(0, 90));
+
+  // The whole point: this throws inside the worker on purpose. request.headers is
+  // a real Headers here, because the owner gate reads the session cookie first.
+  const thrown = await (await worker.fetch({
+    url: 'https://' + HOST + '/api/selfcheck?throw=1',
+    method: 'GET',
+    headers: new Headers({ cookie }),
+  }, env, { waitUntil() {} })).json();
+  ok('?throw=1 turns into the JSON crash report (this is the 1101 test)',
+    thrown.error === 'panel_crash' && thrown.title === 'Worker Exception Handled' &&
+      /PANEL SELF-TEST/.test(thrown.message) && /PANEL SELF-TEST/.test(thrown.stack),
+    JSON.stringify(thrown.message).slice(0, 80));
+  ok('…and the report names the route it happened on', thrown.at === '/api/selfcheck', thrown.at);
+
+  // A stranger asking for the same throw is refused by the owner gate BEFORE the
+  // throw: nobody can force a report out of someone else's panel.
+  const stranger = await T.handleRequest(new Request('https://' + HOST + '/api/selfcheck?throw=1'), env, { waitUntil() {} });
+  const strangerBody = await stranger.text();
+  ok('a stranger cannot force the throw', stranger.status === 401 && !/PANEL SELF-TEST/.test(strangerBody), stranger.status);
+}
+
 /* ---------- G) no browser global may appear in Worker scope ---------- */
 {
   // The panel page the worker *serves* is one big template string full of
@@ -263,6 +307,12 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
 
 /* ---------- H) the ERROR PATH itself must survive hostile thrown values ---------- */
 {
+  // kvGetJson() consults its process-wide cache BEFORE the binding, which is
+  // correct in production (one isolate = one Worker = one env) but means this
+  // suite must drop the cache whenever it switches envs — otherwise the empty env
+  // below inherits the passwordHash written by the sections above and the setup
+  // state (which is what makes the report reachable) disappears.
+  T.kvCacheClear();
   // Whatever a request (or a binding) throws at us — a bare string, null, a Proxy
   // that throws on every property read, an object whose message getter throws —
   // fetch() must still answer a JSON 500. If any of this escaped, the edge would

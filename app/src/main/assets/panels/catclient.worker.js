@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.7';
+const CAT_PANEL_VERSION = '6.66.8';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -4495,6 +4495,26 @@ async function handleApi(request, url, env, ctx) {
       diagFlag: diagFlag(env) === null ? 'unset (crash reports are owner-only)' : String(diagFlag(env)),
       recentErrors: errorDetail(),
       note: 'Owner-only. No UUID is ever returned. A 1101 WITHOUT a report from this worker means the script failed to load, not that a request threw.',
+    }, 200, { 'cache-control': 'no-store' });
+  }
+
+  /**
+   * Self-test for the crash handler — the «give me something I can test» route.
+   * Plain GET proves the owner-only branch answers; `?throw=1` throws ON PURPOSE
+   * so the outer catch has to turn it into the JSON crash report instead of
+   * Cloudflare's opaque «Error 1101» page. It sits BELOW the owner gate, so it
+   * cannot be used by a stranger to force a report out of a live panel.
+   */
+  if (path === '/api/selfcheck') {
+    const want = String(url.searchParams.get('throw') || '').toLowerCase();
+    if (want === '1' || want === 'true' || want === 'yes') {
+      throw new Error('PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works');
+    }
+    return json({
+      ok: true,
+      version: CAT_PANEL_VERSION,
+      handler: 'alive — /api/selfcheck?throw=1 throws on purpose to prove the crash report replaces «Error 1101»',
+      diag: diagFlag(env) === null ? 'unset' : String(diagFlag(env)),
     }, 200, { 'cache-control': 'no-store' });
   }
 

@@ -312,13 +312,28 @@ did not run. There are exactly two situations, and one URL tells them apart:
 
 A file that never loads cannot report anything: nothing inside a script that fails to
 parse can catch that. So before pasting, look at the first line
-(`/* CAT_PANEL_VERSION = '6.66.7' */`), the last characters
+(`/* CAT_PANEL_VERSION = '6.66.8' */`), the last characters
 (`…userInfoPage:Wa,camouflagePage:Ba};` for `catpanel.min.js` in this release) and
-the size (475,169 bytes). The browser's editor wraps the three long lines, so «it
+the size (475,637 bytes). The browser's editor wraps the three long lines, so «it
 looks like two lines» means nothing; the byte count is what matters.
 
 Since 6.66.6 (shape finalised in 6.66.7) a request-time exception answers JSON for
-the owner instead of the 1101 page:
+the owner instead of the 1101 page. **You can prove it on your own Worker** — the
+owner-only self-test throws on purpose:
+
+```bash
+# signed in (or x-cat-key: <panel password / UUID>) — this one always answers:
+curl -s https://<your-worker>/api/selfcheck            # {"ok":true,"version":"6.66.8","handler":"alive …"}
+# and this one throws inside the Worker, so you see the report, not a 1101 page:
+curl -s "https://<your-worker>/api/selfcheck?throw=1" | head -c 400
+```
+
+The second command returning `error:"panel_crash"` with a `stack` — instead of
+Cloudflare's «Error 1101: Worker threw exception» page — is the whole test. A
+stranger asking for the same URL is refused with `401` before the throw, so nobody
+can use it to force a report out of your panel.
+
+The report itself:
 
 ```json
 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled",
@@ -335,6 +350,11 @@ What that promise does and does not cover — worth knowing before you chase a 1
 | the crash could not be attributed (the owner check itself failed) | still JSON: `crashReportMinimal()` — message/stack attached only when `PANEL_DIAG=1` |
 | a script that fails to **parse or load** (truncated paste, bad build) | 1101 on every route — nothing inside the file can catch that; this is what the size/marker checks, the app's `pasteScriptIsSane()` gate and the Workers Builds path exist for |
 | an error thrown while a response body is already streaming, or inside `ctx.waitUntil()` | the response is already sent; the error is recorded and shows up in `/api/diag` (`recentErrors`) |
+
+`/api/diag` (owner-only) is the other half of the story: it lists the bindings this
+isolate sees, runs a real KV write→read→delete probe, and shows the last crashes.
+Together with `/api/selfcheck` you can tell «the panel is broken» from «the request
+was broken» without guessing.
 
 If you see the report, send it (minus anything private) — it names the exact line.
 If you see 1101 *without* the report, the deployment itself is the problem, and the
