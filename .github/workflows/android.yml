@@ -428,6 +428,20 @@ jobs:
               echo "::error::$base: the bundled panel has no readable version line (in-app panel update would misjudge versions)" >&2
               exit 1
             }
+            # …and the file the «copy code» button hands over must be inside the APK
+            # as well: the 3-line paste artifact, actually there and actually whole.
+            # (If this ever goes missing the button silently falls back to the ~1.2 MB
+            # bundle — the truncation risk this whole path exists to remove.)
+            paste_bytes="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | wc -c)"
+            [[ "$paste_bytes" -ge 300000 ]] || {
+              echo "::error::$base: assets/panels/catpanel.min.js is ${paste_bytes} bytes — the official paste artifact (~474 KB) is missing from the APK" >&2
+              exit 1
+            }
+            paste_head="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | head -c 64 || true)"
+            grep -Eq "^/\* CAT_PANEL_VERSION = '[0-9]+(\.[0-9]+)+' \*/" <<<"$paste_head" || {
+              echo "::error::$base: the bundled paste artifact has no readable version line" >&2
+              exit 1
+            }
             found+=("$variant")
           done
           for variant in "${expected[@]}"; do

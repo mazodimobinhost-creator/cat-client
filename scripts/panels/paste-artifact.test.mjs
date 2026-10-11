@@ -109,6 +109,9 @@ const source = readFileSync(sourcePath, 'utf8');
     /cp dist-panel\/catpanel\.min\.js app\/src\/main\/assets\/panels\/catpanel\.min\.js/.test(yml));
   ok('…and commits it with the other snapshots',
     /git add [^\n]*app\/src\/main\/assets\/panels\/catpanel\.min\.js/.test(yml));
+  ok('the packaged APK is checked: the asset must be there and whole',
+    yml.includes('assets/panels/catpanel.min.js') && /paste_bytes[\s\S]{0,120}-ge 300000/.test(yml) &&
+      /paste_head[\s\S]{0,160}CAT_PANEL_VERSION/.test(yml));
   ok('…right after the minify step, i.e. before the in-place obfuscation',
     yml.indexOf('cp dist-panel/catpanel.min.js') > yml.indexOf('minify.mjs') &&
       yml.indexOf('cp dist-panel/catpanel.min.js') < yml.indexOf('obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js'));
