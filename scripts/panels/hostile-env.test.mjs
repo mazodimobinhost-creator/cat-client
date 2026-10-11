@@ -1,0 +1,248 @@
+/**
+ * HOSTILE ENVIRONMENT — «Error 1101: Worker threw exception» audit.
+ *
+ * The owner hit Cloudflare's Error 1101 page and asked for two things: find
+ * every place that can crash because a variable is undefined / a KV or env
+ * binding is missing / a browser global (window, document) leaked into Worker
+ * scope — and make a request-time crash answer with a JSON report carrying the
+ * message and the stack instead of the opaque 1101 page.
+ *
+ * This suite pins the first half (nothing throws in a bare or hostile env) and
+ * the second half (the report appears for the owner, never for a stranger),
+ * because both are invisible locally and only fail in production.
+ *
+ * Run standalone:  node scripts/panels/hostile-env.test.mjs
+ * Against a built artifact:  CAT_PANEL_WORKER=$PWD/dist-panel/catpanel.stealth.js node …
+ */
+import { strict as assert } from 'node:assert';
+import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
+
+const workerPath = process.env.CAT_PANEL_WORKER
+  ? new URL(process.env.CAT_PANEL_WORKER, pathToFileURL(process.cwd() + '/')).href
+  : new URL('../../app/src/main/assets/panels/catclient.worker.js', import.meta.url).href;
+const sourcePath = new URL('../../app/src/main/assets/panels/catclient.worker.js', import.meta.url);
+
+const mod = await import(workerPath);
+const T = mod._testing;
+const HOST = 'hostile-env.workers.dev';
+const UUID = await T.resolveUuid(HOST, {});
+const worker = mod.default;
+
+let pass = 0; let fail = 0;
+const ok = (name, cond, extra) => {
+  if (cond) { pass++; console.log('  ✓ ' + name); }
+  else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? '  → ' + extra : '')); }
+};
+
+const memKv = () => {
+  const m = new Map();
+  return {
+    get: async (k) => (m.has(k) ? m.get(k) : null),
+    put: async (k, v) => { m.set(k, String(v)); },
+    delete: async (k) => { m.delete(k); },
+    list: async () => ({ keys: [...m.keys()].map((name) => ({ name })), list_complete: true }),
+  };
+};
+
+/** Every public route, in one table so a missing guard shows up as a table row. */
+const ROUTES = [
+  ['GET', '/'], ['GET', '/panel'], ['GET', '/login'], ['GET', '/health'], ['GET', '/api/health'],
+  ['GET', '/api/version'], ['GET', '/api/settings'], ['GET', '/api/users'], ['GET', '/api/ips'],
+  ['GET', '/sub/' + UUID], ['GET', '/sub64/' + UUID], ['GET', '/clash/' + UUID],
+  ['GET', '/singbox/' + UUID], ['GET', '/info/' + UUID], ['GET', '/qr.svg?text=hi'],
+  ['GET', '/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE'], ['GET', '/nope'],
+  ['POST', '/api/login'], ['PUT', '/api/settings'], ['DELETE', '/api/users'],
+];
+
+/** Fire the whole table at a worker instance; returns the routes that THREW. */
+async function sweep(env, label) {
+  const threw = [];
+  const statuses = {};
+  for (const [method, path] of ROUTES) {
+    const init = { method };
+    if (method !== 'GET') init.body = '{}';
+    try {
+      const res = await worker.fetch(new Request('https://' + HOST + path, init), env, { waitUntil() {} });
+      statuses[path] = res.status;
+    } catch (e) {
+      threw.push(path + ' → ' + (e && e.message));
+    }
+  }
+  ok(label + ': no route throws out of fetch()', threw.length === 0, threw.join(' | '));
+  return statuses;
+}
+
+console.log('\nHostile environment — a worker that must never 1101 on a missing binding\n');
+
+/* ---------- A) a bare paste: no bindings, no variables at all ---------- */
+{
+  const statuses = await sweep({}, 'no bindings at all');
+  await sweep(undefined, 'env argument omitted entirely');
+  ok('…and the panel route still answers its setup screen', statuses['/panel'] === 200, statuses['/panel']);
+  ok('…the health probe still answers ok', statuses['/health'] === 200, statuses['/health']);
+  ok('…an owner-only API route answers 401, not 500', statuses['/api/settings'] === 401, statuses['/api/settings']);
+  ok('…an unknown route is a neutral 404', statuses['/nope'] === 404, statuses['/nope']);
+}
+
+/* ---------- B) KV bound but broken: every call throws ---------- */
+{
+  const boom = () => { throw new Error('KV is down'); };
+  const broken = { CAT_KV: { get: boom, put: boom, list: boom, delete: boom } };
+  const statuses = await sweep(broken, 'CAT_KV that throws on every call');
+  ok('…the panel still renders (a broken KV is not a crash)', statuses['/panel'] === 200, statuses['/panel']);
+}
+
+/* ---------- C) KV that returns junk that is not JSON ---------- */
+{
+  const junk = {
+    CAT_KV: {
+      get: async () => 'not json {{', put: async () => {}, delete: async () => {},
+      list: async () => ({ keys: [], list_complete: true }),
+    },
+  };
+  const statuses = await sweep(junk, 'CAT_KV returning junk');
+  ok('…the panel still renders', statuses['/panel'] === 200, statuses['/panel']);
+}
+
+/* ---------- D) half-configured env values ---------- */
+{
+  const env = { CAT_KV: null, UUID: '', PANEL_PASSWORD: '', OPEN_PANEL: null, OPEN_SUB: undefined, PANEL_USER: 0 };
+  const statuses = await sweep(env, 'null/undefined/empty env values');
+  ok('…the panel still renders', statuses['/panel'] === 200, statuses['/panel']);
+}
+
+/* ---------- E) a crash must answer with a report, and only to the owner ---------- */
+{
+  // A request whose headers getter throws is a deterministic request-time crash:
+  // handleRequest() reads headers long before any route logic.
+  const boomRequest = (path) => ({
+    url: 'https://' + HOST + path,
+    method: 'GET',
+    get headers() { throw new Error('boom headers'); },
+  });
+
+  const freshEnv = {};
+  const fresh = await worker.fetch(boomRequest('/api/users'), freshEnv, { waitUntil() {} });
+  const freshBody = await fresh.json();
+  ok('a request-time crash answers 500, not an escaped throw', fresh.status === 500, fresh.status);
+  ok('…with a JSON crash report instead of the opaque 1101 page', freshBody.error === 'panel_crash', JSON.stringify(freshBody).slice(0, 90));
+  ok('…carrying the message', /boom headers/.test(freshBody.message || ''), freshBody.message);
+  ok('…and a real stack', Array.isArray(freshBody.stack) && freshBody.stack.length > 0 && /boom headers/.test(freshBody.stack.join('\n')));
+  ok('…and it names the version so a stale deploy is visible', freshBody.version === T.CAT_PANEL_VERSION, freshBody.version);
+
+  // Configured panel (password exists) → a stranger must NOT get the report.
+  const kv = memKv();
+  const env = { CAT_KV: kv };
+  const settings = Object.assign({}, await T.readSettings(env), { passwordHash: await T.sha256Hex('owner-secret') });
+  await kv.put(T.KV_KEYS.settings, JSON.stringify(settings));
+  T.kvCacheClear();
+
+  const strangerApi = await worker.fetch(boomRequest('/api/users'), env, { waitUntil() {} });
+  const strangerApiBody = await strangerApi.json();
+  ok('configured panel + stranger + /api crash → plain internal error, no stack',
+    strangerApi.status === 500 && strangerApiBody.error === 'internal' && !strangerApiBody.stack,
+    JSON.stringify(strangerApiBody).slice(0, 90));
+
+  const strangerPage = await worker.fetch(boomRequest('/panel'), env, { waitUntil() {} });
+  const pageBody = await strangerPage.text();
+  ok('configured panel + stranger + page crash → the neutral page, nothing about the panel',
+    !/panel_crash/.test(pageBody) && !/boom headers/.test(pageBody) && !pageBody.includes(T.CAT_PANEL_VERSION), strangerPage.status);
+
+  const forced = await worker.fetch(boomRequest('/api/users'), Object.assign({ PANEL_DIAG: '1' }, env), { waitUntil() {} });
+  ok('PANEL_DIAG=1 forces the report for everyone (the escape hatch)',
+    (await forced.json()).error === 'panel_crash');
+
+  const offBody = await (await worker.fetch(boomRequest('/api/users'), Object.assign({ PANEL_DIAG: '0' }, freshEnv), { waitUntil() {} })).text();
+  ok('PANEL_DIAG=0 suppresses it even in the setup state', JSON.parse(offBody).error === 'internal');
+  ok('…and the neutral API fallback leaks no error text', !offBody.includes('boom headers'), offBody.slice(0, 80));
+
+  // The URL query is dropped from the report: ?p=<uuid> must never be echoed.
+  const withQuery = await worker.fetch(boomRequest('/api/users?p=' + UUID), freshEnv, { waitUntil() {} });
+  const queryBody = await withQuery.text();
+  ok('the report never echoes the query string (the one-tap password lives there)',
+    !queryBody.includes(UUID));
+}
+
+/* ---------- F) /api/diag — the owner's own health report ---------- */
+{
+  const kv = memKv();
+  const env = { CAT_KV: kv, OPEN_PANEL: 'true' };
+  const settings = Object.assign({}, await T.readSettings(env), { passwordHash: await T.sha256Hex('owner-secret') });
+  await kv.put(T.KV_KEYS.settings, JSON.stringify(settings));
+  T.kvCacheClear();
+
+  const anon = await T.handleRequest(new Request('https://' + HOST + '/api/diag'), env, { waitUntil() {} });
+  ok('/api/diag is owner-only (anonymous gets 401)', anon.status === 401, anon.status);
+
+  const login = await T.handleRequest(
+    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
+    env, { waitUntil() {} });
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  ok('the owner can sign in', login.status === 200 && cookie.startsWith('cat_session='), login.status);
+
+  const diag = await T.handleRequest(new Request('https://' + HOST + '/api/diag', { headers: { cookie } }), env, { waitUntil() {} });
+  const body = await diag.json();
+  ok('/api/diag answers the owner', diag.status === 200 && body.ok === true, diag.status);
+  ok('…it proves KV really reads and writes right now', body.kv === 'read+write ok', body.kv);
+  ok('…it lists the bindings this isolate can see', Array.isArray(body.bindings) && body.bindings.includes('CAT_KV'), JSON.stringify(body.bindings));
+  ok('…it reports the running version', body.version === T.CAT_PANEL_VERSION, body.version);
+  ok('…and it never returns the master UUID', !diag.headers.get('x') && !JSON.stringify(body).includes(UUID));
+
+  // A KV that refuses every call: the owner still reaches diag with the panel
+  // key (x-cat-key = the UUID while no password was ever set) — and the report
+  // must shout FAILED instead of pretending KV is fine.
+  const kvBoom = () => { throw new Error('KV permission denied'); };
+  const brokenKv = { CAT_KV: { get: kvBoom, put: kvBoom, delete: kvBoom, list: kvBoom } };
+  T.kvCacheClear(); // one isolate serves one env; the suite swaps envs, so drop the read cache
+  const diagBroken = await T.handleRequest(
+    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': UUID } }), brokenKv, { waitUntil() {} });
+  const brokenBody = await diagBroken.json();
+  ok('a KV that refuses every call is REPORTED as FAILED, not swallowed',
+    diagBroken.status === 200 && /FAILED/.test(brokenBody.kv || ''),
+    diagBroken.status + ' ' + JSON.stringify(brokenBody).slice(0, 140));
+
+  // No binding at all must say so out loud — that is the sentence the owner acts on.
+  T.kvCacheClear();
+  const noKv = await T.handleRequest(
+    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': UUID } }), {}, { waitUntil() {} });
+  ok('a missing KV binding is named, not hidden', /NOT BOUND/.test((await noKv.json()).kv || ''));
+}
+
+/* ---------- G) no browser global may appear in Worker scope ---------- */
+{
+  // The panel page the worker *serves* is one big template string full of
+  // document/window calls — that is frontend code and it belongs there. A real
+  // reference in the worker's own scope would be invisible locally and fatal on
+  // the edge, so the check parses the file and looks at identifiers only: an AST
+  // cannot confuse «inside a string» with «executed here». (acorn ships with
+  // javascript-obfuscator, which the build already needs.)
+  const { parse } = await import('acorn');
+  const src = readFileSync(sourcePath, 'utf8');
+  const ast = parse(src, { ecmaVersion: 'latest', sourceType: 'module' });
+  const FORBIDDEN = new Set(['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'alert']);
+  const hits = [];
+  const visit = (node, parent) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { for (const child of node) visit(child, parent); return; }
+    if (node.type === 'Identifier' && FORBIDDEN.has(node.name)) {
+      const isProperty = parent && parent.type === 'MemberExpression' && parent.property === node && !parent.computed;
+      const isKey = parent && (parent.type === 'Property' || parent.type === 'MethodDefinition') && parent.key === node && !parent.computed;
+      if (!isProperty && !isKey) hits.push(node.name + ' @' + node.start);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end') continue;
+      visit(node[key], node);
+    }
+  };
+  visit(ast, null);
+  ok('the worker code (its own scope, not the page it serves) never references a browser global',
+    hits.length === 0, hits.slice(0, 3).join(', '));
+
+  // The same parse proves the file is one valid module — a truncated paste is
+  // exactly what turns into 1101 on every route with nothing to catch it.
+  ok('the source parses as a single valid ES module', ast.type === 'Program' && ast.sourceType === 'module');
+}
+
+console.log('\nhostile env: ' + pass + ' passed, ' + fail + ' FAILED');
+assert.equal(fail, 0, fail + ' checks failed');

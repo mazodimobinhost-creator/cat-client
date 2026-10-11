@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.5';
+const CAT_PANEL_VERSION = '6.66.6';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -2633,6 +2633,80 @@ function recordError(kind, d) {
   if (__logState.queue.length > ERROR_RING) __logState.queue.length = ERROR_RING;
 }
 
+/* Crash reports with a stack: isolate-local, masked, last three, NEVER persisted
+   (the KV error log keeps messages only, so its 1000-writes/day budget and value
+   size never grow because of a stack). Surfaced by the owner-facing crash page
+   and /api/diag. */
+const ERR_DETAIL_RING = 3;
+const __errDetail = [];
+function recordErrorDetail(kind, err) {
+  const stack = maskCreds(String((err && err.stack) || (err && err.message) || err || '')).slice(0, 1500);
+  __errDetail.unshift({ t: Date.now(), k: String(kind || 'error').slice(0, 24), stack });
+  if (__errDetail.length > ERR_DETAIL_RING) __errDetail.length = ERR_DETAIL_RING;
+}
+function errorDetail() { return __errDetail.slice(); }
+
+/** PANEL_DIAG=1 → report for everyone · PANEL_DIAG=0 → never · unset → owner only. */
+function diagFlag(env) {
+  const raw = String((env && (env.PANEL_DIAG || env.PANEL_DIAGNOSTICS)) || '').trim().toLowerCase();
+  if (!raw) return null;
+  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
+}
+
+/**
+ * Who may see a crash report (message + stack). Cloudflare's «Error 1101: Worker
+ * threw exception» page tells an owner nothing, which is what this project was
+ * fighting for days — but the same page printed by a *working* panel would
+ * fingerprint it to every stranger probing the URL. So:
+ *   • no password set yet (the setup state) → report: nobody else is an owner yet
+ *   • valid owner session cookie           → report
+ *   • PANEL_DIAG=1 (Worker variable)       → report, for everyone (escape hatch
+ *     for when KV itself is broken and ownership cannot be verified)
+ * Everyone else keeps the unchanged neutral answer.
+ */
+async function diagAllowed(request, env, settings, masterUuid) {
+  const flag = diagFlag(env);
+  if (flag !== null) return flag;
+  if (!settings) return false;                    // cannot prove ownership → stay neutral
+  try {
+    if (panelIsOpen(env, settings)) return true;
+    // Setup state: no password anywhere (not in KV, not in a variable) means the
+    // install has no owner yet — the paste-and-go screen already shows the UUID to
+    // whoever opens the panel path, so the report protects nothing by hiding.
+    if (!settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim()) return true;
+    return await isOwner(request, env, settings, masterUuid);
+  } catch { return false; }
+}
+
+/** Where a crash happened. Runs inside the error path, so it must never throw. */
+function crashLocation(request) {
+  let url = '', method = '';
+  try { url = String((request && request.url) || ''); } catch { /* getter threw */ }
+  try { method = String((request && request.method) || ''); } catch { /* getter threw */ }
+  let host = '', path = url;
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname;
+    path = parsed.pathname;              // query dropped on purpose: ?p=<uuid> lives there
+  } catch { /* keep the raw string */ }
+  return { host, path: maskCreds(path).slice(0, 200), method: method.slice(0, 10) };
+}
+
+/** The JSON answer that replaces the opaque 1101 page for the owner. */
+function crashReport(err, where) {
+  return json({
+    ok: false,
+    error: 'panel_crash',
+    version: CAT_PANEL_VERSION,
+    at: where.path,
+    method: where.method,
+    message: maskCreds(String((err && err.message) || err || 'unknown error')).slice(0, 400),
+    stack: maskCreds(String((err && err.stack) || '')).split('\n').slice(0, 12),
+    recent: errorDetail(),
+    hint: 'This replaced Cloudflare\'s «Error 1101» page. PANEL_DIAG=1 shows it to everyone; PANEL_DIAG=0 hides it entirely. A 1101 with THIS report missing means the script failed to load (truncated paste / bad build) — nothing inside the file can catch that.',
+  }, 500, { 'cache-control': 'no-store' });
+}
+
 async function readUsage(env) {
   const kv = kvBinding(env);
   if (!kv) return { day: usageDay(), reqs: __logState.reqs, writes: 0, errors: [], pending: __logState.queue.length, noKv: true };
@@ -4316,6 +4390,42 @@ async function handleApi(request, url, env, ctx) {
   /* ---- everything below is owner-only ---- */
   if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'unauthorized' }, 401);
   const origin = url.origin;
+
+  /**
+   * Self-diagnosis for the owner — the answer to «my worker says /health is odd»
+   * or «what is actually bound here?». Reports what THIS isolate can see: which
+   * bindings exist, whether KV really reads and writes right now, the last
+   * crashes with stacks, and the version. It never returns the master UUID.
+   */
+  if (path === '/api/diag') {
+    const kv = kvBinding(env);
+    let kvCheck = kv ? 'bound' : 'NOT BOUND — every write is memory-only, attach CAT_KV';
+    if (kv) {
+      try {
+        const probeKey = 'cat_diag_probe_v1';
+        await kv.put(probeKey, String(Date.now()), { expirationTtl: 60 });
+        const back = await kv.get(probeKey);
+        kvCheck = back ? 'read+write ok' : 'wrote but read back empty';
+        if (back && typeof kv.delete === 'function') { try { await kv.delete(probeKey); } catch { /* best effort */ } }
+      } catch (e) {
+        kvCheck = 'FAILED: ' + maskCreds(String((e && e.message) || e)).slice(0, 160);
+      }
+    }
+    return json({
+      ok: true,
+      version: CAT_PANEL_VERSION,
+      host,
+      runtime: { cf: !!request.cf, colo: (request.cf && request.cf.colo) || null },
+      bindings: Object.keys(env || {}).sort(),
+      kv: kvCheck,
+      passwordSet: !!settings.passwordHash,
+      panelPath: settings.panelPath || 'panel',
+      users: settings.passwordHash ? (await readUsers(env).catch(() => [])).length : 0,
+      diagFlag: diagFlag(env) === null ? 'unset (crash reports are owner-only)' : String(diagFlag(env)),
+      recentErrors: errorDetail(),
+      note: 'Owner-only. No UUID is ever returned. A 1101 WITHOUT a report from this worker means the script failed to load, not that a request threw.',
+    }, 200, { 'cache-control': 'no-store' });
+  }
 
   if (path === '/api/self') return json(Object.assign({ ok: true }, selfInfo(request)));
 
@@ -7253,21 +7363,41 @@ export default {
     }
   },
   async fetch(request, env, ctx) {
+    // A worker with NO bindings at all is a supported state (paste-and-go), and
+    // a half-configured one must not throw either: normalise once, here.
+    env = env || {};
     countRequest(); // memory-only; persisted by scheduleFlush at most every 5 min
     try {
-      const res = await handleRequest(request, env || {}, ctx);
-      scheduleFlush(env || {}, ctx);
+      const res = await handleRequest(request, env, ctx);
+      scheduleFlush(env, ctx);
       return res;
     } catch (e) {
       // Record before answering, then flush immediately: an unhandled error is
       // exactly what the owner needs to see in the log (still one write only).
       recordError('unhandled', e && e.message ? e.message : String(e));
-      scheduleFlush(env || {}, ctx, true);
-      // Never let an exception escape: an escaped throw is exactly what the
-      // edge turns into the «Error 1101» page. API callers get JSON, every
-      // other request a neutral page — no stack, no version, no hints.
+      recordErrorDetail('unhandled', e);
+      scheduleFlush(env, ctx, true);
+      // Never let an exception escape: an escaped throw is exactly what the edge
+      // turns into the «Error 1101» page. Instead of answering with a page that
+      // says nothing (the whole reason this branch exists), the OWNER gets a
+      // JSON crash report with the message and the stack; a stranger keeps the
+      // unchanged neutral answer. See diagAllowed() for who counts as the owner.
+      //
+      // NOTE: this catches REQUEST-TIME exceptions only. A script that fails to
+      // parse or load (a truncated paste, a bad build) answers 1101 on every
+      // single route — nothing inside the file can catch that, which is why
+      // `node --check` + the load gates exist in scripts/panels/*.mjs.
       const u = request && typeof request === 'object' && request.url ? String(request.url) : '';
-      if (u.indexOf('/api') >= 0) return json({ ok: false, error: 'internal', message: String(e && e.message ? e.message : e) }, 500);
+      try {
+        const where = crashLocation(request);
+        const settings = await readSettings(env).catch(() => null);
+        const masterUuid = settings ? await resolveUuid(where.host, env) : '';
+        if (await diagAllowed(request, env, settings, masterUuid)) return crashReport(e, where);
+      } catch (_e3) { /* the report itself must never become the crash */ }
+      // An API answer must stay JSON (the panel calls it with fetch()), but the raw
+      // message is not handed to a stranger: leaking an internal error to anyone
+      // probing /api is the same fingerprint the neutral page avoids.
+      if (u.indexOf('/api') >= 0) return json({ ok: false, error: 'internal', message: 'unhandled error — set PANEL_DIAG=1 for the full report' }, 500);
       try { return stealthNotFound(); } catch (_e2) { return new Response('error', { status: 500, headers: { 'content-type': 'text/plain' } }); }
     }
   },

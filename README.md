@@ -296,6 +296,37 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 2. **Through Cat Client** — Cloud tab → paste an API token → *Deploy on my
    Cloudflare*. The app creates the KV, uploads the worker, and imports the sub.
 
+### ⚠️ «Error 1101» — how to tell «the script never loaded» from «a request threw»
+
+Cloudflare prints *Error 1101: Worker threw exception* when the script on the Worker
+did not run. There are exactly two situations, and one URL tells them apart:
+
+| Open `https://<your-worker>/api/version` | Meaning | Fix |
+| --- | --- | --- |
+| JSON: `{"ok":true,"panel":"cat-panel","version":"…"}` | the script is **loaded and running**; something a *request* did threw | open `/api/diag` (owner) or set `PANEL_DIAG=1`, then read the JSON report |
+| the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, or a build that lost its tail | deploy again from a verified file (below) |
+
+A file that never loads cannot report anything: nothing inside a script that fails to
+parse can catch that. So before pasting, check the two ends of the file in the
+clipboard — first line `/* CAT_PANEL_VERSION = '6.66.6' */` and last characters
+`…camouflagePage:Ha};` — and the size (474,314 bytes for `catpanel.min.js`). The
+browser's editor wraps the three long lines, so «it looks like two lines» means
+nothing; the byte count is what matters.
+
+On 6.66.6+ a request-time exception answers JSON for the owner instead of the 1101
+page:
+
+```json
+{"ok":false,"error":"panel_crash","version":"6.66.6","at":"/panel","method":"GET",
+ "message":"…","stack":["…"],"hint":"This replaced Cloudflare's «Error 1101» page. …"}
+```
+
+If you see the report, send it (minus anything private) — it names the exact line.
+If you see 1101 *without* the report, the deployment itself is the problem, and the
+fix is a redeploy: Cloudflare Dashboard → Workers & Pages → your Worker → Deployments,
+or connect the repo under **Settings → Builds** (see above) so the file is read from
+GitHub instead of copied by hand.
+
 **Clean IPs (ایپی تمیز) — scanned on the device, not in the worker**
 
 - Panel → 📡 tab → *Scan with Cat Client* opens the app scanner
