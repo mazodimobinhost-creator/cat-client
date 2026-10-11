@@ -52,12 +52,14 @@ jobs:
       - name: Syntax check
         run: node --check app/src/main/assets/panels/catclient.worker.js
 
-      # wrangler.jsonc's `main` is dist-panel/catpanel.min.js. Build that exact
-      # entrypoint from the current readable source; minifying the source in
-      # place does not change what Wrangler deploys.
+      # wrangler.jsonc's `main` is dist-panel/catpanel.stealth.js. Build that
+      # exact entrypoint from the current readable source — the committed copy is
+      # a snapshot, and a stale snapshot would deploy an old panel.
       - name: Build configured worker artifact
         run: |
-          npm install --no-save terser --silent
+          npm install --no-save terser javascript-obfuscator@5 acorn --silent
+          node scripts/panels/stealth.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.stealth.js --check
+          # the readable deploy artifact stays built too (one-line switch back)
           node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
 
       - name: Deploy to Cloudflare

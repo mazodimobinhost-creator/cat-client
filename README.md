@@ -45,7 +45,7 @@ the relay's **address** (`host:port`) still appears as the config's display name
 server address does; and if you **remove a relay from the panel**, links carrying its id stop
 resolving — they fail closed instead of dialing something else.
 
-> 📦 The button deploys the **committed minified build** (`dist-panel/catpanel.min.js`, 120 KB gzipped) — the same code, readable on your own account, with nothing renamed or encoded away. CI rebuilds it from the AGPL source at `app/src/main/assets/panels/catclient.worker.js` on every push.
+> 📦 The button deploys the **committed stealth build** (`dist-panel/catpanel.stealth.js`) — the only artifact with **no plaintext panel fingerprint at all**: regex literals, object keys, member properties and short-hands are rewritten to concatenations, the string table is rc4-encrypted, and there is no version-marker line. Cost: ~604 KB gzipped and the deployed code is not human-auditable. The readable `dist-panel/catpanel.min.js` (120 KB gzipped, carries the version marker) is still built and committed — point `main` back at it in `wrangler.jsonc` for an auditable deploy. CI rebuilds it from the AGPL source at `app/src/main/assets/panels/catclient.worker.js` on every push.
 >
 > ⚠️ **Hypothesis, not a documented fact.** The obfuscated snapshot (`dist-panel/catpanel.obf.js`) was added on the belief that *"Cloudflare statically scans deployed worker sources for `vless`/`trojan` signatures and disables the worker with Error 1101"*. That belief could **not** be confirmed: Cloudflare's own documentation defines **1101 as "Worker threw a JavaScript exception"** — a runtime failure (uncaught exception, CPU/memory limit, crash in the global scope) — and the scanning story traces back only to community reports from November 2024, never to a Cloudflare statement. So it is recorded here as a **hypothesis**, and the deploy path no longer pays its price (533 KB gzipped, ~4.4× heavier, and unauditable). If you have a deployment that was disabled with 1101 and a Cloudflare ticket or log showing a source scan, open an issue — that would turn this from a hypothesis into a fact. The obfuscated snapshot is still built for the in-app updater, but it is **not** deployed.
 
@@ -56,7 +56,10 @@ resolving — they fail closed instead of dialing something else.
 اگر می‌خواهی فقط فایل را در کلادفلر بچسبانی و کار کند (بدونِ KV، بدونِ متغیر، بدونِ هیچ مرحله‌ای):
 
 1. **Workers & Pages → Create application → Worker** (هر نامی) → **Deploy**.
-2. **Edit code** → کلِ کدِ نمونه را پاک کن → کلِ `dist-panel/catpanel.min.js` را **پیست** کن → **Deploy**.
+2. **Edit code** → کلِ کدِ نمونه را پاک کن → کلِ `dist-panel/catpanel.stealth.js` را **پیست** کن → **Deploy**.
+   (اگر کدِ خوانا می‌خواهی، همان `dist-panel/catpanel.min.js` را بچسبان؛ آن هم کامل کار می‌کند ولی در متنش
+   `vless`/`trojan`/`proxyip` دیده می‌شود. فایلِ stealth حدوداً ۱٫۲ مگابایت است و اگر ادیتورِ کلادفلر
+   از پذیرفتنش سر باز زد، از راهِ **Workers Builds** پایین‌تر استفاده کن — آنجا از API آپلود می‌شود، نه از پیست.)
 3. آدرسِ `https://<نام>.<account>.workers.dev` را باز کن → خودش می‌رود به صفحهٔ راه‌اندازی و
    **UUIDِ پنل، لینکِ ساب و دکمهٔ «ورود یک‌لمسی»** را نشان می‌دهد. همین.
 
@@ -74,8 +77,8 @@ resolving — they fail closed instead of dialing something else.
 
 به‌جای پیست دستی: کلادفلر به مخزن وصل می‌شود و با هر push روی شاخهٔ انتخابی، خودش
 `wrangler deploy` را اجرا می‌کند. هر چه لازم است از قبل در مخزن هست —
-`wrangler.jsonc` (ورودیِ `dist-panel/catpanel.min.js` + بایندینگِ `CAT_KV`) و CIیی که همان
-فایل را از سورسِ AGPL می‌سازد.
+`wrangler.jsonc` (ورودیِ `dist-panel/catpanel.stealth.js` + بایندینگِ `CAT_KV`) و CIیی که همان
+فایل را از سورسِ AGPL می‌سازد (`scripts/panels/stealth.mjs`).
 
 **۱) KV — یک‌بار.** داشبورد → **Storage & Databases → KV → Create instance** → نام `cat-panel-kv`.
 اگر ورکرِ فعلی‌تان از قبل با همین نام بایند شده، کاری لازم نیست: بایندینگ بدونِ `id` می‌ماند و

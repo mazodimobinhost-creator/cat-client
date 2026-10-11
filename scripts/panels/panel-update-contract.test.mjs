@@ -134,8 +134,13 @@ check('«Manage panel» no longer calls an OLDER source an update (was `newest.v
 const wranglerConfig = read('wrangler.jsonc');
 const configuredMain = (/'main'\s*:\s*'([^']+)'/.exec(wranglerConfig) || /"main"\s*:\s*"([^"]+)"/.exec(wranglerConfig) || [])[1];
 const deployWorkflow = read('.github/workflows/deploy-worker.yml');
-check('Wrangler configured entrypoint is discoverable', configuredMain === 'dist-panel/catpanel.min.js', configuredMain);
-const deployBuildCommand = configuredMain && 'node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js ' + configuredMain + ' --check';
+// The entrypoint is either the stealth build (deploy artifact for Cloudflare —
+// deliberately marker-free) or the minified build. Either way it must be one of
+// the two artifacts this repo builds, never a stale or hand-made file.
+check('Wrangler configured entrypoint is one of the two built deploy artifacts',
+  configuredMain === 'dist-panel/catpanel.stealth.js' || configuredMain === 'dist-panel/catpanel.min.js',
+  configuredMain);
+const deployBuildCommand = configuredMain && 'node scripts/panels/' + (configuredMain === 'dist-panel/catpanel.stealth.js' ? 'stealth.mjs' : 'minify.mjs') + ' app/src/main/assets/panels/catclient.worker.js ' + configuredMain + ' --check';
 check('deploy workflow builds the current source into Wrangler’s actual entrypoint', !!deployBuildCommand && deployWorkflow.includes(deployBuildCommand), deployBuildCommand);
 check('deploy workflow checks live /api/version against the source marker', deployWorkflow.includes('$URL/api/version') && deployWorkflow.includes('"$VERSION_JSON" "$PVER"'));
 

@@ -6,20 +6,28 @@
 //   • Cloudflare Workers Builds (GitHub integration — Workers & Pages →
 //     your Worker → Settings → Build).
 //
-// main = the committed MINIFIED build (dist-panel/catpanel.min.js) — same code,
-// ~127 KiB gzipped instead of the obfuscated snapshot's ~533 KiB, and readable
-// on your own account. CI rebuilds it from the AGPL source on every push.
-// The obfuscated snapshot (dist-panel/catpanel.obf.js) still exists for the
-// in-app updater only; it is NOT deployed. The «Cloudflare scans worker sources
-// and returns Error 1101» story that motivated it is a community hypothesis,
-// not a documented Cloudflare behaviour — see scripts/panels/minify.mjs.
+// main = the committed STEALTH build (dist-panel/catpanel.stealth.js). The owner
+// asked for the deployable worker to be unidentifiable on Cloudflare, so this is
+// the only artifact with zero plaintext panel fingerprints: regex literals are
+// rewritten to new RegExp('…'), object keys / member properties / shorthands are
+// rewritten to concatenations, the whole thing is rc4-string-array obfuscated,
+// and there is NO version-marker line (the marker is a source-artifact contract
+// for the in-app updater; the deployed worker reports /api/version instead).
+// CI rebuilds it from the AGPL source on every push (scripts/panels/stealth.mjs).
+//
+// Cost: ~604 KiB gzipped (vs the minified build's ~127 KiB) and the deployed
+// code is not human-auditable. For a readable deploy use
+// dist-panel/catpanel.min.js — it is still built and committed, it still carries
+// the version marker, and `main` can be pointed back at it in one line.
+// The «Cloudflare scans worker sources and returns Error 1101» story is a
+// community hypothesis, not documented behaviour — see scripts/panels/minify.mjs.
 //
 // Deploy command for Workers Builds (Settings → Build → Deploy command):
 //     npx --yes wrangler@latest deploy --no-bundle
-// `--no-bundle` uploads dist-panel/catpanel.min.js byte for byte. Without it
+// `--no-bundle` uploads the artifact byte for byte. Without it
 // Wrangler runs it through esbuild, which escapes every non-ASCII character
 // (the panel is full of Persian text and emoji) and turns a 458 KiB upload into
-// 602 KiB / 139.40 KiB gzipped instead of 458 KiB / 127.39 KiB gzipped.
+// a much larger upload (the stealth build is full of escapes).
 // Verified with `wrangler deploy --dry-run` (wrangler 4.149.0), not on a live
 // account.
 {
@@ -31,7 +39,7 @@
   // Set to the worker being deployed while testing; change it to your own name
   // before connecting Workers Builds.
   "name": "empty-wave-5d02",
-  "main": "dist-panel/catpanel.min.js",
+  "main": "dist-panel/catpanel.stealth.js",
   // A snapshot date, not a version. Keep it at or below today's date. It is left
   // at the date the current panel code was deployed with on purpose: raising it
   // opts the Worker into newer runtime behaviour, which is a change to test on

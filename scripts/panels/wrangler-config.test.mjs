@@ -17,7 +17,7 @@
  */
 import { strict as assert } from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,16 +58,41 @@ try { cfg = JSON.parse(stripJsonc(raw)); } catch (e) { ok('wrangler.jsonc parses
 ok('wrangler.jsonc parses as JSONC', !!cfg);
 
 /* ---------- 1) main ---------- */
-ok('main points at the minified deploy artifact',
-  cfg?.main === 'dist-panel/catpanel.min.js', cfg?.main);
+const STEALTH = 'dist-panel/catpanel.stealth.js';
+const MINIFIED = 'dist-panel/catpanel.min.js';
+ok('main points at a known deploy artifact (stealth or minified)',
+  cfg?.main === STEALTH || cfg?.main === MINIFIED, cfg?.main);
 ok('…and that file is actually committed', existsSync(path.join(repo, cfg?.main || 'x')));
 {
   const marker = (s) => (/CAT_PANEL_VERSION\s*=\s*'([0-9.]+)'/.exec(s) || [])[1] || null;
   const sourceV = marker(read('app/src/main/assets/panels/catclient.worker.js'));
-  const deployV = marker(read(cfg.main));
-  ok('the deployed artifact declares a version', !!deployV, deployV);
-  ok('the deployed artifact matches the source version (no stale deploy file)',
-    !!sourceV && sourceV === deployV, `source=${sourceV} deploy=${deployV}`);
+  if (cfg.main === STEALTH) {
+    // The stealth artifact is deliberately marker-free (owner's request: nothing
+    // about the deployed worker may be identifiable), so its version is checked
+    // the way the app checks it — by asking the artifact's own runtime.
+    const stealth = read(STEALTH);
+    ok('the stealth artifact carries NO version marker (that is its point)',
+      !/CAT_PANEL_VERSION/.test(stealth));
+    ok('the stealth artifact has no plaintext panel signature in its code',
+      !/vless|trojan|vmess|clash|mihomo|singbox|xray|hysteria|proxyip|socks5|sub64|telegram|bypassIran|cat_panel|catpanel/i
+        .test(stealth.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'(?:[^'\\]|\\.)*'/g, "''").replace(/`(?:[^`\\]|\\.)*`/g, '``')));
+    const mod = await import(pathToFileURL(path.join(repo, STEALTH)).href);
+    const env = {
+      CAT_KV: { get: async () => null, put: async () => {}, delete: async () => {} },
+      UUID: '11111111-2222-4333-8444-555555555555', OPEN_PANEL: 'true', OPEN_SUB: 'true',
+    };
+    const res = await mod.default.fetch(new Request('https://x.workers.dev/api/version'), env, { waitUntil() {} });
+    const reported = (await res.json()).version;
+    ok('…and it reports the source version at runtime (/api/version)',
+      !!sourceV && reported === sourceV, `source=${sourceV} artifact=${reported}`);
+    ok('the minified artifact is still built next to it (one-line switch back)',
+      existsSync(path.join(repo, MINIFIED)));
+  } else {
+    const deployV = marker(read(cfg.main));
+    ok('the deployed artifact declares a version', !!deployV, deployV);
+    ok('the deployed artifact matches the source version (no stale deploy file)',
+      !!sourceV && sourceV === deployV, `source=${sourceV} deploy=${deployV}`);
+  }
 }
 
 /* ---------- 2) KV binding ---------- */
@@ -111,8 +136,15 @@ if ('preview_id' in kv) {
   ok('the repo deploy workflow deploys with --no-bundle (same bytes Cloudflare Builds upload)',
     /wrangler@latest deploy --no-bundle/.test(wf) || /wrangler.*deploy --no-bundle/.test(wf),
     'deploy step');
+  // The builder for the artifact main points at (stealth.mjs for the stealth
+  // build, minify.mjs for the minified one) must run with --check, so the deploy
+  // never uploads an artifact that was not verified in this exact run.
+  const builder = cfg.main === STEALTH ? 'stealth.mjs' : 'minify.mjs';
   ok('…and it still builds the artifact named by main',
-    wf.includes('node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js ' + cfg.main + ' --check'));
+    wf.includes('node scripts/panels/' + builder + ' app/src/main/assets/panels/catclient.worker.js ' + cfg.main + ' --check'),
+    builder);
+  ok('…and the readable deploy artifact stays built too (one-line switch back)',
+    wf.includes('minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js'));
 }
 {
   ok('vars stay strings (Workers rejects non-string vars)', ['OPEN_PANEL', 'OPEN_SUB'].every((k) => typeof cfg?.vars?.[k] === 'string'));

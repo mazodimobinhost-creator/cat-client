@@ -166,11 +166,15 @@ jobs:
       # unconfirmed community hypothesis (see scripts/panels/minify.mjs).
       - name: Obfuscate panel worker (in-app updater) + minified deploy snapshot
         run: |
-          npm install --no-save javascript-obfuscator@5 terser --silent
+          npm install --no-save javascript-obfuscator@5 terser acorn --silent
           # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
           node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
           # obfuscated snapshot: only what the in-app updater downloads (never deployed)
           node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
+          # STEALTH deploy artifact (wrangler.jsonc main): the owner asked for the
+          # worker on Cloudflare to carry no plaintext panel fingerprint at all —
+          # regexes, object keys, member properties and the version marker included.
+          node scripts/panels/stealth.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.stealth.js --check
           # ship artifact: obfuscate the checkout in place, then re-run the full suite against it
           node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
           CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
@@ -196,7 +200,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # committed preview/backup page for the release bundle + README raw links
           node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
-          git add dist-panel/catpanel.obf.js dist-panel/catpanel.min.js cat-panel.html
+          git add dist-panel/catpanel.obf.js dist-panel/catpanel.min.js dist-panel/catpanel.stealth.js cat-panel.html
           if git diff --cached --quiet; then echo "snapshot unchanged"; else git commit -m "[skip ci] refresh public panel snapshots + panel page (deploy button)" && (git push || echo "::warning::snapshot push skipped (non-fatal)"); fi
 
       - name: Guard - no Context access in Activity/Application constructors

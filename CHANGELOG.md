@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+- **Stealth deploy artifact (`dist-panel/catpanel.stealth.js`) — the worker that sits on Cloudflare carries no plaintext panel fingerprint.** Built by `scripts/panels/stealth.mjs` on top of the obfuscator: acorn parses the source and rewrites (a) every regex literal to `new RegExp('…')`, (b) string literals / object keys / member properties / destructuring short-hands into concatenations, and (c) the `cloudflare:sockets` import specifier into `'cloudflare:' + 'sockets'`. javascript-obfuscator then rc4-encrypts the whole string table with neutral smuggled globals, and the version-marker line is deliberately absent. The first attempt still leaked `{'socks':…}`, `'clash'`, `'singbox'`, `'bypassIran'`, `'subscription-userinfo'`, `masterUuid`, `env.CAT_KV` and the marker regex — all of it is now rewritten (661 rewrite spots), and the build gate re-rolls (rc4 noise) or refuses to ship. Verified on the real Workers runtime (workerd 1.20261011.1): `/`, `/panel`, `/health`, `/api/version`, `/sub`, `/clash`, `/singbox`, `/qr.svg`, `/api/settings` 401 — plus a probe worker that calls the artifact's own `_testing.loadSockets()` and gets `connect=function`, i.e. the hidden specifier resolves. `wrangler deploy --dry-run --no-bundle`: 1198.58 KiB / gzip 618.36 KiB with `env.CAT_KV`, `env.OPEN_PANEL`, `env.OPEN_SUB`.
+- `wrangler.jsonc` `main` now points at the stealth artifact; the readable `dist-panel/catpanel.min.js` is still built and committed (`deploy-worker.yml` builds both, `wrangler-config.test.mjs` asserts the pairing) so switching back is one line. `panel-update-contract.test.mjs` follows `main` to whichever builder it names.
+
+### Notes
+- The stealth artifact is **verified on workerd (the real Workers engine) and in the jsdom button-click run, not yet pasted into a live Cloudflare account**.
+
 ### Fixed
 - **Worker 6.66.5 — the setup card also appears when KV exists but no password is set.** Workers Builds (and Wrangler's automatic provisioning) creates the `CAT_KV` namespace during the deploy, so the first deploy of a fresh Worker has KV *and* no password — which was exactly the state the 6.66.4 guard excluded. The owner landed back on a login form that never shows the UUID. The card (and the root redirect) is now keyed on «no password yet» alone, and it says whether KV is bound or still needs creating.
 - `wrangler.jsonc` `name` must equal the dashboard Worker for Workers Builds, or the build fails with «The name in your Wrangler configuration file (X) must match the name of your Worker». Documented in the file.
