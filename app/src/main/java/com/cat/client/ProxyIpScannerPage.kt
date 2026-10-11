@@ -280,9 +280,46 @@ class ProxyIpScannerPage(
 
     // Port is NEVER dropped — the panel must dial the relay on exactly the port
     // that passed the handshake (user rule: the port must never change).
-    private fun selectedLines(): List<String> = visible().filter { it.selected }.map {
-        val host = if (it.host.contains(':')) "[${it.host}]" else it.host
-        "$host:${it.port}"
+    private fun selectedHits(): List<Hit> = visible().filter { it.selected }
+
+    /** «host:port» exactly as it is stored in the panel (IPv6 bracketed). */
+    private fun panelKey(hit: Hit): String {
+        val host = if (hit.host.contains(':')) "[${hit.host.removePrefix("[").removeSuffix("]")}]" else hit.host
+        return "$host:${hit.port}"
+    }
+
+    private fun selectedLines(): List<String> = selectedHits().map { panelKey(it) }
+
+    /** host:port → CC, so the panel can show the flag the scanner actually measured.
+     *  Without this the relays arrive country-less and every 🎯 config loses its flag. */
+    private fun selectedCountries(): Map<String, String> = selectedHits()
+        .mapNotNull { hit ->
+            val cc = hit.country.trim().uppercase()
+            if (cc.length == 2) panelKey(hit) to cc else null
+        }
+        .toMap()
+
+    /** What the panel did with what we sent — never leave the owner guessing.
+     *  `ignored` = junk the panel refused; `capped` = valid relays dropped because
+     *  the 32-entry list was full. The panel reports both; we show both. */
+    private data class PushOutcome(
+        val stored: Int,
+        val ignored: List<String>,
+        val capped: List<String>,
+    ) {
+        companion object {
+            fun from(body: String, asked: Int): PushOutcome {
+                val obj = runCatching { org.json.JSONObject(body) }.getOrNull()
+                fun list(key: String): List<String> {
+                    val arr = obj?.optJSONArray(key) ?: return emptyList()
+                    return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+                }
+                val settings = obj?.optJSONObject("settings")
+                val arr = settings?.optJSONArray("proxyIps")
+                val stored = arr?.length() ?: asked
+                return PushOutcome(stored, list("ignored"), list("capped"))
+            }
+        }
     }
 
     private fun copySelected() {
@@ -339,16 +376,39 @@ class ProxyIpScannerPage(
             .setPositiveButton(R.string.pip_save_direct) { _, _ ->
                 val password = input.text.toString()
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { pushToPanel(base, password, lines, replaceToggle.isChecked) } }
-                    result.onSuccess { n -> Toast.makeText(ctx, ctx.getString(R.string.pip_saved_direct, n), Toast.LENGTH_LONG).show() }
-                        .onFailure { e -> Toast.makeText(ctx, ctx.getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show() }
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { pushToPanel(base, password, lines, replaceToggle.isChecked, selectedCountries()) }
+                    }
+                    result.onSuccess { out ->
+                        val rejected = out.ignored + out.capped
+                        val msg = if (rejected.isEmpty()) {
+                            ctx.getString(R.string.pip_saved_direct, out.stored)
+                        } else {
+                            val reason = when {
+                                out.ignored.isNotEmpty() && out.capped.isNotEmpty() ->
+                                    ctx.getString(R.string.pip_rejected_both, out.ignored.size, out.capped.size)
+                                out.capped.isNotEmpty() -> ctx.getString(R.string.pip_rejected_capped, out.capped.size)
+                                else -> ctx.getString(R.string.pip_rejected_ignored, out.ignored.size)
+                            }
+                            ctx.getString(R.string.pip_saved_partial, out.stored, reason, rejected.take(3).joinToString(" · "))
+                        }
+                        Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                    }.onFailure { e ->
+                        Toast.makeText(ctx, ctx.getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
             .show()
         }
     }
 
-    private fun pushToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false): Int {
+    private fun pushToPanel(
+        base: String,
+        password: String,
+        lines: List<String>,
+        replace: Boolean = false,
+        countries: Map<String, String> = emptyMap(),
+    ): PushOutcome {
         fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
             val conn = URL("$base$path").openConnection() as HttpURLConnection
             conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
@@ -364,29 +424,43 @@ class ProxyIpScannerPage(
         login.disconnect()
         if (replace) {
             // Replace mode: the panel ProxyIP list becomes EXACTLY this selection.
-            val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("proxyIps", org.json.JSONArray(lines)).toString(), cookie)
+            val body = org.json.JSONObject()
+                .put("proxyIps", org.json.JSONArray(lines))
+                .put("proxyCountries", org.json.JSONObject().apply { countries.forEach { (k, v) -> put(k, v) } })
+            val (put, putBody) = call("/api/settings", "PUT", body.toString(), cookie)
             val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
             put.disconnect()
             if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
-            return lines.size
+            return PushOutcome.from(putBody, lines.size)
         }
         val (get, getBody) = call("/api/settings", "GET", null, cookie)
         val existing = ArrayList<String>()
+        val existingCountries = LinkedHashMap<String, String>()
         if (get.responseCode == 200) {
             val settingsObj = org.json.JSONObject(getBody).optJSONObject("settings")
             val arr = settingsObj?.optJSONArray("proxyIps")
             if (arr != null) for (i in 0 until arr.length()) existing += arr.optString(i)
+            // Keep the countries already stored — merging proxyIps alone would wipe them.
+            val cobj = settingsObj?.optJSONObject("proxyCountries")
+            if (cobj != null) for (k in cobj.keys()) existingCountries[k] = cobj.optString(k)
             // Local-only recovery snapshot: lets the app rebuild the panel elsewhere
             // if Cloudflare suspends this worker after an abuse report (Error 1101).
             if (settingsObj != null) PanelBackup.save(ctx, base, settingsObj.toString(), settingsObj.optString("panelPath"))
         }
         get.disconnect()
         val merged = (lines + existing.filter { it !in lines }).filter { it.isNotBlank() }.distinct().take(32)
-        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("proxyIps", org.json.JSONArray(merged)).toString(), cookie)
+        val mergedCountries = LinkedHashMap<String, String>().apply {
+            putAll(existingCountries)
+            putAll(countries.filterKeys { it in merged })
+        }
+        val body = org.json.JSONObject()
+            .put("proxyIps", org.json.JSONArray(merged))
+            .put("proxyCountries", org.json.JSONObject().apply { mergedCountries.forEach { (k, v) -> put(k, v) } })
+        val (put, putBody) = call("/api/settings", "PUT", body.toString(), cookie)
         val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
         put.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
-        return merged.size
+        return PushOutcome.from(putBody, merged.size)
     }
 
     private fun clear() {

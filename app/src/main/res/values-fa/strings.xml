@@ -1062,6 +1062,10 @@
     <string name="pip_no_panel">هیچ Cat Panel‌ای در ساب‌هایت پیدا نشد</string>
     <string name="pip_password_hint">رمز پنل</string>
     <string name="pip_saved_direct">ذخیره شد — پنل الان %1$d ProxyIP دارد و کانفیگ‌ها از آن‌ها استفاده می‌کنند</string>
+    <string name="pip_saved_partial">ذخیره شد — پنل الان %1$d ProxyIP دارد؛ %2$s: %3$s</string>
+    <string name="pip_rejected_ignored">%1$d تا رد شد (آدرس رلهٔ قابل استفاده نیست)</string>
+    <string name="pip_rejected_capped">%1$d تا جا ماند (لیست ۳۲تایی پر است)</string>
+    <string name="pip_rejected_both">%1$d تا رد شد و %2$d تا جا ماند (لیست پر است)</string>
     <string name="pip_save_failed">ذخیره نشد: %1$s</string>
     <string name="pip_wrong_password">رمز یا نام کاربری پنل اشتباه است — همان‌هایی که موقع دیپلوی گذاشتی (رمز پیش‌فرض = UUID پنل)</string>
     <string name="scanner_unverified_only">هیچ آی‌پی تأییدشده‌ای روی شبکهٔ تو نیست — فقط سبزها (TLS-OK) ارسال می‌شوند تا کانفیگ مرده نسازی. اسکن را تکرار کن یا رنج را عوض کن.</string>

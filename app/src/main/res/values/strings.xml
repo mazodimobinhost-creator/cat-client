@@ -1063,6 +1063,10 @@
     <string name="pip_no_panel">No Cat Panel found in your subscriptions</string>
     <string name="pip_password_hint">Panel password</string>
     <string name="pip_saved_direct">Saved — panel now has %1$d ProxyIP(s); new configs use them</string>
+    <string name="pip_saved_partial">Saved — panel now has %1$d ProxyIP(s); %2$s: %3$s</string>
+    <string name="pip_rejected_ignored">%1$d rejected (not a usable relay address)</string>
+    <string name="pip_rejected_capped">%1$d left out (the 32-entry list is full)</string>
+    <string name="pip_rejected_both">%1$d rejected, %2$d left out (list full)</string>
     <string name="pip_save_failed">Could not save: %1$s</string>
     <string name="pip_wrong_password">Wrong panel password or username — use the same ones you set at deploy time (the default password is the panel UUID)</string>
     <string name="scanner_unverified_only">No TLS-verified IPs on YOUR network yet — only green (TLS-OK) IPs are sent, so no dead configs. Re-scan or change the range.</string>
