@@ -214,7 +214,11 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
     check('app-scanner line (raw text): stored as a clean socks5:// entry, nothing else', JSON.stringify(r.settings.proxyIps) === '["socks5://83.147.217.103:1080"]', JSON.stringify(r.settings.proxyIps));
     check('app-scanner line: nothing reported as ignored', Array.isArray(r.ignored) && r.ignored.length === 0, JSON.stringify(r.ignored));
     const n = await subNames(P);
-    check('app-scanner line: the sub gets its 🧦 SOCKS configs (VLESS+Trojan) …', n.filter((x) => x.startsWith('🧦 1. 83.147.217.103:1080')).length === 2, JSON.stringify(n));
+  // The relay ADDRESS must not appear in the name either — the subscription is shared
+  // around and the name is the last place the proxy host used to travel.
+  check('app-scanner line: the sub gets its 🧦 SOCKS configs (VLESS+Trojan), named without the relay address',
+    n.length === 2 && n.every((x) => /^🧦 \d+\. Relay$/.test(x)) && n.every((x) => !/\d+\.\d+\.\d+\.\d+:\d+/.test(x)),
+    JSON.stringify(n));
     check('app-scanner line: … and NO stray 🎯 relay for the same IP', !n.some((x) => x.includes('🎯')), JSON.stringify(n)); }
   { const P = await panel('F2'); const r = await put(P, ['socks5://83.147.217.103:1080#SOCKS5', '83.147.217.103']); // what the OLD form stored (split on spaces)
     check('data stored by the old form is repaired (remark dropped, stray portless IP removed)', JSON.stringify(r.settings.proxyIps) === '["socks5://83.147.217.103:1080"]', JSON.stringify(r.settings.proxyIps)); }

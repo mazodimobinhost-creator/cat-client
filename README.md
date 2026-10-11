@@ -27,6 +27,15 @@ combining one-tap connectivity with all the tools Iranian users need.
 > If you do not want a password sitting in KV, run the relay without authentication (or with an
 > IP allowlist) and add it as `socks5://host:port`.
 
+> 🔄 **Action required after this update — and a behaviour to expect.**
+> 1. **Every user must re-fetch their subscription.** Links no longer carry the relay address, only
+>    a server-side id, so links fetched before the update keep pointing at the old reference and
+>    will stop working. Ask your users to re-import / update their subscription.
+> 2. **Removing a relay breaks the configs that referenced it.** The worker refuses those
+>    connections (WebSocket close `1008 relay unavailable`) instead of dialing the target directly —
+>    failing open would have kept the user browsing while silently dropping the relay they asked
+>    for. Add the replacement relay first, let users re-fetch, then remove the old one.
+
 **The credentials never travel in a subscription.** Older builds put the whole relay URL into every
 config as `?proxyip=socks5://user:pass@host:port`, which published the password to anyone who saw
 the link (and wrote it into client logs). Now a link carries only an opaque reference,

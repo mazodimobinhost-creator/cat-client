@@ -180,7 +180,10 @@ for (const [tag, label, settings] of [
 ]) {
   const P = await panel(tag, settings); const ls = await links(P);
   const link = ls.find((l) => l.startsWith('vless://') && nameOf(l).startsWith('🧦'));
-  check(label + ': the sub has a 🧦 config for it', !!link && nameOf(link).includes('83.147.217.103:1080'), JSON.stringify(ls.map(nameOf).filter((n) => /🎯|🧦/.test(n))));
+  // The relay ADDRESS is deliberately absent from the name: it is the last place
+  // the proxy host used to travel, and names end up in clients and logs.
+  check(label + ': the sub has a 🧦 config for it', !!link && /^🧦 \d+\. Relay/.test(nameOf(link)), JSON.stringify(ls.map(nameOf).filter((n) => /🎯|🧦/.test(n))));
+  check(label + ': the 🧦 name carries no relay host:port', !!link && !/\d+\.\d+\.\d+\.\d+:\d+/.test(nameOf(link)), nameOf(link));;
   if (!link) continue;
   const r = await run(P, clientPath(link), vlessDomain('example.org', 80, Array.from(enc.encode('GET / HTTP/1.1\r\n\r\n'))), { socks: new Set([SOCKS]) });
   check(label + ': the worker exits through that SOCKS5 server (first dial)', r.dials[0] === SOCKS, r.dials.join(','));

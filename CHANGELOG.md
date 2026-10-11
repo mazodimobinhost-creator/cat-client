@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Changed
+- Cat Panel (Worker 6.66.3): SOCKS5 relay configs are named «🧦 n. Relay» instead of carrying the proxy `host:port`. A subscription is shared around, and the name was the last place the relay address still travelled as plaintext.
+- Panel version advances to 6.66.3 so a deployed panel can discover the update.
+
+### Fixed
+- An unknown or deleted `relay:<id>` no longer falls back to connecting directly with no proxy (fail-open). The worker now closes the connection with code `1008 relay unavailable` and records a `relay` error, so a broken relay fails visibly instead of silently exposing the client's own IP to the destination.
+- Deleting a saved proxy therefore disables the configs that pointed at it — they stop working instead of quietly becoming unproxied connections. Documented in the README and in the panel's SOCKS5 tab.
+
 ## [1.10.0-beta93] — 2026-10-10
 
 ### Added
