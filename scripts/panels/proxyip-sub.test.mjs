@@ -86,13 +86,16 @@ const fromXray = (t) => {
 };
 
 const MY_PX = ['203.0.113.10', '203.0.113.11:8443', '198.51.100.7'];
+// beta94: a portless relay is kept but pinned to the default port, so it is
+// stored (and shown) as «host:443» instead of a bare host with an invisible port.
+const MY_PX_STORED = ['203.0.113.10:443', '203.0.113.11:8443', '198.51.100.7:443'];
 const DEFAULT_PX = ['proxyip.cmliussss.net', 'di.nscl.ir', 'tr.diam4.ggff.net'];
 
 // ═══ A) a panel whose owner added three ProxyIPs ═════════════════════════════
 const A = await panel('A');
 await A.call('/api/ips', 'POST', { ips: ['104.16.88.20', '104.17.12.4', '172.64.145.9', '162.159.140.8', '188.114.97.3'], source: 'manual' });
 const put = await jsonOf(await A.call('/api/settings', 'PUT', { proxyIps: MY_PX }));
-check('ProxyIPs persist (the call the 🎭 form and the app scanner make)', put && put.ok && put.persisted === true && JSON.stringify(put.settings.proxyIps) === JSON.stringify(MY_PX), JSON.stringify(put));
+check('ProxyIPs persist (the call the 🎭 form and the app scanner make)', put && put.ok && put.persisted === true && JSON.stringify(put.settings.proxyIps) === JSON.stringify(MY_PX_STORED), JSON.stringify(put && put.settings && put.settings.proxyIps));
 const made = await jsonOf(await A.call('/api/users', 'POST', { name: 'ali' }));
 const token = made && made.user && made.user.id;
 const sub = async (q) => fromLinks(await (await A.call('/sub/' + UUID + q)).text());
@@ -102,7 +105,7 @@ const sub = async (q) => fromLinks(await (await A.call('/sub/' + UUID + q)).text
   const px = e.filter(isPx);
   check('builder link: limit=60 still gives exactly 60 lines', e.length === 60, e.length);
   check('builder link: a 🎯 line per VLESS/Trojan per ProxyIP (3 × 2)', px.length === 6, px.length);
-  check('builder link: every configured ProxyIP is pinned in a path', MY_PX.every((p) => px.some((e2) => pxValue(e2) === p)), px.map(pxValue).join(','));
+  check('builder link: every configured ProxyIP is pinned in a path', MY_PX_STORED.every((p) => px.some((e2) => pxValue(e2) === p)), px.map(pxValue).join(','));
   check('builder link: the path is a real query — one «?», ed AND proxyip', px.every((e2) => (e2.wsPath.match(/\?/g) || []).length === 1 && /(?:^|[?&])ed=\d+/.test(e2.wsPath) && pxValue(e2)), px[0] && px[0].wsPath);
   check('builder link: 🎯 lines are TLS with SNI == Host (Cloudflare 403s anything else)', px.every((e2) => e2.tls && e2.sni === HOST), JSON.stringify(px[0] && { tls: px[0].tls, sni: px[0].sni }));
   check('builder link: clean-IP lines still lead (TLS-first order kept)', !isPx(e[0]) && e[0].tls, e[0] && e[0].name);
@@ -215,7 +218,9 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
     check('… and it is used as a SOCKS relay, not as a Cloudflare ProxyIP', P.T.socksRelayList(P.env, r.settings).length === 1 && P.T.proxyIpList(P.env, r.settings, { explicitOnly: true }).length === 0); }
   { const P = await panel('F5');
     const r = await put(P, ['203.0.113.10', '203.0.113.11:8443 # my relay', '[2001:db8::1]:8443', '2001:db8::2', 'proxyip.example.com', '# only a comment', '', 'http://203.0.113.20:8080#HTTP proxy', 'not a host!!', '1.2.3.4:99999'].join('\n'));
-    check('valid relays kept: ip, ip:port, [v6]:port, bare v6, dotted name; remarks stripped', JSON.stringify(r.settings.proxyIps) === '["203.0.113.10","203.0.113.11:8443","[2001:db8::1]:8443","2001:db8::2","proxyip.example.com"]', JSON.stringify(r.settings.proxyIps));
+    // beta94: the two portless entries now carry the explicit default port, and the
+    // bare IPv6 is bracketed before it («[2001:db8::2]:443») — it must not read as «host:2».
+    check('valid relays kept: ip, ip:port, [v6]:port, bare v6, dotted name; remarks stripped', JSON.stringify(r.settings.proxyIps) === '["203.0.113.10:443","203.0.113.11:8443","[2001:db8::1]:8443","[2001:db8::2]:443","proxyip.example.com:443"]', JSON.stringify(r.settings.proxyIps));
     check('everything else is REPORTED, not silently kept (http://, junk words, port out of range)', JSON.stringify(r.ignored) === '["http://203.0.113.20:8080","not","a","host!!","1.2.3.4:99999"]', JSON.stringify(r.ignored));
     check('a comment-only line is not an «ignored entry»', Array.isArray(r.ignored) && !r.ignored.includes('only') && !r.ignored.includes('#'));
     const again = await put(P, r.settings.proxyIps);

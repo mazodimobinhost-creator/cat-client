@@ -226,7 +226,10 @@ let user;
   check('replaced entry kept its pin+tag', st.ipCountries['198.51.100.7:2053']==='CA', JSON.stringify(st.ipCountries));
   await req('/api/settings', { method:'PUT', headers: auth, body:{ proxyIps:['104.17.1.1:2053','83.147.217.103:1080','ip.sb'] } });
   const st2 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-  check('proxyIps keep ip:port exactly (never stripped)', JSON.stringify(st2.proxyIps)===JSON.stringify(['104.17.1.1:2053','83.147.217.103:1080','ip.sb']), JSON.stringify(st2.proxyIps));
+  // beta94: an explicit pin is still never stripped (2053 / 1080 stay). Only a
+  // PORTLESS relay changes: it now carries the default port so the UI can show
+  // what will be dialed — «ip.sb» is stored as «ip.sb:443».
+  check('proxyIps keep ip:port exactly (never stripped)', JSON.stringify(st2.proxyIps)===JSON.stringify(['104.17.1.1:2053','83.147.217.103:1080','ip.sb:443']), JSON.stringify(st2.proxyIps));
 }
 // backup
 { const r = await req('/api/backup', { headers: auth }); const j = await r.json(); check('backup export', j.settings && j.users.length===1);
@@ -355,8 +358,9 @@ let user;
   const y2 = await (await req('/clash/' + MASTER)).text();
   check('countryFallback=none → clash root is select (no auto-leave)', /name: "🐱 Cat"\n    type: select/.test(y2));
   // proxy ip order honours preferred country
+  // beta94: both relays are pinned to the default port and the country tag follows.
   const st = T.normalizeSettings({ country:'TR', proxyIps:['a.example','b.example'], proxyCountries:{ 'b.example':'TR' } });
-  check('proxyIpList puts preferred-country proxy first', T.proxyIpList({}, st)[0]==='b.example');
+  check('proxyIpList puts preferred-country proxy first', T.proxyIpList({}, st)[0]==='b.example:443' && st.proxyCountries['b.example:443']==='TR', JSON.stringify(T.proxyIpList({}, st)));
   const colo = await req('/api/colo'); check('/api/colo is public JSON', colo.status===200 && (await colo.json()).ok===true);
   check('helpers', T.splitAddrTag('1.2.3.4#de').cc==='DE' && T.normalizeCountry('xx')==='' && T.countryLabel('')==='🌐 Other');
   await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'', countryFallback:'auto' } });
@@ -711,11 +715,12 @@ let user;
     const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
-    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1', pxs[0] && pxs[0].name);
+    // beta94: the relay carries its default port, and its country tag moved with it.
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
     { // spoofing is opt-in: the rotation pool (and the ' · <sni>' remark suffix) only exist while sniFront is on
       const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
       const pxf = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, {}).entries.filter((e) => e.name.includes('🎯'));
-      check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1 · '), pxf[0] && pxf[0].name); }
+      check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1:443 · '), pxf[0] && pxf[0].name); }
     // Path params must be real query params: one '?' only, `ed` and `proxyip`
     // as separate entries (a second '?' — «?ed=2560?proxyip=…» — made the relay
     // override unparseable for every client; regression-pinned in link-shape.test.mjs).
@@ -726,11 +731,13 @@ let user;
       const query = wsPath.split('?')[1];
       if (!query || (wsPath.match(/\?/g) || []).length !== 1) return false;
       const params = new Map(query.split('&').map((kv) => [kv.split('=')[0], kv.split('=').slice(1).join('=')]));
-      return params.get('proxyip') === '203.0.113.1' && params.has('ed');
+      // The relay rides inside a query param, so a ':' arrives double-encoded
+      // («%253A»); the worker decodes it twice by design — the test mirrors that.
+      return decodeURIComponent(String(params.get('proxyip') || '')) === '203.0.113.1:443' && params.has('ed');
     }), pxs[0] && pxs[0].link);
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
-    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
+    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
