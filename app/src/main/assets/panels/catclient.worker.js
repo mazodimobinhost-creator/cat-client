@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.3';
+const CAT_PANEL_VERSION = '6.66.4';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -5000,6 +5000,15 @@ async function handleRequest(request, env, ctx) {
     if ((url.searchParams.get('p') || url.searchParams.get('ips')) && (path === '/' || path === '/login' || path === '/panel')) {
       return new Response(null, { status: 302, headers: { location: '/' + pp + '/' + url.search } });
     }
+    // PASTE-AND-GO. An unconfigured install (no KV, no password) has nothing to
+    // camouflage yet — and answering its own root with a fake blog was exactly
+    // what made a fresh paste look like it did not work. Send the root to the
+    // panel path, where the setup card shows the UUID and the KV steps. As soon
+    // as a KV namespace is bound as CAT_KV (or a password exists) this stops and
+    // the camouflage applies again, unchanged.
+    if (!kvBinding(env) && !settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim() && (path === '/' || path === '/login')) {
+      return new Response(null, { status: 302, headers: { location: '/' + pp } });
+    }
     if (path === '/' || path === '/login' || path === '/panel') return html(camouflagePage());
     if (path === '/robots.txt') return new Response('User-agent: *\nDisallow: /\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
     return stealthNotFound();
@@ -5020,7 +5029,7 @@ async function handleRequest(request, env, ctx) {
     const owner = await isOwner(request, env, settings, masterUuid);
     maybeRepoRefresh(env, ctx);
     maybeProxyRepoRefresh(env, ctx);
-    if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim()));
+    if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim(), masterUuid));
     return html(panelPage(env, settings, host, masterUuid));
   }
 
@@ -5144,10 +5153,22 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .tpgrid button.on span{color:var(--violet2)}
 @keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}`;
 
-function loginPage(env, settings, needsUser) {
+function loginPage(env, settings, needsUser, uuid) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
   const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
+  // PASTE-AND-GO. A file dropped into a fresh Worker has no KV binding and no
+  // password, and until now that state was a dead end: the login screen said
+  // «default password is the panel UUID» without ever showing the UUID, which is
+  // not something a person can guess. It is in fact computable — deriveUuid() is
+  // SHA-256('cat-panel:uuid:' + host) and this source is public — so showing it
+  // here reveals nothing that is not already derivable from the host name, and
+  // this card is rendered ONLY while the install is unconfigured (no KV, no
+  // password). The moment a KV namespace is bound as CAT_KV and a password is
+  // set, this whole block disappears and the normal login applies.
+  const noKv = !kvBinding(env);
+  const noPass = !settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim();
+  const fresh = noKv && noPass;
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${BASE_CSS}
 .wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
 .box{width:100%;max-width:380px;padding:28px 24px}
@@ -5161,7 +5182,14 @@ ${needsUser ? `<label>${fa ? 'نام کاربری' : 'Username'}</label><input i
 <label>${fa ? 'رمز عبور' : 'Password'}</label><input id="p" type="password" autocomplete="current-password" autofocus>
 <div class="err" id="e"></div>
 <button class="btn p" style="width:100%;margin-top:6px" type="submit">${fa ? 'ورود' : 'Sign in'}</button>
-<div class="dim small" style="text-align:center;margin-top:16px">${fa ? 'رمز پیش‌فرض همان UUID پنل است' : 'Default password is the panel UUID'}</div>
+${fresh ? `
+<div class="card" style="margin-top:14px;border-color:rgba(255,171,0,.55);background:rgba(255,171,0,.07)">
+<b>${fa ? '⚡ نصب تازه — این اطلاعات را کپی کن' : '⚡ Fresh install — copy these'}</b>
+<div class="small" style="margin-top:8px;line-height:2">${fa ? 'رمز پنل (UUID):' : 'Panel password (UUID):'}<br><code id="freshUuid" style="word-break:break-all;font-size:12px">${escapeHtml(uuid)}</code></div>
+<div class="small" style="margin-top:6px;line-height:2">${fa ? 'لینک ساب:' : 'Subscription:'}<br><code style="word-break:break-all;font-size:12px">/sub/${escapeHtml(uuid)}</code></div>
+<a class="btn p" style="width:100%;margin-top:10px" href="?p=${encodeURIComponent(uuid)}">${fa ? 'ورود یک‌لمسی' : 'One-tap sign in'}</a>
+<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${fa ? '⚠ این حالت ذخیره‌سازی ندارد و هر کسی که این صفحه را باز کند می‌تواند وارد شود. برای امن‌کردن: Cloudflare → Storage &amp; Databases → KV → Create (نام: هرچه خواستی) → برگرد به ورکر → Settings → Bindings → KV namespace با نام متغیر CAT_KV → و بعد در تب تنظیمات یک رمز بگذار.' : '⚠ Nothing is stored and anyone who opens this page can sign in. To secure it: Cloudflare → Storage &amp; Databases → KV → Create, then Worker → Settings → Bindings → KV namespace bound as CAT_KV, then set a password in the settings tab.'}</div>
+</div>` : `<div class="dim small" style="text-align:center;margin-top:16px">${fa ? 'رمز پیش‌فرض همان UUID پنل است' : 'Default password is the panel UUID'}</div>`}
 </form></div>
 <script>
 document.getElementById('f').addEventListener('submit',function(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';

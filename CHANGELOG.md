@@ -4,6 +4,9 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+- **Paste-and-go panel (Worker 6.66.4).** A file dropped into a brand-new Worker — no KV namespace, no environment variables — used to be a dead end: the panel path answered a login form saying «the default password is the panel UUID» without ever showing that UUID. The root URL meanwhile served the camouflage blog, so the person who had just pasted the file concluded it was broken. Now, while the install is unconfigured, the root redirects to the panel path and the login screen carries a setup card with the panel UUID, the subscription link, a one-tap sign-in link (`?p=<uuid>`, which the worker already supported), the KV binding steps, and a warning that nothing is stored and anyone can sign in. Binding a KV namespace as `CAT_KV` — or setting any password — closes the card and restores the previous camouflage/login behaviour byte for byte. Guarded by `scripts/panels/paste-and-go.test.mjs` (16 checks, both directions).
+
 ### Fixed
 - `wrangler.jsonc` carried a field Wrangler does not define on a KV binding (`name`), which the deploy logged as «Unexpected fields found in kv_namespaces[0]». Removed; the binding is `CAT_KV` and the place where a real 32-hex namespace id goes is a commented line with the exact dashboard path to copy it from. A made-up id in an active `id` field cannot resolve and breaks the deploy, so the file documents that instead of shipping one.
 - The deployed upload was 31% larger than the committed artifact: `wrangler deploy` runs the entrypoint through esbuild, which escapes every non-ASCII character (Persian text, emoji) into `\uXXXX` — 602 KiB / 139.40 KiB gzipped instead of 458 KiB / 127.39 KiB. Both deploy paths (repo workflow and Cloudflare Workers Builds) now pass `--no-bundle`, so the bytes Cloudflare stores are the bytes the tests ran against.
