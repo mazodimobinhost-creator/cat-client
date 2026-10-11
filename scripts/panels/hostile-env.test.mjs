@@ -128,8 +128,25 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   ok('a request-time crash answers 500, not an escaped throw', fresh.status === 500, fresh.status);
   ok('…with a JSON crash report instead of the opaque 1101 page', freshBody.error === 'panel_crash', JSON.stringify(freshBody).slice(0, 90));
   ok('…carrying the message', /boom headers/.test(freshBody.message || ''), freshBody.message);
-  ok('…and a real stack', Array.isArray(freshBody.stack) && freshBody.stack.length > 0 && /boom headers/.test(freshBody.stack.join('\n')));
+  ok('…and a real stack (a string, like err.stack, plus a split copy)',
+    typeof freshBody.stack === 'string' && /boom headers/.test(freshBody.stack) &&
+      Array.isArray(freshBody.stackLines) && freshBody.stackLines.length > 0 &&
+      /boom headers/.test(freshBody.stackLines.join('\n')),
+    typeof freshBody.stack);
   ok('…and it names the version so a stale deploy is visible', freshBody.version === T.CAT_PANEL_VERSION, freshBody.version);
+  // The exact shape: a person on a phone reads message + stack, a script reads
+  // ok/success/error; nothing here may be missing or the wrong type.
+  ok('…with the whole documented shape',
+    freshBody.ok === false && freshBody.success === false && freshBody.error === 'panel_crash' &&
+      typeof freshBody.title === 'string' && freshBody.title.length > 0 &&
+      typeof freshBody.message === 'string' && freshBody.message.length > 0 &&
+      typeof freshBody.at === 'string' && typeof freshBody.method === 'string' &&
+      Array.isArray(freshBody.recent) && typeof freshBody.hint === 'string',
+    JSON.stringify(Object.keys(freshBody)));
+  ok('…as application/json and never cached',
+    /^application\/json/.test(fresh.headers.get('content-type') || '') &&
+      /no-store/.test(fresh.headers.get('cache-control') || ''),
+    fresh.headers.get('content-type'));
 
   // Configured panel (password exists) → a stranger must NOT get the report.
   const kv = memKv();
@@ -242,6 +259,75 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   // The same parse proves the file is one valid module — a truncated paste is
   // exactly what turns into 1101 on every route with nothing to catch it.
   ok('the source parses as a single valid ES module', ast.type === 'Program' && ast.sourceType === 'module');
+}
+
+/* ---------- H) the ERROR PATH itself must survive hostile thrown values ---------- */
+{
+  // Whatever a request (or a binding) throws at us — a bare string, null, a Proxy
+  // that throws on every property read, an object whose message getter throws —
+  // fetch() must still answer a JSON 500. If any of this escaped, the edge would
+  // print the opaque «Error 1101» page instead, which is the whole failure this
+  // file exists to remove.
+  const bare = {};
+  const boobyTraps = [
+    ['a plain string', () => 'plain string error'],
+    ['null', () => null],
+    ['undefined', () => undefined],
+    ['a number', () => 42],
+    ['a symbol', () => Symbol('nope')],
+    ['an object without a message', () => ({ code: 7 })],
+    ['an object whose message getter throws', () => ({ get message() { throw new Error('inner'); } })],
+    ['an object whose toString throws', () => ({ toString() { throw new Error('nope'); }, valueOf() { throw new Error('nope'); } })],
+    ['a Proxy that throws on every read', () => new Proxy({}, { get() { throw new Error('proxy get'); } })],
+  ];
+  for (const [label, make] of boobyTraps) {
+    const req = {
+      get url() { throw make(); },            // handleRequest() reads url first
+      method: 'GET',
+      headers: { get: () => null },
+    };
+    let res = null; let escaped = null;
+    try { res = await worker.fetch(req, bare, { waitUntil() {} }); } catch (e) { escaped = e; }
+    ok('hostile throw (' + label + '): nothing escapes fetch()', escaped === null,
+      escaped && (escaped.message || 'thrown'));
+    if (!res) continue;
+    const body = await res.text();
+    let parsed = null; try { parsed = JSON.parse(body); } catch (e) { /* not JSON */ }
+    ok('hostile throw (' + label + '): answers a JSON crash report',
+      res.status === 500 && !!parsed && parsed.error === 'panel_crash' && parsed.success === false,
+      res.status + ' ' + body.slice(0, 70));
+    ok('hostile throw (' + label + '): message stays a readable string',
+      !!parsed && typeof parsed.message === 'string' && parsed.message.length > 0 &&
+        typeof parsed.stack === 'string',
+      parsed && JSON.stringify(parsed.message));
+  }
+
+  // A readable URL + a hostile error object on a configured panel: the stranger path
+  // must stay neutral (no raw text, no stack) and still be JSON for /api.
+  const kv2 = memKv();
+  const env2 = { CAT_KV: kv2, PANEL_DIAG: '0' };
+  const settings2 = Object.assign({}, await T.readSettings(env2), { passwordHash: await T.sha256Hex('owner-secret') });
+  await kv2.put(T.KV_KEYS.settings, JSON.stringify(settings2));
+  T.kvCacheClear();
+  const neutral = await worker.fetch({
+    url: 'https://' + HOST + '/api/users',
+    method: 'GET',
+    get headers() { throw new Proxy({}, { get() { throw new Error('secret-detail'); } }); },
+  }, env2, { waitUntil() {} });
+  const neutralBody = await neutral.text();
+  ok('PANEL_DIAG=0 + hostile error + /api → neutral JSON, no leak',
+    neutral.status === 500 && JSON.parse(neutralBody).error === 'internal' && !neutralBody.includes('secret-detail'),
+    neutralBody.slice(0, 80));
+
+  // …and PANEL_DIAG=1 carries everything even when the URL itself is unreadable.
+  const forced = await (await worker.fetch({
+    get url() { throw new Error('owner-visible detail'); },
+    method: 'GET',
+    headers: { get: () => null },
+  }, Object.assign({}, env2, { PANEL_DIAG: '1' }), { waitUntil() {} })).json();
+  ok('PANEL_DIAG=1 forces the full report even for a hostile error',
+    forced.error === 'panel_crash' && String(forced.message).includes('owner-visible'),
+    JSON.stringify(forced.message));
 }
 
 console.log('\nhostile env: ' + pass + ' passed, ' + fail + ' FAILED');

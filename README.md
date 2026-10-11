@@ -312,18 +312,29 @@ did not run. There are exactly two situations, and one URL tells them apart:
 
 A file that never loads cannot report anything: nothing inside a script that fails to
 parse can catch that. So before pasting, look at the first line
-(`/* CAT_PANEL_VERSION = '6.66.6' */`), the last characters
-(`…userInfoPage:Ba,camouflagePage:Da};` for `catpanel.min.js` in this release) and
-the size (474,314 bytes). The browser's editor wraps the three long lines, so «it
+(`/* CAT_PANEL_VERSION = '6.66.7' */`), the last characters
+(`…userInfoPage:Wa,camouflagePage:Ba};` for `catpanel.min.js` in this release) and
+the size (475,169 bytes). The browser's editor wraps the three long lines, so «it
 looks like two lines» means nothing; the byte count is what matters.
 
-On 6.66.6+ a request-time exception answers JSON for the owner instead of the 1101
-page:
+Since 6.66.6 (shape finalised in 6.66.7) a request-time exception answers JSON for
+the owner instead of the 1101 page:
 
 ```json
-{"ok":false,"error":"panel_crash","version":"6.66.6","at":"/panel","method":"GET",
- "message":"…","stack":["…"],"hint":"This replaced Cloudflare's «Error 1101» page. …"}
+{"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled",
+ "version":"6.66.7","at":"/panel","method":"GET","message":"…",
+ "stack":"Error: …\n    at …","stackLines":["Error: …","    at …"],
+ "recent":[{"t":0,"k":"unhandled","stack":"…"}],"hint":"This replaced Cloudflare's «Error 1101» page. …"}
 ```
+
+What that promise does and does not cover — worth knowing before you chase a 1101:
+
+| Situation | What you get |
+| --- | --- |
+| anything thrown inside `fetch()` — including a thrown string, `null`, or a hostile object whose `message`/`toString` throws | JSON report above (`env = env || {}` is set before the `try`, and every value in the error path goes through `safeText()`/`safeStack()`, so the handler itself cannot become the crash) |
+| the crash could not be attributed (the owner check itself failed) | still JSON: `crashReportMinimal()` — message/stack attached only when `PANEL_DIAG=1` |
+| a script that fails to **parse or load** (truncated paste, bad build) | 1101 on every route — nothing inside the file can catch that; this is what the size/marker checks, the app's `pasteScriptIsSane()` gate and the Workers Builds path exist for |
+| an error thrown while a response body is already streaming, or inside `ctx.waitUntil()` | the response is already sent; the error is recorded and shows up in `/api/diag` (`recentErrors`) |
 
 If you see the report, send it (minus anything private) — it names the exact line.
 If you see 1101 *without* the report, the deployment itself is the problem, and the

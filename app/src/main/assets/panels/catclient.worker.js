@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.6';
+const CAT_PANEL_VERSION = '6.66.7';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -2621,11 +2621,48 @@ function countRequest() { __logState.reqs += 1; }
    logged or shown must lose the credentials first - the log lives in KV and is
    readable by anyone who reaches the panel. */
 const CREDS_RE = new RegExp('//[^@/]*@');
-function maskCreds(v) { return String(v === undefined || v === null ? '' : v).replace(CREDS_RE, '//***@'); }
+
+/* ------------------------------------------------------------------ */
+/* Error-path primitives. EVERY value that reaches a log, a crash       */
+/* report or a KV write goes through these. The block that answers a    */
+/* request-time crash is the last place allowed to throw: one unguarded  */
+/* `String(err)` or `.message` read on a hostile object (a Proxy, an     */
+/* object with a throwing getter) would make the handler itself the      */
+/* thing that returns the opaque «Error 1101» page.                      */
+/* ------------------------------------------------------------------ */
+function safeText(v, max) {
+  const limit = max === undefined ? 400 : max;
+  try {
+    if (v === null || v === undefined) return '';
+    const t = typeof v;
+    if (t === 'string') return v.length > limit ? v.slice(0, limit) : v;
+    if (t === 'number' || t === 'boolean') return String(v);
+    if (t === 'bigint') return v.toString().slice(0, limit);
+    if (t === 'symbol') return v.toString().slice(0, limit);
+    if (t === 'function') return '[function]';
+    const m = v.message;                                    // Errors and error-likes
+    if (m !== undefined && m !== null && typeof m !== 'object') return safeText(m, limit);
+    return Object.prototype.toString.call(v).slice(0, limit);  // never calls a user toString
+  } catch (e) { return '[unprintable]'; }
+}
+function safeStack(err, max) {
+  const limit = max === undefined ? 1600 : max;
+  try {
+    const st = err ? err.stack : '';
+    return typeof st === 'string' ? st.slice(0, limit) : '';
+  } catch (e) { return ''; }
+}
+/** Strip socks5 credentials. Never truncates (callers slice), never throws. */
+function maskCreds(v) { return safeText(v, Infinity).replace(CREDS_RE, '//***@'); }
+
+/** request.url without trusting the request object (a getter may throw). */
+function safeRequestUrl(request) {
+  try { return safeText(request && request.url, 2048); } catch (e) { return ''; }
+}
 
 function recordError(kind, d) {
-  const k = String(kind || 'error').slice(0, 24);
-  const msg = maskCreds(String(d === undefined || d === null ? '' : (d && d.message ? d.message : d)).slice(0, 160));
+  const k = safeText(kind, 24) || 'error';
+  const msg = maskCreds(safeText(d, 160));
   const now = Date.now();
   const last = __logState.queue[0];
   if (last && last.k === k && last.d === msg && now - last.t < 60000) { last.n = (last.n || 1) + 1; last.t = now; return; }
@@ -2640,8 +2677,8 @@ function recordError(kind, d) {
 const ERR_DETAIL_RING = 3;
 const __errDetail = [];
 function recordErrorDetail(kind, err) {
-  const stack = maskCreds(String((err && err.stack) || (err && err.message) || err || '')).slice(0, 1500);
-  __errDetail.unshift({ t: Date.now(), k: String(kind || 'error').slice(0, 24), stack });
+  const stack = maskCreds(safeStack(err, 1500) || safeText(err, 1500)).slice(0, 1500);
+  __errDetail.unshift({ t: Date.now(), k: safeText(kind, 24) || 'error', stack });
   if (__errDetail.length > ERR_DETAIL_RING) __errDetail.length = ERR_DETAIL_RING;
 }
 function errorDetail() { return __errDetail.slice(); }
@@ -2692,18 +2729,52 @@ function crashLocation(request) {
   return { host, path: maskCreds(path).slice(0, 200), method: method.slice(0, 10) };
 }
 
-/** The JSON answer that replaces the opaque 1101 page for the owner. */
+/**
+ * The JSON answer that replaces the opaque «Error 1101» page.
+ * Shape (what a person on a phone can read, and what a script can parse):
+ *   ok/success=false · error='panel_crash' · title · version · at · method
+ *   message (string) · stack (string, like err.stack) · stackLines (array)
+ *   recent (last crashes) · hint
+ * Nothing in here may call a user toString / getter, so it cannot throw.
+ */
 function crashReport(err, where) {
+  const stack = maskCreds(safeStack(err)).slice(0, 1600);
   return json({
     ok: false,
+    success: false,
     error: 'panel_crash',
+    title: 'Worker Exception Handled',
     version: CAT_PANEL_VERSION,
     at: where.path,
     method: where.method,
-    message: maskCreds(String((err && err.message) || err || 'unknown error')).slice(0, 400),
-    stack: maskCreds(String((err && err.stack) || '')).split('\n').slice(0, 12),
+    message: maskCreds(safeText(err, 400)) || 'unknown error',
+    stack,
+    stackLines: stack ? stack.split('\n').slice(0, 12) : [],
     recent: errorDetail(),
     hint: 'This replaced Cloudflare\'s «Error 1101» page. PANEL_DIAG=1 shows it to everyone; PANEL_DIAG=0 hides it entirely. A 1101 with THIS report missing means the script failed to load (truncated paste / bad build) — nothing inside the file can catch that.',
+  }, 500, { 'cache-control': 'no-store' });
+}
+
+/**
+ * Last line of defence: the owner check or the report itself failed (a hostile
+ * error object, a KV that refuses everything). The promise «a request-time
+ * exception answers JSON, never a bare 1101» still holds; the message and stack
+ * are attached only when PANEL_DIAG=1, so a stranger probing the URL learns
+ * nothing it could not learn from the neutral page.
+ */
+function crashReportMinimal(err, env) {
+  const showAll = diagFlag(env) === true;
+  return json({
+    ok: false,
+    success: false,
+    error: 'panel_crash',
+    title: 'Worker Exception Handled',
+    version: CAT_PANEL_VERSION,
+    at: '',
+    method: '',
+    message: showAll ? (maskCreds(safeText(err, 400)) || 'unknown error') : 'unhandled error (PANEL_DIAG=1 shows the full report)',
+    stack: showAll ? maskCreds(safeStack(err)).slice(0, 1600) : '',
+    stackLines: [],
   }, 500, { 'cache-control': 'no-store' });
 }
 
@@ -7358,7 +7429,7 @@ export default {
       const job = Promise.allSettled([refreshRepos(env), refreshProxyRepos(env), cronSelfCheck(env), cronCountryQuality(env)]);
       if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job); else await job;
     } catch (e) {
-      recordError('cron', e && e.message ? e.message : String(e));
+      recordError('cron', safeText(e, 160));
       await flushUsage(env || {}, true);
     }
   },
@@ -7374,7 +7445,10 @@ export default {
     } catch (e) {
       // Record before answering, then flush immediately: an unhandled error is
       // exactly what the owner needs to see in the log (still one write only).
-      recordError('unhandled', e && e.message ? e.message : String(e));
+      // Both calls take the thrown value itself, not a pre-stringified version:
+      // every read inside them goes through safeText(), so a thrown Proxy or an
+      // object with a throwing getter cannot turn THIS handler into the crash.
+      recordError('unhandled', safeText(e, 160));
       recordErrorDetail('unhandled', e);
       scheduleFlush(env, ctx, true);
       // Never let an exception escape: an escaped throw is exactly what the edge
@@ -7387,13 +7461,19 @@ export default {
       // parse or load (a truncated paste, a bad build) answers 1101 on every
       // single route — nothing inside the file can catch that, which is why
       // `node --check` + the load gates exist in scripts/panels/*.mjs.
-      const u = request && typeof request === 'object' && request.url ? String(request.url) : '';
+      const u = safeRequestUrl(request);
+      // decision: true = report, false = withheld on purpose (configured panel +
+      // stranger), null = could not be determined — each one has its own answer.
+      let decision = null;
       try {
         const where = crashLocation(request);
         const settings = await readSettings(env).catch(() => null);
         const masterUuid = settings ? await resolveUuid(where.host, env) : '';
-        if (await diagAllowed(request, env, settings, masterUuid)) return crashReport(e, where);
-      } catch (_e3) { /* the report itself must never become the crash */ }
+        decision = await diagAllowed(request, env, settings, masterUuid);
+        if (decision) return crashReport(e, where);
+      } catch (_e3) { decision = null; }
+      // Never a bare 1101, even when the machinery above failed.
+      if (decision === null) return crashReportMinimal(e, env);
       // An API answer must stay JSON (the panel calls it with fetch()), but the raw
       // message is not handed to a stranger: leaking an internal error to anyone
       // probing /api is the same fingerprint the neutral page avoids.
