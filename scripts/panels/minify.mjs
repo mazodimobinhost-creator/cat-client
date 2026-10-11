@@ -59,7 +59,19 @@ if (!result.code) {
   process.exit(1);
 }
 // Version marker FIRST, in plaintext — every consumer regex-parses it.
-const out = "/* CAT_PANEL_VERSION = '" + version + "' */\n" + result.code.trimStart();
+//
+// The artifact is deliberately THREE lines (marker / paste instruction / code),
+// the same shape as the third-party worker most users compare it against. The
+// owner asked for it twice: a file that is obviously «copy the whole thing»
+// reads as less work than a wall of wrapped text, and the instruction line is
+// the first thing anyone sees when they open it. It costs ~3 gzipped bytes; the
+// line count is cosmetic and the code is byte-identical either way.
+// The marker must stay the first line: PanelUpdate.kt, deploy-bot/worker.js,
+// catclient.wizard.js and panel-update-contract.test.mjs all regex-parse it, and
+// one of them asserts it is the very first line (so a truncated download still
+// reports a version).
+const PASTE_LINE = '/* Paste this whole file into Cloudflare -> Workers & Pages -> your Worker -> Edit code, then Deploy. Nothing else to configure; open the worker URL and it shows the setup screen. */';
+const out = "/* CAT_PANEL_VERSION = '" + version + "' */\n" + PASTE_LINE + "\n" + result.code.trimStart();
 writeFileSync(outPath, out);
 
 if (process.argv.includes('--check')) {
