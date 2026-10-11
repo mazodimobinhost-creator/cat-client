@@ -52,13 +52,13 @@ jobs:
       - name: Syntax check
         run: node --check app/src/main/assets/panels/catclient.worker.js
 
-      # wrangler.jsonc's `main` is dist-panel/catpanel.obf.js. Build that exact
-      # entrypoint from the current readable source; obfuscating the source in
+      # wrangler.jsonc's `main` is dist-panel/catpanel.min.js. Build that exact
+      # entrypoint from the current readable source; minifying the source in
       # place does not change what Wrangler deploys.
       - name: Build configured worker artifact
         run: |
-          npm install --no-save javascript-obfuscator@5 --silent
-          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
+          npm install --no-save terser --silent
+          node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
 
       - name: Deploy to Cloudflare
         id: deploy

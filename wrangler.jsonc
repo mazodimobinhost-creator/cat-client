@@ -1,13 +1,17 @@
 // Cat Panel — one-file Cloudflare Worker.
 // This config powers the official "Deploy to Cloudflare" button (README).
-// main = the COMMITTED OBFUSCATED snapshot (anti-1101): Cloudflare statically
-// scans deployed sources; the readable AGPL source stays at
-// app/src/main/assets/panels/catclient.worker.js (CI refreshes the snapshot on every push).
+// main = the committed MINIFIED build (dist-panel/catpanel.min.js) — same code,
+// 120 KB gzipped instead of the obfuscated snapshot's 533 KB, and readable on
+// your own account. CI rebuilds it from the AGPL source on every push.
+// The obfuscated snapshot (dist-panel/catpanel.obf.js) still exists for the
+// in-app updater only; it is NOT deployed. The "Cloudflare scans worker sources
+// and returns Error 1101" story that motivated it is a community hypothesis,
+// not a documented Cloudflare behaviour — see scripts/panels/minify.mjs.
 // anyone can deploy their own panel on their own account in one click,
 // no app required. KV is auto-provisioned and bound as CAT_KV.
 {
   "name": "cat-panel",
-  "main": "dist-panel/catpanel.obf.js",
+  "main": "dist-panel/catpanel.min.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "kv_namespaces": [

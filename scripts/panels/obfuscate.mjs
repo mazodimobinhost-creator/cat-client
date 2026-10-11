@@ -1,11 +1,19 @@
 /**
- * Anti-1101 obfuscation pipeline (the BPB model).
+ * Obfuscation pipeline (the BPB model) — kept for the in-app updater only.
  *
- * Root cause this fixes: Cloudflare statically scans deployed worker sources
- * for VPN-panel fingerprints (plaintext «vless», «trojan», «proxyip», «bpb»…)
- * and disables matching workers — users then see the infamous «Error 1101»
- * page. The readable source (≈460+ signature hits) ships only from CI after
- * this pipeline; the repository keeps the readable AGPL source.
+ * Why it was added: to hide VPN-panel fingerprints (plaintext «vless»,
+ * «trojan», «proxyip», «bpb»…) on the belief that Cloudflare statically scans
+ * deployed worker sources and disables matching workers with «Error 1101».
+ *
+ * Status of that belief: UNCONFIRMED. Cloudflare documents 1101 as "Worker
+ * threw a JavaScript exception" (uncaught exception, CPU/memory limit, crash
+ * in the global scope); the scanning story comes from community reports, not
+ * from Cloudflare. See the README note and scripts/panels/minify.mjs.
+ *
+ * Consequently Wrangler no longer deploys this artifact — it deploys
+ * dist-panel/catpanel.min.js. Obfuscation costs ~4.4× the gzipped bytes of
+ * minification and makes the deployed code unauditable. It is still built for
+ * the in-app updater's PANEL_SOURCES, which downloads the obfuscated snapshot.
  *
  * Usage:
  *   node scripts/panels/obfuscate.mjs <in> <out> [--check]

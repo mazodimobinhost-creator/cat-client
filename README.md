@@ -15,7 +15,9 @@ combining one-tap connectivity with all the tools Iranian users need.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mazodimobinhost-creator/cat-client)
 
-> 🔒 The button deploys the **committed obfuscated snapshot** (`dist-panel/catpanel.obf.js`) — Cloudflare statically scans deployed worker sources (plaintext `vless`/`trojan` signatures get a worker disabled with «Error 1101»). The readable AGPL source lives at `app/src/main/assets/panels/catclient.worker.js`; CI refreshes the snapshot on every push.
+> 📦 The button deploys the **committed minified build** (`dist-panel/catpanel.min.js`, 120 KB gzipped) — the same code, readable on your own account, with nothing renamed or encoded away. CI rebuilds it from the AGPL source at `app/src/main/assets/panels/catclient.worker.js` on every push.
+>
+> ⚠️ **Hypothesis, not a documented fact.** The obfuscated snapshot (`dist-panel/catpanel.obf.js`) was added on the belief that *"Cloudflare statically scans deployed worker sources for `vless`/`trojan` signatures and disables the worker with Error 1101"*. That belief could **not** be confirmed: Cloudflare's own documentation defines **1101 as "Worker threw a JavaScript exception"** — a runtime failure (uncaught exception, CPU/memory limit, crash in the global scope) — and the scanning story traces back only to community reports from November 2024, never to a Cloudflare statement. So it is recorded here as a **hypothesis**, and the deploy path no longer pays its price (533 KB gzipped, ~4.4× heavier, and unauditable). If you have a deployment that was disabled with 1101 and a Cloudflare ticket or log showing a source scan, open an issue — that would turn this from a hypothesis into a fact. The obfuscated snapshot is still built for the in-app updater, but it is **not** deployed.
 
 *(استقرار پنل شخصی خودت روی حساب کلودفلرت — بدون نصب هیچ اپی)*
 
