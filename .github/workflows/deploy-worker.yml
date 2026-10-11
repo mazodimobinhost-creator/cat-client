@@ -68,7 +68,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT }}
         run: |
           set -o pipefail
-          npx --yes wrangler@latest deploy 2>&1 | tee deploy.log
+          # --no-bundle uploads the committed artifact byte for byte. Bundling runs it
+          # through esbuild, which escapes every non-ASCII character (Persian text and
+          # emoji): 602 KiB / 139.40 KiB gzipped instead of 458 KiB / 127.39 KiB, and it
+          # also re-warns about duplicate keys that are already in the artifact.
+          npx --yes wrangler@latest deploy --no-bundle 2>&1 | tee deploy.log
 
       - name: Notice (secrets not configured)
         if: env.CF_TOKEN == '' || env.CF_ACCOUNT == ''

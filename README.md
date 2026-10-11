@@ -51,6 +51,57 @@ resolving — they fail closed instead of dialing something else.
 
 *(استقرار پنل شخصی خودت روی حساب کلودفلرت — بدون نصب هیچ اپی)*
 
+### 🔗 دیپلوی خودکار با Cloudflare Workers Builds (اتصال به گیت‌هاب)
+
+به‌جای پیست دستی: کلادفلر به مخزن وصل می‌شود و با هر push روی شاخهٔ انتخابی، خودش
+`wrangler deploy` را اجرا می‌کند. هر چه لازم است از قبل در مخزن هست —
+`wrangler.jsonc` (ورودیِ `dist-panel/catpanel.min.js` + بایندینگِ `CAT_KV`) و CIیی که همان
+فایل را از سورسِ AGPL می‌سازد.
+
+**۱) KV — یک‌بار.** داشبورد → **Storage & Databases → KV → Create instance** → نام `cat-panel-kv`.
+اگر ورکرِ فعلی‌تان از قبل با همین نام بایند شده، کاری لازم نیست: بایندینگ بدونِ `id` می‌ماند و
+Wrangler همان namespace را نگه می‌دارد (automatic provisioning — مستنداتِ کلادفلر).
+اگر می‌خواهید قطعی باشد: ID را کپی کنید و در `wrangler.jsonc` خطِ کامنت‌شدهٔ
+`// "id": "0123456789abcdef0123456789abcdef",` را از کامنت دربیاورید و همان ۳۲ کاراکتر هگز را
+جایش بگذارید. **هیچ‌وقت idِ ساختگی نگذارید** — ورودیِ فعالِ نامعتبر، دیپلوی را می‌شکند
+(`scripts/panels/wrangler-config.test.mjs` این را گارد می‌کند).
+
+**۲) وصل کردن مخزن (از موبایل).**
+- به ورکرِ موجود: **Workers & Pages → ورکر شما → Settings → Builds → Connect**
+- یا ورکرِ تازه: **Workers & Pages → Create application → Import a repository → Get started**
+- **Git account**: GitHub را authorize کنید و دسترسی را به همین یک مخزن بدهید →
+  **Repository**: `mazodimobinhost-creator/cat-client` → **Branch**: شاخه‌ای که می‌خواهید production باشد
+  (مثلاً `arena/c5b36768-cat-client`؛ بعد از merge روی `main` هم می‌شود).
+- ⚠️ **اگر ورکرتان نام دیگری دارد، اول مقدار `name` را در `wrangler.jsonc` همان نام کنید** —
+  Wrangler به نامِ داخل فایل دیپلوی می‌کند، پس با فرق داشتن، یک ورکرِ دوم ساخته می‌شود.
+
+**۳) Build settings.**
+
+| فیلد | مقدار |
+| --- | --- |
+| Build command | خالی (یا `npm ci`) — آرتیفکتِ دیپلوی از قبل کامیت شده و بیلدی لازم نیست |
+| Deploy command | `npx --yes wrangler@latest deploy --no-bundle` |
+| Root directory | خالی |
+| Preview builds | خاموش — وگرنه برای شاخه‌های غیرproduction با `wrangler preview` پری‌ویو می‌سازد |
+
+`--no-bundle` عمدی است: بدونش Wrangler فایل را از esbuild رد می‌کند، هر حرف فارسی و هر ایموجی
+به `\uXXXX` تبدیل می‌شود و آپلود از **۴۵۸KiB / ۱۲۷.۳۹KiB gzip** به **۶۰۲KiB / ۱۳۹.۴۰KiB gzip** می‌رسد
+(و هشدارهای تکراریِ کلید هم برمی‌گردد).
+
+**۴) Save and Deploy** → تب **Deployments → View build history** برای لاگِ بیلد. pushِ بعدی روی همان
+شاخه خودش بیلد می‌سازد. کامیت‌های خودکارِ CI (پیامشان `[skip ci]`) بیلدِ Workers Builds را تریگر
+نمی‌کنند.
+
+**۵) دو مسیرِ دیپلوی با هم قاطی نشوند.** مخزن یک ورک‌فلوِ `deploy-worker.yml` هم دارد که با
+`npx wrangler deploy --no-bundle` (و سکرت‌های `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) دیپلوی
+می‌کند. اگر Workers Builds را وصل کردید و سکرت‌های ریپو را هم ست کرده‌اید، هر push دو بار دیپلوی
+می‌شود؛ یکی را خاموش کنید. (در وضعیتِ فعلی سکرت‌ها ست نیستند و آن مسیر skip می‌شود.)
+
+> 🧪 **برچسبِ صحت.** `wrangler deploy --dry-run --no-bundle` با wrangler **4.149.0** روی همین
+> `wrangler.jsonc` اجرا شد: صفر هشدار، **Total Upload 458.58 KiB / gzip 127.39 KiB**، و بایندینگ‌ها
+> `env.CAT_KV` + `env.OPEN_PANEL` + `env.OPEN_SUB`. **روی حسابِ واقعی کلادفلر و در Workers Builds
+> تست نشده** — آن بخش کارِ توست.
+
 ### 🤖 ربات دیپلوی تلگرام (جدید)
 بعد از نصب پنل، این دکمه رباتِ دیپلوی را هم بالا می‌آورد — با `/deploy` در تلگرام، آخرین نسخهٔ پنل با API Token کلادفلر خودکار آپدیت می‌شود:
 

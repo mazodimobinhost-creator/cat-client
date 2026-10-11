@@ -4,6 +4,10 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+- `wrangler.jsonc` carried a field Wrangler does not define on a KV binding (`name`), which the deploy logged as «Unexpected fields found in kv_namespaces[0]». Removed; the binding is `CAT_KV` and the place where a real 32-hex namespace id goes is a commented line with the exact dashboard path to copy it from. A made-up id in an active `id` field cannot resolve and breaks the deploy, so the file documents that instead of shipping one.
+- The deployed upload was 31% larger than the committed artifact: `wrangler deploy` runs the entrypoint through esbuild, which escapes every non-ASCII character (Persian text, emoji) into `\uXXXX` — 602 KiB / 139.40 KiB gzipped instead of 458 KiB / 127.39 KiB. Both deploy paths (repo workflow and Cloudflare Workers Builds) now pass `--no-bundle`, so the bytes Cloudflare stores are the bytes the tests ran against.
+
 ### Changed
 - Cat Panel (Worker 6.66.3): SOCKS5 relay configs are named «🧦 n. Relay» instead of carrying the proxy `host:port`. A subscription is shared around, and the name was the last place the relay address still travelled as plaintext.
 - Panel version advances to 6.66.3 so a deployed panel can discover the update.
