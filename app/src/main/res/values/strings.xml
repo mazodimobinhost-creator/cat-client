@@ -1067,6 +1067,12 @@
     <string name="pip_rejected_ignored">%1$d rejected (not a usable relay address)</string>
     <string name="pip_rejected_capped">%1$d left out (the 32-entry list is full)</string>
     <string name="pip_rejected_both">%1$d rejected, %2$d left out (list full)</string>
+    <string name="pip_score">Score %1$d/100 (from the measured round trip)</string>
+    <string name="pip_choose_route">Use this route</string>
+    <string name="pip_pull_panel">Pull from my panel (/api/prepos)</string>
+    <string name="pip_pull_ok">%1$d relay(s) pulled from the panel — review them, then scan</string>
+    <string name="pip_pull_empty">The panel has no healthy relay in its pool yet</string>
+    <string name="pip_pull_failed">Could not pull: %1$s</string>
     <string name="pip_save_failed">Could not save: %1$s</string>
     <string name="pip_wrong_password">Wrong panel password or username — use the same ones you set at deploy time (the default password is the panel UUID)</string>
     <string name="scanner_unverified_only">No TLS-verified IPs on YOUR network yet — only green (TLS-OK) IPs are sent, so no dead configs. Re-scan or change the range.</string>

@@ -1066,6 +1066,12 @@
     <string name="pip_rejected_ignored">%1$d تا رد شد (آدرس رلهٔ قابل استفاده نیست)</string>
     <string name="pip_rejected_capped">%1$d تا جا ماند (لیست ۳۲تایی پر است)</string>
     <string name="pip_rejected_both">%1$d تا رد شد و %2$d تا جا ماند (لیست پر است)</string>
+    <string name="pip_score">امتیاز %1$d از ۱۰۰ (بر اساس زمانِ اندازه‌گیری‌شده)</string>
+    <string name="pip_choose_route">انتخاب این مسیر</string>
+    <string name="pip_pull_panel">دریافت از پنل من (/api/prepos)</string>
+    <string name="pip_pull_ok">%1$d رله از پنل گرفته شد — اول نگاه کن، بعد اسکن کن</string>
+    <string name="pip_pull_empty">پنل هنوز رلهٔ سالمی در استخرش ندارد</string>
+    <string name="pip_pull_failed">دریافت ناموفق: %1$s</string>
     <string name="pip_save_failed">ذخیره نشد: %1$s</string>
     <string name="pip_wrong_password">رمز یا نام کاربری پنل اشتباه است — همان‌هایی که موقع دیپلوی گذاشتی (رمز پیش‌فرض = UUID پنل)</string>
     <string name="scanner_unverified_only">هیچ آی‌پی تأییدشده‌ای روی شبکهٔ تو نیست — فقط سبزها (TLS-OK) ارسال می‌شوند تا کانفیگ مرده نسازی. اسکن را تکرار کن یا رنج را عوض کن.</string>

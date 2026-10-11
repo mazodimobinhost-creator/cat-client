@@ -61,7 +61,13 @@ class ProxyIpScannerPage(
     /** Explicit panel chooser (never a silent guess) — resolved per action. */
     private val pickPanel: (suspend () -> String?)? = null,
 ) {
-    data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true)
+    data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true) {
+        /** 0..100 from the measured round trip. The relay probe is ONE handshake
+         *  plus one trace, so there is no loss/jitter to fold in here — the score
+         *  is latency only and says so; the clean-IP scanner reports all three. */
+        val score: Int get() = ((600.0 - latencyMs.coerceAtMost(600)) / (600.0 - 50.0) * 100.0)
+            .coerceIn(0.0, 100.0).toInt()
+    }
 
     private val ctx: Context = activity
     private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
@@ -159,7 +165,7 @@ class ProxyIpScannerPage(
         val portRowHost = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         fun renderPorts() {
             portRowHost.removeAllViews()
-            listOf(443, 2053, 2083, 2087, 2096, 8443).forEach { p ->
+            listOf(443, 2053, 8443, 80, 8080, 2083, 2087, 2096).forEach { p ->
                 val on = p in selectedPorts
                 portRowHost.addView(chip((if (on) "☑ " else "") + p, on) {
                     if (on) { if (selectedPorts.size > 1) selectedPorts.remove(p) } else selectedPorts.add(p)
@@ -197,6 +203,7 @@ class ProxyIpScannerPage(
             addView(button(ctx.getString(R.string.pscan_copy), false) { copySelected() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) })
         }
         val actions2 = button(ctx.getString(R.string.pip_send_panel), false) { sendToPanel() }
+        val actions3 = button(ctx.getString(R.string.pip_pull_panel), false) { pullFromPanel() }
         val resultsCard = card().apply {
             addView(text(ctx.getString(R.string.pip_results), 15f, bold = true))
             addView(text(ctx.getString(R.string.pip_results_hint), 12f, color = palette.textSecondary), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
@@ -204,6 +211,7 @@ class ProxyIpScannerPage(
             addView(resultsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             addView(actions2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(actions3, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         renderResults()
 
@@ -263,7 +271,13 @@ class ProxyIpScannerPage(
                     orientation = LinearLayout.VERTICAL
                     addView(text(if (hit.port == 443) hit.host else "${hit.host}:${hit.port}", 14f, bold = true).apply { typeface = CatClientDataTypeface; maxLines = 1 })
                     addView(text("${hit.country.ifBlank { "??" }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
+                    addView(text(ctx.getString(R.string.pip_score, hit.score), 11f, color = palette.textTertiary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(button(ctx.getString(R.string.pip_choose_route), false) {
+                    // «This route» = keep this relay, drop every other selection.
+                    hits.forEach { it.selected = (it === hit) }
+                    renderResults()
+                }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
                 if (onUseAsEntry != null) {
                     addView(button(ctx.getString(R.string.pip_use_entry_short), false) {
                         // This IP already completed a TLS handshake with the panel SNI —
@@ -461,6 +475,81 @@ class ProxyIpScannerPage(
         put.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
         return PushOutcome.from(putBody, merged.size)
+    }
+
+    /**
+     * Pull the panel's own ProxyIP pool (GET /api/prepos — owner-only) into the
+     * manual box. Nothing is scanned yet: the owner sees exactly what arrived and
+     * can delete lines before spending a single probe on them.
+     */
+    private fun pullFromPanel() {
+        // pickPanel is suspend (it may read the deployment store) — resolve it off
+        // the main thread, then build the dialog on Main. Never runBlocking here.
+        scope.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                runCatching { pickPanel?.invoke() }.getOrNull() ?: panelUrl
+            }?.trim()?.trimEnd('/')
+            withContext(Dispatchers.Main) {
+                if (resolved.isNullOrBlank()) { Toast.makeText(ctx, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return@withContext }
+                showPullDialog(resolved)
+            }
+        }
+    }
+
+    private fun showPullDialog(resolved: String) {
+        val storedUuid = runCatching { PanelDeploymentStore(activity).uuidFor(resolved) }.getOrNull().orEmpty()
+        val input = EditText(ctx).apply {
+            hint = ctx.getString(R.string.pip_password_hint); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
+            if (storedUuid.isNotBlank()) setText(storedUuid)
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+            .setTitle(ctx.getString(R.string.pip_pull_panel))
+            .setMessage(resolved.removePrefix("https://"))
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.pip_pull_panel) { _, _ ->
+                val password = input.text.toString()
+                scope.launch {
+                    val outcome = withContext(Dispatchers.IO) { runCatching { fetchPanelPool(resolved, password) } }
+                    outcome.onSuccess { lines ->
+                        if (lines.isEmpty()) {
+                            Toast.makeText(ctx, ctx.getString(R.string.pip_pull_empty), Toast.LENGTH_LONG).show()
+                        } else {
+                            val existing = customInput.text.toString().trim()
+                            customInput.setText(if (existing.isEmpty()) lines.joinToString("\n") else existing + "\n" + lines.joinToString("\n"))
+                            Toast.makeText(ctx, ctx.getString(R.string.pip_pull_ok, lines.size), Toast.LENGTH_LONG).show()
+                        }
+                    }.onFailure { e ->
+                        Toast.makeText(ctx, ctx.getString(R.string.pip_pull_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun fetchPanelPool(base: String, password: String): List<String> {
+        fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
+            val conn = URL("$base$path").openConnection() as HttpURLConnection
+            conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+            val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            return conn to stream.bufferedReader().readText()
+        }
+        val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(activity, base, password).toString(), null)
+        if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(ctx.getString(R.string.pip_wrong_password))
+        val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+        login.disconnect()
+        val (get, getBody) = call("/api/prepos", "GET", null, cookie)
+        val code = get.responseCode
+        get.disconnect()
+        if (code != 200) throw IllegalStateException("HTTP $code")
+        val arr = org.json.JSONObject(getBody).optJSONArray("ips") ?: return emptyList()
+        val out = ArrayList<String>()
+        for (i in 0 until arr.length()) { val v = arr.optString(i).trim(); if (v.isNotEmpty()) out += v }
+        return out.distinct().take(400)
     }
 
     private fun clear() {

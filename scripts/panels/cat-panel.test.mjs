@@ -712,6 +712,15 @@ let user;
     await T.refreshProxyRepos(ENV, feedCC);
     const poolCC = (await T.proxyRepoHealthyPool(ENV, 10)).find((p) => p.ip === '198.51.50.7:443');
     check('txt feed gets repo default country tag', poolCC && poolCC.cc === 'DE', JSON.stringify(poolCC));
+    // beta94: the Android scanner pulls the panel's own pool from /api/prepos, so the
+    // endpoint must return the relays themselves (ip:port#CC), not just statistics.
+    {
+      const prepos = await (await req('/api/prepos', { headers: auth })).json();
+      check('prepos: returns the pool as ip:port#CC for the app scanner',
+        Array.isArray(prepos.ips) && prepos.ips.some((x) => /^198\.51\.50\.7:443(#[A-Z]{2})?$/.test(String(x))),
+        JSON.stringify(prepos.ips));
+      check('prepos: pool entries keep their country tag', prepos.ips.some((x) => String(x).includes('#DE')), JSON.stringify(prepos.ips));
+    }
     const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));

@@ -52,9 +52,22 @@ object IpScanner {
         /** Walk IPv6 ranges too. The UI sets this from [hasIpv6Connectivity] so v6
          * candidates are only spent when the carrier actually routes v6. */
         val includeIpv6: Boolean = false,
+        /** TCP samples per candidate. One sample is a coin flip on a mobile
+         * network: a single lost packet reads as a dead IP. The average of
+         * several is the reported ping; their spread is the jitter. */
+        val samples: Int = DEFAULT_SAMPLES,
+        /** Ports to try, in order. A candidate is stored on the port that
+         * actually answered (`ip:port`) — never on a port we assumed. */
+        val ports: List<Int> = DEFAULT_SCAN_PORTS,
     )
 
     const val DEFAULT_PER_RANGE = 24
+
+    /** Ports Cloudflare answers on: the three TLS ones and the two plain ones. */
+    val DEFAULT_SCAN_PORTS = listOf(443, 2053, 8443, 80, 8080)
+
+    /** 5 samples keeps a scan of a few hundred IPs inside a couple of minutes. */
+    const val DEFAULT_SAMPLES = 5
 
     /** Any Cloudflare-hosted SNI works on any edge; the official speed endpoint rides along. */
     const val SPEED_TEST_SNI = "speed.cloudflare.com"
@@ -545,8 +558,29 @@ object IpScanner {
         val sourceRange: String? = null,
         /** Download throughput measured against this edge (bytes/sec), null = not measured. */
         val speedBps: Long? = null,
+        /** Share of the ping samples that never connected (0..100). */
+        val lossPct: Float = 0f,
+        /** Mean deviation between samples in ms — how steady the path is. */
+        val jitterMs: Long = 0L,
+        /** How many samples the three numbers above are based on. */
+        val sampleCount: Int = 0,
+        /** True when a TLS/trace check was actually attempted on this row. */
+        val verifyTls: Boolean = false,
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
+
+        /** 0..100 composite of latency (50%), loss (30%) and jitter (20%). A
+         *  candidate whose TLS/trace check failed can never score above 40 —
+         *  reachable-but-unusable must not outrank a working edge. */
+        val score: Int
+            get() {
+                val latency = ((600.0 - pingMs.coerceAtMost(600)) / (600.0 - 50.0) * 100.0).coerceIn(0.0, 100.0)
+                val steady = ((150.0 - jitterMs.coerceAtMost(150)) / (150.0 - 10.0) * 100.0).coerceIn(0.0, 100.0)
+                val reliable = (100.0 - lossPct.coerceAtMost(50f) * 2f).coerceIn(0.0, 100.0)
+                val raw = latency * 0.5 + reliable * 0.3 + steady * 0.2
+                val capped = if (verifyTls && !tlsOk) raw.coerceAtMost(40.0) else raw
+                return capped.toInt()
+            }
 
         /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
         val panelLine: String get() {
@@ -623,11 +657,49 @@ object IpScanner {
         connectTimeoutMs: Int = 1500,
         tlsTimeoutMs: Int = 2500,
     ): ScanResult? =
-        probe(ip, ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, randomSample = false, connectTimeoutMs = connectTimeoutMs, tlsTimeoutMs = tlsTimeoutMs, verifyHttp = true))
+        probePort(ip, port, ScanOptions(sni = sni, port = port, ports = listOf(port), includeBuiltin = false, includeIranLibrary = false, randomSample = false, connectTimeoutMs = connectTimeoutMs, tlsTimeoutMs = tlsTimeoutMs, verifyHttp = true))
 
-    /** Two-stage probe: TCP connect, then TLS + optional HTTP trace. */
+    /** Result of [sampleTcp]: the average is the ping, the rest is its quality. */
+    internal data class PingStats(val avgMs: Long, val lossPct: Float, val jitterMs: Long, val answered: Int)
+
+    /** [count] TCP connects to the same endpoint. Cheap (no DNS, no SNI) and the
+     *  only latency a phone can measure without root — ICMP is unavailable. */
+    internal fun sampleTcp(ip: String, port: Int, count: Int, timeoutMs: Int): PingStats? {
+        val n = count.coerceIn(1, 20)
+        val times = ArrayList<Long>(n)
+        var lost = 0
+        repeat(n) {
+            val ms = tcpConnect(ip, port, timeoutMs)
+            if (ms == null) lost += 1 else times += ms
+        }
+        if (times.isEmpty()) return null
+        val avg = times.average().toLong()
+        val jitter = times.map { kotlin.math.abs(it - avg) }.average().toLong()
+        return PingStats(avg, lost * 100f / n, jitter, times.size)
+    }
+
+    /**
+     * Port sweep, then a sampled probe of the winner.
+     *
+     * Ports are tried SEPARATELY and the candidate is only dropped when none of
+     * them answers — a single-port scan used to discard IPs that simply did not
+     * speak on 443. The port that answers fastest is the one stored as `ip:port`.
+     */
     internal fun probe(ip: String, options: ScanOptions): ScanResult? {
-        val tcpMs = tcpConnect(ip, options.port, options.connectTimeoutMs) ?: return null
+        val ports = (if (options.ports.isNotEmpty()) options.ports else listOf(options.port)).distinct()
+        val answered = ArrayList<Pair<Int, Long>>()
+        for (port in ports) {
+            val ms = tcpConnect(ip, port, options.connectTimeoutMs) ?: continue
+            answered += port to ms
+        }
+        if (answered.isEmpty()) return null
+        val port = answered.minByOrNull { it.second }!!.first
+        return probePort(ip, port, options)
+    }
+
+    /** Sampled ping + TLS/trace for ONE already-chosen port. */
+    internal fun probePort(ip: String, port: Int, options: ScanOptions): ScanResult? {
+        val stats = sampleTcp(ip, port, options.samples, options.connectTimeoutMs) ?: return null
         val sourceRange = if (isValidIpv4(ip)) {
             (parseRangeList(options.customSubnets) + DEFAULT_RANGES).firstOrNull { cidrContains(ip, it) }
         } else if (isValidHostname(ip)) {
@@ -638,20 +710,26 @@ object IpScanner {
         if (!options.verifyHttp && options.sni.isBlank()) {
             return ScanResult(
                 ip = ip,
-                pingMs = tcpMs,
+                pingMs = stats.avgMs,
                 sni = options.sni,
-                port = options.port,
+                port = port,
+                lossPct = stats.lossPct,
+                jitterMs = stats.jitterMs,
+                sampleCount = stats.answered,
                 countryName = "Cloudflare edge",
                 sourceRange = sourceRange,
             )
         }
-        val tls = tlsProbe(ip, options.port, options.sni, options.tlsTimeoutMs, options.verifyHttp)
+        val verifyTls = options.verifyHttp || options.sni.isNotBlank()
+        val tls = tlsProbe(ip, port, options.sni, options.tlsTimeoutMs, options.verifyHttp)
         val edge = EdgeLocationCatalog.fromColo(tls?.colo)
         return ScanResult(
             ip = ip,
-            pingMs = tls?.ms ?: tcpMs,
+            // The trace round trip is the number a client actually feels; fall
+            // back to the sampled TCP average when the handshake never finished.
+            pingMs = tls?.ms ?: stats.avgMs,
             sni = options.sni,
-            port = options.port,
+            port = port,
             tlsMs = tls?.ms,
             colo = tls?.colo,
             tlsOk = tls != null,
@@ -659,6 +737,10 @@ object IpScanner {
             countryCode = edge?.countryCode,
             countryName = edge?.label ?: "Cloudflare edge",
             sourceRange = sourceRange,
+            lossPct = stats.lossPct,
+            jitterMs = stats.jitterMs,
+            sampleCount = stats.answered,
+            verifyTls = verifyTls,
         )
     }
 

@@ -4239,7 +4239,11 @@ async function handleApi(request, url, env, ctx) {
       const pool = await proxyRepoHealthyPool(env, 400);
       const ccs = {};
       for (const p of pool) if (p.cc) ccs[p.cc] = (ccs[p.cc] || 0) + 1;
-      return json({ ok: true, kv: !!kv, ts: cache.ts || 0, ttlH: 12, total: pool.length, dead: Object.keys(health.f || {}).length, auto: settings.proxyRepoAuto === true, repos: (settings.proxyRepos || []).map((r) => { const st = (cache.per || {})[r.id]; return Object.assign({}, r, { count: st ? st.count : null, ok: st ? st.ok !== false : null, ts: st ? st.ts : 0 }); }), ccs });
+      // The pool itself (ip or «ip#CC») so the Android scanner can pull the
+      // panel's own ProxyIPs instead of only public feeds. Owner-only: this
+      // route is guarded, so the relay list never reaches anonymous callers.
+      const ips = pool.map((p) => (p.cc ? p.ip + '#' + p.cc : p.ip)).slice(0, 400);
+      return json({ ok: true, kv: !!kv, ts: cache.ts || 0, ttlH: 12, total: pool.length, dead: Object.keys(health.f || {}).length, auto: settings.proxyRepoAuto === true, ips, repos: (settings.proxyRepos || []).map((r) => { const st = (cache.per || {})[r.id]; return Object.assign({}, r, { count: st ? st.count : null, ok: st ? st.ok !== false : null, ts: st ? st.ts : 0 }); }), ccs });
     }
     if (method === 'POST') {
       const body = (await readJsonBody(request)) || {};
