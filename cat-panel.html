@@ -600,6 +600,10 @@ code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius
   <table class="tbl"><thead><tr><th data-i="ev_time"></th><th data-i="ev_ev"></th><th data-i="ev_d"></th></tr></thead><tbody id="errRows"></tbody></table>
   <div class="small dim" id="errEmpty" data-i="err_empty" style="display:none"></div>
   <div class="small" id="errExhausted" data-i="err_exhausted" style="display:none;color:#f59e0b"></div>
+  <p style="margin:12px 0 0;display:flex;gap:8px">
+   <button class="btn44" id="errRefresh" type="button" style="flex:1" data-i="hm_refresh"></button>
+   <button class="btn44" id="errClear" type="button" style="flex:1" data-i="err_clear"></button>
+  </p>
  </div>
 
  <div class="ncard">
@@ -1677,14 +1681,12 @@ function loadErrors(){var tb=$('#errRows');if(!tb)return;
 if($('#errRefresh'))$('#errRefresh').addEventListener('click',loadErrors);
 
 /* ---------- mobile shell: 5 sections, fixed bottom nav ---------- */
-var SECTITLE={home:'hm_title',users:'hm_users',addr:'hm_addr',loc:'hm_loc',set:'hm_set'};
 function goSec(sec){
   document.body.setAttribute('data-sec',sec);
   [].forEach.call(document.querySelectorAll('.view'),function(v){
     v.style.display=(v.getAttribute('data-sec')===sec)?'block':'none';});
   [].forEach.call(document.querySelectorAll('.tabbar button'),function(b){
     if(b.getAttribute('data-sec')===sec)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
-  var h=$('#secTitle');if(h&&SECTITLE[sec]){h.setAttribute('data-i',SECTITLE[sec]);h.textContent=t(SECTITLE[sec]);}
   if(sec==='home'){renderHome();loadErrors();}
   if(sec==='users'){renderSubLinks();}
   if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');}
@@ -1788,6 +1790,7 @@ function addSock(){
   b.addEventListener('click',function(){goSec(b.getAttribute('data-sec'));});});
 [].forEach.call(document.querySelectorAll('.addrtabs button'),function(b){b.addEventListener('click',function(){setAddrTab(b.getAttribute('data-atab-go'));});});
 if($('#skAdd'))$('#skAdd').addEventListener('click',addSock);
+if($('#errRefresh'))$('#errRefresh').addEventListener('click',function(){loadErrors();});
 if($('#hmRefresh'))$('#hmRefresh').addEventListener('click',function(){load();toast(t('hm_copied'),false);});
 
 if($('#errClear'))$('#errClear').addEventListener('click',function(){
