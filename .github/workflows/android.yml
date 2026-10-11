@@ -169,6 +169,13 @@ jobs:
           npm install --no-save javascript-obfuscator@5 terser acorn --silent
           # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
           node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
+          # The app's «copy code» button hands the clipboard the OFFICIAL paste
+          # artifact, so the 3-line file has to ride inside the APK — byte for byte
+          # (scripts/panels/paste-artifact.test.mjs fails the build if the two copies
+          # ever drift apart). It is copied from the freshly built dist-panel file,
+          # i.e. before the in-place obfuscation below touches the worker asset.
+          cp dist-panel/catpanel.min.js app/src/main/assets/panels/catpanel.min.js
+          node --input-type=module -e "import { readFileSync } from 'node:fs'; const a = readFileSync('dist-panel/catpanel.min.js'); const b = readFileSync('app/src/main/assets/panels/catpanel.min.js'); if (!a.equals(b)) { console.error('paste asset drift'); process.exit(1); } console.log('paste asset synced:', a.length, 'B');"
           # obfuscated snapshot: only what the in-app updater downloads (never deployed)
           node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
           # STEALTH deploy artifact (wrangler.jsonc main): the owner asked for the
@@ -200,7 +207,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # committed preview/backup page for the release bundle + README raw links
           node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
-          git add dist-panel/catpanel.obf.js dist-panel/catpanel.min.js dist-panel/catpanel.stealth.js cat-panel.html
+          git add dist-panel/catpanel.obf.js dist-panel/catpanel.min.js dist-panel/catpanel.stealth.js cat-panel.html app/src/main/assets/panels/catpanel.min.js
           if git diff --cached --quiet; then echo "snapshot unchanged"; else git commit -m "[skip ci] refresh public panel snapshots + panel page (deploy button)" && (git push || echo "::warning::snapshot push skipped (non-fatal)"); fi
 
       - name: Guard - no Context access in Activity/Application constructors

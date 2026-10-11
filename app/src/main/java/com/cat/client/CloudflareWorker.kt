@@ -33,6 +33,18 @@ object CloudflareWorker {
     const val WIZARD_ASSET_PATH = "panels/catclient.wizard.js"
 
     /**
+     * The official paste artifact — `dist-panel/catpanel.min.js`, built by
+     * `scripts/panels/minify.mjs` and shipped inside the APK under this name.
+     */
+    const val PASTE_ASSET_PATH = "panels/catpanel.min.js"
+
+    /** Marker line every readable paste artifact carries (first line of the file). */
+    const val PASTE_VERSION_MARKER = "CAT_PANEL_VERSION"
+
+    /** A paste artifact smaller than this is truncated or the wrong file. */
+    const val PASTE_MIN_CHARS = 300_000
+
+    /**
      * Official "Deploy to Cloudflare" button for the repo (README): deploys Cat
      * Panel on any Cloudflare account in one click — no app, no token pasting.
      * Sharing this link is the no-app path for friends who do not have Cat Client.
@@ -419,6 +431,28 @@ object CloudflareWorker {
     fun builtInWorkerScript(context: Context): String = runCatching {
         context.assets.open(WORKER_ASSET_PATH).bufferedReader().use { it.readText() }
     }.getOrDefault(MINIMAL_WORKER_SCRIPT)
+
+    /**
+     * The text the «copy code» button puts on the clipboard: the official 3-line
+     * paste artifact (`catpanel.min.js`, ~474 KB), NOT the ~1.2 MB obfuscated bundle
+     * the app uploads through the API. Size is the point — a 1.2 MB string is one
+     * interrupted paste away from a truncated Worker, and a Worker whose file is cut
+     * short throws on every request (Cloudflare's «Error 1101»; see the README
+     * section of the same name). Returns null when the APK was built without the
+     * asset (local builds), so the caller falls back with a visible warning instead
+     * of silently handing over the big file.
+     */
+    fun builtInPasteScript(context: Context): String? = runCatching {
+        context.assets.open(PASTE_ASSET_PATH).bufferedReader().use { it.readText() }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /**
+     * Sanity gate before anything is copied or deployed: the marker line must be
+     * there and the size must be in the right ballpark, so a half-written asset can
+     * never reach the clipboard unnoticed.
+     */
+    fun pasteScriptIsSane(text: String?): Boolean =
+        text != null && text.length >= PASTE_MIN_CHARS && text.contains(PASTE_VERSION_MARKER)
 
     /** Bundled Cat Wizard worker source (one-click installer page for friends). */
     fun builtInWizardScript(context: Context): String? = runCatching {

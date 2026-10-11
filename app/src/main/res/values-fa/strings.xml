@@ -583,7 +583,8 @@
     <string name="cloud_section_catpanel">Cat Panel — ورکر کلادفلر من</string>
     <string name="cloud_catpanel_desc">کت پنل نسخهٔ ۵ — پنل شخصی تو روی کلودفلر: رلهٔ واقعی VLESS-WS / Trojan-WS، آی‌پی‌های تمیز داخل همهٔ کانفیگ‌ها (پورت و SNI را خودت انتخاب می‌کنی)، سهمیهٔ کاربران روی KV، قفل رمز (پیش‌فرض همان UUID)، DNSهای ایرانی، اسکنر داخل پنل و سمت ورکر، QR و خروجی Clash / sing-box. با توکن پایین دیپلوی کن — اپ خودش KV می‌سازد، UUID می‌گذارد و ساب را وارد می‌کند.</string>
     <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
-    <string name="cloud_code_copied">کد Worker کپی شد — داخل Worker کلادفلر بچسبانید</string>
+    <string name="cloud_code_copied">فایلِ رسمیِ سه‌خطی کپی شد — همان را بی‌کم‌وکاست در ورکر کلادفلر بچسبانید</string>
+    <string name="cloud_code_copied_large">⚠️ فایلِ کاملِ داخلِ اپ کپی شد (حدود ۱٫۲ مگابایت) — پیستِ آن ممکن است بریده شود؛ ترجیحاً فایلِ رسمیِ سه‌خطی را بچسبانید</string>
     <string name="cloud_code_failed">خواندن کد Worker ممکن نشد</string>
     <string name="cloud_share_deploy_link">🔗 اشتراک لینک نصب یک‌کلیکی (بدون نیاز به اپ)</string>
     <string name="cloud_share_deploy_copied">لینک نصب کپی شد — هر کسی این لینک را داشته باشد پنل خودش را نصب می‌کند</string>

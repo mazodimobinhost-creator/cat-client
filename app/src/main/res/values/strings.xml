@@ -584,7 +584,8 @@
     <string name="cloud_section_catpanel">Cat Panel — my Cloudflare Worker</string>
     <string name="cloud_catpanel_desc">Cat Panel v5 — your own panel on Cloudflare: real VLESS-WS / Trojan-WS relay, clean IPs baked into every config (you pick the ports and SNI), per-user quotas on KV, password lock (UUID by default), Iranian DNS presets, in-panel + server-side scanners, QR and Clash / sing-box output. Deploy with the API token below — the app creates the KV store, sets the UUID and imports the subscription for you.</string>
     <string name="cloud_copy_code">📋 Copy Worker code (paste into Cloudflare)</string>
-    <string name="cloud_code_copied">Worker code copied — paste it into your Cloudflare Worker</string>
+    <string name="cloud_code_copied">Official 3-line file copied — paste it into your Cloudflare Worker as-is</string>
+    <string name="cloud_code_copied_large">⚠️ Copied the app\'s full bundle (~1.2 MB) — a paste can truncate it; prefer the official 3-line file</string>
     <string name="cloud_code_failed">Could not read the worker code</string>
     <string name="cloud_share_deploy_link">🔗 Share one-click deploy link (no app needed)</string>
     <string name="cloud_share_deploy_copied">Deploy link copied — anyone with it can install their own panel</string>

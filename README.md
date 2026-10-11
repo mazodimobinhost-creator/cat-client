@@ -295,6 +295,10 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
    sign in: the password **is the UUID** until you change it in settings.
 2. **Through Cat Client** — Cloud tab → paste an API token → *Deploy on my
    Cloudflare*. The app creates the KV, uploads the worker, and imports the sub.
+   The *copy Worker code* button next to it fills the clipboard with this same
+   3-line `catpanel.min.js` (474 KB) for a manual paste — never the ~1.2 MB bundle
+   the app uploads through the API, because a 1.2 MB clipboard string is the
+   classic route to a truncated paste (→ «Error 1101», see below).
 
 ### ⚠️ «Error 1101» — how to tell «the script never loaded» from «a request threw»
 

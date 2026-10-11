@@ -7966,15 +7966,7 @@ class MainActivity : Activity() {
 
         catPanelCard.addView(
             cloudActionButton(R.string.cloud_copy_code, R.drawable.ic_cloud_tab, accent = true) {
-                val script = runCatching { CloudflareWorker.builtInWorkerScript(this) }
-                    .getOrNull()
-                if (script.isNullOrBlank()) {
-                    Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
-                    return@cloudActionButton
-                }
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", script))
-                Toast.makeText(this, R.string.cloud_code_copied, Toast.LENGTH_LONG).show()
+                copyPanelPasteCode()
             },
             LinearLayout.LayoutParams(-1, -2),
         )
@@ -9350,6 +9342,40 @@ class MainActivity : Activity() {
             putExtra(Intent.EXTRA_TEXT, getString(R.string.cloud_share_deploy_text, url))
         }
         runCatching { startActivity(Intent.createChooser(send, getString(R.string.cloud_share_deploy_subject))) }
+    }
+
+    /**
+     * «Copy Worker code» — hands the clipboard the OFFICIAL paste artifact: the
+     * 3-line `catpanel.min.js` (~474 KB) built by CI, not the ~1.2 MB obfuscated
+     * bundle this app uploads over the API. A big string is one interrupted paste
+     * away from a truncated Worker, and a truncated Worker returns Cloudflare's
+     * «Error 1101» for every request.
+     *
+     * The big bundle stays the fallback for APKs built without the paste asset
+     * (local builds); that fallback is announced in the toast instead of being
+     * silent, so nobody pastes 1.2 MB believing it is the small file.
+     */
+    private fun copyPanelPasteCode() {
+        val paste = CloudflareWorker.builtInPasteScript(this)
+        val official = CloudflareWorker.pasteScriptIsSane(paste)
+        val text = if (official) paste else runCatching { CloudflareWorker.builtInWorkerScript(this) }.getOrNull()
+        if (text.isNullOrBlank()) {
+            Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val copied = runCatching {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", text))
+        }.isSuccess
+        if (!copied) {
+            Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(
+            this,
+            if (official) R.string.cloud_code_copied else R.string.cloud_code_copied_large,
+            Toast.LENGTH_LONG,
+        ).show()
     }
 
     private fun showWizardDeployedDialog(result: CloudflareWorker.WizardDeploymentResult) {
