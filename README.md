@@ -307,11 +307,11 @@ did not run. There are exactly two situations, and one URL tells them apart:
 | the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, or a build that lost its tail | deploy again from a verified file (below) |
 
 A file that never loads cannot report anything: nothing inside a script that fails to
-parse can catch that. So before pasting, check the two ends of the file in the
-clipboard — first line `/* CAT_PANEL_VERSION = '6.66.6' */` and last characters
-`…camouflagePage:Ha};` — and the size (474,314 bytes for `catpanel.min.js`). The
-browser's editor wraps the three long lines, so «it looks like two lines» means
-nothing; the byte count is what matters.
+parse can catch that. So before pasting, look at the first line
+(`/* CAT_PANEL_VERSION = '6.66.6' */`), the last characters
+(`…userInfoPage:Ba,camouflagePage:Da};` for `catpanel.min.js` in this release) and
+the size (474,314 bytes). The browser's editor wraps the three long lines, so «it
+looks like two lines» means nothing; the byte count is what matters.
 
 On 6.66.6+ a request-time exception answers JSON for the owner instead of the 1101
 page:
