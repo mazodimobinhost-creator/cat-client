@@ -380,5 +380,95 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
     JSON.stringify(forced.message));
 }
 
+/* ---------- I) WHO gets the stack: owner vs stranger, asserted one by one ---------- */
+{
+  // A configured panel (a password exists) is the only state where ownership can be
+  // proven, so it is the only state where the split matters. `/api/geo` is used as
+  // the crash route because it is reached BEFORE the owner gate: that is exactly the
+  // situation the rule is about — the crash happens, and the answer depends on WHO
+  // asked. `/panel` covers the HTML side.
+  const kv = memKv();
+  const env = { CAT_KV: kv };
+  const settings = Object.assign({}, await T.readSettings(env), { passwordHash: await T.sha256Hex('owner-secret') });
+  await kv.put(T.KV_KEYS.settings, JSON.stringify(settings));
+  const SECRET = 'database exploded at line 42';      // must never reach a stranger
+  const UUID_IN_QUERY = '11111111-2222-3333-4444-555555555555';
+
+  /** A request that authenticates like the owner (or not) and then throws on the
+      first header read that the route does after the gate. */
+  const crashReq = (path, opts = {}) => ({
+    url: 'https://' + HOST + path,
+    method: 'GET',
+    cf: {},
+    headers: {
+      get(name) {
+        const key = String(name).toLowerCase();
+        if (key === 'x-cat-key') return opts.key || null;
+        if (key === 'cookie' || key === 'authorization') return null;
+        if (key === 'upgrade') return opts.upgrade === undefined ? null : opts.upgrade;
+        if (opts.crashHeader && key === opts.crashHeader) throw new Error(SECRET);
+        return null;
+      },
+    },
+  });
+
+  /* --- the owner, proving ownership with the header the README documents --- */
+  T.kvCacheClear();
+  const owner = await worker.fetch(crashReq('/api/geo?p=' + UUID_IN_QUERY, { key: 'owner-secret', crashHeader: 'cf-connecting-ip' }), env, { waitUntil() {} });
+  const ownerBody = await owner.json();
+  ok('owner (x-cat-key) gets the report', owner.status === 500 && ownerBody.error === 'panel_crash', owner.status + ' ' + JSON.stringify(ownerBody).slice(0, 60));
+  ok('…with the real message', ownerBody.message === SECRET, JSON.stringify(ownerBody.message));
+  ok('…with a stack string and stackLines',
+    typeof ownerBody.stack === 'string' && /database exploded/.test(ownerBody.stack) &&
+      Array.isArray(ownerBody.stackLines) && ownerBody.stackLines.length > 0);
+  ok('…naming the path but NEVER the query string',
+    ownerBody.at === '/api/geo' && !JSON.stringify(ownerBody).includes(UUID_IN_QUERY), ownerBody.at);
+
+  /* --- a stranger: nothing but a generic body --- */
+  const stranger = await worker.fetch(crashReq('/api/geo', { crashHeader: 'cf-connecting-ip' }), env, { waitUntil() {} });
+  const strangerText = await stranger.text();
+  ok('stranger on /api gets JSON (no 1101 page) but a generic body',
+    stranger.status === 500 && JSON.parse(strangerText).error === 'internal', strangerText.slice(0, 60));
+  ok('…with the documented generic message', JSON.parse(strangerText).message === 'unhandled error');
+  ok('…no stack, no stackLines key at all', !/stack/.test(strangerText), strangerText.slice(0, 90));
+  ok('…no path and no route name', !strangerText.includes('/api/geo'), 'path leaked');
+  ok('…no error text', !strangerText.includes('database exploded'), 'message leaked');
+  ok('…and not even the panel_crash marker', !/panel_crash|Worker Exception Handled/.test(strangerText));
+  ok('…and no version disclosure', !strangerText.includes(T.CAT_PANEL_VERSION), strangerText.slice(0, 90));
+
+  /* --- a stranger on the HTML routes: the neutral page, unchanged --- */
+  const contentCrash = (path) => ({
+    url: 'https://' + HOST + path,
+    method: 'GET',
+    cf: {},
+    headers: { get(name) { if (String(name).toLowerCase() === 'upgrade') throw new Error(SECRET); return null; } },
+  });
+  const page = await worker.fetch(contentCrash('/panel'), env, { waitUntil() {} });
+  const pageBody = await page.text();
+  ok('stranger on a page route gets the neutral answer',
+    !/panel_crash/.test(pageBody) && !pageBody.includes(SECRET) && !pageBody.includes('Worker Exception Handled'),
+    page.status);
+
+  /* --- PANEL_DIAG is the owner's switch, in both directions --- */
+  const forcedOpen = await worker.fetch(crashReq('/api/geo', { crashHeader: 'cf-connecting-ip' }), Object.assign({}, env, { PANEL_DIAG: '1' }), { waitUntil() {} });
+  ok('PANEL_DIAG=1 shows the details to everyone (the escape hatch)',
+    (await forcedOpen.json()).message === SECRET);
+  const forcedShut = await worker.fetch(crashReq('/api/geo', { key: 'owner-secret', crashHeader: 'cf-connecting-ip' }), Object.assign({}, env, { PANEL_DIAG: '0' }), { waitUntil() {} });
+  const shutText = await forcedShut.text();
+  ok('PANEL_DIAG=0 keeps even the owner in the dark (documented switch)',
+    JSON.parse(shutText).error === 'internal' && !shutText.includes(SECRET), shutText.slice(0, 70));
+
+  /* --- the unclassifiable caller is treated as a stranger by crashReportMinimal --- */
+  T.kvCacheClear();
+  const minimal = await (await T.crashReportMinimal(new Error(SECRET), {})).json();
+  ok('crashReportMinimal() with no PANEL_DIAG → generic, byte-for-byte the /api fallback',
+    JSON.stringify(minimal) === JSON.stringify({ ok: false, success: false, error: 'internal', message: 'unhandled error' }),
+    JSON.stringify(minimal));
+  const minimalOpen = await (await T.crashReportMinimal(new Error(SECRET), { PANEL_DIAG: '1' })).json();
+  ok('crashReportMinimal() with PANEL_DIAG=1 → the full report (same shape as the owner path)',
+    minimalOpen.error === 'panel_crash' && minimalOpen.message === SECRET && typeof minimalOpen.stack === 'string' &&
+      minimalOpen.title === 'Worker Exception Handled' && minimalOpen.at === '');
+}
+
 console.log('\nhostile env: ' + pass + ' passed, ' + fail + ' FAILED');
 assert.equal(fail, 0, fail + ' checks failed');

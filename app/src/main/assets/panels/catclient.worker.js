@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.8';
+const CAT_PANEL_VERSION = '6.66.9';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -2757,25 +2757,17 @@ function crashReport(err, where) {
 
 /**
  * Last line of defence: the owner check or the report itself failed (a hostile
- * error object, a KV that refuses everything). The promise «a request-time
- * exception answers JSON, never a bare 1101» still holds; the message and stack
- * are attached only when PANEL_DIAG=1, so a stranger probing the URL learns
- * nothing it could not learn from the neutral page.
+ * error object, a KV that refuses everything, `isOwner()` throwing). Two rules:
+ *
+ *   1. it is still JSON — never a bare «Error 1101» page, for anyone;
+ *   2. an unclassifiable caller is treated as a STRANGER. Same generic body as the
+ *      /api fallback below: no message, no stack, no path, not even the
+ *      `panel_crash` marker. Only PANEL_DIAG=1 (the owner's own switch) turns this
+ *      into the full report.
  */
 function crashReportMinimal(err, env) {
-  const showAll = diagFlag(env) === true;
-  return json({
-    ok: false,
-    success: false,
-    error: 'panel_crash',
-    title: 'Worker Exception Handled',
-    version: CAT_PANEL_VERSION,
-    at: '',
-    method: '',
-    message: showAll ? (maskCreds(safeText(err, 400)) || 'unknown error') : 'unhandled error (PANEL_DIAG=1 shows the full report)',
-    stack: showAll ? maskCreds(safeStack(err)).slice(0, 1600) : '',
-    stackLines: [],
-  }, 500, { 'cache-control': 'no-store' });
+  if (diagFlag(env) === true) return crashReport(err, { path: '', method: '' });
+  return json({ ok: false, success: false, error: 'internal', message: 'unhandled error' }, 500, { 'cache-control': 'no-store' });
 }
 
 async function readUsage(env) {
@@ -7477,10 +7469,19 @@ export default {
       // JSON crash report with the message and the stack; a stranger keeps the
       // unchanged neutral answer. See diagAllowed() for who counts as the owner.
       //
-      // NOTE: this catches REQUEST-TIME exceptions only. A script that fails to
-      // parse or load (a truncated paste, a bad build) answers 1101 on every
-      // single route — nothing inside the file can catch that, which is why
-      // `node --check` + the load gates exist in scripts/panels/*.mjs.
+      // SCOPE — read this before trusting the branch (the README says it plainly):
+      //   ✔ caught here: any exception thrown while handling THIS request, incl.
+      //     a thrown string/null/symbol and an error object whose message getter
+      //     or toString throws (all reads go through safeText/safeStack).
+      //   ✘ NOT caught, because no code inside the file runs: a syntax error or a
+      //     truncated paste (the module never evaluates), a throw in global scope
+      //     during module evaluation, a fatal runtime kill (out of memory), and a
+      //     deployment the API refused to upload. Those are the cases that still
+      //     answer the edge's 1101 page, which is why `node --check`, the load
+      //     gates in scripts/panels/*.mjs and Workers Builds exist.
+      //   ✘ also not turned into a report: an error thrown after the response was
+      //     sent (response-body streaming, ctx.waitUntil, a tunnel/WebSocket after
+      //     the upgrade) — it is recorded and visible at /api/diag instead.
       const u = safeRequestUrl(request);
       // decision: true = report, false = withheld on purpose (configured panel +
       // stranger), null = could not be determined — each one has its own answer.
@@ -7494,10 +7495,11 @@ export default {
       } catch (_e3) { decision = null; }
       // Never a bare 1101, even when the machinery above failed.
       if (decision === null) return crashReportMinimal(e, env);
-      // An API answer must stay JSON (the panel calls it with fetch()), but the raw
-      // message is not handed to a stranger: leaking an internal error to anyone
-      // probing /api is the same fingerprint the neutral page avoids.
-      if (u.indexOf('/api') >= 0) return json({ ok: false, error: 'internal', message: 'unhandled error — set PANEL_DIAG=1 for the full report' }, 500);
+      // An API answer must stay JSON (the panel calls it with fetch()), but a
+      // stranger gets NOTHING usable: no message, no stack, no path, no marker —
+      // exactly what the neutral page gives on the HTML routes. The owner reads
+      // the details by reproducing the crash while signed in (or with PANEL_DIAG=1).
+      if (u.indexOf('/api') >= 0) return json({ ok: false, success: false, error: 'internal', message: 'unhandled error' }, 500, { 'cache-control': 'no-store' });
       try { return stealthNotFound(); } catch (_e2) { return new Response('error', { status: 500, headers: { 'content-type': 'text/plain' } }); }
     }
   },
@@ -7505,6 +7507,7 @@ export default {
 
 export const _testing = {
   CAT_PANEL_VERSION,
+  crashReport, crashReportMinimal, diagAllowed, diagFlag, safeText, safeStack, crashLocation,
   splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
   deriveUuid, resolveUuid,
   KV_KEYS, kvBinding, kvCacheClear, KV_READ_TTL_MS, DEFAULT_ECH_VALUE,

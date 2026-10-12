@@ -51,6 +51,15 @@
   "observability": {
     "enabled": true
   },
+  // ⚠️ A deploy is DECLARATIVE. The binding list of the uploaded version is exactly
+  // what this file says: a KV namespace (or variable, or D1) that exists in the
+  // dashboard but is NOT listed here is REMOVED by `wrangler deploy`. CAT_KV is
+  // therefore declared below even though the app's own deploy path passes a real
+  // namespace id through the API — keep every binding you rely on in this file.
+  //
+  // With no `id`, wrangler 4.135+ matches an existing binding named CAT_KV and keeps
+  // its namespace; when there is none it provisions one (automatic provisioning).
+  // Pinning the id removes that inference — see the commented line below.
   "kv_namespaces": [
     {
       // ─────────────────────────────────────────────────────────────────────

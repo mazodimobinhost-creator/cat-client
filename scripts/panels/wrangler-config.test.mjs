@@ -120,6 +120,28 @@ if ('preview_id' in kv) {
     /^\s*\/\/\s*"id":/m.test(raw) && !/"id"\s*:/.test(stripJsonc(raw)), 'checked against the comment-stripped config');
 }
 
+{
+  // A deploy is DECLARATIVE: the binding list of the uploaded version is exactly
+  // what this file lists — a KV/var the dashboard has but the file does not is
+  // REMOVED. The owner asked whether CAT_KV is really declared here (it is, above);
+  // this block pins the rest of the surface so a deploy cannot silently drop or
+  // add something the worker does not expect.
+  const workerSrc = read('app/src/main/assets/panels/catclient.worker.js');
+  const kvName = (/const KV_BINDING\s*=\s*'([^']+)'/.exec(workerSrc) || [])[1] || 'CAT_KV';
+  ok('the binding name matches what the worker actually reads', kv.binding === kvName, `${kv.binding} vs ${kvName}`);
+  const OTHER_KINDS = ['d1_databases', 'r2_buckets', 'durable_objects', 'hyperdrive', 'services', 'queues', 'vectorize', 'ai', 'assets'];
+  const present = OTHER_KINDS.filter((k) => k in cfg);
+  ok('no other binding kind is declared (each one would become part of the version)', present.length === 0, present.join(','));
+  // The two vars are read with `env.OPEN_PANEL` / `env.OPEN_SUB` in the worker; any
+  // other var in the file is one the worker never reads.
+  const varNames = Object.keys(cfg?.vars || {});
+  const workerVars = varNames.filter((n) => workerSrc.includes('env.' + n));
+  ok('every declared var is read by the worker', workerVars.length === varNames.length,
+    varNames.filter((n) => !workerSrc.includes('env.' + n)).join(','));
+  ok('the file says out loud that a deploy is declarative (bindings not listed are removed)',
+    /declarative/i.test(raw) && /remov/i.test(raw), 'comment marker in wrangler.jsonc');
+}
+
 /* ---------- 3) compatibility_date ---------- */
 {
   const raw2 = cfg?.compatibility_date;

@@ -80,41 +80,57 @@ resolving — they fail closed instead of dialing something else.
 `wrangler.jsonc` (ورودیِ `dist-panel/catpanel.stealth.js` + بایندینگِ `CAT_KV`) و CIیی که همان
 فایل را از سورسِ AGPL می‌سازد (`scripts/panels/stealth.mjs`).
 
-**۱) KV — یک‌بار.** داشبورد → **Storage & Databases → KV → Create instance** → نام `cat-panel-kv`.
-اگر ورکرِ فعلی‌تان از قبل با همین نام بایند شده، کاری لازم نیست: بایندینگ بدونِ `id` می‌ماند و
-Wrangler همان namespace را نگه می‌دارد (automatic provisioning — مستنداتِ کلادفلر).
-اگر می‌خواهید قطعی باشد: ID را کپی کنید و در `wrangler.jsonc` خطِ کامنت‌شدهٔ
-`// "id": "0123456789abcdef0123456789abcdef",` را از کامنت دربیاورید و همان ۳۲ کاراکتر هگز را
-جایش بگذارید. **هیچ‌وقت idِ ساختگی نگذارید** — ورودیِ فعالِ نامعتبر، دیپلوی را می‌شکند
-(`scripts/panels/wrangler-config.test.mjs` این را گارد می‌کند).
+**۱) KV — یک‌بار. و بله، `CAT_KV` در `wrangler.jsonc` تعریف شده است** (خطِ
+`"kv_namespaces": [{ "binding": "CAT_KV" }]`). این مهم است چون دیپلوی **declarative** است:
+لیستِ بایندینگ‌های نسخهٔ آپلودی مو‌به‌مو همان چیزی است که آن فایل می‌گوید، پس هر KV/متغیری که در
+داشبورد باشد و در فایل نباشد، با `wrangler deploy` **حذف می‌شود**. اگر بایندینگِ دیگری در داشبورد
+دارید (مثلاً یک KV با نامِ دیگر) قبل از وصل‌کردن Builds اسمش را هم داخل همین فایل اضافه کنید.
+کانفیگِ فعلی فقط `CAT_KV` + `OPEN_PANEL`/`OPEN_SUB` را می‌فرستد و تست
+(`scripts/panels/wrangler-config.test.mjs`) گارد می‌کند که بایندینگِ ناشناس یا نوعِ دیگری (D1/R2/…)
+بی‌سروصدا اضافه نشود.
 
-**۲) وصل کردن مخزن (از موبایل).**
-- به ورکرِ موجود: **Workers & Pages → ورکر شما → Settings → Builds → Connect**
-- یا ورکرِ تازه: **Workers & Pages → Create application → Import a repository → Get started**
-- **Git account**: GitHub را authorize کنید و دسترسی را به همین یک مخزن بدهید →
-  **Repository**: `mazodimobinhost-creator/cat-client` → **Branch**: شاخه‌ای که می‌خواهید production باشد
-  (مثلاً `arena/c5b36768-cat-client`؛ بعد از merge روی `main` هم می‌شود).
-- ⚠️ **اگر ورکرتان نام دیگری دارد، اول مقدار `name` را در `wrangler.jsonc` همان نام کنید** —
-  Wrangler به نامِ داخل فایل دیپلوی می‌کند، پس با فرق داشتن، یک ورکرِ دوم ساخته می‌شود.
+اگر ورکرِ فعلی از قبل با نامِ `CAT_KV` به یک namespace وصل است، کاری لازم نیست: بایندینگ بدونِ `id`
+می‌ماند و Wrangler همان namespace را نگه می‌دارد (automatic provisioning — مستنداتِ کلادفلر؛ در
+wrangler 4.135+ بایندینگِ بدون `id` با نام تطبیق داده می‌شود). برای قطعیتِ صد‌درصدی:
+**از موبایل** داشبورد → *Storage & Databases* → *KV* → روی namespace بزنید → فیلد **ID** (۳۲ کاراکتر
+هگز) را کپی کنید → در گیت‌هاب فایل `wrangler.jsonc` را باز کنید → خطِ کامنت‌شدهٔ
+`// "id": "0123456789abcdef0123456789abcdef",` را از کامنت دربیاورید و ID را جایش بگذارید → Commit.
+**هیچ‌وقت idِ ساختگی نگذارید** — ورودیِ فعالِ نامعتبر، دیپلوی را می‌شکند.
+بعد از دیپلوی، صحتش را با این بسنجید: `https://<your-worker>/api/diag` (مالک) باید
+`"kv":"read+write ok"` بدهد و `/api/settings` باید همان آی‌پی‌ها/کاربرهای قبلی را نشان بدهد.
 
-**۳) Build settings.**
+**۲) وصل کردن مخزن — روی موبایل، ضربه‌به‌ضربه.** (اگر آیتمی را ندیدید، در مرورگرِ گوشی منوی
+«⋮» → **Desktop site** را روشن کنید؛ رابطِ موبایلِ کلادفلر بعضی زیرمنوها را پنهان می‌کند.)
 
-| فیلد | مقدار |
-| --- | --- |
-| Build command | خالی (یا `npm ci`) — آرتیفکتِ دیپلوی از قبل کامیت شده و بیلدی لازم نیست |
-| Deploy command | `npx --yes wrangler@latest deploy --no-bundle` |
-| Root directory | خالی |
-| Preview builds | خاموش — وگرنه برای شاخه‌های غیرproduction با `wrangler preview` پری‌ویو می‌سازد |
+1. مرورگرِ گوشی → `dash.cloudflare.com` → لاگین.
+2. منوی **☰** (بالا-چپ) → **Workers & Pages**.
+3. روی نامِ ورکرتان بزنید: **`empty-wave-5d02`** (ورکرِ تازه؟ → **Create application → Import a
+   repository → Get started** و از قدمِ ۶ ادامه بدهید).
+4. نوارِ بالای صفحه تب‌ها را نشان می‌دهد: **Metrics · Logs · Settings** — روی **Settings** بزنید.
+5. به پایین اسکرول کنید تا کارتِ **Builds** را ببینید → **Connect** (اگر ورکر از قبل وصل است:
+   **Manage** → **Disconnect**).
+6. **Git account** → **GitHub** → *Authorize* (و در گیت‌هاب در صورت پرسیدن، دسترسی را فقط به همین
+   یک مخزن بدهید) → برمی‌گردید به همان صفحه.
+7. **Repository**: `mazodimobinhost-creator/cat-client` → **Branch**: `arena/c5b36768-cat-client`
+   (بعد از merge می‌توانید به `main` عوضش کنید).
+8. **Build settings** → **Build command** را **خالی** بگذارید → **Deploy command** را دقیقاً این
+   بگذارید: `npx --yes wrangler@latest deploy --no-bundle` → **Root directory** خالی →
+   **Preview builds**: خاموش.
+9. **Save** (و اگر پرسید **Connect/Deploy**) → همان لحظه بیلد شروع می‌شود؛ تبِ **Deployments** →
+   **View build history** → آخرین بیلد → لاگِ زنده. انتظار: جملهٔ
+   `Total Upload: … gzip: …` و در پایان `Deployed …empty-wave-5d02`.
+10. ⚠️ **اگر بیلد با «The name in your Wrangler configuration file (X) must match the name of your
+    Worker» fail شد**: در گیت‌هاب `wrangler.jsonc` را باز کنید → خطِ `"name"` را به همان نامِ ورکری
+    که در داشبورد باز کرده‌اید تغییر بدهید (الان `empty-wave-5d02`) → Commit. دوباره بیلد می‌شود.
+11. تست از همان گوشی: `https://empty-wave-5d02.<subdomain>.workers.dev/api/version` → باید JSON با
+    `"version":"6.66.9"` بدهد. بعد `…/api/selfcheck?throw=1` با `x-cat-key` (بخشِ ۱۱۰۱ بالا).
 
-`--no-bundle` عمدی است: بدونش Wrangler فایل را از esbuild رد می‌کند، هر حرف فارسی و هر ایموجی
-به `\uXXXX` تبدیل می‌شود و آپلود از **۴۵۸KiB / ۱۲۷.۳۹KiB gzip** به **۶۰۲KiB / ۱۳۹.۴۰KiB gzip** می‌رسد
-(و هشدارهای تکراریِ کلید هم برمی‌گردد).
+**۳) بعد از وصل شدن.** هر push روی همان شاخه خودش بیلد می‌سازد؛ کامیت‌های خودکارِ CI (پیامشان
+`[skip ci]`) بیلد نمی‌سازند. برای دیدنِ لاگِ هر بیلد: **Deployments → View build history**.
+`--no-bundle` عمدی است: بدونش Wrangler فایل را از esbuild رد می‌کند، هر حرف فارسی و هر ایموجی به
+`\uXXXX` تبدیل می‌شود و آپلود به **۶۰۲KiB / ۱۳۹.۴۰KiB gzip** می‌رسد (به‌جای ~۴۵۸KiB / ~۱۲۷KiB).
 
-**۴) Save and Deploy** → تب **Deployments → View build history** برای لاگِ بیلد. pushِ بعدی روی همان
-شاخه خودش بیلد می‌سازد. کامیت‌های خودکارِ CI (پیامشان `[skip ci]`) بیلدِ Workers Builds را تریگر
-نمی‌کنند.
-
-**۵) دو مسیرِ دیپلوی با هم قاطی نشوند.** مخزن یک ورک‌فلوِ `deploy-worker.yml` هم دارد که با
+**۴) دو مسیرِ دیپلوی با هم قاطی نشوند.** مخزن یک ورک‌فلوِ `deploy-worker.yml` هم دارد که با
 `npx wrangler deploy --no-bundle` (و سکرت‌های `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) دیپلوی
 می‌کند. اگر Workers Builds را وصل کردید و سکرت‌های ریپو را هم ست کرده‌اید، هر push دو بار دیپلوی
 می‌شود؛ یکی را خاموش کنید. (در وضعیتِ فعلی سکرت‌ها ست نیستند و آن مسیر skip می‌شود.)
@@ -302,19 +318,28 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 
 ### ⚠️ «Error 1101» — how to tell «the script never loaded» from «a request threw»
 
-Cloudflare prints *Error 1101: Worker threw exception* when the script on the Worker
-did not run. There are exactly two situations, and one URL tells them apart:
+**The guard added in 6.66.6+ is not a promise that 1101 can never appear.** It turns
+*request-time exceptions* into JSON; three other things still produce Cloudflare's
+page, by construction, because no code of ours runs in those cases:
+
+| What happened | Who catches it | What you see |
+| --- | --- | --- |
+| an exception **inside `fetch()`** on this request | the outer `try/catch` | JSON report (owner) / generic JSON for `/api` (stranger) — never the 1101 page |
+| the file **never evaluated**: syntax error, truncated paste, a throw in **global scope** during module evaluation | *nobody* — the module did not load | **1101 on every route**, forever, until you redeploy |
+| Cloudflare **refused the upload** (validation error, size, invalid binding), or the deploy never reached the account | *nobody* — nothing was deployed | usually a deploy error in the dashboard/build log; the old version keeps serving, or 1101 if the previous upload was broken |
+| a **fatal runtime kill**: out of memory, or the isolate killed mid-request | *nobody* — the isolate dies | the 1101 page (1102 for CPU-time limits) |
+
+So the first question is still which of these you have:
 
 | Open `https://<your-worker>/api/version` | Meaning | Fix |
 | --- | --- | --- |
 | JSON: `{"ok":true,"panel":"cat-panel","version":"…"}` | the script is **loaded and running**; something a *request* did threw | open `/api/diag` (owner) or set `PANEL_DIAG=1`, then read the JSON report |
-| the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, or a build that lost its tail | deploy again from a verified file (below) |
+| the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, a bad build, or a deploy that did not land | deploy again from a verified file (below) |
 
-A file that never loads cannot report anything: nothing inside a script that fails to
-parse can catch that. So before pasting, look at the first line
-(`/* CAT_PANEL_VERSION = '6.66.8' */`), the last characters
-(`…userInfoPage:Wa,camouflagePage:Ba};` for `catpanel.min.js` in this release) and
-the size (475,637 bytes). The browser's editor wraps the three long lines, so «it
+A file that never loads cannot report anything. So before pasting, look at the first
+line (`/* CAT_PANEL_VERSION = '6.66.9' */`), the last characters
+(`…userInfoPage:Xa,camouflagePage:Ka};` for `catpanel.min.js` in this release) and
+the size (475,600 bytes). The browser's editor wraps the three long lines, so «it
 looks like two lines» means nothing; the byte count is what matters.
 
 Since 6.66.6 (shape finalised in 6.66.7) a request-time exception answers JSON for
@@ -323,7 +348,7 @@ owner-only self-test throws on purpose:
 
 ```bash
 # signed in (or x-cat-key: <panel password / UUID>) — this one always answers:
-curl -s https://<your-worker>/api/selfcheck            # {"ok":true,"version":"6.66.8","handler":"alive …"}
+curl -s https://<your-worker>/api/selfcheck            # {"ok":true,"version":"6.66.9","handler":"alive …"}
 # and this one throws inside the Worker, so you see the report, not a 1101 page:
 curl -s "https://<your-worker>/api/selfcheck?throw=1" | head -c 400
 ```
@@ -332,6 +357,17 @@ The second command returning `error:"panel_crash"` with a `stack` — instead of
 Cloudflare's «Error 1101: Worker threw exception» page — is the whole test. A
 stranger asking for the same URL is refused with `401` before the throw, so nobody
 can use it to force a report out of your panel.
+
+**Who sees the stack.** The full report (message + `stack` + path) goes to the owner
+only: a valid session cookie, `x-cat-key: <panel password / UUID>`, the `?p=<uuid>`
+one-tap login, or `PANEL_DIAG=1`. Everyone else gets a generic
+`{"ok":false,"success":false,"error":"internal","message":"unhandled error"}` — no
+message, no stack, no path, no version, not even the `panel_crash` marker, and the
+same for the HTML routes (the neutral page). The one deliberate exception is a
+**fresh install with no password anywhere**: there is no owner to prove yet, and the
+panel path already shows the UUID to whoever opens it, so the report is not a new
+disclosure there — set a password (or `PANEL_DIAG=0`) to close it. Pinned by
+`scripts/panels/hostile-env.test.mjs` (86 checks: every audience, both switches).
 
 The report itself:
 
@@ -347,9 +383,11 @@ What that promise does and does not cover — worth knowing before you chase a 1
 | Situation | What you get |
 | --- | --- |
 | anything thrown inside `fetch()` — including a thrown string, `null`, or a hostile object whose `message`/`toString` throws | JSON report above (`env = env || {}` is set before the `try`, and every value in the error path goes through `safeText()`/`safeStack()`, so the handler itself cannot become the crash) |
-| the crash could not be attributed (the owner check itself failed) | still JSON: `crashReportMinimal()` — message/stack attached only when `PANEL_DIAG=1` |
+| the crash could not be attributed (the owner check itself failed) | still JSON, but treated as a stranger: `crashReportMinimal()` answers the same generic `internal` body — details only under `PANEL_DIAG=1` |
 | a script that fails to **parse or load** (truncated paste, bad build) | 1101 on every route — nothing inside the file can catch that; this is what the size/marker checks, the app's `pasteScriptIsSane()` gate and the Workers Builds path exist for |
-| an error thrown while a response body is already streaming, or inside `ctx.waitUntil()` | the response is already sent; the error is recorded and shows up in `/api/diag` (`recentErrors`) |
+| a throw in **global scope** while the module evaluates, or a fatal runtime kill (out of memory / CPU limit) | 1101 (or 1102 for CPU) — the isolate never ran our `catch` |
+| a **deploy the API refused** (invalid config/binding, size limit, token scope) | nothing is deployed: the deploy log shows the error and either the old version keeps serving or the broken one keeps returning 1101 |
+| an error thrown while a response body is already streaming, or inside `ctx.waitUntil()` / after a WebSocket upgrade | the response is already sent; the error is recorded and shows up in `/api/diag` (`recentErrors`) |
 
 `/api/diag` (owner-only) is the other half of the story: it lists the bindings this
 isolate sees, runs a real KV write→read→delete probe, and shows the last crashes.
