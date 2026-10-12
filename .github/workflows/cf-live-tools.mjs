@@ -108,8 +108,15 @@ process.on('exit', (code) => {
     if (!tail.trim() || process.env.NO_SELF_RECORD === '1') return;
     const name = process.argv[2] || '?';
     const overflow = tail.length > 9000 ? '…(truncated; showing the last 9000 characters)\n' : '';
-    publish(`\n<details><summary><code>${name}</code> — raw output (exit code ${code})</summary>\n\n` + '```\n' + overflow + tail.slice(-9000) + '\n```\n\n</details>\n',
-      name + '-raw-' + code);
+    const section = `\n<details><summary><code>${name}</code> — raw output (exit code ${code})</summary>\n\n` + '```\n' + overflow + tail.slice(-9000) + '\n```\n\n</details>\n';
+    if (code === 0) {
+      // healthy run: the file is enough, the annotation budget stays for the
+      // publish diagnostics and the cleanup verification
+      appendResults(section);
+    } else {
+      // a step that died must still leave its bytes somewhere readable
+      publish(section, name + '-raw-' + code);
+    }
   } catch { /* an exit handler must never throw */ }
 });
 

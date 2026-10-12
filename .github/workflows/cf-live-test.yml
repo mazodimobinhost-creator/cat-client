@@ -77,6 +77,29 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Mark the results file (proves the runner can write it, and git notices)
+        env:
+          NO_SELF_RECORD: '1'
+        run: |
+          set -e
+          mkdir -p "$OUT"
+          printf '\n<!-- run %s attempt %s at %s -->\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$(date -u +%FT%TZ)" >> cf-live-results.md
+          {
+            echo "marker written by shell into cf-live-results.md"
+            echo "bytes now : $(stat -c%s cf-live-results.md)"
+            echo "md5 now   : $(md5sum cf-live-results.md | cut -d' ' -f1)"
+            echo "md5 at HEAD: $(git show HEAD:cf-live-results.md | md5sum | cut -d' ' -f1)"
+            echo "git status --porcelain:"; git status --porcelain
+            echo "cwd: $PWD"; echo "GIT_DIR=${GIT_DIR:-<unset>} GIT_WORK_TREE=${GIT_WORK_TREE:-<unset>}"
+          } > "$OUT/marker.txt"
+          cat "$OUT/marker.txt"
+        continue-on-error: true
+
+      - name: Raw output — file marker
+        if: always()
+        env: { NO_SELF_RECORD: '1' }
+        run: node "$TOOLS" emit --file="$OUT/marker.txt" --title=file-marker
+
       - name: Install wrangler (pinned)
         run: |
           npm install --no-save --no-audit --no-fund wrangler@4.149.0 --silent
@@ -121,6 +144,7 @@ jobs:
       # `continue-on-error` hides a crash: the bytes are mirrored as annotations.
       - name: Raw output — stage A deploy (wrangler, --no-bundle)
         if: always()
+        env: { NO_SELF_RECORD: '1' }
         run: node "$TOOLS" emit --file="$OUT/deploy-A.log" --title=raw-A-deploy
 
       # ── stage A2 ───────────────────────────────────────────────────────────
@@ -133,6 +157,7 @@ jobs:
 
       - name: Raw output — stage A2 deploy (wrangler's own bundler)
         if: always()
+        env: { NO_SELF_RECORD: '1' }
         run: node "$TOOLS" emit --file="$OUT/deploy-A2.log" --title=raw-A2-deploy
 
       # ── stage B ────────────────────────────────────────────────────────────
@@ -145,6 +170,7 @@ jobs:
 
       - name: Raw output — stage B deploy (the app's obfuscated artifact)
         if: always()
+        env: { NO_SELF_RECORD: '1' }
         run: node "$TOOLS" emit --file="$OUT/deploy-B.log" --title=raw-B-deploy
 
       # ── stage C ────────────────────────────────────────────────────────────
@@ -157,6 +183,7 @@ jobs:
 
       - name: Raw output — stage C (the app's own upload path)
         if: always()
+        env: { NO_SELF_RECORD: '1' }
         run: |
           node "$TOOLS" emit --file="$OUT/upload-C.log" --title=raw-C-upload
           node "$TOOLS" emit --file="$OUT/stage-C.log" --title=raw-C-app-api
@@ -170,6 +197,7 @@ jobs:
 
       - name: Raw output — cleanup
         if: always()
+        env: { NO_SELF_RECORD: '1' }
         run: node "$TOOLS" emit --file="$OUT/09-cleanup.log" --title=raw-cleanup
 
       - name: Summary (fails the job only if a hard expectation broke)
@@ -206,25 +234,43 @@ jobs:
           cp cf-live-results.md /tmp/cf-live-results.md
           git config user.name "cf-live-test"
           git config user.email "cf-live-test@users.noreply.github.com"
-          git fetch origin "$GITHUB_REF_NAME"
-          git checkout -B cf-live-publish FETCH_HEAD
+          git checkout -B cf-live-publish
           cp /tmp/cf-live-results.md cf-live-results.md
-          git add cf-live-results.md cf-live-publish-diag.md
-          if ! git commit -m "cf live test results [skip ci]"; then
+          # the diagnostics travel out FIRST, as an annotation of their own: if the
+          # git plumbing below refuses, this is the record that says why
+          node "$TOOLS" emit --file=cf-live-publish-diag.md --title=publish-diag || true
+          cp cf-live-results.md /tmp/cf-live-results.md
+          git config user.name "cf-live-test"
+          git config user.email "cf-live-test@users.noreply.github.com"
+          git add -A -- cf-live-results.md cf-live-publish-diag.md
+          if [ -z "$(git diff --cached --name-only)" ]; then
             echo "::error::nothing was staged — the tools never touched cf-live-results.md in this run"
-            git status --porcelain
             exit 1
           fi
+          git commit -m "cf live test results [skip ci]"
           for attempt in 1 2 3; do
-            if git push origin HEAD:"$GITHUB_REF_NAME"; then
-              echo "published cf-live-results.md ($(git rev-parse --short HEAD))"
+            if git push origin HEAD:"$GITHUB_REF_NAME" 2>&1 | tail -5; then
+              echo "published cf-live-results.md through the worktree ($(git rev-parse --short HEAD))"
               exit 0
             fi
-            echo "::warning::push attempt $attempt rejected — refetching and retrying"
-            git fetch origin "$GITHUB_REF_NAME"
-            git rebase FETCH_HEAD || { echo "::error::rebase onto the branch head failed"; exit 1; }
+            echo "::warning::worktree push attempt $attempt was rejected"
+            sleep 3
           done
-          echo "::error::could not publish cf-live-results.md after three attempts"
+
+          # Fallback, deliberately on a different transport: the Contents API writes
+          # the branch without touching the local index at all. `gh` is preinstalled
+          # on GitHub-hosted runners and authenticates with the same job token.
+          SHA_HEAD=$(git show HEAD:cf-live-results.md | git hash-object --stdin)
+          if gh api -X PUT "/repos/$GITHUB_REPOSITORY/contents/cf-live-results.md" \
+               -f message="cf live test results [skip ci]" \
+               -f branch="$GITHUB_REF_NAME" \
+               -f content="$(base64 -w0 /tmp/cf-live-results.md)" \
+               -f sha="$SHA_HEAD" > /tmp/gh-publish.json 2>&1; then
+            echo "published cf-live-results.md through the Contents API"
+            exit 0
+          fi
+          cat /tmp/gh-publish.json
+          echo "::error::both publish paths failed — read the annotations for the evidence"
           exit 1
 
       - name: Raw output — publish diagnostics
