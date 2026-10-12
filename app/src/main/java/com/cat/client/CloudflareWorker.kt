@@ -743,6 +743,19 @@ object CloudflareWorker {
         val scriptNeverLoaded: Boolean get() = !online && status > 0
         /** Nothing answered — not even the edge page. */
         val unreachable: Boolean get() = !online && status == 0
+
+        /**
+         * The edge answered with its OWN 404 page: the host resolves, but no Worker
+         * is answering on it yet. A freshly created `workers.dev` route does exactly
+         * this for a while — measured on a real account (live test, 2026-10-12): the
+         * route kept serving that page for 13 s in one run and for most of a minute in
+         * another before the Worker took over. It is NOT the «Error 1101 that has no
+         * report»: nothing is broken and nothing needs re-uploading, the route is
+         * simply not live yet. Our own answers never look like this — the panel
+         * always replies with JSON, so an HTML body is the edge, not us.
+         */
+        val routeNotLiveYet: Boolean
+            get() = !online && status == 404 && bodyHead.trimStart().startsWith("<")
     }
 
     /** One probe of `/api/version`; never throws. */
@@ -782,8 +795,14 @@ object CloudflareWorker {
     private fun waitForPanel(
         workerUrl: String,
         uuid: String = "",
-        attempts: Int = 5,
-        delayMs: Long = 2_500L,
+        // A fresh workers.dev route answers the edge's own 404 page for a while
+        // before it serves the Worker (13 s in one measured run, most of a minute in
+        // another). The old budget of 5 × 2.5 s expired in the middle of that window
+        // and then blamed the upload for it — which is the one message that should
+        // never be wrong. Waiting longer costs nothing when the panel is up: the loop
+        // returns the moment it answers.
+        attempts: Int = 9,
+        delayMs: Long = 4_000L,
     ): PanelVersionProbe {
         var last = PanelVersionProbe(online = false, detail = "not tried")
         for (i in 0 until attempts) {
@@ -915,9 +934,11 @@ object CloudflareWorker {
         }
 
         // 6. Smoke-test the live panel (workers.dev propagation takes a few seconds).
-        //    The probe distinguishes «the file never loaded» (the edge's error page
-        //    instead of JSON — the 1101 that has no report) from «not reachable
-        //    yet», so the result dialog can say which one happened.
+        //    The probe tells three cases apart, so the result dialog can say which
+        //    one happened: «the route is not live yet» (the edge's own 404 page —
+        //    normal for a fresh route), «the file never loaded» (any other edge error
+        //    page instead of JSON — the 1101 that has no report) and «not reachable
+        //    at all» (nothing answered).
         val health = waitForPanel(workerUrl, uuid)
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         val bundledVersion = bundledPanelVersion(context)

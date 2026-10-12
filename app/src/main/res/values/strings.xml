@@ -637,6 +637,7 @@
     <string name="cloud_panel_online_version">✓ Panel is online (v%1$s) — /api/version answered JSON, so the file loaded and ran.</string>
     <string name="cloud_panel_never_loaded">✗ The Worker answered, but our code never ran (HTTP %1$s). The file did not load — the «Error 1101» that has no report: a truncated upload, or a deploy that did not land. Press «Refresh panel» again to re-upload; if it repeats, paste the 3-line file by hand from the same tab and the Worker name must match.</string>
     <string name="cloud_panel_never_loaded_body">Edge answer: %1$s</string>
+    <string name="cloud_panel_route_pending">⏳ The Worker is uploaded, but its workers.dev route does not answer it yet (HTTP %1$s is the edge page itself, not the panel). A brand-new route needs seconds to tens of seconds to start answering — wait a moment and check again; the upload itself is fine.</string>
     <string name="cloud_panel_unreachable">✗ No answer from the Worker at all — check the connection, or wait a few seconds (a fresh workers.dev route takes a moment to answer).</string>
     <string name="cloud_panel_version_skew">⚠ The panel on this Worker is v%1$s but this app ships v%2$s. Configs keep working; press «Refresh panel» in the app (or update the app) so both halves match — the panel itself shows the same warning to the owner.</string>
     <string name="cloud_import_sub">Import subscription</string>

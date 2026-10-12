@@ -9289,6 +9289,16 @@ class MainActivity : Activity() {
             } else {
                 getString(R.string.cloud_verified_online)
             }
+            // A fresh workers.dev route answers the edge's own 404 page until the
+            // Worker takes over. Saying «truncated upload, paste the file by hand»
+            // for that is the one message that must never be wrong — it is a wait,
+            // not a failure, and it clears itself.
+            health != null && health.routeNotLiveYet -> {
+                lines += getString(R.string.cloud_panel_route_pending, health.status.toString())
+                if (health.bodyHead.isNotBlank()) {
+                    lines += getString(R.string.cloud_panel_never_loaded_body, health.bodyHead.take(120))
+                }
+            }
             health != null && health.scriptNeverLoaded -> {
                 lines += getString(R.string.cloud_panel_never_loaded, health.status.toString())
                 if (health.bodyHead.isNotBlank()) {
