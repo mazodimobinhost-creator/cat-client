@@ -59,7 +59,17 @@ const errText = (r) => (r.json ? JSON.stringify(r.json.errors || r.json) : r.tex
 
 async function preflight() {
   console.log('worker:', WORKER, '| kv title:', KV_TITLE, '| account id set:', !!ACCT, '| token set:', !!TOKEN);
-  if (!TOKEN || !ACCT) { console.error('::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not available to this run'); process.exit(1); }
+  console.log('provided by  : secrets.CLOUDFLARE_API_TOKEN=' + process.env.HAS_SECRET_TOKEN +
+    ' secrets.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_SECRET_ACCOUNT +
+    ' | vars.CLOUDFLARE_API_TOKEN=' + process.env.HAS_VAR_TOKEN +
+    ' vars.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_VAR_ACCOUNT +
+    '  (repository secrets and repository variables are two separate storages)');
+  if (!TOKEN || !ACCT) {
+    console.error('::error::neither secrets.* nor vars.* carry CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID. ' +
+      'This repository has no Actions environment, so environment secrets are not the answer either — ' +
+      'add them in Settings → Secrets and variables → Actions (a repository secret, or a repository variable).');
+    process.exit(1);
+  }
   const v = await cf('/user/tokens/verify');
   console.log('token verify :', v.status, v.json ? v.json.result?.status : v.text.slice(0, 120));
   if (v.status !== 200) process.exit(1);
@@ -341,6 +351,11 @@ async function stage() {
 
 function summary() {
   const files = existsSync(OUT) ? readdirSync(OUT).filter((f) => f.startsWith('check-') && f.endsWith('.json')).sort() : [];
+  if (!files.length) {
+    console.error('::error::no stage produced a result — the run did nothing (missing credentials, or every deploy failed). ' +
+      'This is a FAILURE, not a quiet success.');
+    process.exit(1);
+  }
   const all = files.map((f) => JSON.parse(readFileSync(`${OUT}/${f}`, 'utf8')));
   const lines = [];
   lines.push('| stage | version | KV state | sub | checks | 1101? |');
