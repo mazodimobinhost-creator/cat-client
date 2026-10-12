@@ -45,9 +45,36 @@ function appendResults(text) {
   try {
     const head = existsSync(RESULTS) ? readFileSync(RESULTS, 'utf8') : '';
     writeFileSync(RESULTS, head + text);
+    return true;
   } catch (e) {
     try { process.stderr.write('appendResults failed: ' + e.message + '\n'); } catch { /* ignore */ }
+    return false;
   }
+}
+
+/**
+ * Workflow-command escaping, so a multi-line section survives as one annotation:
+ * the maximum honesty the transport allows is an annotation whose message is the
+ * section itself, and annotations ARE readable from the outside.
+ */
+const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+/**
+ * Append to the branch file AND mirror the same text into annotations — chunked,
+ * because one workflow command cannot carry an unbounded message. Both channels
+ * are best-effort on purpose: losing the report must never fail the test itself.
+ */
+function publish(text, title) {
+  const ok = appendResults(text);
+  if (process.env.NO_ANNOTATIONS === '1') return ok;
+  try {
+    const chunks = [];
+    for (let i = 0; i < text.length && chunks.length < 3; i += 3800) chunks.push(text.slice(i, i + 3800));
+    chunks.forEach((c, i) => {
+      console.log(`::notice title=${title ? title + ' ' : ''}part ${i + 1}/${chunks.length}::` + esc(c));
+    });
+  } catch { /* ignore */ }
+  return ok;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const envFile = (kv) => appendFileSync(process.env.GITHUB_ENV, kv + '\n');
@@ -81,7 +108,8 @@ process.on('exit', (code) => {
     if (!tail.trim() || process.env.NO_SELF_RECORD === '1') return;
     const name = process.argv[2] || '?';
     const overflow = tail.length > 9000 ? '…(truncated; showing the last 9000 characters)\n' : '';
-    appendResults(`\n<details><summary><code>${name}</code> — raw output (exit code ${code})</summary>\n\n` + '```\n' + overflow + tail.slice(-9000) + '\n```\n\n</details>\n');
+    publish(`\n<details><summary><code>${name}</code> — raw output (exit code ${code})</summary>\n\n` + '```\n' + overflow + tail.slice(-9000) + '\n```\n\n</details>\n',
+      name + '-raw-' + code);
   } catch { /* an exit handler must never throw */ }
 });
 
@@ -279,7 +307,7 @@ async function deploy() {
   const size = out.split('\n').filter((l) => /Total Upload|Uploaded|gzip|Deployed|workers\.dev/.test(l));
   console.log('deploy exit:', code);
   console.log(size.join('\n'));
-  appendResults(`\n## Deploy — ${bundle ? 'wrangler deploy (bundled by wrangler)' : 'wrangler deploy --no-bundle'}\n\n` +
+  publish(`\n## Deploy — ${bundle ? 'wrangler deploy (bundled by wrangler)' : 'wrangler deploy --no-bundle'}\n\n` +
     '```\n' + ['$ npx wrangler ' + args.join(' ')].concat(out.split('\n').filter((l) => /Total Upload|Uploaded|Deployed|workers\.dev|gzip/i.test(l)).map((l) => l.trim())).join('\n') + '\n```\n\n' +
     `exit code ${code} after ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
   if (code !== 0) { console.error('::error::deploy failed'); }
@@ -314,17 +342,22 @@ async function uploadApp() {
   });
   const text = await res.text();
   console.log('  HTTP', res.status, text.replace(/\s+/g, ' ').slice(0, 400));
-  appendResults(`\n## App-style upload (the same builder as CloudflareWorker.cfUploadWorker)\n\n` +
+  // The subdomain route is enabled BEFORE the section is written: reading `route`
+  // earlier than this line threw «Cannot access 'route' before initialization»,
+  // the step died with exit code 1 while `continue-on-error` still reported it as
+  // success, and stage C left no trace at all in the results file.
+  const route = await cf(`/accounts/${ACCT}/workers/scripts/${WORKER}/subdomain`, {
+    method: 'POST', body: JSON.stringify({ enabled: true, previews_enabled: false }),
+  });
+  console.log('  workers.dev route enabled:', route.status, route.json ? JSON.stringify(route.json.result || route.json.errors) : route.text.slice(0, 160));
+  publish(`\n## App-style upload (the same builder as CloudflareWorker.cfUploadWorker)\n\n` +
     '- method/url: `PUT /accounts/<account>/workers/scripts/' + WORKER + '`\n' +
     '- headers: `Content-Type: multipart/form-data; boundary=…`, `Content-Length: ' + body.length + '`\n' +
     '- metadata: `' + JSON.stringify(redacted).replace(/\|/g, '\\|') + '`\n' +
     '- body bytes: ' + body.length + ' (script ' + Buffer.byteLength(script, 'utf8') + ' + multipart overhead ' + (body.length - Buffer.byteLength(script, 'utf8')) + ')\n' +
     '- HTTP ' + res.status + ': `' + text.replace(/\s+/g, ' ').slice(0, 300) + '`\n' +
-    '- workers.dev route: HTTP ' + route.status + '\n');
-  const route = await cf(`/accounts/${ACCT}/workers/scripts/${WORKER}/subdomain`, {
-    method: 'POST', body: JSON.stringify({ enabled: true, previews_enabled: false }),
-  });
-  console.log('  workers.dev route enabled:', route.status, route.json ? JSON.stringify(route.json.result || route.json.errors) : route.text.slice(0, 160));
+    '- workers.dev route: HTTP ' + route.status + '\n',
+    'app-upload');
   if (res.status !== 200) process.exit(1);
 }
 
@@ -505,12 +538,13 @@ async function stage() {
   // here, not inside runChecks, because the tail log only exists in this scope.
   const passed = result.rows.filter((r) => r.pass).length;
   const tailLines = tailText.split('\n').filter((l) => l.trim()).slice(0, 8).map((l) => '    ' + l.slice(0, 240)).join('\n') || '    (no live log lines captured)';
-  appendResults(`\n## Stage ${label} — mode ${result.mode} — ${passed}/${result.rows.length} checks passed${result.any1101 ? ' — ⚠ 1101 IN A RESPONSE BODY' : ''}\n\n` +
+  publish(`\n## Stage ${label} — mode ${result.mode} — ${passed}/${result.rows.length} checks passed${result.any1101 ? ' — ⚠ 1101 IN A RESPONSE BODY' : ''}\n\n` +
     `trigger=${process.env.GITHUB_EVENT_NAME || '?'} repo=${process.env.GITHUB_REPOSITORY || '?'} actor=${process.env.GITHUB_ACTOR || '?'} ref=${process.env.GITHUB_REF_NAME || '?'} url=${base}\n\n` +
     `${markdownTable(result.rows)}\n\n` +
     `**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)\n\n` +
     result.seen.map((x) => `    ${String(x.status).padStart(3)}  ${x.path}  ${x.head}`).join('\n') + '\n\n' +
-    `**wrangler tail** (${tailText.length} bytes captured)\n\n${tailLines}\n`);
+    `**wrangler tail** (${tailText.length} bytes captured)\n\n${tailLines}\n`,
+    'stage-' + label);
   console.log('::notice::stage ' + label + ' — ' + passed + '/' + result.rows.length + ' checks passed, 1101=' + result.any1101);
   console.log(`\n# ${label}: ${passed}/${result.rows.length} checks passed, 1101 seen: ${result.any1101}`);
 }
@@ -533,7 +567,7 @@ function summary() {
   const table = lines.join('\n');
   console.log(table);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n### Cloudflare live test — catpanel-test\n\n' + table + '\n');
-  appendResults(`\n## Expected-vs-actual summary\n\n${table}\n`);
+  publish(`\n## Expected-vs-actual summary\n\n${table}\n`, 'summary');
   const hard = all.flatMap((s) => s.hardFail.map((n) => `${s.label}: ${n}`));
   if (hard.length) {
     console.log('\nHARD FAILURES:'); hard.forEach((h) => console.log('  ✗ ' + h));
@@ -565,7 +599,7 @@ async function cleanup() {
   const titles = (kv.json?.result || []).map((n) => n.title);
   console.log('  kv namespaces  :', titles.join(', ') || '(none)');
   console.log('  test KV gone   :', !titles.includes(KV_TITLE));
-  appendResults(`\n## Cleanup — verified through the Cloudflare API\n\n` +
+  publish(`\n## Cleanup — verified through the Cloudflare API\n\n` +
     `- DELETE /accounts/<account>/workers/scripts/${WORKER} → ${del.status}\n` +
     `- DELETE /accounts/<account>/storage/kv/namespaces/${process.env.KV_ID || '?'} → ${dkStatus}\n` +
     `- workers left on the account: ${names.join(', ') || '(none)'} — \`${WORKER}\` gone: **${!names.includes(WORKER)}**\n` +
@@ -573,6 +607,29 @@ async function cleanup() {
 }
 
 mkdirSync(OUT, { recursive: true });
-const table = { preflight, 'kv-create': kvCreate, config, 'gen-credentials': genCredentials, uuid: () => console.log(uuidFor(arg('host'))), deploy, 'upload-app': uploadApp, stage, summary, cleanup };
+/**
+ * `emit --file=<path> --title=<t>` — publish a file from the runner through
+ * annotations. The raw job log and every artifact are served from
+ * *.blob.core.windows.net, which the owner's tooling cannot reach, so the
+ * annotations API is the only transport that carries bytes out of a run.
+ */
+function emit() {
+  const file = arg('file');
+  const title = arg('title', 'emit');
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (e) {
+    console.log(`::warning::${title}: cannot read ${file} (${e.message})`);
+    return;
+  }
+  const chunks = [];
+  for (let i = 0; i < text.length && chunks.length < 8; i += 5500) chunks.push(text.slice(i, i + 5500));
+  console.log(`::notice title=${title}-size::${esc(text.length + ' bytes in ' + file)}`);
+  chunks.forEach((c, i) => console.log(`::notice title=${title} ${i + 1}/${chunks.length}::` + esc(c)));
+  if (chunks.length === 8 && text.length > 8 * 5500) console.log(`::warning::${title}: truncated at 44 kB by the annotation budget`);
+}
+
+const table = { preflight, 'kv-create': kvCreate, config, 'gen-credentials': genCredentials, uuid: () => console.log(uuidFor(arg('host'))), deploy, 'upload-app': uploadApp, stage, summary, cleanup, emit };
 if (!table[cmd]) { console.error('unknown subcommand:', cmd, '— one of', Object.keys(table).join(', ')); process.exit(2); }
 await table[cmd]();

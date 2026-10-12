@@ -117,6 +117,12 @@ jobs:
           node "$TOOLS" deploy --main=dist-panel/catpanel.min.js 2>&1 | tee "$OUT/deploy-A.log"
           node "$TOOLS" stage --label=A-min --mode=open --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A.log"
 
+      # Every step below only exists because the raw job log is unreadable here and
+      # `continue-on-error` hides a crash: the bytes are mirrored as annotations.
+      - name: Raw output — stage A deploy (wrangler, --no-bundle)
+        if: always()
+        run: node "$TOOLS" emit --file="$OUT/deploy-A.log" --title=raw-A-deploy
+
       # ── stage A2 ───────────────────────────────────────────────────────────
       - name: Stage A2 — same file, wrangler's own bundler (no --no-bundle)
         continue-on-error: true
@@ -124,6 +130,10 @@ jobs:
           set -o pipefail
           node "$TOOLS" deploy --main=dist-panel/catpanel.min.js --bundle 2>&1 | tee "$OUT/deploy-A2.log"
           node "$TOOLS" stage --label=A2-bundled --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A2.log"
+
+      - name: Raw output — stage A2 deploy (wrangler's own bundler)
+        if: always()
+        run: node "$TOOLS" emit --file="$OUT/deploy-A2.log" --title=raw-A2-deploy
 
       # ── stage B ────────────────────────────────────────────────────────────
       - name: Stage B — deploy dist-panel/catpanel.obf.js (the app's API artifact)
@@ -133,6 +143,10 @@ jobs:
           node "$TOOLS" deploy --main=dist-panel/catpanel.obf.js 2>&1 | tee "$OUT/deploy-B.log"
           node "$TOOLS" stage --label=B-obf --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-B.log"
 
+      - name: Raw output — stage B deploy (the app's obfuscated artifact)
+        if: always()
+        run: node "$TOOLS" emit --file="$OUT/deploy-B.log" --title=raw-B-deploy
+
       # ── stage C ────────────────────────────────────────────────────────────
       - name: Stage C — the app's own upload path (multipart PUT + app bindings)
         continue-on-error: true
@@ -141,12 +155,22 @@ jobs:
           node "$TOOLS" upload-app 2>&1 | tee "$OUT/upload-C.log"
           node "$TOOLS" stage --label=C-app-api --mode=locked --sub-key="$APP_UUID" 2>&1 | tee "$OUT/stage-C.log"
 
+      - name: Raw output — stage C (the app's own upload path)
+        if: always()
+        run: |
+          node "$TOOLS" emit --file="$OUT/upload-C.log" --title=raw-C-upload
+          node "$TOOLS" emit --file="$OUT/stage-C.log" --title=raw-C-app-api
+
       # ── cleanup (always, so nothing is left behind even on a failure) ──────
       - name: Cleanup — delete catpanel-test and the test KV
         if: always()
         run: |
           set -o pipefail
           node "$TOOLS" cleanup 2>&1 | tee "$OUT/09-cleanup.log"
+
+      - name: Raw output — cleanup
+        if: always()
+        run: node "$TOOLS" emit --file="$OUT/09-cleanup.log" --title=raw-cleanup
 
       - name: Summary (fails the job only if a hard expectation broke)
         if: always()
@@ -163,14 +187,46 @@ jobs:
         if: always() && github.event_name == 'push'
         run: |
           set -e
-          if [ ! -f cf-live-results.md ]; then echo "no results file (nothing ran)"; exit 0; fi
+          # Diagnostics FIRST, and to a path that does not exist in the repository
+          # yet: whatever happens to the results file, this file is a new path, so
+          # there is always something staged, always a commit, always a push. Run 4
+          # produced no commit at all while the step still said «success», which is
+          # precisely the state that must not be reachable again.
+          {
+            echo "run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT sha=${GITHUB_SHA:0:12} event=$GITHUB_EVENT_NAME"
+            echo; echo "## git status --porcelain"; git status --porcelain || true
+            echo; echo "## the results file as the runner sees it"; ls -l cf-live-results.md || echo "(missing!)"
+            echo; echo "## md5"; md5sum cf-live-results.md || true
+            echo; echo "## sections it already contains"; grep -c '^## ' cf-live-results.md || true
+            echo; echo "## section headers"; grep '^## ' cf-live-results.md || true
+            echo; echo "## per-stage check files on disk"; for f in /tmp/cf-live/check-*.json; do [ -f "$f" ] && echo "- $f $(stat -c%s "$f") bytes"; done
+            if [ -f /tmp/cf-live/cf-live-results.md ]; then echo; echo "## ALSO present in \$OUT (would explain an empty commit)"; ls -l /tmp/cf-live/cf-live-results.md; fi
+          } > cf-live-publish-diag.md 2>&1 || true
+          [ -f cf-live-results.md ] || printf '# Cloudflare live test\n\nthe results file was never created in this run\n' > cf-live-results.md
           cp cf-live-results.md /tmp/cf-live-results.md
           git config user.name "cf-live-test"
           git config user.email "cf-live-test@users.noreply.github.com"
           git fetch origin "$GITHUB_REF_NAME"
           git checkout -B cf-live-publish FETCH_HEAD
           cp /tmp/cf-live-results.md cf-live-results.md
-          git add cf-live-results.md
-          git commit -m "cf live test results [skip ci]" || true
-          git push origin HEAD:"$GITHUB_REF_NAME" || true
-          echo "published cf-live-results.md"
+          git add cf-live-results.md cf-live-publish-diag.md
+          if ! git commit -m "cf live test results [skip ci]"; then
+            echo "::error::nothing was staged — the tools never touched cf-live-results.md in this run"
+            git status --porcelain
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if git push origin HEAD:"$GITHUB_REF_NAME"; then
+              echo "published cf-live-results.md ($(git rev-parse --short HEAD))"
+              exit 0
+            fi
+            echo "::warning::push attempt $attempt rejected — refetching and retrying"
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase FETCH_HEAD || { echo "::error::rebase onto the branch head failed"; exit 1; }
+          done
+          echo "::error::could not publish cf-live-results.md after three attempts"
+          exit 1
+
+      - name: Raw output — publish diagnostics
+        if: always()
+        run: node "$TOOLS" emit --file=cf-live-publish-diag.md --title=publish-diag
