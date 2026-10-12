@@ -349,7 +349,8 @@ is one of the ways a Worker ends up answering 1101 for every request.
 
 What the app uploads, measured (6.67.0): the APK asset
 `panels/catclient.worker.js` is the **obfuscated** bundle (CI replaces the readable
-source in place with `obfuscate.mjs`), 1,250,472 B, sent as
+source in place with `obfuscate.mjs`), ~1.25 MB — 1,250,472 B measured on a local
+6.67.0 build, 1,247,216 B in the CI-built one, since the obfuscator re-rolls — sent as
 `main_module=worker.js` with `compatibility_date 2025-03-04` +
 `compatibility_flags: ["nodejs_compat"]` and the `UUID`/`PANEL_USER`/
 `PANEL_PASSWORD`/`CAT_KV` bindings. Replayed on the real Workers engine (workerd)
