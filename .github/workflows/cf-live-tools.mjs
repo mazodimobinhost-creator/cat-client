@@ -5,7 +5,7 @@
  * It is deleted from the tree again when the test is finished — it is not part of
  * the product.
  *
- * retrigger: 4 (a comment change is enough to make the workflow run again) Nothing here prints a token, and the two values that could be
+ * retrigger: 5 (a comment change is enough to make the workflow run again) Nothing here prints a token, and the two values that could be
  * abused (the test panel password and the app-style UUID) are masked in the log
  * the moment they are generated.
  *
@@ -83,10 +83,19 @@ async function preflight() {
     ' | vars.CLOUDFLARE_API_TOKEN=' + process.env.HAS_VAR_TOKEN +
     ' vars.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_VAR_ACCOUNT +
     '  (repository secrets and repository variables are two separate storages)');
-  // Name-level diagnostic: which candidate names resolve in either storage.
-  for (const [label, raw] of [['repository secrets', process.env.CANDIDATE_SECRETS], ['repository variables', process.env.CANDIDATE_VARS]]) {
-    let obj = {};
-    try { obj = JSON.parse(raw || '{}'); } catch { obj = {}; }
+  // Name-level diagnostic: which candidate names resolve in either storage, plus
+  // the controls GitHub injects into every run (if those are empty, the `secrets`
+  // context itself is unreadable here and no name will ever resolve).
+  const parseObj = (raw) => { try { return JSON.parse(raw || '{}'); } catch { return {}; } };
+  const controls = parseObj(process.env.CONTROLS);
+  const controlHits = Object.keys(controls).filter((k) => controls[k] === true);
+  console.log('::warning::CONTROL — GitHub-injected names visible: ' + (controlHits.join(', ') || 'NONE (the secrets context itself reads empty)'));
+  console.log('CONTROL — GitHub-injected names visible:', controlHits.join(', ') || 'NONE (the secrets context itself reads empty)');
+  for (const [label, raw] of [['repository secrets (token names)', process.env.CANDIDATE_SECRETS_TOKEN],
+                              ['repository secrets (account names)', process.env.CANDIDATE_SECRETS_ACCOUNT],
+                              ['repository variables (token names)', process.env.CANDIDATE_VARS_TOKEN],
+                              ['repository variables (account names)', process.env.CANDIDATE_VARS_ACCOUNT]]) {
+    const obj = parseObj(raw);
     const hits = Object.keys(obj).filter((k) => obj[k] === true);
     const line = `${label}: ${hits.length ? hits.join(', ') : 'none of the ' + Object.keys(obj).length + ' candidate names exist'}`;
     console.log('::warning::' + line);
