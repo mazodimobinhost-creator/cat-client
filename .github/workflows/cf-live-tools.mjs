@@ -5,7 +5,7 @@
  * It is deleted from the tree again when the test is finished — it is not part of
  * the product.
  *
- * retrigger: 2 (a comment change is enough to make the workflow run again) Nothing here prints a token, and the two values that could be
+ * retrigger: 3 (a comment change is enough to make the workflow run again) Nothing here prints a token, and the two values that could be
  * abused (the test panel password and the app-style UUID) are masked in the log
  * the moment they are generated.
  *
