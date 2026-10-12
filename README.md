@@ -336,6 +336,27 @@ So the first question is still which of these you have:
 | JSON: `{"ok":true,"panel":"cat-panel","version":"…"}` | the script is **loaded and running**; something a *request* did threw | open `/api/diag` (owner) or set `PANEL_DIAG=1`, then read the JSON report |
 | the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, a bad build, or a deploy that did not land | deploy again from a verified file (below) |
 
+The app answers the same question for you: after every deploy/update it asks
+`/api/version` and says which of the three situations you are in — JSON back (the
+panel is online, with its version), *the edge answered but our code never ran*
+(HTTP status + the edge's first 120 characters, i.e. the 1101 that has no report)
+or *no answer at all* — together with a warning when the panel on the Worker and
+the panel inside the app disagree. It also sends the panel URL with
+`av=<app version>&pv=<panel the app ships>` so the panel raises the same warning
+from its own side, and its uploader now sends the multipart body with an exact
+`Content-Length` — a short write can no longer be stored as half a module, which
+is one of the ways a Worker ends up answering 1101 for every request.
+
+What the app uploads, measured (6.67.0): the APK asset
+`panels/catclient.worker.js` is the **obfuscated** bundle (CI replaces the readable
+source in place with `obfuscate.mjs`), 1,250,472 B, sent as
+`main_module=worker.js` with `compatibility_date 2025-03-04` +
+`compatibility_flags: ["nodejs_compat"]` and the `UUID`/`PANEL_USER`/
+`PANEL_PASSWORD`/`CAT_KV` bindings. Replayed on the real Workers engine (workerd)
+with those exact settings, that bundle boots and answers `/api/version` 200 JSON,
+`/health` 200 and `/panel` 200 — so the file is not the cause of a 1101 on a
+Worker this flow created.
+
 A file that never loads cannot report anything. So before pasting, look at the first
 line (`/* CAT_PANEL_VERSION = '6.67.0' */`), the last characters
 (`…userInfoPage:Xa,camouflagePage:Ka};` for `catpanel.min.js` in this release) and
@@ -502,6 +523,19 @@ Tests (Node 18+, no deps): `node scripts/panels/cat-panel.test.mjs`,
 `node scripts/panels/tunnel-e2e.test.mjs`; UI smoke test (needs `npm i` for jsdom):
 `node scripts/panels/panel-dom.test.mjs`. Local preview:
 `node scripts/panels/preview-server.mjs 8787` → http://localhost:8787 .
+
+### 🔗 Quick links (`?p=`) — cookie in, URL out
+
+The panel appends `?p=<password|uuid>` when the app opens it (and old bookmarks use
+the same trick). Since 6.67.0 that value is turned into a session cookie and
+**removed from the URL — on success and on failure**. Before, a *failed* attempt
+kept the value in place, so the master UUID (or a typo'd password) stayed in the
+address bar, in the browser history and in the `Referer` of everything the page
+loaded afterwards. A failed quick link now redirects once with `?stale=1`, a flag
+with no value in it, and the login page explains that the link no longer works
+(because the password or the UUID changed) before stripping the flag as well. A
+`?p=` link only works while the panel password is still the UUID — after you set a
+password, sign in with it.
 
 ## 📄 License
 
