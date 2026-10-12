@@ -65,9 +65,19 @@ async function preflight() {
     ' vars.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_VAR_ACCOUNT +
     '  (repository secrets and repository variables are two separate storages)');
   if (!TOKEN || !ACCT) {
-    console.error('::error::neither secrets.* nor vars.* carry CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID. ' +
-      'This repository has no Actions environment, so environment secrets are not the answer either — ' +
-      'add them in Settings → Secrets and variables → Actions (a repository secret, or a repository variable).');
+    // Both the warning and the error carry the four booleans, so the answer shows
+    // up as an ANNOTATION (readable with `gh run view`) even when the raw job log
+    // is out of reach.
+    const flags = 'secrets.CLOUDFLARE_API_TOKEN=' + process.env.HAS_SECRET_TOKEN +
+      ' secrets.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_SECRET_ACCOUNT +
+      ' vars.CLOUDFLARE_API_TOKEN=' + process.env.HAS_VAR_TOKEN +
+      ' vars.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_VAR_ACCOUNT;
+    console.log('::warning::credential sources in this run — ' + flags);
+    console.error('::error::neither secrets.* nor vars.* carry CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID — ' + flags +
+      '. This repository has no Actions environment, so environment secrets are not it either. ' +
+      'Add them in Settings → Secrets and variables → Actions under the «Secrets» tab of the ACTIONS section ' +
+      '(Codespaces and Dependabot secrets live in the same screen but are NOT given to workflows), ' +
+      'in the repository mazodimobinhost-creator/cat-client.');
     process.exit(1);
   }
   const v = await cf('/user/tokens/verify');
