@@ -11,6 +11,14 @@ name: Deploy panel worker
 # Optional (Telegram result messages):
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 # Without secrets the workflow still passes — deploy is skipped with a notice.
+#
+# ⚠️ PUSHES TO arena/* NO LONGER DEPLOY. Now that the Cloudflare secrets exist in
+# this repository, a push to a working branch used to run `wrangler deploy` and
+# overwrite the live Worker named in wrangler.jsonc (empty-wave-5d02) with
+# whatever that branch happened to contain — a one-line edit on a side branch
+# replaced a live panel. Publishing is therefore limited to the default branch;
+# `workflow_dispatch` (pick the branch deliberately) and the Telegram
+# repository_dispatch still deploy on request.
 
 on:
   workflow_dispatch:
@@ -32,6 +40,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Only the default branch publishes on a push — see the note above. Manual
+    # runs and the Telegram /deploy path are unaffected.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

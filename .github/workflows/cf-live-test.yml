@@ -1,0 +1,113 @@
+name: CF live test (catpanel-test)
+
+# ONE-OFF live test on a real Cloudflare account, on a throwaway Worker named
+# `catpanel-test` and its own KV namespace. Both are deleted again in the last
+# step of this run (and they are the only things this workflow ever writes).
+#
+#   stage A  — wrangler deploy of dist-panel/catpanel.min.js (--no-bundle)
+#   stage A2 — the same file through wrangler's bundler (no --no-bundle)
+#   stage B  — wrangler deploy of dist-panel/catpanel.obf.js (--no-bundle), the
+#              artifact the Android app uploads over the API
+#   stage C  — the app's OWN upload path: multipart PUT with main_module=worker.js,
+#              compatibility_date 2025-03-04 + nodejs_compat and the
+#              UUID/PANEL_PASSWORD/CAT_KV bindings, byte-for-byte like
+#              CloudflareWorker.cfUploadWorker
+#
+# Every stage is followed by live checks (health/version/diag/selfcheck?throw=1/
+# backup/subscription) with `wrangler tail` attached, so a 1101 comes back with
+# its real error text. This file and cf-live-tools.mjs are deleted from the tree
+# once the test is done.
+
+on:
+  push:
+    branches: ['arena/*']
+    paths:
+      - '.github/workflows/cf-live-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-live-test
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+      WORKER: catpanel-test
+      KV_TITLE: catpanel-test-kv
+      EXPECT_VERSION: '6.67.0'
+      OUT: /tmp/cf-live
+      TOOLS: .github/workflows/cf-live-tools.mjs
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install wrangler (pinned)
+        run: |
+          npm install --no-save --no-audit --no-fund wrangler@4.149.0 --silent
+          mkdir -p "$OUT"
+          ./node_modules/.bin/wrangler --version
+
+      - name: Preflight — token, account, subdomain, what else is on the account
+        run: node "$TOOLS" preflight | tee "$OUT/00-preflight.log"
+
+      - name: Create the throwaway KV namespace
+        run: node "$TOOLS" kv-create | tee "$OUT/01-kv.log"
+
+      - name: Build the test config from wrangler.jsonc (min, explicit KV id, no cron)
+        run: node "$TOOLS" config --main=dist-panel/catpanel.min.js | tee "$OUT/02-config.log"
+
+      - name: Generate the app-style UUID + panel password (masked)
+        run: |
+          node "$TOOLS" gen-credentials | tee "$OUT/03-credentials.log"
+          DERIVED=$(node "$TOOLS" uuid --host="$WORKER.$SUBDOMAIN")
+          echo "::add-mask::$DERIVED"
+          echo "SUB_KEY_DERIVED=$DERIVED" >> "$GITHUB_ENV"
+          echo "derived UUID for a passwordless panel on $WORKER.$SUBDOMAIN.workers.dev: computed and masked"
+
+      # ── stage A ────────────────────────────────────────────────────────────
+      - name: Stage A — deploy dist-panel/catpanel.min.js (wrangler, --no-bundle)
+        continue-on-error: true
+        run: |
+          node "$TOOLS" deploy --main=dist-panel/catpanel.min.js 2>&1 | tee "$OUT/deploy-A.log"
+          node "$TOOLS" stage --label=A-min --mode=open --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A.log"
+
+      # ── stage A2 ───────────────────────────────────────────────────────────
+      - name: Stage A2 — same file, wrangler's own bundler (no --no-bundle)
+        continue-on-error: true
+        run: |
+          node "$TOOLS" deploy --main=dist-panel/catpanel.min.js --bundle 2>&1 | tee "$OUT/deploy-A2.log"
+          node "$TOOLS" stage --label=A2-bundled --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A2.log"
+
+      # ── stage B ────────────────────────────────────────────────────────────
+      - name: Stage B — deploy dist-panel/catpanel.obf.js (the app's API artifact)
+        continue-on-error: true
+        run: |
+          node "$TOOLS" deploy --main=dist-panel/catpanel.obf.js 2>&1 | tee "$OUT/deploy-B.log"
+          node "$TOOLS" stage --label=B-obf --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-B.log"
+
+      # ── stage C ────────────────────────────────────────────────────────────
+      - name: Stage C — the app's own upload path (multipart PUT + app bindings)
+        continue-on-error: true
+        run: |
+          node "$TOOLS" upload-app 2>&1 | tee "$OUT/upload-C.log"
+          node "$TOOLS" stage --label=C-app-api --mode=locked --sub-key="$APP_UUID" 2>&1 | tee "$OUT/stage-C.log"
+
+      # ── cleanup (always, so nothing is left behind even on a failure) ──────
+      - name: Cleanup — delete catpanel-test and the test KV
+        if: always()
+        run: node "$TOOLS" cleanup 2>&1 | tee "$OUT/09-cleanup.log"
+
+      - name: Summary (fails the job only if a hard expectation broke)
+        if: always()
+        run: node "$TOOLS" summary 2>&1 | tee "$OUT/10-summary.log"
