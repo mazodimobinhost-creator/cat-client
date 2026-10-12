@@ -502,11 +502,18 @@ async function runChecks(base, label, mode, subKey, pw) {
     console.log('  · lock propagation observed:', waitSeconds + 's');
   }
 
-  // locked-mode contract (only meaningful once the panel is really closed)
+  // Locked-mode contract — only meaningful once the panel is really closed. In
+  // open mode an unauthenticated /api/diag answering 200 is the documented
+  // behaviour (asserted further up), so expecting 401 there would be the suite
+  // contradicting itself: A-min failed its Summary on exactly that for two runs.
   const noauth = await req('/api/diag');
-  add('/api/diag refuses an anonymous caller (401)', noauth.status === 401 && !/uuid|passwordSource/.test(noauth.body), `${noauth.status} ${noauth.body.replace(/\s+/g, ' ').slice(0, 80)}`);
-  const uuidAsKey = await req('/api/diag', auth(subKey));
-  add('the old UUID is no longer a key once a password exists', uuidAsKey.status === 401, String(uuidAsKey.status));
+  if (mode === 'locked') {
+    add('/api/diag refuses an anonymous caller (401)', noauth.status === 401 && !/uuid|passwordSource/.test(noauth.body), `${noauth.status} ${noauth.body.replace(/\s+/g, ' ').slice(0, 80)}`);
+    const uuidAsKey = await req('/api/diag', auth(subKey));
+    add('the old UUID is no longer a key once a password exists', uuidAsKey.status === 401, String(uuidAsKey.status));
+  } else {
+    add('anonymous /api/diag stays allowed in open mode (401 only after locking)', noauth.status === 200, `${noauth.status}`);
+  }
 
   diag = await req('/api/diag', auth(pw));
   const dj2 = j(diag.body);
