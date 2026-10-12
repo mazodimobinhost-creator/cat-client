@@ -427,6 +427,35 @@ object CloudflareWorker {
 
     fun byId(id: String): Panel? = PANELS.firstOrNull { it.id == id }
 
+    /**
+     * The panel version this APK ships. Every shipped artifact carries the marker
+     * line — a one-line block comment holding CAT_PANEL_VERSION with the version in
+     * plain text (the obfuscator and the minifier both guarantee it) — so the app
+     * can compare «the panel I bundle» with «the panel that answers on the Worker»
+     * without parsing the bundle itself.
+     */
+    fun bundledPanelVersion(context: Context): String =
+        Regex("CAT_PANEL_VERSION\\s*=\\s*'([0-9]+(?:\\.[0-9]+)+)'")
+            .find(builtInWorkerScript(context))
+            ?.groupValues
+            ?.get(1)
+            .orEmpty()
+
+    /**
+     * `av`/`pv` for the panel's own app/panel handshake (6.67.0): non-secret
+     * version strings that let the panel warn when the two halves disagree. Sent
+     * only on the panel URL, never to the subscription.
+     */
+    private fun panelHandshakeQuery(bundledVersion: String): String {
+        fun safe(v: String) = v.replace(Regex("[^0-9A-Za-z._+~-]"), "").take(24)
+        val av = safe(BuildConfig.VERSION_NAME)
+        val pv = safe(bundledVersion)
+        val parts = mutableListOf<String>()
+        if (av.isNotBlank()) parts += "av=$av"
+        if (pv.isNotBlank()) parts += "pv=$pv"
+        return parts.joinToString("&")
+    }
+
     /** Bundled Cat Panel worker source (single file, paste-ready for the CF dashboard). */
     fun builtInWorkerScript(context: Context): String = runCatching {
         context.assets.open(WORKER_ASSET_PATH).bufferedReader().use { it.readText() }
@@ -678,7 +707,114 @@ object CloudflareWorker {
         val kvBound: Boolean = false,
         /** Why the KV binding could not be attached ("" when it was). */
         val kvError: String = "",
-    )
+        /** What `/api/version` answered — so a failure can be named, not guessed. */
+        val health: PanelVersionProbe? = null,
+        /** The panel version this APK bundles (for the app/panel skew warning). */
+        val bundledVersion: String = "",
+    ) {
+        val panelVersion: String get() = health?.version.orEmpty()
+        val scriptNeverLoaded: Boolean get() = health?.scriptNeverLoaded == true
+        val panelUnreachable: Boolean get() = health == null || health.unreachable
+        val versionMismatch: Boolean
+            get() = bundledVersion.isNotBlank() && panelVersion.isNotBlank() && bundledVersion != panelVersion
+    }
+
+    /**
+     * What the live Worker answers on `/api/version` — the single URL that tells
+     * the two «Error 1101» cases apart (the README section of the same name):
+     *
+     *   • JSON back → the module LOADED and ran. Anything that failed afterwards
+     *     is a *request* failure and the panel reports it itself (owner-only
+     *     report, `/api/selfcheck?throw=1`).
+     *   • HTML / 5xx / anything else → the edge answered but our code never ran:
+     *     the file did not load — a truncated upload, a deploy that did not land.
+     *     This is the classic 1101 with no report to show.
+     *   • no answer at all → the host is not reachable from this phone (yet).
+     */
+    data class PanelVersionProbe(
+        val online: Boolean,
+        val version: String = "",
+        val status: Int = 0,
+        val bodyHead: String = "",
+        val subOk: Boolean = false,
+        val detail: String = "",
+    ) {
+        /** The edge answered, but never our script. */
+        val scriptNeverLoaded: Boolean get() = !online && status > 0
+        /** Nothing answered — not even the edge page. */
+        val unreachable: Boolean get() = !online && status == 0
+    }
+
+    /** One probe of `/api/version`; never throws. */
+    fun probePanelVersion(workerUrl: String, timeoutMs: Int = 8_000): PanelVersionProbe {
+        if (workerUrl.isBlank()) return PanelVersionProbe(online = false, detail = "no worker url")
+        return runCatching {
+            val conn = (URL(workerUrl.trimEnd('/') + "/api/version").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                setRequestProperty("User-Agent", "CatClient/1.0 (panel-probe)")
+                setRequestProperty("Accept", "application/json")
+            }
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val head = body.take(200).replace(Regex("\\s+"), " ").trim()
+            val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
+            // JSON *and* a version: the module evaluated and its handler ran. A
+            // JSON body without a version would be someone else's endpoint.
+            if (code == 200 && body.trimStart().startsWith("{") && version.isNotBlank()) {
+                PanelVersionProbe(online = true, version = version, status = code, bodyHead = head)
+            } else {
+                PanelVersionProbe(online = false, status = code, bodyHead = head)
+            }
+        }.getOrElse { e ->
+            PanelVersionProbe(online = false, status = 0, detail = (e.message ?: "network error").take(120))
+        }
+    }
+
+    /**
+     * The probe, retried the way a fresh deploy needs it (workers.dev propagation
+     * is not instant). Returns the LAST answer instead of a boolean, so the caller
+     * can say which failure it was rather than a bare «pending». `subOk` is set
+     * when the subscription also answers, i.e. the panel serves real configs.
+     */
+    private fun waitForPanel(
+        workerUrl: String,
+        uuid: String = "",
+        attempts: Int = 5,
+        delayMs: Long = 2_500L,
+    ): PanelVersionProbe {
+        var last = PanelVersionProbe(online = false, detail = "not tried")
+        for (i in 0 until attempts) {
+            var health = probePanelVersion(workerUrl)
+            if (health.online && uuid.isNotBlank()) {
+                val sub = runCatching {
+                    val conn = (URL(workerUrl.trimEnd('/') + "/sub/" + uuid + "?raw=1").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8_000
+                        readTimeout = 8_000
+                        setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                    }
+                    val code = conn.responseCode
+                    val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    code to body
+                }.getOrElse { 0 to "" }
+                if (sub.first == 200 && (sub.second.contains("vless://") || sub.second.contains("trojan://"))) {
+                    health = health.copy(subOk = true)
+                    return health
+                }
+                last = health
+                if (i == attempts - 1) return last
+            } else {
+                last = health
+                if (health.online) return health
+            }
+            if (i < attempts - 1) Thread.sleep(delayMs)
+        }
+        return last
+    }
 
     /**
      * True when the live panel accepts this username+password at `/api/login`.
@@ -779,7 +915,12 @@ object CloudflareWorker {
         }
 
         // 6. Smoke-test the live panel (workers.dev propagation takes a few seconds).
-        val verifiedOnline = smokeTestPanel(workerUrl, uuid)
+        //    The probe distinguishes «the file never loaded» (the edge's error page
+        //    instead of JSON — the 1101 that has no report) from «not reachable
+        //    yet», so the result dialog can say which one happened.
+        val health = waitForPanel(workerUrl, uuid)
+        val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
+        val bundledVersion = bundledPanelVersion(context)
 
         // 7. Stealth hardening: snapshot settings into the local recovery backup
         // and move the panel UI to a random hidden path (root then 404s neutrally).
@@ -800,9 +941,18 @@ object CloudflareWorker {
             subscriptionUrl = "$workerUrl/sub/$uuid",
             verifiedOnline = verifiedOnline,
             uuid = uuid,
-            panelUrl = if (stealthPath.isNotBlank()) {
+            panelUrl = (if (stealthPath.isNotBlank()) {
                 "$workerUrl/$stealthPath" + if (panelUser.isNotBlank()) "/" else "/?p=$uuid"
-            } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid",
+            } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid")
+                // The panel drops ?p= into a cookie and redirects to the clean URL
+                // (6.67.0), so these handshake params survive the hop and the panel
+                // can warn the owner when the app and the panel disagree.
+                .let { base ->
+                    val q = panelHandshakeQuery(bundledVersion)
+                    if (q.isBlank()) base else base + (if (base.contains('?')) "&" else "?") + q
+                },
+            health = health,
+            bundledVersion = bundledVersion,
             kvBound = kvId != null,
             kvError = if (kvId == null) (kvAttempt.exceptionOrNull()?.message ?: "KV unavailable").take(160) else "",
         )
@@ -817,9 +967,20 @@ object CloudflareWorker {
             val verifiedOnline: Boolean,
             val kvBound: Boolean,
             val fromRelease: Boolean,
+            /** What `/api/version` answered after the upload (6.67.0). */
+            val health: PanelVersionProbe? = null,
+            val bundledVersion: String = "",
         ) : PanelUpdateOutcome() {
             val panelUrl: String
-                get() = workerUrl.trimEnd('/') + "/?p=" + uuid
+                get() {
+                    val base = workerUrl.trimEnd('/') + "/?p=" + uuid
+                    val q = panelHandshakeQuery(bundledVersion)
+                    return if (q.isBlank()) base else base + "&" + q
+                }
+            val panelVersion: String get() = health?.version.orEmpty()
+            val scriptNeverLoaded: Boolean get() = health?.scriptNeverLoaded == true
+            val versionMismatch: Boolean
+                get() = bundledVersion.isNotBlank() && panelVersion.isNotBlank() && bundledVersion != panelVersion
         }
 
         /** The worker holds secret bindings whose values Cloudflare never returns. */
@@ -906,7 +1067,8 @@ object CloudflareWorker {
                 JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
             )
         }
-        val verifiedOnline = smokeTestPanel(normalized, uuid)
+        val health = waitForPanel(normalized, uuid)
+        val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         PanelDeploymentStore(context).rememberLast(normalized, uuid)
         PanelUpdateOutcome.Success(
             workerUrl = normalized,
@@ -916,6 +1078,8 @@ object CloudflareWorker {
             verifiedOnline = verifiedOnline,
             kvBound = kvId != null,
             fromRelease = script.fromRelease,
+            health = health,
+            bundledVersion = bundledPanelVersion(context),
         )
     }
 
@@ -1017,7 +1181,16 @@ object CloudflareWorker {
             when {
                 code in 200..299 && body.contains("\"ok\"") -> PanelHealth("HEALTHY", "HTTP $code")
                 body.contains("Error 1101", true) || body.contains("Worker threw exception", true) ->
-                    PanelHealth("BLOCKED", "Error 1101 — the worker was suspended after an abuse report")
+                    // 1101 means «the code never ran». On a Worker whose file is fine that is
+                    // most often a suspension after an abuse report — but a truncated upload
+                    // or a deploy that did not land end up in exactly the same place, so the
+                    // dialog names the possibilities instead of asserting one (the README
+                    // section keeps the same distinction). The state stays BLOCKED: it is
+                    // what routes the user to the recovery flow.
+                    PanelHealth(
+                        "BLOCKED",
+                        "Error 1101 — the code never ran: a truncated upload, a deploy that did not land, or a suspension after an abuse report",
+                    )
                 body.contains("cf-error-details", true) || (body.contains("Cloudflare", true) && code >= 500) ->
                     PanelHealth("BLOCKED", "HTTP $code — Cloudflare error page")
                 else -> PanelHealth("DOWN", "HTTP $code")
@@ -1357,26 +1530,38 @@ object CloudflareWorker {
         // so an UPDATE never has to ask the user to retype them.
         if (keepSecrets) metadata.put("keep_secrets", true)
         val boundary = "----catclient${System.currentTimeMillis()}"
+        // The whole multipart body is built as BYTES first and sent with an exact
+        // Content-Length. It used to be streamed through a Writer of unknown length
+        // (chunked), so a short write — a dropped connection, a truncated buffer —
+        // could land as a Worker whose module is half a file, and Cloudflare then
+        // answers 1101 for EVERY request with no report of ours attached: exactly
+        // the failure this flow produced on the workers it created (6.67.0). With a
+        // declared length a partial body fails the request loudly instead.
+        val head = (
+            "--$boundary\r\n" +
+                "Content-Disposition: form-data; name=\"metadata\"\r\n" +
+                "Content-Type: application/json\r\n\r\n" +
+                metadata.toString() + "\r\n" +
+                "--$boundary\r\n" +
+                "Content-Disposition: form-data; name=\"worker.js\"; filename=\"worker.js\"\r\n" +
+                "Content-Type: application/javascript+module\r\n\r\n"
+            ).toByteArray(Charsets.UTF_8)
+        val tail = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+        val scriptBytes = script.toByteArray(Charsets.UTF_8)
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
             doOutput = true
             connectTimeout = 30_000
-            readTimeout = 30_000
+            readTimeout = 60_000
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            setFixedLengthStreamingMode(head.size + scriptBytes.size + tail.size)
         }
         conn.outputStream.use { out ->
-            val w = OutputStreamWriter(out, "UTF-8")
-            w.write("--$boundary\r\n")
-            w.write("Content-Disposition: form-data; name=\"metadata\"\r\n")
-            w.write("Content-Type: application/json\r\n\r\n")
-            w.write(metadata.toString() + "\r\n")
-            w.write("--$boundary\r\n")
-            w.write("Content-Disposition: form-data; name=\"worker.js\"; filename=\"worker.js\"\r\n")
-            w.write("Content-Type: application/javascript+module\r\n\r\n")
-            w.write(script)
-            w.write("\r\n--$boundary--\r\n")
-            w.flush()
+            out.write(head)
+            out.write(scriptBytes)
+            out.write(tail)
+            out.flush()
         }
         val code = conn.responseCode
         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)

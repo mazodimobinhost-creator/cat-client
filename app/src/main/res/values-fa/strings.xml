@@ -633,6 +633,11 @@
     <string name="cloud_deploy_failed">دیپلوی ناموفق بود: %1$s</string>
     <string name="cloud_verified_online">✓ پنل آنلاین است و تأیید شد.</string>
     <string name="cloud_verify_pending">ورکر آپلود شد. پنل معمولاً در چند ثانیه بالا می‌آید — برای بررسی دکمهٔ «باز کردن پنل» را بزنید.</string>
+    <string name="cloud_panel_online_version">✓ پنل آنلاین است (نسخهٔ %1$s) — جواب /api/version جیسون بود، یعنی فایل لود شده و اجرا می‌شود.</string>
+    <string name="cloud_panel_never_loaded">✗ ورکر جواب داد ولی کدِ ما اجرا نشد (HTTP %1$s). یعنی فایل اصلاً لود نشده — همان «۱۱۰۱» که هیچ گزارشی ندارد: آپلودِ ناقص یا دیپلویی که ننشسته. دکمهٔ «به‌روزرسانی پنل» را دوباره بزن؛ اگر تکرار شد همان فایل سه‌خطی را دستی پیست کن و نام ورکر باید دقیقاً یکی باشد.</string>
+    <string name="cloud_panel_never_loaded_body">پاسخ لبه: %1$s</string>
+    <string name="cloud_panel_unreachable">✗ هیچ پاسخی از ورکر نیامد — اتصال را چک کن یا چند ثانیه صبر کن (آدرس تازهٔ workers.dev کمی بعد جواب می‌دهد).</string>
+    <string name="cloud_panel_version_skew">⚠ نسخهٔ پنل روی این ورکر %1$s است ولی این اپ نسخهٔ %2$s را همراه دارد. کانفیگ‌ها کار می‌کنند؛ در اپ «به‌روزرسانی پنل» را بزن (یا اپ را آپدیت کن) تا دو نیمه یکی شوند — خود پنل هم همین هشدار را به مالک نشان می‌دهد.</string>
     <string name="cloud_import_sub">وارد کردن سابسکریپشن</string>
     <string name="cloud_open_panel">باز کردن پنل</string>
     <string name="cloud_open_builder">رفتن به سازندهٔ رسمی</string>

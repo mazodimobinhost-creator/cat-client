@@ -9266,12 +9266,51 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {
-        val status = if (result.verifiedOnline) {
-            getString(R.string.cloud_verified_online)
-        } else {
-            getString(R.string.cloud_verify_pending)
+    /**
+     * The deploy/update status line (6.67.0). A bare «pending» hid three different
+     * situations; this one names the one that happened, using the `/api/version`
+     * probe:
+     *   • JSON back      → the file loaded and ran (the version is shown);
+     *   • a non-JSON page → the edge answered but our code never ran — the classic
+     *                       «Error 1101» with no report, i.e. a broken upload;
+     *   • silence        → nothing reachable yet.
+     * Plus the app/panel skew warning when the two halves disagree.
+     */
+    private fun panelStatusLine(
+        verifiedOnline: Boolean,
+        health: CloudflareWorker.PanelVersionProbe?,
+        bundledVersion: String = "",
+        panelVersion: String = "",
+    ): String {
+        val lines = mutableListOf<String>()
+        when {
+            verifiedOnline -> lines += if (panelVersion.isNotBlank()) {
+                getString(R.string.cloud_panel_online_version, panelVersion)
+            } else {
+                getString(R.string.cloud_verified_online)
+            }
+            health != null && health.scriptNeverLoaded -> {
+                lines += getString(R.string.cloud_panel_never_loaded, health.status.toString())
+                if (health.bodyHead.isNotBlank()) {
+                    lines += getString(R.string.cloud_panel_never_loaded_body, health.bodyHead.take(120))
+                }
+            }
+            health == null || health.unreachable -> lines += getString(R.string.cloud_panel_unreachable)
+            else -> lines += getString(R.string.cloud_verify_pending)
         }
+        if (bundledVersion.isNotBlank() && panelVersion.isNotBlank() && bundledVersion != panelVersion) {
+            lines += getString(R.string.cloud_panel_version_skew, panelVersion, bundledVersion)
+        }
+        return lines.joinToString("\n")
+    }
+
+    private fun showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {
+        val status = panelStatusLine(
+            verifiedOnline = result.verifiedOnline,
+            health = result.health,
+            bundledVersion = result.bundledVersion,
+            panelVersion = result.panelVersion,
+        )
         val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
         val message = getString(R.string.cloud_update_done, result.toVersion) + "\n" + status + "\n" + kvLine +
             "\n\n" + result.panelUrl
@@ -9526,7 +9565,12 @@ class MainActivity : Activity() {
     /** Step 4/4 — done: import + connect, scan clean IPs, open the panel. */
     private fun showPanelWizardDone(result: CloudflareWorker.DeploymentResult) {
         val host = Uri.parse(result.workerUrl).host.orEmpty()
-        val status = if (result.verifiedOnline) getString(R.string.cloud_verified_online) else getString(R.string.cloud_verify_pending)
+        val status = panelStatusLine(
+            verifiedOnline = result.verifiedOnline,
+            health = result.health,
+            bundledVersion = result.bundledVersion,
+            panelVersion = result.panelVersion,
+        )
         val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.wizard_done_title)
@@ -10257,11 +10301,12 @@ class MainActivity : Activity() {
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
         PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
         renderCloudDeploymentHistory()
-        val status = if (result.verifiedOnline) {
-            getString(R.string.cloud_verified_online)
-        } else {
-            getString(R.string.cloud_verify_pending)
-        }
+        val status = panelStatusLine(
+            verifiedOnline = result.verifiedOnline,
+            health = result.health,
+            bundledVersion = result.bundledVersion,
+            panelVersion = result.panelVersion,
+        )
         val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
         val message = status + "\n" + kvLine + "\n\n" +
             getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl + "\n\n" +
