@@ -123,7 +123,7 @@ wrangler 4.135+ بایندینگِ بدون `id` با نام تطبیق داده
     Worker» fail شد**: در گیت‌هاب `wrangler.jsonc` را باز کنید → خطِ `"name"` را به همان نامِ ورکری
     که در داشبورد باز کرده‌اید تغییر بدهید (الان `empty-wave-5d02`) → Commit. دوباره بیلد می‌شود.
 11. تست از همان گوشی: `https://empty-wave-5d02.<subdomain>.workers.dev/api/version` → باید JSON با
-    `"version":"6.66.9"` بدهد. بعد `…/api/selfcheck?throw=1` با `x-cat-key` (بخشِ ۱۱۰۱ بالا).
+    `"version":"6.67.0"` بدهد. بعد `…/api/selfcheck?throw=1` با `x-cat-key` (بخشِ ۱۱۰۱ بالا).
 
 **۳) بعد از وصل شدن.** هر push روی همان شاخه خودش بیلد می‌سازد؛ کامیت‌های خودکارِ CI (پیامشان
 `[skip ci]`) بیلد نمی‌سازند. برای دیدنِ لاگِ هر بیلد: **Deployments → View build history**.
@@ -337,9 +337,9 @@ So the first question is still which of these you have:
 | the 1101 page (or any non-JSON) | the script **never loaded** — truncated paste, half-copied file, a bad build, or a deploy that did not land | deploy again from a verified file (below) |
 
 A file that never loads cannot report anything. So before pasting, look at the first
-line (`/* CAT_PANEL_VERSION = '6.66.9' */`), the last characters
+line (`/* CAT_PANEL_VERSION = '6.67.0' */`), the last characters
 (`…userInfoPage:Xa,camouflagePage:Ka};` for `catpanel.min.js` in this release) and
-the size (475,600 bytes). The browser's editor wraps the three long lines, so «it
+the size (494,032 bytes — gzip 138,407 B, under the 150 KB budget). The browser's editor wraps the three long lines, so «it
 looks like two lines» means nothing; the byte count is what matters.
 
 Since 6.66.6 (shape finalised in 6.66.7) a request-time exception answers JSON for
@@ -348,7 +348,7 @@ owner-only self-test throws on purpose:
 
 ```bash
 # signed in (or x-cat-key: <panel password / UUID>) — this one always answers:
-curl -s https://<your-worker>/api/selfcheck            # {"ok":true,"version":"6.66.9","handler":"alive …"}
+curl -s https://<your-worker>/api/selfcheck            # {"ok":true,"version":"6.67.0","handler":"alive …"}
 # and this one throws inside the Worker, so you see the report, not a 1101 page:
 curl -s "https://<your-worker>/api/selfcheck?throw=1" | head -c 400
 ```

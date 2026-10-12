@@ -60,8 +60,16 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   const insideHtml = await inside.text();
   ok('…and the real panel then renders', insideHtml.includes('id="v-home"') && insideHtml.length > 100000, insideHtml.length + 'B');
 
+  // 6.67: a wrong ?p= no longer renders the login page in place — it redirects to
+  // a URL with the value stripped (a secret must not sit in the address bar) and
+  // sticks a ?stale=1 flag on it, which the login page turns into a hint.
   const bad = await get(env, '/panel?p=wrong-password-here');
-  ok('a wrong one-tap password does not sign in', bad.status === 200 && !/cat_session=/.test(bad.headers.get('set-cookie') || ''), bad.status);
+  const badLoc = bad.headers.get('location') || '';
+  ok('a wrong one-tap password does not sign in',
+    bad.status === 302 && !/cat_session=/.test(bad.headers.get('set-cookie') || '') && !/wrong-password-here/.test(badLoc) && /stale=1/.test(badLoc),
+    bad.status + ' ' + badLoc);
+  const badPage = await get(env, '/panel?stale=1');
+  ok('…and the login page asks for the password again', (await badPage.text()).includes('id=\"f\"'));
 }
 
 /* ---------- B) a configured panel must be untouched ---------- */

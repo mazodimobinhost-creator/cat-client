@@ -246,8 +246,23 @@ let user;
 { const r = await req('/api/backup', { headers: auth }); const j = await r.json(); check('backup export', j.settings && j.users.length===1);
   const KV2 = new FakeKV(); const env2 = { CAT_KV: KV2, UUID: MASTER }; T.kvCacheClear();
   const login = await req('/api/login', { method:'POST', body:{ password: MASTER }, env: env2 }); const c2=(login.headers.get('set-cookie')||'').split(';')[0];
+  // 6.67: the export MASKS secrets by default and a restore deliberately skips
+  // masked fields — a backup must never be able to wipe a live secret. Raw
+  // values are opt-in (?includeSecrets=1) for a full clone.
+  check('backup masks the password hash by default', j.settings.passwordHash === '***MASKED-BY-CAT-PANEL***', String(j.settings.passwordHash).slice(0, 40));
   const rs = await req('/api/backup', { method:'POST', headers:{cookie:c2}, body: j, env: env2 }); check('backup restore', (await rs.json()).ok);
-  const lu = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env2 }); check('restored users + password', lu.status===200 && (await lu.json()).users[0].name==='ali');
+  const lu = await req('/api/users', { headers:{ cookie:c2 }, env: env2 }); check('restored users', lu.status===200 && (await lu.json()).users[0].name==='ali');
+  const wrong = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env2 });
+  check('a masked backup never restores the old password', wrong.status===401);
+  // …back to the first panel: the read cache is per key NAME, not per env, so it
+  // has to be dropped before switching sides (a test-only artefact).
+  T.kvCacheClear();
+  const raw = await (await req('/api/backup?includeSecrets=1', { headers: auth })).json();
+  check('?includeSecrets=1 ships the real hash', /^[0-9a-f]{64}$/.test(String(raw.settings.passwordHash || '')), String(raw.settings.passwordHash).slice(0, 24));
+  const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER }; T.kvCacheClear();
+  const rs3 = await req('/api/backup', { method:'POST', headers:{ authorization:'Bearer ' + MASTER }, body: raw, env: env3 }); check('raw restore accepted', (await rs3.json()).ok);
+  const lu3 = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env3 });
+  check('a raw backup restores users + password', lu3.status===200 && (await lu3.json()).users[0].name==='ali');
   T.kvCacheClear(); }
 // open panel
 { const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER, OPEN_PANEL:'true' }; const r = await req('/panel', { env: env3 }); check('OPEN_PANEL serves panel without login', (await r.text()).includes('v-dash'));
@@ -786,7 +801,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.66.9', T.CAT_PANEL_VERSION === '6.66.9');
+  check('panel version is 6.67.0', T.CAT_PANEL_VERSION === '6.67.0');
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.66.9';
+const CAT_PANEL_VERSION = '6.67.0';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -109,6 +109,45 @@ function panelVersionCompare(a, b) {
   }
   return 0;
 }
+/**
+ * Panel <-> app version handshake.
+ * The Android app opens the panel with its own version (`av`) and with the panel
+ * version it was built with (`pv`). Both are short, non-secret strings read only
+ * on the panel page (after the owner check). Remembering them lets the dashboard
+ * warn when the app and the deployed panel disagree — the state that looks like
+ * a broken worker («the app's button does nothing»), when in fact both sides are
+ * perfectly fine and simply not the same version. Nothing here is guessed: the
+ * banner reports only the numbers the app actually sent.
+ */
+function appVerToken(v) {
+  // Only a version-shaped token is accepted (optionally «v»-prefixed): a mangled
+  // or hostile value must not overwrite the last real report, and nothing from
+  // this field is ever used for anything but display and a version comparison.
+  const raw = String(v == null ? '' : v).trim().slice(0, 24);
+  return /^v?[0-9][0-9A-Za-z.+~-]{0,23}$/.test(raw) ? raw : '';
+}
+async function readAppSeen(env) {
+  const raw = await kvGetJson(env, KV_KEYS.appSeen, null);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { av: '', pv: '', at: 0 };
+  return { av: appVerToken(raw.av), pv: appVerToken(raw.pv), at: Number(raw.at) || 0 };
+}
+/** Writes only when a version actually changed — opening the same build costs no KV write. */
+async function rememberAppSeen(env, av, pv) {
+  const seen = await readAppSeen(env);
+  const next = { av: appVerToken(av) || seen.av, pv: appVerToken(pv) || seen.pv, at: Number(seen.at) || 0 };
+  if (next.av === seen.av && next.pv === seen.pv) return seen;
+  next.at = Date.now();
+  await kvPutJson(env, KV_KEYS.appSeen, next);
+  return next;
+}
+/** null when the two sides agree (or the app never said which panel it ships). */
+function appSeenMismatch(seen) {
+  const pv = appVerToken(seen && seen.pv);
+  if (!pv) return null;
+  if (panelVersionCompare(pv, CAT_PANEL_VERSION) === 0) return null;
+  return { appPanel: pv, panel: CAT_PANEL_VERSION, appOlder: panelVersionCompare(pv, CAT_PANEL_VERSION) < 0 };
+}
+
 // First source that carries a readable version line. Unmarked text is skipped, not trusted.
 async function fetchNewestPanelSource() {
   for (const u of PANEL_SOURCE_URLS) {
@@ -374,9 +413,38 @@ async function deriveUuid(host) {
   }
 }
 
+/**
+ * The master UUID: the env variable wins, then a UUID the owner ROTATED from the
+ * panel, then the host-derived default. Rotation is stored in KV (not in
+ * settings.json) so it is one tiny record and its own cached read.
+ */
 async function resolveUuid(host, env) {
   const explicit = String(env.UUID || '').trim().toLowerCase();
-  return isUuid(explicit) ? explicit : deriveUuid(host);
+  if (isUuid(explicit)) return explicit;
+  const rotated = String(await kvGetJson(env, KV_KEYS.uuid, '') || '').trim().toLowerCase();
+  if (isUuid(rotated)) return rotated;
+  return deriveUuid(host);
+}
+
+/** A fresh random UUID v4 (rotation target). */
+function newUuid() {
+  try { return String(crypto.randomUUID()).toLowerCase(); }
+  catch (e) {
+    const b = new Uint8Array(16); crypto.getRandomValues(b);
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    return hexToUuid(bytesToHex(b));
+  }
+}
+
+/** The subscription token: independent of the UUID, rotatable, revocable. */
+function subKeyOf(settings, masterUuid) {
+  const t = String((settings && settings.subToken) || '').trim().toLowerCase();
+  return /^[0-9a-f]{32}$/.test(t) ? t : masterUuid;
+}
+function newSubToken() {
+  const b = new Uint8Array(16);
+  try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+  return bytesToHex(b);
 }
 
 /* ------------------------------------------------------------------ */
@@ -384,7 +452,7 @@ async function resolveUuid(host, env) {
 /* Writes happen only on owner actions.                                */
 /* ------------------------------------------------------------------ */
 
-const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users' };
+const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users', uuid: 'cat:v6:uuid', appSeen: 'cat:v6:appseen' };
 const KV_READ_TTL_MS = 60 * 1000;
 const kvCache = new Map(); // key → { value, at }
 
@@ -736,6 +804,8 @@ function normalizeSettings(raw) {
   s.proxyRepoAuto = s.proxyRepoAuto !== false; // default ON — repo ProxyIPs become separate 🎯 configs
   s.proxyRepos = sanitizeProxyRepos(s.proxyRepos);
   s.subRotate = ['off', 'fetch', 'daily'].includes(s.subRotate) ? s.subRotate : 'fetch';
+  // Subscription token: 32 hex chars, or '' meaning «use the master UUID».
+  s.subToken = /^[0-9a-f]{32}$/.test(String(s.subToken || '').trim().toLowerCase()) ? String(s.subToken).trim().toLowerCase() : '';
   s.healthOrder = s.healthOrder === true;
   s.pinnedIps = uniq((Array.isArray(s.pinnedIps) ? s.pinnedIps : splitCsv(s.pinnedIps)).map((x) => { const t = splitAddrTag(x); let a = t.addr; const pin = pinnedPortOf(a); if (pin) a = a.slice(0, a.lastIndexOf(':')); return a.replace(/^\[/, '').replace(/\]$/, ''); })).slice(0, 5);
   const wRaw = (s.warp && typeof s.warp === 'object') ? s.warp : {};
@@ -2703,14 +2773,19 @@ function diagFlag(env) {
  */
 async function diagAllowed(request, env, settings, masterUuid) {
   const flag = diagFlag(env);
-  if (flag !== null) return flag;
+  if (flag !== null) return flag;                 // explicit owner switch wins, both ways
   if (!settings) return false;                    // cannot prove ownership → stay neutral
   try {
+    // OPEN_PANEL=true + no password = the owner deliberately published the panel:
+    // whoever can read /panel can also read the report, which is the same audience.
     if (panelIsOpen(env, settings)) return true;
-    // Setup state: no password anywhere (not in KV, not in a variable) means the
-    // install has no owner yet — the paste-and-go screen already shows the UUID to
-    // whoever opens the panel path, so the report protects nothing by hiding.
-    if (!settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim()) return true;
+    // NOTE (6.66.10): the setup state — no password anywhere yet — used to count as
+    // «proven», because the paste-and-go screen shows the UUID to anyone who opens
+    // the panel path. The owner asked for the safer default and it is right: an
+    // unattended fresh install would print its internals (paths, stacks, KV state)
+    // to whoever probes it, and a stranger's crash report reads exactly like a
+    // fingerprint. A fresh install is now treated as a stranger; the owner turns
+    // the report on deliberately with PANEL_DIAG=1, or simply sets a password.
     return await isOwner(request, env, settings, masterUuid);
   } catch { return false; }
 }
@@ -4486,8 +4561,68 @@ async function handleApi(request, url, env, ctx) {
       users: settings.passwordHash ? (await readUsers(env).catch(() => [])).length : 0,
       diagFlag: diagFlag(env) === null ? 'unset (crash reports are owner-only)' : String(diagFlag(env)),
       recentErrors: errorDetail(),
+      // The same numbers the diagnostics page shows, so the page and curl agree.
+      usage: await readUsage(env),
+      subToken: settings.subToken ? 'set (subscription links use the token, not the UUID)' : 'not set (links use the master UUID)',
+      uuidSource: String(env.UUID || '').trim() ? 'the UUID variable' : (String(await kvGetJson(env, KV_KEYS.uuid, '') || '').trim() ? 'rotated from the panel' : 'derived from the hostname'),
+      passwordSource: (await panelPassword(env, settings, masterUuid)).source,
+      app: await (async () => {
+        // What the app last told us (av = its own version, pv = the panel it ships).
+        const seen = await readAppSeen(env);
+        const miss = appSeenMismatch(seen);
+        return {
+          appVersion: seen.av || 'the app has not reported one yet',
+          panelBundled: seen.pv || 'the app has not reported one yet',
+          seenAt: seen.at ? new Date(seen.at).toISOString() : null,
+          match: !miss ? (seen.pv ? 'yes' : 'unknown') : 'NO — this panel is v' + miss.panel + ', the app ships v' + miss.appPanel,
+        };
+      })(),
+      errors: 'clear with POST /api/diag/clear',
       note: 'Owner-only. No UUID is ever returned. A 1101 WITHOUT a report from this worker means the script failed to load, not that a request threw.',
     }, 200, { 'cache-control': 'no-store' });
+  }
+
+  /**
+   * Rotate the master UUID. This changes the subscription key (unless a sub token
+   * is set), the panel password of an install that never set one, and every
+   * session signed with the old value — so it is refused unless a real panel
+   * password exists, which is the only way the owner cannot lock themselves out.
+   */
+  if (path === '/api/rotate-uuid' && method === 'POST') {
+    if (String(env.UUID || '').trim()) {
+      return json({ ok: false, error: 'uuid_from_env', message: 'UUID is set by the UUID variable — change it in the Cloudflare dashboard, not here.' }, 400);
+    }
+    const source = (await panelPassword(env, settings, masterUuid)).source;
+    if (source !== 'panel') {
+      return json({ ok: false, error: 'set_password_first', message: 'Set a panel password first (Tools → password). Rotating the UUID while the UUID is the password would lock you out of your own panel.' }, 400);
+    }
+    const next = newUuid();
+    await kvPutJson(env, KV_KEYS.uuid, next);
+    recordError('uuid-rotated', 'owner rotated the panel UUID');
+    return json({
+      ok: true,
+      uuid: next,
+      warning: 'Old subscription links (UUID-based) and any bookmarked ?p=<old uuid> link stop working. Re-import the subscription in every client.',
+    });
+  }
+
+  /**
+   * The subscription token: independent of the UUID, so it can be rotated (all old
+   * links die) or revoked (links fall back to the UUID) without touching the panel
+   * password, the sessions or the UUID itself.
+   */
+  if (path === '/api/sub-token' && method === 'POST') {
+    const body = (await readJsonBody(request)) || {};
+    const action = String(body.action || 'rotate').toLowerCase();
+    if (action === 'revoke') {
+      const saved = await writeSettings(env, { subToken: '' });
+      return json({ ok: true, action: 'revoke', token: '', persisted: saved.persisted,
+        note: 'Subscription links now use the master UUID again.' });
+    }
+    const token = newSubToken();
+    const saved = await writeSettings(env, { subToken: token });
+    return json({ ok: true, action: 'rotate', token, persisted: saved.persisted,
+      warning: 'Every subscription link built with the previous token stops working. Re-import the subscription in every client.' });
   }
 
   /**
@@ -4858,16 +4993,78 @@ async function handleApi(request, url, env, ctx) {
   if (path === '/api/backup') {
     if (method === 'GET') {
       const users = await readUsers(env);
-      return json({ ok: true, version: CAT_PANEL_VERSION, exportedAt: new Date().toISOString(), settings, users }, 200, {
+      // A backup leaves the panel as a file: it lands in Downloads, in chat apps,
+      // in cloud drives. Credentials inside settings (a socks5 proxy password, a
+      // Telegram bot token, a GitHub PAT) are therefore MASKED by default — the
+      // values below are replaced by a fixed placeholder. The response says which
+      // fields were masked, and restore() ignores a field whose value is exactly
+      // the placeholder, so a masked backup can be restored without wiping the
+      // real secret. ?includeSecrets=1 keeps the raw values (the owner may have to
+      // re-enter them one by one otherwise) and the response warns loudly.
+      const includeSecrets = url.searchParams.get('includeSecrets') === '1';
+      const SECRET_KEYS = ['chain', 'tgToken', 'ghPat', 'passwordHash'];
+      const MASK = '***MASKED-BY-CAT-PANEL***';
+      const outSettings = Object.assign({}, settings);
+      const masked = [];
+      if (!includeSecrets) {
+        for (const k of SECRET_KEYS) {
+          if (String(outSettings[k] || '').trim()) { outSettings[k] = MASK; masked.push(k); }
+        }
+        // SOCKS5/HTTP proxy credentials inside a chain string also appear in the
+        // pool/ProxyIP lists; mask any credential-looking token that survived.
+        for (const k of ['proxyIps', 'ips', 'pinnedIps', 'extSubs', 'sniPool', 'extraSnis']) {
+          if (outSettings[k] === undefined) continue;
+          const before = JSON.stringify(outSettings[k]);
+          const after = before.replace(new RegExp('\\\\/\\\\/[^@/]*@', 'g'), '//***@');
+          if (after !== before) { outSettings[k] = JSON.parse(after); masked.push(k + ' (credentials)'); }
+        }
+        outSettings.subToken = outSettings.subToken ? MASK : '';
+        if (outSettings.subToken === MASK) masked.push('subToken');
+        masked.push('uuid');
+      }
+      return json({
+        ok: true,
+        version: CAT_PANEL_VERSION,
+        exportedAt: new Date().toISOString(),
+        secrets: includeSecrets ? 'INCLUDED (this file contains passwords and tokens — keep it private)' : 'masked',
+        masked,
+        restoreNote: includeSecrets
+          ? 'Restoring this file overwrites the live passwords/tokens with the values in it.'
+          : 'Fields equal to ' + MASK + ' are skipped by restore, so the live secrets stay as they are.',
+        // The master UUID is the sub key AND (on an install with no password) the
+        // panel password, so it is masked with the rest unless asked for explicitly.
+        uuid: includeSecrets ? masterUuid : MASK,
+        settings: outSettings,
+        users,
+      }, 200, {
         'content-disposition': 'attachment; filename="cat-panel-backup.json"',
+        'cache-control': 'no-store',
       });
     }
     if (method === 'POST') {
       const body = (await readJsonBody(request)) || {};
+      const MASK = '***MASKED-BY-CAT-PANEL***';
       let persisted = true;
-      if (body.settings && typeof body.settings === 'object') persisted = (await writeSettings(env, body.settings)).persisted && persisted;
+      const skipped = [];
+      if (body.settings && typeof body.settings === 'object') {
+        const patch = {};
+        for (const [k, v] of Object.entries(body.settings)) {
+          if (typeof v === 'string' && v === MASK) { skipped.push(k); continue; }
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            const nested = {}; let anyNested = false; let allNestedMasked = true;
+            for (const [k2, v2] of Object.entries(v)) {
+              if (typeof v2 === 'string' && v2 === MASK) { skipped.push(k + '.' + k2); continue; }
+              nested[k2] = v2; anyNested = true; allNestedMasked = false;
+            }
+            if (anyNested) patch[k] = nested; else if (!allNestedMasked) patch[k] = v;
+            continue;
+          }
+          patch[k] = v;
+        }
+        persisted = (await writeSettings(env, patch)).persisted && persisted;
+      }
       if (Array.isArray(body.users)) persisted = (await writeUsers(env, body.users)).persisted && persisted;
-      return json({ ok: true, persisted });
+      return json({ ok: true, persisted, skippedMaskedFields: skipped });
     }
   }
 
@@ -5135,7 +5332,11 @@ async function handleRequest(request, env, ctx) {
     maybeProxyRepoRefresh(env, ctx);
     const kind = targetKind(master[1]);
     const key = (master[2] || '').toLowerCase();
-    if (key === masterUuid || (!key && isTrue(env.OPEN_SUB))) return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), masterUuid, null, url);
+    // The master key is the subscription TOKEN when one is set, the UUID otherwise.
+    // Rotation therefore kills every old link at once, and revocation (clearing the
+    // token) falls back to the UUID — both are owner actions below.
+    const masterKey = subKeyOf(settings, masterUuid);
+    if (key === masterKey || (!key && isTrue(env.OPEN_SUB))) return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), masterUuid, null, url);
     if (key && isUuid(key)) {
       // Allow a user token on the master paths too (v2rayNG users sometimes edit the URL).
       const user = findUser(await readUsers(env), key);
@@ -5188,10 +5389,22 @@ async function handleRequest(request, env, ctx) {
     // panel path is rarely opened — every camo hit nudges the refresh along.
     maybeRepoRefresh(env, ctx);
     maybeProxyRepoRefresh(env, ctx);
-    // Owner handoffs survive stealth: ?p=<password> quick-login and the
-    // scanner's ?ips= import simply hop over to the real panel path.
+    // Owner handoffs survive stealth: a ?p=<password|uuid> quick-login and the
+    // scanner's ?ips= import hop over to the real panel path. The quick link is
+    // resolved HERE instead of after the hop, so the secret is already gone from
+    // the very first redirect rather than travelling one URL further (and landing
+    // in the history as /the/stealth/path?p=master-uuid).
     if ((url.searchParams.get('p') || url.searchParams.get('ips')) && (path === '/' || path === '/login' || path === '/panel')) {
-      return new Response(null, { status: 302, headers: { location: '/' + pp + '/' + url.search } });
+      const rest = new URLSearchParams(url.search);
+      rest.delete('p');
+      rest.delete('u');
+      const quick = url.searchParams.get('p');
+      const signedIn = !!quick && (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick));
+      if (quick && !signedIn) rest.set('stale', '1'); // a flag, never an echo
+      const qs = rest.toString();
+      const headers = { location: '/' + pp + '/' + (qs ? '?' + qs : '') };
+      if (signedIn) headers['set-cookie'] = sessionCookieHeader(await makeSession(env, settings, masterUuid));
+      return new Response(null, { status: 302, headers });
     }
     // PASTE-AND-GO. An unconfigured install (no KV, no password) has nothing to
     // camouflage yet — and answering its own root with a fake blog was exactly
@@ -5213,16 +5426,40 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/' || path === '/login' || path === '/panel' || atPanel) {
-    // Legacy ?p=<password> entry: set the cookie and redirect to a clean URL.
+    // Legacy ?p=<password|uuid> entry — the app's own panel button, an old
+    // bookmark, a link someone pasted. It must become a cookie and leave the URL:
+    // while the parameter stayed put (it used to survive every FAILED attempt)
+    // the master UUID — or a typo'd password — sat in the address bar, went into
+    // the browser history and was sent as Referer to whatever the page loaded
+    // next. Now it is dropped on success AND on failure; the failure case says so
+    // once, via ?stale=1 — a flag, never an echo of the secret.
     const quick = url.searchParams.get('p');
-    if (quick && (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick))) {
-      const token = await makeSession(env, settings, masterUuid);
-      return new Response(null, { status: 302, headers: { location: panelBase + (atPanel ? '/' : ''), 'set-cookie': sessionCookieHeader(token) } });
+    if (quick) {
+      const rest = new URLSearchParams(url.search);
+      rest.delete('p');
+      rest.delete('u');
+      const target = panelBase + (atPanel ? '/' : '');
+      if (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick)) {
+        const token = await makeSession(env, settings, masterUuid);
+        const qs = rest.toString();
+        return new Response(null, { status: 302, headers: { location: target + (qs ? '?' + qs : ''), 'set-cookie': sessionCookieHeader(token) } });
+      }
+      rest.set('stale', '1');
+      return new Response(null, { status: 302, headers: { location: target + '?' + rest.toString() } });
     }
     const owner = await isOwner(request, env, settings, masterUuid);
+    // Owner-only handshake: the app tells the panel which versions it runs (av)
+    // and ships (pv). Recorded, never trusted for anything but the banner below —
+    // and read back from KV even on an open without the params (the owner's
+    // browser), so a real skew does not disappear just because the app is closed.
+    if (owner) {
+      settings.appSeen = (url.searchParams.get('av') || url.searchParams.get('pv'))
+        ? await rememberAppSeen(env, url.searchParams.get('av'), url.searchParams.get('pv'))
+        : await readAppSeen(env);
+    }
     maybeRepoRefresh(env, ctx);
     maybeProxyRepoRefresh(env, ctx);
-    if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim(), masterUuid));
+    if (!owner) return html(loginPage(env, settings, !!String(env.PANEL_USER || '').trim(), masterUuid, url.searchParams.get('stale') === '1'));
     return html(panelPage(env, settings, host, masterUuid));
   }
 
@@ -5346,7 +5583,7 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .tpgrid button.on span{color:var(--violet2)}
 @keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}`;
 
-function loginPage(env, settings, needsUser, uuid) {
+function loginPage(env, settings, needsUser, uuid, stale) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
   const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
@@ -5376,6 +5613,12 @@ label{display:block;font-size:11px;font-weight:600;color:var(--mute);margin:12px
 .err{color:#fda4af;font-size:13px;min-height:18px;margin-top:10px;text-align:center}
 </style></head><body><div class="wrap"><form class="card box" id="f">
 <div class="logo">${catLogo(1)}</div><h1>${escapeHtml(title)}</h1><div class="sub mute small">${fa ? 'برای ورود رمز پنل را وارد کن' : 'Enter the panel password'}</div>
+${stale ? `<div class="note w" style="margin-bottom:14px;text-align:start">
+<b>🔗 ${fa ? 'این لینک سریع دیگر کار نمی‌کند' : 'That quick link no longer works'}</b>
+<div style="margin-top:6px;line-height:1.9">${fa
+  ? 'لینک با ?p= فقط تا وقتی کار می‌کند که رمز پنل همان UUID باشد. چون رمز (یا UUID) عوض شده، رمز فعلی را دستی وارد کن. خودِ مقدارِ لینک از آدرس حذف شد تا در تاریخچهٔ مرورگر نماند.'
+  : 'A ?p= link only works while the panel password is still the UUID. The password (or the UUID) changed, so type the current password below. The value was stripped from the address bar so it does not stay in your history.'}</div>
+</div>` : ''}
 ${needsUser ? `<label>${fa ? 'نام کاربری' : 'Username'}</label><input id="u" autocomplete="username">` : ''}
 <label>${fa ? 'رمز عبور' : 'Password'}</label><input id="p" type="password" autocomplete="current-password" autofocus>
 <div class="err" id="e"></div>
@@ -5395,6 +5638,8 @@ ${fresh ? `
 document.getElementById('f').addEventListener('submit',function(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';
 var u=document.getElementById('u');fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value,username:u?u.value:''})})
 .then(function(r){return r.json()}).then(function(j){if(j.ok)location.href=location.pathname+location.search;else e.textContent=${JSON.stringify(fa ? 'رمز اشتباه است' : 'Wrong password')}}).catch(function(){e.textContent='network'})});
+/* The stale flag is only a note for this render — keep it out of the URL. */
+try{var _sp=new URLSearchParams(location.search);if(_sp.has('stale')){_sp.delete('stale');var _q=_sp.toString();history.replaceState(null,'',location.pathname+(_q?'?'+_q:''))}}catch(e){}
 </script>
 <nav class="tabbar" aria-label="بخش‌های اصلی">
  <button type="button" data-sec="home" aria-current="page"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span data-i="hm_title"></span></button>
@@ -5853,6 +6098,28 @@ code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius
   <b>⚠️ <span data-i="kv_warn_title"></span></b>
   <div style="margin-top:6px" data-i="kv_warn_body"></div>
   <button class="btn sm" type="button" style="margin-top:8px" id="kvWarnOk" data-i="kv_warn_ok"></button>
+ </div>
+${(() => {
+  // Server-rendered only when the app's own report disagrees with this panel —
+  // see appSeenMismatch(). It is a note, not an error: both halves work.
+  const miss = appSeenMismatch(settings.appSeen);
+  if (!miss) return '';
+  return `
+ <div class="note w" id="verWarn">
+  <b data-i="ver_title"></b>
+  <div style="margin-top:6px" data-i="ver_body"></div>
+  <div class="mono small" style="margin-top:8px">app v${escapeHtml(miss.appPanel)} · panel v${escapeHtml(miss.panel)}${miss.appOlder ? ' · app is older' : ' · panel is older'}</div>
+  <button class="btn sm" type="button" style="margin-top:8px" id="verWarnOk" data-i="ver_dismiss"></button>
+ </div>`;
+})()}
+ <div class="note w pwarn" id="passWarn" style="display:none">
+  <b>🔐 <span data-i="pw_title"></span></b>
+  <div style="margin-top:6px" data-i="pw_body"></div>
+  <div class="row" style="margin-top:8px;gap:8px">
+   <input id="pwNew" type="password" autocomplete="new-password" data-ph="pw_ph" style="flex:1">
+   <button class="btn sm" type="button" id="pwSave" data-i="pw_save"></button>
+  </div>
+  <div class="small" id="pwOut" style="margin-top:6px"></div>
  </div>
  <div class="card sec" id="heroCard">
   <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
@@ -6465,6 +6732,23 @@ code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius
   <div class="row" style="margin-top:12px"><a class="btn" href="${REPO_URL}" target="_blank" rel="noopener">GitHub</a><a class="btn" href="${REPO_URL}/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
  </div>
+ <div class="card sec" id="diagCard">
+  <h2><span class="ic">🩺</span><span data-i="diag_title"></span></h2>
+  <div class="small mute" data-i="diag_hint"></div>
+  <div class="row" style="margin-top:8px"><button class="btn sm" type="button" id="btnDiag">🔄 <span data-i="diag_run"></span></button><button class="btn sm" type="button" id="btnDiagCopy" data-i="diag_copy"></button></div>
+  <div id="diagOut" class="small mono" style="margin-top:10px;white-space:pre-wrap;direction:ltr;text-align:left"></div>
+ </div>
+ <div class="card sec" id="secCard">
+  <h2><span class="ic">🔑</span><span data-i="sec_title"></span></h2>
+  <div class="small mute" data-i="sec_hint"></div>
+  <div class="small" id="secState" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+   <button class="btn sm" type="button" id="btnTokRot" data-i="sec_tok_rot"></button>
+   <button class="btn sm" type="button" id="btnTokRev" data-i="sec_tok_rev"></button>
+   <button class="btn sm" type="button" id="btnUuidRot" data-i="sec_uuid_rot"></button>
+  </div>
+  <div class="small" id="secOut" style="margin-top:8px"></div>
+ </div>
  <div class="card sec">
   <h2>🛟 <span data-i="rec_title"></span></h2>
   <div class="small mute" data-i="rec_hint"></div>
@@ -6544,7 +6828,7 @@ n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
 limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفلر رایگان: ۱۰۰هزار درخواست/روز، ۱۰ms CPU برای هر درخواست، ۱۰۰۰ نوشتن KV/روز. نسخهٔ ۶ هیچ آمار مصرفی در KV نمی‌نویسد (فقط وقتی تو ذخیره می‌زنی)، هیچ اسکنی داخل ورکر انجام نمی‌دهد، و رلهٔ ترافیک یک pipe ساده بدون شمارنده است. نتیجه: مصرف CPU و KV نزدیک صفر، مثل BPB.',
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
-n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز IP تمیز اختصاصی نداری — اگر فهرست مؤثر خالی باشد، ساب به آدرس‌های پیش‌فرض و دامنهٔ ورکر برمی‌گردد. افزودن IPهای فید عمومی به ساب جداست و فقط با روشن‌کردن «افزودن خودکار از مخزن‌ها» انجام می‌شود. IPهای تست‌شده را اضافه کن تا اول ساب بیایند:',n_set:'تنظیمات',n_settings:'تنظیمات',n_backup:'پشتیبان‌گیری',s_backup:'پشتیبان‌گیری و بازیابی پنل',n_bak:'پشتیبان',
+n_about:'درباره',diag_title:'تشخیص (فقط مالک)',diag_hint:'همان چیزی که با curl می‌دیدی، اینجا داخل پنل: وضعیت KV، بایندینگ‌ها، نسخه، مصرف درخواست و آخرین خطاها. هیچ UUID یا رمزی نمایش داده نمی‌شود.',diag_run:'به‌روزرسانی',diag_copy:'کپی گزارش',diag_copied:'گزارش کپی شد',diag_copy_fail:'کپی نشد — دستی انتخاب کن',sec_title:'کلیدهای دسترسی (UUID و توکن ساب)',sec_hint:'توکنِ ساب از UUID جداست: می‌توانی بدون تغییر رمز پنل همهٔ لینک‌های قدیمی ساب را از کار بیندازی. پس از چرخش، ساب را در همهٔ کلاینت‌ها دوباره ایمپورت کن.',sec_tok_rot:'چرخش توکن ساب',sec_tok_rev:'ابطال توکن (برگشت به UUID)',sec_uuid_rot:'چرخش UUID',sec_tok_confirm:'مطمئنی؟ با این کار همهٔ لینک‌های سابِ قبلی (و لینک‌های قدیمی ?p=) از کار می‌افتند.',sec_tok_revoked:'توکن ابطال شد؛ لینک‌ها حالا از UUID استفاده می‌کنند.',sec_uuid_done:'UUID عوض شد. ساب‌ها و لینک‌های ?p= قبلی بی‌اعتبار شدند.',sec_uuid_confirm:'مطمئنی؟ UUID جدید ساخته می‌شود و همهٔ ساب‌ها و لینک‌های ?p=<uuid> قدیمی از کار می‌افتند. (برای این کار باید رمز پنل تنظیم شده باشد.)',pw_title:'🔐 رمز پنل را تنظیم کن',pw_body:'رمز پنل همان UUID است و پنل جزئیات خطا را به هیچ‌کس نشان نمی‌دهد. یک رمز بگذار.',ver_title:'🧩 نسخهٔ اپ و پنل یکی نیست',ver_body:'اپی که همین حالا این پنل را باز کرده، خودش پنل نسخهٔ دیگری را همراه دارد. کانفیگ‌ها و ساب‌ها کار می‌کنند و چیزی خراب نشده؛ فقط ممکن است دکمه‌های اپ (اسکنر، دیپلوی، تست) با نسخهٔ نصب‌شده روی این ورکر هم‌خوان نباشند. برای هم‌ترازشدن: در اپ بخش «دیپلوی‌های من» → «به‌روزرسانی پنل» را بزن، یا اپ را آپدیت کن — هر کدام که جدیدتر است.',ver_dismiss:'فهمیدم (تا باز شدن بعدی)',pw_body_uuid:'رمز پنل الان همان «UUID» است؛ هر کسی که UUID را بداند وارد می‌شود و پنل عمداً جزئیات خطا را به هیچ‌کس نشان نمی‌دهد (پیش‌فرض امن ۶.۶۷). یک رمز بگذار.',pw_body_env:'رمز از متغیر PANEL_PASSWORD می‌آید؛ برای مدیریت از پنل، اینجا رمز جدید بگذار.',pw_body_open:'پنل «باز» است (OPEN_PANEL=true). با گذاشتن رمز، ورود اجباری می‌شود.',pw_ph:'رمز جدید (حداقل ۶ کاراکتر)',pw_save:'ذخیرهٔ رمز',pw_done:'رمز ذخیره شد ✓',pw_short:'رمز باید حداقل ۶ کاراکتر باشد',n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز IP تمیز اختصاصی نداری — اگر فهرست مؤثر خالی باشد، ساب به آدرس‌های پیش‌فرض و دامنهٔ ورکر برمی‌گردد. افزودن IPهای فید عمومی به ساب جداست و فقط با روشن‌کردن «افزودن خودکار از مخزن‌ها» انجام می‌شود. IPهای تست‌شده را اضافه کن تا اول ساب بیایند:',n_set:'تنظیمات',n_settings:'تنظیمات',n_backup:'پشتیبان‌گیری',s_backup:'پشتیبان‌گیری و بازیابی پنل',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
 u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
 unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر خطای 1101 دیدی',rec_hint:'طبق مستندات Cloudflare، خطای 1101 معمولاً یعنی Worker هنگام اجرا استثنای JavaScript داده است؛ به‌تنهایی بن‌شدن را ثابت نمی‌کند. در Workers & Pages ← Worker ← Logs/Observability متن خطا و stack trace را بررسی کن.',rec_steps:'۱) نسخهٔ پاسخ /api/version و زمان درخواست را ثبت کن؛ ۲) همان درخواست را در Logs یا wrangler tail پیدا کن؛ ۳) متن exception/stack trace و تنظیمات همان نسخه را بررسی کن؛ ۴) پس از اصلاح، /health و مسیر خطادار را دوباره آزمایش کن. اگر داشبورد صراحتاً پیام تعلیق یا سیاست نشان می‌دهد، همان اعلان رسمی را پیگیری کن.',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانه (۸ کشور در هر شب، چرخشی) از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
@@ -6566,7 +6850,7 @@ n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
 limits:'Why this version does not get banned',limits_text:'Cloudflare free tier: 100k requests/day, 10 ms CPU per request, 1 000 KV writes/day. v6 writes KV only when you save, never scans from the worker, and the relay is a plain pipe with no counters. CPU and KV usage stay near zero, like BPB.',
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
-n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No custom clean IPs yet — if the effective list is empty, the subscription falls back to built-in addresses + the worker host. Public feed IPs are appended only when «Auto-add from repositories» is enabled. Add tested IPs to put them first:',n_set:'Settings',n_settings:'Settings',n_backup:'Backup',s_backup:'Panel backup & restore',n_bak:'Backup',
+n_about:'About',diag_title:'Diagnostics (owner only)',diag_hint:'What curl would show you, rendered in the panel: KV state, bindings, version, request usage and the last crashes. No UUID or password is ever displayed.',diag_run:'Refresh',diag_copy:'Copy report',diag_copied:'Report copied',diag_copy_fail:'Copy failed — select it manually',sec_title:'Access keys (UUID and sub token)',sec_hint:'The subscription token is independent of the UUID: you can kill every old subscription link without touching the panel password. Re-import the subscription in every client afterwards.',sec_tok_rot:'Rotate sub token',sec_tok_rev:'Revoke token (back to UUID)',sec_uuid_rot:'Rotate UUID',sec_tok_confirm:'Sure? Every previous subscription link (and old ?p= link) stops working and must be re-imported in every client.',sec_tok_revoked:'Token revoked; links use the master UUID again.',sec_uuid_done:'UUID rotated. Old subscriptions and ?p= links are invalid now.',sec_uuid_confirm:'Sure? A new UUID is generated and every old subscription and ?p=<uuid> link stops working. (A panel password must be set first.)',pw_title:'🔐 Set a panel password',pw_body:'The panel password is still the UUID and crash details go to nobody. Set a password.',ver_title:'🧩 App and panel versions differ',ver_body:'The app that just opened this panel ships a different panel version. Configs and subscriptions still work — nothing is broken — but the app’s buttons (scanner, deploy, tests) may not match the version installed on this Worker. To line them up: in the app open My deployments → Refresh panel, or update the app — whichever is newer.',ver_dismiss:'Got it (until next open)',pw_body_uuid:'The panel password is currently the UUID; anyone who learns it can sign in, and the panel deliberately shows crash details to nobody (the safe 6.67 default). Set a password.',pw_body_env:'The password comes from the PANEL_PASSWORD variable. Set one here to manage it from the panel.',pw_body_open:'The panel is OPEN (OPEN_PANEL=true). Setting a password turns the login on for everyone.',pw_ph:'New password (at least 6 characters)',pw_save:'Save password',pw_done:'Password saved ✓',pw_short:'Use at least 6 characters',n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No custom clean IPs yet — if the effective list is empty, the subscription falls back to built-in addresses + the worker host. Public feed IPs are appended only when «Auto-add from repositories» is enabled. Add tested IPs to put them first:',n_set:'Settings',n_settings:'Settings',n_backup:'Backup',s_backup:'Panel backup & restore',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
 u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
 unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing Error 1101?',rec_hint:'Cloudflare documents Error 1101 as a Worker JavaScript runtime exception; it does not by itself prove a ban. Check Workers & Pages → your Worker → Logs/Observability for the exception and stack trace.',rec_steps:'1) Note the /api/version response and request time; 2) find that request in Logs or wrangler tail; 3) inspect the exception/stack trace and that deployment’s bindings; 4) after fixing it, retest /health and the failing route. If the dashboard explicitly shows a suspension or policy notice, follow that official notice.',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples (8 countries per night, rotating) of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
@@ -6608,6 +6892,7 @@ var CFG=null, USERS=[], editing=null, dirtyScan=false;
 
 /* ---------- views ---------- */
 function show(v){$$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
+ if(v==='about'&&CFG)renderDiag();
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -6630,15 +6915,98 @@ document.addEventListener('click',function(e){var o=e.target.closest('[data-them
  var c=e.target.closest('[data-tpclose]');if(c){closeThemePick();return}
  var s2=e.target.closest('#themeGrid button');if(s2){setTheme(s2.getAttribute('data-t'),1);return}});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeThemePick()});
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderSurvival();renderTheme()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme()})}
 /* The most confusing failure mode of all: a worker deployed WITHOUT its KV
    binding answers «saved ✓» while the value only lives in one isolate's memory.
    Clean IPs, users and settings then vanish — «the buttons don't work». Say it
    in plain words AND say how to fix it. */
+/* «Set a panel password» — the panel says it out loud after the first login, and
+   keeps saying it until a password really exists (uuid/env/open all mean «not yet»).
+   The server side of this warning is diagAllowed(): while the UUID is the password,
+   no crash detail is shown to anyone. */
+function renderPassWarn(){
+ var w=$('#passWarn'); if(!w||!CFG) return;
+ var need=!(CFG.passwordSource==='panel');
+ w.style.display=need?'block':'none';
+ if(!need) return;
+ var src=CFG.open?'pass_open':CFG.passwordSource==='env'?'pass_env':'pass_uuid';
+ var body=$('#passWarn')&&w.querySelector('div');
+ if(body&&!body._i){body._i=1;body.setAttribute('data-i','pw_body_'+src);}
+ var btn=$('#pwSave'), inp=$('#pwNew'), out=$('#pwOut');
+ if(btn&&!btn._w){btn._w=1;btn.addEventListener('click',function(){
+   var v=(inp&&inp.value||'').trim();
+   if(v.length<6){if(out)out.textContent=t('pw_short');return}
+   btn.disabled=true;
+   api('/api/settings',{method:'PUT',body:JSON.stringify({password:v})}).then(function(j){
+     btn.disabled=false;
+     if(!j||j.ok===false){if(out)out.textContent=(j&&(j.message||j.error))||'error';return}
+     if(out)out.textContent=t('pw_done');
+     CFG.passwordSource='panel';
+     if(inp)inp.value='';
+     renderPassWarn(); renderChips();
+     toast(t('pw_done'));
+   });
+ });}
+}
+function wireVerWarn(){
+ var w=$('#verWarn'); if(!w) return;
+ var ok=$('#verWarnOk');
+ // Hiding it lasts for this render only — a genuine mismatch keeps coming back.
+ if(ok&&!ok._w){ok._w=1;ok.addEventListener('click',function(){w.style.display='none'})}
+}
 function renderKvWarn(){var w=$('#kvWarn');if(!w||!CFG)return;
  w.style.display=(CFG.kv===false)?'block':'none';
  var ok=$('#kvWarnOk');
  if(ok&&!ok._w){ok._w=1;ok.addEventListener('click',function(){w.style.display='none'})}}
+/* The diagnostics page: the same numbers curl would show, rendered in the panel.
+   Everything here comes from /api/diag, which is owner-only. */
+function renderDiag(){
+ var out=$('#diagOut'); if(!out) return;
+ api('/api/diag').then(function(j){
+   if(!j||j.ok===false){out.textContent=(j&&(j.error||j.message))||'error';return}
+   var lines=[];
+   lines.push('version   : '+j.version);
+   lines.push('host      : '+j.host+'  (cf runtime: '+(j.runtime&&j.runtime.cf?'yes':'no')+')');
+   lines.push('KV        : '+j.kv);
+   lines.push('bindings  : '+(j.bindings&&j.bindings.length?j.bindings.join(', '):'(none)'));
+   lines.push('password  : '+(j.passwordSet?'set from the panel':j.passwordSource));
+   lines.push('panel path: /'+(j.panelPath||'panel'));
+   lines.push('sub token : '+j.subToken);
+   lines.push('uuid from : '+j.uuidSource);
+   lines.push('PANEL_DIAG: '+j.diagFlag);
+   if(j.usage){lines.push('requests  : today '+(j.usage.reqs||0)+' · writes '+(j.usage.writes||0)+' · pending '+(j.usage.pending||0)+(j.usage.noKv?'  (KV NOT BOUND — this counter is memory-only)':''));}
+   var errs=(j.recentErrors||[]);
+   lines.push('crashes   : '+(errs.length?errs.length+' recent':'(none)'));
+   errs.forEach(function(e,i){lines.push('  #'+(i+1)+' '+(e.k)+'  '+String(e.stack||'').split('\\n').slice(0,2).join(' / '))});
+   out.textContent=lines.join('\\n');
+   var st=$('#secState');
+   if(st){st.innerHTML='<span class="chip '+(j.subToken&&j.subToken.indexOf('set')===0?'ok':'')+'">'+esc(String(j.subToken).slice(0,40))+'</span> <span class="chip">'+esc(String(j.uuidSource))+'</span>';}
+ });
+}
+function wireDiag(){
+ var b=$('#btnDiag'); if(b&&!b._w){b._w=1;b.addEventListener('click',renderDiag);}
+ var c=$('#btnDiagCopy'); if(c&&!c._w){c._w=1;c.addEventListener('click',function(){var o=$('#diagOut');if(!o)return;var txt=o.textContent||'';
+   (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(txt):Promise.reject()).then(function(){toast(t('diag_copied'))},function(){toast(t('diag_copy_fail'),true)});});}
+ var tr=$('#btnTokRot'); if(tr&&!tr._w){tr._w=1;tr.addEventListener('click',function(){
+   if(!confirm(t('sec_tok_confirm')))return;
+   api('/api/sub-token',{method:'POST',body:JSON.stringify({action:'rotate'})}).then(function(j){
+     var o=$('#secOut'); if(o) o.textContent=j&&j.ok?((j.warning||'')+'\\n'+(j.token||'')):((j&&(j.error||j.message))||'error');
+     renderDiag();});
+ });}
+ var rv=$('#btnTokRev'); if(rv&&!rv._w){rv._w=1;rv.addEventListener('click',function(){
+   if(!confirm(t('sec_tok_confirm')))return;
+   api('/api/sub-token',{method:'POST',body:JSON.stringify({action:'revoke'})}).then(function(j){
+     var o=$('#secOut'); if(o) o.textContent=j&&j.ok?t('sec_tok_revoked'):((j&&(j.error||j.message))||'error');
+     renderDiag();});
+ });}
+ var ur=$('#btnUuidRot'); if(ur&&!ur._w){ur._w=1;ur.addEventListener('click',function(){
+   if(!confirm(t('sec_uuid_confirm')))return;
+   api('/api/rotate-uuid',{method:'POST'}).then(function(j){
+     var o=$('#secOut');
+     if(o) o.textContent=j&&j.ok?(t('sec_uuid_done')+'\\n'+j.uuid+'\\n'+(j.warning||'')):((j&&(j.message||j.error))||'error');
+     renderDiag();});
+ });}
+}
 function renderOverview(){
  var s=CFG.settings;
  var st=function(k){return t(k)};

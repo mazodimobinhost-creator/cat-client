@@ -112,22 +112,43 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   ok('…the panel still renders', statuses['/panel'] === 200, statuses['/panel']);
 }
 
-/* ---------- E) a crash must answer with a report, and only to the owner ---------- */
+/* ---------- E) a crash answers JSON for the owner, generic for everyone else ---------- */
 {
-  // A request whose headers getter throws is a deterministic request-time crash:
-  // handleRequest() reads headers long before any route logic.
-  const boomRequest = (path) => ({
+  // One deterministic crash, two audiences. `/api/geo` is reached BEFORE the owner
+  // gate, and the first thing it does is read a request header — so a headers.get()
+  // that throws produces a real request-time exception either way; what changes is
+  // only whether the caller can prove it is the owner.
+  const crashReq = (path, opts = {}) => ({
     url: 'https://' + HOST + path,
     method: 'GET',
-    get headers() { throw new Error('boom headers'); },
+    headers: {
+      get(name) {
+        const key = String(name).toLowerCase();
+        if (key === 'x-cat-key') return opts.key || null;
+        if (key === 'cookie' || key === 'authorization') return null;
+        if (key === 'upgrade') return null;
+        throw new Error('boom headers');
+      },
+    },
   });
 
   T.kvCacheClear();
   const freshEnv = {};
-  const fresh = await worker.fetch(boomRequest('/api/users'), freshEnv, { waitUntil() {} });
+
+  // 6.66.10: a fresh install (no password anywhere) is a STRANGER now. The owner
+  // asked for the safer default: an unattended panel must not print its internals.
+  const freshGeneric = await worker.fetch(crashReq('/api/geo'), freshEnv, { waitUntil() {} });
+  const freshGenericBody = await freshGeneric.json();
+  ok('fresh install + anonymous crash → generic body, no stack (safer default)',
+    freshGeneric.status === 500 && freshGenericBody.error === 'internal' &&
+      freshGenericBody.message === 'unhandled error' && !('stack' in freshGenericBody),
+    JSON.stringify(freshGenericBody).slice(0, 80));
+
+  // On an unconfigured install the panel password IS the UUID, so this is the owner.
+  const fresh = await worker.fetch(crashReq('/api/geo', { key: UUID }), freshEnv, { waitUntil() {} });
   const freshBody = await fresh.json();
   ok('a request-time crash answers 500, not an escaped throw', fresh.status === 500, fresh.status);
-  ok('…with a JSON crash report instead of the opaque 1101 page', freshBody.error === 'panel_crash', JSON.stringify(freshBody).slice(0, 90));
+  ok('…and the owner gets the JSON report', freshBody.error === 'panel_crash', JSON.stringify(freshBody).slice(0, 90));
   ok('…carrying the message', /boom headers/.test(freshBody.message || ''), freshBody.message);
   ok('…and a real stack (a string, like err.stack, plus a split copy)',
     typeof freshBody.stack === 'string' && /boom headers/.test(freshBody.stack) &&
@@ -135,8 +156,6 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
       /boom headers/.test(freshBody.stackLines.join('\n')),
     typeof freshBody.stack);
   ok('…and it names the version so a stale deploy is visible', freshBody.version === T.CAT_PANEL_VERSION, freshBody.version);
-  // The exact shape: a person on a phone reads message + stack, a script reads
-  // ok/success/error; nothing here may be missing or the wrong type.
   ok('…with the whole documented shape',
     freshBody.ok === false && freshBody.success === false && freshBody.error === 'panel_crash' &&
       typeof freshBody.title === 'string' && freshBody.title.length > 0 &&
@@ -149,34 +168,38 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
       /no-store/.test(fresh.headers.get('cache-control') || ''),
     fresh.headers.get('content-type'));
 
-  // Configured panel (password exists) → a stranger must NOT get the report.
+  // Configured panel (password exists) → no audience at all may read the details.
   const kv = memKv();
   const env = { CAT_KV: kv };
   const settings = Object.assign({}, await T.readSettings(env), { passwordHash: await T.sha256Hex('owner-secret') });
   await kv.put(T.KV_KEYS.settings, JSON.stringify(settings));
   T.kvCacheClear();
 
-  const strangerApi = await worker.fetch(boomRequest('/api/users'), env, { waitUntil() {} });
+  const strangerApi = await worker.fetch(crashReq('/api/geo'), env, { waitUntil() {} });
   const strangerApiBody = await strangerApi.json();
-  ok('configured panel + stranger + /api crash → plain internal error, no stack',
-    strangerApi.status === 500 && strangerApiBody.error === 'internal' && !strangerApiBody.stack,
+  ok('configured panel + stranger + /api crash → plain generic JSON, no stack',
+    strangerApi.status === 500 && strangerApiBody.error === 'internal' &&
+      strangerApiBody.message === 'unhandled error' && !('stack' in strangerApiBody),
     JSON.stringify(strangerApiBody).slice(0, 90));
 
-  const strangerPage = await worker.fetch(boomRequest('/panel'), env, { waitUntil() {} });
+  const ownerApi = await worker.fetch(crashReq('/api/geo', { key: 'owner-secret' }), env, { waitUntil() {} });
+  ok('configured panel + owner → the report', (await ownerApi.json()).error === 'panel_crash');
+
+  const strangerPage = await worker.fetch({ url: 'https://' + HOST + '/panel', method: 'GET', headers: { get() { throw new Error('boom headers'); } } }, env, { waitUntil() {} });
   const pageBody = await strangerPage.text();
-  ok('configured panel + stranger + page crash → the neutral page, nothing about the panel',
+  ok('stranger + page crash → the neutral page, nothing about the panel',
     !/panel_crash/.test(pageBody) && !/boom headers/.test(pageBody) && !pageBody.includes(T.CAT_PANEL_VERSION), strangerPage.status);
 
-  const forced = await worker.fetch(boomRequest('/api/users'), Object.assign({ PANEL_DIAG: '1' }, env), { waitUntil() {} });
+  const forced = await worker.fetch(crashReq('/api/geo'), Object.assign({ PANEL_DIAG: '1' }, env), { waitUntil() {} });
   ok('PANEL_DIAG=1 forces the report for everyone (the escape hatch)',
     (await forced.json()).error === 'panel_crash');
 
-  const offBody = await (await worker.fetch(boomRequest('/api/users'), Object.assign({ PANEL_DIAG: '0' }, freshEnv), { waitUntil() {} })).text();
-  ok('PANEL_DIAG=0 suppresses it even in the setup state', JSON.parse(offBody).error === 'internal');
+  const offBody = await (await worker.fetch(crashReq('/api/geo', { key: UUID }), Object.assign({ CAT_KV: memKv(), PANEL_DIAG: '0' }, freshEnv), { waitUntil() {} })).text();
+  ok('PANEL_DIAG=0 suppresses it even for the owner', JSON.parse(offBody).error === 'internal');
   ok('…and the neutral API fallback leaks no error text', !offBody.includes('boom headers'), offBody.slice(0, 80));
 
   // The URL query is dropped from the report: ?p=<uuid> must never be echoed.
-  const withQuery = await worker.fetch(boomRequest('/api/users?p=' + UUID), freshEnv, { waitUntil() {} });
+  const withQuery = await worker.fetch(crashReq('/api/geo?p=' + UUID, { key: UUID }), freshEnv, { waitUntil() {} });
   const queryBody = await withQuery.text();
   ok('the report never echoes the query string (the one-tap password lives there)',
     !queryBody.includes(UUID));
@@ -313,6 +336,9 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   // below inherits the passwordHash written by the sections above and the setup
   // state (which is what makes the report reachable) disappears.
   T.kvCacheClear();
+  // The throw matrix runs with PANEL_DIAG=1: the contract under test is «a hostile
+  // thrown value still produces the documented JSON report». The stranger half of
+  // the contract is asserted right below it.
   // Whatever a request (or a binding) throws at us — a bare string, null, a Proxy
   // that throws on every property read, an object whose message getter throws —
   // fetch() must still answer a JSON 500. If any of this escaped, the edge would
@@ -337,7 +363,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
       headers: { get: () => null },
     };
     let res = null; let escaped = null;
-    try { res = await worker.fetch(req, bare, { waitUntil() {} }); } catch (e) { escaped = e; }
+    try { res = await worker.fetch(req, Object.assign({ PANEL_DIAG: '1' }, bare), { waitUntil() {} }); } catch (e) { escaped = e; }
     ok('hostile throw (' + label + '): nothing escapes fetch()', escaped === null,
       escaped && (escaped.message || 'thrown'));
     if (!res) continue;
