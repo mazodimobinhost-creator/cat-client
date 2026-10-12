@@ -345,6 +345,29 @@ async function deploy() {
     '```\n' + ['$ npx wrangler ' + args.join(' ')].concat(out.split('\n').filter((l) => /Total Upload|Uploaded|Deployed|workers\.dev|gzip/i.test(l)).map((l) => l.trim())).join('\n') + '\n```\n\n' +
     `exit code ${code} after ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
   if (code !== 0) { console.error('::error::deploy failed'); }
+
+  // A brand-new workers.dev route does not answer instantly. In the ninth live run
+  // the edge served its own 404 page for the first half minute after deploy, which
+  // then poisoned the whole cascade: the password write hit that 404, so every
+  // locked-mode stage afterwards found an open panel and failed for it. Wait for
+  // the route to actually serve the Worker, and put the measured delay in the
+  // record — it is a real property of a fresh deployment, not a test artefact.
+  const base = process.env.BASE;
+  const t0 = Date.now();
+  let live = false;
+  let waited = 0;
+  while (base && Date.now() - t0 < 150000) {
+    let res = null;
+    let body = '';
+    try { res = await fetch(base + '/health', { redirect: 'manual' }); body = await res.text(); } catch { /* the route is not there yet */ }
+    waited = Math.round((Date.now() - t0) / 1000);
+    const edge404 = res && res.status === 404 && /^\s*<(!doctype|html)/i.test(body);
+    if (res && !edge404) { live = true; break; }
+    await sleep(4000);
+  }
+  console.log('  route serves the Worker:', live, '|', waited + 's of polling after deploy');
+  publish(`- the workers.dev route answered with the Worker after **${waited}s** of polling` +
+    (live ? '' : ' — ⚠ still the edge 404 page, the checks below carry the rest\n'));
   return code;
 }
 
