@@ -1,6 +1,6 @@
 # Cloudflare live test — catpanel-test
 
-run=38262188940 attempt=1 trigger=push actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client head=dba76afd52129aa3191b90c27429df1522519b65
+run=38262598919 attempt=1 trigger=push actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client head=72f715835713d87efaedb1d76af039c433f6e591
 
 Everything in this file was produced by a real Cloudflare account. Only two
 names are ever written: the Worker `catpanel-test` and the KV namespace `catpanel-test-kv`.
@@ -35,8 +35,8 @@ scripts before: ([])
 <details><summary><code>kv-create</code> — raw output (exit code 0)</summary>
 
 ```
-created KV namespace: 3300845249f94d9d8709f069278393d7
-KV_ID=3300845249f94d9d8709f069278393d7
+created KV namespace: a38c778124f94f1e889d342061ee7465
+KV_ID=a38c778124f94f1e889d342061ee7465
 all namespaces on the account: (none listed)
 
 ```
@@ -63,8 +63,8 @@ wrangler.cf-test.jsonc built from wrangler.jsonc:
 <details><summary><code>gen-credentials</code> — raw output (exit code 0)</summary>
 
 ```
-::add-mask::FjylzJfI0PFssZ7T
-::add-mask::1b16466b-b106-4420-94e4-eed946c984aa
+::add-mask::sttz-cwdGZtTNrpR
+::add-mask::707a6fd3-5d33-4182-9a67-958815442ef4
 generated a panel password (24-char class) and an app-style UUID — both masked in this log; only lengths are printed:
   password length: 16 | uuid length: 36
 
@@ -86,12 +86,12 @@ generated a panel password (24-char class) and an app-style UUID — both masked
 ```
 $ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle
 Total Upload: 482.45 KiB / gzip: 135.49 KiB
-Uploaded catpanel-test (1.35 sec)
-Deployed catpanel-test triggers (0.77 sec)
+Uploaded catpanel-test (1.07 sec)
+Deployed catpanel-test triggers (0.55 sec)
 https://catpanel-test.zojfup.workers.dev
 ```
 
-exit code 0 after 4s
+exit code 0 after 3s
 
 <details><summary><code>deploy</code> — raw output (exit code 0)</summary>
 
@@ -108,22 +108,22 @@ env.CAT_KV (<redacted>)          KV Namespace
 env.OPEN_PANEL ("true")                                Environment Variable      
 env.OPEN_SUB ("true")                                  Environment Variable      
 
-Uploaded catpanel-test (1.35 sec)
-Deployed catpanel-test triggers (0.77 sec)
+Uploaded catpanel-test (1.07 sec)
+Deployed catpanel-test triggers (0.55 sec)
   https://catpanel-test.zojfup.workers.dev
-Current Version ID: 8fe4b86f-0bf6-4872-a0d5-39a7cba12e89
+Current Version ID: 4a94db8a-a083-4029-959b-ac90593bfdad
 deploy exit: 0
 Total Upload: 482.45 KiB / gzip: 135.49 KiB
-Uploaded catpanel-test (1.35 sec)
-Deployed catpanel-test triggers (0.77 sec)
+Uploaded catpanel-test (1.07 sec)
+Deployed catpanel-test triggers (0.55 sec)
   https://catpanel-test.zojfup.workers.dev
-::notice title=part 1/1::%0A## Deploy — wrangler deploy --no-bundle%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle%0ATotal Upload: 482.45 KiB / gzip: 135.49 KiB%0AUploaded catpanel-test (1.35 sec)%0ADeployed catpanel-test triggers (0.77 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 4s%0A
+::notice title=part 1/1::%0A## Deploy — wrangler deploy --no-bundle%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle%0ATotal Upload: 482.45 KiB / gzip: 135.49 KiB%0AUploaded catpanel-test (1.07 sec)%0ADeployed catpanel-test triggers (0.55 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 3s%0A
 
 ```
 
 </details>
 
-## Stage A-min — mode open — 17/18 checks passed
+## Stage A-min — mode open — 16/17 checks passed
 
 trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev
 
@@ -139,85 +139,85 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 | …and the report carries a stack + the crashed path | ✓ | /api/selfcheck |
 | a panel password can be set AND persisted to KV | ✓ | 200 persisted=true |
 | the panel closes for strangers everywhere once the password has propagated | ✓ | ~16s until 3 consecutive 401s (KV eventual consistency) |
-| /api/diag refuses an anonymous caller (401) | ✗ | 200 {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime |
-| the old UUID is no longer a key once a password exists | ✓ | 401 |
+| anonymous /api/diag stays allowed in open mode (401 only after locking) | ✗ | 401 |
 | /api/diag with the owner key returns the report | ✓ | 200 |
 | KV read+write is proven on the live account | ✓ | read+write ok |
 | owner sees the full crash report on the live edge | ✓ | 500 |
 | a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |
 | /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |
-| the subscription serves real configs from the live edge | ✓ | 200 bytes=38909 vless=27 |
+| the subscription serves real configs from the live edge | ✓ | 200 bytes=38889 vless=27 |
 
 **raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)
 
     200  /health  {"ok":true,"version":"6.67.0","kv":true}
     200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
     200  /api/selfcheck  {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove the crash report replaces «Error 1101»","diag":"unset"}
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     200  /api/settings  {"ok":true,"persisted":true,"ignored":[],"capped":[],"settings":{"title":"","lang":"fa","uiTheme":"aurora","ips":[],"repoAuto":true,"repoAutoDefaultMigrated":true,"useDefaults":true,"tlsPorts":["443","2053","2083"],"plai
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:21:33.816Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@172.66.158.115:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:24:53.168Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.24.14:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.d
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
-**wrangler tail** (77271 bytes captured)
+**wrangler tail** (72479 bytes captured)
 
     {
-        "wallTime": 280,
-        "cpuTime": 9,
+        "wallTime": 160,
+        "cpuTime": 6,
         "truncated": false,
         "executionModel": "stateless",
         "outcome": "ok",
         "scriptVersion": {
-            "id": "8fe4b86f-0bf6-4872-a0d5-39a7cba12e89"
+            "id": "4a94db8a-a083-4029-959b-ac90593bfdad"
 
 <details><summary><code>stage</code> — raw output (exit code 0)</summary>
 
 ```
 …(truncated; showing the last 9000 characters)
-rror 1101»","diag":"unset"}
+k":true,"version":"6.67.0","kv":true}
+    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/selfcheck  {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove the crash report replaces «Error 1101»","diag":"unset"}
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     200  /api/settings  {"ok":true,"persisted":true,"ignored":[],"capped":[],"settings":{"title":"","lang":"fa","uiTheme":"aurora","ips":[],"repoAuto":true,"repoAutoDefaultMigrated":true,"useDefaults":true,"tlsPorts":["443","2053","2083"],"plai
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:21:33.816Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@172.66.158.115:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:24:53.168Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.24.14:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.d
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
---- wrangler tail (A-min) — 77271 bytes captured ---
+--- wrangler tail (A-min) — 72479 bytes captured ---
 {
-    "wallTime": 280,
-    "cpuTime": 9,
+    "wallTime": 160,
+    "cpuTime": 6,
     "truncated": false,
     "executionModel": "stateless",
     "outcome": "ok",
     "scriptVersion": {
-        "id": "8fe4b86f-0bf6-4872-a0d5-39a7cba12e89"
+        "id": "4a94db8a-a083-4029-959b-ac90593bfdad"
     },
     "scriptName": "catpanel-test",
     "diagnosticsChannelEvents": [],
     "exceptions": [],
-::notice title=stage-A-min part 1/2::%0A## Stage A-min — mode open — 17/18 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true,"version":"6.67.0","kv":true} |%0A| /health carries the owner payload while the panel is OPEN (by design) | ✓ | {"ok":true,"version":"6.67.0","kv":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsU |%0A| /api/diag is reachable without a key while the panel is OPEN | ✓ | 200 {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo": |%0A| KV really reads AND writes from this isolate (diag kv = read+write ok) | ✓ | read+write ok |%0A| /api/selfcheck says the handler is alive | ✓ | 200 {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove t |%0A| an exception becomes a JSON panel_crash report, not an edge error page | ✓ | 500 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET" |%0A| …and the report carries a stack + the crashed path | ✓ | /api/selfcheck |%0A| a panel password can be set AND persisted to KV | ✓ | 200 persisted=true |%0A| the panel closes for strangers everywhere once the password has propagated | ✓ | ~16s until 3 consecutive 401s (KV eventual consistency) |%0A| /api/diag refuses an anonymous caller (401) | ✗ | 200 {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=38909 vless=27 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true,"version":"6.67.0","kv":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    200  /api/selfcheck  {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove the crash report replaces «Error 1101»","diag":"unset"}%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    200  /api/settings  {"ok":true,"persisted":true,"ignored":[],"capped":[],"settings":{"title":"","lang":"fa","uiTheme":"aurora","ips":[],"repoAuto":true,"repoAutoDefaultMigrated":true,"useDefaults":true,"tlsPorts":["443","2053","2083"],"plai%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    401  
-::notice title=stage-A-min part 2/2::/api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:21:33.816Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@172.66.158.115:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (77271 bytes captured)%0A%0A    {%0A        "wallTime": 280,%0A        "cpuTime": 9,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "8fe4b86f-0bf6-4872-a0d5-39a7cba12e89"%0A
-::notice::stage A-min — 17/18 checks passed, 1101=false
+::notice title=stage-A-min part 1/2::%0A## Stage A-min — mode open — 16/17 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true,"version":"6.67.0","kv":true} |%0A| /health carries the owner payload while the panel is OPEN (by design) | ✓ | {"ok":true,"version":"6.67.0","kv":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsU |%0A| /api/diag is reachable without a key while the panel is OPEN | ✓ | 200 {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo": |%0A| KV really reads AND writes from this isolate (diag kv = read+write ok) | ✓ | read+write ok |%0A| /api/selfcheck says the handler is alive | ✓ | 200 {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove t |%0A| an exception becomes a JSON panel_crash report, not an edge error page | ✓ | 500 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET" |%0A| …and the report carries a stack + the crashed path | ✓ | /api/selfcheck |%0A| a panel password can be set AND persisted to KV | ✓ | 200 persisted=true |%0A| the panel closes for strangers everywhere once the password has propagated | ✓ | ~16s until 3 consecutive 401s (KV eventual consistency) |%0A| anonymous /api/diag stays allowed in open mode (401 only after locking) | ✗ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=38889 vless=27 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true,"version":"6.67.0","kv":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    200  /api/selfcheck  {"ok":true,"version":"6.67.0","handler":"alive — /api/selfcheck?throw=1 throws on purpose to prove the crash report replaces «Error 1101»","diag":"unset"}%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    200  /api/settings  {"ok":true,"persisted":true,"ignored":[],"capped":[],"settings":{"title":"","lang":"fa","uiTheme":"aurora","ips":[],"repoAuto":true,"repoAutoDefaultMigrated":true,"useDefaults":true,"tlsPorts":["443","2053","2083"],"plai%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag 
+::notice title=stage-A-min part 2/2:: {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:24:53.168Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.24.14:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers.d%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (72479 bytes captured)%0A%0A    {%0A        "wallTime": 160,%0A        "cpuTime": 6,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "4a94db8a-a083-4029-959b-ac90593bfdad"%0A
+::notice::stage A-min — 16/17 checks passed, 1101=false
 
-# A-min: 17/18 checks passed, 1101 seen: false
+# A-min: 16/17 checks passed, 1101 seen: false
 
 ```
 
@@ -228,12 +228,12 @@ rror 1101»","diag":"unset"}
 ```
 $ npx wrangler deploy --config wrangler.cf-test.jsonc
 Total Upload: 634.94 KiB / gzip: 148.13 KiB
-Uploaded catpanel-test (3.13 sec)
-Deployed catpanel-test triggers (0.60 sec)
+Uploaded catpanel-test (2.04 sec)
+Deployed catpanel-test triggers (0.49 sec)
 https://catpanel-test.zojfup.workers.dev
 ```
 
-exit code 0 after 6s
+exit code 0 after 4s
 
 <details><summary><code>deploy</code> — raw output (exit code 0)</summary>
 
@@ -276,22 +276,22 @@ env.CAT_KV (<redacted>)          KV Namespace
 env.OPEN_PANEL ("true")                                Environment Variable      
 env.OPEN_SUB ("true")                                  Environment Variable      
 
-Uploaded catpanel-test (3.13 sec)
-Deployed catpanel-test triggers (0.60 sec)
+Uploaded catpanel-test (2.04 sec)
+Deployed catpanel-test triggers (0.49 sec)
   https://catpanel-test.zojfup.workers.dev
-Current Version ID: 39ce619d-af33-47f2-b88d-298aa360df93
+Current Version ID: b0dc328b-0f0c-40b2-b14d-de109434896d
 deploy exit: 0
 Total Upload: 634.94 KiB / gzip: 148.13 KiB
-Uploaded catpanel-test (3.13 sec)
-Deployed catpanel-test triggers (0.60 sec)
+Uploaded catpanel-test (2.04 sec)
+Deployed catpanel-test triggers (0.49 sec)
   https://catpanel-test.zojfup.workers.dev
-::notice title=part 1/1::%0A## Deploy — wrangler deploy (bundled by wrangler)%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc%0ATotal Upload: 634.94 KiB / gzip: 148.13 KiB%0AUploaded catpanel-test (3.13 sec)%0ADeployed catpanel-test triggers (0.60 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 6s%0A
+::notice title=part 1/1::%0A## Deploy — wrangler deploy (bundled by wrangler)%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc%0ATotal Upload: 634.94 KiB / gzip: 148.13 KiB%0AUploaded catpanel-test (2.04 sec)%0ADeployed catpanel-test triggers (0.49 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 4s%0A
 
 ```
 
 </details>
 
-## Stage A2-bundled — mode locked — 11/11 checks passed
+## Stage A2-bundled — mode locked — 9/11 checks passed
 
 trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev
 
@@ -299,39 +299,39 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 | --- | --- | --- |
 | /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |
 | /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |
-| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |
+| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsU |
 | /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |
-| the old UUID is no longer a key once a password exists | ✓ | 401 |
+| the old UUID is no longer a key once a password exists | ✗ | 200 |
 | /api/diag with the owner key returns the report | ✓ | 200 |
 | KV read+write is proven on the live account | ✓ | read+write ok |
 | owner sees the full crash report on the live edge | ✓ | 500 |
-| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |
+| a stranger is refused BEFORE the throw (401, no report) | ✗ | 500 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Hand |
 | /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |
 | the subscription serves real configs from the live edge | ✓ | 200 bytes=49008 vless=30 |
 
 **raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)
 
     200  /health  {"ok":true}
-    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
+    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"BNA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
-    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:03.475Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.
+    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:21.416Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
-**wrangler tail** (13710 bytes captured)
+**wrangler tail** (40815 bytes captured)
 
     {
-        "wallTime": 26,
-        "cpuTime": 11,
+        "wallTime": 16,
+        "cpuTime": 7,
         "truncated": false,
         "executionModel": "stateless",
         "outcome": "ok",
         "scriptVersion": {
-            "id": "39ce619d-af33-47f2-b88d-298aa360df93"
+            "id": "b0dc328b-0f0c-40b2-b14d-de109434896d"
 
 <details><summary><code>stage</code> — raw output (exit code 0)</summary>
 
@@ -340,49 +340,49 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 === stage A2-bundled (mode locked) against https://catpanel-test.zojfup.workers.dev ===
   ✓ /health answers ok:true (200 JSON)  → 200 {"ok":true}
   ✓ /health is bare for an anonymous caller (no version, no kv field)  → {"ok":true}
-  ✓ /api/version reports 6.67.0 (the file loaded and ran)  → 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
+  ✓ /api/version reports 6.67.0 (the file loaded and ran)  → 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsU
   ✓ /api/diag refuses an anonymous caller (401)  → 401 {"ok":false,"error":"unauthorized"}
-  ✓ the old UUID is no longer a key once a password exists  → 401
+  ✗ the old UUID is no longer a key once a password exists  → 200
   ✓ /api/diag with the owner key returns the report  → 200
   ✓ KV read+write is proven on the live account  → read+write ok
   · bindings visible to the isolate: ["CAT_KV","OPEN_PANEL","OPEN_SUB"]
   · passwordSource / uuidSource    : panel / derived from the hostname
-  · usage / subToken / app         : {"day":"2026-10-12","reqs":8,"writes":2,"errors":[{"t":1791814893745,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":2}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
+  · usage / subToken / app         : {"day":"2026-10-12","reqs":4,"writes":2,"errors":[{"t":1791815093030,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":2}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
   ✓ owner sees the full crash report on the live edge  → 500
-  ✓ a stranger is refused BEFORE the throw (401, no report)  → 401 {"ok":false,"error":"unauthorized"}
+  ✗ a stranger is refused BEFORE the throw (401, no report)  → 500 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Hand
   ✓ /api/backup masks secrets by default  → 200 secrets=masked hash=***MASKED-BY-CAT-PANEL**
   ✓ the subscription serves real configs from the live edge  → 200 bytes=49008 vless=30
   · GET / → 200 (<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name=)
 
   raw responses:
     200  /health  {"ok":true}
-    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
+    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"BNA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
-    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:03.475Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.
+    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:21.416Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
---- wrangler tail (A2-bundled) — 13710 bytes captured ---
+--- wrangler tail (A2-bundled) — 40815 bytes captured ---
 {
-    "wallTime": 26,
-    "cpuTime": 11,
+    "wallTime": 16,
+    "cpuTime": 7,
     "truncated": false,
     "executionModel": "stateless",
     "outcome": "ok",
     "scriptVersion": {
-        "id": "39ce619d-af33-47f2-b88d-298aa360df93"
+        "id": "b0dc328b-0f0c-40b2-b14d-de109434896d"
     },
     "scriptName": "catpanel-test",
     "diagnosticsChannelEvents": [],
     "exceptions": [],
-::notice title=stage-A2-bundled part 1/1::%0A## Stage A2-bundled — mode locked — 11/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49008 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:03.475Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers.%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (13710 bytes captured)%0A%0A    {%0A        "wallTime": 26,%0A        "cpuTime": 11,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "39ce619d-af33-47f2-b88d-298aa360df93"%0A
-::notice::stage A2-bundled — 11/11 checks passed, 1101=false
+::notice title=stage-A2-bundled part 1/1::%0A## Stage A2-bundled — mode locked — 9/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsU |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✗ | 200 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✗ | 500 {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Hand |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49008 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","repo":"https://github.com/mazodimobinhost-creator/cat-client","needsUser":false,"kv":true,"open":true}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MCI"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":false,"panelPath":"panel","users%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"BNA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:21.416Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (40815 bytes captured)%0A%0A    {%0A        "wallTime": 16,%0A        "cpuTime": 7,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "b0dc328b-0f0c-40b2-b14d-de109434896d"%0A
+::notice::stage A2-bundled — 9/11 checks passed, 1101=false
 
-# A2-bundled: 11/11 checks passed, 1101 seen: false
+# A2-bundled: 9/11 checks passed, 1101 seen: false
 
 ```
 
@@ -393,8 +393,8 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 ```
 $ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle
 Total Upload: 482.45 KiB / gzip: 135.49 KiB
-Uploaded catpanel-test (1.53 sec)
-Deployed catpanel-test triggers (0.94 sec)
+Uploaded catpanel-test (1.90 sec)
+Deployed catpanel-test triggers (0.58 sec)
 https://catpanel-test.zojfup.workers.dev
 ```
 
@@ -408,23 +408,23 @@ exit code 0 after 4s
  ⛅️ wrangler 4.149.0
 ────────────────────
 Total Upload: 482.45 KiB / gzip: 135.49 KiB
-Worker Startup Time: 3 ms
+Worker Startup Time: 2 ms
 Your Worker has access to the following bindings:
 Binding                                                Resource                  
 env.CAT_KV (<redacted>)          KV Namespace              
 env.OPEN_PANEL ("true")                                Environment Variable      
 env.OPEN_SUB ("true")                                  Environment Variable      
 
-Uploaded catpanel-test (1.53 sec)
-Deployed catpanel-test triggers (0.94 sec)
+Uploaded catpanel-test (1.90 sec)
+Deployed catpanel-test triggers (0.58 sec)
   https://catpanel-test.zojfup.workers.dev
-Current Version ID: 39de2a2c-1f58-4471-b7d4-e5f44e06edf4
+Current Version ID: 26dbe126-8a82-4e12-969d-f0e559fd1bc5
 deploy exit: 0
 Total Upload: 482.45 KiB / gzip: 135.49 KiB
-Uploaded catpanel-test (1.53 sec)
-Deployed catpanel-test triggers (0.94 sec)
+Uploaded catpanel-test (1.90 sec)
+Deployed catpanel-test triggers (0.58 sec)
   https://catpanel-test.zojfup.workers.dev
-::notice title=part 1/1::%0A## Deploy — wrangler deploy --no-bundle%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle%0ATotal Upload: 482.45 KiB / gzip: 135.49 KiB%0AUploaded catpanel-test (1.53 sec)%0ADeployed catpanel-test triggers (0.94 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 4s%0A
+::notice title=part 1/1::%0A## Deploy — wrangler deploy --no-bundle%0A%0A```%0A$ npx wrangler deploy --config wrangler.cf-test.jsonc --no-bundle%0ATotal Upload: 482.45 KiB / gzip: 135.49 KiB%0AUploaded catpanel-test (1.90 sec)%0ADeployed catpanel-test triggers (0.58 sec)%0Ahttps://catpanel-test.zojfup.workers.dev%0A```%0A%0Aexit code 0 after 4s%0A
 
 ```
 
@@ -446,7 +446,7 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 | owner sees the full crash report on the live edge | ✓ | 500 |
 | a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |
 | /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |
-| the subscription serves real configs from the live edge | ✓ | 200 bytes=49000 vless=30 |
+| the subscription serves real configs from the live edge | ✓ | 200 bytes=49002 vless=30 |
 
 **raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)
 
@@ -454,23 +454,23 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
     200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:31.236Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:48.655Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
-**wrangler tail** (18217 bytes captured)
+**wrangler tail** (40811 bytes captured)
 
     {
-        "wallTime": 142,
-        "cpuTime": 15,
+        "wallTime": 159,
+        "cpuTime": 7,
         "truncated": false,
         "executionModel": "stateless",
         "outcome": "ok",
         "scriptVersion": {
-            "id": "39de2a2c-1f58-4471-b7d4-e5f44e06edf4"
+            "id": "26dbe126-8a82-4e12-969d-f0e559fd1bc5"
 
 <details><summary><code>stage</code> — raw output (exit code 0)</summary>
 
@@ -486,11 +486,11 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
   ✓ KV read+write is proven on the live account  → read+write ok
   · bindings visible to the isolate: ["CAT_KV","OPEN_PANEL","OPEN_SUB"]
   · passwordSource / uuidSource    : panel / derived from the hostname
-  · usage / subToken / app         : {"day":"2026-10-12","reqs":10,"writes":3,"errors":[{"t":1791814923279,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":3}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
+  · usage / subToken / app         : {"day":"2026-10-12","reqs":4,"writes":2,"errors":[{"t":1791815093030,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":2}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
   ✓ owner sees the full crash report on the live edge  → 500
   ✓ a stranger is refused BEFORE the throw (401, no report)  → 401 {"ok":false,"error":"unauthorized"}
   ✓ /api/backup masks secrets by default  → 200 secrets=masked hash=***MASKED-BY-CAT-PANEL**
-  ✓ the subscription serves real configs from the live edge  → 200 bytes=49000 vless=30
+  ✓ the subscription serves real configs from the live edge  → 200 bytes=49002 vless=30
   · GET / → 200 (<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name=)
 
   raw responses:
@@ -498,27 +498,27 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
     200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:31.236Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers.
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:48.655Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FPUmCDtiu7GPhfINANeQcuDt%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
---- wrangler tail (B-obf) — 18217 bytes captured ---
+--- wrangler tail (B-obf) — 40811 bytes captured ---
 {
-    "wallTime": 142,
-    "cpuTime": 15,
+    "wallTime": 159,
+    "cpuTime": 7,
     "truncated": false,
     "executionModel": "stateless",
     "outcome": "ok",
     "scriptVersion": {
-        "id": "39de2a2c-1f58-4471-b7d4-e5f44e06edf4"
+        "id": "26dbe126-8a82-4e12-969d-f0e559fd1bc5"
     },
     "scriptName": "catpanel-test",
     "diagnosticsChannelEvents": [],
     "exceptions": [],
-::notice title=stage-B-obf part 1/1::%0A## Stage B-obf — mode locked — 11/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49000 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:31.236Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.18.37.247:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers.%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (18217 bytes captured)%0A%0A    {%0A        "wallTime": 142,%0A        "cpuTime": 15,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "39de2a2c-1f58-4471-b7d4-e5f44e06edf4"%0A
+::notice title=stage-B-obf part 1/1::%0A## Stage B-obf — mode locked — 11/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49002 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","OPEN_PANEL","OPEN_SUB"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:25:48.655Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.17.110.131:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FPUmCDtiu7GPhfINANeQcuDt%253Fed%253D2560&sni=catpanel-test.zojfup.workers%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (40811 bytes captured)%0A%0A    {%0A        "wallTime": 159,%0A        "cpuTime": 7,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "26dbe126-8a82-4e12-969d-f0e559fd1bc5"%0A
 ::notice::stage B-obf — 11/11 checks passed, 1101=false
 
 # B-obf: 11/11 checks passed, 1101 seen: false
@@ -533,7 +533,7 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 - headers: `Content-Type: multipart/form-data; boundary=…`, `Content-Length: 1245074`
 - metadata: `{"main_module":"worker.js","bindings":[{"type":"plain_text","name":"UUID","text":"<plain_text: 36 chars, not printed>"},{"type":"secret_text","name":"PANEL_PASSWORD","text":"<secret_text: 16 chars, not printed>"},{"type":"kv_namespace","name":"CAT_KV","namespace_id":"<redacted>"}],"compatibility_date":"2025-03-04","compatibility_flags":["nodejs_compat"]}`
 - body bytes: 1245074 (script 1244417 + multipart overhead 657)
-- HTTP 200: `{ "result": { "created_on": "2026-10-12T14:20:53.036197Z", "modified_on": "2026-10-12T14:22:33.867903Z", "id": "catpanel-test", "tag": "86ec02cc385b4996be69427bc7070fb2", "entry_point": "worker.js", "tags": [], "deployment_id": "1085470e5d81411db639ce5c824215b9", "tail_consumers": null, "logpush": f`
+- HTTP 200: `{ "result": { "created_on": "2026-10-12T14:24:13.36835Z", "modified_on": "2026-10-12T14:25:51.269446Z", "id": "catpanel-test", "tag": "b525d89b3d204e7891a488a5036c77c3", "entry_point": "worker.js", "tags": [], "deployment_id": "9cace7a44166461293474e8a507c3b88", "tail_consumers": null, "logpush": fa`
 - workers.dev route: HTTP 200
 
 <details><summary><code>upload-app</code> — raw output (exit code 0)</summary>
@@ -543,9 +543,9 @@ app-style upload (byte-for-byte the same builder as CloudflareWorker.cfUploadWor
   url        : PUT https://api.cloudflare.com/client/v4/accounts/<account>/workers/scripts/catpanel-test
   metadata   : {"main_module":"worker.js","bindings":[{"type":"plain_text","name":"UUID","text":"<plain_text: 36 chars, not printed>"},{"type":"secret_text","name":"PANEL_PASSWORD","text":"<secret_text: 16 chars, not printed>"},{"type":"kv_namespace","name":"CAT_KV","namespace_id":"<redacted>"}],"compatibility_date":"2025-03-04","compatibility_flags":["nodejs_compat"]}
   body bytes : 1245074 (script 1244417 + multipart overhead 657 )
-  HTTP 200 { "result": { "created_on": "2026-10-12T14:20:53.036197Z", "modified_on": "2026-10-12T14:22:33.867903Z", "id": "catpanel-test", "tag": "86ec02cc385b4996be69427bc7070fb2", "entry_point": "worker.js", "tags": [], "deployment_id": "1085470e5d81411db639ce5c824215b9", "tail_consumers": null, "logpush": false, "has_assets": false, "has_modules": true, "etag": "<redacted 43 chars>
+  HTTP 200 { "result": { "created_on": "2026-10-12T14:24:13.36835Z", "modified_on": "2026-10-12T14:25:51.269446Z", "id": "catpanel-test", "tag": "b525d89b3d204e7891a488a5036c77c3", "entry_point": "worker.js", "tags": [], "deployment_id": "9cace7a44166461293474e8a507c3b88", "tail_consumers": null, "logpush": false, "has_assets": false, "has_modules": true, "etag": "<redacted 44 chars>
   workers.dev route enabled: 200 {"enabled":true,"previews_enabled":false}
-::notice title=app-upload part 1/1::%0A## App-style upload (the same builder as CloudflareWorker.cfUploadWorker)%0A%0A- method/url: `PUT /accounts/<account>/workers/scripts/catpanel-test`%0A- headers: `Content-Type: multipart/form-data; boundary=…`, `Content-Length: 1245074`%0A- metadata: `{"main_module":"worker.js","bindings":[{"type":"plain_text","name":"UUID","text":"<plain_text: 36 chars, not printed>"},{"type":"secret_text","name":"PANEL_PASSWORD","text":"<secret_text: 16 chars, not printed>"},{"type":"kv_namespace","name":"CAT_KV","namespace_id":"<redacted>"}],"compatibility_date":"2025-03-04","compatibility_flags":["nodejs_compat"]}`%0A- body bytes: 1245074 (script 1244417 + multipart overhead 657)%0A- HTTP 200: `{ "result": { "created_on": "2026-10-12T14:20:53.036197Z", "modified_on": "2026-10-12T14:22:33.867903Z", "id": "catpanel-test", "tag": "86ec02cc385b4996be69427bc7070fb2", "entry_point": "worker.js", "tags": [], "deployment_id": "1085470e5d81411db639ce5c824215b9", "tail_consumers": null, "logpush": f`%0A- workers.dev route: HTTP 200%0A
+::notice title=app-upload part 1/1::%0A## App-style upload (the same builder as CloudflareWorker.cfUploadWorker)%0A%0A- method/url: `PUT /accounts/<account>/workers/scripts/catpanel-test`%0A- headers: `Content-Type: multipart/form-data; boundary=…`, `Content-Length: 1245074`%0A- metadata: `{"main_module":"worker.js","bindings":[{"type":"plain_text","name":"UUID","text":"<plain_text: 36 chars, not printed>"},{"type":"secret_text","name":"PANEL_PASSWORD","text":"<secret_text: 16 chars, not printed>"},{"type":"kv_namespace","name":"CAT_KV","namespace_id":"<redacted>"}],"compatibility_date":"2025-03-04","compatibility_flags":["nodejs_compat"]}`%0A- body bytes: 1245074 (script 1244417 + multipart overhead 657)%0A- HTTP 200: `{ "result": { "created_on": "2026-10-12T14:24:13.36835Z", "modified_on": "2026-10-12T14:25:51.269446Z", "id": "catpanel-test", "tag": "b525d89b3d204e7891a488a5036c77c3", "entry_point": "worker.js", "tags": [], "deployment_id": "9cace7a44166461293474e8a507c3b88", "tail_consumers": null, "logpush": fa`%0A- workers.dev route: HTTP 200%0A
 
 ```
 
@@ -567,7 +567,7 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 | owner sees the full crash report on the live edge | ✓ | 500 |
 | a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |
 | /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |
-| the subscription serves real configs from the live edge | ✓ | 200 bytes=49036 vless=30 |
+| the subscription serves real configs from the live edge | ✓ | 200 bytes=49030 vless=30 |
 
 **raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)
 
@@ -575,23 +575,23 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
     200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:58.093Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2F9KL4GTW9z6blj1IQ3EI2FlV%3Fed%3D2560&sni=catpanel-test.zojfup.workers
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:26:13.369Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FTSPLpAHq2v2iprwjv2sBRuX%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
-**wrangler tail** (31841 bytes captured)
+**wrangler tail** (44518 bytes captured)
 
     {
-        "wallTime": 35,
-        "cpuTime": 23,
+        "wallTime": 91,
+        "cpuTime": 14,
         "truncated": false,
         "executionModel": "stateless",
         "outcome": "ok",
         "scriptVersion": {
-            "id": "1085470e-5d81-411d-b639-ce5c824215b9"
+            "id": "9cace7a4-4166-4612-9347-4e8a507c3b88"
 
 <details><summary><code>stage</code> — raw output (exit code 0)</summary>
 
@@ -607,11 +607,11 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
   ✓ KV read+write is proven on the live account  → read+write ok
   · bindings visible to the isolate: ["CAT_KV","PANEL_PASSWORD","UUID"]
   · passwordSource / uuidSource    : panel / the UUID variable
-  · usage / subToken / app         : {"day":"2026-10-12","reqs":11,"writes":4,"errors":[{"t":1791814951135,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":4}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
+  · usage / subToken / app         : {"day":"2026-10-12","reqs":15,"writes":4,"errors":[{"t":1791815148536,"k":"unhandled","d":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if you can read this JSON, the 1101 handler works","n":4}],"pending":0,"noKv":false} / not set (links use the master UUID) / {"appVersion":"the app has not reported one yet","panelBundled":"the app has not reported one yet","seenAt":null,"match":"unknown"}
   ✓ owner sees the full crash report on the live edge  → 500
   ✓ a stranger is refused BEFORE the throw (401, no report)  → 401 {"ok":false,"error":"unauthorized"}
   ✓ /api/backup masks secrets by default  → 200 secrets=masked hash=***MASKED-BY-CAT-PANEL**
-  ✓ the subscription serves real configs from the live edge  → 200 bytes=49036 vless=30
+  ✓ the subscription serves real configs from the live edge  → 200 bytes=49030 vless=30
   · GET / → 200 (<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name=)
 
   raw responses:
@@ -619,27 +619,27 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
     200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
     401  /api/diag  {"ok":false,"error":"unauthorized"}
-    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
+    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"
     500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y
     401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}
-    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:58.093Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
-    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2F9KL4GTW9z6blj1IQ3EI2FlV%3Fed%3D2560&sni=catpanel-test.zojfup.workers
+    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:26:13.369Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre
+    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%2Fvl%2FTSPLpAHq2v2iprwjv2sBRuX%3Fed%3D2560&sni=catpanel-test.zojfup.workers
     200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S
 
---- wrangler tail (C-app-api) — 31841 bytes captured ---
+--- wrangler tail (C-app-api) — 44518 bytes captured ---
 {
-    "wallTime": 35,
-    "cpuTime": 23,
+    "wallTime": 91,
+    "cpuTime": 14,
     "truncated": false,
     "executionModel": "stateless",
     "outcome": "ok",
     "scriptVersion": {
-        "id": "1085470e-5d81-411d-b639-ce5c824215b9"
+        "id": "9cace7a4-4166-4612-9347-4e8a507c3b88"
     },
     "scriptName": "catpanel-test",
     "diagnosticsChannelEvents": [],
     "exceptions": [],
-::notice title=stage-C-app-api part 1/1::%0A## Stage C-app-api — mode locked — 11/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49036 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"SEA"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:22:58.093Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252F9KL4GTW9z6blj1IQ3EI2FlV%253Fed%253D2560&sni=catpanel-test.zojfup.workers%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (31841 bytes captured)%0A%0A    {%0A        "wallTime": 35,%0A        "cpuTime": 23,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "1085470e-5d81-411d-b639-ce5c824215b9"%0A
+::notice title=stage-C-app-api part 1/1::%0A## Stage C-app-api — mode locked — 11/11 checks passed%0A%0Atrigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creator ref=arena/c5b36768-cat-client url=https://catpanel-test.zojfup.workers.dev%0A%0A| check | result | detail |%0A| --- | --- | --- |%0A| /health answers ok:true (200 JSON) | ✓ | 200 {"ok":true} |%0A| /health is bare for an anonymous caller (no version, no kv field) | ✓ | {"ok":true} |%0A| /api/version reports 6.67.0 (the file loaded and ran) | ✓ | 200 {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false} |%0A| /api/diag refuses an anonymous caller (401) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| the old UUID is no longer a key once a password exists | ✓ | 401 |%0A| /api/diag with the owner key returns the report | ✓ | 200 |%0A| KV read+write is proven on the live account | ✓ | read+write ok |%0A| owner sees the full crash report on the live edge | ✓ | 500 |%0A| a stranger is refused BEFORE the throw (401, no report) | ✓ | 401 {"ok":false,"error":"unauthorized"} |%0A| /api/backup masks secrets by default | ✓ | 200 secrets=masked hash=***MASKED-BY-CAT-PANEL** |%0A| the subscription serves real configs from the live edge | ✓ | 200 bytes=49030 vless=30 |%0A%0A**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)%0A%0A    200  /health  {"ok":true}%0A    200  /api/version  {"ok":true,"panel":"cat-panel","version":"6.67.0","needsUser":false,"kv":true,"open":false}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    401  /api/diag  {"ok":false,"error":"unauthorized"}%0A    200  /api/diag  {"ok":true,"version":"6.67.0","host":"catpanel-test.zojfup.workers.dev","runtime":{"cf":true,"colo":"MEM"},"bindings":["CAT_KV","PANEL_PASSWORD","UUID"],"kv":"read+write ok","passwordSet":true,"panelPath":"panel","users"%0A    500  /api/selfcheck?throw=1  {"ok":false,"success":false,"error":"panel_crash","title":"Worker Exception Handled","version":"6.67.0","at":"/api/selfcheck","method":"GET","message":"PANEL SELF-TEST: deliberate throw from /api/selfcheck?throw=1 — if y%0A    401  /api/selfcheck?throw=1  {"ok":false,"error":"unauthorized"}%0A    200  /api/backup  {"ok":true,"version":"6.67.0","exportedAt":"2026-10-12T14:26:13.369Z","secrets":"masked","masked":["passwordHash","uuid"],"restoreNote":"Fields equal to ***MASKED-BY-CAT-PANEL*** are skipped by restore, so the live secre%0A    200  /sub/<redacted>?raw=1  vless://<redacted>@104.16.248.227:443?encryption=none&security=tls&type=ws&host=catpanel-test.zojfup.workers.dev&path=%252Fvl%252FTSPLpAHq2v2iprwjv2sBRuX%253Fed%253D2560&sni=catpanel-test.zojfup.workers%0A    200  /  <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"> <meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex"> <title>S%0A%0A**wrangler tail** (44518 bytes captured)%0A%0A    {%0A        "wallTime": 91,%0A        "cpuTime": 14,%0A        "truncated": false,%0A        "executionModel": "stateless",%0A        "outcome": "ok",%0A        "scriptVersion": {%0A            "id": "9cace7a4-4166-4612-9347-4e8a507c3b88"%0A
 ::notice::stage C-app-api — 11/11 checks passed, 1101=false
 
 # C-app-api: 11/11 checks passed, 1101 seen: false
@@ -659,7 +659,7 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 
 ```
 deleting the throwaway worker + KV namespace…
-  DELETE worker  : 200 {"id":"86ec02cc385b4996be69427bc7070fb2"}
+  DELETE worker  : 200 {"id":"b525d89b3d204e7891a488a5036c77c3"}
   DELETE KV      : 200 []
   workers left   : (none)
   catpanel-test gone: true
@@ -675,8 +675,8 @@ deleting the throwaway worker + KV namespace…
 
 | stage | version | KV state | sub | checks | 1101? |
 | --- | --- | --- | --- | --- | --- |
-| A-min | 6.67.0 | read+write ok | ok | 17/18 | no |
-| A2-bundled | 6.67.0 | read+write ok | ok | 11/11 | no |
+| A-min | 6.67.0 | read+write ok | ok | 16/17 | no |
+| A2-bundled | 6.67.0 | read+write ok | ok | 9/11 | no |
 | B-obf | 6.67.0 | read+write ok | ok | 11/11 | no |
 | C-app-api | 6.67.0 | read+write ok | ok | 11/11 | no |
 
@@ -685,14 +685,16 @@ deleting the throwaway worker + KV namespace…
 ```
 | stage | version | KV state | sub | checks | 1101? |
 | --- | --- | --- | --- | --- | --- |
-| A-min | 6.67.0 | read+write ok | ok | 17/18 | no |
-| A2-bundled | 6.67.0 | read+write ok | ok | 11/11 | no |
+| A-min | 6.67.0 | read+write ok | ok | 16/17 | no |
+| A2-bundled | 6.67.0 | read+write ok | ok | 9/11 | no |
 | B-obf | 6.67.0 | read+write ok | ok | 11/11 | no |
 | C-app-api | 6.67.0 | read+write ok | ok | 11/11 | no |
-::notice title=summary part 1/1::%0A## Expected-vs-actual summary%0A%0A| stage | version | KV state | sub | checks | 1101? |%0A| --- | --- | --- | --- | --- | --- |%0A| A-min | 6.67.0 | read+write ok | ok | 17/18 | no |%0A| A2-bundled | 6.67.0 | read+write ok | ok | 11/11 | no |%0A| B-obf | 6.67.0 | read+write ok | ok | 11/11 | no |%0A| C-app-api | 6.67.0 | read+write ok | ok | 11/11 | no |%0A
+::notice title=summary part 1/1::%0A## Expected-vs-actual summary%0A%0A| stage | version | KV state | sub | checks | 1101? |%0A| --- | --- | --- | --- | --- | --- |%0A| A-min | 6.67.0 | read+write ok | ok | 16/17 | no |%0A| A2-bundled | 6.67.0 | read+write ok | ok | 9/11 | no |%0A| B-obf | 6.67.0 | read+write ok | ok | 11/11 | no |%0A| C-app-api | 6.67.0 | read+write ok | ok | 11/11 | no |%0A
 
 HARD FAILURES:
-  ✗ A-min: /api/diag refuses an anonymous caller (401)
+  ✗ A-min: anonymous /api/diag stays allowed in open mode (401 only after locking)
+  ✗ A2-bundled: the old UUID is no longer a key once a password exists
+  ✗ A2-bundled: a stranger is refused BEFORE the throw (401, no report)
 
 ```
 
