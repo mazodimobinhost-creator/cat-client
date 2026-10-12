@@ -48,6 +48,13 @@ jobs:
       HAS_SECRET_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
       HAS_VAR_TOKEN: ${{ vars.CLOUDFLARE_API_TOKEN != '' }}
       HAS_VAR_ACCOUNT: ${{ vars.CLOUDFLARE_ACCOUNT_ID != '' }}
+      # Which candidate NAMES actually exist (values are never printed). A single
+      # typo in a secret name is invisible in the UI's list but makes `secrets.X`
+      # empty, which is exactly the failure being chased here.
+      CANDIDATE_SECRETS: >-
+        {"CLOUDFLARE_API_TOKEN": ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}, "CLOUDFLARE_ACCOUNT_ID": ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}, "CLOUDFLARE_TOKEN": ${{ secrets.CLOUDFLARE_TOKEN != '' }}, "CLOUDFLARE_ACCOUNT": ${{ secrets.CLOUDFLARE_ACCOUNT != '' }}, "CLOUDFLARE_ACCOUNTID": ${{ secrets.CLOUDFLARE_ACCOUNTID != '' }}, "CLOUDFLARE_API_KEY": ${{ secrets.CLOUDFLARE_API_KEY != '' }}, "CLOUDFLARE_GLOBAL_API_KEY": ${{ secrets.CLOUDFLARE_GLOBAL_API_KEY != '' }}, "CLOUDFLARE_EMAIL": ${{ secrets.CLOUDFLARE_EMAIL != '' }}, "CLOUDFLARE_WORKERS_TOKEN": ${{ secrets.CLOUDFLARE_WORKERS_TOKEN != '' }}, "CF_API_TOKEN": ${{ secrets.CF_API_TOKEN != '' }}, "CF_TOKEN": ${{ secrets.CF_TOKEN != '' }}, "CF_ACCOUNT_ID": ${{ secrets.CF_ACCOUNT_ID != '' }}, "CATPANEL_TOKEN": ${{ secrets.CATPANEL_TOKEN != '' }}, "API_TOKEN": ${{ secrets.API_TOKEN != '' }}, "ACCOUNT_ID": ${{ secrets.ACCOUNT_ID != '' }}, "WORKERS_TOKEN": ${{ secrets.WORKERS_TOKEN != '' }}}
+      CANDIDATE_VARS: >-
+        {"CLOUDFLARE_API_TOKEN": ${{ vars.CLOUDFLARE_API_TOKEN != '' }}, "CLOUDFLARE_ACCOUNT_ID": ${{ vars.CLOUDFLARE_ACCOUNT_ID != '' }}, "CLOUDFLARE_TOKEN": ${{ vars.CLOUDFLARE_TOKEN != '' }}, "CLOUDFLARE_ACCOUNT": ${{ vars.CLOUDFLARE_ACCOUNT != '' }}, "CLOUDFLARE_ACCOUNTID": ${{ vars.CLOUDFLARE_ACCOUNTID != '' }}, "CLOUDFLARE_API_KEY": ${{ vars.CLOUDFLARE_API_KEY != '' }}, "CLOUDFLARE_GLOBAL_API_KEY": ${{ vars.CLOUDFLARE_GLOBAL_API_KEY != '' }}, "CLOUDFLARE_EMAIL": ${{ vars.CLOUDFLARE_EMAIL != '' }}, "CLOUDFLARE_WORKERS_TOKEN": ${{ vars.CLOUDFLARE_WORKERS_TOKEN != '' }}, "CF_API_TOKEN": ${{ vars.CF_API_TOKEN != '' }}, "CF_TOKEN": ${{ vars.CF_TOKEN != '' }}, "CF_ACCOUNT_ID": ${{ vars.CF_ACCOUNT_ID != '' }}, "CATPANEL_TOKEN": ${{ vars.CATPANEL_TOKEN != '' }}, "API_TOKEN": ${{ vars.API_TOKEN != '' }}, "ACCOUNT_ID": ${{ vars.ACCOUNT_ID != '' }}, "WORKERS_TOKEN": ${{ vars.WORKERS_TOKEN != '' }}}
       WRANGLER_SEND_METRICS: 'false'
       WORKER: catpanel-test
       KV_TITLE: catpanel-test-kv

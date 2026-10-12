@@ -66,6 +66,15 @@ async function preflight() {
     ' | vars.CLOUDFLARE_API_TOKEN=' + process.env.HAS_VAR_TOKEN +
     ' vars.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_VAR_ACCOUNT +
     '  (repository secrets and repository variables are two separate storages)');
+  // Name-level diagnostic: which candidate names resolve in either storage.
+  for (const [label, raw] of [['repository secrets', process.env.CANDIDATE_SECRETS], ['repository variables', process.env.CANDIDATE_VARS]]) {
+    let obj = {};
+    try { obj = JSON.parse(raw || '{}'); } catch { obj = {}; }
+    const hits = Object.keys(obj).filter((k) => obj[k] === true);
+    const line = `${label}: ${hits.length ? hits.join(', ') : 'none of the ' + Object.keys(obj).length + ' candidate names exist'}`;
+    console.log('::warning::' + line);
+    console.log(line);
+  }
   if (!TOKEN || !ACCT) {
     // Both the warning and the error carry the four booleans, so the answer shows
     // up as an ANNOTATION (readable with `gh run view`) even when the raw job log
