@@ -66,14 +66,32 @@ jobs:
           mkdir -p "$OUT"
           ./node_modules/.bin/wrangler --version
 
+      - name: Credential sources visible to this workflow (names only — GitHub masks values)
+        run: |
+          node -e "
+            const s = JSON.parse(process.env.SECRET_NAMES || '{}');
+            const v = JSON.parse(process.env.VAR_NAMES || '{}');
+            console.log('repository secrets   :', Object.keys(s).sort().join(', ') || '(none)');
+            console.log('repository variables :', Object.keys(v).sort().join(', ') || '(none)');
+          "
+        env:
+          SECRET_NAMES: ${{ toJSON(secrets) }}
+          VAR_NAMES: ${{ toJSON(vars) }}
+
       - name: Preflight — token, account, subdomain, what else is on the account
-        run: node "$TOOLS" preflight | tee "$OUT/00-preflight.log"
+        run: |
+          set -o pipefail
+          node "$TOOLS" preflight | tee "$OUT/00-preflight.log"
 
       - name: Create the throwaway KV namespace
-        run: node "$TOOLS" kv-create | tee "$OUT/01-kv.log"
+        run: |
+          set -o pipefail
+          node "$TOOLS" kv-create | tee "$OUT/01-kv.log"
 
       - name: Build the test config from wrangler.jsonc (min, explicit KV id, no cron)
-        run: node "$TOOLS" config --main=dist-panel/catpanel.min.js | tee "$OUT/02-config.log"
+        run: |
+          set -o pipefail
+          node "$TOOLS" config --main=dist-panel/catpanel.min.js --kv-id="$KV_ID" | tee "$OUT/02-config.log"
 
       - name: Generate the app-style UUID + panel password (masked)
         run: |
@@ -114,8 +132,12 @@ jobs:
       # ── cleanup (always, so nothing is left behind even on a failure) ──────
       - name: Cleanup — delete catpanel-test and the test KV
         if: always()
-        run: node "$TOOLS" cleanup 2>&1 | tee "$OUT/09-cleanup.log"
+        run: |
+          set -o pipefail
+          node "$TOOLS" cleanup 2>&1 | tee "$OUT/09-cleanup.log"
 
       - name: Summary (fails the job only if a hard expectation broke)
         if: always()
-        run: node "$TOOLS" summary 2>&1 | tee "$OUT/10-summary.log"
+        run: |
+          set -o pipefail
+          node "$TOOLS" summary 2>&1 | tee "$OUT/10-summary.log"
