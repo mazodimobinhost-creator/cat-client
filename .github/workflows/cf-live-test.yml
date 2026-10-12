@@ -23,6 +23,7 @@ on:
     branches: ['arena/*']
     paths:
       - '.github/workflows/cf-live-test.yml'
+      - '.github/workflows/cf-live-tools.mjs'
   workflow_dispatch:
 
 permissions:
