@@ -102,7 +102,9 @@ jobs:
         run: |
           set -o pipefail
           node "$TOOLS" gen-credentials | tee "$OUT/03-credentials.log"
-          DERIVED=$(node "$TOOLS" uuid --host="$WORKER.$SUBDOMAIN")
+          # The derived UUID is SHA-256 of the FULL hostname — the first live run
+          # computed it from "catpanel-test.zojfup" and every /sub/ check 404'd.
+          DERIVED=$(node "$TOOLS" uuid --host="${BASE#https://}")
           echo "::add-mask::$DERIVED"
           echo "SUB_KEY_DERIVED=$DERIVED" >> "$GITHUB_ENV"
           echo "derived UUID for a passwordless panel on $WORKER.$SUBDOMAIN.workers.dev: computed and masked"

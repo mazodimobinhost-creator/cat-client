@@ -237,6 +237,7 @@ function run(cmd, args, opts = {}) {
 
 async function deploy() {
   const main = arg('main');
+  const startedAt = Date.now();
   const bundle = flag('bundle');
   const args = ['deploy', '--config', 'wrangler.cf-test.jsonc'];
   if (!bundle) args.push('--no-bundle');
@@ -245,6 +246,9 @@ async function deploy() {
   const size = out.split('\n').filter((l) => /Total Upload|Uploaded|gzip|Deployed|workers\.dev/.test(l));
   console.log('deploy exit:', code);
   console.log(size.join('\n'));
+  appendResults(`\n## Deploy — ${bundle ? 'wrangler deploy (bundled by wrangler)' : 'wrangler deploy --no-bundle'}\n\n` +
+    '```\n' + ['$ npx wrangler ' + args.join(' ')].concat(out.split('\n').filter((l) => /Total Upload|Uploaded|Deployed|workers\.dev|gzip/i.test(l)).map((l) => l.trim())).join('\n') + '\n```\n\n' +
+    `exit code ${code} after ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
   if (code !== 0) { console.error('::error::deploy failed'); }
   return code;
 }
@@ -277,6 +281,13 @@ async function uploadApp() {
   });
   const text = await res.text();
   console.log('  HTTP', res.status, text.replace(/\s+/g, ' ').slice(0, 400));
+  appendResults(`\n## App-style upload (the same builder as CloudflareWorker.cfUploadWorker)\n\n` +
+    '- method/url: `PUT /accounts/<account>/workers/scripts/' + WORKER + '`\n' +
+    '- headers: `Content-Type: multipart/form-data; boundary=…`, `Content-Length: ' + body.length + '`\n' +
+    '- metadata: `' + JSON.stringify(redacted).replace(/\|/g, '\\|') + '`\n' +
+    '- body bytes: ' + body.length + ' (script ' + Buffer.byteLength(script, 'utf8') + ' + multipart overhead ' + (body.length - Buffer.byteLength(script, 'utf8')) + ')\n' +
+    '- HTTP ' + res.status + ': `' + text.replace(/\s+/g, ' ').slice(0, 300) + '`\n' +
+    '- workers.dev route: HTTP ' + route.status + '\n');
   const route = await cf(`/accounts/${ACCT}/workers/scripts/${WORKER}/subdomain`, {
     method: 'POST', body: JSON.stringify({ enabled: true, previews_enabled: false }),
   });
@@ -300,7 +311,14 @@ async function runChecks(base, label, mode, subKey, pw) {
       return { status: 0, ct: '', loc: '', body: '', netError: String(e.message || e) };
     }
     const r = { status: res.status, ct: res.headers.get('content-type') || '', loc: res.headers.get('location') || '', body };
-    if (/1101|Worker threw exception/i.test(r.body.slice(0, 6000))) r.cf1101 = true;
+    // The edge's error page is HTML. Our own JSON mentions «1101» on purpose
+    // (the selfcheck hint, the diag note), so a body that parses as JSON is never
+    // counted — the first live run flagged itself with this false positive.
+    const looksHtml = /text\/html/i.test(r.ct) || /^\s*<(!doctype|html)/i.test(r.body);
+    if (looksHtml && /Error 1101|Worker threw exception|cf-error-details/i.test(r.body.slice(0, 8000))) {
+      r.cf1101 = true;
+      console.log('  ⚠ CLOUDFLARE ERROR PAGE on ' + path + ': ' + r.body.replace(/\s+/g, ' ').slice(0, 300));
+    }
     seen.push({ path, status: r.status, ct: r.ct, head: r.body.replace(/\s+/g, ' ').slice(0, 220) });
     return r;
   };
@@ -309,8 +327,15 @@ async function runChecks(base, label, mode, subKey, pw) {
 
   const health = await req('/health');
   add('/health answers ok:true (200 JSON)', health.status === 200 && j(health.body)?.ok === true, `${health.status} ${health.body.replace(/\s+/g, ' ').slice(0, 80)}`);
-  add('/health is bare for an anonymous caller (no version, no kv field)',
-    !/version|"kv"/.test(health.body || ''), health.body.slice(0, 80));
+  if (mode === 'open') {
+    // OPEN_PANEL=true makes every caller an owner by design, so /health carries
+    // the owner payload here; the bare form is asserted on the locked stages.
+    add('/health carries the owner payload while the panel is OPEN (by design)',
+      /"version"/.test(health.body || ''), health.body.slice(0, 90));
+  } else {
+    add('/health is bare for an anonymous caller (no version, no kv field)',
+      !/version|"kv"/.test(health.body || ''), health.body.slice(0, 80));
+  }
 
   const version = await req('/api/version');
   const vj = j(version.body);
@@ -349,7 +374,28 @@ async function runChecks(base, label, mode, subKey, pw) {
       `${setpw.status} persisted=${spw?.persisted}`);
   }
 
-  // locked-mode contract (also re-checked after the password above)
+  // KV is eventually consistent (Cloudflare documents up to 60s for a write to be
+  // visible elsewhere), so the password just written needs a real wait before the
+  // locked-mode contract can be asserted. The measured delay is recorded — it is
+  // the honest explanation for the one case a user can hit: «I saved it, then
+  // another screen still showed the old state for a moment».
+  let waitSeconds = 0;
+  if (mode === 'open') {
+    const deadline = Date.now() + 90000;
+    let seen = false;
+    while (Date.now() < deadline) {
+      const probe = await req('/api/diag');
+      const pj = j(probe.body);
+      if (probe.status === 401 || pj?.passwordSet === true) { seen = true; break; }
+      await sleep(5000);
+      waitSeconds = Math.round((Date.now() - (deadline - 90000)) / 1000);
+    }
+    add('the password written to KV becomes visible to other isolates', seen,
+      seen ? `after ~${waitSeconds}s (KV eventual consistency)` : 'still not visible after 90s');
+    console.log('  · KV propagation delay observed:', waitSeconds + 's');
+  }
+
+  // locked-mode contract (only meaningful once the panel is really closed)
   const noauth = await req('/api/diag');
   add('/api/diag refuses an anonymous caller (401)', noauth.status === 401 && !/uuid|passwordSource/.test(noauth.body), `${noauth.status} ${noauth.body.replace(/\s+/g, ' ').slice(0, 80)}`);
   const uuidAsKey = await req('/api/diag', auth(subKey));
