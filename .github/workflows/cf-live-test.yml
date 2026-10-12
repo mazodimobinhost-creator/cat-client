@@ -83,7 +83,19 @@ jobs:
         run: |
           set -e
           mkdir -p "$OUT"
-          printf '\n<!-- run %s attempt %s at %s -->\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$(date -u +%FT%TZ)" >> cf-live-results.md
+          # A fresh header per run: the tools append to this file, so without this
+          # the record would be a mixture of runs. It also guarantees the file
+          # always differs from HEAD, which is what makes the publish commit real.
+          cat > cf-live-results.md <<'HEADER'
+          # Cloudflare live test — catpanel-test
+
+          Everything in this file was produced by a real Cloudflare account. Only two
+          names are ever written: the Worker `catpanel-test` and the KV namespace
+          `catpanel-test-kv`. Both are deleted again at the end of the run.
+          HEADER
+          sed -i 's/^          //' cf-live-results.md
+          printf '\nrun=%s attempt=%s trigger=%s actor=%s ref=%s head=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_EVENT_NAME" "$GITHUB_ACTOR" "$GITHUB_REF_NAME" "$GITHUB_SHA" >> cf-live-results.md
           {
             echo "marker written by shell into cf-live-results.md"
             echo "bytes now : $(stat -c%s cf-live-results.md)"
@@ -213,66 +225,72 @@ jobs:
       # commit from starting another round of workflows.
       - name: Publish cf-live-results.md onto the branch
         if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -e
-          # Diagnostics FIRST, and to a path that does not exist in the repository
-          # yet: whatever happens to the results file, this file is a new path, so
-          # there is always something staged, always a commit, always a push. Run 4
-          # produced no commit at all while the step still said «success», which is
-          # precisely the state that must not be reachable again.
+          set -o pipefail
+          OUT_DIR=/tmp/cf-live
+          LOG="$OUT_DIR/publish.log"
+          mkdir -p "$OUT_DIR"
+          RESULTS=cf-live-results.md
+          [ -f "$RESULTS" ] || printf '# Cloudflare live test\n\nthe results file never appeared in this run\n' > "$RESULTS"
           {
-            echo "run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT sha=${GITHUB_SHA:0:12} event=$GITHUB_EVENT_NAME"
+            echo "## what the runner sees"
+            echo "sha=${GITHUB_SHA:0:12} ref=$GITHUB_REF_NAME"
+            echo "remote        : $(git remote get-url origin)"
+            echo "fetch refspec : $(git config --get remote.origin.fetch)"
+            echo "extraheader   : $(git config --get-all http.https://github.com/.extraheader | wc -l) entry"
+            echo "credential.helper: $(git config --get credential.helper || echo none)"
+            echo "GIT_DIR=${GIT_DIR:-<unset>} GIT_WORK_TREE=${GIT_WORK_TREE:-<unset>}"
+            echo; echo "## the results file as the runner sees it"
+            ls -l "$RESULTS"; md5sum "$RESULTS"; grep -c '^## ' "$RESULTS" || true; grep '^## ' "$RESULTS" || true
             echo; echo "## git status --porcelain"; git status --porcelain || true
-            echo; echo "## the results file as the runner sees it"; ls -l cf-live-results.md || echo "(missing!)"
-            echo; echo "## md5"; md5sum cf-live-results.md || true
-            echo; echo "## sections it already contains"; grep -c '^## ' cf-live-results.md || true
-            echo; echo "## section headers"; grep '^## ' cf-live-results.md || true
-            echo; echo "## per-stage check files on disk"; for f in /tmp/cf-live/check-*.json; do [ -f "$f" ] && echo "- $f $(stat -c%s "$f") bytes"; done
-            if [ -f /tmp/cf-live/cf-live-results.md ]; then echo; echo "## ALSO present in \$OUT (would explain an empty commit)"; ls -l /tmp/cf-live/cf-live-results.md; fi
-          } > cf-live-publish-diag.md 2>&1 || true
-          [ -f cf-live-results.md ] || printf '# Cloudflare live test\n\nthe results file was never created in this run\n' > cf-live-results.md
-          cp cf-live-results.md /tmp/cf-live-results.md
-          git config user.name "cf-live-test"
-          git config user.email "cf-live-test@users.noreply.github.com"
-          git checkout -B cf-live-publish
-          cp /tmp/cf-live-results.md cf-live-results.md
-          # the diagnostics travel out FIRST, as an annotation of their own: if the
-          # git plumbing below refuses, this is the record that says why
-          node "$TOOLS" emit --file=cf-live-publish-diag.md --title=publish-diag || true
-          cp cf-live-results.md /tmp/cf-live-results.md
-          git config user.name "cf-live-test"
-          git config user.email "cf-live-test@users.noreply.github.com"
-          git add -A -- cf-live-results.md cf-live-publish-diag.md
-          if [ -z "$(git diff --cached --name-only)" ]; then
-            echo "::error::nothing was staged — the tools never touched cf-live-results.md in this run"
-            exit 1
-          fi
-          git commit -m "cf live test results [skip ci]"
-          for attempt in 1 2 3; do
-            if git push origin HEAD:"$GITHUB_REF_NAME" 2>&1 | tail -5; then
-              echo "published cf-live-results.md through the worktree ($(git rev-parse --short HEAD))"
-              exit 0
-            fi
-            echo "::warning::worktree push attempt $attempt was rejected"
-            sleep 3
-          done
+            echo; echo "## would the worktree be allowed to push at all? (dry run, no side effect)"
+            git push --dry-run origin HEAD:"$GITHUB_REF_NAME" 2>&1 | sed 's/^/  /' || true
+          } > "$LOG" 2>&1
 
-          # Fallback, deliberately on a different transport: the Contents API writes
-          # the branch without touching the local index at all. `gh` is preinstalled
-          # on GitHub-hosted runners and authenticates with the same job token.
-          SHA_HEAD=$(git show HEAD:cf-live-results.md | git hash-object --stdin)
-          if gh api -X PUT "/repos/$GITHUB_REPOSITORY/contents/cf-live-results.md" \
+          # ── channel 1: the Contents API. A plain REST write, authenticated with
+          #    the same job token, that never touches this checkout's index — and
+          #    whose refusals come back as text instead of vanishing into a log
+          #    nobody can read.
+          BLOB=$(git rev-parse "HEAD:$RESULTS")
+          PUBLISHED=""
+          if gh api -X PUT "/repos/$GITHUB_REPOSITORY/contents/$RESULTS" \
                -f message="cf live test results [skip ci]" \
                -f branch="$GITHUB_REF_NAME" \
-               -f content="$(base64 -w0 /tmp/cf-live-results.md)" \
-               -f sha="$SHA_HEAD" > /tmp/gh-publish.json 2>&1; then
-            echo "published cf-live-results.md through the Contents API"
-            exit 0
+               -f content="$(base64 -w0 "$RESULTS")" \
+               -f sha="$BLOB" >> "$LOG" 2>&1; then
+            echo "PUBLISHED through the Contents API (blob $BLOB)" >> "$LOG"
+            PUBLISHED=contents-api
+          else
+            echo "the Contents API refused the write — falling back to the worktree" >> "$LOG"
           fi
-          cat /tmp/gh-publish.json
-          echo "::error::both publish paths failed — read the annotations for the evidence"
-          exit 1
 
-      - name: Raw output — publish diagnostics
-        if: always()
-        run: node "$TOOLS" emit --file=cf-live-publish-diag.md --title=publish-diag
+          # ── channel 2: the checkout's own git, publishing what is on disk ──
+          if [ -z "$PUBLISHED" ]; then
+            {
+              git config user.name "cf-live-test"
+              git config user.email "cf-live-test@users.noreply.github.com"
+              git checkout -B cf-live-publish
+              git add -A -- "$RESULTS"
+              git diff --cached --stat
+            } >> "$LOG" 2>&1
+            if [ -z "$(git diff --cached --name-only)" ]; then
+              echo "NOTHING WAS STAGED — the tools never touched $RESULTS in this run" >> "$LOG"
+            else
+              git commit -m "cf live test results [skip ci]" >> "$LOG" 2>&1
+              for attempt in 1 2 3; do
+                git push origin HEAD:"$GITHUB_REF_NAME" >> "$LOG" 2>&1 && { echo "PUBLISHED through the worktree (attempt $attempt)" >> "$LOG"; PUBLISHED=worktree; break; }
+                echo "worktree push attempt $attempt rejected" >> "$LOG"
+                sleep 3
+              done
+            fi
+          fi
+
+          [ -n "$PUBLISHED" ] || echo "::error::both publish channels failed — the annotation below is the only record" >> "$LOG"
+
+          # The whole transcript leaves as annotations: fifty per check run is the
+          # cap, so this file is written to be short enough to fit in three.
+          node "$TOOLS" emit --file="$LOG" --title=publish-log || true
+          [ -n "$PUBLISHED" ]
+
