@@ -3,7 +3,9 @@
  * TEMPORARY tooling for the one-off live Cloudflare test (cf-live-test.yml).
  *
  * It is deleted from the tree again when the test is finished — it is not part of
- * the product. Nothing here prints a token, and the two values that could be
+ * the product.
+ *
+ * retrigger: 1 (a comment change is enough to make the workflow run again) Nothing here prints a token, and the two values that could be
  * abused (the test panel password and the app-style UUID) are masked in the log
  * the moment they are generated.
  *
