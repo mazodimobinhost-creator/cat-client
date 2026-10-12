@@ -36,6 +36,21 @@ const MASK = '***MASKED-BY-CAT-PANEL***';
 const WRANGLER = process.env.WRANGLER || './node_modules/.bin/wrangler';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const envFile = (kv) => appendFileSync(process.env.GITHUB_ENV, kv + '\n');
+const RESULTS = process.env.RESULTS_FILE || 'cf-live-results.md';
+/**
+ * The raw job log is only reachable through a signed blob URL that this sandbox
+ * cannot fetch, so every result is also appended to a file that the workflow
+ * commits onto the branch — the one channel that is known to work end to end.
+ */
+function appendResults(text) {
+  const head = existsSync(RESULTS) ? readFileSync(RESULTS, 'utf8') : '';
+  writeFileSync(RESULTS, head + text);
+}
+function markdownTable(rows) {
+  return ['| check | result | detail |', '| --- | --- | --- |']
+    .concat(rows.map((r) => `| ${r.n} | ${r.pass ? '✓' : '✗'} | ${String(r.detail || '').replace(/\|/g, '\\|').slice(0, 160)} |`))
+    .join('\n');
+}
 
 const [, , cmd, ...rest] = process.argv;
 const arg = (name, dflt = '') => {
@@ -352,6 +367,16 @@ async function runChecks(base, label, mode, subKey, pw) {
   const any1101 = seen.some((s) => /1101/.test(s.head));
   console.log('\n  raw responses:');
   for (const s of seen) console.log(`    ${String(s.status).padStart(3)}  ${s.path}  ${s.head}`);
+  const passed = rows.filter((r) => r.pass).length;
+  const meta = `trigger=${process.env.GITHUB_EVENT_NAME || '?'} repo=${process.env.GITHUB_REPOSITORY || '?'} ` +
+    `actor=${process.env.GITHUB_ACTOR || '?'} ref=${process.env.GITHUB_REF_NAME || '?'} base=${base}`;
+  const tailLines = tailText.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => '    ' + l.slice(0, 220)).join('\n') || '    (empty)';
+  appendResults(`\n## Stage ${label} — mode ${mode} — ${passed}/${rows.length} checks passed${any1101 ? ' — ⚠ 1101 IN A RESPONSE BODY' : ''}\n\n` +
+    `${meta}\n\n${markdownTable(rows)}\n\n` +
+    `**raw responses** (status, path, first 220 chars; the real bytes the edge returned)\n\n` +
+    seen.map((x) => `    ${String(x.status).padStart(3)}  ${x.path}  ${x.head}`).join('\n') + '\n\n' +
+    `**wrangler tail** (${tailText.length} bytes captured)\n\n${tailLines}\n`);
+  console.log('::notice::stage ' + label + ' — ' + passed + '/' + rows.length + ' checks passed, 1101=' + any1101);
   return { label, mode, rows, seen, any1101, version: vj?.version || '', kv: String(dj2?.kv || ''), bindings: dj2?.bindings || [], hardFail: rows.filter((r) => !r.pass).map((r) => r.n) };
 }
 
@@ -401,6 +426,7 @@ function summary() {
   const table = lines.join('\n');
   console.log(table);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n### Cloudflare live test — catpanel-test\n\n' + table + '\n');
+  appendResults(`\n## Expected-vs-actual summary\n\n${table}\n`);
   const hard = all.flatMap((s) => s.hardFail.map((n) => `${s.label}: ${n}`));
   if (hard.length) {
     console.log('\nHARD FAILURES:'); hard.forEach((h) => console.log('  ✗ ' + h));
@@ -418,8 +444,10 @@ async function cleanup() {
     del = await cf(`/accounts/${ACCT}/workers/scripts/${WORKER}?force=true`, { method: 'DELETE' });
   }
   console.log('  DELETE worker  :', del.status, del.json ? JSON.stringify(del.json.result || del.json.errors) : del.text.slice(0, 160));
+  let dkStatus = 'skipped (no KV_ID)';
   if (process.env.KV_ID) {
     const dk = await cf(`/accounts/${ACCT}/storage/kv/namespaces/${process.env.KV_ID}`, { method: 'DELETE' });
+    dkStatus = dk.status;
     console.log('  DELETE KV      :', dk.status, dk.json ? JSON.stringify(dk.json.result || dk.json.errors) : dk.text.slice(0, 160));
   }
   const list = await cf(`/accounts/${ACCT}/workers/scripts`);
@@ -430,6 +458,11 @@ async function cleanup() {
   const titles = (kv.json?.result || []).map((n) => n.title);
   console.log('  kv namespaces  :', titles.join(', ') || '(none)');
   console.log('  test KV gone   :', !titles.includes(KV_TITLE));
+  appendResults(`\n## Cleanup — verified through the Cloudflare API\n\n` +
+    `- DELETE /accounts/<account>/workers/scripts/${WORKER} → ${del.status}\n` +
+    `- DELETE /accounts/<account>/storage/kv/namespaces/${process.env.KV_ID || '?'} → ${dkStatus}\n` +
+    `- workers left on the account: ${names.join(', ') || '(none)'} — \`${WORKER}\` gone: **${!names.includes(WORKER)}**\n` +
+    `- KV namespaces left: ${titles.join(', ') || '(none)'} — \`${KV_TITLE}\` gone: **${!titles.includes(KV_TITLE)}**\n`);
 }
 
 mkdirSync(OUT, { recursive: true });

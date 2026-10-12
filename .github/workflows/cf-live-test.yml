@@ -24,18 +24,10 @@ on:
     paths:
       - '.github/workflows/cf-live-test.yml'
       - '.github/workflows/cf-live-tools.mjs'
-  # The pull_request trigger is here only for the credential question: a push and
-  # a pull_request run of the SAME commit are created by different event types,
-  # and the preflight prints which one it is, so the two annotations can be
-  # compared side by side. (PR #9 is open from this branch, so the event exists.)
-  pull_request:
-    paths:
-      - '.github/workflows/cf-live-test.yml'
-      - '.github/workflows/cf-live-tools.mjs'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # only to commit cf-live-results.md back onto the branch
 
 concurrency:
   group: cf-live-test
@@ -145,3 +137,24 @@ jobs:
         run: |
           set -o pipefail
           node "$TOOLS" summary 2>&1 | tee "$OUT/10-summary.log"
+
+      # The raw job log sits behind a signed blob URL that the owner's tooling
+      # cannot fetch, and annotations cap at ten per step — so the whole result
+      # (every check, every raw response, the tail log, the cleanup verification)
+      # is committed onto the branch as cf-live-results.md. [skip ci] keeps this
+      # commit from starting another round of workflows.
+      - name: Publish cf-live-results.md onto the branch
+        if: always() && github.event_name == 'push'
+        run: |
+          set -e
+          if [ ! -f cf-live-results.md ]; then echo "no results file (nothing ran)"; exit 0; fi
+          cp cf-live-results.md /tmp/cf-live-results.md
+          git config user.name "cf-live-test"
+          git config user.email "cf-live-test@users.noreply.github.com"
+          git fetch origin "$GITHUB_REF_NAME"
+          git checkout -B cf-live-publish FETCH_HEAD
+          cp /tmp/cf-live-results.md cf-live-results.md
+          git add cf-live-results.md
+          git commit -m "cf live test results [skip ci]" || true
+          git push origin HEAD:"$GITHUB_REF_NAME" || true
+          echo "published cf-live-results.md"
