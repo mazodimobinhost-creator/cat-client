@@ -33,7 +33,7 @@ const WORKER = process.env.WORKER || 'catpanel-test';
 const KV_TITLE = process.env.KV_TITLE || 'catpanel-test-kv';
 const OUT = process.env.OUT || '/tmp/cf-live';
 const MASK = '***MASKED-BY-CAT-PANEL***';
-const WRANGLER = './node_modules/.bin/wrangler';
+const WRANGLER = process.env.WRANGLER || './node_modules/.bin/wrangler';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const envFile = (kv) => appendFileSync(process.env.GITHUB_ENV, kv + '\n');
 
@@ -297,7 +297,13 @@ async function runChecks(base, label, mode, subKey, pw) {
     add('…and the report carries a stack + the crashed path', /stack/.test(thrown.body) && /selfcheck/.test(String(tj?.at || '')), String(tj?.at || ''));
 
     const setpw = await req('/api/settings', { method: 'POST', headers: { 'x-cat-key': subKey, 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-    add('a panel password can be set (and lands in KV)', setpw.status === 200 && j(setpw.body)?.ok === true, `${setpw.status} ${setpw.body.replace(/\s+/g, ' ').slice(0, 100)}`);
+    // `persisted` is the difference between «the write landed in KV» and «it only
+    // lived in this isolate's memory» — the rehearsal showed the old check passing
+    // on a KV-less worker, which would have hidden exactly the failure that makes
+    // every save button look broken.
+    const spw = j(setpw.body);
+    add('a panel password can be set AND persisted to KV', setpw.status === 200 && spw?.ok === true && spw?.persisted === true,
+      `${setpw.status} persisted=${spw?.persisted}`);
   }
 
   // locked-mode contract (also re-checked after the password above)
