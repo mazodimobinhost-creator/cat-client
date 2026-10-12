@@ -61,6 +61,8 @@ const errText = (r) => (r.json ? JSON.stringify(r.json.errors || r.json) : r.tex
 
 async function preflight() {
   console.log('worker:', WORKER, '| kv title:', KV_TITLE, '| account id set:', !!ACCT, '| token set:', !!TOKEN);
+  console.log('::warning::trigger=' + (process.env.GITHUB_EVENT_NAME || '?') + ' repo=' + (process.env.GITHUB_REPOSITORY || '?') +
+    ' actor=' + (process.env.GITHUB_ACTOR || '?') + ' ref=' + (process.env.GITHUB_REF_NAME || '?'));
   console.log('provided by  : secrets.CLOUDFLARE_API_TOKEN=' + process.env.HAS_SECRET_TOKEN +
     ' secrets.CLOUDFLARE_ACCOUNT_ID=' + process.env.HAS_SECRET_ACCOUNT +
     ' | vars.CLOUDFLARE_API_TOKEN=' + process.env.HAS_VAR_TOKEN +

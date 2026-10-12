@@ -24,6 +24,14 @@ on:
     paths:
       - '.github/workflows/cf-live-test.yml'
       - '.github/workflows/cf-live-tools.mjs'
+  # The pull_request trigger is here only for the credential question: a push and
+  # a pull_request run of the SAME commit are created by different event types,
+  # and the preflight prints which one it is, so the two annotations can be
+  # compared side by side. (PR #9 is open from this branch, so the event exists.)
+  pull_request:
+    paths:
+      - '.github/workflows/cf-live-test.yml'
+      - '.github/workflows/cf-live-tools.mjs'
   workflow_dispatch:
 
 permissions:
