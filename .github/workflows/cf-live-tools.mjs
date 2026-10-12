@@ -34,23 +34,56 @@ const KV_TITLE = process.env.KV_TITLE || 'catpanel-test-kv';
 const OUT = process.env.OUT || '/tmp/cf-live';
 const MASK = '***MASKED-BY-CAT-PANEL***';
 const WRANGLER = process.env.WRANGLER || './node_modules/.bin/wrangler';
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const envFile = (kv) => appendFileSync(process.env.GITHUB_ENV, kv + '\n');
 const RESULTS = process.env.RESULTS_FILE || 'cf-live-results.md';
 /**
- * The raw job log is only reachable through a signed blob URL that this sandbox
- * cannot fetch, so every result is also appended to a file that the workflow
- * commits onto the branch — the one channel that is known to work end to end.
+ * The raw job log is only reachable through a signed blob URL that the owner's
+ * tooling cannot fetch, so every result is also appended to a file that the
+ * workflow commits onto the branch — the one channel that is known to work end
+ * to end.
  */
 function appendResults(text) {
-  const head = existsSync(RESULTS) ? readFileSync(RESULTS, 'utf8') : '';
-  writeFileSync(RESULTS, head + text);
+  try {
+    const head = existsSync(RESULTS) ? readFileSync(RESULTS, 'utf8') : '';
+    writeFileSync(RESULTS, head + text);
+  } catch (e) {
+    try { process.stderr.write('appendResults failed: ' + e.message + '\n'); } catch { /* ignore */ }
+  }
 }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const envFile = (kv) => appendFileSync(process.env.GITHUB_ENV, kv + '\n');
 function markdownTable(rows) {
   return ['| check | result | detail |', '| --- | --- | --- |']
     .concat(rows.map((r) => `| ${r.n} | ${r.pass ? '✓' : '✗'} | ${String(r.detail || '').replace(/\|/g, '\\|').slice(0, 160)} |`))
     .join('\n');
 }
+
+/**
+ * SELF-RECORDING. The raw job log sits behind a signed blob URL that the owner's
+ * tooling cannot fetch, and `continue-on-error` steps still report success in the
+ * API — so a step that dies silently stays invisible. Every line a subcommand
+ * prints is therefore kept in a ring buffer and appended to the results file on
+ * exit together with the exit code: whatever happens, the evidence travels.
+ */
+const __log = [];
+for (const stream of ['stdout', 'stderr']) {
+  const orig = process[stream].write.bind(process[stream]);
+  process[stream].write = (chunk, enc, cb) => {
+    try {
+      __log.push(String(chunk));
+      if (__log.length > 500) __log.splice(0, 100);
+    } catch { /* never interfere with writing */ }
+    return orig(chunk, enc, cb);
+  };
+}
+process.on('exit', (code) => {
+  try {
+    const tail = __log.join('');
+    if (!tail.trim() || process.env.NO_SELF_RECORD === '1') return;
+    const name = process.argv[2] || '?';
+    const overflow = tail.length > 9000 ? '…(truncated; showing the last 9000 characters)\n' : '';
+    appendResults(`\n<details><summary><code>${name}</code> — raw output (exit code ${code})</summary>\n\n` + '```\n' + overflow + tail.slice(-9000) + '\n```\n\n</details>\n');
+  } catch { /* an exit handler must never throw */ }
+});
 
 const [, , cmd, ...rest] = process.argv;
 const arg = (name, dflt = '') => {
@@ -310,7 +343,7 @@ async function runChecks(base, label, mode, subKey, pw) {
       seen.push({ path, status: 0, head: 'NETWORK: ' + (e.message || e) });
       return { status: 0, ct: '', loc: '', body: '', netError: String(e.message || e) };
     }
-    const r = { status: res.status, ct: res.headers.get('content-type') || '', loc: res.headers.get('location') || '', body };
+    const r = { status: res.status, ct: res.headers.get('content-type') || '', loc: res.headers.get('location') || '', body, cf1101: false };
     // The edge's error page is HTML. Our own JSON mentions «1101» on purpose
     // (the selfcheck hint, the diag note), so a body that parses as JSON is never
     // counted — the first live run flagged itself with this false positive.
@@ -319,7 +352,7 @@ async function runChecks(base, label, mode, subKey, pw) {
       r.cf1101 = true;
       console.log('  ⚠ CLOUDFLARE ERROR PAGE on ' + path + ': ' + r.body.replace(/\s+/g, ' ').slice(0, 300));
     }
-    seen.push({ path, status: r.status, ct: r.ct, head: r.body.replace(/\s+/g, ' ').slice(0, 220) });
+    seen.push({ path, status: r.status, ct: r.ct, cf1101: r.cf1101, head: r.body.replace(/\s+/g, ' ').slice(0, 220) });
     return r;
   };
   const j = (t) => { try { return JSON.parse(t); } catch { return null; } };
@@ -381,18 +414,25 @@ async function runChecks(base, label, mode, subKey, pw) {
   // another screen still showed the old state for a moment».
   let waitSeconds = 0;
   if (mode === 'open') {
-    const deadline = Date.now() + 90000;
-    let seen = false;
+    // A KV write propagates across Cloudflare's POPs asynchronously (documented:
+    // up to 60 s), and each isolate caches settings for up to 60 s of its own, so
+    // one isolate can still answer as «open» long after another has closed. The
+    // honest expectation is therefore a *stable* close, not an instant one — the
+    // wait below measures how long it really takes for three consecutive requests
+    // to be refused, and that number is reported instead of being hidden.
+    const t0 = Date.now();
+    const deadline = t0 + 150000;
+    let streak = 0;
     while (Date.now() < deadline) {
       const probe = await req('/api/diag');
-      const pj = j(probe.body);
-      if (probe.status === 401 || pj?.passwordSet === true) { seen = true; break; }
+      streak = probe.status === 401 ? streak + 1 : 0;
+      if (streak >= 3) break;
       await sleep(5000);
-      waitSeconds = Math.round((Date.now() - (deadline - 90000)) / 1000);
+      waitSeconds = Math.round((Date.now() - t0) / 1000);
     }
-    add('the password written to KV becomes visible to other isolates', seen,
-      seen ? `after ~${waitSeconds}s (KV eventual consistency)` : 'still not visible after 90s');
-    console.log('  · KV propagation delay observed:', waitSeconds + 's');
+    add('the panel closes for strangers everywhere once the password has propagated', streak >= 3,
+      streak >= 3 ? `~${waitSeconds}s until 3 consecutive 401s (KV eventual consistency)` : `still open after ${waitSeconds}s`);
+    console.log('  · lock propagation observed:', waitSeconds + 's');
   }
 
   // locked-mode contract (only meaningful once the panel is really closed)
@@ -427,7 +467,9 @@ async function runChecks(base, label, mode, subKey, pw) {
   const root = await req('/');
   console.log(`  · GET / → ${root.status}${root.loc ? ' location=' + root.loc : ''} (${root.body.replace(/\s+/g, ' ').slice(0, 70)})`);
 
-  const any1101 = seen.some((s) => /1101/.test(s.head));
+  // Only a real edge error page counts (see req()): our own JSON mentions «1101»
+  // on purpose in the selfcheck hint and the diag note.
+  const any1101 = seen.some((s) => s.cf1101 === true);
   console.log('\n  raw responses:');
   for (const s of seen) console.log(`    ${String(s.status).padStart(3)}  ${s.path}  ${s.head}`);
   return { label, mode, rows, seen, any1101, version: vj?.version || '', kv: String(dj2?.kv || ''), bindings: dj2?.bindings || [], hardFail: rows.filter((r) => !r.pass).map((r) => r.n) };
