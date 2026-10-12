@@ -80,6 +80,11 @@ async function preflight() {
       'in the repository mazodimobinhost-creator/cat-client.');
     process.exit(1);
   }
+  // A value stored as a repository VARIABLE is not masked by GitHub (only secrets
+  // are). Register both forms now, before anything else can echo them, so a
+  // variable-held token cannot end up in a log either.
+  if (TOKEN) console.log('::add-mask::' + TOKEN);
+  if (ACCT) console.log('::add-mask::' + ACCT);
   const v = await cf('/user/tokens/verify');
   console.log('token verify :', v.status, v.json ? v.json.result?.status : v.text.slice(0, 120));
   if (v.status !== 200) process.exit(1);
