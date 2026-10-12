@@ -66,18 +66,6 @@ jobs:
           mkdir -p "$OUT"
           ./node_modules/.bin/wrangler --version
 
-      - name: Credential sources visible to this workflow (names only — GitHub masks values)
-        run: |
-          node -e "
-            const s = JSON.parse(process.env.SECRET_NAMES || '{}');
-            const v = JSON.parse(process.env.VAR_NAMES || '{}');
-            console.log('repository secrets   :', Object.keys(s).sort().join(', ') || '(none)');
-            console.log('repository variables :', Object.keys(v).sort().join(', ') || '(none)');
-          "
-        env:
-          SECRET_NAMES: ${{ toJSON(secrets) }}
-          VAR_NAMES: ${{ toJSON(vars) }}
-
       - name: Preflight — token, account, subdomain, what else is on the account
         run: |
           set -o pipefail
