@@ -140,6 +140,12 @@ console.log('\nQuick links (?p=) and the app/panel version handshake\n');
   ok('…with dismiss text that is translated in both languages',
     /ver_title/.test(older) && /ver_body/.test(older) && /ver_dismiss/.test(older));
 
+  // A later open WITHOUT the params (the owner's own browser) must still warn:
+  // the values come back from KV, not from this request.
+  const laterBrowser = await (await get(env, ROOT, asOwner())).text();
+  ok('…and the warning survives an open with no params at all (read back from KV)',
+    /id="verWarn"/.test(laterBrowser) && /6\.0\.0/.test(laterBrowser));
+
   // The banner is owner-facing only: a stranger gets the login page.
   const stranger = await (await get(env, ROOT + '?av=1.9.3&pv=6.0.0')).text();
   ok('a stranger never sees the banner', !/id="verWarn"/.test(stranger) && !/6\.0\.0/.test(stranger));
