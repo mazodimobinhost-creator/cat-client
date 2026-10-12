@@ -100,6 +100,7 @@ jobs:
 
       - name: Generate the app-style UUID + panel password (masked)
         run: |
+          set -o pipefail
           node "$TOOLS" gen-credentials | tee "$OUT/03-credentials.log"
           DERIVED=$(node "$TOOLS" uuid --host="$WORKER.$SUBDOMAIN")
           echo "::add-mask::$DERIVED"
@@ -110,6 +111,7 @@ jobs:
       - name: Stage A — deploy dist-panel/catpanel.min.js (wrangler, --no-bundle)
         continue-on-error: true
         run: |
+          set -o pipefail
           node "$TOOLS" deploy --main=dist-panel/catpanel.min.js 2>&1 | tee "$OUT/deploy-A.log"
           node "$TOOLS" stage --label=A-min --mode=open --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A.log"
 
@@ -117,6 +119,7 @@ jobs:
       - name: Stage A2 — same file, wrangler's own bundler (no --no-bundle)
         continue-on-error: true
         run: |
+          set -o pipefail
           node "$TOOLS" deploy --main=dist-panel/catpanel.min.js --bundle 2>&1 | tee "$OUT/deploy-A2.log"
           node "$TOOLS" stage --label=A2-bundled --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-A2.log"
 
@@ -124,6 +127,7 @@ jobs:
       - name: Stage B — deploy dist-panel/catpanel.obf.js (the app's API artifact)
         continue-on-error: true
         run: |
+          set -o pipefail
           node "$TOOLS" deploy --main=dist-panel/catpanel.obf.js 2>&1 | tee "$OUT/deploy-B.log"
           node "$TOOLS" stage --label=B-obf --mode=locked --sub-key="$SUB_KEY_DERIVED" 2>&1 | tee "$OUT/stage-B.log"
 
@@ -131,6 +135,7 @@ jobs:
       - name: Stage C — the app's own upload path (multipart PUT + app bindings)
         continue-on-error: true
         run: |
+          set -o pipefail
           node "$TOOLS" upload-app 2>&1 | tee "$OUT/upload-C.log"
           node "$TOOLS" stage --label=C-app-api --mode=locked --sub-key="$APP_UUID" 2>&1 | tee "$OUT/stage-C.log"
 

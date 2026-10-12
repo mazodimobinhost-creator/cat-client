@@ -117,6 +117,14 @@ async function preflight() {
       'in the repository mazodimobinhost-creator/cat-client.');
     process.exit(1);
   }
+  // Fresh file per run: the workflow commits it, and a reader must be able to
+  // trust that everything below belongs to THIS run.
+  writeFileSync(RESULTS, `# Cloudflare live test — catpanel-test\n\n` +
+    `run=${process.env.GITHUB_RUN_ID || '?'} attempt=${process.env.GITHUB_RUN_ATTEMPT || '?'} ` +
+    `trigger=${process.env.GITHUB_EVENT_NAME || '?'} actor=${process.env.GITHUB_ACTOR || '?'} ` +
+    `ref=${process.env.GITHUB_REF_NAME || '?'} head=${process.env.GITHUB_SHA || '?'}\n\n` +
+    `Everything in this file was produced by a real Cloudflare account. Only two\n` +
+    `names are ever written: the Worker \`${WORKER}\` and the KV namespace \`${KV_TITLE}\`.\n`);
   // A value stored as a repository VARIABLE is not masked by GitHub (only secrets
   // are). Register both forms now, before anything else can echo them, so a
   // variable-held token cannot end up in a log either.
@@ -376,16 +384,6 @@ async function runChecks(base, label, mode, subKey, pw) {
   const any1101 = seen.some((s) => /1101/.test(s.head));
   console.log('\n  raw responses:');
   for (const s of seen) console.log(`    ${String(s.status).padStart(3)}  ${s.path}  ${s.head}`);
-  const passed = rows.filter((r) => r.pass).length;
-  const meta = `trigger=${process.env.GITHUB_EVENT_NAME || '?'} repo=${process.env.GITHUB_REPOSITORY || '?'} ` +
-    `actor=${process.env.GITHUB_ACTOR || '?'} ref=${process.env.GITHUB_REF_NAME || '?'} base=${base}`;
-  const tailLines = tailText.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => '    ' + l.slice(0, 220)).join('\n') || '    (empty)';
-  appendResults(`\n## Stage ${label} — mode ${mode} — ${passed}/${rows.length} checks passed${any1101 ? ' — ⚠ 1101 IN A RESPONSE BODY' : ''}\n\n` +
-    `${meta}\n\n${markdownTable(rows)}\n\n` +
-    `**raw responses** (status, path, first 220 chars; the real bytes the edge returned)\n\n` +
-    seen.map((x) => `    ${String(x.status).padStart(3)}  ${x.path}  ${x.head}`).join('\n') + '\n\n' +
-    `**wrangler tail** (${tailText.length} bytes captured)\n\n${tailLines}\n`);
-  console.log('::notice::stage ' + label + ' — ' + passed + '/' + rows.length + ' checks passed, 1101=' + any1101);
   return { label, mode, rows, seen, any1101, version: vj?.version || '', kv: String(dj2?.kv || ''), bindings: dj2?.bindings || [], hardFail: rows.filter((r) => !r.pass).map((r) => r.n) };
 }
 
@@ -414,7 +412,19 @@ async function stage() {
   console.log(`\n--- wrangler tail (${label}) — ${tailText.length} bytes captured ---`);
   console.log(tailText.split('\n').filter((l) => l.trim()).slice(0, 12).join('\n').slice(0, 4000) || '(no live log lines: the requests were served without an exception, or tail could not attach — see the file)');
   writeFileSync(`${OUT}/check-${label}.json`, JSON.stringify(result, null, 1));
-  console.log(`\n# ${label}: ${result.rows.filter((r) => r.pass).length}/${result.rows.length} checks passed, 1101 seen: ${result.any1101}`);
+
+  // The publishable section (this is what the branch commit carries) — written
+  // here, not inside runChecks, because the tail log only exists in this scope.
+  const passed = result.rows.filter((r) => r.pass).length;
+  const tailLines = tailText.split('\n').filter((l) => l.trim()).slice(0, 8).map((l) => '    ' + l.slice(0, 240)).join('\n') || '    (no live log lines captured)';
+  appendResults(`\n## Stage ${label} — mode ${result.mode} — ${passed}/${result.rows.length} checks passed${result.any1101 ? ' — ⚠ 1101 IN A RESPONSE BODY' : ''}\n\n` +
+    `trigger=${process.env.GITHUB_EVENT_NAME || '?'} repo=${process.env.GITHUB_REPOSITORY || '?'} actor=${process.env.GITHUB_ACTOR || '?'} ref=${process.env.GITHUB_REF_NAME || '?'} url=${base}\n\n` +
+    `${markdownTable(result.rows)}\n\n` +
+    `**raw responses** (HTTP status, path, first 220 chars — the bytes the edge really returned)\n\n` +
+    result.seen.map((x) => `    ${String(x.status).padStart(3)}  ${x.path}  ${x.head}`).join('\n') + '\n\n' +
+    `**wrangler tail** (${tailText.length} bytes captured)\n\n${tailLines}\n`);
+  console.log('::notice::stage ' + label + ' — ' + passed + '/' + result.rows.length + ' checks passed, 1101=' + result.any1101);
+  console.log(`\n# ${label}: ${passed}/${result.rows.length} checks passed, 1101 seen: ${result.any1101}`);
 }
 
 function summary() {
