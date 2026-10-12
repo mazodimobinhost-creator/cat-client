@@ -211,3 +211,5 @@ trigger=push repo=mazodimobinhost-creator/cat-client actor=mazodimobinhost-creat
 ```
 
 </details>
+
+## Stage A-min — rehearsal
