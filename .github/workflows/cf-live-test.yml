@@ -245,6 +245,8 @@ jobs:
             echo; echo "## the results file as the runner sees it"
             ls -l "$RESULTS"; md5sum "$RESULTS"; grep -c '^## ' "$RESULTS" || true; grep '^## ' "$RESULTS" || true
             echo; echo "## git status --porcelain"; git status --porcelain || true
+            echo; echo "## secret-scanning lookalikes still in the file (40+ character base64url runs)"
+            grep -oE '[A-Za-z0-9_+/=-]{40,}' "$RESULTS" | sort -u | sed 's/^/  /' || echo "  (none — the push protection has nothing to flag)"
             echo; echo "## would the worktree be allowed to push at all? (dry run, no side effect)"
             git push --dry-run origin HEAD:"$GITHUB_REF_NAME" 2>&1 | sed 's/^/  /' || true
           } > "$LOG" 2>&1

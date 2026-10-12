@@ -35,13 +35,39 @@ const OUT = process.env.OUT || '/tmp/cf-live';
 const MASK = '***MASKED-BY-CAT-PANEL***';
 const WRANGLER = process.env.WRANGLER || './node_modules/.bin/wrangler';
 const RESULTS = process.env.RESULTS_FILE || 'cf-live-results.md';
+
+/**
+ * Redaction, and the reason it exists: GitHub's secret scanning push protection
+ * refused three pushes of this results file with «SECRET DETECTED IN CONTENT —
+ * Cloudflare User API Token», because a live panel response contained a random
+ * forty-character base64url string, which is exactly what a Cloudflare API token
+ * looks like. The push is rejected either way, Contents API included (409), so the
+ * record has to be stripped of anything that pattern-matches a credential. Only
+ * lookalikes are touched: status codes, byte counts, check tables, UUIDs, md5s and
+ * the vless links in the subscription sample all survive unchanged.
+ */
+function scrub(text) {
+  let out = String(text);
+  const exact = [
+    process.env.PANEL_TEST_PW, process.env.APP_UUID, process.env.SUB_KEY_DERIVED,
+    process.env.KV_ID, process.env.TOKEN, process.env.CLOUDFLARE_API_TOKEN,
+    process.env.CLOUDFLARE_ACCOUNT_ID,
+  ].filter((v) => typeof v === 'string' && v.length >= 12);
+  for (const v of exact) out = out.split(v).join('<redacted>');
+  // Cloudflare's detector fires on any 40+ character run of URL-safe base64, and
+  // its sibling fires on ordinary base64 with padding.
+  out = out.replace(/[A-Za-z0-9_-]{40,}/g, (m) => `<redacted ${m.length} chars>`);
+  out = out.replace(/[A-Za-z0-9+/]{40,}={0,2}/g, (m) => `<redacted ${m.length} chars>`);
+  return out;
+}
 /**
  * The raw job log is only reachable through a signed blob URL that the owner's
  * tooling cannot fetch, so every result is also appended to a file that the
  * workflow commits onto the branch — the one channel that is known to work end
  * to end.
  */
-function appendResults(text) {
+function appendResults(rawText) {
+  const text = scrub(rawText);
   try {
     const head = existsSync(RESULTS) ? readFileSync(RESULTS, 'utf8') : '';
     writeFileSync(RESULTS, head + text);
@@ -64,7 +90,8 @@ const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(
  * because one workflow command cannot carry an unbounded message. Both channels
  * are best-effort on purpose: losing the report must never fail the test itself.
  */
-function publish(text, title) {
+function publish(rawText, title) {
+  const text = scrub(rawText);
   const ok = appendResults(text);
   if (process.env.NO_ANNOTATIONS === '1') return ok;
   try {
