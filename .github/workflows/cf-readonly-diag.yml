@@ -1,0 +1,120 @@
+name: CF read-only check — is the account still deactivated? (take 3)
+
+# READ-ONLY: GET requests, plus a tail session only if the API allows it.
+# Nothing is deployed, deleted or modified.
+#
+# Why take 3: take 2 (run 38344847051) answered with raw bodies —
+#   /user/tokens/verify -> 200 {"status":"active"}
+#   /accounts/<id>      -> 403 {"code":9109,"message":"User was deactivated"}
+#   /workers/scripts    -> 403 Authentication error, then 429 rate limited
+# and the two routes answered 404 with "error code: 1042" (no Worker on the route).
+# The user now asks what happened to the token they gave, so this run asks the same
+# questions again and adds `user` and `user/memberships`, which is where a
+# deactivated account/membership shows up if that is what this is.
+
+on:
+  push:
+    branches: ['arena/*']
+    paths:
+      - '.github/workflows/cf-readonly-diag.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-readonly-diag
+  cancel-in-progress: true
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' || vars.CLOUDFLARE_API_TOKEN != '' }}
+      HAS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' || vars.CLOUDFLARE_ACCOUNT_ID != '' }}
+      TARGETS: 'edge-9ccq0 edge-vgiab'
+      SUB: 'zojfup'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Credentials present?
+        run: |
+          echo "HAS_TOKEN=$HAS_TOKEN HAS_ACCOUNT=$HAS_ACCOUNT"
+          [ "$HAS_TOKEN" = "true" ] && [ "$HAS_ACCOUNT" = "true" ] || { echo "::error title=credentials::nothing to read with — stopping"; exit 1; }
+          echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"
+          mkdir -p /tmp/diag
+
+      - name: Account state, right now (GET only)
+        continue-on-error: true
+        run: |
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG=/tmp/step-1.log
+          set +e
+          (
+            get() {
+              code=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "https://api.cloudflare.com/client/v4/$1" -o /tmp/diag/body.json -w '%{http_code}')
+              echo "GET /$1 -> HTTP $code"
+              head -c 420 /tmp/diag/body.json; echo
+              echo "---"
+              if [ "$1" = "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" ] && [ "$code" = "200" ]; then
+                touch /tmp/diag/scripts_ok
+              fi
+              sleep 5
+            }
+            echo "HAS_TOKEN=$HAS_TOKEN HAS_ACCOUNT=$HAS_ACCOUNT"
+            get "user/tokens/verify"
+            get "user"
+            get "user/memberships"
+            get "accounts/$CLOUDFLARE_ACCOUNT_ID"
+            get "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
+            get "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-1-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit: $code ---"; cat "$LOG"; exit $code
+
+      - name: The two routes, right now (GET only; tail only if the API allows it)
+        continue-on-error: true
+        run: |
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG=/tmp/step-2.log
+          set +e
+          (
+            for name in $TARGETS; do
+              echo "------------------------------ $name"
+              url="https://$name.$SUB.workers.dev"
+              echo "DNS: $(getent hosts "$name.$SUB.workers.dev" | head -2 | tr '\n' ' ')"
+              curl -sS -o /tmp/diag/h.out -w "  /health -> HTTP %{http_code}, %{size_download} bytes, %{content_type}\n" --max-time 20 "$url/health"
+              echo "  body: $(head -c 220 /tmp/diag/h.out | tr -d '\n')"
+              curl -sS -o /tmp/diag/v.out -w "  /api/version -> HTTP %{http_code}, %{content_type}\n" --max-time 20 "$url/api/version"
+              echo "  body: $(head -c 220 /tmp/diag/v.out | tr -d '\n')"
+              sleep 3
+            done
+            if [ -f /tmp/diag/scripts_ok ]; then
+              echo "--- the API answered the script list, so try one tail per worker ---"
+              npm install --no-save --no-audit --no-fund wrangler@4.149.0 --silent || true
+              for name in $TARGETS; do
+                timeout 40 ./node_modules/.bin/wrangler tail "$name" --format json > "/tmp/diag/tail-$name.log" 2>&1 &
+                TPID=$!
+                sleep 14
+                curl -sS -o /dev/null -w "  (during tail) $name /health -> HTTP %{http_code}\n" --max-time 20 "https://$name.$SUB.workers.dev/health" || true
+                sleep 4
+                kill "$TPID" 2>/dev/null || true
+                echo "tail $name:"
+                grep -a . "/tmp/diag/tail-$name.log" | head -12 | cut -c1-300 | sed 's/^/    /'
+              done
+            else
+              echo "--- the API refused the script list, so no tail was attempted (step 1 says why) ---"
+            fi
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-2-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit: $code ---"; cat "$LOG"; exit $code
