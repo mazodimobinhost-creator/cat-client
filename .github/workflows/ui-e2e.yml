@@ -83,6 +83,20 @@ jobs:
           echo "::notice title=ui-2-exit-$RESULT::$(esc < "$LOG" | head -c 3400)"
           echo "--- step exit: $RESULT ---"; tail -60 "$LOG"; exit $RESULT
 
+      - name: Fail the job if any check failed (the transcript is still uploaded)
+        if: ${{ always() }}
+        run: |
+          if [ ! -f ui-e2e-transcript.txt ]; then
+            echo "::error title=ui-e2e::no transcript was produced at all"
+            exit 1
+          fi
+          if grep -q "CHECK(S) FAILED" ui-e2e-transcript.txt; then
+            echo "::error title=ui-e2e::$(grep -E '^(FAIL|# [0-9]+ CHECK)' ui-e2e-transcript.txt | tr '\n' ' ' | head -c 900)"
+            exit 1
+          fi
+          echo "every browser check passed:"
+          grep -c '^PASS' ui-e2e-transcript.txt
+
       - name: Upload the transcript and the screenshot
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
