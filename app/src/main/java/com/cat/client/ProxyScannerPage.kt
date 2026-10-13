@@ -44,7 +44,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * Public proxy scanner (like the "Proxy Panel Scanner" web tool): collects candidates from public
  * lists (monosans / proxifly via jsDelivr), a pasted list, or CIDR ranges × a port set; probes
  * each with a real protocol handshake (SOCKS5 greeting + CONNECT, SOCKS4 CONNECT, HTTP CONNECT)
- * under a thread/timeout budget; geolocates the survivors in one batch; lets you filter by
+ * under a thread/timeout budget; geolocates the survivors as they arrive (a Cloudflare
+ * trace through the proxy itself, then the database chain); lets you filter by
  * protocol/country, copy/export TXT/JSON, or import a SOCKS5 hit straight into Cat Client.
  */
 class ProxyScannerPage(
@@ -71,8 +72,23 @@ class ProxyScannerPage(
     private lateinit var countHealthy: TextView; private lateinit var countOpenNot: TextView
     private lateinit var progressText: TextView
     private lateinit var sourceStatusText: TextView
+    /** Where the countries came from («through the proxy» / database / unknown). */
+    private lateinit var countryStatusText: TextView
     /** Public lists that answered nothing this run (DNS/HTTP), shown under the progress line. */
     private var sourceNotes: List<String> = emptyList()
+    /**
+     * Country resolution is incremental, not «once at the end»: hosts already asked
+     * about are remembered (never asked twice), one pass runs at a time, and the note line
+     * says how many countries were MEASURED through the proxy versus taken from a database
+     * — so the next «🌐 نامشخص» report names the culprit instead of guessing.
+     */
+    private val geoTried = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val geoBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    @Volatile
+    private var lastGeoKick = 0L
+    private val geoViaProxy = AtomicInteger()
+    private val geoViaDatabase = AtomicInteger()
     private lateinit var resultsList: LinearLayout
     private lateinit var protoChips: LinearLayout
     private lateinit var countryChips: LinearLayout
@@ -204,6 +220,9 @@ class ProxyScannerPage(
         // default jsdelivr feeds simply cannot be fetched, and that is the whole
         // reason a run finds no proxies at all.
         sourceStatusText = text("", 11f, color = palette.textTertiary).apply { visibility = View.GONE }
+        // «کشور: …» — always visible on the scan card: which pass answered, and how
+        // many rows are still unknown (the number the owner has been reading as a filter).
+        countryStatusText = text("", 11f, color = palette.textTertiary).apply { visibility = View.GONE }
         val (c1, v1) = counter(ctx.getString(R.string.pscan_checked)); countChecked = v1
         val (c2, v2) = counter(ctx.getString(R.string.pscan_open)); countOpen = v2
         val (c3, v3) = counter(ctx.getString(R.string.pscan_healthy)); countHealthy = v3
@@ -220,6 +239,7 @@ class ProxyScannerPage(
             })
             addView(progressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(sourceStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(countryStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(countersRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
 
@@ -328,12 +348,18 @@ class ProxyScannerPage(
         job?.cancel(); job = null
         hits.clear(); checked.set(0); open.set(0); openNotProxy.set(0); total = 0
         filterProto = null; filterCountry = null
+        // A new run asks about its own hosts; the counters behind the note line reset
+        // with it (they describe THIS run's countries, not the session's).
+        geoTried.clear(); geoViaProxy.set(0); geoViaDatabase.set(0); lastGeoKick = 0L
+        updateCountryNote(null)
         renderCounters(); renderResults()
     }
 
     private fun stop() {
         job?.cancel(); job = null
         renderCounters()
+        // The hits stay on screen after ⏹ — so their countries must still arrive.
+        kickCountryPass(force = true)
     }
 
     // ---------------------------------------------------------------- engine
@@ -362,13 +388,27 @@ class ProxyScannerPage(
                                 synchronized(hits) { hits += result }
                             }
                             val now = SystemClock.elapsedRealtime()
-                            if (now - lastUi > 250L) { lastUi = now; withContext(Dispatchers.Main) { renderCounters(); renderResults() } }
+                            if (now - lastUi > 250L) {
+                                lastUi = now
+                                withContext(Dispatchers.Main) { renderCounters(); renderResults() }
+                                // Countries appear WHILE the scan runs, not after it:
+                                // the owner reads the list mid-run (and stops it) and
+                                // «🌐 نامشخص» on every row was this exact gap.
+                                kickCountryPass()
+                            }
                         }
                     }
                 }.awaitAll()
             }
-            withContext(Dispatchers.IO) { geolocate() }
+            // Last pass: whatever the incremental ones did not answer, plus the rows
+            // collected in the final seconds of the run.
+            withContext(Dispatchers.IO) { resolveCountries(synchronized(hits) { hits.toList() }) }
             renderCounters(); renderResults()
+            if (::countryStatusText.isInitialized) {
+                val note = countryNoteLine()
+                DiagnosticLogger.info(ctx, "proxy.country.done", "hits=${synchronized(hits) { hits.size }} $note")
+                updateCountryNote(note)
+            }
             job = null
             renderCounters()
         }
@@ -462,18 +502,91 @@ class ProxyScannerPage(
     }
 
     /**
-     * Country per hit, one batch for the whole run. A failed lookup leaves the hit
-     * on «نامشخص» (never a guessed code) and logs the reason, so an unreachable
-     * endpoint explains itself instead of showing a wall of «??» groups.
+     * Country per hit, in TWO passes and never only at the end of a run.
+     *
+     * «Skip at the end» was the whole failure: a 1303-candidate scan takes minutes, the
+     * owner screenshots the list while it runs (or presses ⏹), and `geolocate()` — the
+     * only place countries were ever fetched — had not run yet, so every chip said
+     * «🌐 نامشخص» even though the lookup worked.
+     *
+     * Pass 1 MEASURES: a Cloudflare trace opened THROUGH each verified proxy returns
+     * `loc=`, i.e. the country that proxy exits from — no third-party host, which is
+     * the part that cannot work on a filtered line (see [ProxyEgressCountry]).
+     * Pass 2 asks the database chain (owner's worker → HTTPS APIs → ip-api batch) for
+     * whatever pass 1 could not answer.
      */
-    private fun geolocate() {
+    private suspend fun resolveCountries(targets: List<Hit>): Int {
+        val pending = targets.filter { it.country.length != 2 && geoTried.add(it.host) }
+        if (pending.isEmpty()) return 0
+        val resolvedBefore = targets.count { it.country.length == 2 }
+        withContext(Dispatchers.Main) { updateCountryNote(ctx.getString(R.string.pscan_geo_running, pending.size)) }
+        val measured = runCatching {
+            ProxyEgressCountry.resolve(
+                pending.map { ProxyEgressCountry.Endpoint(it.host, it.port, it.proto.label) },
+            )
+        }.getOrDefault(emptyMap())
+        if (measured.isNotEmpty()) {
+            pending.forEach { hit -> measured[hit.host]?.let { hit.country = it } }
+            geoViaProxy.addAndGet(measured.size)
+            withContext(Dispatchers.Main) { renderResults() }
+        }
+        val rest = pending.filter { it.country.length != 2 }
+        var fromDatabase = 0
+        if (rest.isNotEmpty()) {
+            val worker = RelayCountryLookup.deployedWorkerHost(ctx)
+            val database = runCatching { RelayCountryLookup.resolve(ctx, rest.map { it.host }, worker) }
+                .getOrDefault(emptyMap())
+            rest.forEach { hit -> database[hit.host]?.let { hit.country = it } }
+            fromDatabase = rest.count { it.country.length == 2 }
+            geoViaDatabase.addAndGet(fromDatabase)
+        }
+        val unknown = pending.count { it.country.length != 2 }
+        DiagnosticLogger.info(
+            ctx,
+            "proxy.country",
+            "asked=${pending.size} measured=${measured.size} database=$fromDatabase unknown=$unknown " +
+                "resolvedBefore=$resolvedBefore",
+        )
+        return pending.size - unknown
+    }
+
+    /**
+     * One country pass at a time, at most every few seconds, for the hits collected SO
+     * FAR. [force] bypasses the interval (used by ⏹, where the scan is over but the
+     * hits are still on screen and must not stay «نامشخص»).
+     */
+    private fun kickCountryPass(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastGeoKick < 4_000L) return
+        lastGeoKick = now
+        if (!geoBusy.compareAndSet(false, true)) return
         val snapshot = synchronized(hits) { hits.toList() }
-        if (snapshot.isEmpty()) return
-        // Resolver 0 is the owner's OWN deployed worker: on a filtered line the
-        // third-party geo endpoints answer nothing, the worker always does.
-        val worker = RelayCountryLookup.deployedWorkerHost(ctx)
-        val found = RelayCountryLookup.resolve(ctx, snapshot.map { it.host }, worker)
-        snapshot.forEach { hit -> found[hit.host]?.let { hit.country = it } }
+        if (snapshot.isEmpty()) { geoBusy.set(false); return }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { resolveCountries(snapshot) }
+                renderResults()
+                updateCountryNote(countryNoteLine())
+            } catch (error: Throwable) {
+                DiagnosticLogger.warn(ctx, "proxy.country.failed", error = error)
+            } finally {
+                geoBusy.set(false)
+            }
+        }
+    }
+
+    /** «کشور: ۱۴ سنجیده از خودِ پروکسی · ۶ از دیتابیس · ۲ نامشخص» */
+    private fun countryNoteLine(): String {
+        val total = synchronized(hits) { hits.size }
+        if (total == 0) return ""
+        val unknown = synchronized(hits) { hits.count { it.country.length != 2 } }
+        return ctx.getString(R.string.pscan_geo_note, geoViaProxy.get(), geoViaDatabase.get(), unknown)
+    }
+
+    private fun updateCountryNote(value: String?) {
+        if (!::countryStatusText.isInitialized) return
+        countryStatusText.text = value.orEmpty()
+        countryStatusText.visibility = if (value.isNullOrBlank()) View.GONE else View.VISIBLE
     }
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }

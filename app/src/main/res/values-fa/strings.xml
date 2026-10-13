@@ -952,6 +952,8 @@
     <string name="pscan_idle">آماده — منبع انتخاب کن یا IP بچسبان</string>
     <string name="pscan_collecting">در حال جمع‌آوری کاندیدها…</string>
     <string name="pscan_scanning">در حال اسکن… %1$d / %2$d</string>
+    <string name="pscan_geo_running">کشور: %1$d مورد در حال بررسی (اول از خودِ پروکسی)…</string>
+    <string name="pscan_geo_note">کشور: %1$d اندازه‌گیری‌شده از خودِ پروکسی · %2$d از دیتابیس · %3$d نامشخص</string>
     <string name="pscan_done">تمام — %1$d پروکسی سالم</string>
     <string name="pscan_checked">بررسی‌شده</string>
     <string name="pscan_open">پورت باز</string>

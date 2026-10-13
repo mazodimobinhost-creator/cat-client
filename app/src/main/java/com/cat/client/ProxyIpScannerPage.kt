@@ -585,7 +585,26 @@ class ProxyIpScannerPage(
         renderProgress(); renderResults()
     }
 
-    private fun stop() { job?.cancel(); job = null; renderProgress() }
+    private fun stop() {
+        job?.cancel(); job = null
+        renderProgress()
+        // The hits stay on screen after ⏹, so the country pass must still run for them
+        // (it used to happen only after a full scan finished — that is the path that
+        // left the list on «همه کشورها 🌐 نامشخص»).
+        kickCountryPass()
+    }
+
+    /** Resolves countries for whatever the probe could not name, off the UI thread. */
+    private fun kickCountryPass() {
+        val pending = synchronized(hits) { hits.filter { it.country.length != 2 } }
+        if (pending.isEmpty()) return
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { geolocate() }
+                renderResults()
+            }.onFailure { error -> DiagnosticLogger.warn(ctx, "proxyip.country.failed", error = error) }
+        }
+    }
 
     // ------------------------------------------------------------------ engine
     private fun start() {

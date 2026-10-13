@@ -953,6 +953,8 @@
     <string name="pscan_idle">Ready — pick sources or paste IPs</string>
     <string name="pscan_collecting">Collecting candidates…</string>
     <string name="pscan_scanning">Scanning… %1$d / %2$d</string>
+    <string name="pscan_geo_running">Country: resolving %1$d (through the proxy itself first)…</string>
+    <string name="pscan_geo_note">Country: %1$d measured through the proxy · %2$d from a database · %3$d unknown</string>
     <string name="pscan_done">Done — %1$d healthy proxies</string>
     <string name="pscan_checked">Checked</string>
     <string name="pscan_open">Port open</string>
