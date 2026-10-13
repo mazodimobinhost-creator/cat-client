@@ -74,9 +74,13 @@ say('');
 await page.goto(BASE + '/', { waitUntil: 'load', timeout: 45_000 });
 check('ورودِ تازه‌وارد به / به صفحهٔ ورود می‌رسد', /\/panel\b/.test(page.url()), page.url().replace(BASE, ''));
 check('فرمِ ورود دیده می‌شود (input#p)', await page.locator('#p').isVisible().catch(() => false));
-// The browser always asks for /favicon.ico; the panel ships no icon, so a 404 here
-// is expected behaviour rather than a product failure — noted, not hidden.
+// Two expected 404s on a local run, both noted rather than hidden:
+//   /favicon.ico    — the browser always asks; the panel ships no icon.
+//   /cdn-cgi/trace  — a Cloudflare-EDGE endpoint. The panel asks the edge for client
+//                     info (ip/colo) and falls back when the answer is missing; on
+//                     workerd it is simply not there. On a real deployment it is 200.
 expectedHttp.add('404 /favicon.ico');
+expectedHttp.add('404 /cdn-cgi/trace');
 const anon = await api('/api/settings', null, 401);
 check('API برای ناشناس بسته است', anon.status === 401, `HTTP ${anon.status}`);
 const anonDiag = await api('/api/diag', null, 401);
@@ -100,7 +104,11 @@ check('/api/settings با نشست: 200 و ok:true', settings.status === 200 && 
 let reportedHost = '';
 try { reportedHost = JSON.parse(settings.body).host || ''; } catch { /* leave empty */ }
 const browserHost = new URL(BASE).host;
-check('هاستِ گزارش‌شده همان هاستِ مرورگر است', reportedHost === browserHost,
+// The panel reports the hostname without a port, which is correct for links and SNI
+// (a workers.dev deployment has none); a local run listens on :8799, so compare the
+// hostnames and say the full pair either way.
+check('هاستِ گزارش‌شده همان هاستِ مرورگر است (بدونِ پورت)',
+  reportedHost === browserHost.split(':')[0],
   `گزارش‌شده: ${reportedHost || '(خالی)'} / مرورگر: ${browserHost}`);
 const diag = await api('/api/diag');
 check('/api/diag با نشست: 200 و رانتایم را می‌گوید', diag.status === 200 && /"cf":true/.test(diag.body), `HTTP ${diag.status}`);

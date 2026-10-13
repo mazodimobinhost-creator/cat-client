@@ -19,4 +19,5 @@
 | «Unit tests (JVM)» | **دستگاه نیست** — میزبانِ JVM | Android Build workflow | success |
 | `kotlin-syntax-check.py` | **workerd محلی** (ترکیبِ گرامر، بدون اجرا) | `python3 scripts/ci/kotlin-syntax-check.py` | ۱۰۸ pass / ۴ fail |
 | «Smoke test - release APK launches on an emulator» | **دستگاه** | Android Build workflow | **skipped** — برچسبِ صادقانه: تست‌نشده |
+| `scripts/panels/ui-e2e.mjs` + `.github/workflows/ui-e2e.yml` — مرورگرِ واقعی (Chromium 156) پنل را بوت می‌کند، از فرم لاگین می‌کند، وریفای می‌کند، و کد را از داخل مرورگر صدا می‌زند | **workerd محلی** (کارِ الگو: Cloudflare نیست) | `UI end-to-end` workflow (خودکار، روی هر pushِ مرتبط) | ۱۳→۱۵ سنجه؛ با همین تست یک باگِ واقعیِ SVG پیدا و رفع شد |
 | پروبِ فقط-خواندنیِ دو ورکر (`edge-9ccq0`/`edge-vgiab`) | **کلودفلر واقعی** | ورک‌فلوی موقت (حذف شد؛ خروجی در پیوستِ `docs/cf-live-test-6.67.0.md`) | DNS✅، `/health`⇒۴۰۴ `1042`، API⇒۴۰۳/۴۲۹ |
