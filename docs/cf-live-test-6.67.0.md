@@ -690,3 +690,62 @@ all hard expectations held on the live account
 ```
 
 </details>
+
+---
+
+# پیوست — بازبینیِ فقط-خواندنی، ۲۰۲۶-۱۰-۱۳ (چه چیزی اندازه‌گیری شد و چه چیزی نشد)
+
+همهٔ خطوطِ زیر خروجیِ خامِ یک رانِ واقعی است (ورک‌فلوی موقتِ «CF read-only diagnosis»)،
+فقط `GET` و یک نشستِ موقتِ `wrangler tail`. **هیچ چیزی روی حساب نوشته، دیپلوی یا حذف نشد.**
+
+## الف) وضعیتِ اعتبارنامهٔ Actions در همین لحظه
+
+```
+GET /user/tokens/verify -> HTTP 200
+{"result":{"id":"b17a…6c7","status":"active"},"success":true,"errors":[],"messages":[{"code":10000,"message":"This API Token is valid and active"…}]}
+
+GET /accounts/<id> -> HTTP 403
+{"success":false,"errors":[{"code":9109,"message":"User was deactivated"}],"result":null}
+
+GET /workers/subdomain -> HTTP 403
+{"success":false,"errors":[{"code":10000,"message":"Authentication error",…}],"result":null}
+
+GET /workers/scripts -> HTTP 403
+{"success":false,"errors":[{"code":10000,"message":"Authentication error",…}],"result":null}
+
+GET /workers/scripts/edge-9ccq0/settings -> HTTP 429
+{"success":false,"errors":[{"code":10429,"message":"Rate limited. Please wait and consider throttling your request speed"}],"result":null}
+```
+
+یعنی: خودِ توکن «active» است، ولی هیچ خواندنِ حساب‌سطحی با آن ممکن نیست؛ و از تماسِ
+چهارم به بعد، API با `429 / 10429` throttle می‌کند (همین هم `wrangler tail` را بست).
+
+## ب) دو ورکرِ مورد سؤال، در همین لحظه
+
+```
+DNS: edge-9ccq0.zojfup.workers.dev → 2606:4700:3033::ac43:b861 / 2606:4700:3030::6815:1309
+     edge-vgiab.zojfup.workers.dev → همان نشانی‌ها
+/health       -> HTTP 404, 17 bytes, type=text/plain; charset=UTF-8
+/health body  -> error code: 1042
+/api/version  -> HTTP 404, type=text/plain; charset=UTF-8
+wrangler tail -> refused: 10429 rate limited (twice, once per worker)
+```
+
+**۱۴۰۲/… یعنی امروز، زیرِ آن دو نام هیچ ورکری سرو نمی‌شود** (`1042` پاسخِ workers.dev
+برای نامِ بدونِ اسکریپت است) — پس ۱۱۰۱ آن دو ورکر دیگر قابلِ بازتولید نیست و علتش هم
+قابلِ خواندن نیست: بایت‌های اسکریپت با این توکن خوانده نمی‌شوند (۴۰۳ در بخشِ الف).
+
+## ج) همان لحظه: مسیرِ آپلودِ خودِ اپ روی workerd محلی
+
+همان فایل و همان تنظیماتِ `cfUploadWorker` (main_module، compat `2025-03-04`، `nodejs_compat`،
+بایندینگ‌های OPEN_PANEL/OPEN_SUB) روی موتورِ خودِ کلودفلر (workerd «2026-10-13») بالا آمد:
+
+```
+/health                 200 application/json  {"ok":true,"version":"6.67.0","kv":false}
+/api/version            200 application/json  {"ok":true,"panel":"cat-panel","version":"6.67.0",…,"open":true}
+/api/selfcheck?throw=1  500 application/json  {"error":"panel_crash","title":"Worker Exception Handled",…}
+/api/diag               200 application/json  {"…","kv":"NOT BOUND — every write is memory-only, attach CAT_KV",…}
+```
+
+و هر سه آرتیفکتِ به‌روز (`catpanel.obf.js` = 1,243,155 B، `catpanel.min.js` = 494,032 B،
+`catclient.worker.js` = 655,438 B، همه ‎6.67.0‎) با `node --check` پارس می‌شوند.

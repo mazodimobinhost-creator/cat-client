@@ -602,7 +602,7 @@
     <string name="cloud_status_checking">Checking…</string>
     <string name="cloud_status_checking_detail">Asking the panel /health…</string>
     <string name="cloud_status_pending_title">⏳ Panel is still activating</string>
-    <string name="cloud_status_pending_msg">The address %1$s answers Cloudflare's own 404 page, not the panel: the workers.dev route is not live yet. This is normal right after an upload — measured on a real account it took 13 s in one run and up to a minute in another — and it clears itself. The upload is fine; nothing needs rebuilding.\n\nEdge answer: %2$s</string>
+    <string name="cloud_status_pending_msg">The address %1$s answers Cloudflare’s own 404 page, not the panel: the route is not live yet. On this account the Workers API currently answers 403 (code 9109, "User was deactivated"), so that route may never come up — it is not a problem with the upload or with the panel. The upload is fine; nothing needs rebuilding. If someone at the account can fix that state, the panel goes live on its own.\n\nEdge answer: %2$s</string>
     <string name="cloud_status_recheck">Check again</string>
     <string name="cloud_status_healthy">✓ Panel is online and healthy</string>
     <string name="cloud_recover_title">Panel blocked — recover?</string>

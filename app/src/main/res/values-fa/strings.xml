@@ -601,7 +601,7 @@
     <string name="cloud_status_checking">در حال بررسی…</string>
     <string name="cloud_status_checking_detail">پرس‌وجو از /health پنل…</string>
     <string name="cloud_status_pending_title">⏳ پنل هنوز در حال فعال‌شدن است</string>
-    <string name="cloud_status_pending_msg">نشانی %1$s صفحهٔ ۴۰۴ خودِ کلادفلر را جواب می‌دهد، نه پنل را: مسیرِ workers.dev هنوز زنده نشده. این بلافاصله بعد از آپلود طبیعی است — روی حسابِ واقعی اندازه‌گیری شد: در یک ران ۱۳ ثانیه و در رانی دیگر تا یک دقیقه — و خودش درست می‌شود. آپلود سالم است و نیازی به بازسازی نیست.\n\nپاسخِ لبه: %2$s</string>
+    <string name="cloud_status_pending_msg">نشانی %1$s صفحهٔ ۴۰۴ خودِ کلادفلر را جواب می‌دهد، نه پنل را: مسیرِ هنوز زنده نشده. و روی همین حساب، API ورکرز الان ۴۰۳ می‌دهد (کدِ ۹۱۰۹، «User was deactivated») — پس ممکن است این مسیر اصلاً بالا نیاید؛ مشکل از آپلود یا از پنل نیست. آپلود سالم است و نیازی به بازسازی نیست. اگر وضعیتِ آن حساب از سمتِ کلادفلر درست شود، پنل خودش زنده می‌شود.\n\nپاسخِ لبه: %2$s</string>
     <string name="cloud_status_recheck">بررسی دوباره</string>
     <string name="cloud_status_healthy">✓ پنل آنلاین و سالم است</string>
     <string name="cloud_recover_title">پنل مسدود شده — بازیابی شود؟</string>
