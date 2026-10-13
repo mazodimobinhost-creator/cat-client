@@ -47,17 +47,51 @@ test('the probe still tells «route not live yet» apart from «the file never l
     'the «file never loaded» state must survive: it is the 1101 that has no report');
 });
 
-test('the wait budget covers the measured window of a fresh route', () => {
-  const wait = block(worker, 'private fun waitForPanel');
+test('the wait budget covers the worst case that was measured', () => {
+  const wait = block(worker, 'private fun waitForPanel', 4_000);
   const attempts = Number((wait.match(/attempts:\s*Int\s*=\s*(\d+)/) || [])[1]);
   const delay = Number((wait.match(/delayMs:\s*Long\s*=\s*([\d_]+)L/) || [])[1]?.replace(/_/g, ''));
   assert.ok(Number.isFinite(attempts) && attempts > 0, 'attempts default is unreadable');
   assert.ok(Number.isFinite(delay) && delay > 0, 'delayMs default is unreadable');
   const budgetMs = (attempts - 1) * delay;
-  assert.ok(budgetMs >= 30_000,
-    `the wait gives up after ${(budgetMs / 1000).toFixed(1)}s, inside the window a fresh route is still 404-ing in`);
+  // Measured on a real account: a fresh route 404-ed for 13 s in one run and most of
+  // a minute in another, and the KV write that closes the panel took ~66 s to reach
+  // the colo answering the checks. A budget below 90 s expires inside that window and
+  // then reports a healthy upload as broken, which is the bug this file exists for.
+  assert.ok(budgetMs >= 90_000,
+    `the wait gives up after ${(budgetMs / 1000).toFixed(1)}s — under the 90s the measured windows require`);
   // the loop still short-circuits, so a healthy panel is never made to wait
   assert.match(wait, /if \(health\.online\) return health/, 'an answered probe must return immediately');
+});
+
+test('the status check calls a fresh route «still activating», never «broken»', () => {
+  const health = block(worker, 'fun checkPanelHealth');
+  assert.match(health, /PanelHealth\(\s*\s*"PENDING"/,
+    'checkPanelHealth must have a PENDING state for the edge\'s own 404 page');
+  assert.match(health, /code == 404 && looksHtml/,
+    'PENDING must be keyed on 404 + an HTML body: the edge page, never our own JSON');
+  const status = block(activity, 'private fun onPanelStatusCheck');
+  const pending = status.indexOf('"PENDING"');
+  const recovery = status.indexOf('showPanelRecoveryDialog');
+  assert.notEqual(pending, -1, 'onPanelStatusCheck ignores the PENDING state');
+  assert.notEqual(recovery, -1, 'onPanelStatusCheck no longer has a recovery path');
+  assert.ok(pending < recovery,
+    'PENDING must be handled before the recovery dialog: that dialog rebuilds the panel under a new name, which is the last thing a working upload needs');
+  assert.match(status, /showPanelActivatingDialog/, 'the PENDING case needs its own dialog');
+  // and that dialog must offer a button that actually does something
+  const dialog = block(activity, 'private fun showPanelActivatingDialog');
+  assert.match(dialog, /setPositiveButton\(R\.string\.cloud_status_recheck\) \{ _, _ -> onPanelStatusCheck\(\) \}/,
+    'the «check again» button must re-run the status check');
+});
+
+test('the activating message exists in both locales and quotes the edge answer', () => {
+  for (const [name, source] of [['values', en], ['values-fa', fa]]) {
+    const m = source.match(/<string name="cloud_status_pending_msg">([^<]*)<\/string>/);
+    assert.ok(m, `${name}/strings.xml is missing cloud_status_pending_msg`);
+    assert.match(m[1], /%1\$s/, `${name} must name the panel address`);
+    assert.match(m[1], /%2\$s/, `${name} must quote the edge's own answer`);
+    assert.match(source, /<string name="cloud_status_recheck">/, `${name} is missing cloud_status_recheck`);
+  }
 });
 
 test('the pending message is rendered before the failure message', () => {

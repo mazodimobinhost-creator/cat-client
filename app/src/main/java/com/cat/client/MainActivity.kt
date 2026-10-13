@@ -7691,6 +7691,12 @@ class MainActivity : Activity() {
                 val deployed = runCatching { PanelUpdate.deployedVersion(dep.workerUrl) }.getOrNull()
                 val newest = runCatching { newestPanelScript() }.getOrNull()
                 showPanelManageDialog(dep, deployed, newest)
+            } else if (health.state == "PENDING") {
+                // The route is not live yet — a fresh upload, not a fault. Measured on
+                // a real account: up to a minute. The recovery dialog rebuilds the
+                // panel under a new name, which is the last thing a working upload
+                // needs, so this case gets its own answer and a button that rechecks.
+                showPanelActivatingDialog(dep.workerUrl, health.detail)
             } else {
                 showPanelRecoveryDialog(dep.workerUrl, health.detail)
             }
@@ -7763,6 +7769,25 @@ class MainActivity : Activity() {
                     renderCloudDeploymentHistory()
                 }
             }
+            .show()
+    }
+
+    /**
+     * «Still activating», not «broken». Shown when the panel's own route answers the
+     * edge's 404 page (no Worker on it yet) instead of the panel: normal for the first
+     * seconds-to-a-minute after an upload, so it offers a recheck instead of the
+     * rebuild flow. Every button here does something: the recheck re-runs the same
+     * status check, and the panel button opens the URL.
+     */
+    private fun showPanelActivatingDialog(panelUrl: String, detail: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_status_pending_title)
+            .setMessage(getString(R.string.cloud_status_pending_msg, panelUrl, detail))
+            .setPositiveButton(R.string.cloud_status_recheck) { _, _ -> onPanelStatusCheck() }
+            .setNeutralButton(R.string.cloud_panel_open) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(panelUrl))) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 

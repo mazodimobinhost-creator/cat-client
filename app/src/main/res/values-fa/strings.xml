@@ -600,6 +600,9 @@
     <string name="cloud_status_none">هنوز پنلی از داخل اپ نساخته‌ای</string>
     <string name="cloud_status_checking">در حال بررسی…</string>
     <string name="cloud_status_checking_detail">پرس‌وجو از /health پنل…</string>
+    <string name="cloud_status_pending_title">⏳ پنل هنوز در حال فعال‌شدن است</string>
+    <string name="cloud_status_pending_msg">نشانی %1$s صفحهٔ ۴۰۴ خودِ کلادفلر را جواب می‌دهد، نه پنل را: مسیرِ workers.dev هنوز زنده نشده. این بلافاصله بعد از آپلود طبیعی است — روی حسابِ واقعی اندازه‌گیری شد: در یک ران ۱۳ ثانیه و در رانی دیگر تا یک دقیقه — و خودش درست می‌شود. آپلود سالم است و نیازی به بازسازی نیست.\n\nپاسخِ لبه: %2$s</string>
+    <string name="cloud_status_recheck">بررسی دوباره</string>
     <string name="cloud_status_healthy">✓ پنل آنلاین و سالم است</string>
     <string name="cloud_recover_title">پنل مسدود شده — بازیابی شود؟</string>
     <string name="cloud_recover_explain">پنلِ %1$s جواب نمی‌دهد:\n%2$s\n\nبازیابی یک ورکر کاملاً تازه با اسم تصادفی خنثی می‌سازد، تنظیمات و کاربرانت را از پشتیبان برمی‌گرداند و لینک ساب جدید می‌دهد — همه یک بار ساب جدید را اضافه می‌کنند.</string>

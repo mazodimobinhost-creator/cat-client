@@ -796,13 +796,15 @@ object CloudflareWorker {
         workerUrl: String,
         uuid: String = "",
         // A fresh workers.dev route answers the edge's own 404 page for a while
-        // before it serves the Worker (13 s in one measured run, most of a minute in
-        // another). The old budget of 5 × 2.5 s expired in the middle of that window
-        // and then blamed the upload for it — which is the one message that should
-        // never be wrong. Waiting longer costs nothing when the panel is up: the loop
-        // returns the moment it answers.
-        attempts: Int = 9,
-        delayMs: Long = 4_000L,
+        // before it serves the Worker, and the KV write that closes the panel needs
+        // its own time to reach the colo answering these requests. Both were measured
+        // on a real account: the route took 13 s in one run and most of a minute in
+        // another, and the lock took ~66 s. The budget below therefore covers the
+        // worst case with room to spare (probes at 0, 5, …, 90 s) instead of expiring
+        // in the middle of a normal window and blaming the upload for it. Waiting costs
+        // nothing when the panel is up: the loop returns the moment it answers.
+        attempts: Int = 19,
+        delayMs: Long = 5_000L,
     ): PanelVersionProbe {
         var last = PanelVersionProbe(online = false, detail = "not tried")
         for (i in 0 until attempts) {
@@ -1199,8 +1201,20 @@ object CloudflareWorker {
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
+            val looksHtml = body.trimStart().startsWith("<") || body.contains("<!DOCTYPE", true)
             when {
                 code in 200..299 && body.contains("\"ok\"") -> PanelHealth("HEALTHY", "HTTP $code")
+                // The edge's OWN 404 page: the host resolves but no Worker answers on
+                // it yet. Measured on a real account right after an upload: 13 s in one
+                // run, most of a minute in another. This is a wait, not a fault — and
+                // sending the user into the recovery flow for it (which rebuilds the
+                // panel under a new name) would have been the most expensive possible
+                // wrong answer. Our own routes never answer this way: /health always
+                // replies JSON, unknown paths reply JSON too.
+                code == 404 && looksHtml -> PanelHealth(
+                    "PENDING",
+                    "HTTP 404 — the workers.dev route is not live yet (the edge's own page, not the panel)",
+                )
                 body.contains("Error 1101", true) || body.contains("Worker threw exception", true) ->
                     // 1101 means «the code never ran». On a Worker whose file is fine that is
                     // most often a suspension after an abuse report — but a truncated upload
