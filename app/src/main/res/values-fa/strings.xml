@@ -752,14 +752,14 @@
     <string name="scanner_foreign_report_row">%1$s — HTTP %2$s — %3$s — %4$d ms</string>
     <string name="pm_channel">مانیتور پنل</string>
     <string name="pm_title">⚠️ پنل کت بالا نمی‌آید</string>
-    <string name="panel_probe_button">🩺 تستِ سه‌نقطه‌ای پنل (۱۱۰۱)</string>
+    <string name="panel_probe_button">📡 تستِ سه‌نقطه‌ای پنل (۱۱۰۱)</string>
     <string name="panel_probe_title">تستِ سه‌نقطه‌ای پنل</string>
     <string name="panel_probe_url_hint">آدرس ورکر: https://name.sub.workers.dev</string>
     <string name="panel_probe_running">در حال پرسیدنِ /health و /api/version و /api/selfcheck (throw=1)…</string>
     <string name="panel_probe_ran">✅ کد اجرا شد (JSON) — ماژول لود و اجرا شده</string>
-    <string name="panel_probe_never">⛔ کد اصلاً اجرا نشد (صفحهٔ لبه / ۱۱۰۱) — فایل لود نشده</string>
-    <string name="panel_probe_unreachable">📵 بی‌پاسخ — مشکلِ آدرس یا شبکه (این ۱۱۰۱ نیست)</string>
-    <string name="panel_probe_other">❔ پاسخِ دیگر — متنِ خامِ زیر را بخوان</string>
+    <string name="panel_probe_never">🚫 کد اصلاً اجرا نشد (صفحهٔ لبه / ۱۱۰۱) — فایل لود نشده</string>
+    <string name="panel_probe_unreachable">✗ بی‌پاسخ — مشکلِ آدرس یا شبکه (این ۱۱۰۱ نیست)</string>
+    <string name="panel_probe_other">پاسخِ دیگر — متنِ خامِ زیر را بخوان</string>
     <string name="panel_probe_copy">کپیِ خروجی</string>
     <string name="panel_probe_need_url">اول آدرس ورکر را بچسبان.</string>
     <string name="panel_probe_hint_ran">نتیجه: ورکر بالا است و فایلِ تو اجرا می‌شود. اگر صفحه باز ۱۱۰۱ می‌دهد، خطا سمتِ درخواست است نه لود؛ جزئیات در گزارشِ خودِ پنل (یا /api/diag برای مالک) هست.</string>
