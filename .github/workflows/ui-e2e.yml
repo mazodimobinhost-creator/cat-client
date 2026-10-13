@@ -10,12 +10,24 @@ name: UI end-to-end — boot panel, log in, verify, exercise the code (automatic
 # answers «does the product actually work end to end in a browser» without an account.
 on:
   workflow_dispatch:
+  # Permanent gate: every change to the panel (source or built artifact) or to the
+  # panel tooling gets the browser pass, on main and on session branches, and on
+  # pull requests before they land. No secrets are involved, so it is safe on PRs.
   push:
-    branches: ['arena/*']
+    branches: [main, 'arena/*']
     paths:
+      - 'app/src/main/assets/panels/**'
+      - 'dist-panel/**'
+      - 'scripts/panels/**'
+      - 'package.json'
       - '.github/workflows/ui-e2e.yml'
-      - 'scripts/panels/ui-e2e.mjs'
-      - 'scripts/panels/workerd-local.capnp'
+  pull_request:
+    paths:
+      - 'app/src/main/assets/panels/**'
+      - 'dist-panel/**'
+      - 'scripts/panels/**'
+      - 'package.json'
+      - '.github/workflows/ui-e2e.yml'
 
 permissions:
   contents: read
