@@ -756,7 +756,7 @@
     <string name="panel_probe_button">🩺 Three-point panel test (1101)</string>
     <string name="panel_probe_title">Panel three-point test</string>
     <string name="panel_probe_url_hint">Worker URL (https://name.sub.workers.dev)</string>
-    <string name="panel_probe_running">Asking /health, /api/version and /api/selfcheck?throw=1…</string>
+    <string name="panel_probe_running">Asking /health, /api/version and /api/selfcheck (throw=1)…</string>
     <string name="panel_probe_ran">✅ the code RAN (JSON) — the module loaded and executed</string>
     <string name="panel_probe_never">⛔ the code NEVER RAN (edge page / 1101) — the file did not load</string>
     <string name="panel_probe_unreachable">📵 no answer — host or network (not a 1101)</string>

@@ -755,7 +755,7 @@
     <string name="panel_probe_button">🩺 تستِ سه‌نقطه‌ای پنل (۱۱۰۱)</string>
     <string name="panel_probe_title">تستِ سه‌نقطه‌ای پنل</string>
     <string name="panel_probe_url_hint">آدرس ورکر: https://name.sub.workers.dev</string>
-    <string name="panel_probe_running">در حال پرسیدنِ /health و /api/version و /api/selfcheck?throw=1…</string>
+    <string name="panel_probe_running">در حال پرسیدنِ /health و /api/version و /api/selfcheck (throw=1)…</string>
     <string name="panel_probe_ran">✅ کد اجرا شد (JSON) — ماژول لود و اجرا شده</string>
     <string name="panel_probe_never">⛔ کد اصلاً اجرا نشد (صفحهٔ لبه / ۱۱۰۱) — فایل لود نشده</string>
     <string name="panel_probe_unreachable">📵 بی‌پاسخ — مشکلِ آدرس یا شبکه (این ۱۱۰۱ نیست)</string>
