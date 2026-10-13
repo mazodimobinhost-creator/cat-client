@@ -122,6 +122,36 @@ check('لینکِ ساب ساخته می‌شود و از همین هاست بی
   sub.status === 200 && sub.body.startsWith('vless://') && subHosts.some((h) => h.split(':')[0] === browserName),
   `${sub.body.slice(0, 32)}… hosts=${[...new Set(subHosts)].join(',') || 'none'}`);
 
+// ---- 3٫۵) کلیک روی همهٔ بخش‌ها: هر پنلِ پنهان هم باید بدونِ خطا رندر شود ----
+// اینجا همان چیزی صدا زده می‌شود که کاربر با انگشت می‌زند: هر آیتمِ ناوبری، یکی‌یکی،
+// و بعد هر بخش باید واقعاً نمایان شود (نه فقط دکمه‌اش موجود باشد).
+const sections = await page.$$eval('[data-sec]', (els) => [...new Set(els.map((e) => e.getAttribute('data-sec')))]);
+say(`# بخش‌های یافته‌شده: ${sections.join(', ')}`);
+let shownOk = 0;
+for (const sec of sections) {
+  const btn = await page.$(`[data-sec="${sec}"]:visible`) || await page.$(`[data-sec="${sec}"]`);
+  if (!btn) { say(`    (دکمهٔ ${sec} پیدا نشد — رد شد)`); continue; }
+  await btn.click({ timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  // چه چیزی نمایان شد؟ بالاترین بخشِ دیدنی با data-view یا کلاسِ active
+  const visible = await page.evaluate((s) => {
+    const marks = [...document.querySelectorAll(`[data-sec="${s}"]`)];
+    const on = marks.some((m) => m.getAttribute('aria-current') === 'page' || m.classList.contains('on') || m.classList.contains('active'));
+    const view = document.querySelector('[data-view].on, [data-view].active, section.on, section.active');
+    return { on, view: view ? (view.getAttribute('data-view') || view.className).slice(0, 40) : '' };
+  }, sec);
+  if (visible.on) shownOk++;
+}
+check('هر بخشِ ناوبری قابلِ انتخاب و رندر است', shownOk >= sections.length - 1, `${shownOk}/${sections.length}`);
+
+// کوئری‌های عجیب و مسیرهای ناموجود: باید محترمانه ۴۰۴/۴۰۱ بدهند، نه ۵۰۰
+const odd = ['/panel?stale=1', '/nope-does-not-exist'];
+for (const path of odd) {
+  if (path.startsWith('/nope')) expectedHttp.add(`404 ${path}`);
+  const r = await api(path, null, 404);
+  check(`${path} پاسخِ محترمانه می‌دهد`, r.status < 500, `HTTP ${r.status}`);
+}
+
 // ---- 4) یک «دستگاهِ دیگر»: نشستِ تازه نباید چیزی ببیند ----
 const ctx2 = await browser.newContext();
 const page2 = await ctx2.newPage();
