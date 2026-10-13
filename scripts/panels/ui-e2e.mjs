@@ -122,31 +122,48 @@ check('لینکِ ساب ساخته می‌شود و از همین هاست بی
   sub.status === 200 && sub.body.startsWith('vless://') && subHosts.some((h) => h.split(':')[0] === browserName),
   `${sub.body.slice(0, 32)}… hosts=${[...new Set(subHosts)].join(',') || 'none'}`);
 
-// ---- 3٫۵) کلیک روی ناوبری: هر بخش باید واقعاً «فعال» شود، بی‌خطا ----
-// ساختارِ واقعیِ پنل: دکمه‌های ناوبری `data-view="x"` دارند و بخش‌ها `#v-x` با
-// کلاسِ `view` که فعال‌شدن یعنی `class="view on"`. (نسخهٔ اولِ این تست اشتباه
-// سکشن‌ها را می‌کلیک می‌کرد — همان چیزی که باعث شد این بررسی قرمز شود، نه پنل.)
-const navViews = await page.$$eval('[data-view]', (els) =>
-  [...new Set(els.filter((e) => e.offsetParent !== null || true).map((e) => e.getAttribute('data-view')))]);
-say(`# دکمه‌های ناوبری: ${navViews.join(', ')}`);
-let switched = 0;
-const notSwitched = [];
-for (const view of navViews) {
-  const btn = await page.$(`[data-view="${view}"]`);
-  if (!btn) { notSwitched.push(`${view} (دکمه نبود)`); continue; }
-  await btn.click({ timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(120);
-  const active = await page.evaluate((v) => {
-    const el = document.getElementById('v-' + v);
-    if (!el) return 'no-section';
-    return el.classList.contains('on') ? 'on' : `class=${el.className}`;
-  }, view);
-  if (active === 'on') switched++; else notSwitched.push(`${view} → ${active}`);
+// ---- 3٫۵) کلیک روی ناوبریِ واقعی: هر بخش باید فعال شود، بی‌خطا ----
+// ساختارِ واقعی: دکمه‌ها `data-view="x"` و بخش‌ها `#v-x` با کلاسِ `view`;
+// فعال‌شدن = «view on» روی همان بخش + «on» روی دکمه (تابعِ show در پنل).
+// روی صفحهٔ موبایل منو بسته است، پس اول باید باز شود — دقیقاً کاری که کاربر می‌کند.
+const ALL_VIEWS = ['dash', 'clients', 'inbounds', 'scan', 'build', 'nodes', 'spoof', 'settings', 'backup', 'about'];
+const navNames = await page.$$eval('[data-view]', (els) => [...new Set(els.map((e) => e.getAttribute('data-view')))]);
+say(`# دکمه‌های ناوبری در DOM: ${navNames.join(', ')}`);
+const missing = navNames.filter((n) => !ALL_VIEWS.includes(n));
+// پنل موبایل‌محور است و ناوبری پشتِ همبرگر (#btnBurger → #menu.show) پنهان است.
+const openedMenu = await page.evaluate(() => {
+  const m = document.getElementById('menu');
+  if (m && m.classList.contains('show')) return 'already-open';
+  const btn = document.getElementById('btnBurger');
+  if (btn) { btn.click(); return 'clicked #btnBurger'; }
+  return 'no burger button';
+});
+say(`# منو: ${openedMenu}`);
+const switched = [], stuck = [];
+for (const v of ALL_VIEWS) {
+  const loc = page.locator(`[data-view="${v}"]:visible`).first();
+  let clicked = false;
+  if (await loc.count()) {
+    clicked = await loc.click({ timeout: 6000 }).then(() => true).catch(() => false);
+  }
+  if (!clicked) {
+    // منو ممکن است با هر کلیک بسته شود؛ بازش کن و دوباره امتحان کن
+    await page.evaluate(() => { const b = document.getElementById('btnBurger'); if (b && !document.getElementById('menu').classList.contains('show')) b.click(); });
+    await page.waitForTimeout(120);
+    clicked = await page.locator(`[data-view="${v}"]:visible`).first().click({ timeout: 6000 }).then(() => true).catch(() => false);
+  }
+  await page.waitForTimeout(140);
+  const state = await page.evaluate((vv) => {
+    const el = document.getElementById('v-' + vv);
+    return { on: !!el && el.classList.contains('on'), cls: el ? el.className : 'no-section' };
+  }, v);
+  (clicked && state.on ? switched : stuck).push(clicked ? `${v}(کلاس=${state.cls})` : `${v}(کلیک نشد)`);
 }
-check('هر بخشِ ناوبری با کلیک واقعاً فعال می‌شود', switched >= Math.ceil(navViews.length * 0.8),
-  `${switched}/${navViews.length}${notSwitched.length ? ' | ' + notSwitched.slice(0, 6).join(' , ') : ''}`);
+check('هر بخشِ ناوبری با کلیک واقعی فعال می‌شود', stuck.length === 0,
+  `${switched.length}/${ALL_VIEWS.length}${stuck.length ? ' | گیرکرده: ' + stuck.join(' , ') : ''}`);
+check('همهٔ دکمه‌های ناوبری از فهرستِ انتظار می‌آیند (بخشِ ناشناخته‌ای اضافه نشده)', missing.length === 0, missing.join(',') || 'هیچ');
 
-// و همان لحظهٔ پس از گشت‌وگذار: سازندهٔ آیکون‌ها (که مسیرش محاسبه‌ای است) نباید خطا بدهد
+// همان لحظه: سازندهٔ آیکون‌ها (مسیرِ محاسبه‌ای) نباید خطا داده باشد
 check('گشت‌وگذار در همهٔ بخش‌ها خطای کنسولی جدیدی تولید نکرد', consoleErrors.length === 0, `${consoleErrors.length}`);
 
 // کوئری و مسیرهای عجیب: باید محترمانه جواب بدهند، نه ۵۰۰
