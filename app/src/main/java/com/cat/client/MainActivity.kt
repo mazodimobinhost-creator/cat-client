@@ -7300,13 +7300,79 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
         )
-        scannerSortedRows(visible).take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
-            val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
-            scannerResultsList.addView(
-                row ?: fallbackScannerRow(result),
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
-            )
+        // The sort itself is inside the guard too: it used to be the only unguarded
+        // statement between the count header and the rows, so a throw there left the
+        // screen showing «N result» with an empty list under it (again).
+        val top = runCatching { scannerSortedRows(visible) }.getOrElse { visible }
+            .take(SCANNER_VISIBLE_RESULTS).toList()
+        val buildFailure = runCatching {
+            top.forEachIndexed { index, result ->
+                val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
+                scannerResultsList.addView(
+                    row ?: fallbackScannerRow(result),
+                    LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
+                )
+            }
+        }.exceptionOrNull()
+        if (buildFailure != null && scannerResultsList.childCount <= 1) {
+            scannerResultsList.addView(scannerPlainRowsBlock(top), LinearLayout.LayoutParams(-1, -2))
         }
+        verifyScannerRowsPainted(top.size, buildFailure)
+    }
+
+    /** One plain text line per result — no weights, no backgrounds, no clipping. */
+    private fun scannerPlainRowsBlock(rows: List<IpScanner.ScanResult>): TextView =
+        TextView(this).apply {
+            text = rows.joinToString("\n") { r ->
+                buildString {
+                    append(r.flag); append(' '); append(r.ip); append(':'); append(r.port)
+                    append(" · "); append(getString(R.string.scanner_result_ping, r.pingMs))
+                    val cc = r.countryCode
+                    if (!cc.isNullOrBlank()) { append(" · "); append(cc) }
+                    if (r.tlsOk) append(" · TLS ✓")
+                }
+            }
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = glassSurfaceDrawable(radiusDp = 12)
+        }
+
+    /**
+     * Last line of defence for the results table. The count header has been rendered
+     * with zero rows under it three times now (1073/1114/1265 reports), and neither a
+     * crash nor a logged exception ever showed up — so instead of guessing again we
+     * MEASURE: after the frame is laid out, if the rows carry no height (or were never
+     * added) the same rows are appended as one plain text block and the numbers are
+     * written to the diagnostics log, so the next report says exactly what happened.
+     */
+    private fun verifyScannerRowsPainted(expected: Int, buildFailure: Throwable?) {
+        val root = scannerResultsList.viewTreeObserver
+        val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                val vto = runCatching { scannerResultsList.viewTreeObserver }.getOrNull()
+                runCatching { vto?.removeOnGlobalLayoutListener(this) }
+                val children = scannerResultsList.childCount
+                var painted = 0
+                for (i in 1 until children) painted += scannerResultsList.getChildAt(i).height
+                if (children > 1 && painted > 0) return
+                val rows = runCatching {
+                    scannerSortedRows(scannerFilterVisible(scannerSourceList()))
+                }.getOrElse { scannerFilterVisible(scannerSourceList()) }.take(SCANNER_VISIBLE_RESULTS).toList()
+                if (rows.isEmpty()) return
+                scannerResultsList.addView(scannerPlainRowsBlock(rows), LinearLayout.LayoutParams(-1, -2))
+                DiagnosticLogger.warn(
+                    this@MainActivity,
+                    "scanner.rows.empty",
+                    "expected=$expected children=$children paintedPx=$painted " +
+                        "failure=${buildFailure?.javaClass?.simpleName}:${buildFailure?.message}",
+                )
+            }
+        }
+        runCatching { root.addOnGlobalLayoutListener(listener) }
     }
 
     /** Cannot-throw plain row — the guaranteed-visible last resort. */
@@ -7326,131 +7392,60 @@ class MainActivity : Activity() {
      */
     private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
         val selected = scannerSelected.contains(scannerRowKey(result))
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            background = glassSurfaceDrawable(radiusDp = 12, highlighted = selected)
-            clipToOutline = true
-            setPadding(dp(10), dp(9), dp(10), dp(9))
-            isClickable = true
-            isFocusable = true
-            setSelectableBackground()
-            setOnClickListener { toggleScannerRow(result) }
-            setOnLongClickListener { copyScannerIp(result); true }
-        }
-        // ① selection box — the whole row is the tap target, so it must not swallow it.
-        row.addView(
-            android.widget.CheckBox(this).apply {
-                isChecked = selected
-                buttonTintList = ColorStateList.valueOf(TEAL)
-                isClickable = false
-                isFocusable = false
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(0, 0, 0, 0)
-            },
-            LinearLayout.LayoutParams(dp(26), -2),
-        )
-        // ② Address · then what it is and where it lands. The address keeps a line
-        // of its own: the fixed-width metric cells used to sit beside it and, on a
-        // narrow screen (or a large Display-size setting), the weighted column was
-        // squeezed to a few dp — the row showed the flag but no IP and no ping.
-        val addressColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        addressColumn.addView(
-            TextView(this).apply {
-                text = "${result.ip}:${result.port}"
-                textSize = 12.5f
-                typeface = CatClientDataTypeface
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                includeFontPadding = false
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.MIDDLE
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
+        val jitter = scannerJitterMs[result.ip]
+        val speed = result.speedBps
+        val up = result.uploadBps
         val location = if (!result.countryCode.isNullOrBlank()) {
             result.countryName ?: getString(R.string.scanner_result_edge_fallback)
         } else {
             result.colo?.takeIf { it.isNotBlank() } ?: getString(R.string.scanner_result_edge_fallback)
         }
-        // Second line: provenance text (weighted, ellipsized) + the four cells the
-        // sortable header above the list points at, so the columns still line up.
-        val metricsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        metricsRow.addView(
-            TextView(this).apply {
-                text = buildString {
-                    append(if (result.tlsOk) "TLS ✓" else "TCP")
-                    append(" · ")
-                    append(location)
-                    if (rank == 1 && result.tlsOk) append(" · " + getString(R.string.scanner_recommended))
-                }
-                textSize = 9.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(if (result.tlsOk) TEAL else TEXT_SECONDARY)
-                includeFontPadding = false
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-            },
-            LinearLayout.LayoutParams(0, -2, 1f),
-        )
-
-        fun cell(value: String, color: Int, bold: Boolean = true, size: Float = 11.5f) =
-            TextView(this).apply {
-                text = value
-                textSize = size
-                typeface = if (bold) CatClientBodyBoldTypeface else CatClientBodyTypeface
-                setTextColor(color)
-                gravity = Gravity.CENTER
-                includeFontPadding = false
-                maxLines = 1
+        val metrics = buildString {
+            if (jitter != null) append(" · ±").append(jitter)
+            when {
+                speed != null && up != null -> append(" · ").append(getString(R.string.scanner_result_speeds, speed / 1_000_000.0, up / 1_000_000.0))
+                speed != null -> append(" · ").append(getString(R.string.scanner_result_speed, speed / 1_000_000.0))
+                up != null -> append(" · ").append(getString(R.string.scanner_result_upload, up / 1_000_000.0))
             }
-
-        // ③ country · ④ ping · ⑤ jitter · ⑥ speed
-        metricsRow.addView(cell(result.flag, TEXT_PRIMARY, bold = false, size = 13f), LinearLayout.LayoutParams(dp(54), -2))
-        metricsRow.addView(
-            cell(
-                getString(R.string.scanner_result_ping, result.pingMs),
-                when {
-                    result.pingMs < SCANNER_GOOD_MS -> TEAL
-                    result.pingMs < SCANNER_FAIR_MS -> AMBER
-                    else -> ERROR
-                },
-            ),
-            LinearLayout.LayoutParams(dp(56), -2),
-        )
-        val jitter = scannerJitterMs[result.ip]
-        metricsRow.addView(
-            cell(if (jitter == null) "—" else "±$jitter", if (jitter == null) TEXT_SECONDARY else TEAL),
-            LinearLayout.LayoutParams(dp(46), -2),
-        )
-        val speed = result.speedBps
-        val up = result.uploadBps
-        metricsRow.addView(
-            cell(
-                when {
-                    speed != null && up != null ->
-                        getString(R.string.scanner_result_speeds, speed / 1_000_000.0, up / 1_000_000.0)
-                    speed != null -> getString(R.string.scanner_result_speed, speed / 1_000_000.0)
-                    up != null -> getString(R.string.scanner_result_upload, up / 1_000_000.0)
-                    else -> "—"
-                },
-                if (speed == null && up == null) TEXT_SECONDARY else TEAL,
-            ),
-            LinearLayout.LayoutParams(dp(78), -2),
-        )
-        addressColumn.addView(metricsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-        row.addView(addressColumn, LinearLayout.LayoutParams(0, -2, 1f))
-        return row
+        }
+        // ONE TextView per result — deliberately. The old column layout spent 280dp on
+        // fixed-width cells (checkbox 26 + country 54 + ping 56 + jitter 46 + speed 78
+        // + padding 20) before the weighted address column got anything, so on a
+        // 320dp-class screen (or Display size = Large) the address was squeezed to a
+        // few dp and the trailing cells were clipped by clipToOutline: the row kept its
+        // box and its flag and showed no IP. It has been reported as «no rows at all»
+        // three times since. A single wrapping text cannot be squeezed, clipped or
+        // zero-width; if it ever fails to appear, the failure is the list itself —
+        // which verifyScannerRowsPainted() now reports instead of leaving it blank.
+        return TextView(this).apply {
+            text = buildString {
+                append(if (selected) "☑ " else "☐ ")
+                append(result.flag).append(' ').append(result.ip).append(':').append(result.port)
+                append('\n')
+                append(if (result.tlsOk) "TLS ✓" else "TCP")
+                if (rank == 1 && result.tlsOk) append(" · ").append(getString(R.string.scanner_recommended))
+                append(" · ").append(getString(R.string.scanner_result_ping, result.pingMs))
+                append(metrics)
+                append(" · ").append(location)
+            }
+            textSize = 12.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            // Order matters: setSelectableBackground() replaces the background, so the
+            // glass card (and the teal edge on a selected row) must be applied after it.
+            setSelectableBackground()
+            background = glassSurfaceDrawable(radiusDp = 12, highlighted = selected)
+            clipToOutline = true
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { toggleScannerRow(result) }
+            setOnLongClickListener { copyScannerIp(result); true }
+        }
     }
 
     /**

@@ -649,21 +649,52 @@ class ProxyIpScannerPage(
             }
         }
         custom.lines().forEach(::addHost)
-        chosen.forEach { source ->
-            if (source == OFFLINE_SEEDS) {
-                CommunityIpLibrary.proxyIpSeeds.forEach(::addHost)
-            } else if (source.startsWith("http")) {
-                val failure = runCatching {
+        // Offline seeds first: the run already has candidates even if every network
+        // source below hangs, and it makes the first results appear immediately.
+        val ordered = chosen.sortedBy { if (it == OFFLINE_SEEDS) 0 else 1 }
+        ordered.forEachIndexed { index, source ->
+            val label = if (source == OFFLINE_SEEDS) null else source.substringAfter("//").substringBefore('/')
+            activity.runOnUiThread {
+                runCatching { progressText.text = ctx.getString(R.string.pip_collecting_source, index + 1, ordered.size) }
+            }
+            val before = out.size
+            // Each source runs on a throwaway thread with a deadline: a poisoned
+            // resolver used to leave the page on «در حال جمعآوری کاندیدها…» forever.
+            val finished = runBounded(SOURCE_TIMEOUT_MS) {
+                if (source == OFFLINE_SEEDS) {
+                    CommunityIpLibrary.proxyIpSeeds.forEach(::addHost)
+                } else if (source.startsWith("http")) {
                     val conn = URL(source).openConnection() as HttpURLConnection
-                    conn.connectTimeout = 10_000; conn.readTimeout = 15_000
+                    conn.connectTimeout = 8_000; conn.readTimeout = 10_000
+                    val code = conn.responseCode
+                    if (code >= 400) throw IllegalStateException("HTTP $code")
                     conn.inputStream.bufferedReader().useLines { lines -> lines.take(300).forEach(::addHost) }
                     conn.disconnect()
-                }.exceptionOrNull()
-                if (failure != null) notes += "${source.substringAfter("//").substringBefore('/')} ✗"
-            } else addHost(source)
+                } else addHost(source)
+            }
+            if (label == null) return@forEachIndexed
+            when {
+                !finished -> notes += "$label ⏱"
+                out.size == before -> notes += "$label ✗"
+            }
         }
         sourceNotes = notes.distinct().take(6)
         return out.filter { (h, _) -> h.isNotBlank() && !IpScanner.isCloudflareAddress(h) }.take(2000)
+    }
+
+    /**
+     * Runs [block] on a throwaway daemon thread and gives up after [timeoutMs].
+     * `InetAddress.getAllByName` cannot be interrupted, so the only way to keep a
+     * poisoned resolver from freezing the whole run is to stop waiting for it.
+     */
+    private fun runBounded(timeoutMs: Long, block: () -> Unit): Boolean {
+        val done = java.util.concurrent.CountDownLatch(1)
+        val ok = java.util.concurrent.atomic.AtomicBoolean(false)
+        Thread {
+            runCatching { block() }.onSuccess { ok.set(true) }
+            done.countDown()
+        }.apply { isDaemon = true; name = "pip-collect" }.start()
+        return if (done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) ok.get() else false
     }
 
     /** TLS to the relay with a Cloudflare SNI and ask the edge for its trace through it. */
@@ -710,6 +741,8 @@ class ProxyIpScannerPage(
 
     private companion object {
         const val TRACE_HOST = "speed.cloudflare.com"
+        /** Per-source deadline: slow enough for a real fetch, short enough to stay usable. */
+        const val SOURCE_TIMEOUT_MS = 6_000L
         /** Sentinel source key: relays carried inside the APK, no DNS and no HTTP involved. */
         const val OFFLINE_SEEDS = "📦 کتابخانهٔ آفلاین (بدون DNS)"
     }

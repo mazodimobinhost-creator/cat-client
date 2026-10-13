@@ -1071,6 +1071,7 @@
     <string name="panel_rot_off">ثابت</string>
     <string name="panel_status_body">🐱 %1$s (v%2$s)\n\n🎯 SNI: %3$s\n💦 آی‌پی تمیز: %4$d (📌 پورت‌پین: %5$d)\n🎭 رله ProxyIP: %6$d\n⛓ خروجی ثابت: %7$s\n🧬 SNI اضافه: %8$d\n🚪 پورت‌ها: %9$s\n🔄 چرخش: %10$s\n\n🔗 ساب:\n%11$s</string>
     <string name="pip_pick_panel">کدام پنل؟</string>
+    <string name="pip_collecting_source">خواندن منبع %1$d از %2$d…</string>
     <string name="pip_country_unknown">نامشخص</string>
     <string name="pip_sources_dead">منابع بی‌پاسخ: %1$s — DNS/فیلتر یا تونل؛ آدرس دستی بچسبان</string>
     <string name="pip_no_panel">هیچ Cat Panel‌ای در ساب‌هایت پیدا نشد</string>

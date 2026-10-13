@@ -3,30 +3,113 @@ package com.cat.client
 import android.content.Context
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicIntegerArray
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Country for relay hosts whose `/cdn-cgi/trace` carried no usable `loc=`.
+ * Country for relay hosts the trace could not name.
  *
- * One ip-api batch call for the whole list — never one request per host, and never
- * a guessed country: a host the lookup cannot resolve is simply absent from the
- * result, so the caller can label it honestly («نامشخص») instead of printing a
- * placeholder that looks like a country code.
+ * The lookup runs over **HTTPS first**: plain-HTTP endpoints (the old
+ * `http://ip-api.com/batch`-only path) simply never answered on the filtered networks
+ * this app is used from, and the failure was swallowed, so every hit ended up in the
+ * «??» / «نامشخص» group with no explanation. A few free HTTPS services are tried per
+ * host, with a circuit breaker so a host-blocked endpoint costs two failures instead
+ * of one timeout per relay. The old batch call stays as a last-resort bulk pass.
  *
- * The endpoint is plain HTTP and sits OUTSIDE Cloudflare, so on a network whose
- * only working path is a CF-bound tunnel the whole call fails fast. That used to
- * happen silently (every hit stayed in the «??» group with no explanation); the
- * failure is now logged so the diagnostics page can show *why* a list came back
- * empty instead of leaving the user to guess.
+ * Never guesses: a host the lookup cannot resolve is absent from the result, so the
+ * caller labels it honestly.
  */
 object RelayCountryLookup {
-    /** `host -> ISO-3166 alpha-2`. Empty map when the lookup itself failed. */
+    /** `%s` = host. Order matters: cheapest/most permissive first. */
+    private val HTTPS_ENDPOINTS = listOf(
+        "https://ipwho.is/%s",           // {"ip":"…","country_code":"DE", …}
+        "https://api.country.is/%s",     // {"ip":"…","country":"DE"}
+        "https://ipapi.co/%s/country/",  // DE
+    )
+    private const val PER_REQUEST_TIMEOUT_MS = 4_000
+    private const val TOTAL_BUDGET_MS = 20_000L
+    private const val PARALLELISM = 8
+    /** Two failures is enough to retire an endpoint for this call. */
+    private const val BREAKER_LIMIT = 2
+
+    /** `host -> ISO-3166 alpha-2`. Empty map when every lookup failed. */
     fun resolve(context: Context?, hosts: List<String>): Map<String, String> {
         val pending = hosts.filter { it.isNotBlank() }.distinct()
         if (pending.isEmpty()) return emptyMap()
         val out = HashMap<String, String>()
-        pending.chunked(100).forEach { chunk ->
+        val failures = AtomicIntegerArray(HTTPS_ENDPOINTS.size)
+        val pool = runCatching { Executors.newFixedThreadPool(PARALLELISM) }.getOrNull() ?: return emptyMap()
+        val started = System.currentTimeMillis()
+        try {
+            val futures = pending.map { ip ->
+                pool.submit {
+                    if (System.currentTimeMillis() - started > TOTAL_BUDGET_MS) return@submit
+                    httpsCountry(ip, failures)?.let { cc -> synchronized(out) { out[ip] = cc } }
+                }
+            }
+            futures.forEach { runCatching { it.get(TOTAL_BUDGET_MS, TimeUnit.MILLISECONDS) } }
+        } finally {
+            runCatching { pool.shutdownNow() }
+        }
+        val missing = pending.filterNot { out.containsKey(it) }
+        if (missing.isNotEmpty()) {
+            val bulk = ipApiBatch(context, missing)
+            bulk.forEach { (host, cc) -> synchronized(out) { out[host] = cc } }
+        }
+        if (out.isEmpty() && context != null) {
+            DiagnosticLogger.warn(context, "relay.country.lookup.failed", "hosts=${pending.size}")
+        }
+        return out
+    }
+
+    /** First HTTPS endpoint that answers with a two-letter code wins. */
+    private fun httpsCountry(ip: String, failures: AtomicIntegerArray): String? {
+        for (i in HTTPS_ENDPOINTS.indices) {
+            if (failures.get(i) >= BREAKER_LIMIT) continue
+            val code = runCatching { fetchCountry(HTTPS_ENDPOINTS[i].format(ip)) }.getOrNull()
+            if (code != null) return code
+            failures.incrementAndGet(i)
+        }
+        return null
+    }
+
+    private fun fetchCountry(url: String): String? {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = PER_REQUEST_TIMEOUT_MS
+            conn.readTimeout = PER_REQUEST_TIMEOUT_MS
+            conn.setRequestProperty("Accept", "application/json, text/plain")
+            conn.setRequestProperty("User-Agent", "CatClient")
+            val code = conn.responseCode
+            if (code >= 400) return null
+            val body = conn.inputStream.bufferedReader().readText().trim()
+            return parseCountry(body)
+        } finally {
+            runCatching { conn.disconnect() }
+        }
+    }
+
+    /** Accepts `{"country_code":"DE"}`, `{"country":"DE"}` and a bare `DE` body. */
+    private fun parseCountry(body: String): String? {
+        val code = if (body.startsWith("{")) {
+            val json = runCatching { JSONObject(body) }.getOrNull() ?: return null
+            if (json.isNull("success") && !json.has("country_code") && !json.has("country")) return null
+            if (!json.optBoolean("success", true)) return null
+            json.optString("country_code").ifBlank { json.optString("country") }
+        } else {
+            body
+        }
+        val cc = code.trim().uppercase(java.util.Locale.ROOT).take(2)
+        return cc.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
+    }
+
+    /** Bulk fallback: the original plain-HTTP batch, kept for networks where it works. */
+    private fun ipApiBatch(context: Context?, hosts: List<String>): Map<String, String> {
+        val out = HashMap<String, String>()
+        hosts.chunked(100).forEach { chunk ->
             val failure = runCatching {
                 val body = JSONArray().apply {
                     chunk.forEach { put(JSONObject().put("query", it)) }
@@ -49,7 +132,7 @@ object RelayCountryLookup {
                 }
             }.exceptionOrNull()
             if (failure != null && context != null) {
-                DiagnosticLogger.warn(context, "relay.country.lookup", "hosts=${chunk.size}", failure)
+                DiagnosticLogger.warn(context, "relay.country.lookup.batch", "hosts=${chunk.size}", failure)
             }
         }
         return out
