@@ -749,3 +749,31 @@ wrangler tail -> refused: 10429 rate limited (twice, once per worker)
 
 و هر سه آرتیفکتِ به‌روز (`catpanel.obf.js` = 1,243,155 B، `catpanel.min.js` = 494,032 B،
 `catclient.worker.js` = 655,438 B، همه ‎6.67.0‎) با `node --check` پارس می‌شوند.
+
+## د) بازبینیِ دوم — ۲۰۲۶-۱۰-۱۳ حدود ۰۹:۵۶ UTC: همان نتیجه، این‌بار روی خودِ کاربر
+
+```
+GET /user/tokens/verify              -> 200  {"id":"b17a…6c7","status":"active"}   ← خودِ توکن سالم است
+GET /user                            -> 403  {"code":9109,"message":"User was deactivated"}
+GET /user/memberships                -> 403  {"code":10000,"message":"Authentication error"}
+GET /accounts/<id>                   -> 403  {"code":9109,"message":"User was deactivated"}
+GET /accounts/<id>/workers/subdomain -> 403  {"code":10000,"message":"Authentication error"}
+GET /accounts/<id>/workers/scripts   -> 429  {"code":10429,"message":"Rate limited…"}
+edge-9ccq0.zojfup.workers.dev/health -> 404, 17 B, "error code: 1042"
+edge-vgiab.zojfup.workers.dev/health -> 404, 17 B, "error code: 1042"
+(wrangler tail امتحان نشد — لیستِ اسکریپت‌ها جواب نداد)
+```
+
+**توالیِ زمانیِ مستند:** رانِ تستِ زندهٔ `38264339482` در `2026-10-12 14:38 UTC` با همین
+اعتبارنامه **موفق** بود (دیپلویِ `catpanel-test`، ۱۷/۱۷ و ۱۲/۱۲، و `DELETE … → 200`).
+هشت ساعت بعد (۱۰-۱۳، ۰۴:۰۴ و دوباره ۰۹:۵۶ UTC) همان اعتبارنامه روی `/user` و
+`/accounts/<id>` کدِ **۹۱۰۹ «User was deactivated»** می‌گیرد، در حالی که خودِ توکن هنوز
+`status: active` برمی‌گرداند. علتِ این تغییر از API قابلِ خواندن نیست (سطحِ حساب بسته است)؛
+برای دیدنش باید وضعیتِ آن حساب/کاربر در داشبورد و ایمیل‌های کلادفلر بررسی شود.
+
+دو نکتهٔ صادقانه: (۱) ۹۱۰۹ روی `/user` هم می‌آید، یعنی مسئله فقط یک حساب نیست بلکه خودِ
+کاربرِ صاحبِ توکن؛ (۲) اینکه «چرا» غیرفعال شده از این‌جا اندازه‌گیری‌نشدنی است — حدس نیست،
+اندازه‌گیری است که منفی است.
+
+**و همین یعنی ۱۱۰۱ قابلِ بازتولید نیست:** اگر ورکری روی روت باشد ولی کدش بمیرد، پاسخ
+`1101` است؛ آنچه اندازه‌گیری شد `1042` است، یعنی **هیچ ورکری روی روت نیست**.
