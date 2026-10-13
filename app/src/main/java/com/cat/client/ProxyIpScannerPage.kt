@@ -170,7 +170,7 @@ class ProxyIpScannerPage(
         gravity = Gravity.CENTER
         background = GradientDrawable().apply {
             cornerRadius = dp(19).toFloat()
-            setColor(if (filled) palette.teal else palette.surfaceElevated)
+            setColor(if (filled) palette.teal else palette.surfaceElevated2)
             if (!filled) setStroke(dp(1), palette.outline)
         }
         isClickable = true; isFocusable = true
