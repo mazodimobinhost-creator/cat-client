@@ -1233,6 +1233,79 @@ object CloudflareWorker {
         }.getOrElse { PanelHealth("DOWN", it.message ?: "network error") }
     }
 
+    /**
+     * One route of the three-point panel test.
+     *
+     * WHY (the owner's 1101 question, answered without a terminal): the two things a
+     * «1101» can mean are told apart by *what the worker answers*, not by the error page:
+     *
+     *   • JSON back → the module LOADED and RAN. A failure afterwards is a request
+     *     failure, and the panel's own crash report (`panel_crash`) covers it.
+     *   • HTML / «Worker threw exception» / no answer → our code never ran: a truncated
+     *     upload, a deploy that did not land, or a suspension. No `try/catch` inside the
+     *     file can catch that, because no code inside the file executes.
+     *
+     * The raw head of every answer is kept, so the verdict can be checked instead of
+     * believed.
+     */
+    data class RouteProbe(
+        val label: String,
+        val path: String,
+        val status: Int,
+        val contentType: String,
+        val bodyHead: String,
+        val verdict: String,
+    ) {
+        /** `code-ran` · `code-never-ran` · `unreachable` · `other` */
+        val codeRan: Boolean get() = verdict == "code-ran"
+    }
+
+    /**
+     * The three URLs, asked in order: `/health`, `/api/version` (JSON proves the module
+     * evaluated) and `/api/selfcheck?throw=1` (proves the 1101 guard works — it throws on
+     * purpose and must come back as a JSON `panel_crash`).
+     */
+    fun probePanelRoutes(workerUrl: String, timeoutMs: Int = 8_000): List<RouteProbe> {
+        val base = workerUrl.trim().trimEnd('/')
+        if (base.isBlank()) return emptyList()
+        val origin = if (base.startsWith("http://") || base.startsWith("https://")) base else "https://$base"
+        return listOf(
+            "health" to "/health",
+            "version" to "/api/version",
+            "selfcheck" to "/api/selfcheck?throw=1",
+        ).map { (label, path) -> runCatching { probeOneRoute(label, origin + path, timeoutMs) }
+            .getOrElse { RouteProbe(label, path, 0, "", it.message.orEmpty().take(120), "unreachable") } }
+    }
+
+    private fun probeOneRoute(label: String, url: String, timeoutMs: Int): RouteProbe {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            instanceFollowRedirects = false
+            setRequestProperty("User-Agent", "CatClient")
+            setRequestProperty("Accept", "application/json, text/html;q=0.8, */*;q=0.5")
+        }
+        return try {
+            val code = conn.responseCode
+            val type = conn.contentType.orEmpty().substringBefore(';')
+            val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            val body = runCatching { stream?.bufferedReader()?.use { r -> r.readText().take(4_000) } }.getOrNull().orEmpty()
+            val head = body.trim().replace(Regex("\\s+"), " ").take(200)
+            val lower = body.lowercase()
+            val verdict = when {
+                body.isBlank() -> "other"
+                body.trimStart().startsWith("{") || body.trimStart().startsWith("[") -> "code-ran"
+                head.startsWith("<") || lower.contains("error 1101") || lower.contains("worker threw exception") ||
+                    lower.contains("cf-error") -> "code-never-ran"
+                else -> "other"
+            }
+            RouteProbe(label, url.substringAfter("://").substringAfter('/').let { "/" + it }, code, type, head, verdict)
+        } finally {
+            runCatching { conn.disconnect() }
+        }
+    }
+
     data class PanelRestoreResult(val settingsApplied: Boolean, val usersRestored: Int)
 
     /**

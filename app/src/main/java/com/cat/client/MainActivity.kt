@@ -4576,6 +4576,18 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(8) },
         )
         diagnosticsPanel.addView(diagnosticsActions, LinearLayout.LayoutParams(-1, -2))
+        // 🩺 The owner's 1101 question, answerable on the phone: ask the three URLs and
+        // print the raw heads. «The code ran» and «the code never ran» need opposite
+        // actions — re-upload the file vs. run the recovery flow — and the error page
+        // itself says nothing about which one you have.
+        diagnosticsPanel.addView(
+            diagnosticsButton(R.string.panel_probe_button) { showPanelProbeDialog() },
+            LinearLayout.LayoutParams(-2, dp(44)).apply {
+                marginStart = dp(12)
+                marginEnd = dp(12)
+                topMargin = dp(8)
+            },
+        )
         // 📄 The last crash IS IN THE APP (beta99): the Downloads copy is a file the
         // owner cannot always hand over — this section shows the same text and copies
         // it with one tap, so a crash report is never «sent but lost» again.
@@ -14805,6 +14817,102 @@ class MainActivity : Activity() {
         clipboard.setPrimaryClip(clip)
         Toast.makeText(this, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
         DiagnosticLogger.info(this, "diagnostics.copy", "chars=${diagnostics.length}")
+    }
+
+    /**
+     * 🩺 Three-point panel test: `/health`, `/api/version`, `/api/selfcheck?throw=1`.
+     *
+     * The three answers separate the two meanings of «Error 1101» — JSON back means the
+     * module loaded and ran (so the failure is per-request and the panel reports it
+     * itself), anything else means the file never loaded (re-upload; only if that
+     * repeats on a fresh name is it a suspension). Runs against the deployed worker, or
+     * against a URL the owner pastes when nothing is stored.
+     */
+    private fun showPanelProbeDialog() {
+        val deployed = runCatching {
+            PanelDeploymentStore(this).deployments().firstOrNull()?.workerUrl
+        }.getOrNull().orEmpty().trim()
+        if (deployed.isBlank()) {
+            val input = EditText(this).apply {
+                hint = getString(R.string.panel_probe_url_hint)
+                inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                setText("https://")
+                setSelection(text.length)
+            }
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.panel_probe_title)
+                .setView(input)
+                .setPositiveButton(R.string.panel_probe_title) { _, _ ->
+                    val typed = input.text.toString().trim()
+                    if (typed.isBlank() || typed == "https://") {
+                        Toast.makeText(this, R.string.panel_probe_need_url, Toast.LENGTH_SHORT).show()
+                    } else {
+                        runPanelProbe(typed)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
+        runPanelProbe(deployed)
+    }
+
+    private fun runPanelProbe(workerUrl: String) {
+        Toast.makeText(this, R.string.panel_probe_running, Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            val probes = withContext(Dispatchers.IO) {
+                runCatching { CloudflareWorker.probePanelRoutes(workerUrl) }.getOrDefault(emptyList())
+            }
+            if (probes.isEmpty()) {
+                Toast.makeText(this@MainActivity, R.string.panel_probe_need_url, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val text = buildString {
+                append(workerUrl.trimEnd('/')).append('\n')
+                probes.forEach { probe ->
+                    append('\n').append(probe.path).append("  →  HTTP ").append(probe.status)
+                    if (probe.contentType.isNotBlank()) append("  ").append(probe.contentType)
+                    append('\n')
+                    append(
+                        getString(
+                            when (probe.verdict) {
+                                "code-ran" -> R.string.panel_probe_ran
+                                "code-never-ran" -> R.string.panel_probe_never
+                                "unreachable" -> R.string.panel_probe_unreachable
+                                else -> R.string.panel_probe_other
+                            },
+                        ),
+                    ).append('\n')
+                    if (probe.bodyHead.isNotBlank()) append("   ").append(probe.bodyHead.take(140)).append('\n')
+                }
+                append('\n')
+                append(getString(if (probes.any { it.codeRan }) R.string.panel_probe_hint_ran else R.string.panel_probe_hint_never))
+            }
+            DiagnosticLogger.info(this@MainActivity, "panel.probe", text.replace('\n', ' ').take(400))
+            val view = TextView(this@MainActivity).apply {
+                this.text = text
+                textSize = 10.5f
+                typeface = CatClientDataTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                textDirection = View.TEXT_DIRECTION_LTR
+                setTextIsSelectable(true)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+            }
+            val scroll = android.widget.ScrollView(this@MainActivity).apply { addView(view) }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.panel_probe_title)
+                .setView(scroll)
+                .setPositiveButton(R.string.panel_probe_copy) { _, _ ->
+                    (getSystemService(ClipboardManager::class.java))
+                        .setPrimaryClip(ClipData.newPlainText("Cat Client panel probe", text))
+                    Toast.makeText(this@MainActivity, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(android.R.string.ok, null)
+                .show()
+        }
     }
 
     /** Copies the last crash (thread + version + stack) for a chat paste. */
