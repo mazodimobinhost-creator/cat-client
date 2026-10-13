@@ -777,3 +777,27 @@ edge-vgiab.zojfup.workers.dev/health -> 404, 17 B, "error code: 1042"
 
 **و همین یعنی ۱۱۰۱ قابلِ بازتولید نیست:** اگر ورکری روی روت باشد ولی کدش بمیرد، پاسخ
 `1101` است؛ آنچه اندازه‌گیری شد `1042` است، یعنی **هیچ ورکری روی روت نیست**.
+
+## ه) بازبینیِ سوم — ۲۰۲۶-۱۰-۱۳ ساعت ۱۰:۰۵ UTC: حساب هنوز برنگشته
+
+پروبِ «take 4» (رانِ `38380813767`) که برای همین ساخته شد که اگر حساب برگشته باشد همان‌جا
+یک ۱۱۰۱ واقعی را هم بگیرد، در همان قدمِ اول متوقف شد:
+
+```
+GET /user/tokens/verify     -> 200  {"status":"active"}          ← توکن سالم
+GET /user                   -> 403  {"code":9109,"message":"User was deactivated"}
+GET /user/memberships       -> 403  {"code":10000,"message":"Authentication error"}
+GET /accounts/<id>          -> 403  {"code":9109,"message":"User was deactivated"}
+GET /accounts/<id>/workers/scripts -> 403 Authentication error
+edge-9ccq0.zojfup.workers.dev/health -> 404, 17 B, "error code: 1042", cf-ray: a49d85c1…-BOS
+edge-vgiab.zojfup.workers.dev/health -> 404, 17 B, "error code: 1042", cf-ray: a49d85dd…-LHR
+```
+
+قدم‌های ۳ و ۴ (آپلودِ اپ روی `catpanel-test`، و ساختِ عمدیِ یک ورکرِ «در لحظهٔ استارت
+می‌میرد» روی `catpanel-test-1101` با `tail` چسبیده) به‌صورتِ طراح‌شده skip شدند، چون بدونِ
+دسترسیِ نوشتنی به حساب نمی‌شود ورکری ساخت. یعنی ۱۱۰۱ همچنان **بازتولیدنشده** است — نه
+«اندازه‌گیری‌شده و بی‌علت».
+
+**چه چیزی باز می‌کند:** فعال‌شدنِ همان حساب از سمتِ کلادفلر، یا یک توکنِ حسابِ فعالِ دیگر در
+همان دو سکرت (`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`). با آن، همان ورک‌فلوی
+آماده یک ران کافی است.
