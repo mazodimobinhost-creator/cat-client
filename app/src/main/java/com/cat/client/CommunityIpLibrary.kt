@@ -103,4 +103,20 @@ object CommunityIpLibrary {
         .filter { it.isNotEmpty() }
         .distinct()
         .filter { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(false) }
+
+    /**
+     * The very entries [ips] drops: NON-Cloudflare relays from the same public
+     * lists. They can never front a CF edge (that is why the clean-IP scanner
+     * refuses them) but they are exactly what a ProxyIP relay is — a box that
+     * forwards to Cloudflare. Shipping them as an offline seed source means the
+     * ProxyIP scanner still has candidates to probe when the public lists cannot
+     * be resolved at all (blocked DNS / filtered network), instead of coming back
+     * with «nothing found» and no explanation.
+     */
+    val proxyIpSeeds: List<String> = raw
+        .flatMap { it.split(',') }
+        .map { it.trim() }
+        .filter { ip -> ip.count { it == '.' } == 3 && ip.split('.').all { it.toIntOrNull() != null && it.toInt() in 0..255 } }
+        .distinct()
+        .filterNot { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(true) }
 }

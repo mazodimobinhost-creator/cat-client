@@ -38,7 +38,6 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -71,6 +70,9 @@ class ProxyScannerPage(
     private lateinit var countChecked: TextView; private lateinit var countOpen: TextView
     private lateinit var countHealthy: TextView; private lateinit var countOpenNot: TextView
     private lateinit var progressText: TextView
+    private lateinit var sourceStatusText: TextView
+    /** Public lists that answered nothing this run (DNS/HTTP), shown under the progress line. */
+    private var sourceNotes: List<String> = emptyList()
     private lateinit var resultsList: LinearLayout
     private lateinit var protoChips: LinearLayout
     private lateinit var countryChips: LinearLayout
@@ -198,6 +200,10 @@ class ProxyScannerPage(
 
         startButton = button(ctx.getString(R.string.pscan_start), filled = true) { if (job?.isActive == true) stop() else start() }
         progressText = text(ctx.getString(R.string.pscan_idle), 12f, color = palette.textSecondary)
+        // Names the public lists that answered nothing: on a filtered network the
+        // default jsdelivr feeds simply cannot be fetched, and that is the whole
+        // reason a run finds no proxies at all.
+        sourceStatusText = text("", 11f, color = palette.textTertiary).apply { visibility = View.GONE }
         val (c1, v1) = counter(ctx.getString(R.string.pscan_checked)); countChecked = v1
         val (c2, v2) = counter(ctx.getString(R.string.pscan_open)); countOpen = v2
         val (c3, v3) = counter(ctx.getString(R.string.pscan_healthy)); countHealthy = v3
@@ -213,6 +219,7 @@ class ProxyScannerPage(
                 addView(button(ctx.getString(R.string.pscan_clear), filled = false) { clear() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             })
             addView(progressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(sourceStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(countersRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
 
@@ -247,6 +254,10 @@ class ProxyScannerPage(
     }
 
     private fun renderCounters() {
+        if (::sourceStatusText.isInitialized) {
+            sourceStatusText.text = if (sourceNotes.isEmpty()) "" else ctx.getString(R.string.pip_sources_dead, sourceNotes.joinToString(" · "))
+            sourceStatusText.visibility = if (sourceNotes.isEmpty()) View.GONE else View.VISIBLE
+        }
         countChecked.text = checked.get().toString(); countOpen.text = open.get().toString()
         countHealthy.text = hits.size.toString(); countOpenNot.text = openNotProxy.get().toString()
         progressText.text = if (job?.isActive == true) ctx.getString(R.string.pscan_scanning, checked.get(), total) else if (total > 0) ctx.getString(R.string.pscan_done, hits.size) else ctx.getString(R.string.pscan_idle)
@@ -266,7 +277,7 @@ class ProxyScannerPage(
         val byCountry = hits.groupingBy { it.country }.eachCount().entries.sortedByDescending { it.value }
         countryChips.addView(chip(ctx.getString(R.string.pscan_all_countries), filterCountry == null) { filterCountry = null; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         byCountry.forEach { (cc, n) ->
-            val label = (if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "?? ") + " ($n)"
+            val label = (if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "🌐 " + ctx.getString(R.string.pip_country_unknown)) + " ($n)"
             countryChips.addView(chip(label, filterCountry == cc) { filterCountry = cc; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         }
         resultsList.removeAllViews()
@@ -351,7 +362,7 @@ class ProxyScannerPage(
                                 synchronized(hits) { hits += result }
                             }
                             val now = SystemClock.elapsedRealtime()
-                            if (now - lastUi > 250L) { lastUi = now; withContext(Dispatchers.Main) { renderCounters() } }
+                            if (now - lastUi > 250L) { lastUi = now; withContext(Dispatchers.Main) { renderCounters(); renderResults() } }
                         }
                     }
                 }.awaitAll()
@@ -389,14 +400,20 @@ class ProxyScannerPage(
             else if (Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$").matches(line) || line.contains('.')) ports.forEach { p -> out += Candidate(line, p, proto) }
         }
         custom.lines().forEach { addLine(it, null) }
+        val notes = ArrayList<String>()
         urls.forEach { (url, proto) ->
-            runCatching {
+            val label = url.substringAfter("//").substringBefore('/')
+            val failure = runCatching {
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 10_000; conn.readTimeout = 20_000
+                val code = conn.responseCode
+                if (code >= 400) throw IllegalStateException("HTTP $code")
                 conn.inputStream.bufferedReader().useLines { lines -> lines.forEach { if (out.size < 60_000) addLine(it, proto) } }
                 conn.disconnect()
-            }
+            }.exceptionOrNull()
+            if (failure != null) notes += "$label ✗"
         }
+        sourceNotes = notes.distinct().take(6)
         return out.toList()
     }
 
@@ -444,22 +461,16 @@ class ProxyScannerPage(
         }
     }
 
+    /**
+     * Country per hit, one batch for the whole run. A failed lookup leaves the hit
+     * on «نامشخص» (never a guessed code) and logs the reason, so an unreachable
+     * endpoint explains itself instead of showing a wall of «??» groups.
+     */
     private fun geolocate() {
         val snapshot = synchronized(hits) { hits.toList() }
-        snapshot.chunked(100).forEach { chunk ->
-            runCatching {
-                val body = JSONArray().apply { chunk.forEach { put(JSONObject().put("query", it.host).put("fields", "countryCode,query")) } }.toString()
-                val conn = URL("http://ip-api.com/batch?fields=countryCode,query").openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 8_000; conn.readTimeout = 10_000
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toByteArray()) }
-                val arr = JSONArray(conn.inputStream.bufferedReader().readText())
-                conn.disconnect()
-                val map = HashMap<String, String>()
-                for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); map[o.optString("query")] = o.optString("countryCode").uppercase(Locale.ROOT) }
-                chunk.forEach { it.country = map[it.host].orEmpty() }
-            }
-        }
+        if (snapshot.isEmpty()) return
+        val found = RelayCountryLookup.resolve(ctx, snapshot.map { it.host })
+        snapshot.forEach { hit -> found[hit.host]?.let { hit.country = it } }
     }
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }

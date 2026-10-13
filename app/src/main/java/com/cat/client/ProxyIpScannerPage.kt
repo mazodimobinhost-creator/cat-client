@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.SystemClock
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
@@ -89,6 +90,9 @@ class ProxyIpScannerPage(
         "proxyip.us.fxxk.dedyn.io" to false, "proxyip.sg.fxxk.dedyn.io" to false, "proxyip.jp.fxxk.dedyn.io" to false,
         "cdn.xn--b6gac.eu.org" to false,
         "https://ipdb.030101.xyz/api/bestproxy.txt" to true,
+        // No DNS, no HTTP: relays already inside the APK. Keeps the scanner useful
+        // on networks where every public list above is blocked.
+        OFFLINE_SEEDS to true,
     )
     // Ports the scanner probes. An explicit :port on a source line is honored
     // as-is; a bare host is tried on every selected port — and each result
@@ -96,6 +100,9 @@ class ProxyIpScannerPage(
     private val selectedPorts = LinkedHashSet(listOf(443, 2053))
     private var threads = 32
     private var timeoutMs = 5_000
+    /** Sources that answered nothing, in the order they were tried — shown under the progress line. */
+    private var sourceNotes: List<String> = emptyList()
+    private lateinit var sourceStatusText: TextView
 
     fun show() {
         val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
@@ -186,6 +193,9 @@ class ProxyIpScannerPage(
 
         startButton = button(ctx.getString(R.string.pscan_start), true) { if (job?.isActive == true) stop() else start() }
         progressText = text(ctx.getString(R.string.pip_idle), 12f, color = palette.textSecondary)
+        // Which of the selected sources answered nothing, and why (DNS/HTTP). Without
+        // this line a filtered network just looks like «the scanner found no IPs».
+        sourceStatusText = text("", 11f, color = palette.textTertiary).apply { visibility = View.GONE }
         val scanCard = card().apply {
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -193,6 +203,7 @@ class ProxyIpScannerPage(
                 addView(button(ctx.getString(R.string.pscan_clear), false) { clear() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             })
             addView(progressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(sourceStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
 
         countryChips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
@@ -234,6 +245,10 @@ class ProxyIpScannerPage(
             else -> ctx.getString(R.string.pip_idle)
         }
         startButton.text = ctx.getString(if (job?.isActive == true) R.string.pscan_stop else R.string.pscan_start)
+        if (::sourceStatusText.isInitialized) {
+            sourceStatusText.text = if (sourceNotes.isEmpty()) "" else ctx.getString(R.string.pip_sources_dead, sourceNotes.joinToString(" · "))
+            sourceStatusText.visibility = if (sourceNotes.isEmpty()) View.GONE else View.VISIBLE
+        }
     }
 
     private fun visible() = hits.filter { filterCountry == null || it.country == filterCountry }.sortedBy { it.latencyMs }
@@ -243,7 +258,7 @@ class ProxyIpScannerPage(
         val groups = hits.groupingBy { it.country }.eachCount().entries.sortedByDescending { it.value }
         countryChips.addView(chip(ctx.getString(R.string.pscan_all_countries) + " (${hits.size})", filterCountry == null) { filterCountry = null; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         groups.forEach { (cc, n) ->
-            countryChips.addView(chip((if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "🌐 ??") + " ($n)", filterCountry == cc) { filterCountry = cc; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+            countryChips.addView(chip((if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "🌐 " + ctx.getString(R.string.pip_country_unknown)) + " ($n)", filterCountry == cc) { filterCountry = cc; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         }
         resultsList.removeAllViews()
         val shown = visible()
@@ -256,8 +271,13 @@ class ProxyIpScannerPage(
             resultsList.addView(chip(ctx.getString(if (allOn) R.string.pip_deselect_all else R.string.pip_select_all), false) { shown.forEach { it.selected = !allOn }; renderResults() }, LinearLayout.LayoutParams(-2, -2))
         }
         shown.take(150).forEach { hit ->
+            // Two lines per row: the address owns the first one outright. The action
+            // buttons used to sit beside it on the same line, and on a narrow phone
+            // (or a large Display-size setting) their combined width squeezed the
+            // address to a few dp — the row looked like «no IP at all» while the
+            // flag and the buttons were still there.
             resultsList.addView(LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LTR; gravity = Gravity.CENTER_VERTICAL
+                orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LTR
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(14).toFloat(); setColor(palette.surfaceElevated2)
@@ -265,29 +285,37 @@ class ProxyIpScannerPage(
                 }
                 isClickable = true; isFocusable = true
                 setOnClickListener { hit.selected = !hit.selected; renderResults() }
-                addView(text(if (hit.selected) "☑" else "☐", 18f, color = if (hit.selected) palette.teal else palette.textTertiary), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
-                addView(text(if (hit.country.length == 2) hit.country.toFlagEmoji() else "🌐", 18f), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
                 addView(LinearLayout(ctx).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(text(if (hit.port == 443) hit.host else "${hit.host}:${hit.port}", 14f, bold = true).apply { typeface = CatClientDataTypeface; maxLines = 1 })
-                    addView(text("${hit.country.ifBlank { "??" }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
-                    addView(text(ctx.getString(R.string.pip_score, hit.score), 11f, color = palette.textTertiary))
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(button(ctx.getString(R.string.pip_choose_route), false) {
-                    // «This route» = keep this relay, drop every other selection.
-                    hits.forEach { it.selected = (it === hit) }
-                    renderResults()
-                }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                if (onUseAsEntry != null) {
-                    addView(button(ctx.getString(R.string.pip_use_entry_short), false) {
-                        // This IP already completed a TLS handshake with the panel SNI —
-                        // it can replace the worker hostname as the connect address.
-                        val endpoint = if (hit.port == 443) hit.host
-                            else if (hit.host.contains(":")) "[${hit.host}]:${hit.port}"
-                            else "${hit.host}:${hit.port}"
-                        onUseAsEntry.invoke(endpoint)
-                    }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                }
+                    orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LTR; gravity = Gravity.CENTER_VERTICAL
+                    addView(text(if (hit.selected) "☑" else "☐", 18f, color = if (hit.selected) palette.teal else palette.textTertiary), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
+                    addView(text(if (hit.country.length == 2) hit.country.toFlagEmoji() else "🌐", 18f), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
+                    addView(LinearLayout(ctx).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(text(if (hit.port == 443) hit.host else "${hit.host}:${hit.port}", 14f, bold = true).apply {
+                            typeface = CatClientDataTypeface; maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
+                        })
+                        addView(text("${hit.country.ifBlank { ctx.getString(R.string.pip_country_unknown) }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
+                        addView(text(ctx.getString(R.string.pip_score, hit.score), 11f, color = palette.textTertiary))
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                }, LinearLayout.LayoutParams(-1, -2))
+                addView(LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(button(ctx.getString(R.string.pip_choose_route), false) {
+                        // «This route» = keep this relay, drop every other selection.
+                        hits.forEach { it.selected = (it === hit) }
+                        renderResults()
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+                    if (onUseAsEntry != null) {
+                        addView(button(ctx.getString(R.string.pip_use_entry_short), false) {
+                            // This IP already completed a TLS handshake with the panel SNI —
+                            // it can replace the worker hostname as the connect address.
+                            val endpoint = if (hit.port == 443) hit.host
+                                else if (hit.host.contains(":")) "[${hit.host}]:${hit.port}"
+                                else "${hit.host}:${hit.port}"
+                            onUseAsEntry.invoke(endpoint)
+                        }, LinearLayout.LayoutParams(-2, -2))
+                    }
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
     }
@@ -594,6 +622,7 @@ class ProxyIpScannerPage(
 
     private fun collect(chosen: List<String>, custom: String): List<Pair<String, Int>> {
         val out = LinkedHashSet<Pair<String, Int>>()
+        val notes = ArrayList<String>()
         fun addHost(raw: String) {
             var line = raw.trim().removePrefix("https://").removePrefix("http://").substringBefore('/').substringBefore('#').substringBefore(' ')
             if (line.isEmpty()) return
@@ -613,20 +642,27 @@ class ProxyIpScannerPage(
             if (Regex("^\\d{1,3}(?:\\.\\d{1,3}){3}$").matches(line) || line.contains(':')) { put(line); return }
             if (line.contains('.')) {
                 // Domain → every A/AAAA record (ProxyIP domains rotate many relays behind one name).
-                runCatching { InetAddress.getAllByName(line) }.getOrDefault(emptyArray()).forEach { put(it.hostAddress.orEmpty()) }
+                // A name that will not resolve is REPORTED: on a filtered network this is
+                // the difference between «nothing found» and «this list is unreachable».
+                val records = runCatching { InetAddress.getAllByName(line) }.getOrNull()
+                if (records.isNullOrEmpty()) notes += "$line ✗" else records.forEach { put(it.hostAddress.orEmpty()) }
             }
         }
         custom.lines().forEach(::addHost)
         chosen.forEach { source ->
-            if (source.startsWith("http")) {
-                runCatching {
+            if (source == OFFLINE_SEEDS) {
+                CommunityIpLibrary.proxyIpSeeds.forEach(::addHost)
+            } else if (source.startsWith("http")) {
+                val failure = runCatching {
                     val conn = URL(source).openConnection() as HttpURLConnection
                     conn.connectTimeout = 10_000; conn.readTimeout = 15_000
                     conn.inputStream.bufferedReader().useLines { lines -> lines.take(300).forEach(::addHost) }
                     conn.disconnect()
-                }
+                }.exceptionOrNull()
+                if (failure != null) notes += "${source.substringAfter("//").substringBefore('/')} ✗"
             } else addHost(source)
         }
+        sourceNotes = notes.distinct().take(6)
         return out.filter { (h, _) -> h.isNotBlank() && !IpScanner.isCloudflareAddress(h) }.take(2000)
     }
 
@@ -646,27 +682,27 @@ class ProxyIpScannerPage(
             if (!body.contains("h=$TRACE_HOST") || !body.contains("colo=")) return null
             val loc = Regex("(?:^|\\n)loc=([A-Z]{2})").find(body)?.groupValues?.get(1).orEmpty()
             val colo = Regex("(?:^|\\n)colo=([A-Z]{3})").find(body)?.groupValues?.get(1).orEmpty()
-            Hit(host, port, loc, colo, latency)
+            // Country at probe time: `loc=` first, then the offline colo→country table
+            // that the rest of the app already uses for edge metadata. Both are local,
+            // so a hit is grouped correctly DURING the scan instead of waiting for the
+            // ip-api batch at the end (which a CF-only network path refuses).
+            Hit(host, port, loc.ifEmpty { EdgeLocationCatalog.countryForColo(colo).orEmpty() }, colo, latency)
         }
     }.getOrNull()
 
-    /** Country for hits whose trace had no usable `loc=` (relay rewrote it, or IPv6/HTTP quirks): one ip-api batch. */
+    /**
+     * Country for hits the trace could not name. The offline colo table runs first
+     * (instant, no traffic), then ONE ip-api batch for whatever is still unknown —
+     * a failed batch leaves those rows on «نامشخص» and is logged, never guessed.
+     */
     private fun geolocate() {
         val pending = synchronized(hits) { hits.filter { it.country.length != 2 } }
-        pending.chunked(100).forEach { chunk ->
-            runCatching {
-                val body = org.json.JSONArray().apply { chunk.forEach { put(org.json.JSONObject().put("query", it.host).put("fields", "countryCode,query")) } }.toString()
-                val conn = URL("http://ip-api.com/batch?fields=countryCode,query").openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 8_000; conn.readTimeout = 10_000
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toByteArray()) }
-                val arr = org.json.JSONArray(conn.inputStream.bufferedReader().readText())
-                conn.disconnect()
-                val map = HashMap<String, String>()
-                for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); map[o.optString("query")] = o.optString("countryCode").uppercase(java.util.Locale.ROOT) }
-                chunk.forEach { hit -> map[hit.host]?.takeIf { it.length == 2 }?.let { hit.country = it } }
-            }
-        }
+        if (pending.isEmpty()) return
+        pending.forEach { hit -> EdgeLocationCatalog.countryForColo(hit.colo)?.let { hit.country = it } }
+        val rest = pending.filter { it.country.length != 2 }
+        if (rest.isEmpty()) return
+        val found = RelayCountryLookup.resolve(ctx, rest.map { it.host })
+        rest.forEach { hit -> found[hit.host]?.let { hit.country = it } }
     }
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }
@@ -674,5 +710,7 @@ class ProxyIpScannerPage(
 
     private companion object {
         const val TRACE_HOST = "speed.cloudflare.com"
+        /** Sentinel source key: relays carried inside the APK, no DNS and no HTTP involved. */
+        const val OFFLINE_SEEDS = "📦 کتابخانهٔ آفلاین (بدون DNS)"
     }
 }

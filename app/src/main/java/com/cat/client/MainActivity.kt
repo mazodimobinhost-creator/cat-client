@@ -7127,7 +7127,9 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(12), dp(2), dp(12), dp(2))
+            // Same horizontal padding as scannerResultRow: the sortable cells must sit
+            // exactly above the cells they sort.
+            setPadding(dp(10), dp(2), dp(10), dp(2))
         }
         fun head(label: String, key: String, align: Int): TextView =
             TextView(this).apply {
@@ -7175,7 +7177,7 @@ class MainActivity : Activity() {
         row.addView(head(getString(R.string.scanner_col_country), "country", Gravity.CENTER), LinearLayout.LayoutParams(dp(54), -2))
         row.addView(head(getString(R.string.scanner_col_ping), "ping", Gravity.CENTER), LinearLayout.LayoutParams(dp(56), -2))
         row.addView(head(getString(R.string.scanner_col_jitter), "jitter", Gravity.CENTER), LinearLayout.LayoutParams(dp(46), -2))
-        row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(58), -2))
+        row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(78), -2))
         return row
     }
 
@@ -7350,7 +7352,10 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(dp(26), -2),
         )
-        // ② address + what it is and where it lands
+        // ② Address · then what it is and where it lands. The address keeps a line
+        // of its own: the fixed-width metric cells used to sit beside it and, on a
+        // narrow screen (or a large Display-size setting), the weighted column was
+        // squeezed to a few dp — the row showed the flag but no IP and no ping.
         val addressColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -7374,7 +7379,14 @@ class MainActivity : Activity() {
         } else {
             result.colo?.takeIf { it.isNotBlank() } ?: getString(R.string.scanner_result_edge_fallback)
         }
-        addressColumn.addView(
+        // Second line: provenance text (weighted, ellipsized) + the four cells the
+        // sortable header above the list points at, so the columns still line up.
+        val metricsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        metricsRow.addView(
             TextView(this).apply {
                 text = buildString {
                     append(if (result.tlsOk) "TLS ✓" else "TCP")
@@ -7389,9 +7401,8 @@ class MainActivity : Activity() {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
+            LinearLayout.LayoutParams(0, -2, 1f),
         )
-        row.addView(addressColumn, LinearLayout.LayoutParams(0, -2, 1f))
 
         fun cell(value: String, color: Int, bold: Boolean = true, size: Float = 11.5f) =
             TextView(this).apply {
@@ -7405,8 +7416,8 @@ class MainActivity : Activity() {
             }
 
         // ③ country · ④ ping · ⑤ jitter · ⑥ speed
-        row.addView(cell(result.flag, TEXT_PRIMARY, bold = false, size = 13f), LinearLayout.LayoutParams(dp(54), -2))
-        row.addView(
+        metricsRow.addView(cell(result.flag, TEXT_PRIMARY, bold = false, size = 13f), LinearLayout.LayoutParams(dp(54), -2))
+        metricsRow.addView(
             cell(
                 getString(R.string.scanner_result_ping, result.pingMs),
                 when {
@@ -7418,13 +7429,13 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(dp(56), -2),
         )
         val jitter = scannerJitterMs[result.ip]
-        row.addView(
+        metricsRow.addView(
             cell(if (jitter == null) "—" else "±$jitter", if (jitter == null) TEXT_SECONDARY else TEAL),
             LinearLayout.LayoutParams(dp(46), -2),
         )
         val speed = result.speedBps
         val up = result.uploadBps
-        row.addView(
+        metricsRow.addView(
             cell(
                 when {
                     speed != null && up != null ->
@@ -7437,6 +7448,8 @@ class MainActivity : Activity() {
             ),
             LinearLayout.LayoutParams(dp(78), -2),
         )
+        addressColumn.addView(metricsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        row.addView(addressColumn, LinearLayout.LayoutParams(0, -2, 1f))
         return row
     }
 
