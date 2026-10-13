@@ -78,6 +78,14 @@ class ProxyIpScannerPage(
     private val checked = AtomicInteger()
     private var total = 0
     private var filterCountry: String? = null
+    /**
+     * Result rows rebuilt per pass. Lowered automatically if a render ever hits an
+     * `OutOfMemoryError` (see [renderResults]) — the list degrades instead of the app dying.
+     */
+    private var rowCap = 150
+    /** Last time the row list was rebuilt, and for how many hits — rebuilds are change-driven. */
+    private var lastListAt = 0L
+    private var lastListCount = -1
 
     private lateinit var progressText: TextView
     private lateinit var resultsList: LinearLayout
@@ -138,6 +146,34 @@ class ProxyIpScannerPage(
         cornerRadius = dp(22); insetTop = 0; insetBottom = 0; minHeight = dp(44)
         backgroundTintList = android.content.res.ColorStateList.valueOf(if (filled) palette.teal else palette.surfaceElevated2)
         setTextColor(if (filled) palette.onAccent else palette.textPrimary)
+        setOnClickListener { onClick() }
+    }
+
+    /**
+     * Lightweight pill for text INSIDE result rows.
+     *
+     * WHY (beta101 — the OOM): a `MaterialButton` is not a cheap view. `insetBottom = 0`
+     * alone rebuilds its background as a fresh `RippleDrawable` → `LayerDrawable` →
+     * native ripple, and each row carried TWO of them while the row list was rebuilt
+     * on every progress tick. That is hundreds of ripple drawables per second; the
+     * crash report ends in exactly that path:
+     *   `MaterialButton.setInsetBottom` → `J0.i.b/c` → `RippleDrawable.<init>` →
+     *   `LayerDrawable.createLayer` → `OutOfMemoryError: … <1% of heap free after GC`.
+     * A per-row action is a pill: an on/off-text view with a rounded background and
+     * one click listener — no ripple, no layered drawable, no insets.
+     */
+    private fun pill(label: String, filled: Boolean, onClick: () -> Unit) = TextView(ctx).apply {
+        text = label; textSize = 12f; typeface = CatClientBodyBoldTypeface
+        setTextColor(if (filled) palette.onAccent else palette.textPrimary)
+        setPadding(dp(14), dp(9), dp(14), dp(9)); includeFontPadding = false
+        minHeight = dp(38)
+        gravity = Gravity.CENTER
+        background = GradientDrawable().apply {
+            cornerRadius = dp(19).toFloat()
+            setColor(if (filled) palette.teal else palette.surfaceElevated)
+            if (!filled) setStroke(dp(1), palette.outline)
+        }
+        isClickable = true; isFocusable = true
         setOnClickListener { onClick() }
     }
 
@@ -254,6 +290,8 @@ class ProxyIpScannerPage(
     private fun visible() = hits.filter { filterCountry == null || it.country == filterCountry }.sortedBy { it.latencyMs }
 
     private fun renderResults() {
+        lastListAt = SystemClock.elapsedRealtime()
+        lastListCount = synchronized(hits) { hits.size }
         countryChips.removeAllViews()
         val groups = hits.groupingBy { it.country }.eachCount().entries.sortedByDescending { it.value }
         countryChips.addView(chip(ctx.getString(R.string.pscan_all_countries) + " (${hits.size})", filterCountry == null) { filterCountry = null; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
@@ -270,7 +308,12 @@ class ProxyIpScannerPage(
             val allOn = shown.all { it.selected }
             resultsList.addView(chip(ctx.getString(if (allOn) R.string.pip_deselect_all else R.string.pip_select_all), false) { shown.forEach { it.selected = !allOn }; renderResults() }, LinearLayout.LayoutParams(-2, -2))
         }
-        shown.take(150).forEach { hit ->
+        // Guarded: an OutOfMemoryError inside the row loop used to reach the main thread
+        // and kill the app (the beta98 report ends in RippleDrawable/LayerDrawable while
+        // building a row button). Now: halve the cap, log the numbers, rebuild smaller —
+        // the list stays usable and the log says it happened.
+        val built = runCatching {
+        shown.take(rowCap).forEach { hit ->
             // Two lines per row: the address owns the first one outright. The action
             // buttons used to sit beside it on the same line, and on a narrow phone
             // (or a large Display-size setting) their combined width squeezed the
@@ -300,13 +343,13 @@ class ProxyIpScannerPage(
                 }, LinearLayout.LayoutParams(-1, -2))
                 addView(LinearLayout(ctx).apply {
                     orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(button(ctx.getString(R.string.pip_choose_route), false) {
+                    addView(pill(ctx.getString(R.string.pip_choose_route), false) {
                         // «This route» = keep this relay, drop every other selection.
                         hits.forEach { it.selected = (it === hit) }
                         renderResults()
                     }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
                     if (onUseAsEntry != null) {
-                        addView(button(ctx.getString(R.string.pip_use_entry_short), false) {
+                        addView(pill(ctx.getString(R.string.pip_use_entry_short), false) {
                             // This IP already completed a TLS handshake with the panel SNI —
                             // it can replace the worker hostname as the connect address.
                             val endpoint = if (hit.port == 443) hit.host
@@ -317,6 +360,17 @@ class ProxyIpScannerPage(
                     }
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }
+        }
+        built.exceptionOrNull()?.let { error ->
+            if (error is OutOfMemoryError) {
+                rowCap = (rowCap / 2).coerceAtLeast(12)
+                resultsList.removeAllViews()
+                DiagnosticLogger.warn(ctx, "pip.rows.oom", "rowCap=$rowCap hits=${synchronized(hits) { hits.size }}", error)
+                renderResults()
+            } else {
+                DiagnosticLogger.warn(ctx, "pip.rows.failed", error = error)
+            }
         }
     }
 
@@ -582,7 +636,19 @@ class ProxyIpScannerPage(
 
     private fun clear() {
         job?.cancel(); job = null; hits.clear(); checked.set(0); total = 0; filterCountry = null
+        lastListCount = -1; lastListAt = 0L
         renderProgress(); renderResults()
+    }
+
+    /** Heap numbers, so a future «the app closed» report carries something to read. */
+    private fun logMemory(event: String) {
+        val runtime = Runtime.getRuntime()
+        DiagnosticLogger.info(
+            ctx,
+            event,
+            "maxMb=${runtime.maxMemory() / 1_048_576} totalMb=${runtime.totalMemory() / 1_048_576} " +
+                "freeMb=${runtime.freeMemory() / 1_048_576} nativeMb=${android.os.Debug.getNativeHeapAllocatedSize() / 1_048_576}",
+        )
     }
 
     private fun stop() {
@@ -609,6 +675,7 @@ class ProxyIpScannerPage(
     // ------------------------------------------------------------------ engine
     private fun start() {
         clear()
+        logMemory("pip.mem.start")
         val custom = customInput.text.toString()
         val chosen = sources.filterValues { it }.keys.toList()
         job = scope.launch {
@@ -628,7 +695,14 @@ class ProxyIpScannerPage(
                             checked.incrementAndGet()
                             if (hit != null) synchronized(hits) { hits += hit }
                             val now = SystemClock.elapsedRealtime()
-                            if (now - lastUi > 300) { lastUi = now; withContext(Dispatchers.Main) { renderProgress(); renderResults() } }
+                            if (now - lastUi > 300) { lastUi = now; withContext(Dispatchers.Main) { renderProgress() } }
+                            // The row list is the expensive part (one view set per hit):
+                            // rebuilding it on every tick was the allocation storm behind
+                            // the OOM. Rebuild only when the hit count actually changed.
+                            val hitCount = synchronized(hits) { hits.size }
+                            if (now - lastListAt > 1_500L && hitCount != lastListCount) {
+                                withContext(Dispatchers.Main) { renderResults() }
+                            }
                         }
                     }
                 }.awaitAll()
@@ -636,6 +710,7 @@ class ProxyIpScannerPage(
             }
             job = null
             renderProgress(); renderResults()
+            logMemory("pip.mem.end")
         }
     }
 

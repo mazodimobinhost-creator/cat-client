@@ -581,6 +581,18 @@ jobs:
             *-logcat.txt
             smoke-report.md
 
+      # R8's mapping for THIS commit: a release-APK stack trace arrives obfuscated
+      # (`A0.ab.h`) and the only way to read it is this file. The beta98 OOM report
+      # could only be reasoned about from source because no mapping was kept.
+      - name: Upload R8 mapping (deobfuscates release-APK crash reports)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: r8-mapping-${{ github.sha }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Upload debug APKs
         if: success()
         uses: actions/upload-artifact@v7

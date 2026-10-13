@@ -2524,6 +2524,30 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    /**
+     * Memory pressure, in the log and in the UI.
+     *
+     * The owner's beta98 report ends in `OutOfMemoryError` while a result row was being
+     * built, and nothing in the diagnostics said the heap had been filling up. This
+     * override records the level with the heap numbers (so the next report is readable)
+     * and, when the system says the heap is low, drops the rendered rows to a small cap
+     * before the next render — «the list gets shorter» beats «the app closes».
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val runtime = Runtime.getRuntime()
+        DiagnosticLogger.info(
+            this,
+            "mem.trim",
+            "level=$level maxMb=${runtime.maxMemory() / 1_048_576} " +
+                "totalMb=${runtime.totalMemory() / 1_048_576} freeMb=${runtime.freeMemory() / 1_048_576}",
+        )
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && !lowMemoryRows) {
+            lowMemoryRows = true
+            runCatching { renderScannerResults() }
+        }
+    }
+
     @Deprecated("Deprecated in Android API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (appUpdateUi.onActivityResult(requestCode)) return
@@ -7039,6 +7063,10 @@ class MainActivity : Activity() {
     private var scannerJitterMs: Map<String, Int> = emptyMap()
     private var scannerCountryText: TextView? = null
     private var scannerHistoryText: TextView? = null
+    /** Set by [onTrimMemory] when the system reports a low heap: fewer rows, same data. */
+    private var lowMemoryRows: Boolean = false
+    /** Rows rendered in the results list right now (see [scannerVisibleCap]). */
+    private fun scannerVisibleCap(): Int = if (lowMemoryRows) 12 else SCANNER_VISIBLE_RESULTS
 
     private fun scannerFilterVisible(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> =
         when (scannerFilter) {
@@ -7348,7 +7376,7 @@ class MainActivity : Activity() {
         // blank with no trace).
         scannerResultsList.addView(
             TextView(this).apply {
-                text = getString(R.string.scanner_results_header, visible.size, minOf(visible.size, SCANNER_VISIBLE_RESULTS))
+                text = getString(R.string.scanner_results_header, visible.size, minOf(visible.size, scannerVisibleCap()))
                 textSize = 11f
                 typeface = CatClientBodyBoldTypeface
                 setTextColor(TEXT_SECONDARY)
@@ -7360,7 +7388,7 @@ class MainActivity : Activity() {
         // statement between the count header and the rows, so a throw there left the
         // screen showing «N result» with an empty list under it (again).
         val top = runCatching { scannerSortedRows(visible) }.getOrElse { visible }
-            .take(SCANNER_VISIBLE_RESULTS).toList()
+            .take(scannerVisibleCap()).toList()
         val buildFailure = runCatching {
             top.forEachIndexed { index, result ->
                 val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
@@ -7370,6 +7398,15 @@ class MainActivity : Activity() {
                 )
             }
         }.exceptionOrNull()
+        // An OOM while building rows (the beta98 report: RippleDrawable allocation with
+        // <1% heap free) must not travel any further up the main thread. Shrink and log.
+        if (buildFailure is OutOfMemoryError && !lowMemoryRows) {
+            lowMemoryRows = true
+            DiagnosticLogger.warn(this, "scanner.rows.oom", "rows=${top.size} cap=${scannerVisibleCap()}", buildFailure)
+            scannerResultsList.removeAllViews()
+            renderScannerResults()
+            return
+        }
         if (buildFailure != null && scannerResultsList.childCount <= 1) {
             scannerResultsList.addView(scannerPlainRowsBlock(top), LinearLayout.LayoutParams(-1, -2))
         }
@@ -7417,7 +7454,7 @@ class MainActivity : Activity() {
                 if (children > 1 && painted > 0) return
                 val rows = runCatching {
                     scannerSortedRows(scannerFilterVisible(scannerSourceList()))
-                }.getOrElse { scannerFilterVisible(scannerSourceList()) }.take(SCANNER_VISIBLE_RESULTS).toList()
+                }.getOrElse { scannerFilterVisible(scannerSourceList()) }.take(scannerVisibleCap()).toList()
                 if (rows.isEmpty()) return
                 scannerResultsList.addView(scannerPlainRowsBlock(rows), LinearLayout.LayoutParams(-1, -2))
                 DiagnosticLogger.warn(

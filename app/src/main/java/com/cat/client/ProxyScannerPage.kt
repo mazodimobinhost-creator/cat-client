@@ -84,6 +84,10 @@ class ProxyScannerPage(
      */
     private val geoTried = java.util.Collections.synchronizedSet(HashSet<String>())
     private val geoBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Result rows rebuilt per pass; halved automatically if a render ever hits an OOM. */
+    private var rowCap = 200
+    private var lastListAt = 0L
+    private var lastListCount = -1
 
     @Volatile
     private var lastGeoKick = 0L
@@ -287,6 +291,8 @@ class ProxyScannerPage(
     private fun visibleHits() = hits.filter { (filterProto == null || it.proto == filterProto) && (filterCountry == null || it.country == filterCountry) }.sortedBy { it.latencyMs }
 
     private fun renderResults() {
+        lastListAt = SystemClock.elapsedRealtime()
+        lastListCount = synchronized(hits) { hits.size }
         protoChips.removeAllViews()
         protoChips.addView(chip(ctx.getString(R.string.pscan_all) + " (${hits.size})", filterProto == null) { filterProto = null; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         Proto.entries.forEach { p ->
@@ -306,7 +312,11 @@ class ProxyScannerPage(
             resultsList.addView(text(ctx.getString(if (hits.isEmpty()) R.string.pscan_none_yet else R.string.pscan_filter_empty), 13f, color = palette.textTertiary).apply { gravity = Gravity.CENTER; setPadding(0, dp(14), 0, dp(14)) })
             return
         }
-        shown.take(200).forEach { hit ->
+        // Guarded: an OutOfMemoryError while building rows must not reach the main
+        // thread and close the app (beta98's report ends exactly there — RippleDrawable/
+        // LayerDrawable allocation while a row was being built). Halve the cap, log, retry.
+        val built = runCatching {
+        shown.take(rowCap).forEach { hit ->
             resultsList.addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LTR; gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -325,6 +335,17 @@ class ProxyScannerPage(
                     }
                 }, LinearLayout.LayoutParams(-2, -2))
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }
+        }
+        built.exceptionOrNull()?.let { error ->
+            if (error is OutOfMemoryError) {
+                rowCap = (rowCap / 2).coerceAtLeast(12)
+                resultsList.removeAllViews()
+                DiagnosticLogger.warn(ctx, "pscan.rows.oom", "rowCap=$rowCap hits=${synchronized(hits) { hits.size }}", error)
+                renderResults()
+            } else {
+                DiagnosticLogger.warn(ctx, "pscan.rows.failed", error = error)
+            }
         }
     }
 
@@ -351,6 +372,7 @@ class ProxyScannerPage(
         // A new run asks about its own hosts; the counters behind the note line reset
         // with it (they describe THIS run's countries, not the session's).
         geoTried.clear(); geoViaProxy.set(0); geoViaDatabase.set(0); lastGeoKick = 0L
+        lastListCount = -1; lastListAt = 0L
         updateCountryNote(null)
         renderCounters(); renderResults()
     }
@@ -366,6 +388,7 @@ class ProxyScannerPage(
 
     private fun start() {
         clear()
+        logMemory("pscan.mem.start")
         val ports = portsInput.text.toString().split(',', ' ', ';', '\n').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..65535 }.distinct().ifEmpty { listOf(1080) }
         val custom = customInput.text.toString()
         val urls = sourceToggles.filterKeys { it in sourceSelected }.values.toList()
@@ -390,11 +413,17 @@ class ProxyScannerPage(
                             val now = SystemClock.elapsedRealtime()
                             if (now - lastUi > 250L) {
                                 lastUi = now
-                                withContext(Dispatchers.Main) { renderCounters(); renderResults() }
+                                withContext(Dispatchers.Main) { renderCounters() }
                                 // Countries appear WHILE the scan runs, not after it:
                                 // the owner reads the list mid-run (and stops it) and
                                 // «🌐 نامشخص» on every row was this exact gap.
                                 kickCountryPass()
+                            }
+                            // Rebuilding 200 rows four times a second was pure allocation
+                            // churn (that is the OOM the owner hit). Only when it changed.
+                            val hitCount = synchronized(hits) { hits.size }
+                            if (now - lastListAt > 1_200L && hitCount != lastListCount) {
+                                withContext(Dispatchers.Main) { renderResults() }
                             }
                         }
                     }
@@ -411,6 +440,7 @@ class ProxyScannerPage(
             }
             job = null
             renderCounters()
+            logMemory("pscan.mem.end")
         }
     }
 
@@ -587,6 +617,17 @@ class ProxyScannerPage(
         if (!::countryStatusText.isInitialized) return
         countryStatusText.text = value.orEmpty()
         countryStatusText.visibility = if (value.isNullOrBlank()) View.GONE else View.VISIBLE
+    }
+
+    /** Heap numbers, so a future «the app closed» report carries something to read. */
+    private fun logMemory(event: String) {
+        val runtime = Runtime.getRuntime()
+        DiagnosticLogger.info(
+            ctx,
+            event,
+            "maxMb=${runtime.maxMemory() / 1_048_576} totalMb=${runtime.totalMemory() / 1_048_576} " +
+                "freeMb=${runtime.freeMemory() / 1_048_576} nativeMb=${android.os.Debug.getNativeHeapAllocatedSize() / 1_048_576}",
+        )
     }
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }
