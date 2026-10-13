@@ -4552,6 +4552,55 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(8) },
         )
         diagnosticsPanel.addView(diagnosticsActions, LinearLayout.LayoutParams(-1, -2))
+        // 📄 The last crash IS IN THE APP (beta99): the Downloads copy is a file the
+        // owner cannot always hand over — this section shows the same text and copies
+        // it with one tap, so a crash report is never «sent but lost» again.
+        val crashReport = runCatching { CrashWatch.lastCrashText(this) }.getOrDefault("")
+        if (crashReport.isNotBlank()) {
+            diagnosticsPanel.addView(
+                advancedSectionLabel(getString(R.string.crash_report_section)),
+                LinearLayout.LayoutParams(-1, -2).apply {
+                    marginStart = dp(16)
+                    marginEnd = dp(16)
+                    topMargin = dp(14)
+                },
+            )
+            diagnosticsPanel.addView(
+                android.widget.ScrollView(this).apply {
+                    background = glassSurfaceDrawable(radiusDp = 12)
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = crashReport
+                            textSize = 10.5f
+                            typeface = CatClientDataTypeface
+                            setTextColor(TEXT_SECONDARY)
+                            // A stack trace must stay LTR and selectable: in the RTL
+                            // layout the class names reorder into gibberish.
+                            layoutDirection = View.LAYOUT_DIRECTION_LTR
+                            textDirection = View.TEXT_DIRECTION_LTR
+                            setTextIsSelectable(true)
+                            includeFontPadding = false
+                            setPadding(dp(12), dp(10), dp(12), dp(10))
+                        },
+                        android.widget.FrameLayout.LayoutParams(-1, -2),
+                    )
+                },
+                LinearLayout.LayoutParams(-1, dp(170)).apply {
+                    marginStart = dp(12)
+                    marginEnd = dp(12)
+                    topMargin = dp(8)
+                },
+            )
+            diagnosticsPanel.addView(
+                diagnosticsButton(R.string.crash_report_copy) { copyCrashToClipboard() },
+                LinearLayout.LayoutParams(-2, dp(44)).apply {
+                    gravity = Gravity.END
+                    marginStart = dp(12)
+                    marginEnd = dp(12)
+                    topMargin = dp(8)
+                },
+            )
+        }
         diagnosticsPanel.addView(
             MaterialButton(this).apply {
                 setText(R.string.diagnostics_clear)
@@ -6940,8 +6989,15 @@ class MainActivity : Activity() {
             .entries
             .sortedByDescending { it.value }
             .take(6)
-        view.text = groups.joinToString("   ") { "${it.key.toFlagEmoji()} ${it.value}" }
-        view.visibility = if (groups.isEmpty()) View.GONE else View.VISIBLE
+        // The 🌐 bucket is counted out loud: the flags are the location of the edge
+        // that ANSWERED the trace, so a row whose TLS/trace never completed has no
+        // country at all — showing only the resolved ones made «۶۸ ایران» look like
+        // a filter (the owner asked why the scanner is «mostly Iran»).
+        val unknown = list.count { it.countryCode.isNullOrBlank() }
+        val head = if (unknown > 0) "🌐 $unknown" else ""
+        val body = groups.joinToString("   ") { "${it.key.toFlagEmoji()} ${it.value}" }
+        view.text = listOf(head, body).filter { it.isNotBlank() }.joinToString("   ")
+        view.visibility = if (groups.isEmpty() && unknown == 0) View.GONE else View.VISIBLE
     }
 
     // Category chips under the results (like the reference screenshots): all /
@@ -14712,6 +14768,26 @@ class MainActivity : Activity() {
         clipboard.setPrimaryClip(clip)
         Toast.makeText(this, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
         DiagnosticLogger.info(this, "diagnostics.copy", "chars=${diagnostics.length}")
+    }
+
+    /** Copies the last crash (thread + version + stack) for a chat paste. */
+    private fun copyCrashToClipboard() {
+        val crash = runCatching { CrashWatch.lastCrashText(this) }.getOrDefault("")
+        if (crash.isBlank()) {
+            Toast.makeText(this, R.string.crash_report_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val clip = ClipData.newPlainText("Cat Client crash", crash).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                description.extras = PersistableBundle().apply {
+                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                }
+            }
+        }
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(this, R.string.crash_report_copied, Toast.LENGTH_SHORT).show()
+        DiagnosticLogger.info(this, "crash.copy", "chars=${crash.length}")
     }
 
     private fun shareDiagnostics() {

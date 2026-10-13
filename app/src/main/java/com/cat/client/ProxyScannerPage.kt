@@ -469,7 +469,10 @@ class ProxyScannerPage(
     private fun geolocate() {
         val snapshot = synchronized(hits) { hits.toList() }
         if (snapshot.isEmpty()) return
-        val found = RelayCountryLookup.resolve(ctx, snapshot.map { it.host })
+        // Resolver 0 is the owner's OWN deployed worker: on a filtered line the
+        // third-party geo endpoints answer nothing, the worker always does.
+        val worker = RelayCountryLookup.deployedWorkerHost(ctx)
+        val found = RelayCountryLookup.resolve(ctx, snapshot.map { it.host }, worker)
         snapshot.forEach { hit -> found[hit.host]?.let { hit.country = it } }
     }
 

@@ -732,7 +732,10 @@ class ProxyIpScannerPage(
         pending.forEach { hit -> EdgeLocationCatalog.countryForColo(hit.colo)?.let { hit.country = it } }
         val rest = pending.filter { it.country.length != 2 }
         if (rest.isEmpty()) return
-        val found = RelayCountryLookup.resolve(ctx, rest.map { it.host })
+        // The worker relay first (works on a filtered line), then the public
+        // endpoints — see RelayCountryLookup's order-of-resolvers note.
+        val worker = RelayCountryLookup.deployedWorkerHost(ctx)
+        val found = RelayCountryLookup.resolve(ctx, rest.map { it.host }, worker)
         rest.forEach { hit -> found[hit.host]?.let { hit.country = it } }
     }
 

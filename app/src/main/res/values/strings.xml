@@ -851,6 +851,10 @@
     <string name="diagnostics_clear">Clear diagnostic report</string>
     <string name="diagnostics_shared">Choose an app to send the diagnostic report.</string>
     <string name="diagnostics_cleared">Diagnostic report cleared.</string>
+    <string name="crash_report_section">Last crash report</string>
+    <string name="crash_report_copy">📄 Copy the crash text</string>
+    <string name="crash_report_copied">Crash text copied — paste it in the chat.</string>
+    <string name="crash_report_empty">No crash is stored on this build.</string>
     <string name="diagnostics_share_failed">Could not open the share sheet.</string>
     <string name="scanner_port_label">Probe port</string>
     <string name="scanner_port_hint">Use 443 first; 2053, 2083 and 8443 can work when an ISP treats ports differently. Tap ✏️ to probe any port (1–65535).</string>

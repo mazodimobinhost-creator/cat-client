@@ -136,6 +136,17 @@ object CrashWatch {
         runCatching { crashFile(context).readText() }.getOrNull()?.take(20_000).orEmpty()
 
     /**
+     * The last crash exactly as it was written (thread + version + stack), for the
+     * diagnostics panel. The Downloads copy is a file the owner often cannot send
+     * (it gets lost, or the chat refuses a .txt) — the panel shows the same text
+     * and copies it to the clipboard, so a report is always one paste away.
+     */
+    fun lastCrashText(context: Context): String = readCrash(context)
+
+    /** `true` when the previous run died — used to flag the panel section. */
+    fun hasCrash(context: Context): Boolean = readCrash(context).isNotBlank()
+
+    /**
      * Copies the crash to the phone's Downloads folder so the user can send the
      * file WITHOUT notification permission and WITHOUT adb — the report must
      * survive every device configuration. MediaStore (API 29+) needs no
