@@ -383,3 +383,91 @@ PASS content-type
 PASS paste-artifact
 PASS secrets-tokens
 PASS quicklink-version
+FAIL cat-panel
+```
+✓ src: qos drops non-Cloudflare IPs and bare domains
+✓ src: qos never empties the sub (list left intact when nothing is a CF IP)
+✓ src: host serves only the worker hostname
+✓ src: custom serves only ?addr=
+✓ panel: entry-source picker, note box and src= link param
+✓ latency: per-country P50/P95 sorted, dead IPs excluded
+✓ panel: latency card container + title + neighbor badge + svc note
+✓ panel: best-ms summary wired
+✓ panel: inline script still parses
+✓ neighbor: import ok with neighborIps
+✓ neighbor: flagged IP gets src=neighbor
+✓ neighbor: regular scanner IP keeps src=scanner
+✓ neighbor: crown badge wired in UI
+✓ stealth: one-time latch defaults panelPath=panel
+✓ stealth: explicit path respected
+✓ stealth: opting out stays off
+✓ camo: zero fingerprint words
+✓ camo: realistic page with decoy meta
+✓ panel: manual-add card wired
+✓ panel: inline script still parses (manual add)
+✓ stealth: settings PUT ok
+✓ stealth: / serves camouflage
+✓ stealth: /panel serves the real login
+✓ stealth: unknown path = neutral 404
+✓ stealth: robots.txt quiet
+✓ stealth: reset to legacy open
+✓ manual: import ok
+✓ manual: src=manual stored
+✓ beta58: stealth on for routing tests
+✓ beta58: /?ips= hops to the real panel path
+✓ beta58: /?p= quick-login hops to /panel
+✓ beta58: plain / still camouflaged
+✓ beta58: camo hit nudges the repo pools
+✓ beta58: sub hit nudges the repo pools
+✓ beta58: stealth reset
+✓ beta58: ?ips= never auto-imports
+✓ beta59: free preset button wired
+✓ beta59: ECH field note on the toggle
+✓ beta59: inline script still parses
+✓ dns cache: roundtrip
+✓ dns cache: miss returns null
+✓ cooldown: attempts listed before
+✓ cooldown: relayAttempts still returns all (filtering happens at dial)
+✓ cooldown: relayCool flags the failed one
+✓ cooldown: direct dial never cools
+✓ cooldown: socks relays cool too
+✓ t.me socks: plain link parses
+✓ t.me socks: auth link parses
+✓ sub query tolerates &amp; links (Telegram copy)
+✓ ext sub fetch sanitizes &amp;
+✓ generated TLS configs put the worker host into the sni param (Cloudflare answers 403 on a mismatch)
+✓ 30 addresses still yield plain-port entries (entry limit is shared between waves)
+✓ wave rotation keeps address diversity (>= 12 distinct addresses)
+✓ entry limit still respected with many addresses
+✓ owner IPs lead a sub that also carries free library IPs
+✓ free library IPs still appear, on :443, behind the owner
+✓ ?norepo=1 still drops the library IPs
+
+1 FAILED
+- manual domain kept as address
+```
+PASS ccq
+PASS ech
+PASS panel-dom
+PASS wizard
+PASS multipart-upload
+PASS chain-protocols
+PASS android-guard
+PASS link-shape
+PASS panel-integrity
+PASS kv-persistence
+PASS panel-update-contract
+PASS panel-selfupdate
+PASS sni-host
+PASS proxyip-sub
+PASS proxyip-dataplane
+PASS addr-port-query
+PASS proxyip-feeds
+PASS browser-probe
+PASS ws-probe
+PASS survival
+PASS hostile-env
+PASS content-type
+PASS paste-artifact
+PASS secrets-tokens
+PASS quicklink-version
