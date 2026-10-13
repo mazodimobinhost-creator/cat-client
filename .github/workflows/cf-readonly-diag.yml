@@ -1,18 +1,20 @@
 name: CF read-only diagnosis (why do the two edge-* workers answer 1101)
 
-# READ-ONLY. It never deploys, never deletes, never writes anything to the account.
-# It reads what the API already knows about the two workers the app created
-# (`edge-9ccq0`, `edge-vgiab`) and observes how the live route answers:
+# READ-ONLY. Nothing is deployed, deleted or written to the account. It reads what
+# the API already knows about the two workers the app created (`edge-9ccq0`,
+# `edge-vgiab`) and observes how their live route answers:
 #
-#   * the script the account currently holds for each name -> size, sha256, and
-#     whether that module actually parses (node --check on the downloaded file);
+#   * the script the account holds for each name -> size, sha256, and whether that
+#     module actually parses (node --check on the downloaded bytes — a module that
+#     does not parse is exactly the 1101 that has no report);
 #   * that script's settings -> bindings, compatibility date and flags, main_module;
 #   * the workers.dev route state;
 #   * a live GET of /health and /api/version with `wrangler tail` attached, so the
 #     edge's own error text and any startup exception come back verbatim.
 #
-# The only things it does are GET requests plus one temporary tail session.
-# It is deleted from the tree again once it has answered the question.
+# Every step prints its whole output as an annotation as well: the raw job log sits
+# behind a blob host the owner's tooling cannot read, and a `continue-on-error` step
+# reports success even when it dies. Deleted from the tree once it has answered.
 
 on:
   push:
@@ -45,105 +47,159 @@ jobs:
         with:
           node-version: '22'
       - name: Credentials present?
+        continue-on-error: true
         run: |
-          echo "HAS_TOKEN=$HAS_TOKEN HAS_ACCOUNT=$HAS_ACCOUNT"
-          if [ "$HAS_TOKEN" != "true" ] || [ "$HAS_ACCOUNT" != "true" ]; then
-            echo "::error::no Cloudflare credentials in Actions → Secrets — stopping here; nothing was read"
-            exit 1
-          fi
-      - name: Account inventory (GET only)
-        run: |
-          set -o pipefail
-          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
-            -o /tmp/scripts.json -w "GET /workers/scripts → HTTP %{http_code}\n"
-          python3 -c '
-          import json
-          d = json.load(open("/tmp/scripts.json"))
-          print("success:", d.get("success"), "| errors:", d.get("errors"))
-          for w in d.get("result", []):
-              print("  name=%-22s size=%-10s created=%s modified=%s etag=%s" % (
-                  w.get("id"), w.get("size"), w.get("created_on"), w.get("modified_on"), (w.get("etag") or "")[:12]))
-          '
-      - name: Read each script and check whether the module parses (GET only)
-        run: |
-          set -o pipefail
-          mkdir -p /tmp/diag
-          for name in $TARGETS; do
-            echo "────────────────────────────── $name"
-            curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -o "/tmp/diag/$name.mjs" \
-              -w "  download: HTTP %{http_code}, %{size_download} bytes, type=%{content_type}\n" \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name"
-            echo "  sha256 : $(sha256sum "/tmp/diag/$name.mjs" | cut -d' ' -f1)"
-            echo "  head   : $(head -c 120 "/tmp/diag/$name.mjs" | tr -d '\n')"
-            echo "  tail   : $(tail -c 120 "/tmp/diag/$name.mjs" | tr -d '\n')"
-            if node --check "/tmp/diag/$name.mjs" 2>"/tmp/diag/$name.err"; then
-              echo "  parser : the module PARSES — a syntax error is not the cause"
-            else
-              echo "  parser : DOES NOT PARSE — this alone produces «Error 1101» with no report:"
-              sed 's/^/           /' "/tmp/diag/$name.err" | head -8
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG="/tmp/step-1.log"
+          set +e
+          (
+            echo "HAS_TOKEN=$HAS_TOKEN HAS_ACCOUNT=$HAS_ACCOUNT"
+            if [ "$HAS_TOKEN" != "true" ] || [ "$HAS_ACCOUNT" != "true" ]; then
+              echo "::error title=credentials::no Cloudflare credentials in Actions Secrets — nothing was read"
+              exit 1
             fi
-            echo "  settings:"
+            echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"
+            echo "credentials visible to this run: yes (values never printed)" 
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-1-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit code: $code ---"
+          cat "$LOG"
+          exit $code
+      - name: Account inventory (GET only)
+        continue-on-error: true
+        run: |
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG="/tmp/step-2.log"
+          set +e
+          (
             curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/settings" \
-              -o "/tmp/diag/$name.settings.json" -w "    GET settings → HTTP %{http_code}\n"
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+              -o /tmp/scripts.json -w "GET /workers/scripts -> HTTP %{http_code} (%{size_download} bytes)\n"
             python3 -c '
-          import json, sys
-          name = sys.argv[1]
-          d = json.load(open("/tmp/diag/%s.settings.json" % name))
-          r = d.get("result") or {}
-          print("    success:", d.get("success"), "| errors:", d.get("errors"))
-          for k in ("main_module", "compatibility_date", "compatibility_flags", "usage_model", "placement_mode"):
-              if k in r:
-                  print("    %s: %s" % (k, r.get(k)))
-          for b in (r.get("bindings") or []):
-              val = b.get("namespace_id") or b.get("class_name") or ""
-              print("    binding: %s/%s%s" % (b.get("type"), b.get("name"), "" if not val else " -> " + str(val)[:40]))
-          ' "$name"
-            echo "  route  :"
-            curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/subdomain" \
-              -o "/tmp/diag/$name.subdomain.json" -w "    GET subdomain → HTTP %{http_code}\n"
-            python3 -c '
-          import json, sys
-          d = json.load(open("/tmp/diag/%s.subdomain.json" % sys.argv[1]))
-          print("    success:", d.get("success"), "| result:", d.get("result"), "| errors:", d.get("errors"))
-          ' "$name"
-          done
+            import json
+            d = json.load(open("/tmp/scripts.json"))
+            print("API success:", d.get("success"))
+            print("API errors :", json.dumps(d.get("errors"))[:400])
+            res = d.get("result") or []
+            print("workers on the account:", len(res))
+            for w in res:
+                print("  name=%-22s size=%-9s created=%s modified=%s etag=%s" % (
+                    w.get("id"), w.get("size"), w.get("created_on"), w.get("modified_on"), (w.get("etag") or "")[:12]))
+            '
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-2-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit code: $code ---"
+          cat "$LOG"
+          exit $code
+      - name: Read each script and check whether the module parses (GET only)
+        continue-on-error: true
+        run: |
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG="/tmp/step-3.log"
+          set +e
+          (
+            mkdir -p /tmp/diag
+            for name in $TARGETS; do
+              echo "------------------------------ $name"
+              curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -o "/tmp/diag/$name.mjs" \
+                -w "  download: HTTP %{http_code}, %{size_download} bytes, type=%{content_type}\n" \
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name"
+              echo "  sha256 : $(sha256sum "/tmp/diag/$name.mjs" | cut -d' ' -f1)"
+              echo "  head   : $(head -c 120 "/tmp/diag/$name.mjs" | tr -d '\n')"
+              echo "  tail   : $(tail -c 120 "/tmp/diag/$name.mjs" | tr -d '\n')"
+              if node --check "/tmp/diag/$name.mjs" 2>"/tmp/diag/$name.err"; then
+                echo "  parser : the module PARSES — a syntax error is not the cause"
+              else
+                echo "  parser : DOES NOT PARSE — this alone is an 1101 with no report:"
+                sed 's/^/           /' "/tmp/diag/$name.err" | head -6
+              fi
+              curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/settings" \
+                -o "/tmp/diag/$name.settings.json" -w "  settings: HTTP %{http_code}\n"
+              python3 -c '
+            import json, sys
+            name = sys.argv[1]
+            d = json.load(open("/tmp/diag/%s.settings.json" % name))
+            r = d.get("result") or {}
+            print("    success:", d.get("success"), "errors:", json.dumps(d.get("errors"))[:200])
+            for k in ("main_module", "compatibility_date", "compatibility_flags", "usage_model"):
+                if k in r: print("    %s: %s" % (k, r.get(k)))
+            for b in (r.get("bindings") or []):
+                val = b.get("namespace_id") or b.get("class_name") or b.get("text") or ""
+                print("    binding: %s/%s%s" % (b.get("type"), b.get("name"), "" if not val else " -> " + str(val)[:36]))
+            ' "$name"
+              curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/subdomain" \
+                -o "/tmp/diag/$name.subdomain.json" -w "  route: HTTP %{http_code}\n"
+              python3 -c '
+            import json, sys
+            d = json.load(open("/tmp/diag/%s.subdomain.json" % sys.argv[1]))
+            print("    success:", d.get("success"), "result:", d.get("result"), "errors:", json.dumps(d.get("errors"))[:200])
+            ' "$name"
+            done
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-3-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit code: $code ---"
+          cat "$LOG"
+          exit $code
       - name: What the app uploads today, for comparison (local files only)
+        continue-on-error: true
         run: |
-          for f in dist-panel/catpanel.obf.js app/src/main/assets/panels/catpanel.min.js app/src/main/assets/panels/catclient.worker.js; do
-            [ -f "$f" ] || continue
-            printf '%-52s %10s bytes  ' "$f" "$(stat -c%s "$f")"
-            if node --check "$f" 2>/dev/null; then echo "parses ok"; else echo "DOES NOT PARSE"; fi
-          done
-          grep -m1 -o "CAT_PANEL_VERSION = '[0-9.]*'" dist-panel/catpanel.obf.js app/src/main/assets/panels/catpanel.min.js 2>/dev/null || true
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG="/tmp/step-4.log"
+          set +e
+          (
+            for f in dist-panel/catpanel.obf.js app/src/main/assets/panels/catpanel.min.js app/src/main/assets/panels/catclient.worker.js; do
+              [ -f "$f" ] || continue
+              printf '%-52s %10s bytes  ' "$f" "$(stat -c%s "$f")"
+              if node --check "$f" 2>/dev/null; then echo "parses ok"; else echo "DOES NOT PARSE"; fi
+            done
+            grep -m1 -o "CAT_PANEL_VERSION = '[0-9.]*'" dist-panel/catpanel.obf.js app/src/main/assets/panels/catpanel.min.js 2>/dev/null || true
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-4-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit code: $code ---"
+          cat "$LOG"
+          exit $code
       - name: Live probe with wrangler tail attached (observation only)
+        continue-on-error: true
         run: |
-          set -o pipefail
-          npm install --no-save --no-audit --no-fund wrangler@4.149.0 --silent
-          SUB="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
-            | python3 -c 'import json,sys; print((json.load(sys.stdin).get("result") or {}).get("subdomain",""))')"
-          echo "account subdomain: ${SUB:-unknown}"
-          for name in $TARGETS; do
-            echo "────────────────────────────── $name"
-            ./node_modules/.bin/wrangler tail "$name" --format json > "/tmp/diag/tail-$name.log" 2>&1 &
-            TPID=$!
-            sleep 10
-            url="https://$name.${SUB}.workers.dev"
-            echo "  probe $url/health"
-            curl -sS -o "/tmp/diag/body-$name.html" \
-              -w "    → HTTP %{http_code}, %{size_download} bytes, type=%{content_type}\n" \
-              --max-time 25 "$url/health" || echo "    (curl failed)"
-            curl -sS -o /dev/null -w "    /api/version → HTTP %{http_code}, type=%{content_type}\n" --max-time 25 "$url/api/version" || true
-            sleep 8
-            kill "$TPID" 2>/dev/null || true
-            echo "  edge page title: $(grep -o -m1 '<title>[^<]*</title>' "/tmp/diag/body-$name.html" || true)"
-            echo "  edge page head : $(head -c 240 "/tmp/diag/body-$name.html" | tr -d '\n')"
-            echo "  tail log (first 12 non-empty lines, 400 chars each):"
-            grep -a . "/tmp/diag/tail-$name.log" | head -12 | cut -c1-400 | sed 's/^/    /' || echo "    (no tail output)"
-            echo "  exception-shaped text in the tail:"
-            grep -a -o -E '"exceptions":\[[^]]*\]|"message":"[^"]{0,300}"|"name":"[^"]{0,60}"' "/tmp/diag/tail-$name.log" | head -6 | sed 's/^/    /' || echo "    (none)"
-          done
+          esc() { sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'; }
+          LOG="/tmp/step-5.log"
+          set +e
+          (
+            npm install --no-save --no-audit --no-fund wrangler@4.149.0 --silent
+            SUB="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+              | python3 -c 'import json,sys; print((json.load(sys.stdin).get("result") or {}).get("subdomain",""))')"
+            echo "account subdomain: ${SUB:-unknown}"
+            for name in $TARGETS; do
+              echo "------------------------------ $name"
+              ./node_modules/.bin/wrangler tail "$name" --format json > "/tmp/diag/tail-$name.log" 2>&1 &
+              TPID=$!
+              sleep 10
+              url="https://$name.${SUB}.workers.dev"
+              echo "  probe $url/health"
+              curl -sS -o "/tmp/diag/body-$name.html" \
+                -w "    -> HTTP %{http_code}, %{size_download} bytes, type=%{content_type}\n" \
+                --max-time 25 "$url/health" || echo "    (curl failed)"
+              curl -sS -o /dev/null -w "    /api/version -> HTTP %{http_code}, type=%{content_type}\n" --max-time 25 "$url/api/version" || true
+              sleep 8
+              kill "$TPID" 2>/dev/null || true
+              echo "  edge page title: $(grep -o -m1 '<title>[^<]*</title>' "/tmp/diag/body-$name.html" || true)"
+              echo "  edge page head : $(head -c 240 "/tmp/diag/body-$name.html" | tr -d '\n')"
+              echo "  tail log, first 10 non-empty lines:"
+              grep -a . "/tmp/diag/tail-$name.log" | head -10 | cut -c1-300 | sed 's/^/    /' || echo "    (no tail output)"
+              echo "  exception-shaped text in the tail:"
+              grep -a -o -E '"exceptions":\[[^]]*\]|"message":"[^"]{0,300}"|"name":"[^"]{0,60}"' "/tmp/diag/tail-$name.log" | head -6 | sed 's/^/    /' || echo "    (none)"
+            done
+          ) > "$LOG" 2>&1
+          code=$?
+          echo "::notice title=diag-5-exit-$code::$(esc < "$LOG" | head -c 3400)"
+          echo "--- step exit code: $code ---"
+          cat "$LOG"
+          exit $code
