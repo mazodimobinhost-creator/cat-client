@@ -753,20 +753,20 @@
     <string name="scanner_foreign_report_row">%1$s — HTTP %2$s — %3$s — %4$d ms</string>
     <string name="pm_channel">Panel monitor</string>
     <string name="pm_title">⚠️ Cat Panel is down</string>
-    <string name="panel_probe_button">📡 Three-point panel test (1101)</string>
+    <string name="panel_probe_button">Three-point panel test (1101)</string>
     <string name="panel_probe_title">Panel three-point test</string>
     <string name="panel_probe_url_hint">Worker URL (https://name.sub.workers.dev)</string>
-    <string name="panel_probe_running">Asking /health, /api/version and /api/selfcheck (throw=1)…</string>
-    <string name="panel_probe_ran">✅ the code RAN (JSON) — the module loaded and executed</string>
-    <string name="panel_probe_never">🚫 the code NEVER RAN (edge page / 1101) — the file did not load</string>
-    <string name="panel_probe_unreachable">✗ no answer — host or network (not a 1101)</string>
-    <string name="panel_probe_other">other answer — read the raw head below</string>
+    <string name="panel_probe_running">Asking /health, /api/version and /api/selfcheck (throw=1)...</string>
+    <string name="panel_probe_ran">OK: the code ran (JSON) - the module loaded and executed</string>
+    <string name="panel_probe_never">STOP: the code never ran (edge page / 1101) - the file did not load</string>
+    <string name="panel_probe_unreachable">No answer - host or network (not a 1101)</string>
+    <string name="panel_probe_other">Other answer - read the raw head below</string>
     <string name="panel_probe_copy">Copy the output</string>
     <string name="panel_probe_need_url">Paste the worker URL first.</string>
-    <string name="panel_probe_hint_ran">Verdict: the worker is up and your file executes. If the page still shows 1101, it is a request failure, not a load failure — the panel's own report (/, or /api/diag for the owner) has the details.</string>
-    <string name="panel_probe_hint_never">Verdict: nothing inside the file can fix this — it never loaded. Re-upload the intact catclient.worker.js under exactly the same worker name; if a fresh name/account still answers this way, treat it as a suspension and run the recovery flow.</string>
-    <string name="pm_title_1101">⚠️ The panel answered «code never ran» (Error 1101)</string>
-    <string name="pm_detail_1101">Error 1101 means the file never loaded — most often a truncated upload or a deploy that did not land; a suspension after an abuse report looks the same. First: re-upload the intact catclient.worker.js under exactly the same worker name (App → three-point panel test shows which of the two it is). Only if that repeats on a fresh worker name/account is it a block — then: backup in Tools, delete the worker, redeploy, restore.</string>
+    <string name="panel_probe_hint_ran">Verdict: the worker is up and your file executes. If the page still shows 1101 it is a request failure, not a load failure. The panel report (or /api/diag for the owner) has the details.</string>
+    <string name="panel_probe_hint_never">Verdict: nothing inside the file can fix this - it never loaded. Re-upload the intact catclient.worker.js under exactly the same worker name. If a fresh name or account still answers this way, treat it as a suspension and run the recovery flow.</string>
+    <string name="pm_title_1101">The panel answered: code never ran (Error 1101)</string>
+    <string name="pm_detail_1101">Error 1101 means the file never loaded: most often a truncated upload or a deploy that did not land; a suspension after an abuse report looks the same. First re-upload the intact catclient.worker.js under exactly the same worker name (App, three-point panel test shows which of the two it is). Only if that repeats on a fresh worker name or account is it a block: backup in Tools, delete the worker, redeploy, restore.</string>
     <string name="scanner_list_copied">List copied (IPv4 / IPv6 sections)</string>
     <string name="scanner_share_empty">No verified result to share yet</string>
     <string name="scanner_jitter">jit %1$d ms</string>
