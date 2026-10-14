@@ -334,23 +334,26 @@ class ConnectionChainTunnelTest {
         val (source, settings) = exitFixture()
 
         // The Netherlands is in neither config: a country wish must never cost the user their
-        // connection, so a plan must still exist — but it must admit it did not match.
-        val plan = ConnectionChainPlanner
-            .plans(
-                settings,
-                listOf(source),
-                emptyList(),
-                allowIpv6Literals = true,
-                requestedExitCountryCode = "NL",
-            )
-            .single()
-
-        assertEquals("NL", plan.requestedExitCountryCode)
-        assertFalse("the plan claimed a country it did not use", plan.exitCountryMatched)
-        assertTrue(
-            "the fallback exit must be one of the configs the chain could actually use",
-            plan.exitCountryCode == "DE" || plan.exitCountryCode == "TR",
+        // connection, so plans must still exist — but not one of them may claim it used NL.
+        // (There are two here: DE and TR are both legitimate fallbacks, and the planner is
+        // allowed to offer both, in rank order.)
+        val plans = ConnectionChainPlanner.plans(
+            settings,
+            listOf(source),
+            emptyList(),
+            allowIpv6Literals = true,
+            requestedExitCountryCode = "NL",
         )
+
+        assertTrue("an impossible country must not stop the chain", plans.isNotEmpty())
+        for (plan in plans) {
+            assertEquals("NL", plan.requestedExitCountryCode)
+            assertFalse("a plan claimed a country it did not use", plan.exitCountryMatched)
+            assertTrue(
+                "the fallback exit must be one of the configs the chain could actually use",
+                plan.exitCountryCode == "DE" || plan.exitCountryCode == "TR",
+            )
+        }
     }
 
     @Test
