@@ -158,6 +158,9 @@ class MainActivity : Activity() {
     private lateinit var frontingIpPreferenceStore: FrontingIpPreferenceStore
     private lateinit var routingModePreferenceStore: RoutingModePreferenceStore
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
+    /** Orbot / Tor engine switch + the multi-path watchdog that may take it over. */
+    private lateinit var orbotEnginePreferenceStore: OrbotEnginePreferenceStore
+    private lateinit var pathWatchdogStore: PathWatchdogStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
     private lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
     private lateinit var panelTuneStore: PanelTuneStore
@@ -265,6 +268,8 @@ class MainActivity : Activity() {
     private var orbotStatusText: TextView? = null
     private var orbotProbeButton: MaterialButton? = null
     private var lastOrbotProbe: OrbotProbeResult? = null
+    private var watchdogToggle: MaterialSwitch? = null
+    private var watchdogStatusText: TextView? = null
     private lateinit var dnsPrivacyValueText: TextView
     private lateinit var dnsPrivacyDetailText: TextView
     private lateinit var dnsPrivacyEndpointInput: EditText
@@ -415,6 +420,8 @@ class MainActivity : Activity() {
         frontingIpPreferenceStore = FrontingIpPreferenceStore(this)
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
+        orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)
+        pathWatchdogStore = PathWatchdogStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         dpiBypassPreferenceStore = DpiBypassPreferenceStore(this)
         panelTuneStore = PanelTuneStore(this)
@@ -4462,6 +4469,41 @@ class MainActivity : Activity() {
         }
         orbotPanel.addView(
             orbotStatusText,
+            LinearLayout.LayoutParams(-1, -2).apply {
+                marginStart = dp(8)
+                marginEnd = dp(8)
+                topMargin = dp(4)
+            },
+        )
+        val watchdogSwitch = MaterialSwitch(this).apply {
+            contentDescription = getString(R.string.watchdog_title)
+            isChecked = pathWatchdogStore.isArmed()
+            setOnClickListener {
+                pathWatchdogStore.setArmed(isChecked)
+                DiagnosticLogger.info(this@MainActivity, "activity.watchdog.saved", "armed=$isChecked")
+                renderOrbotRow()
+                reconnectForConnectionOptionChange()
+            }
+        }
+        watchdogToggle = watchdogSwitch
+        orbotPanel.addView(
+            advancedToggleRow(
+                title = getString(R.string.watchdog_title),
+                detail = getString(R.string.watchdog_detail),
+                toggle = watchdogSwitch,
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        watchdogStatusText = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = true
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+        }
+        orbotPanel.addView(
+            watchdogStatusText,
             LinearLayout.LayoutParams(-1, -2).apply {
                 marginStart = dp(8)
                 marginEnd = dp(8)
@@ -13706,6 +13748,26 @@ class MainActivity : Activity() {
             else -> status.setText(getString(R.string.orbot_absent, endpoint, probe.detail))
         }
         status.setTextColor(if (enabled && probe?.reachable == true) TEAL else TEXT_SECONDARY)
+
+        val watchdog = watchdogStatusText ?: return
+        val armed = pathWatchdogStore.isArmed()
+        val state = pathWatchdogStore.readState()
+        watchdogToggle?.isChecked = armed
+        watchdog.setText(
+            when {
+                !armed -> getString(R.string.watchdog_off)
+                state.usingFallback -> getString(
+                    R.string.watchdog_on_fallback,
+                    PathWatchdogPolicy.PRIMARY_RETRY_INTERVAL_MS / 60_000L,
+                )
+                else -> getString(
+                    R.string.watchdog_on_primary,
+                    state.consecutivePrimaryFailures,
+                    PathWatchdogPolicy.FAILURES_BEFORE_SWITCH,
+                )
+            },
+        )
+        watchdog.setTextColor(if (armed && state.usingFallback) TEAL else TEXT_SECONDARY)
     }
 
     /** Probe off the main thread: a TCP connect that hangs must not freeze the settings page. */

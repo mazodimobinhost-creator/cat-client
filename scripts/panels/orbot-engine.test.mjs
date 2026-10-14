@@ -95,9 +95,25 @@ const enStrings = read('res/values/strings.xml');
   ok('the service owns the engine store',
     service.includes('orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)'));
   ok('the hop is resolved once per attempt', service.includes('orbot = resolveOrbotHop(),'));
+  {
+    // The whole rule lives in one function: probe first, and a probe that did not answer must
+    // end in `return null` (the normal path), never in a hop.
+    const body = service.slice(
+      service.indexOf('private suspend fun resolveOrbotHop()'),
+      service.indexOf('private fun recordPathOutcome('),
+    );
+    const skippedAt = body.indexOf('orbot.engine.skipped');
+    const nullAt = body.lastIndexOf('return null');
+    ok('the probe runs off the main thread (the connect path is entered from Dispatchers.Main)',
+    /withContext\(Dispatchers\.IO\) \{ OrbotProbe\.probe\(/.test(service) &&
+    service.includes('private suspend fun resolveOrbotHop()') &&
+    service.includes('private suspend fun captureSessionPlanPreferences('));
+  ok('…and no socket is opened at all when neither the switch nor the watchdog can act',
+    /if \(!switchOn && !pathWatchdogStore\.isArmed\(\)\) return null/.test(service));
   ok('…and a switch that is ON while Orbot is closed does NOT activate the path',
-    /fun resolveOrbotHop\(\): OrbotProxySettings\?/.test(service) &&
-    /if \(!probe\.reachable\) \{/.test(service) && /return null/.test(service));
+      /fun resolveOrbotHop\(\): OrbotProxySettings\?/.test(body) && skippedAt > 0 && nullAt > skippedAt,
+      'skipped@' + skippedAt + ' null@' + nullAt);
+  }
   ok('…it is reported instead of ignored', service.includes('"orbot.engine.skipped"'));
   ok('…and an active hop is logged with its latency and the shape it forced',
     service.includes('"orbot.engine.active"') && service.includes('routing=global'));
@@ -135,6 +151,54 @@ const enStrings = read('res/values/strings.xml');
     existsSync(path.join(app, '../test/java/com/cat/client/OrbotEngineTest.kt')));
   ok('…and it exercises the real probe against a real listener, not a mock',
     readRoot('app/src/test/java/com/cat/client/OrbotEngineTest.kt').includes('ServerSocket(0)'));
+}
+
+/* ---------- 6) the multi-path watchdog (item 4) ---------- */
+{
+  const watchdog = read('java/com/cat/client/PathWatchdog.kt');
+  const watchdogTest = readRoot('app/src/test/java/com/cat/client/PathWatchdogTest.kt');
+
+  ok('the watchdog is a pure decision engine (no clock, no Android I/O in the policy)',
+    watchdog.includes('internal object PathWatchdog') && watchdog.includes('internal object PathWatchdogPolicy'));
+  ok('…and both thresholds are constants, not magic numbers inline',
+    watchdog.includes('const val FAILURES_BEFORE_SWITCH = 2') &&
+    watchdog.includes('const val PRIMARY_RETRY_INTERVAL_MS'));
+  ok('the fallback is never taken without a fallback that answers',
+    watchdog.includes('if (!fallbackAvailable) return PathWatchdogDecision.Stay("no-fallback")'));
+  ok('a disarmed watchdog never moves', watchdog.includes('if (!armed) return PathWatchdogDecision.Stay("disarmed")'));
+  ok('a fallback that disappears sends the app back to the primary',
+    watchdog.includes('ReturnToPrimary("fallback-unavailable")'));
+  ok('the fallback is temporary (retry window), so it cannot become a one-way trip',
+    watchdog.includes('ReturnToPrimary("primary-retry-window")'));
+  ok('its state survives a process restart',
+    watchdog.includes('class PathWatchdogStore') && watchdog.includes('fun readState()') &&
+    watchdog.includes('fun saveState('));
+
+  ok('the service consults it once per attempt', service.includes('PathWatchdog.decide('));
+  ok('…records the primary-path outcome around the attempt itself',
+    service.includes('val attemptUsedOrbot = preferences.orbot != null') &&
+    service.includes('recordPathOutcome(') && /catch \(error: Throwable\) \{\n\s+recordPathOutcome\(/.test(service));
+  ok('…and an attempt that rode Orbot is NOT counted as a primary outcome',
+    /if \(usedOrbot\) return/.test(service));
+  ok('an automatic switch is logged with the reason it happened',
+    service.includes('reason=${decision.reason}') && service.includes('"orbot.watchdog.return"'));
+  ok('the UI carries the second switch and its own verdict line',
+    activity.includes('pathWatchdogStore.setArmed(isChecked)') &&
+    activity.includes('R.string.watchdog_off') && activity.includes('R.string.watchdog_on_primary') &&
+    activity.includes('R.string.watchdog_on_fallback'));
+  ok('the JVM tests for the policy ship in the unit-test source set',
+    existsSync(path.join(app, '../test/java/com/cat/client/PathWatchdogTest.kt')));
+
+  const wKeys = ['watchdog_title', 'watchdog_detail', 'watchdog_off', 'watchdog_on_primary', 'watchdog_on_fallback'];
+  ok('all 5 watchdog strings exist in English and Persian',
+    wKeys.every((k) => enStrings.includes('name="' + k + '"') && faStrings.includes('name="' + k + '"')),
+    wKeys.filter((k) => !enStrings.includes('name="' + k + '"') || !faStrings.includes('name="' + k + '"')).join(','));
+  const holders = (xml, k) => (xml.match(new RegExp('name="' + k + '">([^<]*)<'))?.[1].match(/%\d\$[sd]/g) || []).sort().join(',');
+  ok('…with matching placeholders in both languages',
+    wKeys.every((k) => holders(enStrings, k) === holders(faStrings, k)),
+    wKeys.map((k) => k + ':' + holders(enStrings, k) + '/' + holders(faStrings, k)).join(' '));
+  ok('the policy tests cover the anti-flap rules (one failure is noise, one success resets)',
+    watchdogTest.includes('oneFailureIsNoise') && watchdogTest.includes('oneSuccessResetsTheRun'));
 }
 
 console.log('\norbot engine: ' + pass + ' passed, ' + fail + ' FAILED');

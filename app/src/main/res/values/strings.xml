@@ -330,6 +330,11 @@
     <string name="orbot_ready">Orbot answered on %1$s (%2$d ms) — the next connection goes through Tor.</string>
     <string name="orbot_absent">Orbot did not answer on %1$s (%2$s) — the next connection uses the normal path, so the switch alone changes nothing.</string>
     <string name="orbot_probe">Check now</string>
+    <string name="watchdog_title">Auto-switch to Tor</string>
+    <string name="watchdog_detail">On = if the normal path fails twice in a row, the next connection goes through Orbot, and ten minutes later the normal path gets one more try. A single success resets the run, so a healthy path is not moved for no reason. With Orbot closed this switch does nothing at all (it never dials a dead port).</string>
+    <string name="watchdog_off">Off — nothing switches by itself.</string>
+    <string name="watchdog_on_primary">On — on the normal path: %1$d consecutive failures of %2$d (at the threshold the next connection goes through Tor).</string>
+    <string name="watchdog_on_fallback">On — currently on Tor; in %1$d minutes the normal path is tried once more.</string>
     <string name="dns_dot_detail">TLS server with encrypted fallback</string>
     <string name="dns_content_description">Encrypted DNS: %1$s</string>
     <string name="dns_doh_address">DoH address</string>

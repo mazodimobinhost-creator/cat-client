@@ -331,6 +331,11 @@
     <string name="orbot_ready">Orbot روی %1$s جواب داد (%2$d میلی‌ثانیه) — اتصالِ بعدی از تور می‌رود.</string>
     <string name="orbot_absent">Orbot روی %1$s جواب نداد (%2$s) — اتصالِ بعدی از مسیرِ عادی می‌رود، پس کلید تنها فایده‌ای ندارد.</string>
     <string name="orbot_probe">بررسی الان</string>
+    <string name="watchdog_title">تعویض خودکار به تور</string>
+    <string name="watchdog_detail">روشن = اگر مسیرِ عادی دو بارِ پشت‌سرهم خطا بدهد، اتصالِ بعدی از Orbot می‌رود و ۱۰ دقیقه بعد یک بار مسیرِ عادی دوباره امتحان می‌شود. یک موفقیت، شمارشِ خطا را صفر می‌کند تا مسیرِ سالم بی‌دلیل جابه‌جا نشود. اگر Orbot خاموش باشد، همین کلید هیچ کاری نمی‌کند (به پورتِ مرده نمی‌رود).</string>
+    <string name="watchdog_off">خاموش — هیچ جابه‌جاییِ خودکاری انجام نمی‌شود.</string>
+    <string name="watchdog_on_primary">روشن — روی مسیرِ عادی: %1$d خطای پشت‌سرهم از %2$d (با رسیدن به آستانه، اتصال بعدی از تور می‌رود).</string>
+    <string name="watchdog_on_fallback">روشن — الان روی تور؛ %1$d دقیقه بعد مسیرِ عادی یک بار دوباره امتحان می‌شود.</string>
     <string name="dns_dot_detail">سرور TLS با مسیر جایگزین رمزنگاری‌شده</string>
     <string name="dns_content_description">DNS رمزنگاری‌شده: %1$s</string>
     <string name="dns_doh_address">آدرس DoH</string>

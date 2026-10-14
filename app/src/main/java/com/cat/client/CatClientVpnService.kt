@@ -250,6 +250,8 @@ class CatClientVpnService : VpnService() {
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
     /** The ORBOT engine switch + loopback address (see resolveOrbotHop). */
     private lateinit var orbotEnginePreferenceStore: OrbotEnginePreferenceStore
+    /** The multi-path watchdog: when it may take over (see resolveOrbotHop / recordPathOutcome). */
+    private lateinit var pathWatchdogStore: PathWatchdogStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
     private lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
     private lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
@@ -416,6 +418,7 @@ class CatClientVpnService : VpnService() {
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
         orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)
+        pathWatchdogStore = PathWatchdogStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
@@ -1597,31 +1600,42 @@ class CatClientVpnService : VpnService() {
                     frontingIps = frontingIps,
                 )
                 val sourceExclusion = exclusion.forSubscription(sourceId)
-                val (startedRuntime, startupNotice) = withContext(Dispatchers.IO) {
-                    if (frontingIps.isNotEmpty()) {
-                        connectWithFrontingIpsOrOriginal(
-                            eventPrefix = eventPrefix,
-                            snapshot = snapshot,
-                            profiles = profiles,
-                            splitTunnelPlan = splitTunnelPlan,
-                            selectedCountryCode = selectedCountryCode,
-                            exclusion = sourceExclusion,
-                            frontingIps = frontingIps,
-                            preferences = preferences,
-                            availableProfiles = eligibleProfiles,
-                        )
-                    } else {
-                        connectWithOriginal(
-                            snapshot = snapshot,
-                            splitTunnelPlan = splitTunnelPlan,
-                            selectedCountryCode = selectedCountryCode,
-                            preferences = preferences,
-                            availableProfiles = eligibleProfiles,
-                            excludedProfileFingerprint = sourceExclusion.profileFingerprint,
-                            quickSpeedRequested = quickSpeedRequested,
-                        ) to null
+                val attemptUsedOrbot = preferences.orbot != null
+                val (startedRuntime, startupNotice) = try {
+                    withContext(Dispatchers.IO) {
+                        if (frontingIps.isNotEmpty()) {
+                            connectWithFrontingIpsOrOriginal(
+                                eventPrefix = eventPrefix,
+                                snapshot = snapshot,
+                                profiles = profiles,
+                                splitTunnelPlan = splitTunnelPlan,
+                                selectedCountryCode = selectedCountryCode,
+                                exclusion = sourceExclusion,
+                                frontingIps = frontingIps,
+                                preferences = preferences,
+                                availableProfiles = eligibleProfiles,
+                            )
+                        } else {
+                            connectWithOriginal(
+                                snapshot = snapshot,
+                                splitTunnelPlan = splitTunnelPlan,
+                                selectedCountryCode = selectedCountryCode,
+                                preferences = preferences,
+                                availableProfiles = eligibleProfiles,
+                                excludedProfileFingerprint = sourceExclusion.profileFingerprint,
+                                quickSpeedRequested = quickSpeedRequested,
+                            ) to null
+                        }
                     }
+                } catch (error: Throwable) {
+                    recordPathOutcome(
+                        succeeded = false,
+                        usedOrbot = attemptUsedOrbot,
+                        detail = error.javaClass.simpleName,
+                    )
+                    throw error
                 }
+                recordPathOutcome(succeeded = true, usedOrbot = attemptUsedOrbot, detail = "started")
                 return Triple(
                     startedRuntime,
                     startupNotice,
@@ -1629,7 +1643,7 @@ class CatClientVpnService : VpnService() {
                 )
     }
 
-    private fun captureSessionPlanPreferences(
+    private suspend fun captureSessionPlanPreferences(
         selectedSubscriptionId: String,
         explicitProfile: ConnectionProfile?,
         selectedAutomaticTypes: Set<String>,
@@ -1665,23 +1679,80 @@ class CatClientVpnService : VpnService() {
      * A switch that is on while Orbot is closed is therefore reported (not silently ignored),
      * and the attempt continues on the normal path.
      */
-    private fun resolveOrbotHop(): OrbotProxySettings? {
-        val settings = orbotEnginePreferenceStore.readActiveSettings() ?: return null
-        val probe = OrbotProbe.probe(settings.host, settings.port)
-        if (!probe.reachable) {
+    private suspend fun resolveOrbotHop(): OrbotProxySettings? {
+        val settings = OrbotProxySettings(
+            orbotEnginePreferenceStore.readHost(),
+            orbotEnginePreferenceStore.readPort(),
+        )
+        // Nothing to do — and no socket to open — when neither half can act.
+        val switchOn = orbotEnginePreferenceStore.isEnabled()
+        if (!switchOn && !pathWatchdogStore.isArmed()) return null
+        // This runs on the connect path, which is entered from the main thread (scope.launch on
+        // Dispatchers.Main): a 400 ms connect there would be visible jank, so the probe goes to
+        // IO like every other blocking call in this service.
+        val probe = withContext(Dispatchers.IO) { OrbotProbe.probe(settings.host, settings.port) }
+        // The owner's switch is unconditional (apart from Orbot having to answer); the watchdog
+        // is the automatic half and only moves when its own run says so.
+        if (switchOn) {
+            if (probe.reachable) {
+                DiagnosticLogger.info(
+                    this,
+                    "orbot.engine.active",
+                    "host=${settings.host} port=${settings.port} ms=${probe.latencyMs} routing=global reason=switch",
+                )
+                return settings
+            }
             DiagnosticLogger.warn(
                 this,
                 "orbot.engine.skipped",
-                "host=${settings.host} port=${settings.port} detail=${probe.detail}",
+                "host=${settings.host} port=${settings.port} detail=${probe.detail} reason=switch",
             )
             return null
         }
+        val decision = PathWatchdog.decide(
+            armed = true,
+            // A fallback that does not answer is not a fallback: with Orbot closed the watchdog
+            // stays on the primary instead of routing into a dead local port.
+            fallbackAvailable = probe.reachable,
+            state = pathWatchdogStore.readState(),
+            nowMs = System.currentTimeMillis(),
+        )
+        return when (decision) {
+            is PathWatchdogDecision.UseFallback -> {
+                pathWatchdogStore.applyDecision(decision)
+                DiagnosticLogger.info(
+                    this,
+                    "orbot.engine.active",
+                    "host=${settings.host} port=${settings.port} ms=${probe.latencyMs} routing=global reason=${decision.reason}",
+                )
+                settings
+            }
+            is PathWatchdogDecision.ReturnToPrimary -> {
+                pathWatchdogStore.applyDecision(decision)
+                DiagnosticLogger.info(this, "orbot.watchdog.return", "reason=${decision.reason}")
+                null
+            }
+            is PathWatchdogDecision.Stay -> null
+        }
+    }
+
+    /**
+     * One attempt's outcome, recorded on the PRIMARY path only: while an attempt rode Orbot, its
+     * result says nothing about whether the normal path works, and counting it would make the
+     * watchdog forget that it took the fallback in the first place.
+     */
+    private fun recordPathOutcome(succeeded: Boolean, usedOrbot: Boolean, detail: String) {
+        if (usedOrbot) return
+        val state = if (succeeded) {
+            pathWatchdogStore.recordPrimarySuccess()
+        } else {
+            pathWatchdogStore.recordPrimaryFailure()
+        }
         DiagnosticLogger.info(
             this,
-            "orbot.engine.active",
-            "host=${settings.host} port=${settings.port} ms=${probe.latencyMs} routing=global",
+            "orbot.watchdog.observe",
+            "succeeded=$succeeded detail=$detail state=${PathWatchdog.describe(state)}",
         )
-        return settings
     }
 
     private suspend fun connectWithFrontingIpsOrOriginal(

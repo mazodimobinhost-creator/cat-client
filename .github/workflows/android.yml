@@ -159,6 +159,9 @@ jobs:
           # beta90: survival preset, per-user connection telemetry, health ordering and ?survive=1 link
           node scripts/panels/survival.test.mjs
           node scripts/panels/emergency-bridge.test.mjs
+          # beta110: the Tor/Orbot engine (loopback-only hop, idempotent injection, the switch
+          # is never believed without a probe) + the multi-path watchdog's anti-flap rules
+          node scripts/panels/orbot-engine.test.mjs
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated
