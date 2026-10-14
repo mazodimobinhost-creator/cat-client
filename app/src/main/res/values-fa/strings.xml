@@ -741,6 +741,15 @@
     <string name="scanner_manual_ip_invalid">آدرس معتبر نیست — مثل 104.16.1.1 یا [2606:4700:4700::1111]:443</string>
     <string name="scanner_manual_tcp_fail">%1$s روی پورت %2$d باز نشد (TCP ناموفق) — اضافه نشد</string>
     <string name="scanner_manual_tls_fail">%1$s در %2$d ms وصل شد ولی با این SNI پاسخِ معتبرِ TLS نداد — به‌عنوان «فقط TCP» اضافه شد (هرگز به پنل فرستاده نمی‌شود)</string>
+    <string name="scanner_sources_title">منابع اسکن</string>
+    <string name="scanner_sources_hint">هر چیپ یک منبع است و عدد کنارش، تعداد آدرسی که همین حالا وارد نوبتِ اسکن می‌شود. خاموش‌کردن یک منبع، همان را از این دور حذف می‌کند.</string>
+    <string name="scanner_src_mine">بازه‌های من</string>
+    <string name="scanner_src_cloudflare">کتابخانهٔ کلادفلر</string>
+    <string name="scanner_src_iran">کتابخانهٔ ایران/کامیونیتی</string>
+    <string name="scanner_src_ipv6">IPv6</string>
+    <string name="scanner_sources_total">%1$d کاندید از %2$d منبعِ روشن</string>
+    <string name="scanner_sources_empty">هیچ منبعی آدرسی برای اسکن ندارد — یک CIDR در کادر بالا بنویس یا «کتابخانهٔ کلادفلر» را روشن کن.</string>
+    <string name="scanner_ipv6_off">منبعِ IPv6 خاموش است — فقط IPv4 اسکن می‌شود (برای روشن‌کردن، چیپِ IPv6 در کارتِ منابع)…</string>
     <string name="scanner_ipv6_hint">IPv6 روی این شبکه پاسخ نداد — برای تلاشِ دوباره «🌐 IPv6 اجباری» پایین را روشن کن.</string>
     <string name="scanner_force_v6">🌐 IPv6 اجباری (بدون تستِ درگاه)</string>
     <string name="scanner_ai_btn">🛡 تست سرویس‌های AI</string>

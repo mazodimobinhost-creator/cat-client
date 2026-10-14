@@ -742,6 +742,15 @@
     <string name="scanner_manual_ip_invalid">Not a valid address — try 104.16.1.1 or [2606:4700:4700::1111]:443</string>
     <string name="scanner_manual_tcp_fail">%1$s did not open on port %2$d (TCP failed) — not added</string>
     <string name="scanner_manual_tls_fail">%1$s opened in %2$d ms but gave no valid TLS answer for this SNI — added as TCP-only (never sent to the panel)</string>
+    <string name="scanner_sources_title">Scan sources</string>
+    <string name="scanner_sources_hint">Each chip is a source; the number next to it is how many addresses it puts into the next run. Switching one off removes exactly that source from this run.</string>
+    <string name="scanner_src_mine">My ranges</string>
+    <string name="scanner_src_cloudflare">Cloudflare library</string>
+    <string name="scanner_src_iran">Iran/community library</string>
+    <string name="scanner_src_ipv6">IPv6</string>
+    <string name="scanner_sources_total">%1$d candidates from %2$d active sources</string>
+    <string name="scanner_sources_empty">No source has an address to scan — type a CIDR in the box above or switch the Cloudflare library on.</string>
+    <string name="scanner_ipv6_off">The IPv6 source is off — scanning IPv4 only (turn on the IPv6 chip in the sources card)…</string>
     <string name="scanner_ipv6_hint">IPv6 did not answer on this network — turn on «🌐 Force IPv6» below to try anyway.</string>
     <string name="scanner_force_v6">🌐 Force IPv6 (skip the probe gate)</string>
     <string name="scanner_ai_btn">🛡 Test AI services</string>

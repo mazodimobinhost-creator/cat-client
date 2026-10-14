@@ -1030,36 +1030,108 @@ object IpScanner {
         "2a06:98c0::6810:84e5",
     )
 
+    /**
+     * One row of the «sources» card: which list a scan will actually walk, and how
+     * much of it.
+     *
+     * WHY THIS EXISTS: the owner's report on the scanner was «فک کنم منبع نداره
+     * اسکن کنه» (it looks like it has nothing to scan) and «داخل اسکنر ایپی‌های v6
+     * نیست». Both are answerable only from the candidate list itself — the screen
+     * showed no numbers, so a walk of ~500 addresses looked identical to a walk of
+     * zero, and v6 (which IS in the code) is gated behind a connectivity probe, so
+     * on a network without v6 the rows simply are not there. This report turns both
+     * into visible numbers, and [ScanSource.key] is what the UI toggles.
+     */
+    data class ScanSource(
+        /** Stable id used by the UI and the prefs: `mine` · `cloudflare` · `ipv6` · `iran`. */
+        val key: String,
+        /** How many distinct addresses this source contributes to the walk. */
+        val count: Int,
+        /** Whether the scan will walk it at all (off = the owner switched it off). */
+        val enabled: Boolean,
+        /** True for the v6 source, whose count is 0 unless the network/forced switch allows it. */
+        val ipv6: Boolean = false,
+    )
+
+    /** The keys of [ScanSource] in walk order. */
+    val SCAN_SOURCE_KEYS: List<String> = listOf("mine", "cloudflare", "ipv6", "iran")
+
+    /**
+     * The candidate list, kept per source instead of flattened.
+     *
+     * Same order and same content as the historical [buildCandidateList] — user
+     * ranges first (range-first scanner), then the built-in Cloudflare ranges (only
+     * when the owner typed no CIDR of their own), then v6, then the Iran/community
+     * collections. v6 is derived from the v4 pool we already believe in, then the
+     * /48s that really answer, then the static library, because sampling the whole
+     * /32 (2^96 addresses) found nothing.
+     */
+    internal fun sourceCandidates(options: ScanOptions): LinkedHashMap<String, List<String>> {
+        val perRange = options.perRange.coerceIn(1, 256)
+        val out = LinkedHashMap<String, List<String>>()
+        val custom = parseRangeList(options.customSubnets)
+        val mine = linkedSetOf<String>()
+        custom.forEach { part ->
+            if (part.contains("/")) mine += expandSubnet(part, perRange, options.randomSample) else mine += part
+        }
+        val cloudflare = linkedSetOf<String>()
+        if (options.includeBuiltin && custom.none { it.contains("/") }) {
+            BUILTIN_RANGES.forEach { cidr -> cloudflare += expandSubnet(cidr, perRange, options.randomSample) }
+        }
+        val ipv6 = linkedSetOf<String>()
+        if (options.includeIpv6) {
+            val v4Pool = (mine + cloudflare).filter { isValidIpv4(it) }.take(120)
+            v4Pool.forEach { v4 -> ipv6 += deriveIpv6Candidates(v4) }
+            IPV6_SUBNETS.forEach { cidr -> ipv6 += expandSubnet(cidr, perRange, options.randomSample) }
+            ipv6 += V6_LIBRARY
+        }
+        val iran = linkedSetOf<String>()
+        if (options.includeIranLibrary) {
+            iran += IRAN_LIBRARY
+            iran += CommunityIpLibrary.ips
+        }
+        if (!options.includeIpv6) {
+            // No usable v6 on this network → drop v6 literals/ranges the user typed too.
+            mine.removeAll { isIpv6(it) }
+            cloudflare.removeAll { isIpv6(it) }
+            ipv6.clear()
+            iran.removeAll { isIpv6(it) }
+        }
+        out["mine"] = mine.toList()
+        out["cloudflare"] = cloudflare.toList()
+        out["ipv6"] = ipv6.toList()
+        out["iran"] = iran.toList()
+        return out
+    }
+
+    /**
+     * What the next scan will walk, one row per source — the numbers the UI shows
+     * before (and after) a run, so «منبع ندارد» becomes answerable on the device.
+     * `enabled` is false for a source the owner switched off, and for v6 when the
+     * connectivity gate (or the forced switch) keeps it out.
+     */
+    fun sourceReport(options: ScanOptions): List<ScanSource> {
+        val byKey = sourceCandidates(options)
+        val custom = parseRangeList(options.customSubnets)
+        return SCAN_SOURCE_KEYS.map { key ->
+            val list = byKey[key].orEmpty()
+            ScanSource(
+                key = key,
+                count = list.size,
+                enabled = when (key) {
+                    "mine" -> custom.isNotEmpty()
+                    "cloudflare" -> options.includeBuiltin && custom.none { it.contains("/") }
+                    "ipv6" -> options.includeIpv6 && list.isNotEmpty()
+                    else -> options.includeIranLibrary
+                },
+                ipv6 = key == "ipv6",
+            )
+        }
+    }
+
     internal fun buildCandidateList(options: ScanOptions): List<String> {
         val ips = linkedSetOf<String>()
-        val perRange = options.perRange.coerceIn(1, 256)
-        // User ranges first (range-first scanner): every CIDR yields `perRange` hosts.
-        val custom = parseRangeList(options.customSubnets)
-        custom.forEach { part ->
-            if (part.contains("/")) ips += expandSubnet(part, perRange, options.randomSample)
-            else ips += part
-        }
-        if (options.includeBuiltin && custom.none { it.contains("/") }) {
-            BUILTIN_RANGES.forEach { cidr ->
-                ips += expandSubnet(cidr, perRange, options.randomSample)
-            }
-        }
-        if (options.includeIpv6) {
-            // v6 discovery order: derived from the v4 pool (proven mapping) → the
-            // /48s we know answer → the static library. The old code sampled the
-            // whole /32 at random, which is why v6 rows almost never appeared.
-            val v4Pool = ips.toList().filter { isValidIpv4(it) }.take(120)
-            v4Pool.forEach { v4 -> ips += deriveIpv6Candidates(v4) }
-            IPV6_SUBNETS.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
-            ips += V6_LIBRARY
-        } else {
-            // No usable v6 on this network → drop v6 literals/ranges the user typed too.
-            ips.removeAll { isIpv6(it) }
-        }
-        if (options.includeIranLibrary) {
-            ips += IRAN_LIBRARY
-            ips += CommunityIpLibrary.ips
-        }
+        sourceCandidates(options).values.forEach { ips += it }
         return ips.shuffled()
     }
 

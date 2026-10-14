@@ -5501,6 +5501,16 @@ class MainActivity : Activity() {
             setSingleLine(false)
             maxLines = 4
             isVerticalScrollBarEnabled = true
+            // The «منابع اسکن» counts are drawn from THIS box, so they must follow the
+            // typing: a range the user just pasted has to show up as +24 candidates
+            // immediately, otherwise the card answers the same question as the old screen.
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(editable: android.text.Editable?) {
+                    renderScannerSources()
+                }
+            })
         }
         controls.addView(
             scannerFieldLayout(getString(R.string.scanner_subnets_label), scannerSubnetsInput),
@@ -5834,33 +5844,61 @@ class MainActivity : Activity() {
         scannerSpeedTestButton = scannerSpeedButton
         body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // 🌐 force-IPv6 toggle (persisted): for lines where the quick probe
-        // fails but v6 actually works (BPB scans showed 538ms on such a line).
-        val v6Row = LinearLayout(this).apply {
+        // 🔎 «منابع اسکن» — the card that answers «منبع نداره اسکن کنه».
+        //
+        // The scanner always had sources (the ranges box, the built-in Cloudflare
+        // ranges, the Iran/community collections, and the country's v6 blocks), but
+        // the screen showed none of them: a walk of ~500 candidates looked exactly
+        // like a walk of zero. Each chip below is a switch, and each carries the
+        // number of addresses it will contribute to the next run — computed from the
+        // very same IpScanner.sourceReport() the scan itself walks, so the numbers
+        // cannot drift away from reality.
+        val sourcesCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            background = glassSurfaceDrawable(radiusDp = 18)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        sourcesCard.addView(
+            TextView(this).apply {
+                setText(R.string.scanner_sources_title)
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        sourcesCard.addView(
+            TextView(this).apply {
+                setText(R.string.scanner_sources_hint)
+                textSize = 11f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                setPadding(0, dp(2), 0, dp(6))
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        // Local vals: addView() takes a non-null View, while the fields are nullable
+        // because the card is built after the range box's text watcher can fire.
+        val sourceRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
-        val v6Chip = TextView(this).apply {
-            text = getString(R.string.scanner_force_v6)
-            textSize = 12.5f
-            typeface = CatClientBodyBoldTypeface
-            setPadding(dp(14), dp(6), dp(14), dp(6))
+        scannerSourceRow = sourceRow
+        sourcesCard.addView(sourceRow, LinearLayout.LayoutParams(-1, -2))
+        val sourceSummary = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setOnClickListener {
-                scannerForceV6 = !scannerForceV6
-                getSharedPreferences("cat_client_theme", MODE_PRIVATE)
-                    .edit().putBoolean("scanner_force_v6", scannerForceV6).apply()
-                runCatching {
-                    background = glassSurfaceDrawable(radiusDp = 16, highlighted = scannerForceV6)
-                    setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
-                }
-            }
+            setPadding(0, dp(6), 0, 0)
         }
-        v6Chip.background = glassSurfaceDrawable(radiusDp = 16, highlighted = scannerForceV6)
-        v6Chip.setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
-        v6Row.addView(v6Chip, LinearLayout.LayoutParams(-2, -2))
-        body.addView(v6Row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        scannerSourceSummary = sourceSummary
+        sourcesCard.addView(sourceSummary, LinearLayout.LayoutParams(-1, -2))
+        body.addView(sourcesCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        renderScannerSources()
 
         // 🌍 Probe commonly requested foreign services from this device's CURRENT
         // network (through the VPN tunnel when it is connected). Results stay on
@@ -6171,6 +6209,125 @@ class MainActivity : Activity() {
             .apply()
     }
 
+    /**
+     * The four scan sources the owner can switch on/off — defaults kept exactly as
+     * the historical behaviour (ranges + Cloudflare library + Iran/community
+     * library on, v6 gated by the connectivity probe). Persisted per source so a
+     * scan is reproducible after a restart.
+     */
+    private fun scannerSourcePreference(key: String, fallback: Boolean): Boolean =
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+            .getBoolean("source_$key", fallback)
+
+    private fun saveScannerSource(key: String, value: Boolean) {
+        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).edit().putBoolean("source_$key", value).apply()
+    }
+
+    private var scannerSourceRow: LinearLayout? = null
+    private var scannerSourceSummary: TextView? = null
+    /**
+     * Draws the four source switches with their live counts.
+     *
+     * `count` is what IpScanner says this source will REALLY contribute (24 hosts per
+     * range by default, v6 as 0 unless the network/forced switch allows it) — not the
+     * number of entries in the list, which is the number that made «5 ranges» look
+     * like plenty while a v6-less line produced zero v6 rows forever.
+     */
+    private fun renderScannerSources() {
+        val row = scannerSourceRow ?: return
+        row.removeAllViews()
+        val customSubnets = scannerSubnetsInput?.text?.toString()?.trim().orEmpty()
+        val options = IpScanner.ScanOptions(
+            customSubnets = customSubnets,
+            includeBuiltin = scannerSourceEnabled("cloudflare"),
+            includeIranLibrary = scannerSourceEnabled("iran"),
+            includeIpv6 = scannerSourceEnabled("ipv6"),
+            perRange = when (scannerProfile) {
+                "fast" -> (SCANNER_PER_RANGE / 2).coerceAtLeast(2)
+                "deep" -> SCANNER_PER_RANGE * 3
+                else -> SCANNER_PER_RANGE
+            },
+            randomSample = true,
+        )
+        val report = IpScanner.sourceReport(options)
+        val byKey = report.associateBy { it.key }
+        IpScanner.SCAN_SOURCE_KEYS.forEach { key ->
+            val item = byKey[key] ?: return@forEach
+            val on = when (key) {
+                "mine" -> scannerSourceEnabled("mine")
+                "cloudflare" -> scannerSourceEnabled("cloudflare")
+                "iran" -> scannerSourceEnabled("iran")
+                else -> scannerSourceEnabled("ipv6")
+            }
+            val label = getString(
+                when (key) {
+                    "mine" -> R.string.scanner_src_mine
+                    "cloudflare" -> R.string.scanner_src_cloudflare
+                    "iran" -> R.string.scanner_src_iran
+                    else -> R.string.scanner_src_ipv6
+                },
+            )
+            val chip = TextView(this).apply {
+                text = if (on) "$label · ${item.count}" else label
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER
+                minHeight = dp(44)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                isClickable = true
+                isFocusable = true
+                // Highlight only a source that really contributes: with a CIDR in the box the
+                // Cloudflare library is switched on but suppressed, and a highlighted «· 0»
+                // chip would read as «on and finding nothing».
+                val active = on && item.count > 0
+                background = glassSurfaceDrawable(radiusDp = 16, highlighted = active)
+                setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+                setOnClickListener {
+                    // "mine" is the ranges box itself: switching it off means the box is
+                    // ignored (the same as clearing it) while the text stays for the next run.
+                    // Switching v6 off also clears the old «force» flag, otherwise the force
+                    // path would keep the source on and the switch would look broken.
+                    val next = !on
+                    saveScannerSource(key, next)
+                    if (key == "ipv6" && !next) {
+                        scannerForceV6 = false
+                        getSharedPreferences("cat_client_theme", MODE_PRIVATE)
+                            .edit().putBoolean("scanner_force_v6", false).apply()
+                    }
+                    renderScannerSources()
+                }
+            }
+            row.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        }
+        // «enabled» already folds in the switches AND the reality (a v6 source with no v6
+        // addresses enabled is not counted), so the total matches what a run will walk.
+        val total = report.filter { it.enabled }.sumOf { it.count }
+        scannerSourceSummary?.text = if (total <= 0) {
+            getString(R.string.scanner_sources_empty)
+        } else {
+            getString(R.string.scanner_sources_total, total, report.count { it.enabled && it.count > 0 })
+        }
+        scannerSourceSummary?.setTextColor(if (total <= 0) ERROR else TEXT_SECONDARY)
+    }
+
+    /**
+     * One switch, one meaning: the v6 source is either walked or it is not.
+     *
+     * The chip that used to exist only toggled `scannerForceV6` (skip the probe),
+     * so a network with working v6 and the chip OFF still scanned v4-only — the
+     * owner's «ای‌پی‌های v6 نیست» had two causes and the UI owned neither: the chip
+     * was below the buttons, unlabelled as to state, and the probe verdict vanished
+     * once the run started. Now the same switch answers all three.
+     */
+    private fun scannerSourceEnabled(key: String): Boolean = when (key) {
+        "ipv6" -> scannerForceV6 || scannerSourcePreference("ipv6", true)
+        "mine" -> scannerSourcePreference("mine", true)
+        "cloudflare" -> scannerSourcePreference("cloudflare", true)
+        "iran" -> scannerSourcePreference("iran", true)
+        else -> true
+    }
+
     private fun scannerRangesPreference(): String {
         val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString(SCANNER_RANGES_KEY, null)
         return saved ?: IpScanner.defaultRangesText()
@@ -6207,8 +6364,11 @@ class MainActivity : Activity() {
             sni = sni,
             port = scannerPort,
             customSubnets = customSubnets,
-            includeBuiltin = true,
-            includeIranLibrary = true,
+            // The four switches in the «منابع اسکن» card own this decision now. They
+            // default to the old hardcoded values (ranges + both libraries on, v6 via
+            // the probe below), so an untouched install scans exactly what it did.
+            includeBuiltin = scannerSourceEnabled("cloudflare"),
+            includeIranLibrary = scannerSourceEnabled("iran"),
             perRange = when (scannerProfile) {
                 "fast" -> (SCANNER_PER_RANGE / 2).coerceAtLeast(2)
                 "deep" -> SCANNER_PER_RANGE * 3
@@ -6236,10 +6396,14 @@ class MainActivity : Activity() {
         scannerJob = activityScope.launch {
             // Dual-stack: probe once whether v6 really works here; if so the v6
             // ranges join the walk and results of both families are ranked together.
-            val ipv6 = scannerForceV6 || withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }
+            val ipv6 = (scannerForceV6 || withContext(Dispatchers.IO) { IpScanner.hasIpv6Connectivity() }) &&
+                scannerSourceEnabled("ipv6")
             mainHandler.post {
                 scannerStatusText.setText(
                     when {
+                        // The switch, not just the probe: if the owner turned the v6
+                        // source off, saying «no v6 on this network» would be a lie.
+                        !scannerSourceEnabled("ipv6") -> R.string.scanner_ipv6_off
                         scannerForceV6 -> R.string.scanner_ipv6_forced
                         ipv6 -> R.string.scanner_ipv6_detected
                         else -> R.string.scanner_ipv6_absent
