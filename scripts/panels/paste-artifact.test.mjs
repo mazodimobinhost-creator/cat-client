@@ -67,7 +67,13 @@ const source = readFileSync(sourcePath, 'utf8');
 
   ok('raw size is in the paste range (300–600 KB)', asset.length >= 300_000 && asset.length <= 600_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
-  ok('gzip stays under the 140 KB warning line', gz < 140_000, gz);
+  // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
+  // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
+  // the paste experience and our own habit of shipping every idea into one file. It was raised
+  // from 140 000 to 145 000 for 6.67.4 (the SNI Lab card + its two-verdict live test), with the
+  // measured cost of that feature at ~2.9 KB gzip — recorded here so the next raise has to
+  // justify itself the same way instead of quietly moving the number.
+  ok('gzip stays under the 145 KB warning line', gz < 145_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

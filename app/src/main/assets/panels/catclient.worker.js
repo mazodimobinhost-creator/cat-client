@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.67.3';
+const CAT_PANEL_VERSION = '6.67.4';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -695,6 +695,9 @@ async function kvPutJson(env, key, value) {
   }
 }
 
+// Last SNI Lab run (6.67.4): { at, results:[{sni,cf,status,ms}] }. Display-only — it is not
+// consulted when building configs, the pool in settings is.
+const SNI_LAB_KEY = 'cat_sni_lab_v1';
 const TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
 // SNI used for SCANNING and by the opt-in «SNI spoofing» mode (settings.sniFront). It is NOT the
 // default of generated configs any more: Cloudflare answers 403 when a TLS SNI differs from the
@@ -3364,6 +3367,36 @@ function sniHostnameOk(value) {
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(String(value || '').trim().toLowerCase());
 }
 
+/**
+ * «Is this hostname really served by Cloudflare?» — the question that decides whether a
+ * candidate may enter the rotation pool at all (Cloudflare 403s a TLS SNI that names a
+ * hostname it does not serve, so a non-CF candidate is not a weaker choice, it is a dead one).
+ *
+ * Cloudflare's own /cdn-cgi/trace endpoint is the probe: it answers with colo=/fl= lines and
+ * ships `server: cloudflare`. A plain origin answers 404/HTML for that path, or lands on a
+ * different `server`. Never throws: the caller wants a table, not an exception.
+ */
+async function sniEdgeVerdict(sni) {
+  const started = Date.now();
+  let timer = null;
+  try {
+    const ctl = new AbortController();
+    timer = setTimeout(() => ctl.abort(), 6_000);
+    const res = await fetch('https://' + sni + '/cdn-cgi/trace', {
+      redirect: 'manual',
+      signal: ctl.signal,
+      headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION, accept: 'text/plain' },
+    });
+    const body = res.status === 200 ? (await res.text()).slice(0, 512) : '';
+    const cf = res.headers.get('server') === 'cloudflare' || /(^|\n)colo=/.test(body);
+    return { sni, cf, status: res.status, ms: Date.now() - started };
+  } catch (e) {
+    return { sni, cf: false, status: 0, ms: Date.now() - started, err: String((e && e.message) || e).slice(0, 60) };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Effective SNI pool: sanitized custom pool (worker host excluded) or the default. */
 function sniPoolOf(host, env, settings) {
   void env;
@@ -4546,6 +4579,63 @@ async function handleApi(request, url, env, ctx) {
     }
     return json({ ok: false, error: 'method' }, 405);
   }
+  if (path === '/api/sni-lab') {
+    /* SNI Lab (6.67.4) — the owner asked for a LIVE SNI test instead of a hand-kept list.
+     *
+     * Why two verdicts and not one: an SNI that a config can rotate onto has to clear two
+     * independent conditions, and they are checked from the only place that can see each of
+     * them.
+     *
+     *  1. «is it really Cloudflare-fronted?» — asked HERE, from the worker. Cloudflare answers
+     *     403 when the TLS SNI differs from the Host unless the SNI names a hostname Cloudflare
+     *     itself serves, so a candidate that is not CF-proxied can never be rotated onto. We
+     *     fetch /cdn-cgi/trace: Cloudflare's own endpoint answers with colo=/fl= and the
+     *     `server: cloudflare` header, a plain origin does not.
+     *  2. «is it reachable from YOUR line right now?» — asked by the BROWSER (see the page's
+     *     labNet), because a probe from the worker's colo says nothing about Iran's DPI. That
+     *     half stays in the page on purpose: the owner's network is the vantage point that
+     *     matters, and no server-side test can stand in for it.
+     *
+     * Owner-only: the results describe the owner's own network and the pool they are saved
+     * into is owner configuration. */
+    const owner = await isOwner(request, env, settings, masterUuid);
+    if (!owner) return json({ ok: false, error: 'auth' }, 401);
+    if (method === 'GET') {
+      const lab = await readJsonKv(env, SNI_LAB_KEY, { at: 0, results: [] });
+      return json({
+        ok: true,
+        version: CAT_PANEL_VERSION,
+        at: lab.at || 0,
+        results: Array.isArray(lab.results) ? lab.results : [],
+        pool: sniPoolOf(host, env, settings),
+        defaults: DEFAULT_SNI_POOL,
+      });
+    }
+    if (method === 'POST') {
+      const body = (await readJsonBody(request)) || {};
+      const raw = Array.isArray(body.candidates) ? body.candidates : [];
+      const own = String(host || '').toLowerCase();
+      const seen = new Set();
+      const list = [];
+      for (const value of raw) {
+        const sni = String(value || '').trim().toLowerCase();
+        // A candidate the pool could never hold is not worth a subrequest: same rules as
+        // normalizeSettings() applies to settings.sniPool (valid hostname, not this worker).
+        if (!sniHostnameOk(sni) || sni === own || seen.has(sni)) continue;
+        seen.add(sni);
+        list.push(sni);
+        if (list.length >= 12) break;
+      }
+      if (!list.length) return json({ ok: false, error: 'candidates' }, 400);
+      const results = [];
+      for (const sni of list) results.push(await sniEdgeVerdict(sni));
+      const at = Date.now();
+      await kvPutJson(env, SNI_LAB_KEY, { at, results });
+      await pushEvent(env, 'snilab', JSON.stringify({ n: results.filter((r) => r.cf).length, t: results.length }));
+      return json({ ok: true, at, results });
+    }
+    return json({ ok: false, error: 'method' }, 405);
+  }
   if (path === '/api/cc-quality') {
     const owner = await isOwner(request, env, settings, masterUuid);
     if (!owner) return json({ ok: false, error: 'auth' }, 401);
@@ -4730,6 +4820,8 @@ async function handleApi(request, url, env, ctx) {
         defaults: { addresses: DEFAULT_CLEAN_ADDRESSES,[PXIPS_KEY]: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
         // subKeyOf, not masterUuid: after a token rotation the UUID path 404s.
         links: subLinks(origin, subKeyOf(settings, masterUuid), null),
+        sniLabDefaults: DEFAULT_SNI_POOL,
+        sniLab: (await readJsonKv(env, SNI_LAB_KEY, { at: 0, results: [] })).results || [],
         subKey: subKeyOf(settings, masterUuid),
         paths: tunnelPaths(env),
         sni: effectiveSni(host, env, settings),
@@ -6724,6 +6816,16 @@ ${(() => {
   <div class="row small" style="margin-top:8px"><span class="sw" id="swFm"></span><span data-i="s_fml"></span></div>
   <div class="row" style="margin-top:6px"><input id="sniPoolCsv" data-ph="i_snipool_ph" style="width:100%"></div>
   <div class="row small muted" data-i="s_snir_hint"></div>
+  <div class="hr"></div>
+  <div class="row" style="margin-top:4px"><b data-i="lab_title"></b></div>
+  <div class="note i small" data-i="lab_hint" style="margin-top:6px"></div>
+  <div class="row" style="margin-top:8px">
+   <button class="btn sm p" id="labNet" type="button">📶 <span data-i="lab_net"></span></button>
+   <button class="btn sm" id="labEdge" type="button">🛰 <span data-i="lab_edge"></span></button>
+   <button class="btn sm" id="labSave" type="button" style="display:none">💾 <span data-i="lab_save"></span></button>
+  </div>
+  <div id="labOut" class="small mono" style="margin-top:8px;direction:ltr;text-align:start"></div>
+  <div id="labNote" class="small dim" style="margin-top:6px"></div>
   <div class="small dim" data-i="s_route_hint"></div>
   </div>
  <div class="card sec">
@@ -6914,7 +7016,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست از شبکهٔ من (�
 kv_warn_title:'حافظهٔ پنل وصل نیست — تغییرات ذخیره نمی‌شوند',kv_warn_body:'هر تغییری که بدهی (کاربر، IP تمیز، تنظیمات) فقط چند دقیقه می‌ماند و بعد از بین می‌رود؛ ساب هم بدون IP تمیز خالی درمی‌آید. راه‌حل: در اپ Cat Client → «دیپلوی‌های من» → همین دیپلوی → «به‌روزرسانی پنل» را بزن تا حافظه دوباره وصل شود.',kv_warn_ok:'فهمیدم',kv_save_failed:'ذخیره نشد — حافظهٔ پنل وصل نیست',b_empty_title:'ساب خالی است — هیچ کانفیگی ساخته نشد',b_empty_body:'فهرست IPهای اختصاصی پنل خالی است. ورکر فقط در این حالت به آدرس‌های پیش‌فرض و دامنهٔ خودش برمی‌گردد؛ پیش‌نمایش خالی معمولاً یعنی درخواست ساب شکست خورده. جزئیات HTTP زیر را ببین.',b_fetch_error:'گرفتن ساب ساخته‌شده ناموفق بود: %1',b_empty_reply:'پاسخ HTTP هیچ خط کانفیگی نداشت: %1',b_bad_reply:'پاسخ دریافتی ساب کانفیگ نیست: %1',b_user_save_error:'ذخیرهٔ کاربر ناموفق بود: %1',b_user_saved_refresh_error:'کاربر ذخیره شد، اما تازه‌سازی فهرست کاربران شکست خورد: %1',ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_test_btn:'سلامت و تست',ip_test_reach:'از سمت ورکر سالم',svc_btn:'سرویس‌ها',svc_note:'آزمون اجرای آمریکا (ویژهٔ Gemini/AI): وضعیت باز/ردِ هر سرویس از خروجی فعلی — 404 یعنی قابل‌دسترس',svc_gemini_hint:'جمنای باز نمی‌شود؟ خروجیِ فعلی کلادفلری است و گوگل آن را نمی‌پسندد — یک socks5 خارجی در بخش 🎭 اضافه کن (🧦) و دوباره تست بزن',exit_hint:'وصل شو به کانفیگ، این را باز کن: آی‌پی/کشورِ خروجی، نشت DNS و WebRTC، پینگ جهانی و باز‌بودن جمنای — نیمه‌ای که فقط از خطِ خودت دیده می‌شود',ip_test_hint:'تست واقعی از سمت ورکر: 💦 با همان IP+پورت+TLS+Hostِ قالب کانفیگ؛ 🎯 روی پورتِ خودِ هر ProxyIP؛ 🧦 رله‌های socks5 با هندشیک واقعی socks (و احراز هویت user:pass). پورت 443 داخل کانفیگ 🎯/🧦 پورتِ ورود به ورکر است، نه پورتِ رله. رفتار SNI روی خط خودت فقط با اسکنر اپ دیده می‌شود.',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'کشورها',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'خالی = آدرس ورکر (پیشنهادی؛ کلادفلر فقط همین را می‌پذیرد) — فقط وقتی «اسپوف SNI» روشن است اعمال می‌شود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_ech:'ECH (پنهان‌سازی SNI)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'مقدار ECH برای کانفیگ‌های TLS؛ با ?ech=1 اعمال می‌شود. خالی = پیش‌فرض مشترک کلادفلر (cloudflare-ech.com+udp://1.1.1.1) که SNI واقعی را روی هر میزبان پشت کلادفلر رمز می‌کند؛ auto = فقط رکورد خود SNI؛ off = خاموش',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
-s_flags:'گزینه‌ها',s_health:'مرتب‌سازی ساب بر اساس Ping اسکنر',s_health_hint:'آیتم‌هایی که اسکنر طی ۷ روز اخیر از خط فرستنده سریع‌تر گزارش کرده، جلو می‌آیند؛ نامعلوم‌ها بعدتر. این اندازه‌گیری فقط همان خط است، نه تضمین برای کاربرهای دیگر.',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک مورد: host یا host:port (رلهٔ کلودفلر؛ فقط وقتی مقصد خودش پشت کلودفلر باشد) یا socks5://ip:port (برای هر مقصدی). متن بعد از # توضیح است و نادیده گرفته می‌شود (مثل socks5://ip:port#SOCKS5 ip از اسکنر اپ). موارد نامعتبر نادیده گرفته و اعلام می‌شوند.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'اسپوف SNI (چرخش استخر / SNI دلخواه) — خاموش (پیش‌فرض) = SNI همان آدرس ورکر است. ⚠️ کلادفلر SNI متفاوت با Host را با ۴۰۳ رد می‌کند؛ فقط برای آزمایش یا دامنهٔ سفارشی خودت روشن کن. با ?sni=دامنه می‌توان یک لینک را pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',s_snir_hint:'فقط وقتی اسپوف روشن است: استخر SNI (با کاما)؛ خالی = icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify. برای پنهان‌کردن آدرس ورکر از DPI به‌جای اسپوف از ECH (گزینهٔ «ECH» در ساخت ساب) یا پورت‌های بدون TLS استفاده کن.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
+s_flags:'گزینه‌ها',s_health:'مرتب‌سازی ساب بر اساس Ping اسکنر',s_health_hint:'آیتم‌هایی که اسکنر طی ۷ روز اخیر از خط فرستنده سریع‌تر گزارش کرده، جلو می‌آیند؛ نامعلوم‌ها بعدتر. این اندازه‌گیری فقط همان خط است، نه تضمین برای کاربرهای دیگر.',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک مورد: host یا host:port (رلهٔ کلودفلر؛ فقط وقتی مقصد خودش پشت کلودفلر باشد) یا socks5://ip:port (برای هر مقصدی). متن بعد از # توضیح است و نادیده گرفته می‌شود (مثل socks5://ip:port#SOCKS5 ip از اسکنر اپ). موارد نامعتبر نادیده گرفته و اعلام می‌شوند.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'اسپوف SNI (چرخش استخر / SNI دلخواه) — خاموش (پیش‌فرض) = SNI همان آدرس ورکر است. ⚠️ کلادفلر SNI متفاوت با Host را با ۴۰۳ رد می‌کند؛ فقط برای آزمایش یا دامنهٔ سفارشی خودت روشن کن. با ?sni=دامنه می‌توان یک لینک را pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',lab_title:'🧪 آزمایشگاه SNI — تست زنده',lab_hint:'هر کاندید دو سؤال دارد و هر سؤال از جایی پرسیده می‌شود که فقط آن‌جا دیده می‌شود: «📶 تست از شبکهٔ من» همین‌جا در مرورگرِ خودت اجرا می‌شود (تنها نقطه‌ای که فیلترینگِ اپراتور را می‌بیند: اگر SNI بسته باشد، درخواست شکست می‌خورد) و «🛰 بررسی لبه» از ورکر می‌پرسد که کلادفلر واقعاً همین دامنه را سرو می‌کند یا نه — چون کلادفلر SNIِ بیگانه را با ۴۰۳ رد می‌کند، کاندیدی که CF نباشد هرگز برای چرخش قابل استفاده نیست. فقط ردیف‌هایی که هر دو را پاس کنند با «💾 ذخیرهٔ سالم‌ها» در استخر بالا می‌نشینند (ذخیره از همان فرمِ تنظیمات عبور می‌کند، پس همان اعتبارسنجیِ دستی اعمال می‌شود).',lab_net:'تست از شبکهٔ من',lab_edge:'بررسی لبه (کلادفلر)',lab_save:'ذخیرهٔ سالم‌ها',lab_wait:'در حال تست…',lab_none:'کاندیدی برای تست نیست — استخر و پیش‌فرض‌ها خالی‌اند.',lab_fail:'بررسی لبه ناموفق بود (ورکر جواب نداد).',lab_saved:'استخر پر شد — دکمهٔ ذخیرهٔ تنظیمات را بزن تا ماندگار شود.',s_snir_hint:'فقط وقتی اسپوف روشن است: استخر SNI (با کاما)؛ خالی = icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify. برای پنهان‌کردن آدرس ورکر از DPI به‌جای اسپوف از ECH (گزینهٔ «ECH» در ساخت ساب) یا پورت‌های بدون TLS استفاده کن.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
 n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن. لینک‌های «کانفیگ‌ساز» هم 🎯 PX و 🧦 را می‌گیرند و جزو «تعداد کانفیگ» حساب می‌شوند (حداکثر نصف آن)؛ فقط لینک‌های پین‌شده (limit ۱ یا ۲، یا addr=) بدون آن‌ها هستند. 🧬 فقط در ساب بدون limit می‌آید.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_up:'بازگردانی',
@@ -6936,7 +7038,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test from my network (browser)',sc
 b_empty_title:'The subscription is empty — no config was built',b_empty_body:'The custom IP list is empty. The Worker falls back to built-in addresses + its hostname; a blank preview usually means the subscription request failed. Check the HTTP detail below.',b_fetch_error:'Could not fetch the generated subscription: %1',b_empty_reply:'The HTTP response contained no config lines: %1',b_bad_reply:'The response is not a config subscription: %1',b_user_save_error:'Could not save user: %1',b_user_saved_refresh_error:'User was saved, but the user list could not be refreshed: %1',kv_warn_title:'Panel storage is not attached — changes are not saved',kv_warn_body:'Any change (users, clean IPs, settings) survives only a few minutes and then disappears; subscriptions also come out empty without clean IPs. Fix: in the Cat Client app → My deployments → this deployment → “Update panel”, which re-attaches storage.',kv_warn_ok:'Got it',kv_save_failed:'Not saved — panel storage is not attached',ip_append:'Append',ip_replace:'Replace list',ip_test_btn:'Health & test',ip_test_reach:'healthy from the worker',svc_btn:'Services',svc_note:'US egress test (Gemini/AI focus): open/refused per service through the current exit — 404 means reachable',svc_gemini_hint:'Gemini blocked? The current exit is Cloudflare and Google refuses it — add a FOREIGN socks5 in the 🎭 section (🧦) and re-run this test',exit_hint:'Connect to a config, then open it: exit IP/country, DNS & WebRTC leaks, global ping and whether Gemini opens — the half only YOUR line can see',ip_test_hint:'Real tests from the worker: 💦 dials the exact IP+port+TLS+Host of the config template; 🎯 is probed on each ProxyIP\u2019s OWN port; 🧦 socks5 relays get a REAL socks handshake (incl. user:pass auth). The 443 inside a 🎯 config is the worker ENTRY port, not the relay port — the relay port rides in ?proxyip= and the worker dials it directly. SNI behaviour on YOUR line only the app scanner sees.',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Countries',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'empty = the worker host (recommended; the only SNI Cloudflare accepts) — used only while SNI spoofing is on',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_ech:'ECH (SNI encryption)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'ECH value for TLS configs; applied with ?ech=1. Empty = the shared Cloudflare default (cloudflare-ech.com+udp://1.1.1.1) which encrypts the real SNI on any CF-fronted host; auto = only the SNI own HTTPS record; off = disabled',s_port_bad:'Invalid port — enter a number between 1 and 65535',
-s_flags:'Options',s_health:'Order subscription by scanner ping',s_health_hint:'Addresses the importing scanner measured faster within the last 7 days go first; unknowns follow. This is only that sender’s line, not a guarantee for other users.',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line: host or host:port (a Cloudflare relay — only used when the destination is itself behind Cloudflare) or socks5://ip:port (used for any destination). Text after # is a remark and is ignored (e.g. socks5://ip:port#SOCKS5 ip from the app scanner). Invalid entries are ignored and reported.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_fml:'Fragment and cs inside TLS links (fm/cs — SNI-filter bypass in newer clients: PattNG, new v2rayNG, Streisand)',s_snir:'SNI spoofing (rotating pool / custom SNI) — OFF (default) = the SNI is the worker host. ⚠️ Cloudflare answers 403 when the SNI differs from the Host; enable only to experiment or for your own custom domain. ?sni=<host> pins one link',s_snir_hint:'Only while spoofing is on: SNI pool (comma separated); empty = icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify. To hide the worker host from DPI use ECH (the «ECH» toggle in the sub builder) or non-TLS ports instead of spoofing.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
+s_flags:'Options',s_health:'Order subscription by scanner ping',s_health_hint:'Addresses the importing scanner measured faster within the last 7 days go first; unknowns follow. This is only that sender’s line, not a guarantee for other users.',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line: host or host:port (a Cloudflare relay — only used when the destination is itself behind Cloudflare) or socks5://ip:port (used for any destination). Text after # is a remark and is ignored (e.g. socks5://ip:port#SOCKS5 ip from the app scanner). Invalid entries are ignored and reported.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_fml:'Fragment and cs inside TLS links (fm/cs — SNI-filter bypass in newer clients: PattNG, new v2rayNG, Streisand)',s_snir:'SNI spoofing (rotating pool / custom SNI) — OFF (default) = the SNI is the worker host. ⚠️ Cloudflare answers 403 when the SNI differs from the Host; enable only to experiment or for your own custom domain. ?sni=<host> pins one link',lab_title:'🧪 SNI Lab — live test',lab_hint:'Every candidate has two questions, each asked from the only place that can see it: «📶 test from my network» runs right here in YOUR browser (the one vantage point that sees carrier filtering — a blocked SNI fails there), and «🛰 edge check» asks the worker whether Cloudflare really serves that hostname — Cloudflare 403s a foreign SNI, so a candidate that is not CF-proxied can never be rotated onto. Only rows that pass both are copied into the pool above by «💾 save healthy», and that save goes through the settings form, so the same validation the manual field gets applies.',lab_net:'Test from my network',lab_edge:'Edge check (Cloudflare)',lab_save:'Save healthy',lab_wait:'Testing…',lab_none:'No candidates to test — the pool and the defaults are empty.',lab_fail:'Edge check failed (the worker did not answer).',lab_saved:'Pool filled — press save settings to persist it.',s_snir_hint:'Only while spoofing is on: SNI pool (comma separated); empty = icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify. To hide the worker host from DPI use ECH (the «ECH» toggle in the sub builder) or non-TLS ports instead of spoofing.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',
 save:'Save',cancel:'Cancel',saved:'Saved',
 n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription. Config-builder links include 🎯 PX and 🧦 too and they count toward «Config count» (at most half of it); only pinned links (limit 1–2, or addr=) leave them out. 🧬 appears only in subs without a limit.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_up:'Restore',
@@ -7010,6 +7112,84 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeThemePi
 /* Carrier → app fragment preset. The selects are filled from the server (both the
    carrier list and the preset list travel in the response) so this page and the
    app's enum cannot drift: an id the app does not know is never offered here. */
+/* ── SNI Lab (6.67.4) ────────────────────────────────────────────────────────
+   Two verdicts per candidate, each from the only vantage point that can see it:
+
+   * 📶 «تست از شبکهٔ من» runs HERE, in the owner's browser. This is the half that reflects
+     Iran's DPI: if the carrier kills the SNI (DNS poisoning, RST, the 6-packet quota the
+     2026 reports describe), the fetch fails, and no server-side probe would ever notice.
+   * 🛰 «بررسی لبه» asks the WORKER whether Cloudflare really serves that hostname — the rule
+     that decides whether the pool entry can work at all (CF 403s a foreign SNI).
+
+   Both are advisory: nothing is written until «ذخیرهٔ سالمها» presses the settings form's own
+   submit, so the pool always goes through the same validation the manual field does. */
+var LAB={pool:{},net:{},busy:false};
+function labCandidates(){
+ var own=String(location.hostname||'').toLowerCase(),list=[];
+ String(($('#sniPoolCsv')&&$('#sniPoolCsv').value)||'').split(/[\s,]+/)
+  .concat((CFG&&CFG.sniLabDefaults)||[]).forEach(function(x){
+   x=String(x||'').trim().toLowerCase();
+   if(x&&x!==own&&/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x)&&list.indexOf(x)<0)list.push(x);
+  });
+ return list.slice(0,12);
+}
+function labRender(note){
+ var out=$('#labOut'),say=$('#labNote');if(!out)return;
+ var list=labCandidates();
+ if(!list.length){out.textContent='';if(say)say.textContent=t('lab_none');return}
+ out.innerHTML=list.map(function(sni){
+  var edge=LAB.pool[sni],net=LAB.net[sni],badge;
+  if(edge===undefined)badge='<span class="dim">·</span>';
+  else badge=edge.cf?'<span style="color:var(--green)">✓CF</span>':'<span style="color:var(--red)">✗CF'+(edge.status?' '+edge.status:'')+'</span>';
+  var n2=net===undefined?'':(net.net?'<span style="color:var(--green)">✓ '+net.ms+'ms</span>':'<span style="color:var(--red)">✗</span>');
+  return '<div class="row" style="gap:8px;align-items:center;margin:3px 0"><span style="min-width:190px;overflow:hidden;text-overflow:ellipsis">'+esc(sni)+'</span>'+badge+' '+n2+'</div>';
+ }).join('');
+ if(say)say.textContent=note||'';
+}
+function labLoad(){
+ return api('/api/sni-lab').then(function(j){
+  LAB.pool={};(j.results||[]).forEach(function(r){if(r&&r.sni)LAB.pool[r.sni]={cf:!!r.cf,status:r.status||0}});
+  var saved=(CFG&&CFG.sniLab)||[];
+  if(!Object.keys(LAB.pool).length)saved.forEach(function(r){if(r&&r.sni)LAB.pool[r.sni]={cf:!!r.cf,status:r.status||0}});
+  labRender();labSaveBtn();
+ }).catch(function(){});
+}
+function labSaveBtn(){
+ var b=$('#labSave');if(!b)return;
+ var healthy=labCandidates().filter(function(s){return LAB.pool[s]&&LAB.pool[s].cf&&LAB.net[s]&&LAB.net[s].net});
+ b.style.display=healthy.length?'':'none';
+ return healthy;
+}
+$('#labEdge')&&$('#labEdge').addEventListener('click',function(){
+ var list=labCandidates();if(!list.length)return labRender(t('lab_none'));
+ if(LAB.busy)return;LAB.busy=true;labRender(t('lab_wait'));
+ api('/api/sni-lab',{method:'POST',body:{candidates:list}}).then(function(j){
+  LAB.pool={};(j.results||[]).forEach(function(r){LAB.pool[r.sni]={cf:!!r.cf,status:r.status||0}});
+  labRender();labSaveBtn();
+ }).catch(function(){labRender(t('lab_fail'))}).then(function(){LAB.busy=false});
+});
+$('#labNet')&&$('#labNet').addEventListener('click',function(){
+ var list=labCandidates();if(!list.length)return labRender(t('lab_none'));
+ LAB.net={};labRender(t('lab_wait'));
+ // no-cors on purpose: a cross-origin GET we cannot READ still proves the whole path worked
+ // (DNS, TCP, TLS, HTTP). A blocked SNI never resolves here — the promise rejects.
+ var left=list.length,done=function(){if(--left<=0){labRender();labSaveBtn()}};
+ list.forEach(function(sni){
+  var t0=Date.now(),ctl=new AbortController(),timer=setTimeout(function(){ctl.abort()},6000);
+  fetch('https://'+sni+'/?_='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){
+   LAB.net[sni]={net:true,ms:Date.now()-t0};
+  }).catch(function(){LAB.net[sni]={net:false,ms:Date.now()-t0}}).then(function(){clearTimeout(timer);done()});
+ });
+});
+$('#labSave')&&$('#labSave').addEventListener('click',function(){
+ var healthy=labSaveBtn();if(!healthy||!healthy.length)return;
+ var field=$('#sniPoolCsv'),form=$('#fSettings');
+ if(field)field.value=healthy.join(',');
+ var note=[];if(!(CFG&&CFG.settings&&CFG.settings.kv!==false))note.push('');
+ labRender();
+ if(form){if(form.requestSubmit)form.requestSubmit();else form.dispatchEvent(new Event('submit',{cancelable:true}))}
+ if($('#labNote'))$('#labNote').textContent=t('lab_saved');
+});
 function loadTune(){
  var sel=document.querySelectorAll('[data-tune]');if(!sel.length)return;
  api('/api/tune').then(function(j){
@@ -7027,7 +7207,7 @@ function saveTune(){
   if(out)out.textContent=t('tune_saved');toast(t('tune_saved'));loadTune();
  }).catch(function(){if(out)out.textContent=t('tune_fail')});
 }
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune()})}
 /* The most confusing failure mode of all: a worker deployed WITHOUT its KV
    binding answers «saved ✓» while the value only lives in one isolate's memory.
    Clean IPs, users and settings then vanish — «the buttons don't work». Say it
