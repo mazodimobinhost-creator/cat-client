@@ -251,6 +251,7 @@
     <string name="dpi_preset_irancell">ایرانسل</string>
     <string name="dpi_preset_rightel">رایتل</string>
     <string name="dpi_preset_tci">مخابرات</string>
+    <string name="location_chain_unavailable">این کشور در زنجیرهٔ فعال نیست — خروجی از نزدیک‌ترین گزینه انجام می‌شود. پرچم را بعد از اتصال ببین.</string>
     <string name="dpi_preset_auto">خودکار (بر اساس اپراتور)</string>
     <string name="dpi_preset_pattn">سبک پترن‌ایها</string>
     <string name="dpi_carrier_line">اپراتور: %1$s → پریست: %2$s</string>

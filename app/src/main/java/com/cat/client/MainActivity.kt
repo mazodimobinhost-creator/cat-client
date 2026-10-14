@@ -2477,6 +2477,8 @@ class MainActivity : Activity() {
         )
         // Fragmenting is on → keep the recommendation fresh (one request per foreground).
         refreshPanelTuneIfNeeded()
+        // The chain decides which countries the location picker may offer.
+        refreshChainExitCountries()
         if (connectionTestingPageVisible) {
             showConnectionTestingPage(
                 animate = false,
@@ -10975,6 +10977,40 @@ class MainActivity : Activity() {
 
     private var fragmentCarrierLine: TextView? = null
 
+    /**
+     * ISO-2 codes the ACTIVE chain can really exit to — `null` when no chain is running, so
+     * callers can tell «no chain» from «a chain that can land nowhere recognisable».
+     *
+     * Why it exists: with a chain, the location list used to be built from the SELECTED
+     * subscription's profiles, i.e. from configs the chain may not even include. The user could
+     * pick Germany and the chain would leave from wherever — the setting looked applied and did
+     * nothing. This is the list the picker must offer instead.
+     */
+    private var chainExitCountryCodes: List<String>? = null
+
+    private fun refreshChainExitCountries() {
+        val settings = connectionChainPreferenceStore.read()
+        if (!settings.isActive) {
+            chainExitCountryCodes = null
+            return
+        }
+        activityScope.launch {
+            val codes = withContext(Dispatchers.IO) {
+                runCatching {
+                    ConnectionChainPlanner.exitCountryCodes(
+                        settings = settings,
+                        sources = cachedConnectionChainSources(),
+                    )
+                }.onFailure { error ->
+                    DiagnosticLogger.warn(this@MainActivity, "activity.chain.exit.failed", error = error)
+                }.getOrDefault(emptyList())
+            }
+            chainExitCountryCodes = codes
+            DiagnosticLogger.info(this@MainActivity, "activity.chain.exit.options", "codes=${codes.joinToString(",")}")
+            renderLocationSelection()
+        }
+    }
+
     private fun renderFragmentCarrierLine() {
         val line = fragmentCarrierLine ?: return
         val carrier = CarrierDetector.detect(this, refresh = true)
@@ -11022,6 +11058,7 @@ class MainActivity : Activity() {
         renderChainSettingsPage?.invoke()
         renderConnectionDetails(buttonModel.state)
         renderConnectionSelection()
+        refreshChainExitCountries()
         if (
             buttonModel.state == VpnState.Started &&
             (previous.isActive || normalized.isActive) &&
@@ -12996,6 +13033,20 @@ class MainActivity : Activity() {
     }
 
     private fun dialogLocationOptions(): List<LocationSelectorOption> {
+        val chainCodes = chainExitCountryCodes
+        if (chainCodes != null) {
+            // The chain is in charge of the exit, so its reachable countries ARE the list.
+            // A code the chain cannot reach is offered as well when it is currently stored:
+            // hiding the user's own choice would look like the setting vanished.
+            val locale = resources.configuration.locales[0]
+            val stored = locationPreferenceStore.readSelectedCountryCode()
+            val codes = buildList {
+                addAll(chainCodes)
+                if (stored != null && stored !in chainCodes) add(stored)
+            }
+            val options = codes.mapNotNull { code -> ConnectionLocationPolicy.optionForCode(code, locale) }
+            return listOf(automaticLocationOption()) + options
+        }
         if (locationOptions.isEmpty()) return listOf(automaticLocationOption())
         val selectedCountryCode = locationPreferenceStore.readSelectedCountryCode()
         val selectedOption = if (
@@ -13029,6 +13080,14 @@ class MainActivity : Activity() {
             "activity.location.selected",
             "code=${option.countryCode ?: "auto"} label=${option.label}",
         )
+        val chainCodes = chainExitCountryCodes
+        if (chainCodes != null && option.countryCode != null && option.countryCode !in chainCodes) {
+            Toast.makeText(
+                this,
+                getString(R.string.location_chain_unavailable),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         renderLocationSelection()
         renderConnectionSelection()
         if (buttonModel.state == VpnState.Started) {

@@ -1427,6 +1427,10 @@ class CatClientVpnService : VpnService() {
                         selectedAutomaticTypes = emptySet(),
                     ),
                     excludedProfileFingerprint = exclusion.profileFingerprint,
+                    // The location the user picked in the app applies to a chain too — it used
+                    // to be dropped here (hardcoded null), so a chain always left from whatever
+                    // was fastest and the setting silently did nothing.
+                    requestedExitCountryCode = locationPreferenceStore.readSelectedCountryCode(),
                 )
             }
             applyStartedRuntime(
@@ -1720,6 +1724,7 @@ class CatClientVpnService : VpnService() {
         splitTunnelPlan: SplitTunnelRuntimePlan,
         preferences: SessionPlanPreferences,
         excludedProfileFingerprint: String = "",
+        requestedExitCountryCode: String? = null,
     ): StartedMihomoRuntime {
         val subscriptions = subscriptionStore.readUserSubscriptions()
         val sourceIds = buildList {
@@ -1767,6 +1772,7 @@ class CatClientVpnService : VpnService() {
                 sources,
                 delayRecords,
                 allowIpv6Literals = allowIpv6Literals,
+                requestedExitCountryCode = requestedExitCountryCode,
             )
         }
         val plans = plannedRuntimes.filterNot { plan ->
@@ -1790,6 +1796,12 @@ class CatClientVpnService : VpnService() {
         plans.forEachIndexed { index, plan ->
             try {
                 val runtimeSnapshot = MihomoConfigParser.parse(plan.rawYaml)
+                // `selectedCountryCode = null` on purpose: the chain plan has ALREADY decided
+                // which config exits, and the runtime filter would then search the patched YAML
+                // for a profile whose own tag names that country. Those tags are
+                // «CatClient Chain 1.1» — the filter would find nothing, reset to automatic and
+                // fight the plan. The request is honoured where it can be honoured: in the
+                // planner, and in what this method reports below.
                 val runtime = startMihomoRuntimeAttempt(
                     snapshot = runtimeSnapshot,
                     splitTunnelPlan = splitTunnelPlan,
@@ -1811,6 +1823,23 @@ class CatClientVpnService : VpnService() {
                     "attempt=${index + 1}/${plans.size} hops=${plan.hops.size} " +
                         "chain=${plan.summary} pinned=${plan.hops.count { it.serverOverride != null }}",
                 )
+                DiagnosticLogger.info(
+                    this,
+                    "mihomo.chain.exit",
+                    "requested=${plan.requestedExitCountryCode ?: "auto"} " +
+                        "actual=${plan.exitCountryCode ?: "unknown"} matched=${plan.exitCountryMatched}",
+                )
+                if (!plan.exitCountryMatched) {
+                    // Never fatal — a country wish must not cost the user their connection — but
+                    // never silent either: the flag then comes from the live egress probe below
+                    // instead of from the request, so the app shows where traffic really lands.
+                    DiagnosticLogger.warn(
+                        this,
+                        "mihomo.chain.exit.unavailable",
+                        "requested=${plan.requestedExitCountryCode.orEmpty()} " +
+                            "actual=${plan.exitCountryCode ?: "unknown"}",
+                    )
+                }
                 return runtime.copy(
                     profile = MihomoConnectionOptionsPolicy.applyTo(
                         finalCandidate.profile,
@@ -1827,6 +1856,10 @@ class CatClientVpnService : VpnService() {
                     nativeAutomaticStart = false,
                     subscriptionId = finalCandidate.subscriptionId,
                     chainHopCount = plan.hops.size,
+                    // Kept only when the plan really honoured the request: otherwise staying null
+                    // lets refreshEgressCountryInBackground() measure the country that IS
+                    // serving this session, which is the honest answer.
+                    selectedCountryCode = requestedExitCountryCode.takeIf { plan.exitCountryMatched },
                 )
             } catch (error: Throwable) {
                 if (

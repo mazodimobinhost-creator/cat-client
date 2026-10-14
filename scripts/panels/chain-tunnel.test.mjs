@@ -107,7 +107,7 @@ test('only the leg dialled from outside the hop takes the pin', () => {
   );
   assert.match(
     chain,
-    /\.map \{ combination -> toRuntimePlan\(combination, normalized\) \}/,
+    /\.map \{ combination -> toRuntimePlan\(combination, normalized,/,
     'plans() stopped passing the settings (the pins) into the plan builder',
   );
 });

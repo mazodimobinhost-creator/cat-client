@@ -364,6 +364,13 @@ data class ConnectionChainCandidate(
     val blocks: List<MihomoProxyBlock>,
     val rank: Int = 0,
     val automaticEligible: Boolean = true,
+    /**
+     * Where this config lands, read from the same text the rest of the app reads (tag/server,
+     * flags, ISO codes) — null when the subscription names nothing recognisable. It is what
+     * makes «the exit must be country X» askable at all: without it the chain could only be
+     * chosen by name or by measured delay.
+     */
+    val countryCode: String? = null,
 ) {
     val ref: ConnectionChainProfileRef
         get() = ConnectionChainProfileRef(subscriptionId, profile.fingerprint)
@@ -389,9 +396,18 @@ data class ResolvedConnectionChainHop(
 data class ConnectionChainRuntimePlan(
     val hops: List<ResolvedConnectionChainHop>,
     val rawYaml: String,
+    /**
+     * The requested exit country (`null` = automatic) and whether the final hop actually is a
+     * config of that country. Reported instead of assumed: a fallback that stays invisible is
+     * indistinguishable from a filter that never worked.
+     */
+    val requestedExitCountryCode: String? = null,
+    val exitCountryMatched: Boolean = true,
 ) {
     val finalHop: ResolvedConnectionChainHop get() = hops.last()
     val finalRuntimeName: String get() = finalHop.runtimeName
+    /** Where the traffic really leaves: read off the final hop, not off the request. */
+    val exitCountryCode: String? get() = finalHop.candidate.countryCode
     val summary: String get() = hops.joinToString(" -> ") { it.candidate.profile.tag }
 }
 
@@ -405,6 +421,7 @@ object ConnectionChainPlanner {
         sources: List<ConnectionChainSource>,
         delayRecords: List<ConnectionDelayRecord>,
         allowIpv6Literals: Boolean = true,
+        requestedExitCountryCode: String? = null,
     ): List<ConnectionChainRuntimePlan> {
         val normalized = settings.normalized()
         if (!normalized.isActive) return emptyList()
@@ -449,6 +466,11 @@ object ConnectionChainPlanner {
                     blocks = proxyChain,
                     rank = rank,
                     automaticEligible = record?.status != ConnectionDelayStatus.Failure,
+                    // Locale.ENGLISH only decides the display name that is thrown away here —
+                    // the CODE it returns is locale-independent.
+                    countryCode = ConnectionLocationPolicy
+                        .countryForProfile(profile, Locale.ENGLISH)
+                        ?.code,
                 )
             }
         }.sortedWith(
@@ -458,13 +480,72 @@ object ConnectionChainPlanner {
         )
         if (candidates.isEmpty()) throw IOException("No cached connections are available for chaining")
 
-        val choices = configuredSlots.map { slot -> choicesFor(normalized.hop(slot), candidates) }
+        // The exit is the LAST hop's job: only that slot is narrowed by the requested country,
+        // because the earlier hops are the road, not the destination. A Fixed final slot is
+        // left exactly as the user picked it — an explicit pick outranks a country wish — and
+        // the plan then reports `exitCountryMatched = false` so nobody has to guess.
+        val requestedExit = ConnectionLocationPolicy.normalizeCountryCode(requestedExitCountryCode)
+        val choices = configuredSlots.mapIndexed { index, slot ->
+            val slotChoices = choicesFor(normalized.hop(slot), candidates)
+            val isExitSlot = index == configuredSlots.lastIndex
+            if (isExitSlot && requestedExit != null && normalized.hop(slot).mode == ConnectionChainHopMode.Automatic) {
+                slotChoices.filter { it.countryCode == requestedExit }.ifEmpty { slotChoices }
+            } else {
+                slotChoices
+            }
+        }
         return bestCombinations(configuredSlots, choices)
-            .map { combination -> toRuntimePlan(combination, normalized) }
+            .map { combination -> toRuntimePlan(combination, normalized, requestedExit) }
             .also { plans ->
                 if (plans.isEmpty()) throw IOException("No compatible connection chain is available")
             }
     }
+
+    /**
+     * ISO-2 codes the chain's EXIT can really land in, sorted — the options the location
+     * selector may offer while a chain is active. Same narrowing as [plans] (only the last
+     * configured slot matters), but without building any plan, so the settings screen can call
+     * it on every open. A Fixed exit slot yields just its own country (possibly none).
+     */
+    fun exitCountryCodes(
+        settings: ConnectionChainSettings,
+        sources: List<ConnectionChainSource>,
+        delayRecords: List<ConnectionDelayRecord> = emptyList(),
+        allowIpv6Literals: Boolean = true,
+    ): List<String> = runCatching {
+        val normalized = settings.normalized()
+        if (!normalized.isActive) return@runCatching emptyList()
+        val configuredSlots = ConnectionChainSlot.entries.filter {
+            normalized.hop(it).mode != ConnectionChainHopMode.Off
+        }
+        if (configuredSlots.isEmpty()) return@runCatching emptyList()
+        val exitSlot = configuredSlots.last()
+        val fixed = normalized.hop(exitSlot).profileRef
+        val recordsByRef = delayRecords.associateBy {
+            ConnectionChainProfileRef(it.subscriptionId, it.fingerprint)
+        }
+        sources.flatMap { source ->
+            val blocks = runCatching {
+                MihomoProxyBlockParser.parse(source.snapshot.rawConfig).associateBy(MihomoProxyBlock::name)
+            }.getOrNull() ?: return@flatMap emptyList()
+            source.snapshot.catalog.profiles.mapNotNull { profile ->
+                if (fixed != null && (source.subscriptionId != fixed.subscriptionId || profile.fingerprint != fixed.fingerprint)) {
+                    return@mapNotNull null
+                }
+                val proxyChain = resolveProxyChain(profile.tag, blocks) ?: return@mapNotNull null
+                if (!allowIpv6Literals && proxyChain.any { it.server.isIpv6Literal() }) {
+                    return@mapNotNull null
+                }
+                val record = recordsByRef[ConnectionChainProfileRef(source.subscriptionId, profile.fingerprint)]
+                if (normalized.hop(exitSlot).mode == ConnectionChainHopMode.Automatic &&
+                    record?.status == ConnectionDelayStatus.Failure
+                ) {
+                    return@mapNotNull null
+                }
+                ConnectionLocationPolicy.countryForProfile(profile, Locale.ENGLISH)?.code
+            }
+        }.distinct().sorted()
+    }.getOrDefault(emptyList())
 
     fun selectableFingerprints(snapshot: MihomoSubscriptionSnapshot): Set<String> = runCatching {
         val blocks = MihomoProxyBlockParser.parse(snapshot.rawConfig).associateBy(MihomoProxyBlock::name)
@@ -662,6 +743,7 @@ object ConnectionChainPlanner {
     private fun toRuntimePlan(
         combination: List<Pair<ConnectionChainSlot, ConnectionChainCandidate>>,
         settings: ConnectionChainSettings,
+        requestedExitCountryCode: String? = null,
     ): ConnectionChainRuntimePlan {
         val hops = combination.mapIndexed { index, (slot, candidate) ->
             val pinned = settings.hop(slot).serverOverride?.trim()?.takeIf(String::isNotEmpty)
@@ -708,7 +790,16 @@ object ConnectionChainPlanner {
             append("rules:\n")
             append("  - ${yamlSingleQuoted("MATCH,$GROUP_NAME")}\n")
         }
-        return ConnectionChainRuntimePlan(hops = hops, rawYaml = rawYaml)
+        val exitCountry = hops.last().candidate.countryCode
+        return ConnectionChainRuntimePlan(
+            hops = hops,
+            rawYaml = rawYaml,
+            requestedExitCountryCode = requestedExitCountryCode,
+            // Only a real match counts: an unknown country on the chosen config (a subscription
+            // that names nothing) is NOT a match, so the caller reports «not the country you
+            // asked for» instead of quietly claiming success.
+            exitCountryMatched = requestedExitCountryCode == null || exitCountry == requestedExitCountryCode,
+        )
     }
 
     private fun resolveProxyChain(

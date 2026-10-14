@@ -250,6 +250,7 @@
     <string name="dpi_preset_irancell">Irancell</string>
     <string name="dpi_preset_rightel">Rightel</string>
     <string name="dpi_preset_tci">TCI</string>
+    <string name="location_chain_unavailable">This country is not in the active chain — traffic will leave from the nearest hop. Check the flag after connecting.</string>
     <string name="dpi_preset_auto">Automatic (carrier)</string>
     <string name="dpi_preset_pattn">PattN-style</string>
     <string name="dpi_carrier_line">Carrier: %1$s → preset: %2$s</string>

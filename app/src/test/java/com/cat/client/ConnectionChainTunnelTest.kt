@@ -270,4 +270,116 @@ class ConnectionChainTunnelTest {
     private companion object {
         const val SUBSCRIPTION = "sub-1"
     }
+
+    // ── exit country ─────────────────────────────────────────────────────────
+    // The chain used to be chosen by name or by measured delay only, and the app's location
+    // setting was dropped on this path (hardcoded null), so «connect from Germany» quietly did
+    // nothing. These four tests run the decision on the JVM: what narrows, what wins, and what
+    // happens when the wish cannot be granted.
+
+    private fun exitFixture(): Pair<ConnectionChainSource, ConnectionChainSettings> {
+        val rawYaml = yamlOf(
+            proxy("DE Frankfurt", "de.example.com", 443),
+            proxy("TR Istanbul", "tr.example.com", 8443),
+        )
+        val source = sourceOf(
+            rawYaml,
+            listOf(
+                Triple("DE Frankfurt", "de.example.com", 443),
+                Triple("TR Istanbul", "tr.example.com", 8443),
+            ),
+        )
+        val settings = ConnectionChainSettings(
+            enabled = true,
+            base = ConnectionChainHop.fixed(SUBSCRIPTION, fingerprintOf(source, "TR Istanbul")),
+            after = ConnectionChainHop.automatic(),
+        ).normalized()
+        return source to settings
+    }
+
+    @Test
+    fun theRequestedExitCountryNarrowsTheFinalHopOnly() {
+        val (source, settings) = exitFixture()
+
+        val plan = ConnectionChainPlanner
+            .plans(
+                settings,
+                listOf(source),
+                emptyList(),
+                allowIpv6Literals = true,
+                requestedExitCountryCode = "de",
+            )
+            .single()
+
+        assertEquals("DE", plan.exitCountryCode)
+        assertEquals("DE", plan.requestedExitCountryCode)
+        assertTrue("a plan that landed in DE must say it matched", plan.exitCountryMatched)
+        assertEquals("DE Frankfurt", plan.finalHop.candidate.profile.tag)
+        assertEquals(
+            "the road must not be filtered by the destination country",
+            "TR Istanbul",
+            plan.hops.first().candidate.profile.tag,
+        )
+    }
+
+    @Test
+    fun anImpossibleCountryKeepsTheTunnelAndAdmitsTheFallback() {
+        val (source, settings) = exitFixture()
+
+        // The Netherlands is in neither config: a country wish must never cost the user their
+        // connection, so a plan must still exist — but it must admit it did not match.
+        val plan = ConnectionChainPlanner
+            .plans(
+                settings,
+                listOf(source),
+                emptyList(),
+                allowIpv6Literals = true,
+                requestedExitCountryCode = "NL",
+            )
+            .single()
+
+        assertEquals("NL", plan.requestedExitCountryCode)
+        assertFalse("the plan claimed a country it did not use", plan.exitCountryMatched)
+        assertTrue(plan.exitCountryCode == "DE" || plan.exitCountryCode == "TR")
+    }
+
+    @Test
+    fun aFixedExitOutranksTheCountryWish() {
+        val (source, settings) = exitFixture()
+        val fixedExit = settings.copy(
+            after = ConnectionChainHop.fixed(SUBSCRIPTION, fingerprintOf(source, "TR Istanbul")),
+        ).normalized()
+
+        val plan = ConnectionChainPlanner
+            .plans(
+                fixedExit,
+                listOf(source),
+                emptyList(),
+                allowIpv6Literals = true,
+                requestedExitCountryCode = "DE",
+            )
+            .single()
+
+        // An explicit pick is the user's own decision and stays — but the plan says out loud
+        // that it is not the requested country, which is what the service then logs.
+        assertEquals("TR Istanbul", plan.finalHop.candidate.profile.tag)
+        assertFalse(plan.exitCountryMatched)
+    }
+
+    @Test
+    fun exitCountryCodesListsOnlyWhatTheChainCanReach() {
+        val (source, settings) = exitFixture()
+
+        assertEquals(listOf("DE", "TR"), ConnectionChainPlanner.exitCountryCodes(settings, listOf(source)))
+
+        val disabled = settings.copy(enabled = false).normalized()
+        assertTrue(ConnectionChainPlanner.exitCountryCodes(disabled, listOf(source)).isEmpty())
+
+        val noCountry = sourceOf(yamlOf(proxy("Node 1", "n1.example.com", 443)), listOf(Triple("Node 1", "n1.example.com", 443)))
+        assertEquals(
+            "a config that names no country must not invent one",
+            emptyList<String>(),
+            ConnectionChainPlanner.exitCountryCodes(settings, listOf(noCountry)),
+        )
+    }
 }
