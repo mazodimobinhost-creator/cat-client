@@ -1799,10 +1799,15 @@ class CatClientVpnService : VpnService() {
                     availableProfiles = runtimeSnapshot.catalog.profiles,
                 )
                 val finalCandidate = plan.finalHop.candidate
+                // The pinned address of a hop is what the leg is dialled at, so it — not the
+                // address inside the subscription — is what the app must report: otherwise
+                // the connection details claim one server while the socket goes to another.
+                val finalPin = plan.finalHop.serverOverride?.let(::connectionChainEndpointOrNull)
                 DiagnosticLogger.info(
                     this,
                     "mihomo.chain.healthy",
-                    "attempt=${index + 1}/${plans.size} hops=${plan.hops.size} chain=${plan.summary}",
+                    "attempt=${index + 1}/${plans.size} hops=${plan.hops.size} " +
+                        "chain=${plan.summary} pinned=${plan.hops.count { it.serverOverride != null }}",
                 )
                 return runtime.copy(
                     profile = MihomoConnectionOptionsPolicy.applyTo(
@@ -1810,8 +1815,8 @@ class CatClientVpnService : VpnService() {
                         preferences.connectionOptions,
                     ),
                     endpoint = CleanIpResult(
-                        ip = finalCandidate.profile.server,
-                        port = finalCandidate.profile.port,
+                        ip = finalPin?.ip ?: finalCandidate.profile.server,
+                        port = finalPin?.port ?: finalCandidate.profile.port,
                         latencyMs = runtime.delayMs,
                         lossRate = 0.0,
                         checkedAt = System.currentTimeMillis(),

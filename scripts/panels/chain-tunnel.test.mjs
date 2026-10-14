@@ -46,6 +46,7 @@ const planner = chain.slice(
   chain.indexOf('    private fun toRuntimePlan('),
   chain.indexOf('    private fun resolveProxyChain('),
 );
+const vpn = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'CatClientVpnService.kt');
 const store = chain.slice(
   chain.indexOf('class ConnectionChainPreferenceStore'),
   chain.indexOf('data class ConnectionChainSource('),
@@ -176,6 +177,25 @@ test('the scanner meets the chain instead of overwriting it', () => {
     /val previousValue = frontingIpPreferenceStore\.readFrontingIp\(\)/,
     'the fronting path (chains off) must stay',
   );
+});
+
+test('the connection details report the pinned address, not the config it replaced', () => {
+  // The endpoint readout is how a user checks «which IP am I actually going through».
+  // Reporting the subscription's address while the socket dials the pin would be a lie
+  // that looks like a working tunnel.
+  // Start at the candidate line: `val finalPin` sits just above the log call, so a slice
+  // anchored on the log string would miss the very line this test is about.
+  const start = vpn.indexOf('val finalCandidate = plan.finalHop.candidate');
+  assert.ok(start > 0, 'could not locate the chain health path in CatClientVpnService.kt');
+  const healthy = vpn.slice(start, vpn.indexOf('} catch (error: Throwable) {', start));
+  assert.match(healthy, /val finalPin = plan\.finalHop\.serverOverride\?\.let\(::connectionChainEndpointOrNull\)/,
+    'the runtime no longer resolves the final hop pin');
+  assert.match(healthy, /ip = finalPin\?\.ip \?: finalCandidate\.profile\.server/,
+    'the reported IP ignores the pin');
+  assert.match(healthy, /port = finalPin\?\.port \?: finalCandidate\.profile\.port/,
+    'the reported port ignores the pin');
+  assert.match(healthy, /pinned=\$\{plan\.hops\.count \{ it\.serverOverride != null \}\}/,
+    'the healthy log line no longer says how many legs are pinned');
 });
 
 test('both locales carry the new strings with the same placeholders', () => {
