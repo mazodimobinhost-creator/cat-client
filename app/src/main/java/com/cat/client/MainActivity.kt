@@ -8922,7 +8922,12 @@ class MainActivity : Activity() {
         val plain = if (st.optBoolean("plainEnabled")) (0 until (plainArr?.length() ?: 0)).take(3).mapNotNull { plainArr?.optString(it) }.joinToString("/") else null
         val rot = when (st.optString("subRotate", "fetch")) { "off" -> getString(R.string.panel_rot_off); "daily" -> getString(R.string.panel_rot_daily); else -> getString(R.string.panel_rot_fetch) }
         val uuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrDefault("")
-        val sub = if (uuid.isNotBlank()) "$base/sub/$uuid" else base + "/sub/<uuid>"
+        // The panel knows which key is live better than we do: since 6.67.0 a subscription
+        // TOKEN can replace the UUID in /sub/..., and after that rotation the UUID link is
+        // dead. Older panels answer no `links` object, so the stored UUID stays the fallback.
+        val sub = org.json.JSONObject(getBody).optJSONObject("links")?.optString("sub").orEmpty().ifBlank {
+            if (uuid.isNotBlank()) "$base/sub/$uuid" else base + "/sub/<uuid>"
+        }
         return getString(R.string.panel_status_body,
             base.removePrefix("https://"), version, sniLine,
             ips?.length() ?: 0, pins, px, chain, xs,

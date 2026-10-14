@@ -685,7 +685,10 @@ object CloudflareWorker {
         WizardDeploymentResult(
             workerName = workerName,
             wizardUrl = wizardUrl,
-            verifiedOnline = smokeTestPanel(wizardUrl),
+            verifiedOnline = smokeTestPanel(
+                wizardUrl,
+                extraSubKeys = subscriptionKeys(context, wizardUrl, PanelDeploymentStore(context).uuidFor(wizardUrl)),
+            ),
         )
     }
 
@@ -737,6 +740,8 @@ object CloudflareWorker {
         val status: Int = 0,
         val bodyHead: String = "",
         val subOk: Boolean = false,
+        /** The master key that actually served configs (UUID or subscription token). */
+        val subKey: String = "",
         val detail: String = "",
     ) {
         /** The edge answered, but never our script. */
@@ -792,9 +797,45 @@ object CloudflareWorker {
      * can say which failure it was rather than a bare «pending». `subOk` is set
      * when the subscription also answers, i.e. the panel serves real configs.
      */
+    /**
+     * Every key a MASTER subscription link may carry, in the order the app should try
+     * them: the stored UUID, then the panel's subscription TOKEN when the owner rotated
+     * one (panel 6.67.0+).
+     *
+     * A rotation deliberately kills every UUID link, so a smoke test that only ever
+     * fetches `/sub/<uuid>` declares a healthy panel dead and the app keeps showing a
+     * stale «$workerUrl/sub/<uuid>» address. The app learns the token because the panel
+     * accepts it *as the password* at /api/login, and a rotated token is always 32 hex
+     * characters — any other stored credential is an owner password, not a sub key.
+     */
+    fun subscriptionKeys(context: Context, workerUrl: String, uuid: String): List<String> =
+        subscriptionKeyCandidates(
+            uuid,
+            runCatching { PanelCredentials.password(context, workerUrl) }.getOrDefault(""),
+        )
+
+    companion object {
+        /**
+         * The pure half of [subscriptionKeys]: order and filtering, no Android involved, so
+         * `app/src/test/.../PanelSubKeyTest.kt` runs it as real code. The subscription TOKEN
+         * that replaces the master UUID in /sub/<key> is always 32 hex characters (that is
+         * what the panel rotates to) — any other stored credential is an owner password and
+         * is deliberately NOT tried, because guessing wrong would look like a broken panel.
+         */
+        internal fun subscriptionKeyCandidates(uuid: String, storedCredential: String): List<String> {
+            val keys = LinkedHashSet<String>()
+            uuid.trim().takeIf { it.isNotBlank() }?.let { keys += it }
+            storedCredential.trim().lowercase(java.util.Locale.US)
+                .takeIf { it.matches(Regex("[0-9a-f]{32}")) }
+                ?.let { keys += it }
+            return keys.toList()
+        }
+    }
+
     private fun waitForPanel(
         workerUrl: String,
         uuid: String = "",
+        extraSubKeys: List<String> = emptyList(),
         // A fresh workers.dev route answers the edge's own 404 page for a while
         // before it serves the Worker, and the KV write that closes the panel needs
         // its own time to reach the colo answering these requests. Both were measured
@@ -807,23 +848,33 @@ object CloudflareWorker {
         delayMs: Long = 5_000L,
     ): PanelVersionProbe {
         var last = PanelVersionProbe(online = false, detail = "not tried")
+        // UUID first, then the rotated subscription token: after a rotation the UUID path is
+        // 404 by design, and reading that as «panel broken» is what this loop used to do.
+        val subKeys = (listOf(uuid) + extraSubKeys).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         for (i in 0 until attempts) {
             var health = probePanelVersion(workerUrl)
-            if (health.online && uuid.isNotBlank()) {
-                val sub = runCatching {
-                    val conn = (URL(workerUrl.trimEnd('/') + "/sub/" + uuid + "?raw=1").openConnection() as HttpURLConnection).apply {
-                        requestMethod = "GET"
-                        connectTimeout = 8_000
-                        readTimeout = 8_000
-                        setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+            if (health.online && subKeys.isNotEmpty()) {
+                var served: String? = null
+                for (key in subKeys) {
+                    val sub = runCatching {
+                        val conn = (URL(workerUrl.trimEnd('/') + "/sub/" + key + "?raw=1").openConnection() as HttpURLConnection).apply {
+                            requestMethod = "GET"
+                            connectTimeout = 8_000
+                            readTimeout = 8_000
+                            setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                        }
+                        val code = conn.responseCode
+                        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                            ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                        code to body
+                    }.getOrElse { 0 to "" }
+                    if (sub.first == 200 && (sub.second.contains("vless://") || sub.second.contains("trojan://"))) {
+                        served = key
+                        break
                     }
-                    val code = conn.responseCode
-                    val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
-                    code to body
-                }.getOrElse { 0 to "" }
-                if (sub.first == 200 && (sub.second.contains("vless://") || sub.second.contains("trojan://"))) {
-                    health = health.copy(subOk = true)
+                }
+                if (served != null) {
+                    health = health.copy(subOk = true, subKey = served)
                     return health
                 }
                 last = health
@@ -941,7 +992,7 @@ object CloudflareWorker {
         //    normal for a fresh route), «the file never loaded» (any other edge error
         //    page instead of JSON — the 1101 that has no report) and «not reachable
         //    at all» (nothing answered).
-        val health = waitForPanel(workerUrl, uuid)
+        val health = waitForPanel(workerUrl, uuid, subscriptionKeys(context, workerUrl, uuid))
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         val bundledVersion = bundledPanelVersion(context)
 
@@ -961,7 +1012,9 @@ object CloudflareWorker {
             workerName = workerName,
             subdomain = subdomain,
             workerUrl = workerUrl,
-            subscriptionUrl = "$workerUrl/sub/$uuid",
+            // Prefer the key that really served configs: after a token rotation the UUID
+            // link is dead, and showing it would send the user to a 404 subscription.
+            subscriptionUrl = "$workerUrl/sub/" + health.subKey.ifBlank { uuid },
             verifiedOnline = verifiedOnline,
             uuid = uuid,
             panelUrl = (if (stealthPath.isNotBlank()) {
@@ -1090,7 +1143,7 @@ object CloudflareWorker {
                 JSONObject().put("enabled", true).put("previews_enabled", false).toString(),
             )
         }
-        val health = waitForPanel(normalized, uuid)
+        val health = waitForPanel(normalized, uuid, subscriptionKeys(context, normalized, uuid))
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         PanelDeploymentStore(context).rememberLast(normalized, uuid)
         PanelUpdateOutcome.Success(
@@ -1509,6 +1562,7 @@ object CloudflareWorker {
     private fun smokeTestPanel(
         workerUrl: String,
         uuid: String = "",
+        extraSubKeys: List<String> = emptyList(),
         attempts: Int = 5,
         delayMs: Long = 2_500L,
     ): Boolean {
@@ -1530,9 +1584,12 @@ object CloudflareWorker {
                 if (health.first != 200 || !health.second.contains("\"ok\":true")) return@runCatching false
                 if (uuid.isBlank()) true
                 else {
-                    val subscription = get("/sub/" + uuid + "?raw=1")
-                    subscription.first == 200 &&
-                        (subscription.second.contains("vless://") || subscription.second.contains("trojan://"))
+                    // Same two keys as waitForPanel: UUID, then a rotated subscription token.
+                    (listOf(uuid) + extraSubKeys).map { it.trim() }.filter { it.isNotBlank() }.distinct().any { key ->
+                        val subscription = get("/sub/" + key + "?raw=1")
+                        subscription.first == 200 &&
+                            (subscription.second.contains("vless://") || subscription.second.contains("trojan://"))
+                    }
                 }
             }.getOrDefault(false)
             if (ok) return true

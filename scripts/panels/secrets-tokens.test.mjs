@@ -87,6 +87,31 @@ console.log('\nSecrets, sub tokens, UUID rotation and backups\n');
     (await get(env, '/sub/' + UUID)).status === 404, 'old link still served');
   ok('a random key is still rejected', (await get(env, '/sub/' + 'f'.repeat(32))).status === 404);
 
+  /* The panel's OWN links have to follow the rotation too. This is the half that was
+     missing: the Config Builder fetches the link it just built (function bGen), so a link
+     built from the raw UUID answered 404 the moment the token was rotated and the user saw
+     «the subscription is empty — no config was built / the response is not a config
+     subscription: HTTP 404». Reported as «when I create a link it gives this error». */
+  const handed = await (await get(env, '/api/settings', asOwner('/api/settings'))).json();
+  ok('the master link the panel hands out uses the new token',
+    String((handed.links || {}).sub || '').endsWith('/sub/' + rotated.token), (handed.links || {}).sub);
+  ok('…and that handed-out link really serves configs',
+    (await get(env, new URL(handed.links.sub).pathname)).status === 200);
+  ok('…the page is given the same key to build its links with', handed.subKey === rotated.token, handed.subKey);
+  ok('…every format the page offers follows the rotation',
+    ['sub64', 'clash', 'singbox', 'xray'].every((k) => String((handed.links || {})[k] || '').endsWith('/' + k + '/' + rotated.token)),
+    JSON.stringify(handed.links));
+  ok('…the info/QR page accepts the token and refuses the dead uuid',
+    (await get(env, '/info/' + rotated.token)).status === 200 && (await get(env, '/info/' + UUID)).status === 404);
+  ok('…and the /u/ shape accepts the master token only',
+    (await get(env, '/u/' + rotated.token)).status === 200 && (await get(env, '/u/' + UUID)).status === 404);
+  const tgLink = await T.tgCommand('/link', {
+    origin: 'https://' + HOST, host: HOST, env, settings: await T.readSettings(env), masterUuid: UUID,
+  });
+  ok('…and the Telegram bot hands out the live link, not the dead one',
+    String(tgLink).includes('/sub/' + rotated.token) && !String(tgLink).includes('/sub/' + UUID),
+    String(tgLink).slice(0, 110));
+
   const revoked = await (await get(env, '/api/sub-token', asOwner('/api/sub-token', {
     method: 'POST', body: JSON.stringify({ action: 'revoke' }),
   }))).json();

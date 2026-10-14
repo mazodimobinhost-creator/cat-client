@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.67.2';
+const CAT_PANEL_VERSION = '6.67.3';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -4381,7 +4381,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   const users = await readUsers(env);
   const byName = (q) => { q = String(q || '').toLowerCase(); return users.find((u) => u.id === q || u.id.startsWith(q) || u.name.toLowerCase() === q); };
   const userLine = (u) => { const r = userBlockedReason(u); const left = u.expiresAt ? Math.ceil((u.expiresAt - Date.now()) / 86400000) + 'd' : '∞'; return (r ? (r === 'expired' ? '⏰' : '⛔') : '🟢') + ' <b>' + tgEsc(u.name) + '</b> · ' + left + ' · <code>' + u.id.slice(0, 8) + '</code>'; };
-  const links = (u) => { const l = subLinks(origin, masterUuid, u); return '🔗 <code>' + tgEsc(l.sub) + '</code>\n🧩 Clash: <code>' + tgEsc(l.clash) + '</code>\n📦 Xray: <code>' + tgEsc(l.xray) + '</code>' + (u ? '\nℹ️ ' + tgEsc(l.info) : ''); };
+  const links = (u) => { const l = subLinks(origin, subKeyOf(settings, masterUuid), u); return '🔗 <code>' + tgEsc(l.sub) + '</code>\n🧩 Clash: <code>' + tgEsc(l.clash) + '</code>\n📦 Xray: <code>' + tgEsc(l.xray) + '</code>' + (u ? '\nℹ️ ' + tgEsc(l.info) : ''); };
   switch (cmd) {
     case '/start': case '/help':
       return '🐱 <b>' + tgEsc(panelTitle(env, settings)) + '</b> ' + CAT_PANEL_VERSION + '\n\n' +
@@ -4728,7 +4728,9 @@ async function handleApi(request, url, env, ctx) {
         settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
         telegram: { configured: !!tgConfig(env, settings) },
         defaults: { addresses: DEFAULT_CLEAN_ADDRESSES,[PXIPS_KEY]: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
-        links: subLinks(origin, masterUuid, null),
+        // subKeyOf, not masterUuid: after a token rotation the UUID path 404s.
+        links: subLinks(origin, subKeyOf(settings, masterUuid), null),
+        subKey: subKeyOf(settings, masterUuid),
         paths: tunnelPaths(env),
         sni: effectiveSni(host, env, settings),
         chain: (() => { const c = parseChain(settings.chain); return c ? { type: c.type, host: c.host, port: c.port, auth: !!(c.user || c.pass) } : null; })(),
@@ -5353,6 +5355,11 @@ async function handleRequest(request, env, ctx) {
 
   const settings = await readSettings(env);
   const masterUuid = await resolveUuid(host, env);
+  // The key EVERY master link must carry: the subscription token once the owner rotated one
+  // (6.67.0), the UUID otherwise. A link built from the raw UUID answers 404 the moment a
+  // rotation happens — and the Config Builder fetches the link it just built (bGen), so it
+  // reported «the subscription is empty / not a config subscription: HTTP 404» to the user.
+  const masterKey = subKeyOf(settings, masterUuid);
 
   /* external-sub fetch-through: /ext/<n>/<key> — key = master uuid or a user
    * token (same gating as /sub). Content cached 12h, size-capped, so clients
@@ -5402,7 +5409,6 @@ async function handleRequest(request, env, ctx) {
     // The master key is the subscription TOKEN when one is set, the UUID otherwise.
     // Rotation therefore kills every old link at once, and revocation (clearing the
     // token) falls back to the UUID — both are owner actions below.
-    const masterKey = subKeyOf(settings, masterUuid);
     if (key === masterKey || (!key && isTrue(env.OPEN_SUB))) return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), masterUuid, null, url);
     if (key && isUuid(key)) {
       // Allow a user token on the master paths too (v2rayNG users sometimes edit the URL).
@@ -5420,7 +5426,9 @@ async function handleRequest(request, env, ctx) {
   if (per) {
     const token = decodeURIComponent(per[1]).toLowerCase();
     const kind = targetKind(per[2] === '64' ? 'sub64' : (per[2] || 'sub'));
-    if (token === masterUuid) return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), masterUuid, null, url);
+    // Only the CURRENT master key (token when one is set): a rotation has to kill the old
+    // UUID link here too, otherwise /u/<old uuid> would serve what /sub/<old uuid> refuses.
+    if (token === masterKey) return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), masterUuid, null, url);
     const user = findUser(await readUsers(env), token);
     if (!user) return text('not found', 404);
     const blocked = userBlockedReason(user);
@@ -5432,8 +5440,12 @@ async function handleRequest(request, env, ctx) {
   const info = path.match(/^\/info\/([^/]+)\/?$/);
   if (info) {
     const token = decodeURIComponent(info[1]).toLowerCase();
-    const user = token === masterUuid ? null : findUser(await readUsers(env), token);
-    if (token !== masterUuid && !user) return html(notFoundPage(), 404);
+    // The info page SHOWS the subscription links, so it accepts only the current master key:
+    // answering the old UUID here would hand the fresh token to whoever kept the old link,
+    // which is precisely what a rotation is supposed to prevent.
+    const isMaster = token === masterKey;
+    const user = isMaster ? null : findUser(await readUsers(env), token);
+    if (!isMaster && !user) return html(notFoundPage(), 404);
     return html(userInfoPage(url.origin, host, env, settings, token, user));
   }
 
@@ -7563,7 +7575,7 @@ function renderSubLinks(){
   var box=$('#subLinkBtns'),txt=$('#subLinkText'),who=$('#subLinkUser');
   if(!box)return;
   var u=(typeof USERS!=='undefined'&&USERS&&USERS.length)?USERS[0]:null;
-  var L=subLinks(location.origin,(CFG&&CFG.uuid)||'',u);
+  var L=subLinks(location.origin,(CFG&&(CFG.subKey||CFG.uuid))||'',u);
   if(who)who.textContent=u?(u.name||u.id||''):((CFG&&CFG.uuid)||'');
   var rows=[['hm_uri',L.sub],['hm_b64',L.sub64],['hm_clash',L.clash],['hm_singbox',L.singbox],['hm_json',L.xray],['hm_qr',L.info]];
   box.innerHTML='';

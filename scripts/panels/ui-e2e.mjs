@@ -179,6 +179,43 @@ check('همهٔ دکمه‌های ناوبری از فهرستِ انتظار م
 // همان لحظه: سازندهٔ آیکون‌ها (مسیرِ محاسبه‌ای) نباید خطا داده باشد
 check('گشت‌وگذار در همهٔ بخش‌ها خطای کنسولی جدیدی تولید نکرد', consoleErrors.length === 0, `${consoleErrors.length}`);
 
+// ---- 3٫۶) سازندهٔ ساب: لینکی که می‌سازد باید همان کلیدِ زندهٔ پنل باشد ----
+// باگِ گزارش‌شده («وقتی لینک ساخته می‌شه این ارور رو می‌ده») از همین‌جا می‌آمد: پنل لینک را
+// از UUID می‌ساخت و بعد خودِ بگن (bGen) همان لینک را fetch می‌کرد؛ به‌محضِ چرخشِ توکنِ ساب
+// (فیچرِ 6.67.0) مسیرِ UUID عمداً 404 می‌شود و کاربر «ساب خالی / پاسخِ ساب کانفیگ نیست:
+// HTTP 404» می‌دید. اینجا همان کلیکِ واقعی انجام می‌شود و کلیدِ لینکِ ساخته‌شده با کلیدِ
+// اعلام‌شدهٔ پنل مقایسه می‌شود.
+// صادقانه: خودِ حالتِ «چرخش‌شده» اینجا قابلِ بازتولید نیست — این رانتایم عمداً KV ندارد،
+// پس توکنی نمی‌تواند ذخیره شود. آن حالت روی خودِ ماژولِ ورکر پین شده است:
+// scripts/panels/secrets-tokens.test.mjs و scripts/panels/builder-link-repro.mjs.
+const openView = async (v) => {
+  if (!(await page.locator(`[data-view="${v}"]:visible`).count())) {
+    await page.evaluate(() => { const b = document.getElementById('btnBurger'); if (b && !document.getElementById('menu').classList.contains('show')) b.click(); });
+    await page.waitForTimeout(150);
+  }
+  return page.locator(`[data-view="${v}"]:visible`).first().click({ timeout: 6000 }).then(() => true).catch(() => false);
+};
+let liveMasterPath = '';
+try { liveMasterPath = new URL(JSON.parse(settings.body).links.sub).pathname; } catch { /* reported below */ }
+check('پنل کلیدِ زندهٔ ساب را اعلام می‌کند (api/settings → links.sub)', /^\/sub\/[^/]+$/.test(liveMasterPath), liveMasterPath || '(ندارد)');
+await openView('build');
+await page.waitForTimeout(150);
+await page.click('#bGen').catch(() => {});
+await page.waitForTimeout(3000);
+const built = await page.evaluate(() => ({
+  link: document.getElementById('bLink').value,
+  count: Number(document.getElementById('bCount').textContent || '0'),
+  noteVisible: getComputedStyle(document.getElementById('bEmpty')).display !== 'none',
+  note: (document.getElementById('bEmpty').textContent || '').slice(0, 170),
+  preview: (document.getElementById('bPrev').value || '').slice(0, 40),
+}));
+check('لینکِ سازنده همان کلیدِ زندهٔ پنل را دارد (نه UUIDِ کهنه)',
+  !!liveMasterPath && built.link.includes(liveMasterPath),
+  `لینک: ${built.link.replace(BASE, '') || '(خالی)'} | کلیدِ پنل: ${liveMasterPath}`);
+check('…و همان لینک واقعاً کانفیگ برمی‌گرداند (نُتِ خطا ندارد)',
+  !built.noteVisible && built.count > 0 && /^vless:\/\//.test(built.preview),
+  `count=${built.count} | نُت: ${built.noteVisible ? built.note : 'پنهان'} | پیش‌نمایش: ${built.preview}`);
+
 // کوئری و مسیرهای عجیب: باید محترمانه جواب بدهند، نه ۵۰۰
 for (const path of ['/panel?stale=1', '/nope-does-not-exist']) {
   if (path === '/nope-does-not-exist') expectedHttp.add(`404 ${path}`);
