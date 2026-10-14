@@ -336,6 +336,16 @@ enum class DnsPrivacyMode(val wireName: String, val labelRes: Int) {
     Automatic("automatic", R.string.dns_mode_automatic),
     DoH("doh", R.string.dns_mode_doh),
     DoT("dot", R.string.dns_mode_dot),
+    // 🔒 QUIC-based resolvers (6.67.6 / beta110). WHY THEY MATTER IN IRAN: ECH (Encrypted
+    // ClientHello) is only as private as the lookup that fetches its key — the ECHConfig
+    // travels in the zone's HTTPS/SVCB record, so a censored *plaintext* DNS lookup either
+    // never returns it or can be answered with a forged key. Iran has repeatedly blocked
+    // external DoH/DoT resolvers (the corpus notes record a one-to-two-week replacement
+    // cycle), but its middleboxes do not parse QUIC, so DoQ and DoH-over-HTTP/3 keep
+    // working where the TCP-based resolvers stop. Both schemes are understood by the
+    // bundled mihomo core (`quic://…` and `h3://…`).
+    DoQ("doq", R.string.dns_mode_doq),
+    DoH3("doh3", R.string.dns_mode_doh3),
     ;
 
     companion object {
@@ -349,6 +359,75 @@ object DnsPrivacyPolicy {
     /** Shecan's IP-based DoH endpoint: resolvable and reachable from inside Iran. */
     const val DEFAULT_DOH_URL = "https://178.22.122.100/dns-query"
     const val DEFAULT_DOT_ENDPOINT = "tls://178.22.122.100:853"
+
+    /** Cloudflare's DoQ endpoint and its DoH-over-HTTP/3 URL. Both are QUIC-based, which
+     *  matters because Iran's DPI does not parse QUIC — see the note on [DnsPrivacyMode.DoQ].
+     *  An IP is used on purpose: a hostname would need a plaintext lookup first, which is
+     *  exactly what the censor poisons. */
+    const val DEFAULT_DOQ_ENDPOINT = "quic://1.1.1.1:853"
+    const val DEFAULT_DOH3_URL = "h3://1.1.1.1/dns-query"
+    const val DEFAULT_DOQ_PORT = 853
+
+    /**
+     * `quic://host[:port]` — DNS-over-QUIC (RFC 9250). Port defaults to 853, the DoQ port.
+     *
+     * The host[:port] half is parsed by [FrontingIpPolicy.parseEndpoint], the app's one
+     * implementation of that grammar — it already knows that a bare IPv6 literal is a host
+     * and `[v6]:port` is a host plus port, so a v6 resolver cannot be silently misread as
+     * `host:port` the way a naive `java.net.URI` split would (URI needs the brackets and
+     * would happily turn `2606:4700:4700::1111` into ip `…::` + port `1111`).
+     */
+    fun normalizeDoqEndpoint(value: String): String {
+        val raw = value.trim()
+        val authority = when {
+            raw.startsWith("quic://", ignoreCase = true) -> raw.substring("quic://".length)
+            raw.contains("://") -> throw IllegalArgumentException("پروتکل DoQ باید quic:// باشد")
+            else -> raw
+        }
+        require(authority.isNotEmpty() && authority.none(Char::isWhitespace)) {
+            "DoQ باید یک host[:port] معتبر باشد"
+        }
+        require(authority.none { it == '/' || it == '?' || it == '#' || it == '@' }) {
+            "DoQ فقط می‌تواند نام میزبان و پورت اختیاری داشته باشد"
+        }
+        val endpoint = runCatching { FrontingIpPolicy.parseEndpoint(authority) }.getOrElse {
+            throw IllegalArgumentException("DoQ باید یک host[:port] معتبر باشد")
+        }
+        val port = endpoint.port ?: DEFAULT_DOQ_PORT
+        val host = if (endpoint.ip.contains(':')) "[${endpoint.ip}]" else endpoint.ip
+        return "quic://$host:$port"
+    }
+
+    /**
+     * `h3://host[:port][/path]` — DoH carried over HTTP/3 (QUIC). mihomo also accepts
+     * `https://host/dns-query#h3=true`; everything is stored as the `h3://` form so one
+     * string means one thing in the generated YAML — and since the owner picked the *mode*,
+     * a pasted `https://…` DoH URL is converted rather than quietly left on TCP.
+     */
+    fun normalizeDoh3Url(value: String): String {
+        val raw = value.trim()
+        val withoutScheme = when {
+            raw.startsWith("h3://", ignoreCase = true) -> raw.substring("h3://".length)
+            raw.startsWith("https://", ignoreCase = true) -> raw.substring("https://".length)
+            raw.contains("://") -> throw IllegalArgumentException("پروتکل DoH3 باید h3:// یا https:// باشد")
+            else -> raw
+        }
+        require(withoutScheme.isNotEmpty() && withoutScheme.none(Char::isWhitespace)) {
+            "DoH3 باید یک URL معتبر باشد"
+        }
+        require(withoutScheme.none { it == '?' || it == '#' || it == '@' }) {
+            "URL مربوط به DoH3 نباید اطلاعات ورود، query یا fragment داشته باشد"
+        }
+        val authority = withoutScheme.substringBefore('/')
+        val parsedPath = withoutScheme.removePrefix(authority)
+        val endpoint = runCatching { FrontingIpPolicy.parseEndpoint(authority) }.getOrElse {
+            throw IllegalArgumentException("DoH3 باید یک URL معتبر باشد")
+        }
+        val portSuffix = endpoint.port?.let { ":$it" }.orEmpty()
+        val host = if (endpoint.ip.contains(':')) "[${endpoint.ip}]" else endpoint.ip
+        val path = parsedPath.trim('/').takeIf(String::isNotEmpty) ?: "dns-query"
+        return "h3://$host$portSuffix/$path"
+    }
 
     fun normalizeDohUrl(value: String): String {
         val input = value.trim()
@@ -412,6 +491,22 @@ class DnsPrivacyPreferenceStore(context: Context) {
         }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT)
     }
 
+    fun readDoqEndpoint(): String {
+        return runCatching {
+            DnsPrivacyPolicy.normalizeDoqEndpoint(
+                prefs.getString(KEY_DOQ_ENDPOINT, null) ?: DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+            )
+        }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT)
+    }
+
+    fun readDoh3Url(): String {
+        return runCatching {
+            DnsPrivacyPolicy.normalizeDoh3Url(
+                prefs.getString(KEY_DOH3_URL, null) ?: DnsPrivacyPolicy.DEFAULT_DOH3_URL,
+            )
+        }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOH3_URL)
+    }
+
     fun saveMode(mode: DnsPrivacyMode) {
         prefs.edit().putString(KEY_MODE, mode.wireName).apply()
     }
@@ -424,10 +519,20 @@ class DnsPrivacyPreferenceStore(context: Context) {
         prefs.edit().putString(KEY_DOT_ENDPOINT, DnsPrivacyPolicy.normalizeDotEndpoint(value)).apply()
     }
 
+    fun saveDoqEndpoint(value: String) {
+        prefs.edit().putString(KEY_DOQ_ENDPOINT, DnsPrivacyPolicy.normalizeDoqEndpoint(value)).apply()
+    }
+
+    fun saveDoh3Url(value: String) {
+        prefs.edit().putString(KEY_DOH3_URL, DnsPrivacyPolicy.normalizeDoh3Url(value)).apply()
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
         const val KEY_DOH_URL = "doh_url"
         const val KEY_DOT_ENDPOINT = "dot_endpoint"
+        const val KEY_DOQ_ENDPOINT = "doq_endpoint"
+        const val KEY_DOH3_URL = "doh3_url"
     }
 }
 
@@ -604,6 +709,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 dnsPrivacyMode = document.dns.mode,
                 dohUrl = document.dns.dohUrl,
                 dotEndpoint = document.dns.dotEndpoint,
+                doqEndpoint = document.dns.doqEndpoint,
+                doh3Url = document.dns.doh3Url,
                 adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
             ),
         )
@@ -758,6 +865,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             dnsPrivacyMode: DnsPrivacyMode = DnsPrivacyMode.Automatic,
             dohUrl: String = DnsPrivacyPolicy.DEFAULT_DOH_URL,
             dotEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT,
+            doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+            doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
             adBlock: Boolean = false,
         ): String {
             val routingTarget = routingTarget(rawYaml)
@@ -784,6 +893,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 DnsPrivacyMode.Automatic -> DOH_SERVERS + DOT_SERVERS
                 DnsPrivacyMode.DoH -> listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl))
                 DnsPrivacyMode.DoT -> listOf(DnsPrivacyPolicy.normalizeDotEndpoint(dotEndpoint))
+                DnsPrivacyMode.DoQ -> listOf(DnsPrivacyPolicy.normalizeDoqEndpoint(doqEndpoint))
+                DnsPrivacyMode.DoH3 -> listOf(DnsPrivacyPolicy.normalizeDoh3Url(doh3Url))
             }
             // Bootstrap (default-nameserver) must answer without any dependency on
             // a working tunnel, so plain-IP DNS is used instead of DoH URLs.

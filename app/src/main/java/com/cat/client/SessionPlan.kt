@@ -9,6 +9,10 @@ internal data class DnsRuntimeSettings(
     val mode: DnsPrivacyMode,
     val dohUrl: String,
     val dotEndpoint: String,
+    /** QUIC-based resolver endpoints (DoQ / DoH3). Defaults keep the field non-null for
+     *  callers that only care about the TCP modes. */
+    val doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+    val doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
 )
 
 internal data class SessionPlanPreferences(

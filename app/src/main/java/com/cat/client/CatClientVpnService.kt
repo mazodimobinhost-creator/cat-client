@@ -1131,6 +1131,8 @@ class CatClientVpnService : VpnService() {
                                         mode = dnsPrivacyPreferenceStore.readMode(),
                                         dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
                                         dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
+                                        doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
+                                        doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
                                     ),
                                 ),
                             )
@@ -1641,6 +1643,8 @@ class CatClientVpnService : VpnService() {
             mode = dnsPrivacyPreferenceStore.readMode(),
             dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
             dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
+            doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
+            doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
         ),
         connectionMode = connectionModePreferenceStore.read(),
         dpiBypassEnabled = dpiBypassPreferenceStore.isEnabled(),

@@ -315,6 +315,14 @@
     <string name="dns_mode_dot">DoT</string>
     <string name="dns_automatic_detail">DoH + DoT داخلی با مسیر جایگزین</string>
     <string name="dns_doh_detail">سرور HTTPS با مسیر جایگزین رمزنگاری‌شده</string>
+    <string name="dns_mode_doq">DoQ (روی QUIC)</string>
+    <string name="dns_mode_doh3">DoH3 (روی HTTP/3)</string>
+    <string name="dns_doq_detail">DNS روی QUIC — سانسور QUIC را تحلیل نمی‌کند</string>
+    <string name="dns_doh3_detail">DoH روی HTTP/3 — همان دلیل DoQ</string>
+    <string name="dns_doq_address">quic://host:853</string>
+    <string name="dns_doh3_address">h3://host/dns-query</string>
+    <string name="dns_doq_helper">برای ECH مهم است: رکورد HTTPS (کلید ECH) فقط از یک resolverِ رمزنگاری‌شدهٔ کارکننده می‌آید. اگر دامنه‌ات روی کلادفلر است، همین مقدار پیش‌فرض را امتحان کن.</string>
+    <string name="dns_doh3_helper">مانند DoQ روی QUIC سوار می‌شود؛ روی خطی که DoT/DoH بسته شده، این دو مسیر معمولاً باز می‌مانند.</string>
     <string name="dns_dot_detail">سرور TLS با مسیر جایگزین رمزنگاری‌شده</string>
     <string name="dns_content_description">DNS رمزنگاری‌شده: %1$s</string>
     <string name="dns_doh_address">آدرس DoH</string>

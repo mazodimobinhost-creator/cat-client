@@ -314,6 +314,14 @@
     <string name="dns_mode_dot">DoT</string>
     <string name="dns_automatic_detail">Built-in DoH + DoT with fallback</string>
     <string name="dns_doh_detail">HTTPS server with encrypted fallback</string>
+    <string name="dns_mode_doq">DoQ (over QUIC)</string>
+    <string name="dns_mode_doh3">DoH3 (over HTTP/3)</string>
+    <string name="dns_doq_detail">DNS over QUIC — the censor does not parse QUIC</string>
+    <string name="dns_doh3_detail">DoH over HTTP/3 — same reason as DoQ</string>
+    <string name="dns_doq_address">quic://host:853</string>
+    <string name="dns_doh3_address">h3://host/dns-query</string>
+    <string name="dns_doq_helper">This matters for ECH: the HTTPS record (the ECH key) only arrives from a working encrypted resolver. If your domain is on Cloudflare, try the default.</string>
+    <string name="dns_doh3_helper">Like DoQ it rides on QUIC; on a line where DoT/DoH are blocked, these two usually stay open.</string>
     <string name="dns_dot_detail">TLS server with encrypted fallback</string>
     <string name="dns_content_description">Encrypted DNS: %1$s</string>
     <string name="dns_doh_address">DoH address</string>

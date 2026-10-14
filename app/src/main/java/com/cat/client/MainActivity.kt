@@ -13535,12 +13535,16 @@ class MainActivity : Activity() {
         val previousValue = when (mode) {
             DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.readDohUrl()
             DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.readDotEndpoint()
+            DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.readDoqEndpoint()
+            DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.readDoh3Url()
             DnsPrivacyMode.Automatic -> return true
         }
         val nextValue = runCatching {
             when (mode) {
                 DnsPrivacyMode.DoH -> DnsPrivacyPolicy.normalizeDohUrl(dnsPrivacyEndpointInput.text.toString())
                 DnsPrivacyMode.DoT -> DnsPrivacyPolicy.normalizeDotEndpoint(dnsPrivacyEndpointInput.text.toString())
+                DnsPrivacyMode.DoQ -> DnsPrivacyPolicy.normalizeDoqEndpoint(dnsPrivacyEndpointInput.text.toString())
+                DnsPrivacyMode.DoH3 -> DnsPrivacyPolicy.normalizeDoh3Url(dnsPrivacyEndpointInput.text.toString())
                 DnsPrivacyMode.Automatic -> return true
             }
         }.getOrElse { error ->
@@ -13550,6 +13554,8 @@ class MainActivity : Activity() {
         when (mode) {
             DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.saveDohUrl(nextValue)
             DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.saveDotEndpoint(nextValue)
+            DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.saveDoqEndpoint(nextValue)
+            DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.saveDoh3Url(nextValue)
             DnsPrivacyMode.Automatic -> Unit
         }
         setDnsPrivacyEndpointInputText(displayDnsPrivacyEndpoint(mode, nextValue))
@@ -13571,6 +13577,8 @@ class MainActivity : Activity() {
             DnsPrivacyMode.Automatic -> getString(R.string.dns_automatic_detail)
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_detail)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_detail)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_detail)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_detail)
         }
         dnsPrivacyRow.contentDescription = getString(R.string.dns_content_description, modeLabel)
         if (
@@ -13585,17 +13593,23 @@ class MainActivity : Activity() {
         dnsPrivacyEndpointLayout.hint = when (mode) {
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_address)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_address)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_address)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_address)
             DnsPrivacyMode.Automatic -> ""
         }
         dnsPrivacyEndpointLayout.helperText = when (mode) {
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_helper)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_helper)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_helper)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_helper)
             DnsPrivacyMode.Automatic -> ""
         }
         if (!dnsPrivacyEndpointInput.hasFocus()) {
             val value = when (mode) {
                 DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.readDohUrl()
                 DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.readDotEndpoint()
+                DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.readDoqEndpoint()
+                DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.readDoh3Url()
                 DnsPrivacyMode.Automatic -> ""
             }
             setDnsPrivacyEndpointInputText(displayDnsPrivacyEndpoint(mode, value))
@@ -13603,7 +13617,14 @@ class MainActivity : Activity() {
     }
 
     private fun displayDnsPrivacyEndpoint(mode: DnsPrivacyMode, value: String): String {
-        return if (mode == DnsPrivacyMode.DoT) value.removePrefix("tls://") else value
+        // DoT is the one mode whose scheme is stripped: `tls://` is the only DoT spelling, so
+        // hiding it keeps the box to host:port. DoQ and DoH3 keep theirs, because `quic://`
+        // and `h3://` are what tell the core which transport to use — and a bare `1.1.1.1`
+        // would silently become DoT in the owner's head.
+        return when (mode) {
+            DnsPrivacyMode.DoT -> value.removePrefix("tls://")
+            else -> value
+        }
     }
 
     private fun setDnsPrivacyEndpointInputText(value: String) {
