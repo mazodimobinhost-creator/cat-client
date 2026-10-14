@@ -804,14 +804,21 @@ let user;
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
   check('panel version is 6.67.1', T.CAT_PANEL_VERSION === '6.67.1');
   // ── Error 1101, second face ────────────────────────────────────────────────
-  // The three checks below read the SOURCE, so they only mean something on the
-  // plaintext asset. An obfuscated artifact (CAT_PANEL_WORKER=…obf.js/.stealth.js)
-  // encodes every string literal — its proof is that this whole suite still passes
-  // against it, not a grep.
+  // The three checks below read the SOURCE, so they only mean anything on the
+  // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
+  // suite against it (android.yml, the ship-artifact step), so gate on the file's
+  // own header comment instead of on its name: the plaintext tab carries
+  // «lean single-file», and min/obf/stealth all strip it. Gating on the name alone
+  // broke the release build once — the in-place copy is still called
+  // catclient.worker.js.
   // «The script will never generate a response»: a handler that returns nothing is
   // its own runtime error, and a try/catch cannot see it (it catches throws, never
   // `undefined`). The guard turns it into a throw so the crash report names the path.
-  if (/catpanel\.(obf|stealth)\.js$/.test(workerPath)) {
+  const isPlainSource = (() => {
+    try { return readFileSync(workerPath, 'utf8').includes('lean single-file'); }
+    catch { return false; }
+  })();
+  if (!isPlainSource) {
     console.log('– source-level guard checks skipped (artifact run: ' + workerPath.split('/').pop() + ')');
   } else {
     const src = readFileSync(workerPath, 'utf8');
