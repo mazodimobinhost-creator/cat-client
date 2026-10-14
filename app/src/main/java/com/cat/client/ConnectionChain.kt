@@ -35,13 +35,29 @@ data class ConnectionChainProfileRef(
 data class ConnectionChainHop(
     val mode: ConnectionChainHopMode,
     val profileRef: ConnectionChainProfileRef? = null,
+    /**
+     * The address this hop's first proxy is dialled at (`ip` or `ip:port`, a scanned clean
+     * IP), or null to keep the address the subscription config carries.
+     *
+     * This is where a bare IP enters a chain. A hop is a *config* — UUID, SNI, transport —
+     * and an IP alone cannot be a hop; but the address that config is dialled at can be
+     * replaced. Pinning a hop's address is how a scanned IP (an Iran entry, or a
+     * Cloudflare IP that came out of ProxyIP) becomes a leg of the tunnel instead of a
+     * plain fronting override that the chain runtime never sees.
+     */
+    val serverOverride: String? = null,
 ) {
     companion object {
         fun off() = ConnectionChainHop(ConnectionChainHopMode.Off)
         fun automatic() = ConnectionChainHop(ConnectionChainHopMode.Automatic)
-        fun fixed(subscriptionId: String, fingerprint: String) = ConnectionChainHop(
+        fun fixed(
+            subscriptionId: String,
+            fingerprint: String,
+            serverOverride: String? = null,
+        ) = ConnectionChainHop(
             mode = ConnectionChainHopMode.Fixed,
             profileRef = ConnectionChainProfileRef(subscriptionId, fingerprint),
+            serverOverride = serverOverride,
         )
     }
 }
@@ -77,13 +93,21 @@ data class ConnectionChainSettings(
     )
 
     private fun ConnectionChainHop.normalized(optional: Boolean): ConnectionChainHop {
-        if (mode == ConnectionChainHopMode.Fixed) {
-            val ref = profileRef
-            if (ref != null && ref.subscriptionId.isNotBlank() && ref.fingerprint.isNotBlank()) return this
+        if (mode == ConnectionChainHopMode.Off) {
             return if (optional) ConnectionChainHop.off() else ConnectionChainHop.automatic()
         }
-        if (mode == ConnectionChainHopMode.Off && !optional) return ConnectionChainHop.automatic()
-        return copy(profileRef = null)
+        if (mode == ConnectionChainHopMode.Fixed) {
+            val ref = profileRef
+            if (ref == null || ref.subscriptionId.isBlank() || ref.fingerprint.isBlank()) {
+                return if (optional) ConnectionChainHop.off() else ConnectionChainHop.automatic()
+            }
+        }
+        return copy(
+            profileRef = profileRef.takeIf { mode == ConnectionChainHopMode.Fixed },
+            serverOverride = serverOverride?.trim()?.takeIf { value ->
+                value.isNotEmpty() && connectionChainEndpointOrNull(value) != null
+            },
+        )
     }
 }
 
@@ -96,7 +120,7 @@ class ConnectionChainPreferenceStore(context: Context) {
             val root = JSONObject(raw)
             ConnectionChainSettings(
                 enabled = root.optBoolean("enabled", false),
-                before = ConnectionChainHop.off(),
+                before = root.optJSONObject("before").toHop(),
                 base = root.optJSONObject("base").toHop(defaultAutomatic = true),
                 after = root.optJSONObject("after").toHop(),
             ).normalized()
@@ -104,7 +128,7 @@ class ConnectionChainPreferenceStore(context: Context) {
     }
 
     fun save(settings: ConnectionChainSettings) {
-        val value = settings.copy(before = ConnectionChainHop.off()).normalized()
+        val value = settings.normalized()
         prefs.edit().putString(
             KEY_SETTINGS,
             JSONObject()
@@ -123,18 +147,22 @@ class ConnectionChainPreferenceStore(context: Context) {
                 put("subscriptionId", ref.subscriptionId)
                 put("fingerprint", ref.fingerprint)
             }
+            serverOverride?.let { pinned -> put("serverOverride", pinned) }
         }
 
     private fun JSONObject?.toHop(defaultAutomatic: Boolean = false): ConnectionChainHop {
         if (this == null) {
             return if (defaultAutomatic) ConnectionChainHop.automatic() else ConnectionChainHop.off()
         }
+        val pinned = optString("serverOverride").takeIf(String::isNotBlank)
         return when (ConnectionChainHopMode.fromWireName(optString("mode"))) {
             ConnectionChainHopMode.Off -> ConnectionChainHop.off()
             ConnectionChainHopMode.Automatic -> ConnectionChainHop.automatic()
+                .copy(serverOverride = pinned)
             ConnectionChainHopMode.Fixed -> ConnectionChainHop.fixed(
                 subscriptionId = optString("subscriptionId"),
                 fingerprint = optString("fingerprint"),
+                serverOverride = pinned,
             )
         }
     }
@@ -193,9 +221,16 @@ data class MihomoProxyBlock(
     val supportsUdpDialing: Boolean
         get() = udpEnabled || type.lowercase(Locale.US) in UDP_CAPABLE_TYPES
 
-    fun render(runtimeName: String, dialerProxy: String?): List<String> {
+    fun render(
+        runtimeName: String,
+        dialerProxy: String?,
+        serverOverride: String? = null,
+    ): List<String> {
         var nameReplaced = false
         var dialerReplaced = false
+        var serverReplaced = false
+        var portReplaced = false
+        val pinned = serverOverride?.trim()?.takeIf(String::isNotEmpty)?.let(::connectionChainEndpointOrNull)
         val rendered = lines.mapNotNull { line ->
             val indent = indentation(line)
             val content = line.trimStart()
@@ -216,9 +251,36 @@ data class MihomoProxyBlock(
                         "    dialer-proxy: ${yamlSingleQuoted(dialerProxy)}"
                     }
                 }
+                pinned != null && connectionChainIsInlineProxyMap(line) -> {
+                    serverReplaced = true
+                    line.replace(Regex("""server:\s*([^,}]+)"""), "server: ${pinned.ip}")
+                        .let { patched ->
+                            if (pinned.port == null) patched else {
+                                portReplaced = true
+                                patched.replace(Regex("""(,|\{)port:\s*([^,}]+)""")) { match ->
+                                    "${match.groupValues[1]}port: ${pinned.port}"
+                                }
+                            }
+                        }
+                }
+                pinned != null && indent == 4 && fieldName(line) == "server" -> {
+                    serverReplaced = true
+                    connectionChainReplaceField(line, "server", pinned.ip)
+                }
+                pinned != null && pinned.port != null && indent == 4 && fieldName(line) == "port" -> {
+                    portReplaced = true
+                    connectionChainReplaceField(line, "port", pinned.port.toString())
+                }
                 else -> line
             }
         }.toMutableList()
+        if (!serverReplaced && pinned != null) {
+            throw IOException("Proxy [$name] has no patchable server field for the pinned address")
+        }
+        if (pinned != null && pinned.port != null && !portReplaced) {
+            val insertAt = rendered.indexOfLast { it.isNotBlank() }.let { if (it < 0) rendered.size else it + 1 }
+            rendered.add(insertAt, "    port: ${pinned.port}")
+        }
         if (!nameReplaced) throw IOException("Proxy [$name] does not have a patchable name")
         if (dialerProxy != null && !dialerReplaced) {
             val insertAt = rendered.indexOfLast { it.isNotBlank() }.let { if (it < 0) rendered.size else it + 1 }
@@ -319,6 +381,7 @@ data class ResolvedConnectionChainHop(
     val slot: ConnectionChainSlot,
     val candidate: ConnectionChainCandidate,
     val proxies: List<ResolvedConnectionChainProxy>,
+    val serverOverride: String? = null,
 ) {
     val runtimeName: String get() = proxies.last().runtimeName
 }
@@ -397,7 +460,7 @@ object ConnectionChainPlanner {
 
         val choices = configuredSlots.map { slot -> choicesFor(normalized.hop(slot), candidates) }
         return bestCombinations(configuredSlots, choices)
-            .map(::toRuntimePlan)
+            .map { combination -> toRuntimePlan(combination, normalized) }
             .also { plans ->
                 if (plans.isEmpty()) throw IOException("No compatible connection chain is available")
             }
@@ -598,8 +661,10 @@ object ConnectionChainPlanner {
 
     private fun toRuntimePlan(
         combination: List<Pair<ConnectionChainSlot, ConnectionChainCandidate>>,
+        settings: ConnectionChainSettings,
     ): ConnectionChainRuntimePlan {
         val hops = combination.mapIndexed { index, (slot, candidate) ->
+            val pinned = settings.hop(slot).serverOverride?.trim()?.takeIf(String::isNotEmpty)
             ResolvedConnectionChainHop(
                 slot = slot,
                 candidate = candidate,
@@ -609,6 +674,7 @@ object ConnectionChainPlanner {
                         runtimeName = "CatClient Chain ${index + 1}.${proxyIndex + 1}",
                     )
                 },
+                serverOverride = pinned,
             )
         }
         val rawYaml = buildString {
@@ -621,7 +687,13 @@ object ConnectionChainPlanner {
                     } else {
                         hop.proxies[proxyIndex - 1].runtimeName
                     }
-                    proxy.block.render(proxy.runtimeName, dialerProxy).forEach { line ->
+                    // Only the first proxy of a hop is dialled from outside the hop: the
+                    // device reaches hop 1's first proxy directly, and every later hop's
+                    // first proxy through the previous hop's last one. That leg is the one a
+                    // pinned address replaces; patching the rest would silently strip the
+                    // address a chained config needs to reach its own upstream.
+                    val pinned = hop.serverOverride.takeIf { proxyIndex == 0 }
+                    proxy.block.render(proxy.runtimeName, dialerProxy, pinned).forEach { line ->
                         append(line)
                         append('\n')
                     }
@@ -658,6 +730,36 @@ object ConnectionChainPlanner {
             }
         }
     }
+}
+
+/**
+ * `ip` or `ip:port` (bracketed IPv6 too) — the same shape the fronting editor accepts.
+ * Null for anything a user can type by accident, so a bad stored value is dropped when the
+ * settings are normalised instead of throwing inside the chain runtime.
+ */
+internal fun connectionChainEndpointOrNull(value: String): FrontingEndpoint? =
+    runCatching { FrontingIpPolicy.parseEndpoint(value) }.getOrNull()
+
+/**
+ * The first slot that is actually configured (Before, then Base, then After) — the leg the
+ * device dials first. `Base` defaults to Automatic, so callers that need a *real* chain
+ * must check `isActive` first.
+ */
+internal fun ConnectionChainSettings.firstConfiguredSlot(): ConnectionChainSlot? =
+    ConnectionChainSlot.entries.firstOrNull { hop(it).mode != ConnectionChainHopMode.Off }
+
+private fun connectionChainReplaceField(line: String, key: String, value: String): String {
+    val indent = line.takeWhile(Char::isWhitespace)
+    val comment = line.substringAfter(':', "").let { tail ->
+        val index = tail.indexOf(" #")
+        if (index >= 0) tail.substring(index) else ""
+    }
+    return "$indent$key: $value$comment"
+}
+
+private fun connectionChainIsInlineProxyMap(line: String): Boolean {
+    val content = line.trimStart()
+    return content.startsWith("- {") && content.contains("server:")
 }
 
 private fun proxyFieldValue(lines: List<String>, key: String): String? {

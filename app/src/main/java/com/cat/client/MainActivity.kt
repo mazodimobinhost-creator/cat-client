@@ -446,18 +446,17 @@ class MainActivity : Activity() {
             val chainSlot = ConnectionChainSlot.fromWireName(
                 savedInstanceState.getString(STATE_CHAIN_PICKER_SLOT),
             )
-            if (chainSlot != ConnectionChainSlot.Before) {
-                if (chainSlot != null) {
-                    openScreen(SCREEN_SETTINGS)
-                    openConnectionChainSettingsPage?.invoke()
-                }
-                mainHandler.post {
-                    showConnectionTestingPage(
-                        animate = false,
-                        chainSlot = chainSlot,
-                        pickerSubscriptionId = savedInstanceState.getString(STATE_CHAIN_PICKER_SUBSCRIPTION),
-                    )
-                }
+            if (chainSlot != null) {
+                openScreen(SCREEN_SETTINGS)
+                openConnectionChainSettingsPage?.invoke()
+            }
+            mainHandler.post {
+                showConnectionTestingPage(
+                    animate = false,
+                    chainSlot = chainSlot,
+                    pickerSubscriptionId = savedInstanceState.getString(STATE_CHAIN_PICKER_SUBSCRIPTION),
+                )
+            }
             }
         }
         }.onFailure { DiagnosticLogger.warn(this, "activity.restore.failed", error = it) }
@@ -10243,6 +10242,27 @@ class MainActivity : Activity() {
      * hostname is DNS-poisoned).
      */
     private fun applyProxyIpAsEntry(ip: String) {
+        val chain = connectionChainPreferenceStore.read()
+        val entrySlot = chain.firstConfiguredSlot()
+        if (chain.isActive && entrySlot != null) {
+            // An IP on its own cannot be a hop — a hop carries UUID/SNI/transport — so the
+            // scanned address is pinned as the address the chain's first leg is dialled at,
+            // and the chain the user built stays untouched.
+            val pinned = connectionChainEndpointOrNull(ip)?.encoded() ?: ip
+            updateConnectionChainSettings(
+                chain.withHop(entrySlot, chain.hop(entrySlot).copy(serverOverride = pinned)),
+            )
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.scanner_applied_chain,
+                    pinned,
+                    getString(connectionChainSlotLabelRes(entrySlot)),
+                ),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
         frontingIps = runCatching {
             FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
@@ -10603,10 +10623,16 @@ class MainActivity : Activity() {
                 slot == ConnectionChainSlot.Base -> getString(R.string.connection_label)
                 else -> getString(R.string.connection_chain_after)
             }
-            val detail = when (hop.mode) {
+            val pinned = hop.serverOverride?.takeIf { it.isNotBlank() }
+            val baseDetail = when (hop.mode) {
                 ConnectionChainHopMode.Off -> getString(R.string.connection_chain_optional_detail)
                 ConnectionChainHopMode.Automatic -> getString(R.string.connection_chain_automatic_detail)
                 ConnectionChainHopMode.Fixed -> connectionChainFixedLabel(hop.profileRef, options)
+            }
+            val detail = if (pinned == null) {
+                baseDetail
+            } else {
+                baseDetail + " · " + getString(R.string.connection_chain_hop_ip_value, pinned)
             }
             return LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -10647,6 +10673,36 @@ class MainActivity : Activity() {
                     },
                     LinearLayout.LayoutParams(0, -2, 1f),
                 )
+                if (hop.mode != ConnectionChainHopMode.Off) {
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = getString(R.string.connection_chain_hop_ip_chip)
+                            textSize = 12f
+                            typeface = CatClientBodyBoldTypeface
+                            gravity = Gravity.CENTER
+                            includeFontPadding = false
+                            minimumHeight = dp(44)
+                            minimumWidth = dp(44)
+                            setTextColor(if (pinned == null) TEXT_SECONDARY else TEAL)
+                            setPadding(dp(10), dp(8), dp(10), dp(8))
+                            background = GradientDrawable().apply {
+                                cornerRadius = dp(14).toFloat()
+                                setStroke(dp(1), withAlpha(if (pinned == null) OUTLINE else TEAL, 160))
+                            }
+                            contentDescription = getString(
+                                R.string.connection_chain_hop_ip_action,
+                                getString(connectionChainSlotLabelRes(slot)),
+                            )
+                            isEnabled = controlsEnabled
+                            isClickable = controlsEnabled
+                            isFocusable = controlsEnabled
+                            if (controlsEnabled) {
+                                setOnClickListener { editConnectionChainHopIp(slot, hop) }
+                            }
+                        },
+                        LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+                    )
+                }
                 if (optional && hop.mode != ConnectionChainHopMode.Off) {
                     addView(
                         TextView(this@MainActivity).apply {
@@ -10710,7 +10766,8 @@ class MainActivity : Activity() {
                 return
             }
             if (!hops.isShown) return
-            val fixedSubscriptionIds = listOf(settings.base, settings.after)
+            val fixedSubscriptionIds = ConnectionChainSlot.entries
+                .map { slot -> settings.hop(slot) }
                 .mapNotNull { hop ->
                     hop.profileRef?.subscriptionId.takeIf {
                         hop.mode == ConnectionChainHopMode.Fixed
@@ -10780,7 +10837,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            listOf(ConnectionChainSlot.Base, ConnectionChainSlot.After).forEachIndexed { index, slot ->
+            ConnectionChainSlot.entries.forEachIndexed { index, slot ->
                 if (index > 0) {
                     hops.addView(
                         View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
@@ -10805,13 +10862,85 @@ class MainActivity : Activity() {
         return content
     }
 
+    private fun connectionChainSlotLabelRes(slot: ConnectionChainSlot): Int = when (slot) {
+        ConnectionChainSlot.Before -> R.string.connection_chain_before
+        ConnectionChainSlot.Base -> R.string.connection_chain_base
+        ConnectionChainSlot.After -> R.string.connection_chain_after
+    }
+
+    /**
+     * The pinned address of one hop: the address that hop's first proxy is dialled at — the
+     * only place a bare IP can enter a chain, because a hop itself is a full config.
+     */
+    private fun editConnectionChainHopIp(slot: ConnectionChainSlot, hop: ConnectionChainHop) {
+        val input = TextInputEditText(this).apply {
+            hint = getString(R.string.connection_chain_hop_ip_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setText(hop.serverOverride.orEmpty())
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = getString(R.string.connection_chain_hop_ip_detail)
+                    textSize = 12f
+                    typeface = CatClientBodyTypeface
+                    setTextColor(TEXT_SECONDARY)
+                    setPadding(0, dp(8), 0, 0)
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(
+                getString(
+                    R.string.connection_chain_hop_ip_title,
+                    getString(connectionChainSlotLabelRes(slot)),
+                ),
+            )
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.connection_chain_hop_ip_save) { _, _ ->
+                val raw = input.text?.toString().orEmpty().trim()
+                val encoded = raw.takeIf { it.isNotEmpty() }
+                    ?.let(::connectionChainEndpointOrNull)
+                    ?.encoded()
+                if (raw.isNotEmpty() && encoded == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.connection_chain_hop_ip_invalid),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@setPositiveButton
+                }
+                updateConnectionChainSettings(
+                    connectionChainPreferenceStore.read()
+                        .withHop(slot, hop.copy(serverOverride = encoded)),
+                )
+            }
+        if (hop.serverOverride.isNullOrBlank()) {
+            dialog.setNeutralButton(R.string.connection_chain_hop_ip_clear, null)
+        } else {
+            dialog.setNeutralButton(R.string.connection_chain_hop_ip_clear) { _, _ ->
+                updateConnectionChainSettings(
+                    connectionChainPreferenceStore.read()
+                        .withHop(slot, hop.copy(serverOverride = null)),
+                )
+            }
+        }
+        dialog.show()
+    }
+
     private fun updateConnectionChainSettings(settings: ConnectionChainSettings) {
         if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) {
             renderChainSettingsPage?.invoke()
             return
         }
         val previous = connectionChainPreferenceStore.read()
-        val normalized = settings.copy(before = ConnectionChainHop.off()).normalized()
+        val normalized = settings.normalized()
         if (previous == normalized) return
         connectionChainPreferenceStore.save(normalized)
         renderChainSettingsPage?.invoke()
@@ -12076,12 +12205,19 @@ class MainActivity : Activity() {
                 row.setOnClickListener {
                     if (speedTestRunning) return@setOnClickListener
                     if (pickerMode) {
-                        val hop = if (profile == null) {
-                            ConnectionChainHop.automatic()
-                        } else {
-                            ConnectionChainHop.fixed(selectedSubscriptionId, profile.fingerprint)
-                        }
                         val current = connectionChainPreferenceStore.read()
+                        // Choosing a different config for a hop must not throw away an address
+                        // the user pinned on that hop: the pin is about the leg, not the config.
+                        val pinned = current.hop(chainSlot!!).serverOverride
+                        val hop = if (profile == null) {
+                            ConnectionChainHop.automatic().copy(serverOverride = pinned)
+                        } else {
+                            ConnectionChainHop.fixed(
+                                selectedSubscriptionId,
+                                profile.fingerprint,
+                                serverOverride = pinned,
+                            )
+                        }
                         val updated = current.withHop(chainSlot!!, hop)
                         updateConnectionChainSettings(updated)
                         if (current != updated) {

@@ -426,6 +426,16 @@
     <string name="connection_chain_picker_back">Back to Connection chaining</string>
     <string name="connection_chain_picker_detail">Choose Automatic or a connection from any subscription</string>
     <string name="connection_chain_subscription">Subscription · %1$s</string>
+    <string name="connection_chain_hop_ip_chip">Hop IP</string>
+    <string name="connection_chain_hop_ip_value">Hop IP: %1$s</string>
+    <string name="connection_chain_hop_ip_action">%1$s hop IP</string>
+    <string name="connection_chain_hop_ip_title">%1$s hop IP (tunnel)</string>
+    <string name="connection_chain_hop_ip_hint">e.g. 104.16.0.1 or 104.16.0.1:443</string>
+    <string name="connection_chain_hop_ip_detail">Empty keeps the address the config carries. With an IP, this hop is dialled at that address — the leg where a scanned IP enters the tunnel.</string>
+    <string name="connection_chain_hop_ip_save">Save</string>
+    <string name="connection_chain_hop_ip_clear">Clear</string>
+    <string name="connection_chain_hop_ip_invalid">Invalid address. Use IP or IP:port.</string>
+    <string name="scanner_applied_chain">%1$s pinned as the %2$s hop IP; the chain itself is unchanged</string>
     <string name="connection_chain_subscription_title">Choose subscription</string>
     <string name="connection_chain_enabled">Chaining enabled</string>
     <string name="connection_chain_active">Chained · %1$d hops</string>

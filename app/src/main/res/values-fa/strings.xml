@@ -425,6 +425,16 @@
     <string name="connection_chain_picker_back">بازگشت به زنجیرهٔ اتصال</string>
     <string name="connection_chain_picker_detail">حالت خودکار یا یک اتصال از هر اشتراک را انتخاب کنید</string>
     <string name="connection_chain_subscription">اشتراک · %1$s</string>
+    <string name="connection_chain_hop_ip_chip">IP مسیر</string>
+    <string name="connection_chain_hop_ip_value">IP مسیر: %1$s</string>
+    <string name="connection_chain_hop_ip_action">IP مسیر %1$s</string>
+    <string name="connection_chain_hop_ip_title">IP مسیر %1$s (تانل)</string>
+    <string name="connection_chain_hop_ip_hint">مثلاً 104.16.0.1 یا 104.16.0.1:443</string>
+    <string name="connection_chain_hop_ip_detail">خالی بماند، آدرس خودِ کانفیگ استفاده می‌شود. با تنظیم IP، این مسیر از همان آدرس دیال می‌شود — همان جایی که IP اسکن‌شده وارد تونل می‌شود.</string>
+    <string name="connection_chain_hop_ip_save">ذخیره</string>
+    <string name="connection_chain_hop_ip_clear">پاک‌کردن</string>
+    <string name="connection_chain_hop_ip_invalid">آدرس نامعتبر است. شکل درست: IP یا IP:پورت.</string>
+    <string name="scanner_applied_chain">%1$s به‌عنوان IP مسیر «%2$s» ثبت شد؛ خودِ زنجیره دست‌نخورده ماند</string>
     <string name="connection_chain_subscription_title">انتخاب اشتراک</string>
     <string name="connection_chain_enabled">زنجیرهٔ اتصال فعال است</string>
     <string name="connection_chain_active">زنجیره‌ای · %1$d مسیر</string>
