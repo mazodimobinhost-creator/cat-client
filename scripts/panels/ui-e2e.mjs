@@ -8,12 +8,24 @@
 //
 // Usage: BASE=http://127.0.0.1:8799 PANEL_UUID=… node scripts/panels/ui-e2e.mjs
 import { chromium } from 'playwright';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 
 const BASE = (process.env.BASE || 'http://127.0.0.1:8799').replace(/\/$/, '');
 const UUID = process.env.PANEL_UUID || '11111111-2222-3333-4444-555555555555';
 const OUT = process.env.OUT || 'ui-e2e-transcript.txt';
 const SHOT = process.env.SHOT || 'ui-e2e-dashboard.png';
+
+// The panel version is not a constant of this test — it lives in the artifact
+// workerd is serving (scripts/panels/workerd-local.capnp embeds
+// dist-panel/catpanel.obf.js). Hardcoding it here meant every panel patch that
+// bumped the version turned this check red and blocked the release build, while
+// claiming «the version is not visible in the page». Read it from the same file
+// the browser is about to receive; an empty answer is a hard failure, not a pass.
+const PANEL_ARTIFACT = process.env.PANEL_ARTIFACT || 'dist-panel/catpanel.obf.js';
+let EXPECTED_PANEL_VERSION = '';
+try {
+  EXPECTED_PANEL_VERSION = (readFileSync(PANEL_ARTIFACT, 'utf8').match(/CAT_PANEL_VERSION = '([0-9]+\.[0-9]+\.[0-9]+)'/) || [])[1] || '';
+} catch { /* reported by the check below, with the file name */ }
 
 const lines = [];
 let failed = 0;
@@ -96,7 +108,8 @@ const afterLogin = await page.content();
 check('لاگین از فرم رد شد (فرمِ ورود رفته)', !afterLogin.includes('id="p"'));
 check('پنلِ واقعی رندر شد (ناوبری + بخش‌ها)', afterLogin.includes('id="sideNav"') && (afterLogin.match(/data-sec="/g) || []).length >= 8,
   `${(afterLogin.match(/data-sec="/g) || []).length} بخش`);
-check('نسخهٔ پنل در صفحه دیده می‌شود', /6\.67\.0/.test(afterLogin), (afterLogin.match(/6\.67\.\d+/g) || [])[0] || 'پیدا نشد');
+check('نسخهٔ پنل در صفحه دیده می‌شود', !!EXPECTED_PANEL_VERSION && afterLogin.includes(EXPECTED_PANEL_VERSION),
+  `صفحه: ${(afterLogin.match(/6\.67\.\d+/g) || [])[0] || 'پیدا نشد'} · ${PANEL_ARTIFACT}: ${EXPECTED_PANEL_VERSION || 'خوانده نشد'}`);
 
 // ---- 3) وریفای از داخلِ همان نشستِ مرورگر ----
 const settings = await api('/api/settings');
