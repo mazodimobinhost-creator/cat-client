@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 // CAT_PANEL_WORKER=<path> runs the whole suite against an obfuscated artifact (release-parity proof).
 const workerPath = process.env.CAT_PANEL_WORKER || path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
@@ -801,7 +802,29 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.67.0', T.CAT_PANEL_VERSION === '6.67.0');
+  check('panel version is 6.67.1', T.CAT_PANEL_VERSION === '6.67.1');
+  // ── Error 1101, second face ────────────────────────────────────────────────
+  // The three checks below read the SOURCE, so they only mean something on the
+  // plaintext asset. An obfuscated artifact (CAT_PANEL_WORKER=…obf.js/.stealth.js)
+  // encodes every string literal — its proof is that this whole suite still passes
+  // against it, not a grep.
+  // «The script will never generate a response»: a handler that returns nothing is
+  // its own runtime error, and a try/catch cannot see it (it catches throws, never
+  // `undefined`). The guard turns it into a throw so the crash report names the path.
+  if (/catpanel\.(obf|stealth)\.js$/.test(workerPath)) {
+    console.log('– source-level guard checks skipped (artifact run: ' + workerPath.split('/').pop() + ')');
+  } else {
+    const src = readFileSync(workerPath, 'utf8');
+    check('no-response guard exists (returned-not-a-Response → throw)',
+      /if\s*\(\s*!\(res instanceof Response\)\s*\)\s*\{/.test(src) &&
+      src.includes('instead of a Response'));
+    const guardAt = src.indexOf('res instanceof Response');
+    const returnAt = src.indexOf('return res;');
+    check('the guard runs BEFORE the handler result is returned', guardAt !== -1 && returnAt !== -1 && guardAt < returnAt);
+    check('the guard is inside the try block (its throw lands in the crash path)',
+      src.lastIndexOf('try {', guardAt) > src.lastIndexOf('} catch', guardAt - 1) - 1 &&
+      src.slice(guardAt, guardAt + 400).includes('throw new Error'));
+  }
   { const qs = T.normalizeSettings({ blockQuic: true });
     const yaml = T.buildClashYaml('h.dev', { CAT_PANEL_KV: new Map() }, qs, 'u', null, {});
     check('blockQuic in clash yaml', yaml.includes('NETWORK,udp'), yaml.split('\n').find(l=>l.includes('REJECT')&&l.includes('443'))||'');

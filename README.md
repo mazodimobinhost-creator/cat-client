@@ -204,6 +204,9 @@ wrangler 4.135+ بایندینگِ بدون `id` با نام تطبیق داده
   with your SNI) so you always get results, each row is badged **TLS ✓ / TCP**, and
   **live progress (`done/total (pct%) · best N ms`)** streams in while the scan runs;
   one tap applies the fastest IP as a fronting endpoint and reconnects live
+  (that button only *fronts* — it does not build an explicit entry↔relay chain; see
+  [`docs/tunnel-entry-relay.md`](docs/tunnel-entry-relay.md) for what a real tunnel
+  section would need, the four IP roles that get mixed up, and the two decisions it waits on)
 - 📈 **Home usage graph** — the dashboard draws the selected subscription's quota as a
   download/upload bar (used ‎%, remainder, days to expiry) from the panel's
   `subscription-userinfo` header, refreshed on every state change
@@ -328,6 +331,11 @@ page, by construction, because no code of ours runs in those cases:
 | the file **never evaluated**: syntax error, truncated paste, a throw in **global scope** during module evaluation | *nobody* — the module did not load | **1101 on every route**, forever, until you redeploy |
 | Cloudflare **refused the upload** (validation error, size, invalid binding), or the deploy never reached the account | *nobody* — nothing was deployed | usually a deploy error in the dashboard/build log; the old version keeps serving, or 1101 if the previous upload was broken |
 | a **fatal runtime kill**: out of memory, or the isolate killed mid-request | *nobody* — the isolate dies | the 1101 page (1102 for CPU-time limits) |
+| **6.67.1** — a handler that finished **without returning a `Response`** (a route branch fell through): the runtime's own «The script will never generate a response» | the `instanceof Response` guard in the `fetch` wrapper (a `try/catch` cannot see this — a catch catches throws, never `undefined`) | before 6.67.1: the raw 1101 page **with no report**; from 6.67.1: the normal crash path, and `at:` names the path |
+
+Cloudflare's own tooling for the 1101 class (rollback, versioned deploys, the
+worker-in-front + service-binding shield, and why no WAF rule can fix it) is written
+up in [`docs/panel-1101-cloudflare-rules.md`](docs/panel-1101-cloudflare-rules.md).
 
 So the first question is still which of these you have:
 

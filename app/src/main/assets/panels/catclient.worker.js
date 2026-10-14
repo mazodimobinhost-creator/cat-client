@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.67.0';
+const CAT_PANEL_VERSION = '6.67.1';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -7820,6 +7820,18 @@ export default {
     countRequest(); // memory-only; persisted by scheduleFlush at most every 5 min
     try {
       const res = await handleRequest(request, env, ctx);
+      // «The script will never generate a response» — the SECOND face of Error 1101.
+      // A handler that finishes without returning a Response is a runtime error of its
+      // own, and the catch below cannot see it: a try/catch catches throws, never
+      // `undefined`. A route branch that forgot its `return` therefore answered the raw
+      // 1101 page with NO crash report — the one kind of report nobody can diagnose.
+      // Turning it into a throw hands it to the SAME crash path, so the owner gets the
+      // path that misbehaved instead of a blank Cloudflare page.
+      if (!(res instanceof Response)) {
+        throw new Error(
+          'handler returned ' + (res === null ? 'null' : typeof res) + ' instead of a Response — a route branch fell through',
+        );
+      }
       scheduleFlush(env, ctx);
       return res;
     } catch (e) {
@@ -7841,6 +7853,9 @@ export default {
       //   ✔ caught here: any exception thrown while handling THIS request, incl.
       //     a thrown string/null/symbol and an error object whose message getter
       //     or toString throws (all reads go through safeText/safeStack).
+      //   ✔ NEW in 6.67.1: a handler that returned nothing (no throw) used to slip past
+      //     this branch and reach the edge as «the script will never generate a
+      //     response»; the check right above turns it into a throw, so it lands here.
       //   ✘ NOT caught, because no code inside the file runs: a syntax error or a
       //     truncated paste (the module never evaluates), a throw in global scope
       //     during module evaluation, a fatal runtime kill (out of memory), and a
