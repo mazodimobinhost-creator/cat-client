@@ -54,10 +54,23 @@ class DpiBypassPreferenceStore(context: Context) {
         preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    fun presetId(): String = preferences.getString(KEY_PRESET, null) ?: DpiFragmentPreset.DEFAULT.id
+    /**
+     * `auto` (the default) resolves per carrier at connect time; anything else is a manual
+     * pick. `byId` would swallow `auto` into DEFAULT, so the raw id is kept here.
+     */
+    fun presetId(): String {
+        val stored = preferences.getString(KEY_PRESET, null)?.trim()?.lowercase() ?: return DpiFragmentPreset.AUTO_ID
+        if (stored == DpiFragmentPreset.AUTO_ID) return stored
+        return DpiFragmentPreset.entries.firstOrNull { it.id == stored }?.id ?: DpiFragmentPreset.AUTO_ID
+    }
 
     fun savePreset(id: String) {
-        preferences.edit().putString(KEY_PRESET, DpiFragmentPreset.byId(id).id).apply()
+        val normalized = if (id.trim().lowercase() == DpiFragmentPreset.AUTO_ID) {
+            DpiFragmentPreset.AUTO_ID
+        } else {
+            DpiFragmentPreset.byId(id).id
+        }
+        preferences.edit().putString(KEY_PRESET, normalized).apply()
     }
 
     private companion object {
@@ -90,6 +103,38 @@ enum class DpiFragmentPreset(
     ;
 
     companion object {
+        /** Stored choice meaning «decide from the carrier» — resolved by [resolve]. */
+        const val AUTO_ID = "auto"
+
         fun byId(id: String?): DpiFragmentPreset = entries.firstOrNull { it.id == id } ?: DEFAULT
+
+        /** The built-in choice per carrier: what usually gets a ClientHello through that ISP. */
+        fun forCarrier(carrier: MobileCarrier): DpiFragmentPreset = when (carrier) {
+            MobileCarrier.MCI -> MCI
+            MobileCarrier.IRANCELL -> IRANCELL
+            MobileCarrier.RIGHTEL -> RIGHTEL
+            MobileCarrier.TCI -> TCI
+            MobileCarrier.OTHER, MobileCarrier.UNKNOWN -> DEFAULT
+        }
+
+        /**
+         * Final preset for this connect: the owner's panel recommendation beats the built-in
+         * carrier table, the built-in table beats nothing, and a manual choice always wins.
+         *
+         * `storedId` is what the user picked in the app (`auto` = let the app decide).
+         * An unknown value is treated as `auto` — the same forgiving path the rest of the
+         * settings use, so an old/edited preference can never leave fragmenting broken.
+         */
+        fun resolve(storedId: String?, carrier: MobileCarrier, tune: PanelTune? = null): DpiFragmentPreset {
+            val stored = storedId?.trim()?.lowercase()
+            if (stored != null && stored != AUTO_ID && stored.isNotEmpty()) {
+                val explicit = entries.firstOrNull { it.id == stored }
+                if (explicit != null) return explicit
+            }
+            val recommended = tune?.presetIdFor(carrier)?.let { id ->
+                entries.firstOrNull { it.id == id }
+            }
+            return recommended ?: forCarrier(carrier)
+        }
     }
 }

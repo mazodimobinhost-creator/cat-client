@@ -250,6 +250,11 @@
     <string name="dpi_preset_irancell">Irancell</string>
     <string name="dpi_preset_rightel">Rightel</string>
     <string name="dpi_preset_tci">TCI</string>
+    <string name="dpi_preset_auto">Automatic (carrier)</string>
+    <string name="dpi_preset_pattn">PattN-style</string>
+    <string name="dpi_carrier_line">Carrier: %1$s → preset: %2$s</string>
+    <string name="dpi_carrier_unknown">unknown</string>
+    <string name="dpi_tune_from_panel">recommended by panel</string>
     <string name="dpi_preset_gaming">Gaming</string>
     <string name="tls_fragment_disabled_toast">TLS Fragment off — reconnecting</string>
     <string name="settings_warp_section">WARP Pro / Amnezia Noise</string>

@@ -245,6 +245,7 @@ class CatClientVpnService : VpnService() {
     private lateinit var cleanIpCache: CleanIpCache
     private lateinit var frontingIpPreferenceStore: FrontingIpPreferenceStore
     private lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
+    private lateinit var panelTuneStore: PanelTuneStore
     private lateinit var routingModePreferenceStore: RoutingModePreferenceStore
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
@@ -409,6 +410,7 @@ class CatClientVpnService : VpnService() {
         cleanIpCache = CleanIpCache(this)
         frontingIpPreferenceStore = FrontingIpPreferenceStore(this)
         dpiBypassPreferenceStore = DpiBypassPreferenceStore(this)
+        panelTuneStore = PanelTuneStore(this)
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
@@ -3547,9 +3549,24 @@ class CatClientVpnService : VpnService() {
 
             override fun resolverProcess(protocol: Int, source: String, target: String, uid: Int): String = ""
         }
+        // The preset is resolved here, at connect time, because both inputs move: the
+        // carrier can change (Wi-Fi ↔ mobile, roaming) and the owner can retune the panel
+        // between two connects. `auto` = «decide for me», and a manual pick still wins.
+        val carrier = CarrierDetector.detect(this)
+        val preset = DpiFragmentPreset.resolve(
+            storedId = dpiBypassPreferenceStore.presetId(),
+            carrier = carrier,
+            tune = panelTuneStore.read(),
+        )
+        DiagnosticLogger.info(
+            this,
+            "dpiBypass.preset",
+            "carrier=${carrier.id} raw=${CarrierDetector.rawOperatorCode(this)} " +
+                "stored=${dpiBypassPreferenceStore.presetId()} applied=${preset.id}",
+        )
         val job = scope.launch(Dispatchers.IO) {
             val result = runCatching {
-                ByeDpiProxy.start(port, protectCallback, DpiFragmentPreset.byId(dpiBypassPreferenceStore.presetId()))
+                ByeDpiProxy.start(port, protectCallback, preset)
             }
             result
                 .onSuccess { exitCode ->

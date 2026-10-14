@@ -17,6 +17,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.net.ConnectivityManager
 import android.net.TrafficStats
 import android.net.Uri
 import android.net.VpnService
@@ -28,6 +29,7 @@ import android.os.PersistableBundle
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
+import android.telephony.TelephonyManager
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -158,6 +160,7 @@ class MainActivity : Activity() {
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
     private lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
+    private lateinit var panelTuneStore: PanelTuneStore
     private lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
     private lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
     private lateinit var lanSharingPreferenceStore: LanSharingPreferenceStore
@@ -409,6 +412,7 @@ class MainActivity : Activity() {
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         dpiBypassPreferenceStore = DpiBypassPreferenceStore(this)
+        panelTuneStore = PanelTuneStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
         lanSharingPreferenceStore = LanSharingPreferenceStore(this)
@@ -2448,6 +2452,17 @@ class MainActivity : Activity() {
         // app broadcast STATE_CHANGED and paint a false "connected" state over the UI.
         // ContextCompat guards the pre-33 path with a signature-level permission.
         ContextCompat.registerReceiver(this, stateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Carrier can change while the app is open (Wi-Fi ↔ mobile, roaming); the fragment
+        // preset is decided from it at connect time, so the settings line must follow.
+        ContextCompat.registerReceiver(
+            this,
+            carrierChangeReceiver,
+            IntentFilter().apply {
+                addAction(TelephonyManager.ACTION_NETWORK_OPERATOR_CHANGED)
+                addAction(ConnectivityManager.CONNECTIVITY_ACTION)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         applyRuntimeState(
             VpnRuntimeStateStore.read(this),
             VpnRuntimeStateStore.readSessionStartedAtElapsedMs(this),
@@ -2465,6 +2480,8 @@ class MainActivity : Activity() {
             VpnRuntimeStateStore.readAlwaysOn(this),
             VpnRuntimeStateStore.readLockdown(this),
         )
+        // Fragmenting is on → keep the recommendation fresh (one request per foreground).
+        refreshPanelTuneIfNeeded()
         if (connectionTestingPageVisible) {
             showConnectionTestingPage(
                 animate = false,
@@ -2483,6 +2500,7 @@ class MainActivity : Activity() {
         privacyPolicyDialog = null
         connectionDelayTestListener = null
         unregisterReceiver(stateReceiver)
+        runCatching { unregisterReceiver(carrierChangeReceiver) }
         super.onStop()
     }
 
@@ -2490,6 +2508,7 @@ class MainActivity : Activity() {
         super.onResume()
         // Reached an interactive state → the previous session did not die silently.
         CrashWatch.markHealthy(this)
+        renderFragmentCarrierLine()
         appUpdateUi.onResume()
     }
 
@@ -3722,17 +3741,19 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
         listOf(
-            R.string.dpi_preset_default to DpiFragmentPreset.DEFAULT,
-            R.string.dpi_preset_mci to DpiFragmentPreset.MCI,
-            R.string.dpi_preset_irancell to DpiFragmentPreset.IRANCELL,
-            R.string.dpi_preset_rightel to DpiFragmentPreset.RIGHTEL,
-            R.string.dpi_preset_tci to DpiFragmentPreset.TCI,
-            R.string.dpi_preset_gaming to DpiFragmentPreset.GAMING,
-        ).forEach { (labelRes, preset) ->
+            R.string.dpi_preset_auto to DpiFragmentPreset.AUTO_ID,
+            R.string.dpi_preset_default to DpiFragmentPreset.DEFAULT.id,
+            R.string.dpi_preset_mci to DpiFragmentPreset.MCI.id,
+            R.string.dpi_preset_irancell to DpiFragmentPreset.IRANCELL.id,
+            R.string.dpi_preset_rightel to DpiFragmentPreset.RIGHTEL.id,
+            R.string.dpi_preset_tci to DpiFragmentPreset.TCI.id,
+            R.string.dpi_preset_gaming to DpiFragmentPreset.GAMING.id,
+            R.string.dpi_preset_pattn to DpiFragmentPreset.PATTN.id,
+        ).forEach { (labelRes, presetId) ->
             val chip = Chip(this).apply {
                 text = getString(labelRes)
                 isCheckable = true
-                isChecked = dpiBypassPreferenceStore.presetId() == preset.id
+                isChecked = dpiBypassPreferenceStore.presetId() == presetId
                 textSize = 11f
                 setTextColor(TEXT_PRIMARY)
                 chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
@@ -3741,18 +3762,39 @@ class MainActivity : Activity() {
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) {
                         presetChips.filterNot { it === this }.forEach { it.isChecked = false }
-                        dpiBypassPreferenceStore.savePreset(preset.id)
+                        dpiBypassPreferenceStore.savePreset(presetId)
                         Toast.makeText(
                             this@MainActivity,
                             getString(R.string.dpi_preset_applied, getString(labelRes)),
                             Toast.LENGTH_LONG,
                         ).show()
+                        renderFragmentCarrierLine()
                     }
                 }
             }
             presetChips += chip
             presetRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         }
+        // «Detected carrier → preset that will be used», so the automatic choice is never
+        // invisible: if the phone guesses wrong (dual SIM, Wi-Fi, roaming) the chips below
+        // are still there, and this line explains what happened.
+        val carrierLine = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = false
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fragmentCarrierLine = carrierLine
+        tlsIntegrityPanel.addView(
+            carrierLine,
+            LinearLayout.LayoutParams(-1, -2).apply {
+                marginStart = dp(16)
+                marginEnd = dp(16)
+                topMargin = dp(8)
+            },
+        )
+        renderFragmentCarrierLine()
         tlsIntegrityPanel.addView(
             advancedSectionLabel(getString(R.string.dpi_preset_section)),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
@@ -10933,6 +10975,43 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
+    private var fragmentCarrierLine: TextView? = null
+
+    private fun renderFragmentCarrierLine() {
+        val line = fragmentCarrierLine ?: return
+        val carrier = CarrierDetector.detect(this, refresh = true)
+        val stored = dpiBypassPreferenceStore.presetId()
+        val tune = panelTuneStore.read()
+        val applied = DpiFragmentPreset.resolve(stored, carrier, tune)
+        line.text = getString(
+            R.string.dpi_carrier_line,
+            getString(carrierLabelRes(carrier)),
+            getString(presetLabelRes(applied)),
+        ) + if (stored == DpiFragmentPreset.AUTO_ID && tune.presetIdFor(carrier) != null) {
+            " · " + getString(R.string.dpi_tune_from_panel)
+        } else {
+            ""
+        }
+    }
+
+    private fun carrierLabelRes(carrier: MobileCarrier): Int = when (carrier) {
+        MobileCarrier.MCI -> R.string.dpi_preset_mci
+        MobileCarrier.IRANCELL -> R.string.dpi_preset_irancell
+        MobileCarrier.RIGHTEL -> R.string.dpi_preset_rightel
+        MobileCarrier.TCI -> R.string.dpi_preset_tci
+        MobileCarrier.OTHER, MobileCarrier.UNKNOWN -> R.string.dpi_carrier_unknown
+    }
+
+    private fun presetLabelRes(preset: DpiFragmentPreset): Int = when (preset) {
+        DpiFragmentPreset.MCI -> R.string.dpi_preset_mci
+        DpiFragmentPreset.IRANCELL -> R.string.dpi_preset_irancell
+        DpiFragmentPreset.RIGHTEL -> R.string.dpi_preset_rightel
+        DpiFragmentPreset.TCI -> R.string.dpi_preset_tci
+        DpiFragmentPreset.GAMING -> R.string.dpi_preset_gaming
+        DpiFragmentPreset.PATTN -> R.string.dpi_preset_pattn
+        DpiFragmentPreset.DEFAULT -> R.string.dpi_preset_default
+    }
+
     private fun updateConnectionChainSettings(settings: ConnectionChainSettings) {
         if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) {
             renderChainSettingsPage?.invoke()
@@ -13811,10 +13890,50 @@ class MainActivity : Activity() {
         Toast.makeText(this, R.string.ad_block_toast, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * One receiver, two reasons to re-render the carrier line: the phone moved between
+     * carriers, or connectivity came back (which is also when a panel refresh can succeed).
+     */
+    private val carrierChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            CarrierDetector.reset()
+            renderFragmentCarrierLine()
+            if (intent?.action == ConnectivityManager.CONNECTIVITY_ACTION) refreshPanelTune()
+        }
+    }
+
+    /** [refreshPanelTune] but only when fragmenting is on and the panel URL is known. */
+    private fun refreshPanelTuneIfNeeded() {
+        if (dpiBypassPreferenceStore.isEnabled()) refreshPanelTune()
+    }
+
+    /**
+     * Pull the owner's carrier table. Best-effort and off the main thread: [panelBaseUrl]
+     * reads the deployment store and can walk the subscriptions, and a panel that is asleep
+     * must never be able to delay the screen.
+     */
+    private fun refreshPanelTune() {
+        activityScope.launch {
+            val refreshed = withContext(Dispatchers.IO) {
+                val base = panelBaseUrl() ?: return@withContext null
+                runCatching { PanelTuneClient.refresh(panelTuneStore, base) }.getOrNull()
+            }
+            if (refreshed != null) {
+                DiagnosticLogger.info(
+                    this@MainActivity,
+                    "panel.tune.synced",
+                    "version=${refreshed.version} carriers=${refreshed.presets.size}",
+                )
+                renderFragmentCarrierLine()
+            }
+        }
+    }
+
     private fun saveTlsFragmentEnabled(enabled: Boolean) {
         if (dpiBypassPreferenceStore.isEnabled() == enabled) return
         dpiBypassPreferenceStore.saveEnabled(enabled)
         DiagnosticLogger.info(this, "activity.tlsFragment.saved", "enabled=$enabled")
+        if (enabled) refreshPanelTune()
         Toast.makeText(
             this,
             if (enabled) R.string.tls_fragment_enabled_toast else R.string.tls_fragment_disabled_toast,

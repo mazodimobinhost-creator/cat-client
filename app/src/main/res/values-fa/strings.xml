@@ -251,6 +251,11 @@
     <string name="dpi_preset_irancell">ایرانسل</string>
     <string name="dpi_preset_rightel">رایتل</string>
     <string name="dpi_preset_tci">مخابرات</string>
+    <string name="dpi_preset_auto">خودکار (بر اساس اپراتور)</string>
+    <string name="dpi_preset_pattn">سبک پترن‌ایها</string>
+    <string name="dpi_carrier_line">اپراتور: %1$s → پریست: %2$s</string>
+    <string name="dpi_carrier_unknown">نامشخص</string>
+    <string name="dpi_tune_from_panel">پیشنهاد پنل</string>
     <string name="dpi_preset_gaming">گیمینگ</string>
     <string name="tls_fragment_disabled_toast">فرگمنت TLS خاموش شد — اتصال دوباره</string>
     <string name="settings_warp_section">WARP Pro / Amnezia Noise</string>
