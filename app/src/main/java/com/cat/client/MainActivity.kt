@@ -5897,6 +5897,16 @@ class MainActivity : Activity() {
         }
         scannerSourceSummary = sourceSummary
         sourcesCard.addView(sourceSummary, LinearLayout.LayoutParams(-1, -2))
+        // The escape hatch the old chip was: on a line where the quick v6 probe fails but
+        // v6 really does work, forcing is the only way in. It used to be the ONLY thing the
+        // chip did, which is why its state was invisible; it is now a labelled switch of its
+        // own, right under the counts, and the status line says «forced» when it is on.
+        val forceRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        scannerForceRow = forceRow
+        sourcesCard.addView(forceRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         body.addView(sourcesCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         renderScannerSources()
 
@@ -6225,6 +6235,7 @@ class MainActivity : Activity() {
 
     private var scannerSourceRow: LinearLayout? = null
     private var scannerSourceSummary: TextView? = null
+    private var scannerForceRow: LinearLayout? = null
     /**
      * Draws the four source switches with their live counts.
      *
@@ -6309,6 +6320,30 @@ class MainActivity : Activity() {
             getString(R.string.scanner_sources_total, total, report.count { it.enabled && it.count > 0 })
         }
         scannerSourceSummary?.setTextColor(if (total <= 0) ERROR else TEXT_SECONDARY)
+
+        val forceRow = scannerForceRow ?: return
+        forceRow.removeAllViews()
+        val forceChip = TextView(this).apply {
+            text = getString(R.string.scanner_force_v6) + if (scannerForceV6) " ✓" else ""
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            isClickable = true
+            isFocusable = true
+            background = glassSurfaceDrawable(radiusDp = 16, highlighted = scannerForceV6)
+            setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
+            setOnClickListener {
+                scannerForceV6 = !scannerForceV6
+                getSharedPreferences("cat_client_theme", MODE_PRIVATE)
+                    .edit().putBoolean("scanner_force_v6", scannerForceV6).apply()
+                if (scannerForceV6) saveScannerSource("ipv6", true) // forcing implies the source is on
+                renderScannerSources()
+            }
+        }
+        forceRow.addView(forceChip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
     }
 
     /**

@@ -70,6 +70,12 @@ console.log('\nScanner sources (app)\n');
     /val total = report\.filter \{ it\.enabled \}\.sumOf \{ it\.count \}/.test(activity));
   ok('the empty case is a loud warning, not a silent zero',
     activity.includes('R.string.scanner_sources_empty') && /ERROR else TEXT_SECONDARY/.test(activity));
+  ok('the force-v6 escape hatch still exists, as a labelled switch (not a hidden side-effect)',
+    activity.includes('R.string.scanner_force_v6') &&
+    /setOnClickListener \{[\s\S]{0,240}?scannerForceV6 = !scannerForceV6[\s\S]{0,240}?putBoolean\("scanner_force_v6", scannerForceV6\)/.test(activity),
+    'the only control that could force v6 disappeared with the old chip');
+  ok('…and forcing it also switches the source on (no «forced but off» state)',
+    /if \(scannerForceV6\) saveScannerSource\("ipv6", true\)/.test(activity));
   ok('editing the range box recomputes the counts live',
     /afterTextChanged\(editable: android\.text\.Editable\?\) \{\s*renderScannerSources\(\)/.test(activity));
 }
