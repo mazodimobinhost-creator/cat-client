@@ -158,6 +158,7 @@ jobs:
           node scripts/panels/ws-probe.test.mjs
           # beta90: survival preset, per-user connection telemetry, health ordering and ?survive=1 link
           node scripts/panels/survival.test.mjs
+          node scripts/panels/emergency-bridge.test.mjs
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated

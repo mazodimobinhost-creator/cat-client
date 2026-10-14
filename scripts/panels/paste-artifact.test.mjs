@@ -73,9 +73,13 @@ const source = readFileSync(sourcePath, 'utf8');
   // from 140 000 to 145 000 for 6.67.4 (the SNI Lab card + its two-verdict live test, ~2.9 KB
   // gzip) and from 145 000 to 150 000 for 6.67.5 (the outbound-relay/VIP card: row renderer,
   // per-relay latency table, star + auto-swap switches, add form and the build-command
-  // generator — measured 147 090 B, i.e. ~4.2 KB gzip). Recorded here so the next raise has to
-  // justify itself the same way instead of quietly moving the number.
-  ok('gzip stays under the 150 KB warning line', gz < 150_000, gz);
+  // generator — measured 147 090 B, i.e. ~4.2 KB gzip) and from 150 000 to 155 000 for 6.67.6
+  // (the emergency-bridge/dnstt card: the three official Tor bridge lines, the Orbot steps, the
+  // three-transport resolver translation and the self-hosted build script — measured 152 333 B,
+  // i.e. ~5.2 KB gzip, most of it the script text that has to be copy-paste-able as-is).
+  // Recorded here so the next raise has to justify itself the same way instead of quietly
+  // moving the number.
+  ok('gzip stays under the 155 KB warning line', gz < 155_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).
