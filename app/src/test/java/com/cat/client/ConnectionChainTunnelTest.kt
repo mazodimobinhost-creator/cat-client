@@ -277,21 +277,28 @@ class ConnectionChainTunnelTest {
     // nothing. These four tests run the decision on the JVM: what narrows, what wins, and what
     // happens when the wish cannot be granted.
 
+    /**
+     * Three distinct configs: a fixed road (IR) and two possible exits (DE, TR). The road must
+     * be a THIRD config — a chain whose two hops are the same profile is refused
+     * (`SameConnection`), which is exactly what a lazier fixture gets wrong.
+     */
     private fun exitFixture(): Pair<ConnectionChainSource, ConnectionChainSettings> {
         val rawYaml = yamlOf(
+            proxy("IR Tehran", "ir.example.com", 2053),
             proxy("DE Frankfurt", "de.example.com", 443),
             proxy("TR Istanbul", "tr.example.com", 8443),
         )
         val source = sourceOf(
             rawYaml,
             listOf(
+                Triple("IR Tehran", "ir.example.com", 2053),
                 Triple("DE Frankfurt", "de.example.com", 443),
                 Triple("TR Istanbul", "tr.example.com", 8443),
             ),
         )
         val settings = ConnectionChainSettings(
             enabled = true,
-            base = ConnectionChainHop.fixed(SUBSCRIPTION, fingerprintOf(source, "TR Istanbul")),
+            base = ConnectionChainHop.fixed(SUBSCRIPTION, fingerprintOf(source, "IR Tehran")),
             after = ConnectionChainHop.automatic(),
         ).normalized()
         return source to settings
@@ -317,7 +324,7 @@ class ConnectionChainTunnelTest {
         assertEquals("DE Frankfurt", plan.finalHop.candidate.profile.tag)
         assertEquals(
             "the road must not be filtered by the destination country",
-            "TR Istanbul",
+            "IR Tehran",
             plan.hops.first().candidate.profile.tag,
         )
     }
@@ -340,7 +347,10 @@ class ConnectionChainTunnelTest {
 
         assertEquals("NL", plan.requestedExitCountryCode)
         assertFalse("the plan claimed a country it did not use", plan.exitCountryMatched)
-        assertTrue(plan.exitCountryCode == "DE" || plan.exitCountryCode == "TR")
+        assertTrue(
+            "the fallback exit must be one of the configs the chain could actually use",
+            plan.exitCountryCode == "DE" || plan.exitCountryCode == "TR",
+        )
     }
 
     @Test
@@ -349,6 +359,7 @@ class ConnectionChainTunnelTest {
         val fixedExit = settings.copy(
             after = ConnectionChainHop.fixed(SUBSCRIPTION, fingerprintOf(source, "TR Istanbul")),
         ).normalized()
+        assertTrue("the fixture must keep the road distinct from the fixed exit", fixedExit.isActive)
 
         val plan = ConnectionChainPlanner
             .plans(
@@ -370,7 +381,9 @@ class ConnectionChainTunnelTest {
     fun exitCountryCodesListsOnlyWhatTheChainCanReach() {
         val (source, settings) = exitFixture()
 
-        assertEquals(listOf("DE", "TR"), ConnectionChainPlanner.exitCountryCodes(settings, listOf(source)))
+        // Every config the automatic exit slot may land in — the road config included, because
+        // nothing stops the user from asking for its country as the destination.
+        assertEquals(listOf("DE", "IR", "TR"), ConnectionChainPlanner.exitCountryCodes(settings, listOf(source)))
 
         val disabled = settings.copy(enabled = false).normalized()
         assertTrue(ConnectionChainPlanner.exitCountryCodes(disabled, listOf(source)).isEmpty())
