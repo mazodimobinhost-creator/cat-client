@@ -457,7 +457,6 @@ class MainActivity : Activity() {
                     pickerSubscriptionId = savedInstanceState.getString(STATE_CHAIN_PICKER_SUBSCRIPTION),
                 )
             }
-            }
         }
         }.onFailure { DiagnosticLogger.warn(this, "activity.restore.failed", error = it) }
         mainHandler.post {
