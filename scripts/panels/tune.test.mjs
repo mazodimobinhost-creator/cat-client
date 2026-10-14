@@ -185,9 +185,19 @@ test('the settings card shows the decision and keeps every carrier reachable', (
     assert.match(en, new RegExp(`name="${res}"`), `${res} is missing from the English strings`);
     assert.match(fa, new RegExp(`name="${res}"`), `${res} is missing from the Persian strings`);
   }
-  // The receiver is what keeps the line honest when the phone switches carriers.
-  assert.match(activity, /ACTION_NETWORK_OPERATOR_CHANGED/, 'the line freezes on the carrier seen at open time');
-  assert.match(activity, /unregisterReceiver\(carrierChangeReceiver\)/, 'a leaked receiver after onStop');
+  // A default-network callback is what keeps the line honest when the phone switches
+  // carriers — NOT the telephony broadcast: TelephonyManager.ACTION_NETWORK_OPERATOR_CHANGED
+  // does not exist in the public SDK (it broke the Kotlin compile once), and
+  // CONNECTIVITY_ACTION is deprecated.
+  assert.match(activity, /registerDefaultNetworkCallback\(carrierChangeCallback\)/, 'the line freezes on the carrier seen at open time');
+  assert.match(activity, /unregisterNetworkCallback\(carrierChangeCallback\)/, 'a leaked callback after onStop');
+  // …and no CODE line may mention it again (the comment above it explains why, so the guard
+  // has to ignore comments rather than the whole file).
+  const codeLines = activity.split('\n').filter((l) => {
+    const t = l.trim();
+    return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*');
+  });
+  assert.ok(!codeLines.some((l) => l.includes('ACTION_NETWORK_OPERATOR_CHANGED')), 'back to a constant that does not exist');
 
   const line = activity.slice(
     activity.indexOf('private fun renderFragmentCarrierLine()'),

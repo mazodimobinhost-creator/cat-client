@@ -29,8 +29,6 @@ enum class MobileCarrier(val id: String) {
         /** Iran's mobile country code; the MNC below it names the carrier. */
         private const val IRAN_MCC = "432"
 
-        fun byId(id: String?): MobileCarrier = entries.firstOrNull { it.id == id } ?: UNKNOWN
-
         /**
          * Iran's MCC is 432; the MNCs below are the published operator codes. Anything
          * outside that table is [OTHER] — deliberately not guessed, because a wrong

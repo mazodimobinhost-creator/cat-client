@@ -85,10 +85,6 @@ class PanelTuneStore(context: Context) {
             .apply()
     }
 
-    fun clear() {
-        preferences.edit().remove(KEY_BODY).remove(KEY_AT).remove(KEY_VERSION).apply()
-    }
-
     private companion object {
         const val PREFERENCES = "cat_client_panel_tune"
         const val KEY_BODY = "body"

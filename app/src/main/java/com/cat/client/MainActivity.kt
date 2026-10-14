@@ -18,6 +18,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.TrafficStats
 import android.net.Uri
 import android.net.VpnService
@@ -29,7 +30,6 @@ import android.os.PersistableBundle
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
-import android.telephony.TelephonyManager
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -2454,15 +2454,10 @@ class MainActivity : Activity() {
         ContextCompat.registerReceiver(this, stateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         // Carrier can change while the app is open (Wi-Fi ↔ mobile, roaming); the fragment
         // preset is decided from it at connect time, so the settings line must follow.
-        ContextCompat.registerReceiver(
-            this,
-            carrierChangeReceiver,
-            IntentFilter().apply {
-                addAction(TelephonyManager.ACTION_NETWORK_OPERATOR_CHANGED)
-                addAction(ConnectivityManager.CONNECTIVITY_ACTION)
-            },
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
+        runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.registerDefaultNetworkCallback(carrierChangeCallback)
+        }
         applyRuntimeState(
             VpnRuntimeStateStore.read(this),
             VpnRuntimeStateStore.readSessionStartedAtElapsedMs(this),
@@ -2500,7 +2495,10 @@ class MainActivity : Activity() {
         privacyPolicyDialog = null
         connectionDelayTestListener = null
         unregisterReceiver(stateReceiver)
-        runCatching { unregisterReceiver(carrierChangeReceiver) }
+        runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.unregisterNetworkCallback(carrierChangeCallback)
+        }
         super.onStop()
     }
 
@@ -13891,14 +13889,25 @@ class MainActivity : Activity() {
     }
 
     /**
-     * One receiver, two reasons to re-render the carrier line: the phone moved between
-     * carriers, or connectivity came back (which is also when a panel refresh can succeed).
+     * The carrier can change while the app is open (Wi-Fi ↔ mobile, roaming) and the fragment
+     * preset is decided from it at connect time, so the settings line has to follow.
+     *
+     * This is a default-network callback and not a broadcast: `CONNECTIVITY_ACTION` is
+     * deprecated (and its delivery to registered receivers keeps being tightened per release),
+     * and the telephony «network operator changed» action is not part of the public SDK —
+     * `TelephonyManager.ACTION_NETWORK_OPERATOR_CHANGED` does not exist, which is exactly how
+     * it failed to compile here. Re-reading the operator code when the default network
+     * changes is the supported signal, and it also covers the roaming/Wi-Fi handovers that
+     * matter for a fragment preset. The callback arrives on a binder thread → post to main.
      */
-    private val carrierChangeReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
+    private val carrierChangeCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = carrierMoved()
+
+        override fun onLost(network: Network) = carrierMoved()
+
+        private fun carrierMoved() {
             CarrierDetector.reset()
-            renderFragmentCarrierLine()
-            if (intent?.action == ConnectivityManager.CONNECTIVITY_ACTION) refreshPanelTune()
+            mainHandler.post { renderFragmentCarrierLine() }
         }
     }
 
