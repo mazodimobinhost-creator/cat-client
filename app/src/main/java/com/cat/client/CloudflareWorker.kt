@@ -814,22 +814,20 @@ object CloudflareWorker {
             runCatching { PanelCredentials.password(context, workerUrl) }.getOrDefault(""),
         )
 
-    companion object {
-        /**
-         * The pure half of [subscriptionKeys]: order and filtering, no Android involved, so
-         * `app/src/test/.../PanelSubKeyTest.kt` runs it as real code. The subscription TOKEN
-         * that replaces the master UUID in /sub/<key> is always 32 hex characters (that is
-         * what the panel rotates to) — any other stored credential is an owner password and
-         * is deliberately NOT tried, because guessing wrong would look like a broken panel.
-         */
-        internal fun subscriptionKeyCandidates(uuid: String, storedCredential: String): List<String> {
-            val keys = LinkedHashSet<String>()
-            uuid.trim().takeIf { it.isNotBlank() }?.let { keys += it }
-            storedCredential.trim().lowercase(java.util.Locale.US)
-                .takeIf { it.matches(Regex("[0-9a-f]{32}")) }
-                ?.let { keys += it }
-            return keys.toList()
-        }
+    /**
+     * The pure half of [subscriptionKeys]: order and filtering, no Android involved, so
+     * `app/src/test/.../PanelSubKeyTest.kt` runs it as real code. The subscription TOKEN that
+     * replaces the master UUID in /sub/<key> is always 32 hex characters (that is what the
+     * panel rotates to) — any other stored credential is an owner password and is deliberately
+     * NOT tried, because guessing wrong would look like a broken panel.
+     */
+    internal fun subscriptionKeyCandidates(uuid: String, storedCredential: String): List<String> {
+        val keys = LinkedHashSet<String>()
+        uuid.trim().takeIf { it.isNotBlank() }?.let { keys += it }
+        storedCredential.trim().lowercase(java.util.Locale.US)
+            .takeIf { it.matches(Regex("[0-9a-f]{32}")) }
+            ?.let { keys += it }
+        return keys.toList()
     }
 
     private fun waitForPanel(
