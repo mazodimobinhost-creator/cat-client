@@ -16,6 +16,12 @@ internal data class DnsRuntimeSettings(
 )
 
 internal data class SessionPlanPreferences(
+    /**
+     * The Orbot hop for this attempt, or null while the engine is off / Orbot is not reachable
+     * on the loopback port. Decided and probed once per attempt in the service, so the runtime
+     * YAML, the switch in the UI and the log line all describe the same choice.
+     */
+    val orbot: OrbotProxySettings? = null,
     val frontingIps: List<String>,
     val connectionOptions: MihomoConnectionOptions,
     val selectedSubscriptionId: String,
@@ -66,6 +72,8 @@ internal data class SessionPlan(
     val lanSharing: LanSharingSettings,
     val routingMode: RoutingMode,
     val dns: DnsRuntimeSettings,
+    /** Orbot outbound for this attempt (null = engine off or Orbot absent). */
+    val orbot: OrbotProxySettings? = null,
     val effectiveDeviceAccess: EffectiveDeviceAccess,
     val tlsIntegrityEnabled: Boolean,
     val serverOverrideIp: String?,
@@ -148,6 +156,7 @@ internal object SessionPlanner {
             lanSharing = preferences.lanSharing,
             routingMode = preferences.routingMode,
             dns = preferences.dns,
+            orbot = preferences.orbot,
             effectiveDeviceAccess = if (
                 ConnectionModePolicy.shouldStartTun(
                     preferences.connectionMode,

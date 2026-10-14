@@ -260,6 +260,11 @@ class MainActivity : Activity() {
     private lateinit var routingModeValueText: TextView
     private lateinit var routingModeDetailText: TextView
     private lateinit var dnsPrivacyRow: LinearLayout
+    /** Orbot / Tor engine: the switch, its live verdict line and the probe button. */
+    private var orbotEngineCheckbox: MaterialSwitch? = null
+    private var orbotStatusText: TextView? = null
+    private var orbotProbeButton: MaterialButton? = null
+    private var lastOrbotProbe: OrbotProbeResult? = null
     private lateinit var dnsPrivacyValueText: TextView
     private lateinit var dnsPrivacyDetailText: TextView
     private lateinit var dnsPrivacyEndpointInput: EditText
@@ -4417,6 +4422,72 @@ class MainActivity : Activity() {
                 marginEnd = dp(8)
             },
         )
+        // ── Orbot / Tor engine ───────────────────────────────────────────────────────────
+        // A path that depends on nothing of ours. Orbot runs Tor on this phone and listens on
+        // loopback, so while this is on the whole runtime goes out through 127.0.0.1:9050
+        // (global-proxy shape, subscription rules dropped — see flClashRuntimeYaml). A switch
+        // that is ON while Orbot is closed is a lie, so the row carries a live verdict and a
+        // probe button instead of just a toggle.
+        sharingSettings.addView(
+            advancedSectionLabel(getString(R.string.orbot_section)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
+        )
+        val orbotPanel = advancedSettingsPanel()
+        val orbotSwitch = MaterialSwitch(this).apply {
+            contentDescription = getString(R.string.orbot_title)
+            isChecked = orbotEnginePreferenceStore.isEnabled()
+            setOnClickListener {
+                orbotEnginePreferenceStore.setEnabled(isChecked)
+                DiagnosticLogger.info(this@MainActivity, "activity.orbot.saved", "enabled=$isChecked")
+                renderOrbotRow()
+                reconnectForConnectionOptionChange()
+            }
+        }
+        orbotEngineCheckbox = orbotSwitch
+        orbotPanel.addView(
+            advancedToggleRow(
+                title = getString(R.string.orbot_title),
+                detail = getString(R.string.orbot_detail),
+                toggle = orbotSwitch,
+            ),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        orbotStatusText = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            includeFontPadding = true
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+        }
+        orbotPanel.addView(
+            orbotStatusText,
+            LinearLayout.LayoutParams(-1, -2).apply {
+                marginStart = dp(8)
+                marginEnd = dp(8)
+                topMargin = dp(4)
+            },
+        )
+        orbotProbeButton = MaterialButton(this).apply {
+            setText(R.string.orbot_probe)
+            textSize = 13f
+            minHeight = dp(44)
+            minWidth = dp(44)
+            setOnClickListener { probeOrbotEngine(showToast = true) }
+        }
+        orbotPanel.addView(
+            orbotProbeButton,
+            LinearLayout.LayoutParams(-2, -2).apply {
+                marginStart = dp(8)
+                marginEnd = dp(8)
+                topMargin = dp(8)
+            },
+        )
+        sharingSettings.addView(
+            orbotPanel,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
+        )
+        renderOrbotRow()
         sharingSettings.addView(
             advancedSectionLabel(getString(R.string.lan_sharing_section)),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
@@ -13613,6 +13684,52 @@ class MainActivity : Activity() {
                 DnsPrivacyMode.Automatic -> ""
             }
             setDnsPrivacyEndpointInputText(displayDnsPrivacyEndpoint(mode, value))
+        }
+    }
+
+    /**
+     * The Orbot row's verdict. Four states, and each one names what the next connection will
+     * actually do — «روشن but nothing listens» must never read like «on Tor».
+     */
+    private fun renderOrbotRow() {
+        val status = orbotStatusText ?: return
+        val enabled = orbotEnginePreferenceStore.isEnabled()
+        val endpoint = "${orbotEnginePreferenceStore.readHost()}:${orbotEnginePreferenceStore.readPort()}"
+        if (orbotEngineCheckbox?.isChecked != enabled) orbotEngineCheckbox?.isChecked = enabled
+        val probe = lastOrbotProbe
+        when {
+            !enabled -> status.setText(getString(R.string.orbot_off, endpoint))
+            probe == null -> status.setText(getString(R.string.orbot_idle, endpoint))
+            probe.reachable -> status.setText(
+                getString(R.string.orbot_ready, endpoint, probe.latencyMs ?: 0L),
+            )
+            else -> status.setText(getString(R.string.orbot_absent, endpoint, probe.detail))
+        }
+        status.setTextColor(if (enabled && probe?.reachable == true) TEAL else TEXT_SECONDARY)
+    }
+
+    /** Probe off the main thread: a TCP connect that hangs must not freeze the settings page. */
+    private fun probeOrbotEngine(showToast: Boolean) {
+        val host = orbotEnginePreferenceStore.readHost()
+        val port = orbotEnginePreferenceStore.readPort()
+        orbotProbeButton?.isEnabled = false
+        activityScope.launch {
+            val probe = kotlinx.coroutines.withContext(Dispatchers.IO) { OrbotProbe.probe(host, port) }
+            lastOrbotProbe = probe
+            orbotProbeButton?.isEnabled = true
+            renderOrbotRow()
+            DiagnosticLogger.info(
+                this@MainActivity,
+                "activity.orbot.probe",
+                "host=$host port=$port reachable=${probe.reachable} ms=${probe.latencyMs} detail=${probe.detail}",
+            )
+            if (showToast) {
+                Toast.makeText(
+                    this@MainActivity,
+                    orbotStatusText?.text?.toString().orEmpty(),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 

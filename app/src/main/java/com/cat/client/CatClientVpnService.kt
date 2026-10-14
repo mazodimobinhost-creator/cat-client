@@ -248,6 +248,8 @@ class CatClientVpnService : VpnService() {
     private lateinit var panelTuneStore: PanelTuneStore
     private lateinit var routingModePreferenceStore: RoutingModePreferenceStore
     private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
+    /** The ORBOT engine switch + loopback address (see resolveOrbotHop). */
+    private lateinit var orbotEnginePreferenceStore: OrbotEnginePreferenceStore
     private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
     private lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
     private lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
@@ -413,6 +415,7 @@ class CatClientVpnService : VpnService() {
         panelTuneStore = PanelTuneStore(this)
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
+        orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
@@ -1646,6 +1649,7 @@ class CatClientVpnService : VpnService() {
             doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
             doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
         ),
+        orbot = resolveOrbotHop(),
         connectionMode = connectionModePreferenceStore.read(),
         dpiBypassEnabled = dpiBypassPreferenceStore.isEnabled(),
         alwaysOn = alwaysOnActive,
@@ -1653,6 +1657,32 @@ class CatClientVpnService : VpnService() {
         tlsIntegrityEnabled = tlsIntegrityPreferenceStore.isEnabled(),
         sniOverride = frontingIpPreferenceStore.readSniOverride(),
     )
+
+    /**
+     * The Orbot engine, decided once per attempt: the switch being ON is not enough — the
+     * loopback SOCKS port has to answer, because routing everything into a dead local port
+     * would look like a working switch and produce a connection that never leaves the phone.
+     * A switch that is on while Orbot is closed is therefore reported (not silently ignored),
+     * and the attempt continues on the normal path.
+     */
+    private fun resolveOrbotHop(): OrbotProxySettings? {
+        val settings = orbotEnginePreferenceStore.readActiveSettings() ?: return null
+        val probe = OrbotProbe.probe(settings.host, settings.port)
+        if (!probe.reachable) {
+            DiagnosticLogger.warn(
+                this,
+                "orbot.engine.skipped",
+                "host=${settings.host} port=${settings.port} detail=${probe.detail}",
+            )
+            return null
+        }
+        DiagnosticLogger.info(
+            this,
+            "orbot.engine.active",
+            "host=${settings.host} port=${settings.port} ms=${probe.latencyMs} routing=global",
+        )
+        return settings
+    }
 
     private suspend fun connectWithFrontingIpsOrOriginal(
         eventPrefix: String,

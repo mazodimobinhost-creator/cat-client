@@ -643,6 +643,8 @@ internal data class MihomoRuntimeDocument(
     val routingMode: RoutingMode,
     val dns: DnsRuntimeSettings,
     val selectedMap: Map<String, String>,
+    /** Non-null while the Orbot engine is on and its loopback port answered. */
+    val orbot: OrbotProxySettings? = null,
 )
 
 internal fun SessionPlan.toMihomoRuntimeDocument(): MihomoRuntimeDocument = MihomoRuntimeDocument(
@@ -652,6 +654,7 @@ internal fun SessionPlan.toMihomoRuntimeDocument(): MihomoRuntimeDocument = Miho
     routingMode = routingMode,
     dns = dns,
     selectedMap = selectedMap,
+    orbot = orbot,
 )
 
 internal class MihomoRuntimeConfigBuilder(private val context: Context) {
@@ -712,6 +715,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 doqEndpoint = document.dns.doqEndpoint,
                 doh3Url = document.dns.doh3Url,
                 adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
+                orbot = document.orbot,
             ),
         )
         patchFinal.writeText(
@@ -868,22 +872,39 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
             doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
             adBlock: Boolean = false,
+            orbot: OrbotProxySettings? = null,
         ): String {
+            val orbotTarget = orbot?.let { settings ->
+                OrbotEnginePolicy.normalizePort(settings.port)
+                OrbotEnginePolicy.normalizeHost(settings.host)
+                OrbotEnginePolicy.PROXY_NAME
+            }
+            // Orbot is an *outbound*, not a hint: while it is on, every rule that could send
+            // traffic around it is dropped and the runtime keeps the global-proxy shape with
+            // the Orbot proxy as the only target. Anything softer would let a subscription
+            // rule quietly route DIRECT and the owner would believe they were on Tor.
+            val effectiveMode = if (orbotTarget != null) RoutingMode.GlobalProxy else routingMode
             val routingTarget = routingTarget(rawYaml)
-            val requiredRoutingTarget = if (routingMode == RoutingMode.Subscription) {
-                null
-            } else {
-                requireNotNull(routingTarget) {
+            val requiredRoutingTarget = when {
+                orbotTarget != null -> orbotTarget
+                effectiveMode == RoutingMode.Subscription -> null
+                else -> requireNotNull(routingTarget) {
                     "Routing mode '${routingMode.wireName}' requires a usable proxy or proxy group"
                 }
             }
-            val keysToReplace = if (routingMode == RoutingMode.Subscription) {
+            val keysToReplace = if (effectiveMode == RoutingMode.Subscription) {
                 FLCLASH_OVERRIDE_KEYS
             } else {
                 FLCLASH_OVERRIDE_KEYS + ROUTING_OVERRIDE_KEYS
             }
-            val subscriptionYaml = stripTopLevelKeys(rawYaml, keysToReplace)
-            val dnsProxyGroup = if (routingMode == RoutingMode.Subscription) {
+            val subscriptionYaml = stripTopLevelKeys(rawYaml, keysToReplace).let { base ->
+                if (orbot == null) {
+                    base
+                } else {
+                    OrbotEnginePolicy.injectProxy(base, host = orbot.host, port = orbot.port)
+                }
+            }
+            val dnsProxyGroup = if (effectiveMode == RoutingMode.Subscription) {
                 routingTarget
             } else {
                 requiredRoutingTarget
@@ -904,7 +925,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     append(subscriptionYaml.trimEnd())
                     append("\n\n")
                 }
-                when (routingMode) {
+                when (effectiveMode) {
                     RoutingMode.Subscription -> Unit
                     RoutingMode.IranBypass -> {
                         append("rule-providers:\n")
@@ -931,7 +952,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 // arbitrary domains DIRECT, which would make the dashboard's
                 // exit-IP probe and the ping button measure the wrong path.
                 // Injected at the TOP of the rules list so nothing shadows them.
-                val measureTarget = when (routingMode) {
+                val measureTarget = when (effectiveMode) {
                     RoutingMode.Subscription -> routingTarget(subscriptionYaml)
                     else -> requiredRoutingTarget
                 }

@@ -323,6 +323,14 @@
     <string name="dns_doh3_address">h3://host/dns-query</string>
     <string name="dns_doq_helper">برای ECH مهم است: رکورد HTTPS (کلید ECH) فقط از یک resolverِ رمزنگاری‌شدهٔ کارکننده می‌آید. اگر دامنه‌ات روی کلادفلر است، همین مقدار پیش‌فرض را امتحان کن.</string>
     <string name="dns_doh3_helper">مانند DoQ روی QUIC سوار می‌شود؛ روی خطی که DoT/DoH بسته شده، این دو مسیر معمولاً باز می‌مانند.</string>
+    <string name="orbot_section">موتور Tor (Orbot)</string>
+    <string name="orbot_title">مسیرِ Orbot / Tor</string>
+    <string name="orbot_detail">اگر Orbot روی همین گوشی روشن باشد، همهٔ ترافیک از ‏127.0.0.1:9050 بیرون می‌رود — مسیری که به هیچ سرورِ ما وابسته نیست. کندتر است، ولی وقتی هیچ‌چیزِ دیگری وصل نمی‌شود همین است که نجات می‌دهد. روشن‌بودنِ کلید به‌تنهایی کافی نیست: باید Orbot واقعاً گوش بدهد.</string>
+    <string name="orbot_off">خاموش — اتصالِ بعدی از مسیرِ عادی می‌رود (%1$s).</string>
+    <string name="orbot_idle">روشن — هنوز بررسی نشده (%1$s). «بررسی الان» را بزن.</string>
+    <string name="orbot_ready">Orbot روی %1$s جواب داد (%2$d میلی‌ثانیه) — اتصالِ بعدی از تور می‌رود.</string>
+    <string name="orbot_absent">Orbot روی %1$s جواب نداد (%2$s) — اتصالِ بعدی از مسیرِ عادی می‌رود، پس کلید تنها فایده‌ای ندارد.</string>
+    <string name="orbot_probe">بررسی الان</string>
     <string name="dns_dot_detail">سرور TLS با مسیر جایگزین رمزنگاری‌شده</string>
     <string name="dns_content_description">DNS رمزنگاری‌شده: %1$s</string>
     <string name="dns_doh_address">آدرس DoH</string>

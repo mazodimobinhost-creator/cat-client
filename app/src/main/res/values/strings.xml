@@ -322,6 +322,14 @@
     <string name="dns_doh3_address">h3://host/dns-query</string>
     <string name="dns_doq_helper">This matters for ECH: the HTTPS record (the ECH key) only arrives from a working encrypted resolver. If your domain is on Cloudflare, try the default.</string>
     <string name="dns_doh3_helper">Like DoQ it rides on QUIC; on a line where DoT/DoH are blocked, these two usually stay open.</string>
+    <string name="orbot_section">Tor engine (Orbot)</string>
+    <string name="orbot_title">Orbot / Tor path</string>
+    <string name="orbot_detail">With Orbot running on this phone, all traffic leaves through 127.0.0.1:9050 — a path that depends on no server of ours. It is slower, but it is what saves you when nothing else connects. The switch alone is not enough: Orbot has to be actually listening.</string>
+    <string name="orbot_off">Off — the next connection uses the normal path (%1$s).</string>
+    <string name="orbot_idle">On — not checked yet (%1$s). Press «check now».</string>
+    <string name="orbot_ready">Orbot answered on %1$s (%2$d ms) — the next connection goes through Tor.</string>
+    <string name="orbot_absent">Orbot did not answer on %1$s (%2$s) — the next connection uses the normal path, so the switch alone changes nothing.</string>
+    <string name="orbot_probe">Check now</string>
     <string name="dns_dot_detail">TLS server with encrypted fallback</string>
     <string name="dns_content_description">Encrypted DNS: %1$s</string>
     <string name="dns_doh_address">DoH address</string>
