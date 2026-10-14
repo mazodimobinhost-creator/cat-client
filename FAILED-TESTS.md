@@ -1,6 +1,6 @@
-# Unit test failure report (392278b)
+# Unit test failure report (36ff61d)
 
-    - java.io.IOException: No compatible connection chain is available" type="java.io.IOException">java.io.IOException: No compatible connection chain is available
+    - java.lang.IllegalArgumentException: List has more than one element." type="java.lang.IllegalArgumentException">java.lang.IllegalArgumentException: List has more than one element.
 
 ## files with compile errors
 ## log tail
@@ -27,16 +27,16 @@
 > Task :app:preDebugUnitTestBuild UP-TO-DATE
 > Task :app:javaPreCompileDebugUnitTest
 > Task :app:processDebugJavaRes UP-TO-DATE
-> Task :app:bundleDebugClassesToCompileJar
 > Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:bundleDebugClassesToCompileJar
 > Task :app:compileDebugUnitTestKotlin
 > Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
 > Task :app:processDebugUnitTestJavaRes
 
 > Task :app:testDebugUnitTest
 
-ConnectionChainTunnelTest > aFixedExitOutranksTheCountryWish FAILED
-    java.io.IOException at ConnectionChainTunnelTest.kt:354
+ConnectionChainTunnelTest > anImpossibleCountryKeepsTheTunnelAndAdmitsTheFallback FAILED
+    java.lang.IllegalArgumentException at ConnectionChainTunnelTest.kt:346
 
 64 tests completed, 1 failed
 
@@ -51,5 +51,5 @@ Execution failed for task ':app:testDebugUnitTest'.
 * Try:
 > Run with --scan to get full insights.
 
-BUILD FAILED in 6s
+BUILD FAILED in 7s
 24 actionable tasks: 6 executed, 18 up-to-date
