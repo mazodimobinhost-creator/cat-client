@@ -70,10 +70,12 @@ const source = readFileSync(sourcePath, 'utf8');
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
   // the paste experience and our own habit of shipping every idea into one file. It was raised
-  // from 140 000 to 145 000 for 6.67.4 (the SNI Lab card + its two-verdict live test), with the
-  // measured cost of that feature at ~2.9 KB gzip — recorded here so the next raise has to
+  // from 140 000 to 145 000 for 6.67.4 (the SNI Lab card + its two-verdict live test, ~2.9 KB
+  // gzip) and from 145 000 to 150 000 for 6.67.5 (the outbound-relay/VIP card: row renderer,
+  // per-relay latency table, star + auto-swap switches, add form and the build-command
+  // generator — measured 147 090 B, i.e. ~4.2 KB gzip). Recorded here so the next raise has to
   // justify itself the same way instead of quietly moving the number.
-  ok('gzip stays under the 145 KB warning line', gz < 145_000, gz);
+  ok('gzip stays under the 150 KB warning line', gz < 150_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

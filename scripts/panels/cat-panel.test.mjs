@@ -802,7 +802,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.67.4', T.CAT_PANEL_VERSION === '6.67.4');
+  check('panel version is 6.67.5', T.CAT_PANEL_VERSION === '6.67.5');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
