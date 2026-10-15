@@ -102,14 +102,14 @@ const source = readFileSync(sourcePath, 'utf8');
     /builtInPasteScript\(this\)[\s\S]{0,400}builtInWorkerScript\(this\)/.test(activityKt));
   ok('…and the fallback is announced, not silent',
     /cloud_code_copied_large/.test(activityKt));
-  // The API upload path is the opposite case: it must keep sending the obfuscated
-  // bundle (the app's own anti-1101 rule refuses the readable min — READABLE_SIGNATURES).
+  // The API upload path reads WORKER_ASSET_PATH; CI now replaces that asset with
+  // the same normal minified module before APK packaging.
   const deployBody = workerKt.slice(
     workerKt.indexOf('suspend fun deployBuiltIn('),
     workerKt.indexOf('sealed class PanelUpdateOutcome'),
   );
   ok('…and that function was actually found in the source', deployBody.length > 1_000, deployBody.length);
-  ok('the in-app API deploy still uploads the obfuscated bundle (never the paste file)',
+  ok('the in-app API deploy uses the normal minified Worker asset',
     deployBody.includes('builtInWorkerScript(context)') && !deployBody.includes('builtInPasteScript'),
     deployBody.length + ' chars');
 }
@@ -124,9 +124,9 @@ const source = readFileSync(sourcePath, 'utf8');
   ok('the packaged APK is checked: the asset must be there and whole',
     yml.includes('assets/panels/catpanel.min.js') && /paste_bytes[\s\S]{0,120}-ge 300000/.test(yml) &&
       /paste_head[\s\S]{0,160}CAT_PANEL_VERSION/.test(yml));
-  ok('…right after the minify step, i.e. before the in-place obfuscation',
-    yml.indexOf('cp dist-panel/catpanel.min.js') > yml.indexOf('minify.mjs') &&
-      yml.indexOf('cp dist-panel/catpanel.min.js') < yml.indexOf('obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js'));
+  ok('…and the deploy asset replaces the APK worker after minification',
+    yml.indexOf('cp dist-panel/catpanel.min.js app/src/main/assets/panels/catclient.worker.js') > yml.indexOf('minify.mjs') &&
+      !yml.includes('obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js'));
 }
 
 console.log('\npaste artifact: ' + pass + ' passed, ' + fail + ' FAILED');

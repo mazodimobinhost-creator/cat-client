@@ -21,21 +21,17 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.2.0';
+const CAT_WIZARD_VERSION = '1.3.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const BRANCH = 'arena/01a0c678-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const COMPAT_DATE = '2025-03-04';
 
-/* ANTI-1101: NEVER auto-deploy the READABLE repo source. Cloudflare statically
- * scans a deployed worker for plaintext panel signatures (vless/trojan/proxyip)
- * and disables the script — that's the «Error 1101» page users hit. Every
- * candidate below is an OBFUSCATED artifact: the release asset (CI obfuscates
- * before packaging), the committed snapshot that powers the Deploy button
- * (dist-panel/catpanel.obf.js), and ghproxy mirrors for networks where
- * github/raw is blocked (common in Iran). */
-const SNAPSHOT_PATH = 'dist-panel/catpanel.obf.js';
+/* Deploy the normal minified module, matching established Worker panels such
+ * as BPB. The previous RC4/control-flow-obfuscated artifact was much larger and
+ * passed Node mocks but crashed at Cloudflare runtime with Error 1101. */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.min.js';
 const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.worker.js',
@@ -187,17 +183,28 @@ async function ensureKv(token, accountId, title) {
   return { id, created: true };
 }
 
-/** Existing bindings of a worker (so a re-install keeps the UUID/password). */
-async function existingBindings(token, accountId, name) {
-  const res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
-  const bindings = res.json && res.json.result && Array.isArray(res.json.result.bindings) ? res.json.result.bindings : [];
-  const out = {};
-  for (const b of bindings) {
-    if (!b || !b.name) continue;
-    if (b.type === 'plain_text') out[b.name] = String(b.text || '');
-    if (b.type === 'kv_namespace') out['kv:' + b.name] = String(b.namespace_id || '');
+/**
+ * Prove that a worker name is unused before uploading. A PUT with a partial
+ * bindings array can detach secrets, D1 and custom bindings, so updates are
+ * deliberately blocked until every Cloudflare binding type is preserved and
+ * tested. Only an actual 404 means fresh; every ambiguous response fails closed.
+ */
+async function inspectWorker(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
+  } catch (e) {
+    throw new Error('worker existence check inconclusive: ' + (e && e.message ? e.message : e));
   }
-  return out;
+  if (res.status === 404) return { status: 'missing', bindings: [] };
+  if (res.status !== 200) {
+    throw new Error('worker existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  const result = res.json && res.json.result;
+  if (!result || !Array.isArray(result.bindings)) {
+    throw new Error('worker existence check inconclusive: malformed settings response · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', bindings: result.bindings };
 }
 
 async function uploadWorker(token, accountId, name, script, bindings) {
@@ -226,11 +233,6 @@ async function enableRoute(token, accountId, name, enabled = true) {
 
 const sourceCache = new Map();
 
-/** Anti-1101 detector: a READABLE panel source carries plaintext signatures. */
-function srcLooksReadable(text) {
-  return /vless|trojan|proxyip/i.test(String(text || ''));
-}
-
 async function fetchSource(kind, env) {
   const override = kind === 'wizard' ? env.WIZARD_SOURCE_URL : env.PANEL_SOURCE_URL;
   const marker = kind === 'wizard' ? 'CAT_WIZARD_VERSION' : 'CAT_PANEL_VERSION';
@@ -238,7 +240,6 @@ async function fetchSource(kind, env) {
   const cached = sourceCache.get(kind);
   if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached;
   let lastError = '';
-  let risky = null;
   for (const url of urls) {
     try {
       const res = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow' });
@@ -247,22 +248,12 @@ async function fetchSource(kind, env) {
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
       const entry = { text, url, version: versionMatch ? versionMatch[1] : '?', at: Date.now() };
-      // ANTI-1101: an obfuscated artifact has ZERO plaintext signatures. A
-      // readable source gets the deployed worker disabled by Cloudflare, so it
-      // is skipped in favour of the next (obfuscated) candidate and kept only
-      // as a flagged last resort when nothing else answers.
-      if (kind === 'panel' && srcLooksReadable(text)) {
-        risky = entry;
-        lastError = url + ' -> readable source (anti-1101: would risk Error 1101)';
-        continue;
-      }
       sourceCache.set(kind, entry);
       return entry;
     } catch (e) {
       lastError = url + ' → ' + (e && e.message ? e.message : e);
     }
   }
-  if (risky) throw new Error('refusing readable panel source: deployment could be disabled with Error 1101 (' + risky.url + ')');
   throw new Error('could not download the ' + kind + ' source (' + lastError + ')');
 }
 
@@ -310,9 +301,15 @@ async function* runInstall(input, env) {
   const account = (input.accountId && verified.accounts.find((a) => a.id === input.accountId)) || verified.accounts[0];
   log('verify', 'ok', 'token OK · account: ' + (account.name || account.id), { account }); yield* flush();
 
+  log('existing', 'info', 'proving worker name is unused before upload'); yield* flush();
+  const inspected = await inspectWorker(token, account.id, workerName);
+  if (inspected.status !== 'missing') {
+    throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+  }
+  log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
+
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
-  if (source.risky) log('source', 'warn', 'WARNING: readable source — Cloudflare may disable this worker later (Error 1101). Prefer the release asset.', { version: source.version, url: source.url, risky: true });
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
 
   log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
@@ -320,22 +317,17 @@ async function* runInstall(input, env) {
   const workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
   log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
 
-  const previous = await existingBindings(token, account.id, workerName).catch(() => ({}));
-  if (Object.keys(previous).length) { log('existing', 'info', 'worker "' + workerName + '" exists — updating in place, secrets are kept'); yield* flush(); }
-
   const bindings = [];
   let uuid = '';
   let kvBound = false;
   if (kind === 'panel') {
-    uuid = isUuid(previous.UUID) ? previous.UUID : (isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid());
+    uuid = isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid();
     bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
     if (customPassword) bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: customPassword });
     if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
     log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
     try {
-      const kv = previous['kv:CAT_KV']
-        ? { id: previous['kv:CAT_KV'], created: false }
-        : await ensureKv(token, account.id, workerName + '-catpanel');
+      const kv = await ensureKv(token, account.id, workerName + '-catpanel');
       bindings.push({ type: 'kv_namespace', name: 'CAT_KV', namespace_id: kv.id });
       kvBound = true;
       log('kv', 'ok', kv.created ? 'KV namespace created' : 'KV namespace reused', { id: kv.id });
@@ -382,7 +374,7 @@ async function* runInstall(input, env) {
   if (!online) {
     // Never hand out a broken URL. For a fresh script, remove only its public route;
     // keep KV/D1 and other account data untouched for diagnosis/retry.
-    if (!Object.keys(previous).length) await enableRoute(token, account.id, workerName, false).catch(() => false);
+    await enableRoute(token, account.id, workerName, false).catch(() => false);
     log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth });
     yield* flush();
     throw new Error('worker deployed but failed 3 consecutive /health checks; Error 1101 or runtime crash suspected');
@@ -777,7 +769,7 @@ export default {
 
 export const _testing = {
   CAT_WIZARD_VERSION,
-  srcLooksReadable,
+  inspectWorker,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
   PANEL_SOURCES,

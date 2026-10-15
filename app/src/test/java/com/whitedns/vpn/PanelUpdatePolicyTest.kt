@@ -97,12 +97,5 @@ class PanelUpdatePolicyTest {
         assertFalse(PanelUpdate.isDowngrade("garbage", "5.23.13"))
     }
 
-    @Test
-    fun readableSourcesAreRecognisedSoTheyAreNeverDeployed() {
-        // Cloudflare disables workers whose source carries these plaintext signatures (Error 1101).
-        assertTrue(PanelUpdate.looksReadable("const link = 'vless://' + uuid"))
-        assertTrue(PanelUpdate.looksReadable("function buildTrojan() {}"))
-        assertTrue(PanelUpdate.looksReadable("settings.proxyIp = 'x'"))
-        assertFalse(PanelUpdate.looksReadable("/* CAT_PANEL_VERSION = '6.53.0' */\nconst _0x1=['a2V5'];"))
-    }
+
 }

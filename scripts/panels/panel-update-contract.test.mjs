@@ -2,8 +2,7 @@
  * Panel-update contract — the shipped worker artifact must be identifiable.
  *
  * Why this exists (the «panel went back to the old version» report):
- * CI ships only the OBFUSCATED worker (anti-1101). The obfuscator's string-array
- * encoding hides `const CAT_PANEL_VERSION = '6.x.y'`, so every consumer that
+ * CI previously shipped only an obfuscated worker. Its string-array encoding hid `const CAT_PANEL_VERSION = '6.x.y'`, so every consumer that
  * identifies a build by regex saw «no version»:
  *   - PanelUpdate.kt treated its own bundle as 0.0.0, rejected the (unmarked)
  *     release asset and then accepted the stale `main` copy from jsDelivr
@@ -19,12 +18,12 @@
  *   2. that version is the one the running worker reports at /api/version;
  *   3. the marker is the first line (a truncated download still carries it);
  *   4. the module check PanelUpdate does (`export default`) holds;
- *   5. the marker did not reintroduce a plaintext panel signature (anti-1101);
+ *   5. the deploy artifact remains compact enough for Worker startup;
  *   6. the call-site guards that stop a downgrade are still wired in.
  *
  * CAT_PANEL_WORKER=<file>  test that file. When it is the readable source an
- * obfuscated artifact is built first (needs `npm i --no-save javascript-obfuscator@5`);
- * when it is already obfuscated (CI, after the in-place step) it is tested as is.
+ * minified artifact is built first (needs `npm i --no-save terser`);
+ * when it is already minified in CI it is tested as is.
  */
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -51,9 +50,9 @@ if (targetText.includes('export default {')) {
   sourceVersion = (/CAT_PANEL_VERSION\s*=\s*'([0-9]+(?:\.[0-9]+)+)'/.exec(targetText) || [])[1] || null;
   artifactPath = join(mkdtempSync(join(tmpdir(), 'cat-contract-')), 'artifact.js');
   try {
-    execFileSync(process.execPath, [join(ROOT, 'scripts/panels/obfuscate.mjs'), target, artifactPath], { stdio: 'pipe' });
+    execFileSync(process.execPath, [join(ROOT, 'scripts/panels/minify.mjs'), target, artifactPath], { stdio: 'pipe' });
   } catch (e) {
-    console.log('✗ could not build the obfuscated artifact — run: npm i --no-save javascript-obfuscator@5\n' + String(e.stderr || e.message).slice(0, 400));
+    console.log('✗ could not build the minified artifact — run: npm i --no-save terser\n' + String(e.stderr || e.message).slice(0, 400));
     process.exit(1);
   }
 }
@@ -112,7 +111,7 @@ check("the panel's own update-check reads the shipped artifact's version line", 
 // ── 3/4/5) shape ─────────────────────────────────────────────────────────────
 check('marker is the very first line (survives a truncated download)', /^\/\* CAT_PANEL_VERSION = '[0-9]+(?:\.[0-9]+)+' \*\/\n/.test(artifact));
 check("artifact passes PanelUpdate's module check (contains «export default»)", artifact.includes('export default'));
-check('no plaintext panel signature (anti-1101: vless / trojan / proxyip)', !/vless|trojan|proxyip/i.test(artifact));
+check('normal minified artifact stays below 800 KB', artifact.length < 800000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;
@@ -120,7 +119,7 @@ const cw = read('app/src/main/java/com/cat/client/CloudflareWorker.kt');
 const ma = read('app/src/main/java/com/cat/client/MainActivity.kt');
 check('PanelUpdate has isDowngrade()', /fun isDowngrade\(/.test(pu));
 check('PanelUpdate gates the repository fallback (acceptRepositoryFallback)', /fun acceptRepositoryFallback\(/.test(pu) && /acceptRepositoryFallback\(bundledVersion/.test(pu));
-check('PanelUpdate rejects readable (1101-risky) sources', /looksReadable\(/.test(pu));
+check('PanelUpdate no longer treats source readability as an Error 1101 detector', !/looksReadable\(/.test(pu));
 check('CloudflareWorker.updateBuiltIn refuses a downgrade', /PanelUpdate\.isDowngrade\(fromVersion, script\.version\)/.test(cw));
 check('MainActivity has the shared blockPanelDowngrade() built on isDowngrade',
   /private fun blockPanelDowngrade\([^)]*\): Boolean \{\s*if \(!PanelUpdate\.isDowngrade\(deployed, candidate\)\) return false/.test(ma));

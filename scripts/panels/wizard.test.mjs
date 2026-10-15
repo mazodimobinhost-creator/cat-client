@@ -20,10 +20,10 @@ const T = mod._testing;
 const panelSrc = readFileSync(panelPath, 'utf8');
 // Version-proof pins: everything below compares against the real bundled source.
 const PANEL_VERSION = (panelSrc.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/) || [])[1];
-// Simulated OBFUSCATED artifact (release asset / committed dist-panel snapshot):
-// carries the version marker but ZERO plaintext signatures. The anti-1101 guard
-// in the wizard must accept this and skip the readable repo source.
-const obfPanelSrc = "var CAT_PANEL_VERSION = '" + PANEL_VERSION + "';\n" + '/* payload */\n'.repeat(300);
+// Simulated normal minified module (release asset / committed snapshot).
+// Production panels such as BPB deploy a normal bundled/minified Worker rather
+// than a large RC4/control-flow-obfuscated runtime.
+const minPanelSrc = "var CAT_PANEL_VERSION = '" + PANEL_VERSION + "';\n" + '/* payload */\n'.repeat(300);
 
 let failures = 0;
 function check(name, cond, extra) {
@@ -40,6 +40,7 @@ const state = {
   calls: [],
   tokenValid: true,
   kvAllowed: true,
+  settingsMode: 'normal',
 };
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
 
@@ -53,9 +54,9 @@ T.__setFetch(async (input, init = {}) => {
     if (url.endsWith('catclient.worker.js')) {
       // first mirror fails to prove the fallback chain works
       if (url.includes('/releases/latest/')) return new Response('nope', { status: 404 });
-      return new Response(obfPanelSrc, { status: 200 });
+      return new Response(minPanelSrc, { status: 200 });
     }
-    if (url.endsWith('catpanel.obf.js')) return new Response(obfPanelSrc, { status: 200 });
+    if (url.endsWith('catpanel.min.js')) return new Response(minPanelSrc, { status: 200 });
     if (url.endsWith('catclient.wizard.js')) return new Response(readFileSync(wizardPath, 'utf8'), { status: 200 });
     return new Response('nf', { status: 404 });
   }
@@ -82,6 +83,9 @@ T.__setFetch(async (input, init = {}) => {
       const name = scriptMatch[1];
       const sub = scriptMatch[2] || '';
       if (sub === '/settings' && method === 'GET') {
+        if (state.settingsMode === 'network') throw new TypeError('network down');
+        if (state.settingsMode === 'malformed') return json({ success: true, result: {} });
+        if (/^(401|403|500)$/.test(state.settingsMode)) return json({ success: false, errors: [{ message: 'settings error' }] }, Number(state.settingsMode));
         const s = state.scripts[name];
         return s ? json({ success: true, result: { bindings: s.bindings } }) : json({ success: false, errors: [{ code: 10007, message: 'script not found' }] }, 404);
       }
@@ -175,7 +179,7 @@ let first;
   const s = state.scripts['my-panel'];
   check('panel script uploaded with the version marker', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
   check('fallback source used after releases/latest 404', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com')));
-  check('anti-1101: obfuscated artifact accepted (no warn event)', !events.some((e) => e.step === 'source' && e.level === 'warn'));
+  check('normal minified artifact accepted', !events.some((e) => e.step === 'source' && e.level === 'warn'));
   const bind = Object.fromEntries(s.bindings.map((b) => [b.name, b]));
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));
   check('CAT_KV bound', bind.CAT_KV && bind.CAT_KV.type === 'kv_namespace' && bind.CAT_KV.namespace_id === 'kv-1');
@@ -189,14 +193,45 @@ let first;
   check('result: deep link for the app', first.deepLink.startsWith('catclient://add-sub?url=') && decodeURIComponent(first.deepLink).includes(first.subUrl));
 }
 
-/* 5. re-install keeps UUID; custom password becomes a secret binding */
+/* 5. existing workers fail closed before KV/upload/route mutation */
 {
+  const beforeScript = state.scripts['my-panel'];
+  const beforeKv = state.kv.length;
+  const beforeCalls = state.calls.length;
   const { done } = await installEvents({ token: 'good-token', workerName: 'my-panel', password: 'Hunter2!' });
-  check('re-install keeps the same UUID', done.result.uuid === first.uuid);
-  check('re-install reuses the KV namespace', state.kv.length === 1 && done.result.kvBound);
-  const bind = Object.fromEntries(state.scripts['my-panel'].bindings.map((b) => [b.name, b]));
-  check('custom password bound as secret_text', bind.PANEL_PASSWORD && bind.PANEL_PASSWORD.type === 'secret_text' && bind.PANEL_PASSWORD.text === 'Hunter2!');
-  check('panel URL uses the custom password', done.result.password === 'Hunter2!' && done.result.panelUrl === done.result.workerUrl + '/?p=' + encodeURIComponent('Hunter2!'));
+  const calls = state.calls.slice(beforeCalls);
+  check('existing worker update is blocked', done && done.ok === false && /already exists|preserving/i.test(done.msg), JSON.stringify(done));
+  check('existing script is untouched', state.scripts['my-panel'] === beforeScript);
+  check('existing path creates no KV', state.kv.length === beforeKv && !calls.some((x) => x.startsWith('POST https://api.cloudflare.com/client/v4/accounts/acc-1/storage/kv')));
+  check('existing path performs no PUT upload', !calls.some((x) => x.includes('/workers/scripts/my-panel') && x.startsWith('PUT ')));
+  check('existing path does not toggle route', !calls.some((x) => x.includes('/workers/scripts/my-panel/subdomain') && x.startsWith('POST ')));
+}
+
+/* 5a. HTTP 200 with an empty binding list is still an existing Worker */
+{
+  state.scripts.emptyexisting = { bindings: [], script: 'existing', meta: {} };
+  const beforeCalls = state.calls.length;
+  const { done } = await installEvents({ token: 'good-token', workerName: 'emptyexisting' });
+  const calls = state.calls.slice(beforeCalls);
+  check('existing worker with bindings=[] is blocked', done && done.ok === false && /already exists/i.test(done.msg), JSON.stringify(done));
+  check('bindings=[] path performs no PUT', !calls.some((x) => x.includes('/workers/scripts/emptyexisting') && x.startsWith('PUT ')));
+}
+
+/* 5b. ambiguous existence checks all fail closed before mutation */
+{
+  for (const mode of ['401', '403', '500', 'network', 'malformed']) {
+    state.settingsMode = mode;
+    const name = 'guard-' + mode;
+    const beforeKv = state.kv.length;
+    const beforeCalls = state.calls.length;
+    const { done } = await installEvents({ token: 'good-token', workerName: name });
+    const calls = state.calls.slice(beforeCalls);
+    check('settings ' + mode + ' is inconclusive', done && done.ok === false && /inconclusive/i.test(done.msg), JSON.stringify(done));
+    check('settings ' + mode + ' does not create KV', state.kv.length === beforeKv);
+    check('settings ' + mode + ' does not upload', !calls.some((x) => x.includes('/workers/scripts/' + name) && x.startsWith('PUT ')));
+    check('settings ' + mode + ' does not toggle route', !calls.some((x) => x.includes('/workers/scripts/' + name + '/subdomain') && x.startsWith('POST ')));
+  }
+  state.settingsMode = 'normal';
 }
 
 /* 6. token without KV scope still installs */
@@ -234,14 +269,12 @@ let first;
   check('panel deep-links back into Cat Client', panelSrc.includes('catclient://add-sub') && panelSrc.includes('catclient://scan'));
 }
 
-/* 10. anti-1101: the wizard must never auto-deploy the readable source */
+/* 10. deploy source is the compact, auditable minified module */
 {
-  check('anti-1101: source chain never points at the readable repo file',
-    T.PANEL_SOURCES.every((u) => !u.includes('/app/src/main/assets/panels/')));
-  check('anti-1101: source chain targets the obfuscated snapshot / release asset',
-    T.PANEL_SOURCES.some((u) => u.includes('dist-panel/catpanel.obf.js')) && T.PANEL_SOURCES.some((u) => u.includes('releases/latest/download/catclient.worker.js')));
-  check('anti-1101: detector flags the readable source, clears the obfuscated one',
-    T.srcLooksReadable(panelSrc) === true && T.srcLooksReadable(obfPanelSrc) === false);
+  check('source chain targets the minified snapshot / release asset',
+    T.PANEL_SOURCES.some((u) => u.includes('dist-panel/catpanel.min.js')) && T.PANEL_SOURCES.some((u) => u.includes('releases/latest/download/catclient.worker.js')));
+  check('source chain no longer targets the heavy obfuscated snapshot',
+    T.PANEL_SOURCES.every((u) => !u.includes('catpanel.obf.js')));
 }
 
 console.log(failures === 0 ? '\nWIZARD TESTS PASSED' : '\n' + failures + ' WIZARD TEST(S) FAILED');

@@ -430,7 +430,7 @@ object CloudflareWorker {
     /**
      * The panel version this APK ships. Every shipped artifact carries the marker
      * line — a one-line block comment holding CAT_PANEL_VERSION with the version in
-     * plain text (the obfuscator and the minifier both guarantee it) — so the app
+     * plain text (the minifier guarantees it) — so the app
      * can compare «the panel I bundle» with «the panel that answers on the Worker»
      * without parsing the bundle itself.
      */
@@ -463,7 +463,7 @@ object CloudflareWorker {
 
     /**
      * The text the «copy code» button puts on the clipboard: the official 3-line
-     * paste artifact (`catpanel.min.js`, ~474 KB), NOT the ~1.2 MB obfuscated bundle
+     * paste artifact (`catpanel.min.js`, ~474 KB), and the same normal minified module
      * the app uploads through the API. Size is the point — a 1.2 MB string is one
      * interrupted paste away from a truncated Worker, and a Worker whose file is cut
      * short throws on every request (Cloudflare's «Error 1101»; see the README
