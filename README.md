@@ -81,11 +81,21 @@
 
 ## 📥 دانلود
 
-| انتخاب | دانلود | مناسب برای |
-|:---:|:---:|---|
-| **پیشنهادی** | **[ARM64 APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk)** | بیشتر گوشی‌های امروزی |
-| **سازگاری بیشتر** | **[Universal APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk)** | وقتی ABI دستگاه مشخص نیست |
-| **همه فایل‌ها** | **[Release beta118](https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118)** | سایر ABIها، checksum و artifactها |
+<div align="center">
+
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk"><img alt="Download ARM64 APK" src="https://img.shields.io/badge/ARM64-دانلود_نسخه_پیشنهادی-7c3aed?style=for-the-badge&logo=android&logoColor=white"></a>
+&nbsp;
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk"><img alt="Download Universal APK" src="https://img.shields.io/badge/Universal-دانلود_نسخه_سازگار-a855f7?style=for-the-badge&logo=android&logoColor=white"></a>
+
+<br><br>
+
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118"><img alt="Open all release files" src="https://img.shields.io/badge/GitHub_Release-همه_فایل‌ها-111827?style=for-the-badge&logo=github&logoColor=white"></a>
+
+<br><br>
+
+<sub>ARM64 برای بیشتر گوشی‌های امروزی · Universal برای زمانی که ABI دستگاه را نمی‌دانید</sub>
+
+</div>
 
 <details>
 <summary><strong>فایل‌های پنل و بررسی صحت دانلود</strong></summary>
