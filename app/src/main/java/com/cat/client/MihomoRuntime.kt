@@ -2574,10 +2574,12 @@ object MihomoRuntimeHealth {
         return httpStatus(url, proxy, timeoutMs)
     }
 
-    fun egressCountryCodeThroughMixedProxy(
+    internal data class EgressMetadata(val ip: String?, val countryCode: String?)
+
+    fun egressMetadataThroughMixedProxy(
         url: String = MihomoRuntimeDefaults.EGRESS_TRACE_URL,
-        timeoutMs: Int = 2_000,
-    ): String? {
+        timeoutMs: Int = 3_000,
+    ): EgressMetadata? {
         val proxy = Proxy(
             Proxy.Type.HTTP,
             InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
@@ -2588,9 +2590,14 @@ object MihomoRuntimeHealth {
         connection.instanceFollowRedirects = false
         return connection.use {
             if (responseCode !in 200..299) return@use null
-            countryCodeFromTrace(inputStream.bufferedReader().use { it.readText() })
+            egressMetadataFromTrace(inputStream.bufferedReader().use { it.readText() })
         }
     }
+
+    fun egressCountryCodeThroughMixedProxy(
+        url: String = MihomoRuntimeDefaults.EGRESS_TRACE_URL,
+        timeoutMs: Int = 2_000,
+    ): String? = egressMetadataThroughMixedProxy(url, timeoutMs)?.countryCode
 
     suspend fun downloadSpeedKbpsThroughMixedProxy(
         downloadBytes: Long = MihomoRuntimeDefaults.SPEED_TEST_BYTES,
@@ -2656,12 +2663,21 @@ object MihomoRuntimeHealth {
         }
     }
 
-    fun countryCodeFromTrace(trace: String): String? {
-        return trace.lineSequence()
-            .firstOrNull { it.startsWith("loc=") }
-            ?.substringAfter("=")
-            ?.let(ConnectionLocationPolicy::normalizeCountryCode)
+    fun egressMetadataFromTrace(trace: String): EgressMetadata {
+        val fields = trace.lineSequence().mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) null else line.substring(0, separator) to line.substring(separator + 1).trim()
+        }.toMap()
+        val ip = fields["ip"]?.takeIf { value ->
+            value.isNotBlank() && runCatching { java.net.InetAddress.getByName(value).hostAddress != null }.getOrDefault(false)
+        }
+        return EgressMetadata(
+            ip = ip,
+            countryCode = fields["loc"]?.let(ConnectionLocationPolicy::normalizeCountryCode),
+        )
     }
+
+    fun countryCodeFromTrace(trace: String): String? = egressMetadataFromTrace(trace).countryCode
 
     private fun httpStatus(url: String, proxy: Proxy, timeoutMs: Int): Int {
         val connection = URL(url).openConnection(proxy) as HttpURLConnection

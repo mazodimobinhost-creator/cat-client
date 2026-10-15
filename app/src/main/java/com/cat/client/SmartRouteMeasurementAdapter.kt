@@ -32,7 +32,7 @@ internal object SmartRouteMeasurementAdapter {
         )
     }
 
-    private fun routeKind(profile: ConnectionProfile): SmartRouteKind {
+    fun routeKind(profile: ConnectionProfile): SmartRouteKind {
         val text = (profile.tag + " " + profile.type).lowercase()
         return when {
             "orbot" in text || "tor" in text -> SmartRouteKind.ORBOT

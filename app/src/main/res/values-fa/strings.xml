@@ -1212,4 +1212,6 @@
     <string name="smart_live_egress">خروجی: IP %1$s · کشور %2$s · پینگ %3$s میلی‌ثانیه</string>
     <string name="smart_live_measured_at">اندازه‌گیری: %1$s</string>
     <string name="smart_probe_rate_limited">آزمایش تازه اجرا شده؛ ۳۰ ثانیه صبر کنید.</string>
+    <string name="smart_routes_status_title">اندازه‌گیری مسیرها:</string>
+    <string name="smart_route_status_row">%1$s — %2$s — %3$s</string>
 </resources>

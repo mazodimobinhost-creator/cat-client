@@ -13146,9 +13146,10 @@ class MainActivity : Activity() {
                 CountrySelectionMode.PREFER -> getString(R.string.smart_country_prefer_value, smartPreference.countryCode ?: "—")
                 CountrySelectionMode.LOCK -> getString(R.string.smart_country_lock_value, smartPreference.countryCode ?: "—")
             }
+            val allSmartMeasurements = measurements + scoutMeasurements
             val recommendation = SmartConnectionAdvisor.recommend(
                 network = SmartNetworkSnapshotReader.read(this@MainActivity),
-                measurements = measurements + scoutMeasurements,
+                measurements = allSmartMeasurements,
                 preference = smartPreference,
             )
             val selected = recommendation.selected
@@ -13169,6 +13170,18 @@ class MainActivity : Activity() {
             val measuredAt = selected?.measuredAtMs?.takeIf { it > 0L }?.let {
                 java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))
             } ?: unknown
+            val routeRows = allSmartMeasurements
+                .groupBy { it.id }
+                .mapNotNull { (_, samples) -> samples.maxByOrNull(SmartRouteMeasurement::measuredAtMs) }
+                .sortedBy { it.label.lowercase(Locale.getDefault()) }
+                .map { route ->
+                    getString(
+                        R.string.smart_route_status_row,
+                        route.label,
+                        route.verdict.name,
+                        route.medianRttMs?.let { "$it ms" } ?: unknown,
+                    )
+                }
             val liveFacts = listOf(
                 getString(R.string.smart_live_network, identity.type, identity.operator ?: unknown),
                 getString(R.string.smart_live_active_route, activeRoute),
@@ -13179,7 +13192,7 @@ class MainActivity : Activity() {
                     selected?.medianRttMs?.toString() ?: unknown,
                 ),
                 getString(R.string.smart_live_measured_at, measuredAt),
-            )
+            ) + if (routeRows.isEmpty()) emptyList() else listOf(getString(R.string.smart_routes_status_title)) + routeRows
             smartRecommendationText.text = if (selected == null) {
                 (liveFacts + getString(
                     if (recommendation.blockedReason == "locked-country-unavailable") {
@@ -13280,7 +13293,16 @@ class MainActivity : Activity() {
             smartScoutButton.isEnabled = false
             smartScoutButton.setText(R.string.smart_connection_testing_routes)
             activityScope.launch {
-                val results = SmartRouteScout.run(this@MainActivity)
+                val activeTarget = if (buttonModel.state == VpnState.Started) {
+                    selectorProfiles.firstOrNull { it.fingerprint == activeConnectionFingerprint }?.let { profile ->
+                        SmartScoutTarget(
+                            id = profile.fingerprint,
+                            kind = SmartRouteMeasurementAdapter.routeKind(profile),
+                            label = profile.displayTag,
+                        )
+                    }
+                } else null
+                val results = SmartRouteScout.run(this@MainActivity, activeTarget)
                 if (NetworkContext.key(this@MainActivity) == networkKeyAtStart) {
                     scoutStore.save(networkKeyAtStart, results)
                 }

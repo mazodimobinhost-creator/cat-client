@@ -36,6 +36,15 @@ class SmartRouteProbePolicyTest {
         assertEquals(SmartRouteVerdict.WORKS, SmartRouteProbePolicy.dnsttVerdict(true, DnsttTransportEvidence.CONFIGURED, SmartRouteVerdict.WORKS))
     }
 
+    @Test fun parsesMeasuredEgressWithoutGuessing() {
+        val metadata = MihomoRuntimeHealth.egressMetadataFromTrace("ip=203.0.113.7\nloc=DE\nwarp=off\n")
+        assertEquals("203.0.113.7", metadata.ip)
+        assertEquals("DE", metadata.countryCode)
+        val unknown = MihomoRuntimeHealth.egressMetadataFromTrace("colo=FRA\n")
+        assertEquals(null, unknown.ip)
+        assertEquals(null, unknown.countryCode)
+    }
+
     @Test fun probeIntervalIsEnforced() {
         assertFalse(SmartRouteScout.canProbe(1_000L, 30_999L))
         assertEquals(true, SmartRouteScout.canProbe(1_000L, 31_000L))

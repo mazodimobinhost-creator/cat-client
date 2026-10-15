@@ -1213,4 +1213,6 @@
     <string name="smart_live_egress">Egress: IP %1$s · Country %2$s · Ping %3$s ms</string>
     <string name="smart_live_measured_at">Measured: %1$s</string>
     <string name="smart_probe_rate_limited">Probe recently ran; wait 30 seconds.</string>
+    <string name="smart_routes_status_title">Route measurements:</string>
+    <string name="smart_route_status_row">%1$s — %2$s — %3$s</string>
 </resources>

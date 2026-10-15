@@ -38,12 +38,16 @@ internal object SmartRouteScout {
     const val ORBOT_ID = "smart-orbot"
     const val DNSTT_ID = "smart-dnstt"
 
-    suspend fun run(context: Context): List<SmartRouteMeasurement> = withContext(Dispatchers.IO) {
+    suspend fun run(
+        context: Context,
+        activeRoute: SmartScoutTarget? = null,
+    ): List<SmartRouteMeasurement> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         buildList {
             add(probeDirect(context, now))
             add(probeOrbot(context, now))
             add(probeDnstt(context, now))
+            activeRoute?.let { add(probeActiveMihomo(context, it, now)) }
             PanelDeploymentStore(context).deployments().forEach { deployment ->
                 add(probeWorkerControlPlane(deployment.workerUrl, now))
             }
@@ -140,6 +144,39 @@ internal object SmartRouteScout {
             SmartRouteProbePolicy.dnsttVerdict(enabled, evidence, httpVerdict),
             now,
             elapsed,
+        )
+    }
+
+    /** Measures only the route Mihomo reports as active; it never changes a selector. */
+    private fun probeActiveMihomo(
+        context: Context,
+        target: SmartScoutTarget,
+        now: Long,
+    ): SmartRouteMeasurement {
+        val before = SmartNetworkSnapshotReader.read(context)
+        val started = System.nanoTime()
+        val metadata = runCatching { MihomoRuntimeHealth.egressMetadataThroughMixedProxy() }.getOrNull()
+        val elapsed = (System.nanoTime() - started) / 1_000_000
+        val after = SmartNetworkSnapshotReader.read(context)
+        val verdict = SmartRouteProbePolicy.httpVerdict(
+            statusCode = if (metadata != null) 200 else null,
+            networkBefore = before.key,
+            networkAfter = after.key,
+            validatedBefore = before.validated,
+            validatedAfter = after.validated,
+            captiveBefore = before.captivePortal,
+            captiveAfter = after.captivePortal,
+        )
+        return measurement(
+            id = target.id,
+            kind = target.kind,
+            label = target.label,
+            verdict = verdict,
+            now = now,
+            latencyMs = elapsed,
+        ).copy(
+            exitIp = metadata?.ip,
+            countryCode = metadata?.countryCode,
         )
     }
 
