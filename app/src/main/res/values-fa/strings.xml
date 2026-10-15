@@ -168,6 +168,9 @@
     <string name="smart_apply_title">این اتصال انتخاب شود؟</string>
     <string name="smart_apply_message">«%1$s» برای این شبکه انتخاب شود؟ اتصال فعلی تا پیش از تأیید جایگزین نمی‌شود.</string>
     <string name="smart_apply_confirm">انتخاب</string>
+    <string name="smart_auto_failover">تعویض خودکار IP تمیزِ خراب</string>
+    <string name="smart_scan_best_ip">اسکن بهترین IP</string>
+    <string name="smart_health_repair">سلامت و ترمیم</string>
     <string name="connection_testing_page_config">مهلت %1$d ثانیه · %2$d هم‌زمان · تست سرعت %3$d مگابایت</string>
     <string name="connection_testing_back">بازگشت به وی‌پی‌ان</string>
     <string name="connection_selector_loading">در حال بارگذاری اتصالات…</string>

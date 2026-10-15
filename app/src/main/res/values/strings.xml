@@ -167,6 +167,9 @@
     <string name="smart_apply_title">Use this connection?</string>
     <string name="smart_apply_message">Select “%1$s” for this network? The current connection is not replaced until you confirm.</string>
     <string name="smart_apply_confirm">Select</string>
+    <string name="smart_auto_failover">Automatically replace a failing clean IP</string>
+    <string name="smart_scan_best_ip">Scan best IP</string>
+    <string name="smart_health_repair">Health &amp; repair</string>
     <string name="connection_testing_page_config">%1$d s timeout · %2$d at once · %3$d MB speed test</string>
     <string name="connection_testing_back">Back to VPN</string>
     <string name="connection_selector_loading">Loading connections…</string>

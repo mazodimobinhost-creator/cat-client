@@ -13046,6 +13046,30 @@ class MainActivity : Activity() {
             alpha = 0.45f
         }
         var smartSelectedProfile: ConnectionProfile? = null
+        var smartSelectedRoute: SmartRouteMeasurement? = null
+        val smartAutoFailover = SwitchCompat(this).apply {
+            isChecked = NetworkGenomeStore(this@MainActivity).autoFailover
+            text = getString(R.string.smart_auto_failover)
+            setTextColor(TEXT_PRIMARY)
+            textSize = 14f
+            minHeight = dp(48)
+            setPaddingRelative(dp(8), 0, dp(8), 0)
+            setOnCheckedChangeListener { _, checked ->
+                NetworkGenomeStore(this@MainActivity).autoFailover = checked
+            }
+        }
+        val smartHealthButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.smart_health_repair)
+            setAllCaps(false)
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+        }
+        val smartScanButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.smart_scan_best_ip)
+            setAllCaps(false)
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+        }
         val smartRecommendationCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -13065,6 +13089,11 @@ class MainActivity : Activity() {
             addView(smartScoutButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
             addView(smartCountryButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
             addView(smartApplyButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+            addView(smartAutoFailover, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+            val tools = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            tools.addView(smartScanButton, LinearLayout.LayoutParams(0, dp(48), 1f))
+            tools.addView(smartHealthButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+            addView(tools, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         }
 
         fun renderSmartRecommendation() {
@@ -13094,10 +13123,12 @@ class MainActivity : Activity() {
                 preference = smartPreference,
             )
             val selected = recommendation.selected
+            smartSelectedRoute = selected
             smartSelectedProfile = selected?.let { selectedRoute ->
                 selectorProfiles.firstOrNull { it.fingerprint == selectedRoute.id }
             }
-            smartApplyButton.isEnabled = smartSelectedProfile != null
+            smartApplyButton.isEnabled = smartSelectedProfile != null ||
+                selected?.kind == SmartRouteKind.ORBOT || selected?.kind == SmartRouteKind.DIRECT
             smartApplyButton.alpha = if (smartApplyButton.isEnabled) 1f else 0.45f
             smartRecommendationText.text = if (selected == null) {
                 getString(R.string.smart_connection_network, networkKey) + "\n" +
@@ -13122,18 +13153,38 @@ class MainActivity : Activity() {
         }
 
         smartApplyButton.setOnClickListener {
-            val profile = smartSelectedProfile ?: return@setOnClickListener
+            val route = smartSelectedRoute ?: return@setOnClickListener
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(R.string.smart_apply_title)
-                .setMessage(getString(R.string.smart_apply_message, profile.displayTag))
+                .setMessage(getString(R.string.smart_apply_message, route.label))
                 .setPositiveButton(R.string.smart_apply_confirm) { _, _ ->
-                    handleConnectionSelected(profile, setOf(profile.type.lowercase(Locale.US)))
+                    when (route.kind) {
+                        SmartRouteKind.DIRECT -> {
+                            orbotEnginePreferenceStore.setEnabled(false)
+                            if (buttonModel.state == VpnState.Started || buttonModel.state == VpnState.Starting) {
+                                startVpnService(Actions.DISCONNECT)
+                            }
+                        }
+                        SmartRouteKind.ORBOT, SmartRouteKind.DNSTT -> {
+                            orbotEnginePreferenceStore.setEnabled(true)
+                            if (buttonModel.state == VpnState.Started) startVpnService(Actions.RECONNECT)
+                        }
+                        else -> smartSelectedProfile?.let { profile ->
+                            handleConnectionSelected(profile, setOf(profile.type.lowercase(Locale.US)))
+                        }
+                    }
                     closeConnectionTestingPage()
                 }
                 .setNegativeButton(R.string.split_tunnel_cancel, null)
                 .create()
                 .showCatClientDialog()
         }
+
+        smartScanButton.setOnClickListener {
+            closeConnectionTestingPage(animate = false)
+            showProxyIpScannerPage()
+        }
+        smartHealthButton.setOnClickListener { onPanelStatusCheck() }
 
         smartCountryButton.setOnClickListener {
             val modeLabels = arrayOf(
@@ -13185,6 +13236,16 @@ class MainActivity : Activity() {
                     getString(R.string.smart_connection_test_complete, working, results.size),
                     Toast.LENGTH_SHORT,
                 ).show()
+                // Scout means every available path, not merely the rows left by an old filter.
+                selectedCountryCodes.clear()
+                selectedCountryCodes += availableCountryCodes
+                selectedTypes.clear()
+                selectedTypes += availableTypes
+                countryFilterButton.text = selectedCountryLabel()
+                typeFilterButton.text = selectedTypesLabel()
+                filteredProfiles = visibleProfiles()
+                adapter.notifyDataSetChanged()
+                if (testButton.isEnabled && !testRunning) testButton.performClick()
             }
         }
 
