@@ -662,9 +662,10 @@ jobs:
           fi
 
       - name: Create GitHub Release and attach APKs
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/')) && (steps.app_version.outputs.version != '1.10.0-beta113' || vars.BETA113_DEVICE_SIGNOFF == 'true')
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA113_DEVICE_SIGNOFF: ${{ vars.BETA113_DEVICE_SIGNOFF }}
         run: |
           set -euo pipefail
           APP_VERSION="${{ steps.app_version.outputs.version }}"
@@ -696,5 +697,10 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
           else
-            gh release create "$TAG" "${release_assets[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
+            release_flags=()
+            if [[ "$APP_VERSION" == "1.10.0-beta113" && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+              release_flags+=(--prerelease)
+              notes="⚠️ TEST CANDIDATE — physical-device sign-off is pending. Do not treat this as the final beta113 release.\n\n${notes}"
+            fi
+            gh release create "$TAG" "${release_assets[@]}" "${release_flags[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
           fi
