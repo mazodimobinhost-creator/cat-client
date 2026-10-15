@@ -23,6 +23,13 @@
 [![UI E2E](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/ui-e2e.yml/badge.svg?branch=arena%2Fc5b36768-cat-client)](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/ui-e2e.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
+<p>
+  <a href="#-قابلیتهای-اصلی"><img alt="Features" src="https://img.shields.io/badge/قابلیت‌ها-مشاهده-334155?style=flat-square"></a>
+  <a href="#-پنل-cloudflare"><img alt="Cloudflare Panel" src="https://img.shields.io/badge/پنل_Cloudflare-راهنما-f97316?style=flat-square&logo=cloudflare&logoColor=white"></a>
+  <a href="#-وضعیت-تأیید"><img alt="Test status" src="https://img.shields.io/badge/وضعیت_تست-مشاهده-16a34a?style=flat-square"></a>
+  <a href="#-ساخت-و-تست"><img alt="Build" src="https://img.shields.io/badge/توسعه-Build-0f172a?style=flat-square"></a>
+</p>
+
 </div>
 
 > [!WARNING]
@@ -40,14 +47,23 @@
 
 ## نمای کلی
 
-| Android | Cat Panel | ایمنی استقرار |
+| 📱 Android | ☁️ Cat Panel | 🛡️ نصب امن |
 |---|---|---|
-| Mihomo، subscription، QR و ابزارهای شبکه | Worker تک‌فایلی، کاربران، خروجی‌های مختلف و KV | data-plane پیش‌فرض خاموش |
+| Mihomo، subscription، QR و ابزارهای شبکه | Worker تک‌فایلی، کاربران، KV و چند خروجی | data-plane پیش‌فرض خاموش |
 | فارسی/انگلیسی، RTL و تم روشن/تیره | health، diagnostics و backup ماسک‌شده | سه health متوالی برای نصب تازه |
 | کنترل update، checksum، ABI و امضا | normal minified ESM | update Worker موجود fail-closed |
 
+### وضعیت همین نسخه
+
+| مؤلفه | نسخه | وضعیت |
+|:---|:---:|:---|
+| Android | `1.10.0-beta118` (`185`) | 🟡 Test Candidate |
+| Cat Panel | `6.68.0` | 🟡 تست خودکار موفق؛ Cloudflare واقعی در انتظار |
+| Wizard | `1.3.1` | 🟢 نصب تازه · 🔴 update موجود مسدود |
+| Worker artifact | حدود `540 KB` minified ESM | 🟢 syntax/import/health موفق |
+
 <details>
-<summary><strong>فهرست بخش‌ها</strong></summary>
+<summary><strong>🧭 فهرست کامل README</strong></summary>
 
 - [دانلودها](#-دانلود)
 - [قابلیت‌های اصلی](#-قابلیتهای-اصلی)
@@ -61,56 +77,55 @@
 
 </details>
 
+---
+
 ## 📥 دانلود
 
-### Test Candidate فعلی
+| انتخاب | دانلود | مناسب برای |
+|:---:|:---:|---|
+| **پیشنهادی** | **[ARM64 APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk)** | بیشتر گوشی‌های امروزی |
+| **سازگاری بیشتر** | **[Universal APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk)** | وقتی ABI دستگاه مشخص نیست |
+| **همه فایل‌ها** | **[Release beta118](https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118)** | سایر ABIها، checksum و artifactها |
 
-| فایل | کاربرد |
+<details>
+<summary><strong>فایل‌های پنل و بررسی صحت دانلود</strong></summary>
+
+| فایل | لینک |
 |---|---|
-| [ARM64 APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk) | بیشتر گوشی‌های جدید |
-| [Universal APK](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk) | وقتی ABI دستگاه را نمی‌دانید |
-| [SHA256SUMS](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/SHA256SUMS) | بررسی صحت APKها |
-| [Worker ESM](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/catclient.worker.js) | artifact عادی و minified پنل |
-| [Wizard 1.3.1](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/catclient.wizard.js) | فقط نصب تازه |
+| SHA-256 | [SHA256SUMS](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/SHA256SUMS) |
+| Worker | [catclient.worker.js](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/catclient.worker.js) |
+| Wizard | [catclient.wizard.js](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/catclient.wizard.js) |
 
-[صفحه کامل beta118 و همه ABIها](https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118)
+APKهای CI ممکن است با کلید آزمایشی امضا شده باشند. برای upgrade-in-place پایدار، [Release signing](docs/release-signing.md) را ببینید.
 
-> [!NOTE]
-> APKهای CI ممکن است با کلید آزمایشی امضا شده باشند. برای upgrade-in-place پایدار، تنظیمات [Release signing](docs/release-signing.md) را ببینید.
+</details>
+
+---
 
 ## ✨ قابلیت‌های اصلی
 
-### Android
+| 📱 اپ اندروید | ☁️ Cat Panel | 🔐 ایمنی و حریم خصوصی |
+|---|---|---|
+| import لینک و subscription | مدیریت کاربر و UUID | data-plane فقط با opt-in مالک |
+| Mihomo/Clash، Xray و Sing-box | raw، Base64، Mihomo، Xray و Sing-box | Secretها در backup پیش‌فرض mask می‌شوند |
+| QR، اسکن IP و ابزار اتصال | KV اختیاری و تنظیمات پایدار | URL خراب بعد از health ناموفق تحویل نمی‌شود |
+| فارسی/انگلیسی و RTL | UI دو‌زبانه و phone-first | بدون Firebase و analytics اجباری |
+| tile، widget و notification | diagnostics و crash report محافظت‌شده | upload موفق به‌تنهایی موفقیت محسوب نمی‌شود |
+| کنترل checksum، ABI و امضا | Worker عادی minified ESM | هیچ تضمینی برای enforcement حساب Cloudflare داده نمی‌شود |
 
-- واردکردن subscription و share link؛
-- پشتیبانی از فرمت‌های Mihomo/Clash، Xray و Sing-box در مسیرهای مرتبط؛
-- QR import/export؛
-- اسکن IP و ابزارهای بررسی اتصال؛
-- رابط فارسی و انگلیسی، RTL، تم روشن/تیره؛
-- Quick Settings tile، widget و notification اتصال؛
-- بررسی update با کنترل version، checksum، package، ABI و signing certificate؛
-- مسیرهای Orbot و dnstt با وضعیت‌های مستقل در بخش‌های پیاده‌سازی‌شده.
+<details>
+<summary><strong>جزئیات قابلیت‌های شبکه و مسیرها</strong></summary>
 
-### Cat Panel
+- واردکردن share link و subscription؛
+- مسیرهای Orbot و dnstt با وضعیت‌های مستقل در بخش‌های پیاده‌سازی‌شده؛
+- scanner و probeهای مرورگر/اپ؛
+- خروجی‌های سازگار با کلاینت‌های مختلف؛
+- Quick Settings tile، widget و اعلان زنده؛
+- update اپ با بررسی version، checksum، package، ABI و signing certificate.
 
-- پنل تک‌فایلی Cloudflare Worker؛
-- مدیریت کاربران، UUIDها و لینک‌های subscription؛
-- خروجی raw، Base64، Mihomo، Sing-box و Xray؛
-- KV اختیاری برای تنظیمات پایدار؛
-- backup با masking پیش‌فرض Secretها؛
-- health، diagnostics و crash report محافظت‌شده؛
-- UI فارسی/انگلیسی و phone-first؛
-- Worker قابل‌استقرار به‌شکل **normal minified ESM**، نه runtime سنگین RC4/control-flow-obfuscated.
+</details>
 
-### اصول ایمنی
-
-- `DATA_PLANE_ENABLED` در نصب تازه به‌صورت پیش‌فرض خاموش است؛
-- `/health` و control-plane باقی می‌مانند؛
-- tunnel/WebSocket تا opt-in صریح مالک، `403` می‌دهد؛
-- موفقیت upload به معنی موفقیت runtime نیست؛
-- Wizard فقط بعد از سه پاسخ سالم و متوالی `/health` نتیجه موفق می‌دهد؛
-- خطاهای network، non-2xx، JSON خراب و runtime crash شمارنده سلامت را reset می‌کنند؛
-- هیچ اصلاحی نمی‌تواند enforcement حساب Cloudflare یا «ban نشدن» را تضمین کند.
+---
 
 ## ☁️ پنل Cloudflare
 
@@ -145,6 +160,8 @@ Malformed response         → نامشخص
 > Worker خراب را حذف نکنید، Worker تصادفی جایگزین نسازید و KV/D1/Secrets را پاک نکنید. ابتدا Deployments و Live Logs را بررسی کنید.
 
 راهنمای جزئی‌تر: [Panel deployment safety](docs/panel-deploy-safety.md)
+
+---
 
 ## 🧯 خطای Cloudflare 1101
 
@@ -183,6 +200,8 @@ Authorization · Cookie · API Token · UUID · Password · Secret · subscripti
 
 این تغییر یک علت فنی محتمل را حذف می‌کند؛ **بدون Live Log نمی‌توان گفت علت تمام 1101ها همین بوده است.**
 
+---
+
 ## 🧪 وضعیت تأیید
 
 برای beta118 موارد زیر در CI موفق‌اند:
@@ -204,6 +223,8 @@ Authorization · Cookie · API Token · UUID · Password · Secret · subscripti
 - تضمین عملکرد در همه ISPها یا کشورها.
 
 [برنامه تست گوشی beta113](docs/beta113-device-test-plan.md) · [Smart Connection roadmap](docs/SMART-CONNECTION-ROADMAP.md)
+
+---
 
 ## 🧱 معماری
 
@@ -228,6 +249,8 @@ Cat Wizard
 ├── Route activation
 └── 3× runtime health gate
 ```
+
+---
 
 ## 🛠️ ساخت و تست
 
@@ -268,9 +291,13 @@ node scripts/panels/minify.mjs \
 
 هیچ نتیجه تستی را بدون اجرای command مربوط ثبت نکنید. تست روی emulator جای تست گوشی و Cloudflare واقعی را نمی‌گیرد.
 
+---
+
 ## 🖥️ نسخه Windows
 
 نسخه دسکتاپ مستقل در [`windows/`](windows/README.md) قرار دارد. وضعیت و روش اجرای آن را در README همان پوشه ببینید.
+
+---
 
 ## 🔐 امنیت و گزارش مشکل
 
@@ -283,6 +310,8 @@ node scripts/panels/minify.mjs \
 - درباره نتیجه‌ای که روی گوشی یا Cloudflare واقعی تست نشده، صریح باشید.
 
 [ثبت Issue](https://github.com/mazodimobinhost-creator/cat-client/issues/new) · [Release notes beta118](docs/release-notes-v1.10.0-beta118-draft.md)
+
+---
 
 ## 🤝 مشارکت
 
