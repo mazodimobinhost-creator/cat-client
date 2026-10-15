@@ -13131,6 +13131,7 @@ class MainActivity : Activity() {
                     closeConnectionTestingPage()
                 }
                 .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .create()
                 .showCatClientDialog()
         }
 
@@ -13159,10 +13160,12 @@ class MainActivity : Activity() {
                                 renderSmartRecommendation()
                             }
                             .setNegativeButton(R.string.split_tunnel_cancel, null)
-                            .showCatClientDialog()
+                            .create()
+                .showCatClientDialog()
                     }
                 }
                 .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .create()
                 .showCatClientDialog()
         }
 
