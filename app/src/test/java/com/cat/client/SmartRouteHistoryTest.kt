@@ -17,9 +17,9 @@ class SmartRouteHistoryTest {
         ))!!
         assertEquals(4, stats.measurement.sampleCount)
         assertEquals(0.5, stats.measurement.successRate, 0.0)
-        assertEquals(100, stats.measurement.medianRttMs)
-        assertEquals(200, stats.measurement.p95RttMs)
-        assertEquals(100, stats.jitterMs)
+        assertEquals(100L, stats.measurement.medianRttMs)
+        assertEquals(200L, stats.measurement.p95RttMs)
+        assertEquals(100L, stats.jitterMs)
         assertEquals(2, stats.failureStreak)
         assertEquals(SmartRouteVerdict.FAILED, stats.measurement.verdict)
     }
@@ -27,8 +27,8 @@ class SmartRouteHistoryTest {
     @Test fun boundsHistoryToRecentSamples() {
         val stats = SmartRouteHistory.aggregate((1L..30L).map { sample(it, SmartRouteVerdict.WORKS, it) })!!
         assertEquals(20, stats.measurement.sampleCount)
-        assertEquals(20, stats.measurement.medianRttMs)
-        assertEquals(29, stats.measurement.p95RttMs)
+        assertEquals(20L, stats.measurement.medianRttMs)
+        assertEquals(29L, stats.measurement.p95RttMs)
     }
 
     @Test fun emptyHistoryHasNoStats() = assertNull(SmartRouteHistory.aggregate(emptyList()))
