@@ -154,6 +154,9 @@
     <string name="smart_connection_reason_stable">به‌دلیل موفقیت در درخواست واقعی HTTPS و بهترین امتیاز پایداری/تأخیر روی همین شبکه انتخاب شد.</string>
     <string name="smart_connection_need_test">برای پیشنهاد مخصوص همین شبکه، «تست اتصال‌های نمایش‌داده‌شده» را اجرا کن. نتیجهٔ Wi-Fi یا اپراتور دیگر استفاده نمی‌شود.</string>
     <string name="smart_connection_locked_unavailable">برای کشور قفل‌شده مسیر تأییدشده‌ای پیدا نشد.</string>
+    <string name="smart_connection_test_routes">تست مستقیم، Worker و Orbot</string>
+    <string name="smart_connection_testing_routes">در حال آزمایش مسیرها…</string>
+    <string name="smart_connection_test_complete">%1$d مسیر از %2$d سرتاسری تأیید شد</string>
     <string name="connection_testing_page_config">مهلت %1$d ثانیه · %2$d هم‌زمان · تست سرعت %3$d مگابایت</string>
     <string name="connection_testing_back">بازگشت به وی‌پی‌ان</string>
     <string name="connection_selector_loading">در حال بارگذاری اتصالات…</string>

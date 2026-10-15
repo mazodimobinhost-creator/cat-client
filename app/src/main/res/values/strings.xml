@@ -153,6 +153,9 @@
     <string name="smart_connection_reason_stable">Chosen because it passed a real HTTPS test and has the best stability/latency score on this network.</string>
     <string name="smart_connection_need_test">Run “Test visible connections” to get a recommendation for this network. Old results from another Wi-Fi or carrier are not reused.</string>
     <string name="smart_connection_locked_unavailable">No proven route matches the locked country.</string>
+    <string name="smart_connection_test_routes">Test direct, Worker and Orbot</string>
+    <string name="smart_connection_testing_routes">Testing routes…</string>
+    <string name="smart_connection_test_complete">%1$d of %2$d routes passed end-to-end</string>
     <string name="connection_testing_page_config">%1$d s timeout · %2$d at once · %3$d MB speed test</string>
     <string name="connection_testing_back">Back to VPN</string>
     <string name="connection_selector_loading">Loading connections…</string>

@@ -13014,6 +13014,15 @@ class MainActivity : Activity() {
             includeFontPadding = false
             setLineSpacing(0f, 1.15f)
         }
+        val smartScoutButton = MaterialButton(this).apply {
+            setText(R.string.smart_connection_test_routes)
+            setAllCaps(false)
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            cornerRadius = dp(24)
+            backgroundTintList = ColorStateList.valueOf(TEAL)
+            setTextColor(BACKGROUND)
+        }
         val smartRecommendationCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -13030,6 +13039,7 @@ class MainActivity : Activity() {
                 includeFontPadding = false
             }, LinearLayout.LayoutParams(-1, -2))
             addView(smartRecommendationText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(smartScoutButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
         }
 
         fun renderSmartRecommendation() {
@@ -13046,9 +13056,10 @@ class MainActivity : Activity() {
                 countryByFingerprint = countries,
                 currentNetworkKey = networkKey,
             )
+            val scoutMeasurements = SmartRouteScoutStore(this@MainActivity).read(networkKey)
             val recommendation = SmartConnectionAdvisor.recommend(
                 network = SmartNetworkSnapshotReader.read(this@MainActivity),
-                measurements = measurements,
+                measurements = measurements + scoutMeasurements,
             )
             val selected = recommendation.selected
             smartRecommendationText.text = if (selected == null) {
@@ -13070,6 +13081,25 @@ class MainActivity : Activity() {
                     getString(R.string.smart_connection_metrics, selected.medianRttMs ?: 0L, speed),
                     getString(R.string.smart_connection_reason_stable),
                 ).joinToString("\n")
+            }
+        }
+
+        smartScoutButton.setOnClickListener {
+            smartScoutButton.isEnabled = false
+            smartScoutButton.setText(R.string.smart_connection_testing_routes)
+            activityScope.launch {
+                val networkKey = NetworkContext.key(this@MainActivity)
+                val results = SmartRouteScout.run(this@MainActivity)
+                SmartRouteScoutStore(this@MainActivity).save(networkKey, results)
+                renderSmartRecommendation()
+                smartScoutButton.isEnabled = true
+                smartScoutButton.setText(R.string.smart_connection_test_routes)
+                val working = results.count { it.verdict == SmartRouteVerdict.WORKS }
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.smart_connection_test_complete, working, results.size),
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
 
