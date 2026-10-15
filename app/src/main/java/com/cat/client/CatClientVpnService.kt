@@ -850,7 +850,6 @@ class CatClientVpnService : VpnService() {
                             }
                         }
                     }
-                    val testedNetworkKey = NetworkContext.key(this@CatClientVpnService)
                     val nextDelayProfileIndex = AtomicInteger(0)
                     try {
                         coroutineScope {
@@ -862,31 +861,44 @@ class CatClientVpnService : VpnService() {
                                         if (index >= profiles.size) break
                                         val profile = profiles[index]
                                         val progressSession = connectionTestWakeLock.hold {
+                                            val networkBefore = SmartNetworkSnapshotReader.read(this@CatClientVpnService)
                                             val delayMs = realConnectionDelayMs(
                                                 controller = controller,
                                                 profile = profile,
                                                 timeoutMs = testSettings.timeoutSeconds * 1_000,
                                             )
-                                            enqueueRecord(
-                                                ConnectionDelayRecord(
-                                                    subscriptionId = resolvedSubscriptionId,
-                                                    fingerprint = profile.fingerprint,
-                                                    delayMs = delayMs,
-                                                    status = if (delayMs != null) {
-                                                        ConnectionDelayStatus.Success
-                                                    } else {
-                                                        ConnectionDelayStatus.Failure
-                                                    },
-                                                    testedAt = System.currentTimeMillis(),
-                                                    networkKey = testedNetworkKey,
-                                                ),
+                                            val networkAfter = SmartNetworkSnapshotReader.read(this@CatClientVpnService)
+                                            val verdict = SmartRouteProbePolicy.httpVerdict(
+                                                statusCode = if (delayMs != null) 204 else null,
+                                                networkBefore = networkBefore.key,
+                                                networkAfter = networkAfter.key,
+                                                validatedBefore = networkBefore.validated,
+                                                validatedAfter = networkAfter.validated,
+                                                captiveBefore = networkBefore.captivePortal,
+                                                captiveAfter = networkAfter.captivePortal,
                                             )
+                                            if (SmartRouteProbePolicy.shouldPersist(verdict, networkBefore.key, networkAfter.key)) {
+                                                enqueueRecord(
+                                                    ConnectionDelayRecord(
+                                                        subscriptionId = resolvedSubscriptionId,
+                                                        fingerprint = profile.fingerprint,
+                                                        delayMs = delayMs,
+                                                        status = if (delayMs != null) {
+                                                            ConnectionDelayStatus.Success
+                                                        } else {
+                                                            ConnectionDelayStatus.Failure
+                                                        },
+                                                        testedAt = System.currentTimeMillis(),
+                                                        networkKey = networkBefore.key,
+                                                    ),
+                                                )
+                                            }
                                             progressMutex.withLock {
                                                 ConnectionDelayTestState.update(testId) { current ->
                                                     current.copy(
                                                         status = Actions.DELAY_TEST_PROGRESS,
                                                         completed = current.completed + 1,
-                                                        available = current.available + if (delayMs != null) 1 else 0,
+                                                        available = current.available + if (verdict == SmartRouteVerdict.WORKS) 1 else 0,
                                                         finishedFingerprints =
                                                             current.finishedFingerprints + profile.fingerprint,
                                                     )

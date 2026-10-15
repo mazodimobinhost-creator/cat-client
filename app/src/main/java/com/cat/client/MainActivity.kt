@@ -4475,6 +4475,37 @@ class MainActivity : Activity() {
                 topMargin = dp(4)
             },
         )
+        val dnsttEvidenceButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            fun refreshLabel() {
+                text = when (orbotEnginePreferenceStore.readDnsttEvidence()) {
+                    DnsttTransportEvidence.CONFIGURED -> getString(R.string.dnstt_evidence_configured)
+                    DnsttTransportEvidence.NOT_CONFIGURED -> getString(R.string.dnstt_evidence_not_configured)
+                    DnsttTransportEvidence.UNKNOWN -> getString(R.string.dnstt_evidence_unknown)
+                }
+            }
+            refreshLabel()
+            setOnClickListener {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(R.string.dnstt_evidence_title)
+                    .setItems(arrayOf(
+                        getString(R.string.dnstt_evidence_configured),
+                        getString(R.string.dnstt_evidence_not_configured),
+                        getString(R.string.dnstt_evidence_unknown),
+                    )) { _, index ->
+                        val selected = arrayOf(
+                            DnsttTransportEvidence.CONFIGURED,
+                            DnsttTransportEvidence.NOT_CONFIGURED,
+                            DnsttTransportEvidence.UNKNOWN,
+                        )[index]
+                        orbotEnginePreferenceStore.setDnsttEvidence(selected)
+                        refreshLabel()
+                    }
+                    .setNegativeButton(R.string.split_tunnel_cancel, null)
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+        orbotPanel.addView(dnsttEvidenceButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         val watchdogSwitch = MaterialSwitch(this).apply {
             contentDescription = getString(R.string.watchdog_title)
             isChecked = pathWatchdogStore.isArmed()
@@ -13123,6 +13154,13 @@ class MainActivity : Activity() {
                 preference = smartPreference,
             )
             val selected = recommendation.selected
+            val identity = SmartNetworkIdentityReader.read(this@MainActivity)
+            val unknown = getString(R.string.smart_value_unknown)
+            val activeRoute = when {
+                buttonModel.state == VpnState.Started && activeConnectionTag.isNotBlank() -> activeConnectionTag
+                buttonModel.state != VpnState.Started && buttonModel.state != VpnState.Starting -> getString(R.string.smart_route_direct)
+                else -> unknown
+            }
             smartSelectedRoute = selected
             smartSelectedProfile = selected?.let { selectedRoute ->
                 selectorProfiles.firstOrNull { it.fingerprint == selectedRoute.id }
@@ -13130,25 +13168,37 @@ class MainActivity : Activity() {
             smartApplyButton.isEnabled = smartSelectedProfile != null ||
                 selected?.kind == SmartRouteKind.ORBOT || selected?.kind == SmartRouteKind.DIRECT
             smartApplyButton.alpha = if (smartApplyButton.isEnabled) 1f else 0.45f
+            val measuredAt = selected?.measuredAtMs?.takeIf { it > 0L }?.let {
+                java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))
+            } ?: unknown
+            val liveFacts = listOf(
+                getString(R.string.smart_live_network, identity.type, identity.operator ?: unknown),
+                getString(R.string.smart_live_active_route, activeRoute),
+                getString(
+                    R.string.smart_live_egress,
+                    selected?.exitIp ?: unknown,
+                    selected?.countryCode ?: unknown,
+                    selected?.medianRttMs?.toString() ?: unknown,
+                ),
+                getString(R.string.smart_live_measured_at, measuredAt),
+            )
             smartRecommendationText.text = if (selected == null) {
-                getString(R.string.smart_connection_network, networkKey) + "\n" +
-                    getString(
-                        if (recommendation.blockedReason == "locked-country-unavailable") {
-                            R.string.smart_connection_locked_unavailable
-                        } else {
-                            R.string.smart_connection_need_test
-                        },
-                    )
+                (liveFacts + getString(
+                    if (recommendation.blockedReason == "locked-country-unavailable") {
+                        R.string.smart_connection_locked_unavailable
+                    } else {
+                        R.string.smart_connection_need_test
+                    },
+                )).joinToString("\n")
             } else {
                 val speed = selected.throughputKbps?.let {
                     getString(R.string.smart_connection_speed, it / 1_000.0)
                 }.orEmpty()
-                listOf(
-                    getString(R.string.smart_connection_network, networkKey),
+                (liveFacts + listOf(
                     getString(R.string.smart_connection_best, selected.label),
                     getString(R.string.smart_connection_metrics, selected.medianRttMs ?: 0L, speed),
                     getString(R.string.smart_connection_reason_stable),
-                ).joinToString("\n")
+                )).joinToString("\n")
             }
         }
 
@@ -13221,12 +13271,21 @@ class MainActivity : Activity() {
         }
 
         smartScoutButton.setOnClickListener {
+            val networkKeyAtStart = NetworkContext.key(this@MainActivity)
+            val scoutStore = SmartRouteScoutStore(this@MainActivity)
+            val now = System.currentTimeMillis()
+            if (!SmartRouteScout.canProbe(scoutStore.lastProbeAt(networkKeyAtStart), now)) {
+                Toast.makeText(this@MainActivity, R.string.smart_probe_rate_limited, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            scoutStore.markProbeAt(networkKeyAtStart, now)
             smartScoutButton.isEnabled = false
             smartScoutButton.setText(R.string.smart_connection_testing_routes)
             activityScope.launch {
-                val networkKey = NetworkContext.key(this@MainActivity)
                 val results = SmartRouteScout.run(this@MainActivity)
-                SmartRouteScoutStore(this@MainActivity).save(networkKey, results)
+                if (NetworkContext.key(this@MainActivity) == networkKeyAtStart) {
+                    scoutStore.save(networkKeyAtStart, results)
+                }
                 renderSmartRecommendation()
                 smartScoutButton.isEnabled = true
                 smartScoutButton.setText(R.string.smart_connection_test_routes)

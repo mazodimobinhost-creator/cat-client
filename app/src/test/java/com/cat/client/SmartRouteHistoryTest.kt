@@ -31,5 +31,9 @@ class SmartRouteHistoryTest {
         assertEquals(29L, stats.measurement.p95RttMs)
     }
 
+    @Test fun networksUseDifferentHistoryKeys() {
+        org.junit.Assert.assertNotEquals(SmartRouteHistory.storageKey("wifi:a"), SmartRouteHistory.storageKey("mobile:b"))
+    }
+
     @Test fun emptyHistoryHasNoStats() = assertNull(SmartRouteHistory.aggregate(emptyList()))
 }

@@ -1201,4 +1201,15 @@
     <string name="crash_native_detail">اجرای قبلی بدون استثنای جاوا تمام شد (احتمالاً کرش نیتیو یا کم‌بودن حافظه). اگر تکرار شد، همین اسکرین‌شات را همراه مدل گوشی و نسخهٔ اندروید برای توسعه‌دهنده بفرست.</string>
     <string name="crash_channel">گزارش کرش</string>
     <string name="crash_startup_failed">اپ با خطای راه‌اندازی روبه‌رو شد ولی بسته نشد.\n\nلطفاً همین متن را برای توسعه‌دهنده بفرست:\n\n%1$s</string>
+    <string name="dnstt_evidence_title">مدرک transport برای dnstt</string>
+    <string name="dnstt_evidence_configured">dnstt: در Orbot تنظیم شده</string>
+    <string name="dnstt_evidence_not_configured">dnstt: تنظیم نشده</string>
+    <string name="dnstt_evidence_unknown">dnstt: نامشخص (بدون مدرک transport)</string>
+    <string name="smart_value_unknown">نامشخص</string>
+    <string name="smart_route_direct">مستقیم</string>
+    <string name="smart_live_network">شبکه: %1$s · اپراتور: %2$s</string>
+    <string name="smart_live_active_route">مسیر فعال: %1$s</string>
+    <string name="smart_live_egress">خروجی: IP %1$s · کشور %2$s · پینگ %3$s میلی‌ثانیه</string>
+    <string name="smart_live_measured_at">اندازه‌گیری: %1$s</string>
+    <string name="smart_probe_rate_limited">آزمایش تازه اجرا شده؛ ۳۰ ثانیه صبر کنید.</string>
 </resources>

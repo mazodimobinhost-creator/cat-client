@@ -1202,4 +1202,15 @@
     <string name="crash_native_detail">The previous launch ended without a Java exception (likely a native crash or a low-memory kill). If it keeps happening, send this screenshot to the developer together with your phone model and Android version.</string>
     <string name="crash_channel">Crash reports</string>
     <string name="crash_startup_failed">The app hit a startup error but kept running.\n\nPlease send this text to the developer:\n\n%1$s</string>
+    <string name="dnstt_evidence_title">dnstt transport evidence</string>
+    <string name="dnstt_evidence_configured">dnstt: configured in Orbot</string>
+    <string name="dnstt_evidence_not_configured">dnstt: not configured</string>
+    <string name="dnstt_evidence_unknown">dnstt: UNKNOWN (no transport evidence)</string>
+    <string name="smart_value_unknown">UNKNOWN</string>
+    <string name="smart_route_direct">Direct</string>
+    <string name="smart_live_network">Network: %1$s · Operator: %2$s</string>
+    <string name="smart_live_active_route">Active route: %1$s</string>
+    <string name="smart_live_egress">Egress: IP %1$s · Country %2$s · Ping %3$s ms</string>
+    <string name="smart_live_measured_at">Measured: %1$s</string>
+    <string name="smart_probe_rate_limited">Probe recently ran; wait 30 seconds.</string>
 </resources>

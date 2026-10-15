@@ -662,7 +662,7 @@ jobs:
           fi
 
       - name: Create GitHub Release and attach APKs
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/')) && (steps.app_version.outputs.version != '1.10.0-beta113' || vars.BETA113_DEVICE_SIGNOFF == 'true')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

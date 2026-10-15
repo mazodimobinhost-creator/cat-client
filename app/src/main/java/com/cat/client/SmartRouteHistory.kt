@@ -9,6 +9,7 @@ internal data class SmartRouteHistoryStats(
 /** Pure bounded-history aggregation; Android persistence lives in SmartRouteScoutStore. */
 internal object SmartRouteHistory {
     const val MAX_SAMPLES_PER_ROUTE = 20
+    fun storageKey(networkKey: String): String = "history:$networkKey"
 
     fun aggregate(samples: List<SmartRouteMeasurement>): SmartRouteHistoryStats? {
         if (samples.isEmpty()) return null

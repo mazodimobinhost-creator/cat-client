@@ -12,9 +12,12 @@ internal enum class SmartRouteKind {
 
 internal enum class SmartRouteVerdict {
     WORKS,
-    INCONCLUSIVE,
-    NEEDS_SETUP,
     FAILED,
+    INCONCLUSIVE,
+    UNKNOWN,
+    NOT_CONFIGURED,
+    ORBOT_OFF,
+    NEEDS_SETUP,
 }
 
 internal enum class CountrySelectionMode {

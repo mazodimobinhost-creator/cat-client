@@ -186,6 +186,15 @@ internal class OrbotEnginePreferenceStore(context: Context) {
             .apply()
     }
 
+    /** Explicit owner evidence only; SOCKS success cannot reveal Orbot's hidden transport. */
+    fun readDnsttEvidence(): DnsttTransportEvidence = runCatching {
+        DnsttTransportEvidence.valueOf(prefs.getString(KEY_DNSTT_EVIDENCE, null).orEmpty())
+    }.getOrDefault(DnsttTransportEvidence.UNKNOWN)
+
+    fun setDnsttEvidence(evidence: DnsttTransportEvidence) {
+        prefs.edit().putString(KEY_DNSTT_EVIDENCE, evidence.name).apply()
+    }
+
     /** What the runtime builder needs — or null while the engine is off. */
     fun readActiveSettings(): OrbotProxySettings? {
         if (!isEnabled()) return null
@@ -196,5 +205,6 @@ internal class OrbotEnginePreferenceStore(context: Context) {
         const val KEY_ENABLED = "enabled"
         const val KEY_HOST = "host"
         const val KEY_PORT = "port"
+        const val KEY_DNSTT_EVIDENCE = "dnstt_transport_evidence"
     }
 }

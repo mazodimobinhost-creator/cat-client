@@ -31,14 +31,19 @@ internal data class SmartScoutTarget(
 
 /** Non-profile routes. Every WORKS verdict below includes a real HTTP response. */
 internal object SmartRouteScout {
+    const val MIN_PROBE_INTERVAL_MS = 30_000L
+    fun canProbe(lastProbeAtMs: Long, nowMs: Long): Boolean = nowMs - lastProbeAtMs >= MIN_PROBE_INTERVAL_MS
+
     const val DIRECT_ID = "smart-direct"
     const val ORBOT_ID = "smart-orbot"
+    const val DNSTT_ID = "smart-dnstt"
 
     suspend fun run(context: Context): List<SmartRouteMeasurement> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         buildList {
             add(probeDirect(context, now))
             add(probeOrbot(context, now))
+            add(probeDnstt(context, now))
             PanelDeploymentStore(context).deployments().forEach { deployment ->
                 add(probeWorkerControlPlane(deployment.workerUrl, now))
             }
@@ -98,6 +103,46 @@ internal object SmartRouteScout {
         )
     }
 
+    private fun probeDnstt(context: Context, now: Long): SmartRouteMeasurement {
+        val settings = OrbotEnginePreferenceStore(context)
+        val evidence = settings.readDnsttEvidence()
+        val enabled = settings.isEnabled()
+        if (!enabled || evidence != DnsttTransportEvidence.CONFIGURED) {
+            return measurement(
+                DNSTT_ID,
+                SmartRouteKind.DNSTT,
+                "dnstt / Orbot",
+                SmartRouteProbePolicy.dnsttVerdict(enabled, evidence, null),
+                now,
+                requiresSetup = evidence == DnsttTransportEvidence.NOT_CONFIGURED,
+            )
+        }
+        val before = SmartNetworkSnapshotReader.read(context)
+        val started = System.nanoTime()
+        val status = runCatching {
+            MihomoRuntimeHealth.httpStatusThroughSocksProxy(settings.readPort(), timeoutMs = 5_000)
+        }.getOrNull()
+        val after = SmartNetworkSnapshotReader.read(context)
+        val elapsed = (System.nanoTime() - started) / 1_000_000
+        val httpVerdict = SmartRouteProbePolicy.httpVerdict(
+            statusCode = status,
+            networkBefore = before.key,
+            networkAfter = after.key,
+            validatedBefore = before.validated,
+            validatedAfter = after.validated,
+            captiveBefore = before.captivePortal,
+            captiveAfter = after.captivePortal,
+        )
+        return measurement(
+            DNSTT_ID,
+            SmartRouteKind.DNSTT,
+            "dnstt / Orbot",
+            SmartRouteProbePolicy.dnsttVerdict(enabled, evidence, httpVerdict),
+            now,
+            elapsed,
+        )
+    }
+
     /** Healthy panel code is useful diagnosis, but it does not prove its VLESS data path. */
     private fun probeWorkerControlPlane(workerUrl: String, now: Long): SmartRouteMeasurement {
         val host = runCatching { URL(workerUrl).host }.getOrDefault(workerUrl)
@@ -143,11 +188,18 @@ internal class SmartRouteScoutStore(context: Context) {
 
     fun save(networkKey: String, measurements: List<SmartRouteMeasurement>) {
         val history = readRawHistory(networkKey).toMutableList()
-        history.addAll(measurements)
+        // A changed/captive/unvalidated network is not evidence for either network.
+        history.addAll(measurements.filter { it.verdict != SmartRouteVerdict.INCONCLUSIVE })
         val bounded = history.groupBy { it.id }.values.flatMap { routeSamples ->
             routeSamples.sortedBy { it.measuredAtMs }.takeLast(SmartRouteHistory.MAX_SAMPLES_PER_ROUTE)
         }
-        prefs.edit().putString("history:$networkKey", encode(bounded).toString()).apply()
+        prefs.edit().putString(SmartRouteHistory.storageKey(networkKey), encode(bounded).toString()).apply()
+    }
+
+    fun lastProbeAt(networkKey: String): Long = prefs.getLong("last-probe:$networkKey", 0L)
+
+    fun markProbeAt(networkKey: String, atMs: Long) {
+        prefs.edit().putLong("last-probe:$networkKey", atMs).apply()
     }
 
     fun read(networkKey: String): List<SmartRouteMeasurement> {
@@ -160,7 +212,7 @@ internal class SmartRouteScoutStore(context: Context) {
     }
 
     private fun readRawHistory(networkKey: String): List<SmartRouteMeasurement> =
-        decode(prefs.getString("history:$networkKey", null))
+        decode(prefs.getString(SmartRouteHistory.storageKey(networkKey), null))
 
     private fun encode(items: List<SmartRouteMeasurement>) = JSONArray().also { array ->
         items.forEach { item ->
