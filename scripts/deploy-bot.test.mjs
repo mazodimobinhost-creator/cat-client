@@ -229,12 +229,14 @@ const ENV = (t) => ({ TG_TOKEN: t, CF_API_TOKEN: 'cf-tok', CF_ACCOUNT_ID: 'acc1'
   ]);
   let probes = 0; const base = broken.F;
   const F = async (u, o = {}) => {
-    if (String(u) === 'https://cat-panel.me.workers.dev/health' && probes++ === 0) return { ok: false, status: 500, json: async () => null };
+    if (String(u) === 'https://cat-panel.me.workers.dev/health' && probes++ < 2) return { ok: false, status: 500, json: async () => null };
     return base(u, o);
   };
-  const healed = await T.runCommand(F, T.cfg(Object.assign(ENV('heal-bad'), { __fetch: F })), '/heal');
+  const healEnv = Object.assign(ENV('heal-bad'), { __fetch: F, SAFE_REF: 'stable-recovery', HEAL_FAILURE_THRESHOLD: '2' });
+  const healed = await T.runCommand(F, T.cfg(healEnv), '/heal');
   const names = broken.state.bindings.map((x) => x.name);
-  check('/heal redeploys only after failed health and verifies recovery', healed.includes('خودترمیم انجام شد') && probes >= 2 && broken.calls.some((x) => x.u.endsWith('/workers/scripts/cat-panel') && x.opt.method === 'PUT'));
+  check('/heal redeploys only after two failed probes and verifies recovery', healed.includes('2 بار خراب بود') && probes >= 3 && broken.calls.some((x) => x.u.endsWith('/workers/scripts/cat-panel') && x.opt.method === 'PUT'));
+  check('/heal can pin a protected recovery ref', broken.calls.some((x) => x.u.includes('raw.githubusercontent.com') && x.u.includes('/refs/heads/stable-recovery/')));
   check('/heal preserves D1, KV and opaque secrets', names.includes('IOT_DB') && names.includes('CAT_KV') && names.includes('CUSTOM_SECRET') && !healed.includes('never-print-this'));
 }
 // 2g) /save reports Cloudflare version storage without exposing secret values

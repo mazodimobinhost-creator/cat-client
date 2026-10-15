@@ -48,6 +48,8 @@ function cfg(env) {
     name: String(env.WORKER_NAME || DEFAULT_WORKER).replace(/[^A-Za-z0-9_-]/g, '') || DEFAULT_WORKER,
     repo: String(env.GH_REPO || DEFAULT_REPO).replace(/[^A-Za-z0-9._/-]/g, '') || DEFAULT_REPO,
     autoHeal: String(env.AUTO_HEAL == null ? '1' : env.AUTO_HEAL).trim() !== '0',
+    healFailures: Math.min(3, Math.max(2, Number.parseInt(env.HEAL_FAILURE_THRESHOLD || '2', 10) || 2)),
+    safeRef: /^[A-Za-z0-9._/-]{1,120}$/.test(String(env.SAFE_REF || '').trim()) ? String(env.SAFE_REF).trim() : '',
   };
 }
 
@@ -251,13 +253,20 @@ async function rollbackPrevious(F, c) {
 
 /** Repair only after a real failed health probe; preserve every existing binding. */
 async function repairPanel(F, c) {
-  const before = await probePanel(F, c);
-  if (before.ok) return { ok: true, action: 'none', before };
-  const deployed = await deployPanel(F, c, '');
-  if (deployed.ok && deployed.health && deployed.health.ok) return { ok: true, action: 'redeployed', before, deployed };
+  const attempts = [];
+  for (let i = 0; i < c.healFailures; i++) {
+    const probe = await probePanel(F, c);
+    attempts.push(probe);
+    // Any successful probe clears the run. This prevents a single transient edge
+    // failure from turning into a destructive redeploy.
+    if (probe.ok) return { ok: true, action: 'none', before: probe, attempts };
+  }
+  const before = attempts[attempts.length - 1];
+  const deployed = await deployPanel(F, c, c.safeRef);
+  if (deployed.ok && deployed.health && deployed.health.ok) return { ok: true, action: 'redeployed', before, attempts, deployed };
   const rollback = await rollbackPrevious(F, c);
   const after = rollback.ok ? await probePanel(F, c) : { ok: false };
-  return { ok: false, action: rollback.ok ? 'rolled-back' : 'failed', before, deployed, rollback, after };
+  return { ok: false, action: rollback.ok ? 'rolled-back' : 'failed', before, attempts, deployed, rollback, after };
 }
 
 async function runCommand(F, c, text, chatId) {
@@ -324,7 +333,7 @@ async function runCommand(F, c, text, chatId) {
       if (!c.cf || !c.acc || !isUuid(c.panelUuid)) return setupChecklist(c);
       const result = await repairPanel(F, c);
       if (result.action === 'none') return '✅ health سالم است؛ برای جلوگیری از ریسک، هیچ deploy یا تغییری انجام نشد.';
-      if (result.action === 'redeployed') return '🛠 خودترمیم انجام شد: health خراب بود، نسخهٔ معتبر دوباره deploy شد و health v' + esc(result.deployed.ver) + ' تأیید شد. KV، D1، UUID و Secretهای موجود حفظ شدند.';
+      if (result.action === 'redeployed') return '🛠 خودترمیم انجام شد: health ' + c.healFailures + ' بار خراب بود، نسخهٔ معتبر دوباره deploy شد و health v' + esc(result.deployed.ver) + ' تأیید شد. KV، D1، UUID و Secretهای موجود حفظ شدند.';
       return '🔴 ترمیم نسخهٔ تازه سالم نشد؛ ' + (result.action === 'rolled-back' ? 'برای جلوگیری از قطع بیشتر به نسخهٔ قبلی rollback شد.' : 'rollback هم در دسترس نبود.') + ' /doctor را بررسی کن.';
     }
     case '/doctor': {
