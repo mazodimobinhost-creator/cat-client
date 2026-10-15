@@ -145,6 +145,14 @@
     <string name="connection_label">Connection</string>
     <string name="connection_selector_title">Select connection</string>
     <string name="connection_testing_page_title">Connection testing</string>
+    <string name="smart_connection_title">Smart connection</string>
+    <string name="smart_connection_network">Current network: %1$s</string>
+    <string name="smart_connection_best">Best for this network: %1$s</string>
+    <string name="smart_connection_metrics">%1$d ms%2$s</string>
+    <string name="smart_connection_speed"> · %.1f Mbps</string>
+    <string name="smart_connection_reason_stable">Chosen because it passed a real HTTPS test and has the best stability/latency score on this network.</string>
+    <string name="smart_connection_need_test">Run “Test visible connections” to get a recommendation for this network. Old results from another Wi-Fi or carrier are not reused.</string>
+    <string name="smart_connection_locked_unavailable">No proven route matches the locked country.</string>
     <string name="connection_testing_page_config">%1$d s timeout · %2$d at once · %3$d MB speed test</string>
     <string name="connection_testing_back">Back to VPN</string>
     <string name="connection_selector_loading">Loading connections…</string>

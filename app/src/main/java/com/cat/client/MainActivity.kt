@@ -13007,6 +13007,72 @@ class MainActivity : Activity() {
             )
         }
 
+        val smartRecommendationText = TextView(this).apply {
+            textSize = 14f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            setLineSpacing(0f, 1.15f)
+        }
+        val smartRecommendationCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(SURFACE)
+                setStroke(dp(1), OUTLINE)
+            }
+            addView(TextView(this@MainActivity).apply {
+                setText(R.string.smart_connection_title)
+                textSize = 18f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEAL)
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(smartRecommendationText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+
+        fun renderSmartRecommendation() {
+            val networkKey = NetworkContext.key(this@MainActivity)
+            val countries = selectorProfiles.associate { profile ->
+                profile.fingerprint to ConnectionLocationPolicy.countryForProfile(profile, displayLocale)?.code
+            }
+            val smartNetworkRecords = subscriptionStore
+                .readConnectionDelayRecordsForNetwork(selectedSubscriptionId, selectorProfiles, networkKey)
+                .associateBy(ConnectionDelayRecord::fingerprint)
+            val measurements = SmartRouteMeasurementAdapter.fromProfiles(
+                profiles = selectorProfiles,
+                records = smartNetworkRecords,
+                countryByFingerprint = countries,
+                currentNetworkKey = networkKey,
+            )
+            val recommendation = SmartConnectionAdvisor.recommend(
+                network = SmartNetworkSnapshotReader.read(this@MainActivity),
+                measurements = measurements,
+            )
+            val selected = recommendation.selected
+            smartRecommendationText.text = if (selected == null) {
+                getString(R.string.smart_connection_network, networkKey) + "\n" +
+                    getString(
+                        if (recommendation.blockedReason == "locked-country-unavailable") {
+                            R.string.smart_connection_locked_unavailable
+                        } else {
+                            R.string.smart_connection_need_test
+                        },
+                    )
+            } else {
+                val speed = selected.throughputKbps?.let {
+                    getString(R.string.smart_connection_speed, it / 1_000.0)
+                }.orEmpty()
+                listOf(
+                    getString(R.string.smart_connection_network, networkKey),
+                    getString(R.string.smart_connection_best, selected.label),
+                    getString(R.string.smart_connection_metrics, selected.medianRttMs ?: 0L, speed),
+                    getString(R.string.smart_connection_reason_stable),
+                ).joinToString("\n")
+            }
+        }
+
         lateinit var pageDelayTestListener: (Intent) -> Unit
         var lastDelayResultsRefreshAtMs: Long? = null
         var delayResultsRefreshScheduled = false
@@ -13020,6 +13086,7 @@ class MainActivity : Activity() {
                 .associateBy(ConnectionDelayRecord::fingerprint)
             filteredProfiles = visibleProfiles()
             adapter.notifyDataSetChanged()
+            renderSmartRecommendation()
             lastDelayResultsRefreshAtMs = SystemClock.elapsedRealtime()
         }
 
@@ -13161,6 +13228,12 @@ class MainActivity : Activity() {
                 bottomMargin = dp(16)
             },
         )
+        if (!pickerMode) {
+            content.addView(
+                smartRecommendationCard,
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) },
+            )
+        }
         subscriptionFilterButton?.let { button ->
             content.addView(
                 button,
@@ -13187,6 +13260,7 @@ class MainActivity : Activity() {
             content,
             FrameLayout.LayoutParams(-1, -1, Gravity.CENTER_HORIZONTAL),
         )
+        renderSmartRecommendation()
         updateTestControls()
         setConnectionTestingPageVisible(visible = true, animate = animate && !rebuild)
     }

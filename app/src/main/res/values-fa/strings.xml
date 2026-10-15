@@ -146,6 +146,14 @@
     <string name="connection_label">اتصال</string>
     <string name="connection_selector_title">انتخاب اتصال</string>
     <string name="connection_testing_page_title">آزمایش اتصال‌ها</string>
+    <string name="smart_connection_title">اتصال هوشمند</string>
+    <string name="smart_connection_network">شبکهٔ فعلی: %1$s</string>
+    <string name="smart_connection_best">بهترین برای این شبکه: %1$s</string>
+    <string name="smart_connection_metrics">%1$d میلی‌ثانیه%2$s</string>
+    <string name="smart_connection_speed"> · %.1f مگابیت‌برثانیه</string>
+    <string name="smart_connection_reason_stable">به‌دلیل موفقیت در درخواست واقعی HTTPS و بهترین امتیاز پایداری/تأخیر روی همین شبکه انتخاب شد.</string>
+    <string name="smart_connection_need_test">برای پیشنهاد مخصوص همین شبکه، «تست اتصال‌های نمایش‌داده‌شده» را اجرا کن. نتیجهٔ Wi-Fi یا اپراتور دیگر استفاده نمی‌شود.</string>
+    <string name="smart_connection_locked_unavailable">برای کشور قفل‌شده مسیر تأییدشده‌ای پیدا نشد.</string>
     <string name="connection_testing_page_config">مهلت %1$d ثانیه · %2$d هم‌زمان · تست سرعت %3$d مگابایت</string>
     <string name="connection_testing_back">بازگشت به وی‌پی‌ان</string>
     <string name="connection_selector_loading">در حال بارگذاری اتصالات…</string>

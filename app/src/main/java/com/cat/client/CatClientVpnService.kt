@@ -850,6 +850,7 @@ class CatClientVpnService : VpnService() {
                             }
                         }
                     }
+                    val testedNetworkKey = NetworkContext.key(this@CatClientVpnService)
                     val nextDelayProfileIndex = AtomicInteger(0)
                     try {
                         coroutineScope {
@@ -877,6 +878,7 @@ class CatClientVpnService : VpnService() {
                                                         ConnectionDelayStatus.Failure
                                                     },
                                                     testedAt = System.currentTimeMillis(),
+                                                    networkKey = testedNetworkKey,
                                                 ),
                                             )
                                             progressMutex.withLock {
@@ -998,7 +1000,10 @@ class CatClientVpnService : VpnService() {
                     val record = subscriptionStore
                         .readConnectionDelayRecords(subscriptionId, listOf(profile))
                         .firstOrNull()
-                        ?.takeIf { it.status == ConnectionDelayStatus.Success && it.delayMs != null }
+                        ?.takeIf {
+                            it.status == ConnectionDelayStatus.Success && it.delayMs != null &&
+                                (it.networkKey.isBlank() || it.networkKey == NetworkContext.key(this@CatClientVpnService))
+                        }
                         ?: throw IOException(getString(R.string.connection_speed_test_unavailable))
                     val speedTestBytes = connectionTestSettingsPreferenceStore.read().speedTestBytes
 
