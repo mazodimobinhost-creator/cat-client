@@ -1,32 +1,65 @@
 <div align="center">
 
-# 🐱 Cat Client
+<img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="104" alt="Cat Client icon">
 
-**کلاینت اندروید، پنل Cloudflare Worker و ابزارهای تشخیص مسیر — با تمرکز بر شواهد واقعی، حفظ داده و شکست امن**
+# Cat Client
+
+### اپ اندروید + پنل Cloudflare + ابزارهای بررسی مسیر
+
+**یک مجموعهٔ فارسی/انگلیسی برای مدیریت اتصال و پنل شخصی، با نصب fail-closed و تست‌های قابل مشاهده**
+
+<p>
+  <a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64_APK-7c3aed?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk"><img alt="Download Universal" src="https://img.shields.io/badge/Download-Universal_APK-a855f7?style=for-the-badge&logo=android&logoColor=white"></a>
+</p>
+<p>
+  <a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118"><img alt="Release page" src="https://img.shields.io/badge/Release-beta118-111827?style=flat-square&logo=github"></a>
+  <a href="docs/error-1101-fa.md"><img alt="1101 help" src="https://img.shields.io/badge/Help-Error_1101-dc2626?style=flat-square&logo=cloudflare&logoColor=white"></a>
+  <a href="https://github.com/mazodimobinhost-creator/cat-client/issues/new"><img alt="Report issue" src="https://img.shields.io/badge/Report-Issue-2563eb?style=flat-square&logo=github"></a>
+</p>
 
 [![Android CI](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/android.yml/badge.svg?branch=arena%2Fc5b36768-cat-client)](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/android.yml)
 [![Panel tests](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/panel.yml/badge.svg?branch=arena%2Fc5b36768-cat-client)](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/panel.yml)
 [![UI E2E](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/ui-e2e.yml/badge.svg?branch=arena%2Fc5b36768-cat-client)](https://github.com/mazodimobinhost-creator/cat-client/actions/workflows/ui-e2e.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Latest test candidate](https://img.shields.io/badge/test%20candidate-beta118-violet.svg)](https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118)
-
-[دانلود](#-دانلود) · [قابلیت‌ها](#-قابلیتهای-اصلی) · [پنل Cloudflare](#-پنل-cloudflare) · [خطای 1101](#-خطای-cloudflare-1101) · [توسعه](#-ساخت-و-تست) · [English](#english-summary)
 
 </div>
 
 > [!WARNING]
-> **نسخه `1.10.0-beta118` یک Test Candidate است، نه نسخه نهایی.** CI موفق بوده، اما اجرای واقعی روی حساب Cloudflare و تست گوشی فیزیکی هنوز تأیید نشده‌اند. برای Worker موجود از Wizard جهت reinstall/update استفاده نکنید.
+> **`beta118` نسخهٔ آزمایشی است.** CI موفق است، اما تست گوشی فیزیکی و deploy واقعی روی حساب Cloudflare هنوز تأیید نشده‌اند. Wizard فقط برای نصب تازه است و Worker موجود را overwrite نمی‌کند.
 
-## چرا Cat Client؟
+## از کجا شروع کنم؟
 
-Cat Client یک پروژه چندبخشی است:
+| کاری که می‌خواهید انجام دهید | مسیر سریع | وضعیت |
+|---|---|---|
+| نصب روی بیشتر گوشی‌های جدید | **[دانلود ARM64](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk)** | Test Candidate |
+| نصب وقتی ABI را نمی‌دانید | **[دانلود Universal](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk)** | حجم بیشتر |
+| نصب پنل روی نام Worker آزاد | **[Wizard 1.3.1](https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/catclient.wizard.js)** | فقط fresh install |
+| بررسی Worker دارای 1101 | **[راهنمای تشخیص 1101](docs/error-1101-fa.md)** | بدون حذف داده |
+| توسعه و اجرای تست‌ها | **[ساخت و تست](#-ساخت-و-تست)** | JDK + Android SDK + Node |
 
-- اپ اندروید بر پایه Mihomo برای مدیریت subscription، اتصال و ابزارهای شبکه؛
-- پنل فارسی/انگلیسی تک‌فایلی برای Cloudflare Workers؛
-- Wizard برای **نصب تازه** با کنترل سلامت runtime؛
-- تست‌های خودکار برای Android، Worker، Wizard و رابط کاربری.
+## نمای کلی
 
-هدف پروژه وعدهٔ «اتصال تضمینی» یا «عدم مسدودشدن» نیست. نتیجه‌ها باید از probe واقعی بیایند، Secretها و bindingهای کاربر حفظ شوند و عملیات مبهم به‌جای ادامه‌دادن، متوقف شوند.
+| Android | Cat Panel | ایمنی استقرار |
+|---|---|---|
+| Mihomo، subscription، QR و ابزارهای شبکه | Worker تک‌فایلی، کاربران، خروجی‌های مختلف و KV | data-plane پیش‌فرض خاموش |
+| فارسی/انگلیسی، RTL و تم روشن/تیره | health، diagnostics و backup ماسک‌شده | سه health متوالی برای نصب تازه |
+| کنترل update، checksum، ABI و امضا | normal minified ESM | update Worker موجود fail-closed |
+
+<details>
+<summary><strong>فهرست بخش‌ها</strong></summary>
+
+- [دانلودها](#-دانلود)
+- [قابلیت‌های اصلی](#-قابلیتهای-اصلی)
+- [پنل Cloudflare](#-پنل-cloudflare)
+- [تشخیص Error 1101](#-خطای-cloudflare-1101)
+- [وضعیت تست‌ها](#-وضعیت-تأیید)
+- [معماری](#-معماری)
+- [ساخت و تست](#-ساخت-و-تست)
+- [امنیت و مشارکت](#-امنیت-و-گزارش-مشکل)
+- [English summary](#english-summary)
+
+</details>
 
 ## 📥 دانلود
 
