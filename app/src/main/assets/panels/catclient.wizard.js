@@ -21,7 +21,7 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.1.0';
+const CAT_WIZARD_VERSION = '1.2.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const BRANCH = 'arena/01a0c678-cat-client';
@@ -215,8 +215,8 @@ async function uploadWorker(token, accountId, name, script, bindings) {
   return res.json.result || {};
 }
 
-async function enableRoute(token, accountId, name) {
-  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: true, previews_enabled: false });
+async function enableRoute(token, accountId, name, enabled = true) {
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: enabled === true, previews_enabled: false });
   return res.ok;
 }
 
@@ -262,7 +262,7 @@ async function fetchSource(kind, env) {
       lastError = url + ' → ' + (e && e.message ? e.message : e);
     }
   }
-  if (risky) { risky.risky = true; sourceCache.set(kind, risky); return risky; }
+  if (risky) throw new Error('refusing readable panel source: deployment could be disabled with Error 1101 (' + risky.url + ')');
   throw new Error('could not download the ' + kind + ' source (' + lastError + ')');
 }
 
@@ -358,18 +358,36 @@ async function* runInstall(input, env) {
   log('check', 'info', 'waiting for ' + workerUrl); yield* flush();
   let online = false;
   let version = '';
-  for (let attempt = 1; attempt <= 6 && !online; attempt++) {
+  let consecutiveHealthy = 0;
+  let lastHealth = 'no response';
+  for (let attempt = 1; attempt <= 8 && consecutiveHealthy < 3; attempt++) {
     try {
-      const res = await fetchImpl(workerUrl + '/health', { headers: { 'cache-control': 'no-cache' } });
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        online = body && body.ok === true;
-        version = body && body.version ? String(body.version) : '';
-      }
-    } catch (e) { /* propagation */ }
-    if (!online) await sleep(attempt < 3 ? 1500 : 3000);
+      const separator = workerUrl.includes('?') ? '&' : '?';
+      const res = await fetchImpl(workerUrl + '/health' + separator + '_verify=' + Date.now() + '-' + attempt, {
+        headers: { 'cache-control': 'no-cache, no-store' },
+        cf: { cacheTtl: 0, cacheEverything: false },
+      });
+      const body = await res.json().catch(() => ({}));
+      const healthy = res.ok && body && body.ok === true && String(body.version || '').trim() !== '';
+      version = healthy ? String(body.version) : version;
+      lastHealth = healthy ? 'ok' : 'HTTP ' + res.status + (body && body.error ? ' · ' + String(body.error).slice(0, 80) : '');
+      consecutiveHealthy = healthy ? consecutiveHealthy + 1 : 0;
+    } catch (e) {
+      consecutiveHealthy = 0;
+      lastHealth = e && e.message ? e.message : String(e);
+    }
+    if (consecutiveHealthy < 3) await sleep(attempt < 3 ? 1500 : 3000);
   }
-  log('check', online ? 'ok' : 'warn', online ? 'online · v' + version : 'not reachable yet — workers.dev needs up to a minute for a brand-new subdomain'); yield* flush();
+  online = consecutiveHealthy >= 3;
+  if (!online) {
+    // Never hand out a broken URL. For a fresh script, remove only its public route;
+    // keep KV/D1 and other account data untouched for diagnosis/retry.
+    if (!Object.keys(previous).length) await enableRoute(token, account.id, workerName, false).catch(() => false);
+    log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth });
+    yield* flush();
+    throw new Error('worker deployed but failed 3 consecutive /health checks; Error 1101 or runtime crash suspected');
+  }
+  log('check', 'ok', 'online · v' + version + ' · 3/3 health checks'); yield* flush();
 
   const password = customPassword || uuid;
   let stealthPath = '';

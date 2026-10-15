@@ -97,7 +97,7 @@ T.__setFetch(async (input, init = {}) => {
     return json({ success: false, errors: [{ message: 'unhandled ' + method + ' ' + p }] }, 500);
   }
 
-  if (url.endsWith('/health')) {
+  if (new URL(url).pathname === '/health') {
     const name = new URL(url).hostname.split('.')[0];
     if (!state.scripts[name]) return new Response('nf', { status: 404 });
     const isWizard = state.scripts[name].script.includes('CAT_WIZARD_VERSION');
