@@ -27,7 +27,7 @@
  * never in the repo. Send /revoke in BotFather if a token ever leaks.
  */
 
-const BOT_VERSION = '2.2.0';
+const BOT_VERSION = '2.3.0';
 const KV_TITLE = 'cat-panel-kv';
 const DEFAULT_REPO = 'mazodimobinhost-creator/cat-client';
 const DEFAULT_WORKER = 'cat-panel';
@@ -47,6 +47,7 @@ function cfg(env) {
     panelUuid: String(env.PANEL_UUID || '').trim().toLowerCase(),
     name: String(env.WORKER_NAME || DEFAULT_WORKER).replace(/[^A-Za-z0-9_-]/g, '') || DEFAULT_WORKER,
     repo: String(env.GH_REPO || DEFAULT_REPO).replace(/[^A-Za-z0-9._/-]/g, '') || DEFAULT_REPO,
+    autoHeal: String(env.AUTO_HEAL == null ? '1' : env.AUTO_HEAL).trim() !== '0',
   };
 }
 
@@ -221,6 +222,44 @@ const setupChecklist = (c) => {
     panelUuidNote + '\nThen compute the TG_TOKEN hash locally and open /register?key=… (see docs/deploy-bot.md).';
 };
 
+async function workerOrigin(F, c) {
+  const sub = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/subdomain');
+  const label = sub.json && sub.json.result && sub.json.result.subdomain;
+  return label ? 'https://' + c.name + '.' + label + '.workers.dev' : '';
+}
+
+async function probePanel(F, c) {
+  const origin = await workerOrigin(F, c);
+  if (!origin) return { ok: false, status: 0, error: 'workers.dev subdomain is unavailable' };
+  try {
+    const response = await F(origin + '/health', { redirect: 'follow', headers: { 'cache-control': 'no-cache' } });
+    const body = await response.json().catch(() => null);
+    return { ok: !!(response.ok && body && body.ok === true), status: response.status, version: body && body.version || '', origin };
+  } catch (error) {
+    return { ok: false, status: 0, error: String(error && error.message || error), origin };
+  }
+}
+
+async function rollbackPrevious(F, c) {
+  const list = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions');
+  const versions = Array.isArray(list.json && list.json.result) ? list.json.result : [];
+  if (!list.ok || versions.length < 2) return { ok: false, error: list.ok ? 'no previous version' : 'versions list ' + list.status };
+  const previous = versions[1];
+  const result = await cfApi(F, c, 'POST', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions/' + encodeURIComponent(previous.id) + '/rollback', {});
+  return { ok: result.ok, status: result.status, version: previous.number || previous.id };
+}
+
+/** Repair only after a real failed health probe; preserve every existing binding. */
+async function repairPanel(F, c) {
+  const before = await probePanel(F, c);
+  if (before.ok) return { ok: true, action: 'none', before };
+  const deployed = await deployPanel(F, c, '');
+  if (deployed.ok && deployed.health && deployed.health.ok) return { ok: true, action: 'redeployed', before, deployed };
+  const rollback = await rollbackPrevious(F, c);
+  const after = rollback.ok ? await probePanel(F, c) : { ok: false };
+  return { ok: false, action: rollback.ok ? 'rolled-back' : 'failed', before, deployed, rollback, after };
+}
+
 async function runCommand(F, c, text, chatId) {
   const parts = String(text || '').trim().split(/\s+/);
   const cmd = (parts[0] || '').toLowerCase().replace(/@.*$/, '');
@@ -229,7 +268,7 @@ async function runCommand(F, c, text, chatId) {
     case '/start': case '/help': {
       const ready = c.token && c.cf && c.acc && c.admin && isUuid(c.panelUuid);
       return '🐱 <b>Cat Deploy Bot</b> ' + BOT_VERSION + '\n🚀 یک دکمه = آخرین نسخهٔ پنل روی کلادفلر تو\n\n' +
-        '/deploy [branch] — deploy/update the panel\n/doctor — چک کامل: توکن/ورکر/KV/health\n/rollback — برگشت به نسخهٔ قبلی\n/status — panel + token health\n\n' +
+        '/deploy [branch] — deploy/update the panel\n/doctor — چک کامل: توکن/ورکر/KV/health\n/repair — ترمیم 1101؛ فقط اگر health خراب باشد\n/save — نمایش نسخهٔ ذخیره‌شده و bindingهای محافظت‌شده\n/rollback — برگشت به نسخهٔ قبلی\n/status — panel + token health\n\n' +
         (ready ? '✅ configured — send /deploy' : setupChecklist(c)) +
         '\n\nℹ️ من فقط دیپلوی می‌کنم؛ مدیریت پنل (کاربران/لینک‌ها) ربات داخل خود پنل است.';
     }
@@ -269,6 +308,25 @@ async function runCommand(F, c, text, chatId) {
       lines.push(res.kvReused ? '💾 KV قبلی دوباره وصل شد.' : '💾 KV تازه ساخته شد.');
       return lines.join('\n');
     }
+    case '/save': {
+      if (!c.cf || !c.acc) return setupChecklist(c);
+      const settings = await readExistingSettings(F, c);
+      if (!settings.ok || !settings.exists) return '🔴 ورکر یا تنظیماتش خوانده نشد؛ چیزی برای ذخیره‌سازی تأیید نشد.';
+      const versions = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions');
+      const list = Array.isArray(versions.json && versions.json.result) ? versions.json.result : [];
+      const names = settings.bindings.map((b) => b && b.name).filter(Boolean);
+      return '💾 <b>نسخهٔ امن ثبت است</b>\nCloudflare هر deploy را به‌صورت version نگه می‌دارد.' +
+        '\n📦 آخرین نسخه: <code>' + esc(list[0] && (list[0].number || list[0].id) || 'نامشخص') + '</code>' +
+        '\n🧷 bindingهای قابل بازیابی: <code>' + esc(names.join(', ') || 'none') + '</code>' +
+        '\n🔐 مقدار Secretها خوانده یا چاپ نشد؛ در deploy با keep_secrets حفظ می‌شود.';
+    }
+    case '/repair': case '/heal': {
+      if (!c.cf || !c.acc || !isUuid(c.panelUuid)) return setupChecklist(c);
+      const result = await repairPanel(F, c);
+      if (result.action === 'none') return '✅ health سالم است؛ برای جلوگیری از ریسک، هیچ deploy یا تغییری انجام نشد.';
+      if (result.action === 'redeployed') return '🛠 خودترمیم انجام شد: health خراب بود، نسخهٔ معتبر دوباره deploy شد و health v' + esc(result.deployed.ver) + ' تأیید شد. KV، D1، UUID و Secretهای موجود حفظ شدند.';
+      return '🔴 ترمیم نسخهٔ تازه سالم نشد؛ ' + (result.action === 'rolled-back' ? 'برای جلوگیری از قطع بیشتر به نسخهٔ قبلی rollback شد.' : 'rollback هم در دسترس نبود.') + ' /doctor را بررسی کن.';
+    }
     case '/doctor': {
       if (!c.cf || !c.acc) return setupChecklist(c);
       const acc = await cfApi(F, c, 'GET', '/accounts/' + c.acc);
@@ -297,14 +355,9 @@ async function runCommand(F, c, text, chatId) {
     }
     case '/rollback': {
       if (!c.cf || !c.acc) return setupChecklist(c);
-      const list = await cfApi(F, c, 'GET', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions');
-      if (!list.ok) return '🔴 versions list failed (' + list.status + ')';
-      const vs = Array.isArray(list.json && list.json.result) ? list.json.result : [];
-      if (vs.length < 2) return '🟡 فقط یک نسخهٔ دیپلوی‌شده هست — چیزی برای برگرداندن نیست';
-      const prev = vs[1];
-      const rb = await cfApi(F, c, 'POST', '/accounts/' + c.acc + '/workers/scripts/' + c.name + '/versions/' + encodeURIComponent(prev.id) + '/rollback', {});
-      if (!rb.ok) { const e0 = rb.json && rb.json.errors && rb.json.errors[0]; return '🔴 rollback failed (' + rb.status + (e0 ? ' — ' + esc(e0.code + ' ' + e0.message) : '') + ')'; }
-      return '⏪ به نسخهٔ قبلی برگشت (' + esc(String(prev.number || prev.id).slice(0, 16)) + ') — حالا /doctor را بزن';
+      const rb = await rollbackPrevious(F, c);
+      if (!rb.ok) return rb.error === 'no previous version' ? '🟡 فقط یک نسخهٔ دیپلوی‌شده هست — چیزی برای برگرداندن نیست' : '🔴 rollback failed (' + esc(rb.status || rb.error) + ')';
+      return '⏪ به نسخهٔ قبلی برگشت (' + esc(String(rb.version).slice(0, 16)) + ') — حالا /doctor را بزن';
     }
     case '/status': {
       if (!c.cf || !c.acc) return setupChecklist(c);
@@ -363,6 +416,19 @@ export default {
 
     return new Response('🐱 Cat Deploy Bot — see docs/deploy-bot.md', { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   },
+  async scheduled(_event, env, ctx) {
+    const F = env.__fetch || fetch;
+    const c = cfg(env);
+    if (!c.autoHeal || !c.cf || !c.acc || !isUuid(c.panelUuid)) return;
+    ctx.waitUntil((async () => {
+      const result = await repairPanel(F, c);
+      if (result.action === 'none' || !c.token || !c.admin) return;
+      const text = result.action === 'redeployed'
+        ? '🛠 خودترمیم خودکار: health خراب بود؛ نسخهٔ ' + esc(result.deployed.ver) + ' دوباره deploy و تأیید شد.'
+        : '🚨 خودترمیم خودکار موفق نشد؛ وضعیت: ' + esc(result.action) + '. /doctor را اجرا کن.';
+      await tgApi(F, c.token, 'sendMessage', { chat_id: c.admin, text, parse_mode: 'HTML', protect_content: true });
+    })());
+  },
 };
 
-export const _testing = { cfg, deployPanel, runCommand, sha256hex, panelSourceUrl, BOT_VERSION };
+export const _testing = { cfg, deployPanel, repairPanel, probePanel, rollbackPrevious, runCommand, sha256hex, panelSourceUrl, BOT_VERSION };

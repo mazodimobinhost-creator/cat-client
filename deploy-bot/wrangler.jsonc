@@ -8,5 +8,7 @@
   "name": "cat-deploy-bot",
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
-  "workers_dev": true
+  "workers_dev": true,
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": { "AUTO_HEAL": "1" }
 }

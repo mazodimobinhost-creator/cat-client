@@ -215,6 +215,39 @@ const ENV = (t) => ({ TG_TOKEN: t, CF_API_TOKEN: 'cf-tok', CF_ACCOUNT_ID: 'acc1'
   const rb2 = await T.runCommand(b2.F, T.cfg(env2), '/rollback');
   check('/rollback: single version → honest no-op', rb2.includes('🟡'), rb2.slice(0, 140));
 }
+// 2f) /repair is fail-closed: healthy means no write; failed health redeploys and verifies
+{
+  const healthy = mkBot('heal-ok'); const env = ENV('heal-ok'); env.__fetch = healthy.F;
+  const noOp = await T.runCommand(healthy.F, T.cfg(env), '/repair');
+  check('/repair does not redeploy a healthy worker', noOp.includes('هیچ deploy') && !healthy.calls.some((x) => x.u.endsWith('/workers/scripts/cat-panel') && x.opt.method === 'PUT'));
+
+  const broken = mkBot('heal-bad', [
+    { type: 'plain_text', name: 'UUID', text: PANEL_UUID },
+    { type: 'kv_namespace', name: 'CAT_KV', namespace_id: 'kv-survives' },
+    { type: 'd1', name: 'IOT_DB', id: 'd1-survives' },
+    { type: 'secret_text', name: 'CUSTOM_SECRET', text: 'never-print-this' },
+  ]);
+  let probes = 0; const base = broken.F;
+  const F = async (u, o = {}) => {
+    if (String(u) === 'https://cat-panel.me.workers.dev/health' && probes++ === 0) return { ok: false, status: 500, json: async () => null };
+    return base(u, o);
+  };
+  const healed = await T.runCommand(F, T.cfg(Object.assign(ENV('heal-bad'), { __fetch: F })), '/heal');
+  const names = broken.state.bindings.map((x) => x.name);
+  check('/heal redeploys only after failed health and verifies recovery', healed.includes('خودترمیم انجام شد') && probes >= 2 && broken.calls.some((x) => x.u.endsWith('/workers/scripts/cat-panel') && x.opt.method === 'PUT'));
+  check('/heal preserves D1, KV and opaque secrets', names.includes('IOT_DB') && names.includes('CAT_KV') && names.includes('CUSTOM_SECRET') && !healed.includes('never-print-this'));
+}
+// 2g) /save reports Cloudflare version storage without exposing secret values
+{
+  const b = mkBot('save', [
+    { type: 'plain_text', name: 'UUID', text: PANEL_UUID },
+    { type: 'd1', name: 'IOT_DB', id: 'db1' },
+    { type: 'secret_text', name: 'CUSTOM_SECRET', text: 'hidden-value' },
+  ]);
+  const env = ENV('save'); env.__fetch = b.F;
+  const saved = await T.runCommand(b.F, T.cfg(env), '/save');
+  check('/save confirms recoverable bindings and never reveals a secret', saved.includes('IOT_DB') && saved.includes('CUSTOM_SECRET') && !saved.includes('hidden-value'));
+}
 // 3) KV created when missing
 {
   const b = mkBot('sec3'); const env = ENV('sec3'); env.__fetch = b.F;
