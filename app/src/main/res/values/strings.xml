@@ -156,6 +156,17 @@
     <string name="smart_connection_test_routes">Test direct, Worker and Orbot</string>
     <string name="smart_connection_testing_routes">Testing routes…</string>
     <string name="smart_connection_test_complete">%1$d of %2$d routes passed end-to-end</string>
+    <string name="smart_country_title">Country selection</string>
+    <string name="smart_country_choose">Choose a country</string>
+    <string name="smart_country_automatic">Country: automatic</string>
+    <string name="smart_country_prefer">Prefer a country; allow fallback</string>
+    <string name="smart_country_lock">Lock a country; never fall back</string>
+    <string name="smart_country_prefer_value">Preferred country: %1$s</string>
+    <string name="smart_country_lock_value">Locked country: %1$s</string>
+    <string name="smart_apply_recommendation">Use recommended connection</string>
+    <string name="smart_apply_title">Use this connection?</string>
+    <string name="smart_apply_message">Select “%1$s” for this network? The current connection is not replaced until you confirm.</string>
+    <string name="smart_apply_confirm">Select</string>
     <string name="connection_testing_page_config">%1$d s timeout · %2$d at once · %3$d MB speed test</string>
     <string name="connection_testing_back">Back to VPN</string>
     <string name="connection_selector_loading">Loading connections…</string>

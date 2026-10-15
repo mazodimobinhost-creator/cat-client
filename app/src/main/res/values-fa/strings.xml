@@ -157,6 +157,17 @@
     <string name="smart_connection_test_routes">تست مستقیم، Worker و Orbot</string>
     <string name="smart_connection_testing_routes">در حال آزمایش مسیرها…</string>
     <string name="smart_connection_test_complete">%1$d مسیر از %2$d سرتاسری تأیید شد</string>
+    <string name="smart_country_title">انتخاب کشور</string>
+    <string name="smart_country_choose">کشور را انتخاب کن</string>
+    <string name="smart_country_automatic">کشور: خودکار</string>
+    <string name="smart_country_prefer">ترجیح کشور؛ جایگزین مجاز</string>
+    <string name="smart_country_lock">قفل کشور؛ بدون جایگزین</string>
+    <string name="smart_country_prefer_value">کشور ترجیحی: %1$s</string>
+    <string name="smart_country_lock_value">کشور قفل‌شده: %1$s</string>
+    <string name="smart_apply_recommendation">استفاده از اتصال پیشنهادی</string>
+    <string name="smart_apply_title">این اتصال انتخاب شود؟</string>
+    <string name="smart_apply_message">«%1$s» برای این شبکه انتخاب شود؟ اتصال فعلی تا پیش از تأیید جایگزین نمی‌شود.</string>
+    <string name="smart_apply_confirm">انتخاب</string>
     <string name="connection_testing_page_config">مهلت %1$d ثانیه · %2$d هم‌زمان · تست سرعت %3$d مگابایت</string>
     <string name="connection_testing_back">بازگشت به وی‌پی‌ان</string>
     <string name="connection_selector_loading">در حال بارگذاری اتصالات…</string>

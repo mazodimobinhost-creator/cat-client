@@ -13023,6 +13023,29 @@ class MainActivity : Activity() {
             backgroundTintList = ColorStateList.valueOf(TEAL)
             setTextColor(BACKGROUND)
         }
+        val smartCountryButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.smart_country_automatic)
+            setAllCaps(false)
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            cornerRadius = dp(24)
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(OUTLINE)
+            backgroundTintList = ColorStateList.valueOf(SURFACE)
+            setTextColor(TEXT_PRIMARY)
+        }
+        val smartApplyButton = MaterialButton(this).apply {
+            setText(R.string.smart_apply_recommendation)
+            setAllCaps(false)
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            cornerRadius = dp(24)
+            backgroundTintList = ColorStateList.valueOf(ZedBlobView.ZED_LIME)
+            setTextColor(BACKGROUND)
+            isEnabled = false
+            alpha = 0.45f
+        }
+        var smartSelectedProfile: ConnectionProfile? = null
         val smartRecommendationCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -13040,6 +13063,8 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(-1, -2))
             addView(smartRecommendationText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(smartScoutButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+            addView(smartCountryButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+            addView(smartApplyButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         }
 
         fun renderSmartRecommendation() {
@@ -13057,11 +13082,23 @@ class MainActivity : Activity() {
                 currentNetworkKey = networkKey,
             )
             val scoutMeasurements = SmartRouteScoutStore(this@MainActivity).read(networkKey)
+            val smartPreference = SmartRoutePreferenceStore(this@MainActivity).read()
+            smartCountryButton.text = when (smartPreference.countryMode) {
+                CountrySelectionMode.AUTOMATIC -> getString(R.string.smart_country_automatic)
+                CountrySelectionMode.PREFER -> getString(R.string.smart_country_prefer_value, smartPreference.countryCode ?: "—")
+                CountrySelectionMode.LOCK -> getString(R.string.smart_country_lock_value, smartPreference.countryCode ?: "—")
+            }
             val recommendation = SmartConnectionAdvisor.recommend(
                 network = SmartNetworkSnapshotReader.read(this@MainActivity),
                 measurements = measurements + scoutMeasurements,
+                preference = smartPreference,
             )
             val selected = recommendation.selected
+            smartSelectedProfile = selected?.let { selectedRoute ->
+                selectorProfiles.firstOrNull { it.fingerprint == selectedRoute.id }
+            }
+            smartApplyButton.isEnabled = smartSelectedProfile != null
+            smartApplyButton.alpha = if (smartApplyButton.isEnabled) 1f else 0.45f
             smartRecommendationText.text = if (selected == null) {
                 getString(R.string.smart_connection_network, networkKey) + "\n" +
                     getString(
@@ -13082,6 +13119,51 @@ class MainActivity : Activity() {
                     getString(R.string.smart_connection_reason_stable),
                 ).joinToString("\n")
             }
+        }
+
+        smartApplyButton.setOnClickListener {
+            val profile = smartSelectedProfile ?: return@setOnClickListener
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.smart_apply_title)
+                .setMessage(getString(R.string.smart_apply_message, profile.displayTag))
+                .setPositiveButton(R.string.smart_apply_confirm) { _, _ ->
+                    handleConnectionSelected(profile, setOf(profile.type.lowercase(Locale.US)))
+                    closeConnectionTestingPage()
+                }
+                .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .showCatClientDialog()
+        }
+
+        smartCountryButton.setOnClickListener {
+            val modeLabels = arrayOf(
+                getString(R.string.smart_country_automatic),
+                getString(R.string.smart_country_prefer),
+                getString(R.string.smart_country_lock),
+            )
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.smart_country_title)
+                .setItems(modeLabels) { _, modeIndex ->
+                    if (modeIndex == 0) {
+                        SmartRoutePreferenceStore(this@MainActivity).saveCountry(CountrySelectionMode.AUTOMATIC, null)
+                        renderSmartRecommendation()
+                    } else {
+                        val countries = selectableCountryOptions.distinctBy { it.countryCode }.sortedBy { it.label }
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle(R.string.smart_country_choose)
+                            .setItems(countries.map { it.label }.toTypedArray()) { _, countryIndex ->
+                                val country = countries[countryIndex].countryCode ?: return@setItems
+                                SmartRoutePreferenceStore(this@MainActivity).saveCountry(
+                                    if (modeIndex == 1) CountrySelectionMode.PREFER else CountrySelectionMode.LOCK,
+                                    country,
+                                )
+                                renderSmartRecommendation()
+                            }
+                            .setNegativeButton(R.string.split_tunnel_cancel, null)
+                            .showCatClientDialog()
+                    }
+                }
+                .setNegativeButton(R.string.split_tunnel_cancel, null)
+                .showCatClientDialog()
         }
 
         smartScoutButton.setOnClickListener {
