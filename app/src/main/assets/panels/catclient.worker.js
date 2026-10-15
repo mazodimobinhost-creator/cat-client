@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.67.6';
+const CAT_PANEL_VERSION = '6.68.0';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -2682,6 +2682,12 @@ function tunnelPaths(env) {
 function withPathQuery(base, extra) {
   const path = String(base || '');
   return path + (path.includes('?') ? '&' : '?') + extra;
+}
+
+function dataPlaneEnabled(env) {
+  // Abuse-safe default: a fresh deployment is panel/control-plane only. The owner must
+  // explicitly opt in after provider approval and credential rotation.
+  return /^(1|true|yes|on)$/i.test(String(env && env.DATA_PLANE_ENABLED || '').trim());
 }
 
 function isTunnelPath(pathname, env) {
@@ -5489,6 +5495,9 @@ async function handleRequest(request, env, ctx) {
   /* data plane */
   const upgrade = (request.headers.get('Upgrade') || '').toLowerCase();
   if (upgrade === 'websocket' && isTunnelPath(path, env)) {
+    if (!dataPlaneEnabled(env)) {
+      return text('data plane disabled', 403, { 'cache-control': 'no-store' });
+    }
     const settings = await readSettings(env);
     const masterUuid = await resolveUuid(host, env);
     const pair = new WebSocketPair();
@@ -8560,7 +8569,7 @@ export const _testing = {
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
-  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath,
+  __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath, dataPlaneEnabled,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,

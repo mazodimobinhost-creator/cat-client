@@ -130,6 +130,7 @@ jobs:
           node --version
           node scripts/panels/cat-panel.test.mjs
           node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/abuse-safe-mode.test.mjs
           node scripts/panels/wizard.test.mjs
           node scripts/panels/link-shape.test.mjs
           node scripts/panels/panel-integrity.test.mjs
@@ -698,7 +699,7 @@ jobs:
             gh release upload "$TAG" "${release_assets[@]}" --clobber
           else
             release_flags=()
-            if [[ "$APP_VERSION" =~ ^1\.10\.0-beta11[34]$ && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+            if [[ "$APP_VERSION" =~ ^1\.10\.0-beta11[3-5]$ && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
               release_flags+=(--prerelease)
               notes="⚠️ TEST CANDIDATE — physical-device sign-off is pending. Do not treat this as the final beta113 release.\n\n${notes}"
             fi
