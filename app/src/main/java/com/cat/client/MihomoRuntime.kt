@@ -2576,7 +2576,7 @@ object MihomoRuntimeHealth {
 
     internal data class EgressMetadata(val ip: String?, val countryCode: String?)
 
-    fun egressMetadataThroughMixedProxy(
+    internal fun egressMetadataThroughMixedProxy(
         url: String = MihomoRuntimeDefaults.EGRESS_TRACE_URL,
         timeoutMs: Int = 3_000,
     ): EgressMetadata? {
@@ -2663,7 +2663,7 @@ object MihomoRuntimeHealth {
         }
     }
 
-    fun egressMetadataFromTrace(trace: String): EgressMetadata {
+    internal fun egressMetadataFromTrace(trace: String): EgressMetadata {
         val fields = trace.lineSequence().mapNotNull { line ->
             val separator = line.indexOf('=')
             if (separator <= 0) null else line.substring(0, separator) to line.substring(separator + 1).trim()
