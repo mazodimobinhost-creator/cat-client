@@ -13129,16 +13129,14 @@ class MainActivity : Activity() {
 
         fun renderSmartRecommendation() {
             val networkKey = NetworkContext.key(this@MainActivity)
-            val countries = selectorProfiles.associate { profile ->
-                profile.fingerprint to ConnectionLocationPolicy.countryForProfile(profile, displayLocale)?.code
-            }
             val smartNetworkRecords = subscriptionStore
                 .readConnectionDelayRecordsForNetwork(selectedSubscriptionId, selectorProfiles, networkKey)
                 .associateBy(ConnectionDelayRecord::fingerprint)
             val measurements = SmartRouteMeasurementAdapter.fromProfiles(
                 profiles = selectorProfiles,
                 records = smartNetworkRecords,
-                countryByFingerprint = countries,
+                // Config/server geography is not egress evidence; keep country UNKNOWN until a route probe measures it.
+                countryByFingerprint = emptyMap(),
                 currentNetworkKey = networkKey,
             )
             val scoutMeasurements = SmartRouteScoutStore(this@MainActivity).read(networkKey)
