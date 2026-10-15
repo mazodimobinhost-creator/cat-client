@@ -1,3 +1,5 @@
+
+- **App 1.10.0-beta112 — Smart Connection testing build.** Adds safe Direct/Orbot/profile recommendations and confirmed application, all-profile testing, clean-IP scanner and panel-recovery actions, bounded per-network route history, success rate, median/p95 latency, jitter, throughput aggregation, and failure streaks. Worker control-plane health and port-only evidence are intentionally not treated as tunnel success. Physical-device validation is requested for this beta.
 # Changelog
 
 All notable changes to Cat Client are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app `versionName`. Detailed Persian release notes live in [`docs/release-notes-*.md`](docs/).
