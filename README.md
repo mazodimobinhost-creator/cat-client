@@ -12,8 +12,6 @@
 
 [دانلود](#-دانلود) · [قابلیت‌ها](#-قابلیتهای-اصلی) · [پنل Cloudflare](#-پنل-cloudflare) · [خطای 1101](#-خطای-cloudflare-1101) · [توسعه](#-ساخت-و-تست) · [English](#english-summary)
 
-<img src="docs/screenshots/whitevpn-fa.jpg" alt="نمای فارسی Cat Client" width="320">
-
 </div>
 
 > [!WARNING]
