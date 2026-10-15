@@ -13047,7 +13047,7 @@ class MainActivity : Activity() {
         }
         var smartSelectedProfile: ConnectionProfile? = null
         var smartSelectedRoute: SmartRouteMeasurement? = null
-        val smartAutoFailover = SwitchCompat(this).apply {
+        val smartAutoFailover = MaterialSwitch(this).apply {
             isChecked = NetworkGenomeStore(this@MainActivity).autoFailover
             text = getString(R.string.smart_auto_failover)
             setTextColor(TEXT_PRIMARY)
