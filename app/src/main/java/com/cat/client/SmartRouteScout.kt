@@ -142,22 +142,39 @@ internal class SmartRouteScoutStore(context: Context) {
     private val prefs = context.getSharedPreferences("cat_client_smart_scout", Context.MODE_PRIVATE)
 
     fun save(networkKey: String, measurements: List<SmartRouteMeasurement>) {
-        val array = JSONArray()
-        measurements.forEach { item ->
-            array.put(JSONObject()
-                .put("id", item.id)
-                .put("kind", item.kind.name)
-                .put("label", item.label)
-                .put("verdict", item.verdict.name)
-                .put("rtt", item.medianRttMs ?: JSONObject.NULL)
-                .put("at", item.measuredAtMs)
-                .put("setup", item.requiresSetup))
+        val history = readRawHistory(networkKey).toMutableList()
+        history.addAll(measurements)
+        val bounded = history.groupBy { it.id }.values.flatMap { routeSamples ->
+            routeSamples.sortedBy { it.measuredAtMs }.takeLast(SmartRouteHistory.MAX_SAMPLES_PER_ROUTE)
         }
-        prefs.edit().putString("routes:$networkKey", array.toString()).apply()
+        prefs.edit().putString("history:$networkKey", encode(bounded).toString()).apply()
     }
 
     fun read(networkKey: String): List<SmartRouteMeasurement> {
-        val raw = prefs.getString("routes:$networkKey", null) ?: return emptyList()
+        val history = readRawHistory(networkKey)
+        if (history.isNotEmpty()) {
+            return history.groupBy { it.id }.values.mapNotNull { SmartRouteHistory.aggregate(it)?.measurement }
+        }
+        // One-time compatibility with snapshots written before bounded history existed.
+        return decode(prefs.getString("routes:$networkKey", null))
+    }
+
+    private fun readRawHistory(networkKey: String): List<SmartRouteMeasurement> =
+        decode(prefs.getString("history:$networkKey", null))
+
+    private fun encode(items: List<SmartRouteMeasurement>) = JSONArray().also { array ->
+        items.forEach { item ->
+            array.put(JSONObject()
+                .put("id", item.id).put("kind", item.kind.name).put("label", item.label)
+                .put("verdict", item.verdict.name).put("rtt", item.medianRttMs ?: JSONObject.NULL)
+                .put("throughput", item.throughputKbps ?: JSONObject.NULL)
+                .put("at", item.measuredAtMs).put("setup", item.requiresSetup)
+                .put("country", item.countryCode ?: JSONObject.NULL).put("ip", item.exitIp ?: JSONObject.NULL))
+        }
+    }
+
+    private fun decode(raw: String?): List<SmartRouteMeasurement> {
+        if (raw == null) return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -167,16 +184,13 @@ internal class SmartRouteScoutStore(context: Context) {
                     val kind = runCatching { SmartRouteKind.valueOf(item.optString("kind")) }.getOrNull() ?: continue
                     val rtt = item.optLong("rtt", -1L).takeIf { it >= 0 }
                     add(SmartRouteMeasurement(
-                        id = item.optString("id"),
-                        kind = kind,
-                        label = item.optString("label"),
-                        verdict = verdict,
-                        medianRttMs = rtt,
-                        p95RttMs = rtt,
+                        id = item.optString("id"), kind = kind, label = item.optString("label"), verdict = verdict,
+                        countryCode = item.optString("country").takeIf { it.length == 2 },
+                        exitIp = item.optString("ip").takeIf { it.isNotBlank() && it != "null" },
+                        medianRttMs = rtt, p95RttMs = rtt,
+                        throughputKbps = item.optLong("throughput", -1L).takeIf { it >= 0 },
                         successRate = if (verdict == SmartRouteVerdict.WORKS) 1.0 else 0.0,
-                        sampleCount = 1,
-                        measuredAtMs = item.optLong("at"),
-                        requiresSetup = item.optBoolean("setup"),
+                        sampleCount = 1, measuredAtMs = item.optLong("at"), requiresSetup = item.optBoolean("setup"),
                     ))
                 }
             }
