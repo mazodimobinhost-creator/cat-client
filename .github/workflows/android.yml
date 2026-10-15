@@ -677,6 +677,7 @@ jobs:
           git push origin "$TAG" || true
           # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
           cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          cp deploy-bot/worker.js cat-deploy-bot.worker.js
           # Panel HTML snapshot generated from THIS commit's worker (6.44.0+):
           # a ready cat-panel.html rides every release for preview/backup.
           node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
@@ -686,6 +687,7 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             catclient.worker.js
             catclient.wizard.js
+            cat-deploy-bot.worker.js
             cat-panel.html
           )
           # Google-Doc bundle(s), if present in this branch's docs/
