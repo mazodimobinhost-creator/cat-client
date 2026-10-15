@@ -24,10 +24,10 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 <p>
-  <a href="#-قابلیتهای-اصلی"><img alt="Features" src="https://img.shields.io/badge/قابلیت‌ها-مشاهده-334155?style=flat-square"></a>
-  <a href="#-پنل-cloudflare"><img alt="Cloudflare Panel" src="https://img.shields.io/badge/پنل_Cloudflare-راهنما-f97316?style=flat-square&logo=cloudflare&logoColor=white"></a>
-  <a href="#-وضعیت-تأیید"><img alt="Test status" src="https://img.shields.io/badge/وضعیت_تست-مشاهده-16a34a?style=flat-square"></a>
-  <a href="#-ساخت-و-تست"><img alt="Build" src="https://img.shields.io/badge/توسعه-Build-0f172a?style=flat-square"></a>
+  <a href="#-قابلیتهای-اصلی"><kbd>✨ قابلیت‌ها</kbd></a>
+  <a href="#-پنل-cloudflare"><kbd>☁️ راهنمای پنل</kbd></a>
+  <a href="#-وضعیت-تأیید"><kbd>🧪 وضعیت تست</kbd></a>
+  <a href="#-ساخت-و-تست"><kbd>🛠️ توسعه و ساخت</kbd></a>
 </p>
 
 </div>
@@ -83,13 +83,13 @@
 
 <div align="center">
 
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk"><img alt="Download ARM64 APK" src="https://img.shields.io/badge/ARM64-دانلود_نسخه_پیشنهادی-7c3aed?style=for-the-badge&logo=android&logoColor=white"></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-arm64-v8a.apk"><kbd>📥 دانلود نسخه پیشنهادی ARM64</kbd></a>
 &nbsp;
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk"><img alt="Download Universal APK" src="https://img.shields.io/badge/Universal-دانلود_نسخه_سازگار-a855f7?style=for-the-badge&logo=android&logoColor=white"></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta118/CatClient-V1.10.0-beta118-universal.apk"><kbd>📦 دانلود نسخه سازگار Universal</kbd></a>
 
 <br><br>
 
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118"><img alt="Open all release files" src="https://img.shields.io/badge/GitHub_Release-همه_فایل‌ها-111827?style=for-the-badge&logo=github&logoColor=white"></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta118"><kbd>🐙 مشاهده همه فایل‌ها در GitHub Release</kbd></a>
 
 <br><br>
 
