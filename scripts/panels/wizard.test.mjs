@@ -178,7 +178,7 @@ let first;
   check('KV namespace created + bound', first.kvBound && state.kv.length === 1 && state.kv[0].title === 'my-panel-catpanel');
   const s = state.scripts['my-panel'];
   check('panel script uploaded with the version marker', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
-  check('fallback source used after releases/latest 404', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com')));
+  check('branch minified snapshot is preferred over releases/latest', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com') && e.data.url.includes('catpanel.min.js')));
   check('normal minified artifact accepted', !events.some((e) => e.step === 'source' && e.level === 'warn'));
   const bind = Object.fromEntries(s.bindings.map((b) => [b.name, b]));
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));

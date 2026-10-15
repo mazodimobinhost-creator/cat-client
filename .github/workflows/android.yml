@@ -706,7 +706,7 @@ jobs:
             gh release upload "$TAG" "${release_assets[@]}" --clobber
           else
             release_flags=()
-            if [[ "$APP_VERSION" =~ ^1\.10\.0-beta11[3-7]$ && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+            if [[ "$APP_VERSION" =~ ^1\.10\.0-beta11[3-8]$ && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
               release_flags+=(--prerelease)
               notes="⚠️ TEST CANDIDATE — physical-device sign-off is pending. Do not treat this as the final beta113 release.\n\n${notes}"
             fi

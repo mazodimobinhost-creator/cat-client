@@ -21,10 +21,10 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.3.0';
+const CAT_WIZARD_VERSION = '1.3.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
-const BRANCH = 'arena/01a0c678-cat-client';
+const BRANCH = 'arena/c5b36768-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const COMPAT_DATE = '2025-03-04';
 
@@ -34,10 +34,12 @@ const COMPAT_DATE = '2025-03-04';
 const SNAPSHOT_PATH = 'dist-panel/catpanel.min.js';
 const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
-  REPO_URL + '/releases/latest/download/catclient.worker.js',
-  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  // Branch snapshot first: a pre-release must never resolve `releases/latest`
+  // to the older beta116 obfuscated artifact.
   RAW_SNAPSHOT,
   'https://ghproxy.net/' + RAW_SNAPSHOT,
+  REPO_URL + '/releases/latest/download/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
   'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
 ];
 const WIZARD_SOURCES = [
