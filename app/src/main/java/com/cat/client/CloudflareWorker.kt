@@ -1686,8 +1686,11 @@ object CloudflareWorker {
         val metadata = JSONObject()
             .put("main_module", "worker.js")
             .put("bindings", bindings)
-            .put("compatibility_date", "2025-03-04")
-            .put("compatibility_flags", JSONArray().put("nodejs_compat"))
+            .put("compatibility_date", "2026-09-01")
+            // No compatibility flags: the Worker source uses no Node API, so nodejs_compat is not
+            // needed. Kept identical to catclient.wizard.js and wrangler.jsonc
+            // (scripts/panels/compat-consistency.test.mjs enforces it).
+            .put("compatibility_flags", JSONArray())
         // Cloudflare never returns secret values; keep_secrets=true tells the
         // upload to preserve the previous version's secret bindings untouched —
         // so an UPDATE never has to ask the user to retype them.

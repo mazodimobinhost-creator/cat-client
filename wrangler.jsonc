@@ -29,11 +29,17 @@
   // before connecting Workers Builds.
   "name": "empty-wave-5d02",
   "main": "dist-panel/catpanel.min.js",
-  // A snapshot date, not a version. Keep it at or below today's date. It is left
-  // at the date the current panel code was deployed with on purpose: raising it
-  // opts the Worker into newer runtime behaviour, which is a change to test on
-  // your own account, not a cleanup.
+  // A snapshot date, not a version. It MUST equal the date the Wizard and the app
+  // upload with (catclient.wizard.js COMPAT_DATE, CloudflareWorker.kt) so that every
+  // deploy path runs the Worker with the same runtime behaviour;
+  // scripts/panels/compat-consistency.test.mjs fails when they drift. Keep it at or
+  // below today's date. Changing it opts the Worker into newer runtime behaviour:
+  // change it in all three places together and test it on a real Cloudflare account.
+  // This value has NOT been verified against a live Cloudflare runtime.
   "compatibility_date": "2026-09-01",
+  // No flags: the Worker uses no Node API (checked by the consistency test), so
+  // nodejs_compat is not enabled. Wizard and app upload an empty flag list too.
+  "compatibility_flags": [],
   "workers_dev": true,
   // Workers Logs for the deployed panel (dashboards → your Worker → Logs).
   // Free-plan sampling applies; this only turns collection on.
