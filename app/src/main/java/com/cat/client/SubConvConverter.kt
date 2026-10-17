@@ -17,7 +17,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal object SubConvConverter {
+object SubConvConverter {
     private val userAgents = listOf(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -223,10 +223,10 @@ internal object SubConvConverter {
                 val network = query["type"].orEmpty().lowercase()
                 if (network.isNotBlank()) put("network", network)
                 when (network) {
-                    "ws" -> put("ws-opts", JSONObject().apply {
-                        query["path"]?.takeIf(String::isNotBlank)?.let { put("path", it) }
-                        put("headers", JSONObject().put("User-Agent", userAgents.random()))
-                    })
+                    // Same options as the vless shape — including the Host
+                    // header, which this branch used to omit (the trojan half of
+                    // every panel subscription then never connected).
+                    "ws", "httpupgrade" -> put("ws-opts", vShareWsOptions(query, network))
                     "grpc" -> put(
                         "grpc-opts",
                         JSONObject().put("grpc-service-name", query["serviceName"].orEmpty()),
@@ -502,26 +502,68 @@ internal object SubConvConverter {
             query["host"]?.takeIf(String::isNotBlank)?.let { put("host", JSONArray().put(it)) }
         }
 
-    private fun vShareWsOptions(query: Map<String, String>, network: String): JSONObject = JSONObject()
-        .put("path", query["path"].orEmpty())
-        .put(
-            "headers",
-            JSONObject()
-                .put("User-Agent", userAgents.random())
-                .put("Host", query["host"].orEmpty()),
-        )
-        .apply {
-            query["ed"]?.takeIf(String::isNotBlank)?.let { raw ->
-                val earlyData = raw.toIntOrNull() ?: throw ParseError()
-                if (network == "ws") {
-                    put("max-early-data", earlyData)
-                    put("early-data-header-name", "Sec-WebSocket-Protocol")
-                } else {
-                    put("v2ray-http-upgrade-fast-open", true)
-                }
-            }
-            query["eh"]?.takeIf(String::isNotBlank)?.let { put("early-data-header-name", it) }
+    /**
+     * WebSocket / HTTPUpgrade options for a share link.
+     *
+     * The `Host` header carries the share link's `host` parameter — for a
+     * Cloudflare-fronted deployment that is the worker/panel hostname, and it is
+     * what routes the request to the right worker. Omitting it (as this used to
+     * for the trojan shape) means every request lands on the wrong place and
+     * the config simply never connects.
+     *
+     * Early data follows the Xray convention: the size can sit at the top level
+     * (`&ed=2048`, how v2rayN writes it) or inside the path
+     * (`&path=%2F%3Fed%3D2048`, which Cat Panel and BPB emit). Both shapes must
+     * enable Sec-WebSocket-Protocol early data. The `ed` parameter is stripped
+     * from the transmitted path (the bytes travel in the header instead) while
+     * every other path parameter — e.g. `proxyip` — is preserved verbatim.
+     * Garbled values are ignored rather than failing the whole link.
+     */
+    private fun vShareWsOptions(query: Map<String, String>, network: String): JSONObject {
+        val rawPath = query["path"].orEmpty()
+        // Paths handed out before the worker fix look like
+        // `/vl/<seed>?ed=2560?proxyip=host` — the second '?' is a query
+        // separator in disguise, so normalise it before parsing; otherwise the
+        // relay override would be swallowed by (and lost from) the ed value.
+        val pathParams = if ('?' in rawPath) {
+            parseQuery(rawPath.substringAfter('?').replace('?', '&'))
+        } else {
+            emptyMap()
         }
+        val sentPath = if (pathParams.containsKey("ed")) {
+            val remaining = pathParams.filterKeys { it != "ed" }
+                .entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
+            rawPath.substringBefore('?') + if (remaining.isEmpty()) "" else "?$remaining"
+        } else {
+            rawPath
+        }
+        val earlyDataRaw = query["ed"]?.takeIf(String::isNotBlank) ?: pathParams["ed"]
+        return JSONObject()
+            .put("path", sentPath)
+            .put(
+                "headers",
+                JSONObject()
+                    .put("User-Agent", userAgents.random())
+                    .put("Host", query["host"].orEmpty()),
+            )
+            .apply {
+                earlyDataRaw?.takeIf(String::isNotBlank)?.let { raw ->
+                    val earlyData = raw.takeWhile { it.isDigit() }.toIntOrNull()
+                    if (earlyData != null && earlyData > 0) {
+                        if (network == "ws") {
+                            put("max-early-data", earlyData)
+                            put("early-data-header-name", "Sec-WebSocket-Protocol")
+                        } else {
+                            put("v2ray-http-upgrade-fast-open", true)
+                        }
+                    }
+                }
+                query["eh"]?.takeIf(String::isNotBlank)?.let { put("early-data-header-name", it) }
+            }
+    }
+
+    private fun encode(value: String): String =
+        URLEncoder.encode(value, StandardCharsets.UTF_8.name())
 
     private fun vmessWsOptions(path: String?, host: String?, network: String): JSONObject {
         var outputPath = path.orEmpty().ifBlank { "/" }

@@ -121,6 +121,8 @@ object AutomaticConnectionCandidatePolicy {
         lastSelectedProfile: ConnectionProfile?,
         excludedFingerprint: String = "",
         limit: Int = Int.MAX_VALUE,
+        /** Sticky location: keep the last working server first so a reconnect does not hop to another city/IP. */
+        sticky: Boolean = true,
     ): List<ConnectionProfile> {
         val failedFingerprints = records
             .filter { it.status == ConnectionDelayStatus.Failure }
@@ -134,6 +136,7 @@ object AutomaticConnectionCandidatePolicy {
         }.sortedWith(
             compareBy<ConnectionProfile> { profile ->
                 when {
+                    sticky && profile.fingerprint == lastSelectedProfile?.fingerprint -> -1
                     profile.fingerprint in delayByFingerprint -> 0
                     profile.fingerprint == lastSelectedProfile?.fingerprint -> 1
                     else -> 2

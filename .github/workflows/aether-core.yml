@@ -1,0 +1,53 @@
+name: Aether native core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['arena/*', main]
+    paths:
+      - 'aether/**'
+      - 'scripts/build-aether-core.sh'
+      - 'scripts/verify-aether-upstream.sh'
+      - '.github/workflows/aether-core.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aether-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: android-actions/setup-android@v4
+      - name: Install pinned Android NDK
+        run: yes | sdkmanager 'ndk;29.0.14206865'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .aether-upstream/native/android-bridge
+      - name: Install pinned cargo-ndk
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Verify and build Aether core
+        env:
+          AETHER_ABIS: arm64-v8a
+          AETHER_JNI_OUT: ${{ runner.temp }}/aether-jni
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          scripts/build-aether-core.sh
+      - name: Record checksums
+        run: sha256sum '${{ runner.temp }}/aether-jni/arm64-v8a/'*.so | tee aether-arm64.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aether-core-arm64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/aether-jni/arm64-v8a/*.so
+            aether-arm64.sha256
+          retention-days: 7

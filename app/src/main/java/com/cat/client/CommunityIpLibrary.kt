@@ -90,10 +90,33 @@ object CommunityIpLibrary {
         "199.181.197.246,199.181.197.247,199.181.197.248,199.181.197.250,199.181.197.252,199.181.197.253,199.181.197.254,199.181.197.255,203.32.121.53,209.46.30.18",
     )
 
-    /** Deduplicated candidate IPs, in stable order. */
+    /**
+     * Deduplicated candidate IPs, in stable order — CLOUDFLARE RANGES ONLY.
+     * The imported public lists carried ~183 non-CF VPS relays (96.44.x,
+     * 64.181.x, 107.175.x, …). A non-CF address can never complete a
+     * CF-fronting TLS handshake, so as scan candidates they only produced
+     * dead configs («این‌ها پینگ نمی‌دهند»). They belong to ProxyIP feeds.
+     */
     val ips: List<String> = raw
         .flatMap { it.split(',') }
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinct()
+        .filter { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(false) }
+
+    /**
+     * The very entries [ips] drops: NON-Cloudflare relays from the same public
+     * lists. They can never front a CF edge (that is why the clean-IP scanner
+     * refuses them) but they are exactly what a ProxyIP relay is — a box that
+     * forwards to Cloudflare. Shipping them as an offline seed source means the
+     * ProxyIP scanner still has candidates to probe when the public lists cannot
+     * be resolved at all (blocked DNS / filtered network), instead of coming back
+     * with «nothing found» and no explanation.
+     */
+    val proxyIpSeeds: List<String> = raw
+        .flatMap { it.split(',') }
+        .map { it.trim() }
+        .filter { ip -> ip.count { it == '.' } == 3 && ip.split('.').all { it.toIntOrNull() != null && it.toInt() in 0..255 } }
+        .distinct()
+        .filterNot { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(true) }
 }

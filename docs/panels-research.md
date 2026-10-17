@@ -20,6 +20,11 @@ services are listed for reference only.
 | Apex Panel | [netrair/Apex](https://github.com/netrair/Apex) | CF Workers + D1, multi-user, quotas/expiry, panel password + secure path |
 | Epeius | [cmliu/epeius](https://github.com/cmliu/epeius) | Trojan-over-WS proxy + subscription engine (Clash/Sing-box/Surge/Loon), PROXYIP preferred clean-IP management |
 | Blue-Knight Panel | [BlueKnightNet/Blue-Knight-Panel](https://github.com/BlueKnightNet/Blue-Knight-Panel) | CF edge or Node 22, encrypted-DNS gateway, WARP registration, Amnezia (noise) profiles |
+| TechNamooz Worker (video) | [technamooz/panel-technamooz-VPN-cloudflare](https://github.com/technamooz/panel-technamooz-VPN-cloudflare) | Separate opt-in installer for the video’s pinned third-party bundle; not the VPS project listed below. See security note and pin details below. |
+
+The video Worker is fetched only when the user explicitly installs it; its 406,285-byte bundle is not copied into Cat Client. The installer pins commit `c88d2bfc0a0a123b9da791e8a3f5b398305e78a8` and SHA-256 `1c475c36a7cd720c23b5ec236eeb5548e14fbf90ee8f90d449ecb704ec1e7829`, then checks the exact size/hash before making Cloudflare writes. Required bindings are `UUID`, `TR_PASS`, `SUB_PATH` and KV binding `kv`; credentials are generated or chosen per install. The upstream repository currently declares no software license, and the minified source has not had a full independent security audit. Static inspection found references to `api.cloudflareclient.com` (WARP registration) and `ip-api.com` (IP/geolocation lookup). Hash pinning is not a safety review; the README’s anti-ban, free-tier and AI-access claims are not verified. The app does not create accounts or use the public sample password.
+
+Cat Panel already provides the analogous controls in its own panel: VLESS/Trojan, clean-IP scanning, Proxy IP, Host/SNI, fingerprint and normal/raw/fragment/WARP/WARP Pro subscription variants. The video’s example IP/Host are deliberately not hard-coded because they can be stale or fail on a particular ISP.
 
 ### Server / VPS panels (install guides)
 
