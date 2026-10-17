@@ -73,6 +73,43 @@ jobs:
             app/src/main/cpp/includes
           key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch') }}
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache reviewed Aether core
+        id: aether-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libwhiteaesther_core.so
+            app/src/main/jniLibs/arm64-v8a/libc++_shared.so
+            app/src/main/jniLibs/armeabi-v7a/libwhiteaesther_core.so
+            app/src/main/jniLibs/armeabi-v7a/libc++_shared.so
+            app/src/main/jniLibs/x86_64/libwhiteaesther_core.so
+            app/src/main/jniLibs/x86_64/libc++_shared.so
+          key: ${{ runner.os }}-aether-${{ hashFiles('aether/upstream.lock', 'scripts/build-aether-core.sh', 'scripts/verify-aether-upstream.sh') }}
+
+      - name: Build reviewed Aether core for APK
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        env:
+          AETHER_ABIS: armeabi-v7a,arm64-v8a,x86_64
+        run: |
+          set -euo pipefail
+          cargo install cargo-ndk --version 4.1.2 --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          scripts/build-aether-core.sh
+
+      - name: Verify packaged Aether ABIs
+        run: |
+          set -euo pipefail
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            test -s "app/src/main/jniLibs/$abi/libwhiteaesther_core.so"
+            test -s "app/src/main/jniLibs/$abi/libc++_shared.so"
+          done
+          sha256sum app/src/main/jniLibs/{armeabi-v7a,arm64-v8a,x86_64}/libwhiteaesther_core.so | tee aether-packaged.sha256
+
       - name: Read app version
         id: app_version
         run: |
