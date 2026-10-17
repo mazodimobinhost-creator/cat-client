@@ -4,12 +4,14 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { XrayRuntime } from './xray-runtime.js';
+import { AuthStore } from './auth-store.js';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
 const adminToken = process.env.CAT_ADMIN_TOKEN || '';
+const auth = new AuthStore(dataDir);
 const xray = new XrayRuntime({
   binary: process.env.CAT_XRAY_BINARY || join(dataDir, 'bin', 'xray'),
   expectedSha256: process.env.CAT_XRAY_SHA256 || '',
@@ -45,12 +47,11 @@ async function saveState(state) {
   await writeFile(temp, JSON.stringify(state, null, 2), { mode: 0o600 });
   await rename(temp, stateFile);
 }
-function authorized(req) {
-  if (!adminToken) return false;
+async function authorized(req) {
   const header = req.headers.authorization || '';
   const supplied = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (supplied.length !== adminToken.length) return false;
-  return Buffer.from(supplied).equals(Buffer.from(adminToken));
+  if (adminToken && supplied.length === adminToken.length && Buffer.from(supplied).equals(Buffer.from(adminToken))) return { role: 'admin', username: 'service-token' };
+  return auth.authenticate(supplied);
 }
 async function body(req, max = 64 * 1024) {
   let text = '';
@@ -66,7 +67,20 @@ export async function handler(req, res) {
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'cat-railway-panel', version: VERSION });
     if (req.method === 'GET' && url.pathname === '/api/version') return json(res, 200, { ok: true, version: VERSION, target: 'railway' });
     if (req.method === 'GET' && url.pathname === '/runtime') return json(res, 200, { ok: true, node: process.version, platform: process.platform, arch: process.arch, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), memory: process.memoryUsage().rss });
-    if (url.pathname.startsWith('/api/') && !authorized(req)) return json(res, adminToken ? 401 : 503, { ok: false, error: adminToken ? 'unauthorized' : 'admin_token_not_configured' });
+    if (req.method === 'POST' && url.pathname === '/api/login') {
+      const input = await body(req);
+      const result = await auth.login(input.username, input.password);
+      return json(res, result ? 200 : 401, result ? { ok: true, ...result } : { ok: false, error: 'invalid_credentials' });
+    }
+    const actor = url.pathname.startsWith('/api/') ? await authorized(req) : null;
+    if (url.pathname.startsWith('/api/') && !actor) return json(res, 401, { ok: false, error: 'unauthorized' });
+    if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { ok: true, user: actor });
+    if (req.method === 'GET' && url.pathname === '/api/users') return actor.role === 'admin' ? json(res, 200, { ok: true, users: await auth.listUsers() }) : json(res, 403, { ok: false, error: 'forbidden' });
+    if (req.method === 'POST' && url.pathname === '/api/users') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { return json(res, 201, { ok: true, user: await auth.createUser(await body(req)) }); }
+      catch (error) { return json(res, 400, { ok: false, error: error.message === 'user_exists' ? 'user_exists' : 'invalid_user' }); }
+    }
     if (req.method === 'GET' && url.pathname === '/api/xray/status') return json(res, 200, { ok: true, ...xray.status(), binary: await xray.verifyBinary() });
     if (req.method === 'POST' && url.pathname === '/api/xray/config') {
       const config = await body(req, 1024 * 1024);
@@ -94,5 +108,7 @@ export async function handler(req, res) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 8080);
+  try { await auth.bootstrap(process.env.CAT_INITIAL_ADMIN_PASSWORD || ''); }
+  catch (error) { console.error(`Startup refused: ${error.message}`); process.exit(1); }
   http.createServer(handler).listen(port, '0.0.0.0', () => console.log(`Cat Railway Panel ${VERSION} listening on ${port}`));
 }
