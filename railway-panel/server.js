@@ -3,12 +3,18 @@ import { isIP } from 'node:net';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { XrayRuntime } from './xray-runtime.js';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
 const adminToken = process.env.CAT_ADMIN_TOKEN || '';
+const xray = new XrayRuntime({
+  binary: process.env.CAT_XRAY_BINARY || join(dataDir, 'bin', 'xray'),
+  expectedSha256: process.env.CAT_XRAY_SHA256 || '',
+  dataDir: join(dataDir, 'xray'),
+});
 
 const json = (res, status, body) => {
   const text = JSON.stringify(body);
@@ -61,6 +67,15 @@ export async function handler(req, res) {
     if (req.method === 'GET' && url.pathname === '/api/version') return json(res, 200, { ok: true, version: VERSION, target: 'railway' });
     if (req.method === 'GET' && url.pathname === '/runtime') return json(res, 200, { ok: true, node: process.version, platform: process.platform, arch: process.arch, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), memory: process.memoryUsage().rss });
     if (url.pathname.startsWith('/api/') && !authorized(req)) return json(res, adminToken ? 401 : 503, { ok: false, error: adminToken ? 'unauthorized' : 'admin_token_not_configured' });
+    if (req.method === 'GET' && url.pathname === '/api/xray/status') return json(res, 200, { ok: true, ...xray.status(), binary: await xray.verifyBinary() });
+    if (req.method === 'POST' && url.pathname === '/api/xray/config') {
+      const config = await body(req, 1024 * 1024);
+      const result = await xray.installConfig(config);
+      return json(res, result.ok ? 200 : 400, result);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/xray/start') { const result = await xray.start(); return json(res, result.ok ? 200 : 409, result); }
+    if (req.method === 'POST' && url.pathname === '/api/xray/stop') return json(res, 200, await xray.stop());
+    if (req.method === 'POST' && url.pathname === '/api/xray/restart') { const result = await xray.restart(); return json(res, result.ok ? 200 : 409, result); }
     if (req.method === 'GET' && url.pathname === '/api/candidates') return json(res, 200, { ok: true, ...(await readState()) });
     if (req.method === 'POST' && url.pathname === '/api/candidates') {
       const candidate = normalizeCandidate(await body(req));
