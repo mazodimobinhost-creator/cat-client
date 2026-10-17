@@ -259,6 +259,7 @@ class CatClientVpnService : VpnService() {
     private lateinit var connectionSelectionPreferenceStore: ConnectionSelectionPreferenceStore
     private lateinit var connectionTestSettingsPreferenceStore: ConnectionTestSettingsPreferenceStore
     private lateinit var connectionChainPreferenceStore: ConnectionChainPreferenceStore
+    private lateinit var aetherPreferenceStore: AetherPreferenceStore
 
     private var startupJob: Job? = null
     /** Optional native Aether runtime; never runs concurrently with Mihomo. */
@@ -428,6 +429,7 @@ class CatClientVpnService : VpnService() {
         connectionSelectionPreferenceStore = ConnectionSelectionPreferenceStore(this)
         connectionTestSettingsPreferenceStore = ConnectionTestSettingsPreferenceStore(this)
         connectionChainPreferenceStore = ConnectionChainPreferenceStore(this)
+        aetherPreferenceStore = AetherPreferenceStore(this)
         networkMonitor.setDefaultNetworkChangeListener { candidate ->
             handleDefaultNetworkChanged(candidate)
         }
@@ -1438,6 +1440,12 @@ class CatClientVpnService : VpnService() {
         ensureStartupActive(eventPrefix)
         ensureUnderlyingNetworkAvailable()
         networkMonitor.start()
+
+        val aetherSelection = aetherPreferenceStore.read()
+        if (aetherSelection.enabled) {
+            runAetherStartup(eventPrefix, aetherSelection)
+            return
+        }
 
         val selectedSubscriptionId = subscriptionStore.readSelectedSubscriptionId()
         val chainSettings = connectionChainPreferenceStore.read()
@@ -3925,6 +3933,23 @@ class CatClientVpnService : VpnService() {
         }
         if (!coreLifecycle.isActive()) throw MihomoCoreBusyException()
         return result.orEmpty()
+    }
+
+    private suspend fun runAetherStartup(eventPrefix: String, selection: AetherSelection) {
+        check(selection.mode != AetherMode.MasquePsiphon) { "Psiphon carrier is not available" }
+        check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Aether native core is not packaged" }
+        check(coreLifecycle.isIdle()) { "Mihomo must stop before Aether starts" }
+        val session = createAetherSession(resolveSplitTunnelRuntimePlan())
+        val config = AetherRuntimeConfig(
+            mode = selection.mode,
+            identityFile = File(filesDir, "aether.toml"),
+        )
+        DiagnosticLogger.info(this, "$eventPrefix.aether.start", "mode=${selection.mode.wireName}")
+        val result = withContext(Dispatchers.IO) { session.run(config) }
+        if (aetherSession === session) aetherSession = null
+        if (state != VpnState.Stopping && state != VpnState.Stopped) {
+            throw IOException(result.error ?: "Aether tunnel closed")
+        }
     }
 
     /** Creates the service-bound native session after mode selection has stopped Mihomo. */
