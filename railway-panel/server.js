@@ -9,14 +9,16 @@ import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 import { buildAutoPlan } from './auto-plan.js';
 import { buildVlessWsInbound } from './inbound-builder.js';
 import { BackupStore } from './backup-store.js';
+import { TelegramBot } from './telegram-bot.js';
 
-export const VERSION = '0.10.0';
+export const VERSION = '0.11.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
 const adminToken = process.env.CAT_ADMIN_TOKEN || '';
 const auth = new AuthStore(dataDir);
 const backups = new BackupStore(dataDir, process.env.CAT_BACKUP_KEY);
+const telegram = new TelegramBot({ token: process.env.CAT_TELEGRAM_BOT_TOKEN, adminId: process.env.CAT_TELEGRAM_ADMIN_ID, secret: process.env.CAT_TELEGRAM_WEBHOOK_SECRET });
 const xray = new XrayRuntime({
   binary: process.env.CAT_XRAY_BINARY || join(dataDir, 'bin', 'xray'),
   expectedSha256: process.env.CAT_XRAY_SHA256 || '',
@@ -99,6 +101,14 @@ export async function handler(req, res) {
       });
       return res.end(output);
     }
+    if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
+      const result = await telegram.handle(req, await body(req), {
+        status: async () => { const s = xray.status(); return `Cat Railway ${VERSION}\nXray: ${s.running ? 'running' : 'stopped'}\nUptime: ${s.uptimeSeconds}s`; },
+        users: async () => { const users = await auth.listUsers(); return `Users: ${users.filter(x => x.role === 'user').length}\nActive: ${users.filter(x => x.role === 'user' && x.enabled).length}`; },
+        restartXray: async () => { const result = await xray.restart(); return result.ok ? 'Xray restarted' : `Xray restart failed: ${result.error || 'unknown'}`; },
+      });
+      return json(res, result.status, { ok: result.status === 200 });
+    }
     if (req.method === 'POST' && url.pathname === '/api/login') {
       const input = await body(req);
       const result = await auth.login(input.username, input.password);
@@ -118,6 +128,11 @@ export async function handler(req, res) {
       if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
       try { return json(res, 200, { ok: true, ...(await auth.setLinks(linksRoute[1], (await body(req)).links)) }); }
       catch { return json(res, 404, { ok: false, error: 'user_not_found' }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/telegram/setup') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { await telegram.setupWebhook(process.env.RAILWAY_PUBLIC_DOMAIN); return json(res, 200, { ok: true }); }
+      catch (error) { return json(res, 503, { ok: false, error: error.message }); }
     }
     if (req.method === 'GET' && url.pathname === '/api/backup') {
       if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });

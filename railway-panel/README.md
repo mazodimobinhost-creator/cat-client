@@ -14,6 +14,7 @@ The root route serves a self-contained, mobile-friendly RTL admin UI for login, 
 - `CAT_TUNNEL_PATH_TOKEN`: random 20–64 character URL-safe token used by the fixed WebSocket upgrade route.
 - `CAT_XRAY_WS_PORT`: local-only Xray WS port, default `18080`.
 - `CAT_BACKUP_KEY`: exactly 32 random bytes encoded as Base64; required for encrypted backup/restore.
+- `CAT_TELEGRAM_BOT_TOKEN`, `CAT_TELEGRAM_ADMIN_ID`, `CAT_TELEGRAM_WEBHOOK_SECRET`: optional Telegram administration; the secret must be 20–128 URL-safe characters.
 
 ## Current API
 
@@ -31,6 +32,8 @@ The root route serves a self-contained, mobile-friendly RTL admin UI for login, 
 - `POST /api/auto-plan` (admin; choose a country and optionally IP version; only fresh proven candidates can become primary/fallback)
 - `POST /api/auto-inbound` (admin; country + user ID → proven endpoint, local-only multi-user VLESS/WS inbound, validated Xray apply, private subscription link)
 - `GET /api/backup`, `POST /api/restore` (admin; authenticated AES-256-GCM archive, strict file allowlist)
+- `POST /api/telegram/setup` (admin; register a secret-protected webhook)
+- `POST /api/telegram/webhook` (Telegram only; numeric admin ID + secret header; `/status`, `/users`, `/restart_xray`)
 - `GET /api/xray/status` (admin)
 - `POST /api/xray/config` (admin; validates with `xray run -test` before atomic install)
 - `POST /api/xray/apply` (admin; validate, restart, and automatically restore the last known-good config if startup fails)
