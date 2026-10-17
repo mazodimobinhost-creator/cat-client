@@ -261,6 +261,8 @@ class CatClientVpnService : VpnService() {
     private lateinit var connectionChainPreferenceStore: ConnectionChainPreferenceStore
 
     private var startupJob: Job? = null
+    /** Optional native Aether runtime; never runs concurrently with Mihomo. */
+    private var aetherSession: AetherSession? = null
     private var stopJob: Job? = null
     private var subscriptionRefreshJob: Job? = null
     private var notificationTrafficJob: Job? = null
@@ -524,6 +526,8 @@ class CatClientVpnService : VpnService() {
         subscriptionRefreshJob?.cancel()
         stopNotificationTrafficUpdates()
         cancelPostConnectHealthWatchdog()
+        aetherSession?.close()
+        aetherSession = null
         stopCoreImmediately()
         scope.cancel()
         currentVpnService = null
@@ -3923,6 +3927,44 @@ class CatClientVpnService : VpnService() {
         return result.orEmpty()
     }
 
+    /** Creates the service-bound native session after mode selection has stopped Mihomo. */
+    private fun createAetherSession(splitTunnelPlan: SplitTunnelRuntimePlan): AetherSession {
+        check(aetherSession == null) { "Aether session is already installed" }
+        return AetherSession(
+            protectSocket = { fd -> protect(fd) },
+            establishTun = { ipv4, ipv6 -> establishAetherTun(ipv4, ipv6, splitTunnelPlan) },
+            onReady = {
+                scope.launch {
+                    DiagnosticLogger.info(this@CatClientVpnService, "aether.tunnel.ready")
+                    publishState(VpnState.Started)
+                }
+            },
+        ).also { aetherSession = it }
+    }
+
+    private fun establishAetherTun(
+        ipv4: String,
+        ipv6: String,
+        splitTunnelPlan: SplitTunnelRuntimePlan,
+    ): Int {
+        AetherTunPolicy.validatedAddresses(ipv4, ipv6)
+        val builder = Builder()
+            .setMtu(AETHER_TUN_MTU)
+            .setSession("${getString(R.string.app_name)} · Aether")
+            .addAddress(ipv4, 32)
+            .addAddress(ipv6, 128)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+            .addDnsServer("1.1.1.1")
+            .addDnsServer("2606:4700:4700::1111")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+            builder.setBlocking(false)
+        }
+        applySplitTunnel(builder, splitTunnelPlan)
+        return builder.establish()?.detachFd() ?: throw IOException("Android rejected the Aether VPN tunnel")
+    }
+
     private suspend fun establishTun(splitTunnelPlan: SplitTunnelRuntimePlan): Int {
         for (attempt in 1..TUN_ESTABLISH_ATTEMPTS) {
             val builder = Builder()
@@ -4259,6 +4301,8 @@ class CatClientVpnService : VpnService() {
         stopJob?.cancel()
         stopJob = scope.launch {
             cancelConnectionTestsAndWait()
+            aetherSession?.close()
+            aetherSession = null
             val terminalState = disconnectTerminalState(
                 stopCoreService(),
                 getString(R.string.state_connection_error),
@@ -5110,5 +5154,6 @@ class CatClientVpnService : VpnService() {
         const val SCAN_DIAGNOSTICS_ENABLED = true
         const val MIHOMO_TUN_STACK = "gvisor"
         const val MIHOMO_TUN_MTU = 9000
+        const val AETHER_TUN_MTU = 1280
     }
 }
