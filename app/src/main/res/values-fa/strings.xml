@@ -1218,5 +1218,8 @@
     <string name="deployment_profiles_hint">https://name.workers.dev یا pages.dev</string>
     <string name="deployment_profiles_add">افزودن مقصد</string>
     <string name="deployment_profiles_invalid">نشانی HTTPS معتبر Worker، Pages یا Railway را وارد کنید</string>
+    <string name="deployment_profiles_auto">آزمایش همه و انتخاب سریع‌ترین مقصد سالم</string>
+    <string name="deployment_profiles_selected">انتخاب شد: %1$s · %2$s</string>
+    <string name="deployment_profiles_none">مقصد سالم و تازه‌ای پیدا نشد</string>
     <string name="deployment_profiles_help">برای آزمایش /health و /api/version لمس کنید؛ نگه‌داشتن حذف می‌کند. تغییر شبکه و Captive Portal نتیجه نامشخص دارند.</string>
 </resources>

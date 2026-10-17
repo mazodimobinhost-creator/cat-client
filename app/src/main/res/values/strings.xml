@@ -1219,5 +1219,8 @@
     <string name="deployment_profiles_hint">https://name.workers.dev or pages.dev</string>
     <string name="deployment_profiles_add">Add target</string>
     <string name="deployment_profiles_invalid">Enter a supported HTTPS Worker, Pages, or Railway URL</string>
+    <string name="deployment_profiles_auto">Test all and select fastest healthy target</string>
+    <string name="deployment_profiles_selected">Selected: %1$s · %2$s</string>
+    <string name="deployment_profiles_none">No fresh healthy target</string>
     <string name="deployment_profiles_help">Tap to test /health and /api/version. Long-press to remove. Network changes and captive portals are inconclusive.</string>
 </resources>

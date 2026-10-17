@@ -7182,7 +7182,9 @@ class MainActivity : Activity() {
 
     /** Worker / Pages / Railway targets are user-owned HTTPS origins; no secret is stored here. */
     private fun addDeploymentProfilesSection(body: LinearLayout) {
-        val store = DeploymentProfileStore(getSharedPreferences("deployment_profiles", MODE_PRIVATE))
+        val deploymentPrefs = getSharedPreferences("deployment_profiles", MODE_PRIVATE)
+        val store = DeploymentProfileStore(deploymentPrefs)
+        val measurementStore = DeploymentMeasurementStore(deploymentPrefs)
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -7229,6 +7231,7 @@ class MainActivity : Activity() {
                         val before = networkKey()
                         activityScope.launch(Dispatchers.IO) {
                             val result = DeploymentProfileProbe().execute(profile, before, ::networkKey, ::captive)
+                            measurementStore.record(result, store.read())
                             mainHandler.post {
                                 if (isDestroyed) return@post
                                 isEnabled = true
@@ -7256,6 +7259,32 @@ class MainActivity : Activity() {
                 if (store.upsert(DeploymentProfile(id, host, target, url))) {
                     input.text?.clear()
                     render()
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
+        card.addView(MaterialButton(this).apply {
+            setText(R.string.deployment_profiles_auto)
+            isAllCaps = false
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 48))
+            setOnClickListener {
+                val button = this
+                val profiles = store.read().filter { it.enabled }
+                if (profiles.isEmpty()) return@setOnClickListener
+                button.isEnabled = false
+                activityScope.launch(Dispatchers.IO) {
+                    val before = networkKey()
+                    val results = profiles.map { profile ->
+                        DeploymentProfileProbe().execute(profile, before, ::networkKey, ::captive)
+                    }
+                    results.forEach { measurementStore.record(it, profiles) }
+                    val best = DeploymentTargetPolicy.selectBest(results, System.currentTimeMillis())
+                    mainHandler.post {
+                        if (isDestroyed) return@post
+                        button.isEnabled = true
+                        button.text = best?.let { getString(R.string.deployment_profiles_selected, it.target.name, it.name) }
+                            ?: getString(R.string.deployment_profiles_none)
+                        render()
+                    }
                 }
             }
         }, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
