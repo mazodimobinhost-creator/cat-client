@@ -263,7 +263,7 @@ object FreeConfigs {
                     host = item.optString("host"),
                 )
             }
-            FetchReport(list.filter { it.link.isNotBlank() }, emptyList(), emptyList())
+            FetchReport(list.filter { it.link.isNotBlank() && isSafePublicLink(it.link) }, emptyList(), emptyList())
         }.getOrNull()
     }
 
@@ -313,7 +313,22 @@ object FreeConfigs {
             .map { it.trim().trimStart('\uFEFF') }
             .filter { line -> SHARE_PREFIXES.any { line.startsWith(it, ignoreCase = true) } }
             .filter { it.length in 12..4096 }
+            .filter(::isSafePublicLink)
             .toList()
+
+    internal fun isSafePublicLink(link: String): Boolean {
+        var host = hostOf(link).trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
+        if (host.isBlank() || host == protocolOf(link) || host == "localhost" || host == "::" || host == "::1") return false
+        if (host.startsWith("fc") || host.startsWith("fd") || Regex("^fe[89ab]").containsMatchIn(host)) return false
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }) {
+            val a = parts[0].toInt(); val b = parts[1].toInt()
+            if (a == 0 || a == 10 || a == 127 || a >= 224 || (a == 100 && b in 64..127) ||
+                (a == 169 && b == 254) || (a == 172 && b in 16..31) || (a == 192 && b == 168) ||
+                (a == 198 && b in 18..19)) return false
+        }
+        return true
+    }
 
     internal fun protocolOf(link: String): String =
         link.substringBefore("://").lowercase(Locale.US)
