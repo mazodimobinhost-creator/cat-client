@@ -457,6 +457,13 @@
     <string name="connection_protocol_support_tcp_only">فقط از TCP پشتیبانی می‌کند</string>
     <string name="connection_protocol_support_udp_unknown">از TCP پشتیبانی می‌کند؛ پشتیبانی UDP نامشخص است</string>
 
+    <string name="aether_title">Aether</string>
+    <string name="aether_enable">استفاده از هستهٔ Aether</string>
+    <string name="aether_enable_detail">در اتصال بعدی به‌جای Mihomo از تونل بومی Aether استفاده شود</string>
+    <string name="aether_core_unavailable">هستهٔ بومی در این APK قرار ندارد؛ Aether غیرفعال می‌ماند</string>
+    <string name="aether_mode">پروتکل Aether</string>
+    <string name="aether_mode_h2">MASQUE · HTTP/2</string>
+    <string name="aether_mode_wom">WireGuard روی MASQUE</string>
     <string name="connection_chain_title">زنجیرهٔ اتصال</string>
     <string name="connection_chain_category_detail">افزودن یک اتصال اختیاری بعد از اتصال اصلی</string>
     <string name="connection_chain_enable">فعال‌کردن زنجیره</string>

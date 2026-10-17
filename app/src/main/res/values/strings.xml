@@ -458,6 +458,13 @@
     <string name="connection_protocol_support_tcp_only">Supports TCP only</string>
     <string name="connection_protocol_support_udp_unknown">Supports TCP; UDP support is unknown</string>
 
+    <string name="aether_title">Aether</string>
+    <string name="aether_enable">Use Aether engine</string>
+    <string name="aether_enable_detail">Use the native Aether tunnel instead of Mihomo on the next connection</string>
+    <string name="aether_core_unavailable">Native core is not included in this APK; Aether remains disabled</string>
+    <string name="aether_mode">Aether protocol</string>
+    <string name="aether_mode_h2">MASQUE · HTTP/2</string>
+    <string name="aether_mode_wom">WireGuard over MASQUE</string>
     <string name="connection_chain_title">Connection chaining</string>
     <string name="connection_chain_category_detail">Add an optional connection after the main connection</string>
     <string name="connection_chain_enable">Enable chaining</string>

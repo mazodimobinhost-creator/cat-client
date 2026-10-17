@@ -170,6 +170,7 @@ class MainActivity : Activity() {
     private lateinit var connectionSelectionPreferenceStore: ConnectionSelectionPreferenceStore
     private lateinit var connectionTestSettingsPreferenceStore: ConnectionTestSettingsPreferenceStore
     private lateinit var connectionChainPreferenceStore: ConnectionChainPreferenceStore
+    private lateinit var aetherPreferenceStore: AetherPreferenceStore
     private lateinit var installedAppRepository: InstalledAppRepository
     private lateinit var userSubscriptionManager: UserSubscriptionManager
     private var privacyPolicyDialog: AlertDialog? = null
@@ -431,6 +432,7 @@ class MainActivity : Activity() {
         connectionSelectionPreferenceStore = ConnectionSelectionPreferenceStore(this)
         connectionTestSettingsPreferenceStore = ConnectionTestSettingsPreferenceStore(this)
         connectionChainPreferenceStore = ConnectionChainPreferenceStore(this)
+        aetherPreferenceStore = AetherPreferenceStore(this)
         installedAppRepository = InstalledAppRepository(this)
         userSubscriptionManager = UserSubscriptionManager(this)
         connectFlowPending = savedInstanceState?.getBoolean(STATE_CONNECT_FLOW_PENDING) == true
@@ -3488,6 +3490,41 @@ class MainActivity : Activity() {
             contentDescription = getString(R.string.settings_value_content_description, title, value)
             setOnRowClickListener { onClick(this) }
         }
+        val aetherSelection = aetherPreferenceStore.read()
+        val aetherCoreAvailable = AetherRuntimeCapabilities.detect().nativeCoreLoaded
+        val aetherPanel = advancedSettingsPanel()
+        val aetherSwitch = MaterialSwitch(this).apply {
+            isChecked = aetherSelection.enabled && aetherCoreAvailable
+            isEnabled = aetherCoreAvailable
+            contentDescription = getString(R.string.aether_enable)
+            setOnCheckedChangeListener { _, checked ->
+                aetherPreferenceStore.save(aetherPreferenceStore.read().copy(enabled = checked))
+            }
+        }
+        aetherPanel.addView(
+            advancedToggleRow(
+                getString(R.string.aether_enable),
+                getString(if (aetherCoreAvailable) R.string.aether_enable_detail else R.string.aether_core_unavailable),
+                aetherSwitch,
+            ),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        val aetherModeRow = appPreferenceRow(
+            R.string.aether_mode,
+            getString(if (aetherSelection.mode == AetherMode.WireGuardOverMasque) R.string.aether_mode_wom else R.string.aether_mode_h2),
+        ) {
+            val current = aetherPreferenceStore.read()
+            val next = if (current.mode == AetherMode.MasqueHttp2) AetherMode.WireGuardOverMasque else AetherMode.MasqueHttp2
+            aetherPreferenceStore.save(current.copy(mode = next))
+            recreate()
+        }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }
+        aetherPanel.addView(aetherModeRow, LinearLayout.LayoutParams(-1, -2))
+        connectionSettings.addView(
+            advancedSectionLabel(getString(R.string.aether_title)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
+        )
+        connectionSettings.addView(aetherPanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
         settingsSubscriptionSelectorRow = appPreferenceRow(
             R.string.settings_subscription_title,
             selectedSubscriptionName(),
