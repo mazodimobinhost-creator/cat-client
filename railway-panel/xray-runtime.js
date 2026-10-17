@@ -72,5 +72,22 @@ export class XrayRuntime {
   }
 
   async restart() { await this.stop(); return this.start(); }
+
+  /** Installs, starts, and automatically restores the previous known-good config on startup failure. */
+  async applyConfig(config) {
+    const hadConfig = await readFile(this.configPath).then(() => true).catch(() => false);
+    const installed = await this.installConfig(config);
+    if (!installed.ok) return installed;
+    const started = await this.restart();
+    if (started.ok) return { ok: true, ...started, rolledBack: false };
+    if (!hadConfig) return { ...started, rolledBack: false };
+    const restored = await copyFile(this.backupPath, this.configPath).then(() => true).catch(() => false);
+    if (!restored) return { ...started, rolledBack: false, rollbackError: 'backup_unavailable' };
+    const rollbackStart = await this.start();
+    return rollbackStart.ok
+      ? { ok: false, error: 'new_config_start_failed', rolledBack: true, previousRunning: true }
+      : { ok: false, error: 'rollback_start_failed', rolledBack: true, previousRunning: false };
+  }
+
   status() { return { running: Boolean(this.process && this.process.exitCode == null), pid: this.process?.pid || null, uptimeSeconds: this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0 }; }
 }

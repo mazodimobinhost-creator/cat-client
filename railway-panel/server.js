@@ -8,7 +8,7 @@ import { AuthStore } from './auth-store.js';
 import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 import { buildAutoPlan } from './auto-plan.js';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -96,6 +96,10 @@ export async function handler(req, res) {
       const config = await body(req, 1024 * 1024);
       const result = await xray.installConfig(config);
       return json(res, result.ok ? 200 : 400, result);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/xray/apply') {
+      const result = await xray.applyConfig(await body(req, 1024 * 1024));
+      return json(res, result.ok ? 200 : 409, result);
     }
     if (req.method === 'POST' && url.pathname === '/api/xray/start') { const result = await xray.start(); return json(res, result.ok ? 200 : 409, result); }
     if (req.method === 'POST' && url.pathname === '/api/xray/stop') return json(res, 200, await xray.stop());

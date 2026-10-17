@@ -24,6 +24,7 @@ Independent Railway target for Cat Client. It does not run or replace the canoni
 - `POST /api/auto-plan` (admin; choose a country and optionally IP version; only fresh proven candidates can become primary/fallback)
 - `GET /api/xray/status` (admin)
 - `POST /api/xray/config` (admin; validates with `xray run -test` before atomic install)
+- `POST /api/xray/apply` (admin; validate, restart, and automatically restore the last known-good config if startup fails)
 - `POST /api/xray/start`, `/stop`, `/restart` (admin)
 
 Candidate data is written atomically with mode `0600`. Secrets are never returned by runtime endpoints.
