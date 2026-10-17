@@ -23,6 +23,37 @@ internal data class DeploymentProfile(
     }
 }
 
+internal data class DeploymentProbeMeasurement(
+    val profile: DeploymentProfile,
+    val verdict: DeploymentProbeVerdict,
+    val latencyMs: Long,
+    val measuredAtMs: Long,
+)
+
+internal object DeploymentTargetPolicy {
+    fun infer(url: String): DeploymentTarget? {
+        val host = runCatching { URI(url.trim()).host?.lowercase() }.getOrNull() ?: return null
+        return when {
+            host.endsWith(".workers.dev") -> DeploymentTarget.WORKER
+            host.endsWith(".pages.dev") -> DeploymentTarget.PAGES
+            host.endsWith(".up.railway.app") || host.endsWith(".railway.app") -> DeploymentTarget.RAILWAY
+            else -> null
+        }
+    }
+
+    /** Selects only fresh, proven profiles; stale or inconclusive results never win. */
+    fun selectBest(
+        measurements: List<DeploymentProbeMeasurement>,
+        nowMs: Long,
+        maxAgeMs: Long = 5 * 60_000L,
+    ): DeploymentProfile? = measurements.asSequence()
+        .filter { it.verdict == DeploymentProbeVerdict.SUCCESS }
+        .filter { it.latencyMs >= 0L && it.measuredAtMs in (nowMs - maxAgeMs)..nowMs }
+        .sortedWith(compareBy<DeploymentProbeMeasurement> { it.latencyMs }.thenByDescending { it.measuredAtMs })
+        .map { it.profile.normalized() }
+        .firstOrNull { it != null }
+}
+
 internal object DeploymentProbePolicy {
     fun classify(
         profile: DeploymentProfile?,

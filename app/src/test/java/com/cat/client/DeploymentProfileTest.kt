@@ -31,4 +31,26 @@ class DeploymentProfileTest {
         assertEquals(DeploymentProbeVerdict.NOT_CONFIGURED, DeploymentProbePolicy.classify(profile().copy(enabled = false), "n", "n", false, 200, 200))
         assertEquals(DeploymentProbeVerdict.NOT_CONFIGURED, DeploymentProbePolicy.classify(profile("javascript:alert(1)"), "n", "n", false, 200, 200))
     }
+
+    @Test fun infersOnlyKnownDeploymentHosts() {
+        assertEquals(DeploymentTarget.WORKER, DeploymentTargetPolicy.infer("https://cat.workers.dev"))
+        assertEquals(DeploymentTarget.PAGES, DeploymentTargetPolicy.infer("https://cat.pages.dev"))
+        assertEquals(DeploymentTarget.RAILWAY, DeploymentTargetPolicy.infer("https://cat.up.railway.app"))
+        assertNull(DeploymentTargetPolicy.infer("https://example.com"))
+    }
+
+    @Test fun automaticSelectionUsesOnlyFreshSuccessfulMeasurement() {
+        val now = 1_000_000L
+        val slow = profile("https://slow.pages.dev").copy(id = "slow")
+        val fast = profile("https://fast.pages.dev").copy(id = "fast")
+        val failed = profile("https://failed.pages.dev").copy(id = "failed")
+        val stale = profile("https://stale.pages.dev").copy(id = "stale")
+        val chosen = DeploymentTargetPolicy.selectBest(listOf(
+            DeploymentProbeMeasurement(slow, DeploymentProbeVerdict.SUCCESS, 90, now - 1_000),
+            DeploymentProbeMeasurement(fast, DeploymentProbeVerdict.SUCCESS, 20, now - 2_000),
+            DeploymentProbeMeasurement(failed, DeploymentProbeVerdict.FAILED, 1, now),
+            DeploymentProbeMeasurement(stale, DeploymentProbeVerdict.SUCCESS, 2, now - 600_000),
+        ), now)
+        assertEquals("fast", chosen?.id)
+    }
 }
