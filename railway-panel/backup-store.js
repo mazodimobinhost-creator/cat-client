@@ -10,7 +10,7 @@ export class BackupStore {
   available() { return Boolean(this.key); }
   async export() {
     if (!this.key) throw new Error('backup_key_not_configured');
-    const names = ['state.json', 'auth.json', 'xray/xray.json', 'xray/xray.last-good.json'];
+    const names = ['state.json', 'auth.json', 'nodes.json', 'xray/xray.json', 'xray/xray.last-good.json'];
     const files = {};
     for (const name of names) {
       const text = await readFile(join(this.dataDir, name), 'utf8').catch(() => null);
@@ -30,7 +30,7 @@ export class BackupStore {
       const plain = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
       const data = JSON.parse(plain.toString('utf8'));
       if (data.format !== 1 || !data.files || typeof data.files !== 'object') throw new Error();
-      const allowed = new Set(['state.json', 'auth.json', 'xray/xray.json', 'xray/xray.last-good.json']);
+      const allowed = new Set(['state.json', 'auth.json', 'nodes.json', 'xray/xray.json', 'xray/xray.last-good.json']);
       for (const [name, text] of Object.entries(data.files)) {
         if (!allowed.has(name) || typeof text !== 'string' || text.length > 2_000_000) throw new Error();
         JSON.parse(text);

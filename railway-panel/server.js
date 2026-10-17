@@ -10,13 +10,15 @@ import { buildAutoPlan } from './auto-plan.js';
 import { buildVlessWsInbound } from './inbound-builder.js';
 import { BackupStore } from './backup-store.js';
 import { TelegramBot } from './telegram-bot.js';
+import { NodeStore } from './node-store.js';
 
-export const VERSION = '0.11.0';
+export const VERSION = '0.12.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
 const adminToken = process.env.CAT_ADMIN_TOKEN || '';
 const auth = new AuthStore(dataDir);
+const nodes = new NodeStore(dataDir);
 const backups = new BackupStore(dataDir, process.env.CAT_BACKUP_KEY);
 const telegram = new TelegramBot({ token: process.env.CAT_TELEGRAM_BOT_TOKEN, adminId: process.env.CAT_TELEGRAM_ADMIN_ID, secret: process.env.CAT_TELEGRAM_WEBHOOK_SECRET });
 const xray = new XrayRuntime({
@@ -101,6 +103,10 @@ export async function handler(req, res) {
       });
       return res.end(output);
     }
+    if (req.method === 'POST' && url.pathname === '/api/node/heartbeat') {
+      const node = await nodes.heartbeat(await body(req));
+      return json(res, node ? 200 : 401, node ? { ok: true, node } : { ok: false, error: 'invalid_node_credentials' });
+    }
     if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
       const result = await telegram.handle(req, await body(req), {
         status: async () => { const s = xray.status(); return `Cat Railway ${VERSION}\nXray: ${s.running ? 'running' : 'stopped'}\nUptime: ${s.uptimeSeconds}s`; },
@@ -122,6 +128,17 @@ export async function handler(req, res) {
       if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
       try { return json(res, 201, { ok: true, user: await auth.createUser(await body(req)) }); }
       catch (error) { return json(res, 400, { ok: false, error: error.message === 'user_exists' ? 'user_exists' : 'invalid_user' }); }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/nodes') return actor.role === 'admin' ? json(res, 200, { ok: true, nodes: await nodes.list() }) : json(res, 403, { ok: false, error: 'forbidden' });
+    if (req.method === 'POST' && url.pathname === '/api/nodes') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { return json(res, 201, { ok: true, node: await nodes.create(await body(req)) }); }
+      catch (error) { return json(res, 400, { ok: false, error: error.message === 'node_exists' ? 'node_exists' : 'invalid_node' }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/nodes/select') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      const node = await nodes.select((await body(req)).country);
+      return json(res, node ? 200 : 404, node ? { ok: true, node } : { ok: false, error: 'no_fresh_healthy_node' });
     }
     const linksRoute = /^\/api\/users\/([a-f0-9]{32})\/links$/.exec(url.pathname);
     if (req.method === 'PUT' && linksRoute) {
