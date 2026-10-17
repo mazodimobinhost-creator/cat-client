@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { XrayRuntime } from './xray-runtime.js';
 import { AuthStore } from './auth-store.js';
+import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -31,9 +32,17 @@ export function normalizeCandidate(input) {
   const address = String(input?.address || '').trim().replace(/^\[|\]$/g, '');
   const sni = String(input?.sni || '').trim().toLowerCase();
   const port = Number(input?.port || 443);
-  if (!isIP(address) || !hostname(sni) || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-  if (address === '127.0.0.1' || address === '::1' || address === '0.0.0.0' || address === '::') return null;
-  return { address, ipVersion: isIP(address), sni, port };
+  const country = String(input?.country || '').trim().toUpperCase();
+  if (!isIP(address) || !isPublicIp(address) || !hostname(sni) || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  if (country && !/^[A-Z]{2}$/.test(country)) return null;
+  const evidence = input?.evidence && typeof input.evidence === 'object' ? {
+    ok: input.evidence.ok === true,
+    tls: input.evidence.tls === true,
+    httpStatus: Number(input.evidence.httpStatus) || 0,
+    latencyMs: Math.max(0, Number(input.evidence.latencyMs) || 0),
+    checkedAt: Math.max(0, Number(input.evidence.checkedAt) || 0),
+  } : undefined;
+  return { address, ipVersion: isIP(address), sni, port, ...(country ? { country } : {}), ...(evidence ? { evidence } : {}) };
 }
 async function readState() {
   try {
@@ -91,6 +100,17 @@ export async function handler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/xray/stop') return json(res, 200, await xray.stop());
     if (req.method === 'POST' && url.pathname === '/api/xray/restart') { const result = await xray.restart(); return json(res, result.ok ? 200 : 409, result); }
     if (req.method === 'GET' && url.pathname === '/api/candidates') return json(res, 200, { ok: true, ...(await readState()) });
+    if (req.method === 'POST' && url.pathname === '/api/candidates/probe') {
+      const wanted = normalizeCandidate(await body(req));
+      if (!wanted) return json(res, 400, { ok: false, error: 'invalid_candidate' });
+      const state = await readState();
+      const index = state.candidates.findIndex(x => x.address === wanted.address && x.port === wanted.port && x.sni === wanted.sni);
+      if (index < 0) return json(res, 404, { ok: false, error: 'candidate_not_registered' });
+      const evidence = await probeCandidate(state.candidates[index]);
+      state.candidates[index] = { ...state.candidates[index], evidence };
+      await saveState(state);
+      return json(res, evidence.ok ? 200 : 424, { ok: evidence.ok, candidate: state.candidates[index] });
+    }
     if (req.method === 'POST' && url.pathname === '/api/candidates') {
       const candidate = normalizeCandidate(await body(req));
       if (!candidate) return json(res, 400, { ok: false, error: 'invalid_candidate' });
