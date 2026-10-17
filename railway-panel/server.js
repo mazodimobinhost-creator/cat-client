@@ -8,7 +8,7 @@ import { AuthStore } from './auth-store.js';
 import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 import { buildAutoPlan } from './auto-plan.js';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -77,6 +77,20 @@ export async function handler(req, res) {
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'cat-railway-panel', version: VERSION });
     if (req.method === 'GET' && url.pathname === '/api/version') return json(res, 200, { ok: true, version: VERSION, target: 'railway' });
     if (req.method === 'GET' && url.pathname === '/runtime') return json(res, 200, { ok: true, node: process.version, platform: process.platform, arch: process.arch, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), memory: process.memoryUsage().rss });
+    if (req.method === 'GET' && url.pathname.startsWith('/sub/')) {
+      const token = decodeURIComponent(url.pathname.slice(5));
+      const subscription = await auth.subscription(token);
+      if (!subscription) return json(res, 404, { ok: false, error: 'subscription_not_found' });
+      const raw = subscription.links.join('\n');
+      const output = url.searchParams.get('format') === 'raw' ? raw : Buffer.from(raw).toString('base64');
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'subscription-userinfo': `upload=0; download=0; total=${subscription.quotaBytes || 0}; expire=${subscription.expiresAt ? Math.floor(subscription.expiresAt / 1000) : 0}`,
+        'x-content-type-options': 'nosniff',
+      });
+      return res.end(output);
+    }
     if (req.method === 'POST' && url.pathname === '/api/login') {
       const input = await body(req);
       const result = await auth.login(input.username, input.password);
@@ -90,6 +104,12 @@ export async function handler(req, res) {
       if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
       try { return json(res, 201, { ok: true, user: await auth.createUser(await body(req)) }); }
       catch (error) { return json(res, 400, { ok: false, error: error.message === 'user_exists' ? 'user_exists' : 'invalid_user' }); }
+    }
+    const linksRoute = /^\/api\/users\/([a-f0-9]{32})\/links$/.exec(url.pathname);
+    if (req.method === 'PUT' && linksRoute) {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { return json(res, 200, { ok: true, ...(await auth.setLinks(linksRoute[1], (await body(req)).links)) }); }
+      catch { return json(res, 404, { ok: false, error: 'user_not_found' }); }
     }
     if (req.method === 'GET' && url.pathname === '/api/xray/status') return json(res, 200, { ok: true, ...xray.status(), binary: await xray.verifyBinary() });
     if (req.method === 'POST' && url.pathname === '/api/xray/config') {

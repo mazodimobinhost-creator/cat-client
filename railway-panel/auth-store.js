@@ -1,8 +1,9 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 const scrypt = promisify(scryptCallback);
+const tokenHash = token => createHash('sha256').update(String(token)).digest('hex');
 
 const cleanName = value => String(value || '').trim().toLowerCase().match(/^[a-z0-9._-]{3,48}$/)?.[0] || '';
 const hashPassword = async (password, salt = randomBytes(16).toString('hex')) => {
@@ -65,9 +66,24 @@ export class AuthStore {
     if (!username || password.length < 12) throw new Error('invalid_user');
     const state = await this.load();
     if (state.users.some(x => x.username === username)) throw new Error('user_exists');
-    const user = { id: randomBytes(16).toString('hex'), username, role: 'user', passwordHash: await hashPassword(password), enabled: true, quotaBytes: Math.max(0, Number(input.quotaBytes) || 0), expiresAt: Math.max(0, Number(input.expiresAt) || 0), createdAt: this.clock() };
-    state.users.push(user); await this.save(state); return this.publicUser(user);
+    const subscriptionToken = randomBytes(24).toString('base64url');
+    const user = { id: randomBytes(16).toString('hex'), username, role: 'user', passwordHash: await hashPassword(password), enabled: true, quotaBytes: Math.max(0, Number(input.quotaBytes) || 0), expiresAt: Math.max(0, Number(input.expiresAt) || 0), configUuid: randomUUID(), subscriptionTokenHash: tokenHash(subscriptionToken), links: [], createdAt: this.clock() };
+    state.users.push(user); await this.save(state); return { ...this.publicUser(user), subscriptionToken };
   }
   async listUsers() { return (await this.load()).users.map(x => this.publicUser(x)); }
-  publicUser(user) { const { passwordHash, ...safe } = user; return safe; }
+  async setLinks(userId, links) {
+    const clean = [...new Set((Array.isArray(links) ? links : []).map(String).map(x => x.trim()).filter(x => /^(?:vless|trojan):\/\/[^\s]{1,4096}$/i.test(x)))].slice(0, 20);
+    const state = await this.load(); const user = state.users.find(x => x.id === userId && x.role === 'user');
+    if (!user) throw new Error('user_not_found');
+    user.links = clean; await this.save(state); return { user: this.publicUser(user), links: clean };
+  }
+  async subscription(token) {
+    const wanted = tokenHash(token); const now = this.clock(); const state = await this.load();
+    const user = state.users.find(x => x.subscriptionTokenHash === wanted && x.enabled && (!x.expiresAt || x.expiresAt > now));
+    return user ? { username: user.username, links: Array.isArray(user.links) ? user.links : [], quotaBytes: user.quotaBytes, expiresAt: user.expiresAt } : null;
+  }
+  publicUser(user) {
+    const { passwordHash, subscriptionTokenHash, links, ...safe } = user;
+    return { ...safe, linkCount: Array.isArray(links) ? links.length : 0 };
+  }
 }
