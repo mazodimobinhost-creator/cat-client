@@ -6053,6 +6053,7 @@ class MainActivity : Activity() {
         sourcesCard.addView(forceRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         body.addView(sourcesCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         renderScannerSources()
+        addDeploymentProfilesSection(body)
 
         // 🌍 Probe commonly requested foreign services from this device's CURRENT
         // network (through the VPN tunnel when it is connected). Results stay on
@@ -7177,6 +7178,95 @@ class MainActivity : Activity() {
             }
             scannerAiRunning = false
         }
+    }
+
+    /** Worker / Pages / Railway targets are user-owned HTTPS origins; no secret is stored here. */
+    private fun addDeploymentProfilesSection(body: LinearLayout) {
+        val store = DeploymentProfileStore(getSharedPreferences("deployment_profiles", MODE_PRIVATE))
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = glassSurfaceDrawable(radiusDp = 16)
+        }
+        card.addView(TextView(this).apply {
+            setText(R.string.deployment_profiles_title)
+            textSize = 14f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+        })
+        val input = EditText(this).apply {
+            hint = getString(R.string.deployment_profiles_hint)
+            textSize = 12.5f
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+        }
+        card.addView(input, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        fun networkKey(): String? {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            return cm.activeNetwork?.toString()
+        }
+        fun captive(): Boolean {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return true
+            return !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        fun render() {
+            list.removeAllViews()
+            store.read().forEach { profile ->
+                val row = MaterialButton(this).apply {
+                    text = "${profile.target.name} · ${profile.name}"
+                    textSize = 11.5f
+                    isAllCaps = false
+                    setTextColor(TEXT_PRIMARY)
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 24))
+                    setOnClickListener {
+                        isEnabled = false
+                        val before = networkKey()
+                        activityScope.launch(Dispatchers.IO) {
+                            val result = DeploymentProfileProbe().execute(profile, before, ::networkKey, ::captive)
+                            mainHandler.post {
+                                if (isDestroyed) return@post
+                                isEnabled = true
+                                text = "${profile.target.name} · ${result.verdict.name} · ${result.latencyMs} ms"
+                            }
+                        }
+                    }
+                    setOnLongClickListener { store.remove(profile.id); render(); true }
+                }
+                list.addView(row, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(4) })
+            }
+        }
+        card.addView(MaterialButton(this).apply {
+            setText(R.string.deployment_profiles_add)
+            isAllCaps = false
+            setOnClickListener {
+                val url = input.text?.toString().orEmpty().trim()
+                val target = DeploymentTargetPolicy.infer(url)
+                val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
+                if (target == null || host.isBlank()) {
+                    Toast.makeText(this@MainActivity, R.string.deployment_profiles_invalid, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val id = "${target.name.lowercase()}-${host.lowercase().hashCode().toUInt()}"
+                if (store.upsert(DeploymentProfile(id, host, target, url))) {
+                    input.text?.clear()
+                    render()
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
+        card.addView(TextView(this).apply {
+            setText(R.string.deployment_profiles_help)
+            textSize = 10.5f
+            setTextColor(TEXT_SECONDARY)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        card.addView(list, LinearLayout.LayoutParams(-1, -2))
+        render()
+        body.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
     }
 
     /** 🌍 Probe selected HTTPS endpoints from the current app network. */

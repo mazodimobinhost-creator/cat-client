@@ -1215,4 +1215,9 @@
     <string name="smart_probe_rate_limited">Probe recently ran; wait 30 seconds.</string>
     <string name="smart_routes_status_title">Route measurements:</string>
     <string name="smart_route_status_row">%1$s — %2$s — %3$s</string>
+    <string name="deployment_profiles_title">Deployment targets</string>
+    <string name="deployment_profiles_hint">https://name.workers.dev or pages.dev</string>
+    <string name="deployment_profiles_add">Add target</string>
+    <string name="deployment_profiles_invalid">Enter a supported HTTPS Worker, Pages, or Railway URL</string>
+    <string name="deployment_profiles_help">Tap to test /health and /api/version. Long-press to remove. Network changes and captive portals are inconclusive.</string>
 </resources>
