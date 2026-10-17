@@ -25,6 +25,13 @@ class AetherRuntimeConfigTest {
         ).toNativeJson())
         assertEquals("wom", wom.getString("transport"))
         assertEquals("1.1.1.1:443", wom.getString("peer"))
+
+        val provision = JSONObject(AetherRuntimeConfig(
+            AetherMode.MasqueHttp2,
+            File("/tmp/aether.json"),
+            upstreamProxy = "socks5://127.0.0.1:7890",
+        ).toNativeJson())
+        assertEquals("socks5://127.0.0.1:7890", provision.getString("upstreamProxy"))
     }
 
     @Test fun refusesUnreadyCarrierUnsafePathAndInvalidEndpoint() {
