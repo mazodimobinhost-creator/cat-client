@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { isIP } from 'node:net';
+import { connect, isIP } from 'node:net';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,8 +7,9 @@ import { XrayRuntime } from './xray-runtime.js';
 import { AuthStore } from './auth-store.js';
 import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 import { buildAutoPlan } from './auto-plan.js';
+import { buildVlessWsInbound } from './inbound-builder.js';
 
-export const VERSION = '0.7.0';
+export const VERSION = '0.8.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -130,6 +131,21 @@ export async function handler(req, res) {
       const plan = buildAutoPlan(state.candidates, await body(req));
       return json(res, plan.ok ? 200 : 422, plan);
     }
+    if (req.method === 'POST' && url.pathname === '/api/auto-inbound') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      const input = await body(req);
+      const state = await readState();
+      const plan = buildAutoPlan(state.candidates, input);
+      if (!plan.ok) return json(res, 422, plan);
+      const user = await auth.getUser(String(input.userId || ''));
+      const users = (await auth.listUsers()).filter(x => x.role === 'user' && x.enabled);
+      const built = buildVlessWsInbound({ user, users, plan, publicHost: process.env.RAILWAY_PUBLIC_DOMAIN, localPort: Number(process.env.CAT_XRAY_WS_PORT || 18080), pathToken: process.env.CAT_TUNNEL_PATH_TOKEN });
+      if (!built.ok) return json(res, 422, built);
+      const applied = await xray.applyConfig(built.config);
+      if (!applied.ok) return json(res, 409, applied);
+      await auth.setLinks(user.id, [built.link]);
+      return json(res, 201, { ok: true, link: built.link, primary: built.primary, fallbacks: built.fallbacks });
+    }
     if (req.method === 'POST' && url.pathname === '/api/candidates/probe') {
       const wanted = normalizeCandidate(await body(req));
       if (!wanted) return json(res, 400, { ok: false, error: 'invalid_candidate' });
@@ -156,9 +172,28 @@ export async function handler(req, res) {
   }
 }
 
+function proxyTunnelUpgrade(req, client, head) {
+  const token = process.env.CAT_TUNNEL_PATH_TOKEN || '';
+  const expected = /^[A-Za-z0-9_-]{20,64}$/.test(token) ? `/cat-tunnel/${token}` : '';
+  const path = runSafeUrl(req.url);
+  if (!expected || path !== expected) return client.destroy();
+  const upstream = connect({ host: '127.0.0.1', port: Number(process.env.CAT_XRAY_WS_PORT || 18080) });
+  upstream.once('connect', () => {
+    const headers = Object.entries(req.headers).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join('\r\n');
+    upstream.write(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`);
+    if (head?.length) upstream.write(head);
+    client.pipe(upstream).pipe(client);
+  });
+  upstream.on('error', () => client.destroy());
+  client.on('error', () => upstream.destroy());
+}
+function runSafeUrl(value) { try { return new URL(value, 'http://localhost').pathname; } catch { return ''; } }
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 8080);
   try { await auth.bootstrap(process.env.CAT_INITIAL_ADMIN_PASSWORD || ''); }
   catch (error) { console.error(`Startup refused: ${error.message}`); process.exit(1); }
-  http.createServer(handler).listen(port, '0.0.0.0', () => console.log(`Cat Railway Panel ${VERSION} listening on ${port}`));
+  const server = http.createServer(handler);
+  server.on('upgrade', proxyTunnelUpgrade);
+  server.listen(port, '0.0.0.0', () => console.log(`Cat Railway Panel ${VERSION} listening on ${port}`));
 }

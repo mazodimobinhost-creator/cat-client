@@ -71,6 +71,10 @@ export class AuthStore {
     state.users.push(user); await this.save(state); return { ...this.publicUser(user), subscriptionToken };
   }
   async listUsers() { return (await this.load()).users.map(x => this.publicUser(x)); }
+  async getUser(userId) {
+    const user = (await this.load()).users.find(x => x.id === userId && x.enabled);
+    return user ? this.publicUser(user) : null;
+  }
   async setLinks(userId, links) {
     const clean = [...new Set((Array.isArray(links) ? links : []).map(String).map(x => x.trim()).filter(x => /^(?:vless|trojan):\/\/[^\s]{1,4096}$/i.test(x)))].slice(0, 20);
     const state = await this.load(); const user = state.users.find(x => x.id === userId && x.role === 'user');
