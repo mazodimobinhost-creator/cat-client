@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { XrayRuntime } from './xray-runtime.js';
 import { AuthStore } from './auth-store.js';
 import { isPublicIp, probeCandidate } from './candidate-scanner.js';
+import { buildAutoPlan } from './auto-plan.js';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -100,6 +101,11 @@ export async function handler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/xray/stop') return json(res, 200, await xray.stop());
     if (req.method === 'POST' && url.pathname === '/api/xray/restart') { const result = await xray.restart(); return json(res, result.ok ? 200 : 409, result); }
     if (req.method === 'GET' && url.pathname === '/api/candidates') return json(res, 200, { ok: true, ...(await readState()) });
+    if (req.method === 'POST' && url.pathname === '/api/auto-plan') {
+      const state = await readState();
+      const plan = buildAutoPlan(state.candidates, await body(req));
+      return json(res, plan.ok ? 200 : 422, plan);
+    }
     if (req.method === 'POST' && url.pathname === '/api/candidates/probe') {
       const wanted = normalizeCandidate(await body(req));
       if (!wanted) return json(res, 400, { ok: false, error: 'invalid_candidate' });

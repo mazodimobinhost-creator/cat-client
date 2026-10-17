@@ -21,6 +21,7 @@ Independent Railway target for Cat Client. It does not run or replace the canoni
 - `GET /api/candidates` (admin)
 - `POST /api/candidates` (admin; validates and stores public IPv4/IPv6 + SNI candidates)
 - `POST /api/candidates/probe` (admin; TLS + HTTP evidence over the same registered candidate connection)
+- `POST /api/auto-plan` (admin; choose a country and optionally IP version; only fresh proven candidates can become primary/fallback)
 - `GET /api/xray/status` (admin)
 - `POST /api/xray/config` (admin; validates with `xray run -test` before atomic install)
 - `POST /api/xray/start`, `/stop`, `/restart` (admin)
