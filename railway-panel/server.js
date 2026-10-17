@@ -10,7 +10,7 @@ import { buildAutoPlan } from './auto-plan.js';
 import { buildVlessWsInbound } from './inbound-builder.js';
 import { BackupStore } from './backup-store.js';
 
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
@@ -77,6 +77,11 @@ async function body(req, max = 64 * 1024) {
 export async function handler(req, res) {
   try {
     const url = new URL(req.url, 'http://localhost');
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/login')) {
+      const html = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'public', 'index.html'), 'utf8');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'", 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
+      return res.end(html);
+    }
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, service: 'cat-railway-panel', version: VERSION });
     if (req.method === 'GET' && url.pathname === '/api/version') return json(res, 200, { ok: true, version: VERSION, target: 'railway' });
     if (req.method === 'GET' && url.pathname === '/runtime') return json(res, 200, { ok: true, node: process.version, platform: process.platform, arch: process.arch, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), memory: process.memoryUsage().rss });

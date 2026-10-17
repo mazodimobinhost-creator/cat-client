@@ -2,6 +2,8 @@
 
 Independent Railway target for Cat Client. It does not run or replace the canonical Cloudflare Worker.
 
+The root route serves a self-contained, mobile-friendly RTL admin UI for login, runtime/Xray status, users, candidate IP/SNI management, and country-first automatic inbound creation. It loads no third-party scripts or styles.
+
 ## Required variable
 
 - `CAT_ADMIN_TOKEN`: a long random bearer token. The service fails closed for protected APIs when it is absent.

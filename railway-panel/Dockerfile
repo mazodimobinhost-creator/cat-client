@@ -3,6 +3,7 @@ RUN addgroup -S cat && adduser -S cat -G cat
 WORKDIR /app
 RUN mkdir -p /data && chown cat:cat /data
 COPY --chown=cat:cat package.json server.js xray-runtime.js auth-store.js candidate-scanner.js auto-plan.js inbound-builder.js backup-store.js ./
+COPY --chown=cat:cat public ./public
 USER cat
 ENV NODE_ENV=production PORT=8080 CAT_DATA_DIR=/data
 EXPOSE 8080
