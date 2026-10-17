@@ -8,13 +8,15 @@ import { AuthStore } from './auth-store.js';
 import { isPublicIp, probeCandidate } from './candidate-scanner.js';
 import { buildAutoPlan } from './auto-plan.js';
 import { buildVlessWsInbound } from './inbound-builder.js';
+import { BackupStore } from './backup-store.js';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';
 const startedAt = Date.now();
 const dataDir = process.env.CAT_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), 'data');
 const stateFile = join(dataDir, 'state.json');
 const adminToken = process.env.CAT_ADMIN_TOKEN || '';
 const auth = new AuthStore(dataDir);
+const backups = new BackupStore(dataDir, process.env.CAT_BACKUP_KEY);
 const xray = new XrayRuntime({
   binary: process.env.CAT_XRAY_BINARY || join(dataDir, 'bin', 'xray'),
   expectedSha256: process.env.CAT_XRAY_SHA256 || '',
@@ -111,6 +113,16 @@ export async function handler(req, res) {
       if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
       try { return json(res, 200, { ok: true, ...(await auth.setLinks(linksRoute[1], (await body(req)).links)) }); }
       catch { return json(res, 404, { ok: false, error: 'user_not_found' }); }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/backup') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { return json(res, 200, { ok: true, backup: await backups.export() }); }
+      catch { return json(res, 503, { ok: false, error: 'backup_key_not_configured' }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/restore') {
+      if (actor.role !== 'admin') return json(res, 403, { ok: false, error: 'forbidden' });
+      try { return json(res, 200, await backups.restore((await body(req, 3 * 1024 * 1024)).backup)); }
+      catch (error) { return json(res, 400, { ok: false, error: error.message === 'backup_key_not_configured' ? error.message : 'invalid_or_tampered_backup' }); }
     }
     if (req.method === 'GET' && url.pathname === '/api/xray/status') return json(res, 200, { ok: true, ...xray.status(), binary: await xray.verifyBinary() });
     if (req.method === 'POST' && url.pathname === '/api/xray/config') {
