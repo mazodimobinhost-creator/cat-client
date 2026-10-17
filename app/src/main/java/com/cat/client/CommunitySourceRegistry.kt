@@ -39,9 +39,10 @@ internal object CommunitySourceRegistry {
 
     private fun safePublicLink(link: String): Boolean {
         val uri = runCatching { URI(link) }.getOrNull() ?: return false
-        val host = uri.host?.lowercase().orEmpty()
+        // java.net.URI may preserve brackets in getHost() for an IPv6 literal.
+        val host = uri.host?.trim()?.removePrefix("[")?.removeSuffix("]")?.lowercase().orEmpty()
         if (host.isBlank() || uri.port !in 1..65535 || uri.userInfo.isNullOrBlank()) return false
-        if (host == "localhost" || host == "::1" || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.") || host.startsWith("fc") || host.startsWith("fd") || Regex("^fe[89ab]").containsMatchIn(host)) return false
+        if (host == "localhost" || host == "::" || host == "::1" || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.") || host.startsWith("fc") || host.startsWith("fd") || Regex("^fe[89ab]").containsMatchIn(host)) return false
         val parts = host.split('.')
         if (parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }) {
             val second = parts[1].toInt()
