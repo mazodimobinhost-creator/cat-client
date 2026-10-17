@@ -123,6 +123,14 @@ object FreeConfigs {
     /** Sources that were reachable at the time of writing (verified against the GitHub API). */
     fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = listOf(
         freevlessnodeSource(baseUrl),
+        FreeSource(
+            "v2go-vless", "v2go VLESS", "v2go (VLESS)",
+            listOf("https://raw.githubusercontent.com/Danialsamadi/v2go/main/Splitted-By-Protocol/vless.txt"), limit = 250,
+        ),
+        FreeSource(
+            "v2go-trojan", "v2go Trojan", "v2go (Trojan)",
+            listOf("https://raw.githubusercontent.com/Danialsamadi/v2go/main/Splitted-By-Protocol/trojan.txt"), limit = 250,
+        ),
         githubSource(
             "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
             "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
