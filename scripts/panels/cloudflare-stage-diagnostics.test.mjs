@@ -39,6 +39,13 @@ test('stage 04b uses a non-HTTP DNS-over-TLS endpoint', async () => {
   assert.doesNotMatch(stage4b, /cloudflare\.com|port:443|vless|trojan|WebSocketPair|pipeTo/i);
 });
 
+test('stage 05 isolates source size with an inert 540 KB literal', async () => {
+  const stage5 = await readFile(new URL('../../diagnostics/cloudflare-stage-05-large-module.js', import.meta.url), 'utf8');
+  assert.equal(stage5.trimEnd().split('\n').length, 3);
+  assert.ok(Buffer.byteLength(stage5) > 540_000 && Buffer.byteLength(stage5) < 550_000);
+  assert.doesNotMatch(stage5, /cloudflare:sockets|WebSocketPair|vless|trojan|eval\s*\(|new Function/i);
+});
+
 test('stage 01 health, selfcheck, panel and 404 respond', async () => {
   assert.equal(await (await worker.fetch(new Request('https://x/health'),env)).text(),'ok');
   const self=await (await worker.fetch(new Request('https://x/api/selfcheck'),env)).json();
