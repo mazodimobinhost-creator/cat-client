@@ -102,10 +102,28 @@ async function api(request, env, ctx, url) {
   if (request.method === 'POST' && url.pathname === '/api/telegram/webhook') {
     if (!env.TELEGRAM_WEBHOOK_SECRET || !safeEqual(request.headers.get('x-telegram-bot-api-secret-token') || '', env.TELEGRAM_WEBHOOK_SECRET)) return json({ error: 'unauthorized' }, 401);
     const update = await body(request), message = update.message;
-    if (message?.from?.id && /^\/start(?:@\w+)?/.test(message.text || '')) {
-      await telegramUser(env, message.from);
-      ctx.waitUntil(telegramCall(env, 'sendMessage', { chat_id: message.chat.id, text: 'حساب Cat شما آماده است. برای ورود امن، مینی‌اپ را باز کنید.', reply_markup: { inline_keyboard: [[{ text: 'باز کردن Cat Portal', web_app: { url: env.PORTAL_URL } }]] } }).catch(() => {}));
+    if (!message?.from?.id || !message?.chat?.id) return json({ ok: true });
+    const userId = await telegramUser(env, message.from);
+    const command = String(message.text || '').trim().split(/\s+/)[0].split('@')[0].toLowerCase();
+    const openButton = { inline_keyboard: [[{ text: 'باز کردن Cat Portal', web_app: { url: env.PORTAL_URL } }]] };
+    let text = '';
+    let replyMarkup = openButton;
+    if (command === '/start' || command === '/account' || command === '/miniapp') {
+      text = command === '/start'
+        ? 'حساب Cat شما آماده است. برای ورود امن، مینی‌اپ را باز کنید.'
+        : 'حساب و اشتراک‌های شما فقط پس از اعتبارسنجی امن Mini App نمایش داده می‌شوند.';
+    } else if (command === '/status') {
+      const stats = await env.DB.prepare(`SELECT status,COUNT(*) count FROM deployments WHERE user_id=? GROUP BY status`).bind(userId).all();
+      const values = Object.fromEntries((stats.results || []).map(row => [row.status, Number(row.count)]));
+      const total = Object.values(values).reduce((sum, count) => sum + count, 0);
+      text = total ? `وضعیت deploymentها\n✅ سالم: ${values.HEALTHY || 0}\n❌ ناموفق: ${values.FAILED || 0}\n⚪ نامشخص: ${(values.UNKNOWN || 0) + (values.INCONCLUSIVE || 0)}\n⛔ مسدود: ${values.BLOCKED || 0}` : 'هنوز deployment ثبت نشده است.';
+    } else if (command === '/help') {
+      text = '/account — حساب من\n/miniapp — بازکردن پنل\n/status — وضعیت deploymentها\n/help — راهنما';
+    } else {
+      text = 'دستور شناخته نشد. از /help استفاده کنید.';
+      replyMarkup = undefined;
     }
+    ctx.waitUntil(telegramCall(env, 'sendMessage', { chat_id: message.chat.id, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => {}));
     return json({ ok: true });
   }
   if (request.method === 'POST' && url.pathname === '/api/logout') {
@@ -115,6 +133,25 @@ async function api(request, env, ctx, url) {
   }
   const user = await actor(env, request);
   if (request.method === 'GET' && url.pathname === '/api/me') return user ? json({ ok: true, user }) : json({ error: 'unauthorized' }, 401);
+  if (request.method === 'POST' && url.pathname === '/api/account/credentials') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), email = normalizeEmail(input.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json({ error: 'invalid_email' }, 400);
+    try {
+      await env.DB.prepare('UPDATE users SET email=?,password_hash=?,display_name=? WHERE id=?')
+        .bind(email, await passwordHash(input.password), String(input.displayName || user.display_name || email.split('@')[0]).slice(0, 80), user.id).run();
+      await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'account.credentials_updated', Date.now()).run();
+      return json({ ok: true });
+    } catch (error) { return json({ error: String(error).includes('UNIQUE') ? 'account_exists' : error.message }, 400); }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/sessions/revoke-others') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const current = (request.headers.get('cookie') || '').match(/(?:^|;\s*)cat_portal=([^;]+)/)?.[1];
+    if (!current) return json({ error: 'unauthorized' }, 401);
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').bind(user.id, await digest(current)).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'sessions.others_revoked', Date.now()).run();
+    return json({ ok: true });
+  }
   if (request.method === 'GET' && url.pathname === '/api/deployments') {
     if (!user) return json({ error: 'unauthorized' }, 401);
     const rows = await env.DB.prepare('SELECT id,name,target,url,status,last_probe_at,created_at FROM deployments WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all();

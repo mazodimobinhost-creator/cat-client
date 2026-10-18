@@ -14,6 +14,9 @@ test('portal remains an independent control plane with D1 and static assets', as
   assert.match(schema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS sessions/);
   assert.match(worker, /verifyTelegramInit/);
+  assert.match(worker, /\/api\/account\/credentials/);
+  assert.match(worker, /\/api\/sessions\/revoke-others/);
+  assert.match(worker, /command === '\/status'/);
   assert.match(worker, /HttpOnly; Secure; SameSite=Lax/);
   assert.match(worker, /env\.ASSETS\.fetch/);
   assert.doesNotMatch(worker, /cloudflare:sockets/);
