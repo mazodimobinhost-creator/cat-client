@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.1';
+const CAT_PANEL_VERSION = '6.69.2';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -833,7 +833,7 @@ function defaultSettings() {
     chain: '',          // socks5://user:pass@host:port or http://host:port — fixed egress
     chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
     chainStrict: false, // true = never fall back to direct when the chain is down
-    entryLimit: 48,
+    entryLimit: 32,
     healthOrder: false, // scanner-reported latency order, opt-in
     includeHost: true,  // also emit the worker hostname itself as an address
     installedAt: 0,     // first-save timestamp → "panel uptime" on the Overview
@@ -946,7 +946,7 @@ function normalizeSettings(raw) {
   s.chain = parseChain(s.chain) ? String(s.chain).trim() : '';
   s.chainMode = s.chainMode === 'cf' ? 'cf' : 'all';
   s.chainStrict = s.chainStrict === true;
-  s.entryLimit = Math.min(200, Math.max(4, Number(s.entryLimit) || d.entryLimit));
+  s.entryLimit = Math.min(96, Math.max(4, Number(s.entryLimit) || d.entryLimit));
   s.includeHost = s.includeHost !== false;
   s.installedAt = Number(s.installedAt) || 0;
   s.updatedAt = Number(s.updatedAt) || 0;
@@ -3702,7 +3702,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     });
     if (!settings.tlsPorts.length && !settings.plainPorts.length) settings = Object.assign({}, settings, { tlsPorts: [443] });
   }
-  if (q.limit) settings = Object.assign({}, settings, { entryLimit: Math.min(200, Math.max(1, q.limit)) });
+  if (q.limit) settings = Object.assign({}, settings, { entryLimit: Math.min(96, Math.max(1, q.limit)) });
   // Interleave TLS and plain ports (443, 80, 2053, 8080, …) so both kinds
   // survive the entry limit.
   const tls = settings.tlsPorts.map((p) => ({ port: p, tls: true }));
@@ -5153,7 +5153,7 @@ async function handleApi(request, url, env, ctx) {
     const action = path.split('/')[4] || '';
     const decorate = (u, lastOnline) => Object.assign({}, u, { status: userBlockedReason(u) || 'active', lastOnline: lastOnline || 0, links: subLinks(origin, masterUuid, u) });
     if (method === 'GET' && !id) {
-      const seen = await mapBounded(users, 8, (u) => readSeen(env, u.id).catch(() => 0));
+      const seen = await mapBounded(users, 4, (u) => readSeen(env, u.id).catch(() => 0));
       return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i])) });
     }
     if (method === 'POST' && !id) {
@@ -5339,11 +5339,11 @@ async function handleApi(request, url, env, ctx) {
       const key = typeof (t && t.key) === 'string' && t.key.trim() ? t.key.trim() : '';
       return { addr, port, kind, key };
     };
-    let tests = Array.isArray(body.tests) ? body.tests.map(norm).filter((t) => t.addr).slice(0, 64) : [];
+    let tests = Array.isArray(body.tests) ? body.tests.map(norm).filter((t) => t.addr).slice(0, 24) : [];
     if (!tests.length) {
-      const list = (Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((x) => String(x).trim()).filter(Boolean).slice(0, 64);
+      const list = (Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((x) => String(x).trim()).filter(Boolean).slice(0, 24);
       tests = list.map((addr) => { const pin = pinnedPortOf(addr); const port = pin || 443; return { addr, port, kind: PLAIN_PORTS.includes(port) ? 'plain' : 'clean' }; });
-      const pxs = (Array.isArray(body[PXIPS_KEY]) ? body[PXIPS_KEY] : splitCsv(body[PXIPS_KEY])).map((x) => String(x).trim()).filter(Boolean).slice(0, 16);
+      const pxs = (Array.isArray(body[PXIPS_KEY]) ? body[PXIPS_KEY] : splitCsv(body[PXIPS_KEY])).map((x) => String(x).trim()).filter(Boolean).slice(0, 8);
       // each relay is probed on ITS OWN port (ip:port entries), keyed by the raw entry
       tests = tests.concat(pxs.map((addr) => { const hp = splitHostPort(addr, 443); return { addr: hp.hostname, port: hp.port || 443, kind: 'proxyip', key: addr }; }));
     }
@@ -5353,7 +5353,7 @@ async function handleApi(request, url, env, ctx) {
     const host = String(new URL(request.url).hostname).toLowerCase();
     const vpath = tunnelPaths(env)[PROTO_VLESS + 'Path'];
     const results = {};
-    await mapBounded(tests, 6, async (t) => {
+    await mapBounded(tests, 3, async (t) => {
       const r = await healthProbe(sockets, { addr: t.addr, port: t.port, kind: t.kind, host, path: vpath });
       r.kind = t.kind;
       results[t.key || t.addr] = r;
@@ -5383,7 +5383,7 @@ async function handleApi(request, url, env, ctx) {
         return { ip: get('ip'), loc: get('loc').slice(0, 2).toUpperCase(), colo: get('colo').slice(0, 8) };
       } catch (e) { return { ip: '', loc: '', colo: '' }; }
     })();
-    await mapBounded(list, 4, async (h) => { results[h] = await svcProbe(sockets, env, now, h); return results[h]; });
+    await mapBounded(list, 2, async (h) => { results[h] = await svcProbe(sockets, env, now, h); return results[h]; });
     await pushEvent(env, 'svc-test', Object.values(results).filter((r) => r.ok).length + '/' + list.length + ' open');
     return json({ ok: true, results, exit: exitInfo });
   }
@@ -5413,7 +5413,7 @@ async function handleApi(request, url, env, ctx) {
         return { name: t.name, status: 0, ms: Date.now() - t0, verdict: 'fail' };
       }
     };
-    const results = await mapBounded(targets, 3, probe);
+    const results = await mapBounded(targets, 2, probe);
     return json({ ok: true, results });
   }
 
@@ -6954,7 +6954,7 @@ ${(() => {
    <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option><option>unsafe</option></select></div>
   </div>
   <div class="two">
-   <div><label data-i="s_limit"></label><input name="entryLimit" type="number" min="4" max="200"></div>
+   <div><label data-i="s_limit"></label><input name="entryLimit" type="number" min="4" max="96"></div>
    <div><label data-i="s_flags"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swDefaults"></span><span data-i="s_defaults"></span></div><div class="row small" style="margin-top:8px"><span class="sw" id="swHost"></span><span data-i="s_host"></span></div></div>
   </div>
   </div>

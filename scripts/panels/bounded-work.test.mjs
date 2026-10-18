@@ -27,5 +27,15 @@ test('mapBounded isolates one rejection instead of failing the invocation', asyn
 });
 
 test('mapBounded accepts an empty batch without spawning workers', async () => {
-  assert.deepEqual(await _testing.mapBounded([], 6, async value => value), []);
+  assert.deepEqual(await _testing.mapBounded([], 3, async value => value), []);
+});
+
+test('canonical Worker keeps conservative probe and subscription limits', async () => {
+  const sourceText = await (await import('node:fs/promises')).readFile(new URL('../../app/src/main/assets/panels/catclient.worker.js', import.meta.url), 'utf8');
+  assert.match(sourceText, /mapBounded\(tests, 3,/);
+  assert.match(sourceText, /mapBounded\(list, 2,/);
+  assert.match(sourceText, /mapBounded\(targets, 2,/);
+  assert.match(sourceText, /slice\(0, 24\)/);
+  assert.match(sourceText, /entryLimit: 32/);
+  assert.match(sourceText, /Math\.min\(96,/);
 });
