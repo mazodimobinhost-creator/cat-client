@@ -167,6 +167,10 @@ if ('preview_id' in kv) {
     builder);
   ok('…and the readable deploy artifact stays built too (one-line switch back)',
     wf.includes('minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js'));
+  ok('deploy runs the full regression suite before publishing', wf.includes('Pre-deploy Worker regression suite') && wf.includes('run: npm test'));
+  ok('deploy requires three fresh exact-version probes', wf.includes('for attempt in 1 2 3') && wf.includes('cat_verify=') && wf.includes('version!==want'));
+  ok('a failed post-deploy verify requests automatic rollback', wf.includes('steps.verify.outcome == \'failure\'') && /wrangler@latest rollback/.test(wf));
+  ok('an unparseable public URL fails closed instead of skipping verification', wf.includes('refusing an unverified release') && !wf.includes('skipping health verify'));
 }
 {
   ok('vars stay strings (Workers rejects non-string vars)', ['OPEN_PANEL', 'OPEN_SUB'].every((k) => typeof cfg?.vars?.[k] === 'string'));
