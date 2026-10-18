@@ -18,6 +18,16 @@ const body = async request => {
   return request.json().catch(() => { throw new Error('invalid_json'); });
 };
 const normalizeEmail = value => String(value || '').trim().toLowerCase();
+const publicHttpsOrigin = value => {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || url.pathname !== '/' || url.search || url.hash) return null;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host === '0.0.0.0' || host === '::1') return null;
+    if (/^10\.|^127\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+    return url.origin;
+  } catch { return null; }
+};
 const passwordHash = async (password, salt = hex(bytes(16))) => {
   if (typeof password !== 'string' || password.length < 10 || password.length > 200) throw new Error('weak_password');
   const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -151,6 +161,35 @@ async function api(request, env, ctx, url) {
     await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').bind(user.id, await digest(current)).run();
     await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'sessions.others_revoked', Date.now()).run();
     return json({ ok: true });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/deployments') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), origin = publicHttpsOrigin(input.url), target = String(input.target || '');
+    if (!origin || !['worker', 'pages', 'railway'].includes(target)) return json({ error: 'invalid_deployment' }, 400);
+    const id = crypto.randomUUID(), now = Date.now(), name = String(input.name || new URL(origin).hostname).trim().slice(0, 80);
+    if (!name) return json({ error: 'invalid_name' }, 400);
+    await env.DB.prepare('INSERT INTO deployments(id,user_id,name,target,url,status,last_probe_at,created_at) VALUES(?,?,?,?,?,\'UNKNOWN\',NULL,?)')
+      .bind(id, user.id, name, target, origin, now).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'deployment.registered', now).run();
+    return json({ ok: true, deployment: { id, name, target, url: origin, status: 'UNKNOWN', last_probe_at: null, created_at: now } }, 201);
+  }
+  const probeMatch = url.pathname.match(/^\/api\/deployments\/([0-9a-f-]{36})\/probe$/i);
+  if (request.method === 'POST' && probeMatch) {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const row = await env.DB.prepare('SELECT id,url,target FROM deployments WHERE id=? AND user_id=?').bind(probeMatch[1], user.id).first();
+    if (!row) return json({ error: 'not_found' }, 404);
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 6000), checkedAt = Date.now();
+    let status = 'FAILED', httpStatus = null, reason = 'network_error';
+    try {
+      const response = await fetch(`${row.url}/health?cat_probe=${crypto.randomUUID()}`, { headers: { accept: 'application/json', 'cache-control': 'no-store' }, redirect: 'error', signal: controller.signal });
+      httpStatus = response.status;
+      if (response.ok) { status = 'HEALTHY'; reason = 'http_2xx'; }
+      else { status = 'FAILED'; reason = `http_${response.status}`; }
+      await response.body?.cancel();
+    } catch (error) { status = error?.name === 'AbortError' ? 'INCONCLUSIVE' : 'FAILED'; reason = error?.name === 'AbortError' ? 'timeout' : 'network_error'; }
+    finally { clearTimeout(timer); }
+    await env.DB.prepare('UPDATE deployments SET status=?,last_probe_at=? WHERE id=? AND user_id=?').bind(status, checkedAt, row.id, user.id).run();
+    return json({ ok: status === 'HEALTHY', status, httpStatus, reason, checkedAt }, status === 'HEALTHY' ? 200 : 502);
   }
   if (request.method === 'GET' && url.pathname === '/api/deployments') {
     if (!user) return json({ error: 'unauthorized' }, 401);

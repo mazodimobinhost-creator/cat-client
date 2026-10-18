@@ -16,6 +16,8 @@ test('portal remains an independent control plane with D1 and static assets', as
   assert.match(worker, /verifyTelegramInit/);
   assert.match(worker, /\/api\/account\/credentials/);
   assert.match(worker, /\/api\/sessions\/revoke-others/);
+  assert.match(worker, /\/api\/deployments/);
+  assert.match(worker, /global_fetch_strictly_public|publicHttpsOrigin/);
   assert.match(worker, /command === '\/status'/);
   assert.match(worker, /HttpOnly; Secure; SameSite=Lax/);
   assert.match(worker, /env\.ASSETS\.fetch/);

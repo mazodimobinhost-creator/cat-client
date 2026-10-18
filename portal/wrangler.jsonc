@@ -3,6 +3,7 @@
   "name": "cat-account-portal",
   "main": "src/_worker.js",
   "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
   "d1_databases": [{ "binding": "DB", "database_name": "cat-portal", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }],
   "vars": { "PORTAL_URL": "https://portal.example.invalid" },
