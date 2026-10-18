@@ -32,6 +32,13 @@ test('stage 04 is one bounded outbound probe and never relays traffic', async ()
   assert.doesNotMatch(stage4, /vless|trojan|WebSocketPair|pipeTo|Sora|eval\s*\(|new Function/i);
 });
 
+test('stage 04b uses a non-HTTP DNS-over-TLS endpoint', async () => {
+  const stage4b = await readFile(new URL('../../diagnostics/cloudflare-stage-04b-outbound-dot.js', import.meta.url), 'utf8');
+  assert.equal(stage4b.trimEnd().split('\n').length, 3);
+  assert.match(stage4b, /connect\(\{hostname:"dns\.google",port:853\}\)/);
+  assert.doesNotMatch(stage4b, /cloudflare\.com|port:443|vless|trojan|WebSocketPair|pipeTo/i);
+});
+
 test('stage 01 health, selfcheck, panel and 404 respond', async () => {
   assert.equal(await (await worker.fetch(new Request('https://x/health'),env)).text(),'ok');
   const self=await (await worker.fetch(new Request('https://x/api/selfcheck'),env)).json();
