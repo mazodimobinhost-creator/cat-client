@@ -38,7 +38,9 @@ internal class AetherSession(
         } finally {
             // nativeRun owns and closes a handed-off descriptor. Before handoff,
             // the establish callback remains responsible for closing failures.
-            if (!handedOff && tunFd >= 0) runCatching { android.system.Os.close(tunFd) }
+            if (!handedOff && tunFd >= 0) runCatching {
+                android.os.ParcelFileDescriptor.adoptFd(tunFd).close()
+            }
             runCatching { NativeAetherBridge.setSocketProtector(null) }
             active.set(false)
         }
