@@ -65,6 +65,12 @@
              itself, inside a guarded call, so a WorkManager problem can never
              again be a crash-on-open: worst case the panel monitor is off and
              the rest of the app runs. -->
+        <service
+            android:name=".PsiphonCarrierService"
+            android:exported="false"
+            android:process=":psiphon"
+            android:stopWithTask="true" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
