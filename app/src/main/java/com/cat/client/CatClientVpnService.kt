@@ -3943,7 +3943,7 @@ class CatClientVpnService : VpnService() {
         val config = AetherRuntimeConfig(
             mode = selection.mode,
             identityFile = File(filesDir, "aether.toml"),
-            endpoint = selection.endpoint,
+            endpoint = selection.freshEndpoint(),
         )
         DiagnosticLogger.info(this, "$eventPrefix.aether.start", "mode=${selection.mode.wireName}")
         val result = withContext(Dispatchers.IO) { session.run(config) }

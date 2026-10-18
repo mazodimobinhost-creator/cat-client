@@ -7,7 +7,15 @@ data class AetherSelection(
     val mode: AetherMode = AetherMode.MasqueHttp2,
     val endpoint: String? = null,
     val endpointScannedAt: Long = 0L,
-)
+) {
+    fun freshEndpoint(now: Long = System.currentTimeMillis()): String? = endpoint?.takeIf {
+        endpointScannedAt > 0L && now >= endpointScannedAt && now - endpointScannedAt <= ENDPOINT_MAX_AGE_MS
+    }
+
+    companion object {
+        const val ENDPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000L
+    }
+}
 
 class AetherPreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("cat_client_aether", Context.MODE_PRIVATE)

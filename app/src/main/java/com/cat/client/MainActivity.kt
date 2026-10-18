@@ -127,6 +127,7 @@ class MainActivity : Activity() {
     private val buttonModel = ConnectButtonModel()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var aetherOperationJob: Job? = null
     private var updateSettingsBadge: TextView? = null
     private val appUpdateUi by lazy {
         AppUpdateUi(this, activityScope, palette) { available ->
@@ -2504,6 +2505,9 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        aetherOperationJob?.cancel(CancellationException("Aether page left foreground"))
+        aetherOperationJob = null
+        AetherOperations.cancel()
         VpnWidgetProvider.refresh(this)
         DiagnosticLogger.info(this, "activity.onStop")
         mainHandler.removeCallbacks(timerRunnable)
@@ -3538,8 +3542,9 @@ class MainActivity : Activity() {
             setOnClickListener { action(this) }
         }
         val provisionButton = aetherActionButton(R.string.aether_get_key) { button ->
+            if (aetherOperationJob?.isActive == true) return@aetherActionButton
             button.isEnabled = false
-            activityScope.launch {
+            aetherOperationJob = activityScope.launch {
                 val selected = aetherPreferenceStore.read()
                 val proxy = if (currentVpnServiceState == VpnState.Started) {
                     "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
@@ -3556,12 +3561,13 @@ class MainActivity : Activity() {
             }
         }
         val scanButton = aetherActionButton(R.string.aether_scan) { button ->
+            if (aetherOperationJob?.isActive == true) return@aetherActionButton
             if (currentVpnServiceState != VpnState.Stopped) {
                 Toast.makeText(this, R.string.aether_scan_disconnect, Toast.LENGTH_LONG).show()
                 return@aetherActionButton
             }
             button.isEnabled = false
-            activityScope.launch {
+            aetherOperationJob = activityScope.launch {
                 val selected = aetherPreferenceStore.read()
                 val result = withContext(Dispatchers.IO) {
                     AetherOperations.scan(selected.mode, java.io.File(filesDir, "aether.toml"))
