@@ -26,7 +26,9 @@ check('inline "+" buttons in country chips are at least 44px', (src.match(/min-h
 
 // 2. accessible names on icon-only controls
 const staticIb = [...src.matchAll(/<(?:button|a) class="ib[^"]*"[^>]*>/g)].map((m) => m[0]);
-check('found the static icon buttons', staticIb.length >= 15, String(staticIb.length));
+// Navigation lives in the sidebar/menu; the top bar intentionally contains only
+// global actions so users do not see the same destination twice.
+check('found the remaining static global icon buttons', staticIb.length >= 10, String(staticIb.length));
 const unlabeled = staticIb.filter((t) => !/aria-label="[^"]+"/.test(t) || !/title="[^"]+"/.test(t));
 check('every static icon button has aria-label AND title', unlabeled.length === 0, unlabeled.map((t) => t.slice(0, 70)).join(' | '));
 for (const k of ['edit', 'renew', 'toggle', 'del', 'cc_link']) check(`dynamic icon button "${k}" has aria-label`, src.includes(`aria-label=\"'+t('${k}')+'\"`));
@@ -34,7 +36,7 @@ check('close buttons (menu + drawer) are labelled', /data-mclose data-al="al_clo
 
 // 3. translated labels exist in BOTH dictionaries, and the applier sets them
 const keys = [...new Set([...src.matchAll(/data-al="(\w+)"/g)].map((m) => m[1]))];
-check('data-al keys found', keys.length >= 10, String(keys.length));
+check('global-action data-al keys found', keys.length >= 5, String(keys.length));
 const fa = src.indexOf("diag_title:'تشخیص (فقط مالک)'"); const en = src.indexOf("diag_title:'Diagnostics (owner only)'");
 check('both dictionaries located', fa > 0 && en > 0);
 const seg = (from) => src.slice(Math.max(0, from - 90000), from + 90000);
