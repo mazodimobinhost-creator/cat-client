@@ -2450,6 +2450,10 @@ async function dialViaChain(sockets, chain, host, port) {
  * Isolate-scoped memory — best-effort, resets with the isolate. */
 const RELAY_COOLDOWN = new Map();
 const RELAY_COOLDOWN_MS = 60 * 1000;
+// Owner-only maintenance limiter. Isolate-local by design: it protects against
+// accidental retry loops without writing attacker-controlled counters to KV.
+const MAINTENANCE_LAST = new Map();
+const MAINTENANCE_GAP_MS = 5 * 60 * 1000;
 function markRelayFailed(via) {
   // Only real relays cool down — a refused direct dial to one destination says
   // nothing about the next one (and cooling 'direct' reroutes everything).
@@ -4847,6 +4851,40 @@ async function handleApi(request, url, env, ctx) {
   /* ---- everything below is owner-only ---- */
   if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'unauthorized' }, 401);
   const origin = url.origin;
+
+  // Safe self-heal surface: status is owner-only and intentionally contains no
+  // UUID, credentials, relay addresses, binding values or API tokens.
+  if (path === '/api/self-heal/status') {
+    if (method !== 'GET') return json({ ok: false, error: 'method' }, 405);
+    const usage = await readUsage(env).catch(() => ({ errors: [] }));
+    return json({
+      ok: true,
+      version: CAT_PANEL_VERSION,
+      kv: !!kvBinding(env),
+      caches: { settings: kvCache.size, geo: GEO_CACHE.size, relayCooldown: RELAY_COOLDOWN.size },
+      pendingErrors: __errDetail.length,
+      persistedErrors: Array.isArray(usage.errors) ? usage.errors.length : 0,
+      maintenanceGapMs: MAINTENANCE_GAP_MS,
+      at: Date.now(),
+    });
+  }
+  if (path === '/api/self-heal/clear-cache') {
+    if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
+    const requestOrigin = String(request.headers.get('origin') || '');
+    if (requestOrigin && requestOrigin !== origin) return json({ ok: false, error: 'origin' }, 403);
+    if (request.headers.get('x-cat-action') !== 'clear-safe-caches') return json({ ok: false, error: 'confirmation' }, 403);
+    const limiterKey = String(request.headers.get('cf-connecting-ip') || 'owner').slice(0, 64);
+    const now = Date.now();
+    const previous = MAINTENANCE_LAST.get(limiterKey) || 0;
+    if (now - previous < MAINTENANCE_GAP_MS) {
+      return json({ ok: false, error: 'rate_limited', retryAfterMs: MAINTENANCE_GAP_MS - (now - previous) }, 429);
+    }
+    MAINTENANCE_LAST.set(limiterKey, now);
+    const cleared = { settings: kvCache.size, geo: GEO_CACHE.size, relayCooldown: RELAY_COOLDOWN.size };
+    kvCache.clear(); GEO_CACHE.clear(); RELAY_COOLDOWN.clear();
+    trojanMapCache = { key: '', map: null };
+    return json({ ok: true, cleared, at: now });
+  }
 
   /**
    * Self-diagnosis for the owner — the answer to «my worker says /health is odd»

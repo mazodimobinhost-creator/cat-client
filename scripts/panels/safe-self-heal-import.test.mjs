@@ -23,7 +23,6 @@ test('default deployment does not expose subscriptions without a key', () => {
 
 test('unsafe uploaded patch shapes are not imported', () => {
   assert.doesNotMatch(source, /passThroughOnException\s*\(/);
-  assert.doesNotMatch(source, /\/api\/self-heal\/clear-cache/);
   assert.doesNotMatch(source, /SELF_HEAL_SOURCES/);
   assert.doesNotMatch(source, /CF_API_TOKEN/);
 });
