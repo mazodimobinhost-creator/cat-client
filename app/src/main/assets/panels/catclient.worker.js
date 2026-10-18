@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.2';
+const CAT_PANEL_VERSION = '6.69.3';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -1429,7 +1429,9 @@ function qrSvg(text, options = {}) {
 /** Sec-WebSocket-Protocol carries base64url early data (Xray `?ed=2048`). */
 function decodeEarlyData(header) {
   const value = String(header || '').trim();
-  if (!value) return null;
+  // Sec-WebSocket-Protocol is attacker-controlled. Refuse oversized early data
+  // before atob allocates another copy inside the isolate.
+  if (!value || value.length > 8192) return null;
   try {
     const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
     const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
@@ -1465,7 +1467,17 @@ function websocketReadable(ws, earlyData) {
       if (earlyData && earlyData.byteLength) controller.enqueue(earlyData);
       ws.addEventListener('message', (event) => {
         if (cancelled) return;
-        controller.enqueue(toBytes(event.data));
+        const chunk = toBytes(event.data);
+        // An unauthenticated peer can otherwise enqueue data faster than the
+        // socket dial consumes it and exhaust isolate memory. One MiB frames and
+        // more than eight queued chunks are never valid Cat handshakes.
+        if (chunk.byteLength > 1024 * 1024 || Number(controller.desiredSize) <= -8) {
+          cancelled = true;
+          try { controller.error(new Error('websocket input limit')); } catch (e) { }
+          safeCloseWs(ws, 1009, 'input limit');
+          return;
+        }
+        controller.enqueue(chunk);
       });
       ws.addEventListener('close', (event) => {
         // Complete the close handshake: the peer sent Close, we must answer with
@@ -2568,8 +2580,10 @@ async function handleTunnelConnection(ws, env, options = {}) {
   }
 
   let first;
-  try { first = await reader.read(); } catch (e) { safeCloseWs(ws, 1011, 'read failed'); return; }
+  try { first = await withTimeout(reader.read(), 5000, 'handshake timeout'); }
+  catch (e) { try { await reader.cancel(); } catch (_) { } safeCloseWs(ws, 1008, 'handshake timeout'); return; }
   if (first.done || !first.value || !first.value.byteLength) { safeCloseWs(ws, 1002, 'empty handshake'); return; }
+  if (first.value.byteLength > 65536) { try { await reader.cancel(); } catch (_) { } safeCloseWs(ws, 1009, 'handshake too large'); return; }
   const bytes = first.value;
 
   let target = null;

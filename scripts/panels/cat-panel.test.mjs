@@ -68,7 +68,7 @@ const auth = { cookie };
 // port-pinned scanner imports must appear at all (they never did).
 {
   await req('/api/ips', { method:'POST', headers: auth, body:{ ips: ['104.16.1.1','2606:4700:d1::1','cf.example.com','104.17.1.2:2053#DE','[2606:4700::6810:84e5]:8443'], source:'manual' } });
-  const sub = await (await req('/sub/' + MASTER)).text();
+  const sub = await (await req('/sub/' + MASTER + '?limit=96')).text();
   // Compare positions in the ADDRESS order, not raw text offsets: the limit is
   // now shared between port waves, so any single default address may legitimately
   // fall outside the emitted window, and raw text also matches SNI values.
@@ -802,7 +802,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.0', T.CAT_PANEL_VERSION === '6.69.0');
+  check('panel version is 6.69.3', T.CAT_PANEL_VERSION === '6.69.3');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole

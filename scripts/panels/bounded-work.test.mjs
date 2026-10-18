@@ -38,4 +38,8 @@ test('canonical Worker keeps conservative probe and subscription limits', async 
   assert.match(sourceText, /slice\(0, 24\)/);
   assert.match(sourceText, /entryLimit: 32/);
   assert.match(sourceText, /Math\.min\(96,/);
+  assert.match(sourceText, /value\.length > 8192/);
+  assert.match(sourceText, /chunk\.byteLength > 1024 \* 1024/);
+  assert.match(sourceText, /withTimeout\(reader\.read\(\), 5000/);
+  assert.match(sourceText, /first\.value\.byteLength > 65536/);
 });
