@@ -12,6 +12,8 @@ import { writeFileSync, readFileSync } from 'node:fs';
 
 const BASE = (process.env.BASE || 'http://127.0.0.1:8799').replace(/\/$/, '');
 const UUID = process.env.PANEL_UUID || '11111111-2222-3333-4444-555555555555';
+const PANEL_USER = process.env.PANEL_USER || 'admin';
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || 'admin';
 const OUT = process.env.OUT || 'ui-e2e-transcript.txt';
 const SHOT = process.env.SHOT || 'ui-e2e-dashboard.png';
 
@@ -99,7 +101,11 @@ const anonDiag = await api('/api/diag', null, 401);
 check('/api/diag برای ناشناس بسته است', anonDiag.status === 401, `HTTP ${anonDiag.status}`);
 
 // ---- 2) لاگینِ واقعی از داخلِ فرم (کلیک، نه فراخوانیِ مستقیمِ API) ----
-await page.fill('#p', UUID);
+// Fresh deployments use the documented admin/admin bootstrap gate. UUID remains
+// a subscription identity and must never be treated as a management password.
+check('فیلد نام کاربری ورود دیده می‌شود', await page.locator('#u').isVisible().catch(() => false));
+await page.fill('#u', PANEL_USER);
+await page.fill('#p', PANEL_PASSWORD);
 await Promise.all([
   page.waitForNavigation({ waitUntil: 'load', timeout: 45_000 }),
   page.click('button[type=submit]'),
