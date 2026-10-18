@@ -375,18 +375,23 @@ jobs:
           git config user.email "ci@users.noreply.github.com"
           git branch --show-current
           {
-            echo "# Unit test failure report (${GITHUB_SHA::7})"
+            echo "# Android failure report (${GITHUB_SHA::7})"
             echo
             grep -h "<failure" app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | sed -E 's/<failure message="/- /' | head -30
             echo
             echo '## files with compile errors'
-            grep -oE 'app/src/test/[^:]+\.kt' unit-test.log 2>/dev/null | sort | uniq -c | sort -rn | head -20
+            cat kotlin-precheck.log build-log.txt unit-test.log 2>/dev/null |
+              grep -oE 'app/src/(main|test)/[^:]+\.kt' | sort | uniq -c | sort -rn | head -20
             echo '## log tail'
-            tail -n 100 unit-test.log 2>/dev/null
+            for log in kotlin-precheck.log build-log.txt unit-test.log; do
+              if [[ -s "$log" ]]; then echo "### $log"; tail -n 120 "$log"; fi
+            done
           } > FAILED-TESTS.md
+          cat FAILED-TESTS.md >> "$GITHUB_STEP_SUMMARY"
           git add FAILED-TESTS.md
           git commit -m "CI test failure report [skip ci]" || true
-          git push origin HEAD:"${GITHUB_REF_NAME}" || true
+          target_branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git push origin HEAD:"$target_branch" || true
 
       - name: Build release APK
         if: success()
