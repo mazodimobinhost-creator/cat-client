@@ -169,10 +169,12 @@ object GitHubReleaseClient {
         if (!name.matches(Regex("[A-Za-z0-9._-]{1,80}"))) {
             throw IOException("GitHub asset name is invalid")
         }
-        // github.com -> release-assets.githubusercontent.com is blocked on many
-        // Iranian networks, which silently killed the in-app panel update. Walk
-        // the same mirror chain the free-config sources use before giving up.
-        val direct = "$LATEST_DOWNLOAD_BASE/$name"
+        // GitHub's /releases/latest/download excludes pre-releases, exactly like
+        // /releases/latest. Resolve the asset from the newest non-draft release
+        // first, otherwise the repair/update buttons silently reinstall an old
+        // Worker even though the APK itself is current.
+        val releasesJson = readText(RELEASES_URL, 2_097_152, asset = false)
+        val direct = resolveReleaseAssetUrl(releasesJson, name)
         val candidates = buildList {
             add(direct)
             ASSET_MIRRORS.forEach { add(it + direct) }
@@ -193,6 +195,29 @@ object GitHubReleaseClient {
     suspend fun repositoryFile(path: String, maxBytes: Int): String {
         require(path.matches(Regex("[A-Za-z0-9/._-]{1,160}"))) { "Repository path is invalid" }
         return readText("https://cdn.jsdelivr.net/gh/$GITHUB_OWNER/$GITHUB_REPOSITORY@main/$path", maxBytes, asset = true)
+    }
+
+    internal fun resolveReleaseAssetUrl(json: String, name: String): String {
+        try {
+            val releases = JSONArray(json)
+            for (releaseIndex in 0 until releases.length()) {
+                val release = releases.optJSONObject(releaseIndex) ?: continue
+                if (release.optBoolean("draft", true)) continue
+                val tag = release.optString("tag_name")
+                if (AppUpdatePolicy.normalizedVersion(tag).isEmpty()) continue
+                val assets = release.optJSONArray("assets") ?: continue
+                for (assetIndex in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(assetIndex) ?: continue
+                    if (asset.optString("name") != name || asset.optString("state") != "uploaded") continue
+                    val url = asset.optString("browser_download_url")
+                    requireAssetUrl(url, tag, name)
+                    return url
+                }
+            }
+            throw IOException("GitHub release asset is unavailable")
+        } catch (error: JSONException) {
+            throw IOException("GitHub release list was invalid", error)
+        }
     }
 
     suspend fun expectedSha256(release: AppRelease): String = withContext(Dispatchers.IO) {
@@ -343,9 +368,6 @@ object GitHubReleaseClient {
     private const val GITHUB_REPOSITORY = "cat-client"
     private const val RELEASES_URL =
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20"
-    private const val LATEST_DOWNLOAD_BASE =
-        "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest/download"
-
     private val ASSET_HOSTS = setOf(
         "github.com",
         "release-assets.githubusercontent.com",
