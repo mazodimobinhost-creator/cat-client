@@ -95,6 +95,10 @@ check('فرمِ ورود دیده می‌شود (input#p)', await page.locator('
 //                     workerd it is simply not there. On a real deployment it is 200.
 expectedHttp.add('404 /favicon.ico');
 expectedHttp.add('404 /cdn-cgi/trace');
+// The local workerd fixture has no GitHub release/network source for the optional
+// updater lookup. Its fail-closed 502 is expected here; a deployed panel can
+// reach that source and is covered separately by update-contract tests.
+expectedHttp.add('502 /api/update-check');
 const anon = await api('/api/settings', null, 401);
 check('API برای ناشناس بسته است', anon.status === 401, `HTTP ${anon.status}`);
 const anonDiag = await api('/api/diag', null, 401);
