@@ -24,6 +24,14 @@ test('stage 03 is a bounded local WebSocket echo with no outbound connection', a
   assert.doesNotMatch(stage3, /\bconnect\s*\(|vless|trojan|Sora|eval\s*\(|new Function/i);
 });
 
+test('stage 04 is one bounded outbound probe and never relays traffic', async () => {
+  const stage4 = await readFile(new URL('../../diagnostics/cloudflare-stage-04-outbound.js', import.meta.url), 'utf8');
+  assert.equal(stage4.trimEnd().split('\n').length, 3);
+  assert.match(stage4, /connect\(\{hostname:"cloudflare\.com",port:443\}\)/);
+  assert.match(stage4, /4000/);
+  assert.doesNotMatch(stage4, /vless|trojan|WebSocketPair|pipeTo|Sora|eval\s*\(|new Function/i);
+});
+
 test('stage 01 health, selfcheck, panel and 404 respond', async () => {
   assert.equal(await (await worker.fetch(new Request('https://x/health'),env)).text(),'ok');
   const self=await (await worker.fetch(new Request('https://x/api/selfcheck'),env)).json();
