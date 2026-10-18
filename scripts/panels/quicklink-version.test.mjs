@@ -90,7 +90,7 @@ console.log('\nQuick links (?p=) and the app/panel version handshake\n');
   ok('…and no session cookie is set', !(bad.headers.get('set-cookie') || '').includes('cat_session'), bad.headers.get('set-cookie') || '(none)');
 
   // Right password: cookie + clean URL.
-  const good = await get(env, '/' + ROOT + '/?p=' + encodeURIComponent(OWNER) + '&u=someone');
+  const good = await get(env, '/' + ROOT + '/?p=' + encodeURIComponent(OWNER) + '&u=admin');
   const goodLoc = good.headers.get('location') || '';
   ok('a correct ?p= sets the session cookie', (good.headers.get('set-cookie') || '').includes('cat_session='), good.headers.get('set-cookie') || '(none)');
   ok('…and redirects to a clean URL too', good.status === 302 && !/owner-secret|p=/.test(goodLoc) && !/stale=1/.test(goodLoc), goodLoc);
@@ -110,8 +110,8 @@ console.log('\nQuick links (?p=) and the app/panel version handshake\n');
 /* ---------- 1b) a fresh, passwordless install: the UUID link still works ---------- */
 {
   const { env, settings } = await freshPanel();
-  const one = await get(env, '/' + (settings.panelPath || 'panel') + '/?p=' + encodeURIComponent(UUID));
-  ok('on a fresh install ?p=<uuid> still signs the owner in',
+  const one = await get(env, '/' + (settings.panelPath || 'panel') + '/?p=' + encodeURIComponent('admin') + '&u=admin');
+  ok('on a fresh install admin bootstrap quick link still signs the owner in',
     (one.headers.get('set-cookie') || '').includes('cat_session='), one.status + ' ' + (one.headers.get('location') || ''));
   ok('…and the UUID does not stay in the URL', !(one.headers.get('location') || '').includes(UUID), one.headers.get('location') || '');
 }

@@ -47,7 +47,7 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
 // dead-end login form. Camouflage still applies the moment a password exists —
 // proven right here by setting one temporarily.
 { const r = await req('/'); check('first run (no password yet): / points at the setup screen', r.status===302 && r.headers.get('location')==='/panel'); }
-{ const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows the setup card (UUID + one-tap) before a password exists', rp.status===200 && bp.includes('/api/login') && bp.includes(MASTER)); }
+{ const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows admin bootstrap without exposing UUID', rp.status===200 && bp.includes('/api/login') && bp.includes('admin') && !bp.includes(MASTER)); }
 { const key = T.KV_KEYS.settings; const before = await T.readSettings(ENV);
   await KV.put(key, JSON.stringify(Object.assign({}, before, { passwordHash: await T.sha256Hex('temporary-check') }))); T.kvCacheClear();
   const r = await req('/'); const b = await r.text();
@@ -59,8 +59,8 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
 { const r = await req('/api/settings'); check('/api/settings 401 without session', r.status===401); }
 // login with uuid
 let cookie='';
-{ const r = await req('/api/login', { method:'POST', body:{ password: 'wrong' } }); check('login wrong → 401', r.status===401);
-  const r2 = await req('/api/login', { method:'POST', body:{ password: MASTER } }); const j = await r2.json(); cookie = (r2.headers.get('set-cookie')||'').split(';')[0];
+{ const r = await req('/api/login', { method:'POST', body: { username: 'admin', password: 'wrong'  } }); check('login wrong → 401', r.status===401);
+  const r2 = await req('/api/login', { method:'POST', body: { username: 'admin', password: 'admin'  } }); const j = await r2.json(); cookie = (r2.headers.get('set-cookie')||'').split(';')[0];
   check('login with UUID ok', r2.status===200 && j.ok && cookie.startsWith('cat_session=')); }
 const auth = { cookie };
 // beta68 regression (user report): manually added IPs (v4/v6/domain/pinned-port)
@@ -112,7 +112,7 @@ const auth = { cookie };
   check('built-in v6 pool exported (11 anycast)', Array.isArray(T.CF_V6_POOL) && T.CF_V6_POOL.length === 11);
 }
 { const r = await req('/panel', { headers: auth }); const b = await r.text(); check('/panel shows panel with cookie', b.includes('v-dash') && b.includes('CAT_PANEL') === false && b.includes('Cat Panel')); }
-{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='uuid' && j.links.sub.endsWith('/sub/'+MASTER)); }
+{ const r = await req('/api/settings', { headers: auth }); const j = await r.json(); check('settings GET', j.ok && j.uuid===MASTER && j.kv===true && j.passwordSource==='default' && j.links.sub.endsWith('/sub/'+MASTER)); }
 // subscription master
 { const r = await req('/sub/' + MASTER + '?rotate=off'); const b = await r.text();
   check('/sub/<uuid> 200', r.status===200);
@@ -161,11 +161,11 @@ const auth = { cookie };
   check('trojan disabled + no plain + limit', !b.includes('trojan://') && !b.includes('security=none') && clean.length===10, 'clean=' + clean.length);
 }
 // password change
-{ const writes = KV.writes; const r = await req('/api/settings', { method:'PUT', headers: auth, body:{ password:'s3cret' } }); const j = await r.json(); const newCookie=(r.headers.get('set-cookie')||'').split(';')[0];
+{ const writes = KV.writes; const r = await req('/api/settings', { method:'PUT', headers: auth, body: { username: 'admin', password: 's3cret'  } }); const j = await r.json(); const newCookie=(r.headers.get('set-cookie')||'').split(';')[0];
   check('password set → new cookie', j.ok && j.settings.hasPassword && newCookie && newCookie!==cookie);
   const old = await req('/api/settings', { headers: auth }); check('old session invalid after password change', old.status===401);
   const bearer = await req('/api/settings', { headers:{ authorization:'Bearer s3cret' } }); check('bearer password works', bearer.status===200);
-  const uuidLogin = await req('/api/login', { method:'POST', body:{ password: MASTER } }); check('uuid no longer a password', uuidLogin.status===401);
+  const uuidLogin = await req('/api/login', { method:'POST', body: { username: 'admin', password: 'admin'  } }); check('uuid no longer a password', uuidLogin.status===401);
   auth.cookie = newCookie; check('settings save persists settings + events ring (tolerating throttled last-seen writes)', KV.writes >= writes + 2, String(KV.writes - writes)); }
 // beta92: an empty address list must not produce a blank master/user sub. The
 // fallback to built-in addresses + worker hostname is render-only and never
@@ -246,7 +246,7 @@ let user;
 // backup
 { const r = await req('/api/backup', { headers: auth }); const j = await r.json(); check('backup export', j.settings && j.users.length===1);
   const KV2 = new FakeKV(); const env2 = { CAT_KV: KV2, UUID: MASTER }; T.kvCacheClear();
-  const login = await req('/api/login', { method:'POST', body:{ password: MASTER }, env: env2 }); const c2=(login.headers.get('set-cookie')||'').split(';')[0];
+  const login = await req('/api/login', { method:'POST', body: { username: 'admin', password: 'admin'  }, env: env2 }); const c2=(login.headers.get('set-cookie')||'').split(';')[0];
   // 6.67: the export MASKS secrets by default and a restore deliberately skips
   // masked fields — a backup must never be able to wipe a live secret. Raw
   // values are opt-in (?includeSecrets=1) for a full clone.
@@ -261,7 +261,7 @@ let user;
   const raw = await (await req('/api/backup?includeSecrets=1', { headers: auth })).json();
   check('?includeSecrets=1 ships the real hash', /^[0-9a-f]{64}$/.test(String(raw.settings.passwordHash || '')), String(raw.settings.passwordHash).slice(0, 24));
   const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER }; T.kvCacheClear();
-  const rs3 = await req('/api/backup', { method:'POST', headers:{ authorization:'Bearer ' + MASTER }, body: raw, env: env3 }); check('raw restore accepted', (await rs3.json()).ok);
+  const rs3 = await req('/api/backup', { method:'POST', headers:{ authorization:'Bearer admin' }, body: raw, env: env3 }); check('raw restore accepted', (await rs3.json()).ok);
   const lu3 = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env3 });
   check('a raw backup restores users + password', lu3.status===200 && (await lu3.json()).users[0].name==='ali');
   T.kvCacheClear(); }
@@ -1336,7 +1336,7 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
     if (body !== undefined) { init.body = JSON.stringify(body); init.headers['content-type'] = 'application/json'; }
     return worker.fetch(new Request('https://' + HOST + path, init), env2, { waitUntil() {} });
   };
-  const lg = await req2('/api/login', { method: 'POST', body: { password: env2.UUID } });
+  const lg = await req2('/api/login', { method: 'POST', body: { username: 'admin', password: 'admin'  } });
   const c2 = (lg.headers.get('set-cookie') || '').split(';')[0];
   const many = []; for (let i = 1; i <= 30; i++) many.push('104.16.' + (i % 250) + '.' + ((i * 7) % 250));
   await req2('/api/ips', { method: 'POST', headers: { cookie: c2 }, body: { ips: many, source: 'manual', replace: true } });
@@ -1363,7 +1363,7 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
     if (body !== undefined) { init.body = JSON.stringify(body); init.headers['content-type'] = 'application/json'; }
     return worker.fetch(new Request('https://' + HOST + path, init), env3, { waitUntil() {} });
   };
-  const lg3 = await req3('/api/login', { method: 'POST', body: { password: env3.UUID } });
+  const lg3 = await req3('/api/login', { method: 'POST', body: { username: 'admin', password: 'admin'  } });
   const c3 = (lg3.headers.get('set-cookie') || '').split(';')[0];
   await req3('/api/settings', { method: 'PUT', headers: { cookie: c3 }, body: { ips: ['1.2.3.4', 'www.example.com'], tlsPorts: [443, 2053], plainEnabled: false, protocols: { vless: true, trojan: false }, entryLimit: 10, subRotate: 'off' } });
   const feedSub = await (await req3('/sub/' + env3.UUID)).text();

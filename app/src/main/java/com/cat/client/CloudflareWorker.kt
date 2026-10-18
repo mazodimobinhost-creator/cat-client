@@ -961,13 +961,11 @@ object CloudflareWorker {
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
         // Admin gate bindings: with a username set, the panel login asks for
         // username + password (a management panel, not open access).
+        val effectivePanelUser = panelUser.ifBlank { "admin" }
+        val effectivePanelPassword = panelPassword.ifBlank { "admin" }
         val authBindings = JSONArray().apply {
-            if (panelUser.isNotBlank()) {
-                put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", panelUser))
-            }
-            if (panelPassword.isNotBlank()) {
-                put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", panelPassword))
-            }
+            put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", effectivePanelUser))
+            put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", effectivePanelPassword))
         }
         val putResult = cfUploadWorker(token, uploadUrl, script, uuid, kvId, extraBindings = authBindings)
         if (!putResult.optBoolean("success", false)) {

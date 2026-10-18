@@ -65,7 +65,7 @@ function req(path, { method = 'GET', headers = {}, body, env } = {}) {
 
 /** Owner proof in this harness: the master UUID is the password until one is set. */
 function ownerHeaders() {
-  return { 'x-cat-key': UUID };
+  return { 'x-cat-key': 'admin' };
 }
 
 test('the wire format the app parses is the one the panel emits', async () => {

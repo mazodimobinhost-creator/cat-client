@@ -148,7 +148,7 @@ console.log('\nSecrets, sub tokens, UUID rotation and backups\n');
   const env2 = { CAT_KV: kv2 };
   T.kvCacheClear();
   const refused = await get(env2, '/api/rotate-uuid', {
-    method: 'POST', headers: { 'x-cat-key': UUID },
+    method: 'POST', headers: { 'x-cat-key': 'admin' },
   });
   const refusedBody = await refused.json();
   ok('rotation is refused while the UUID is the password (lock-out guard)',

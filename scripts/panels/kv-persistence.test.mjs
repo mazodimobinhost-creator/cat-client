@@ -57,7 +57,7 @@ const json = (env, p, method = 'GET', body) => worker.fetch(
 
   const version = await (await json(env, '/api/version')).json();
   check('no KV → /api/version reports kv:false (app can repair)', version.kv === false, JSON.stringify(version));
-  check('/api/version reports needsUser=false for a panel without a username', version.needsUser === false, JSON.stringify(version));
+  check('/api/version reports needsUser=true for the default admin identity', version.needsUser === true, JSON.stringify(version));
 
   // A *fresh isolate* (second module instance) must lose the change — that is
   // exactly what the user saw after a refresh.
@@ -105,7 +105,7 @@ const json = (env, p, method = 'GET', body) => worker.fetch(
   const bad = await json(env, '/api/login', 'POST', { password: UUID });
   check('password-only login is rejected on a username-protected panel (the app bug)',
     bad.status === 401, String(bad.status));
-  const good = await json(env, '/api/login', 'POST', { username: 'boss', password: UUID });
+  const good = await json(env, '/api/login', 'POST', { username: 'boss', password: 'admin' });
   check('username+password login succeeds', good.status === 200, String(good.status));
 }
 

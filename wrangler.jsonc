@@ -87,7 +87,7 @@
   },
   "vars": {
     // Fresh installs start open; set a panel password in Tools → settings.
-    "OPEN_PANEL": "true",
+    "OPEN_PANEL": "false",
     "OPEN_SUB": "true"
   }
 }

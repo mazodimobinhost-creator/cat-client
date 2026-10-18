@@ -145,7 +145,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
     JSON.stringify(freshGenericBody).slice(0, 80));
 
   // On an unconfigured install the panel password IS the UUID, so this is the owner.
-  const fresh = await worker.fetch(crashReq('/api/geo', { key: UUID }), freshEnv, { waitUntil() {} });
+  const fresh = await worker.fetch(crashReq('/api/geo', { key: 'admin' }), freshEnv, { waitUntil() {} });
   const freshBody = await fresh.json();
   ok('a request-time crash answers 500, not an escaped throw', fresh.status === 500, fresh.status);
   ok('…and the owner gets the JSON report', freshBody.error === 'panel_crash', JSON.stringify(freshBody).slice(0, 90));
@@ -194,7 +194,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   ok('PANEL_DIAG=1 forces the report for everyone (the escape hatch)',
     (await forced.json()).error === 'panel_crash');
 
-  const offBody = await (await worker.fetch(crashReq('/api/geo', { key: UUID }), Object.assign({ CAT_KV: memKv(), PANEL_DIAG: '0' }, freshEnv), { waitUntil() {} })).text();
+  const offBody = await (await worker.fetch(crashReq('/api/geo', { key: 'admin' }), Object.assign({ CAT_KV: memKv(), PANEL_DIAG: '0' }, freshEnv), { waitUntil() {} })).text();
   ok('PANEL_DIAG=0 suppresses it even for the owner', JSON.parse(offBody).error === 'internal');
   ok('…and the neutral API fallback leaks no error text', !offBody.includes('boom headers'), offBody.slice(0, 80));
 
@@ -217,7 +217,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   ok('/api/diag is owner-only (anonymous gets 401)', anon.status === 401, anon.status);
 
   const login = await T.handleRequest(
-    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
+    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ username: 'admin', password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
     env, { waitUntil() {} });
   const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
   ok('the owner can sign in', login.status === 200 && cookie.startsWith('cat_session='), login.status);
@@ -237,7 +237,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   const brokenKv = { CAT_KV: { get: kvBoom, put: kvBoom, delete: kvBoom, list: kvBoom } };
   T.kvCacheClear(); // one isolate serves one env; the suite swaps envs, so drop the read cache
   const diagBroken = await T.handleRequest(
-    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': UUID } }), brokenKv, { waitUntil() {} });
+    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': 'admin' } }), brokenKv, { waitUntil() {} });
   const brokenBody = await diagBroken.json();
   ok('a KV that refuses every call is REPORTED as FAILED, not swallowed',
     diagBroken.status === 200 && /FAILED/.test(brokenBody.kv || ''),
@@ -246,7 +246,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
   // No binding at all must say so out loud — that is the sentence the owner acts on.
   T.kvCacheClear();
   const noKv = await T.handleRequest(
-    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': UUID } }), {}, { waitUntil() {} });
+    new Request('https://' + HOST + '/api/diag', { headers: { 'x-cat-key': 'admin' } }), {}, { waitUntil() {} });
   ok('a missing KV binding is named, not hidden', /NOT BOUND/.test((await noKv.json()).kv || ''));
 }
 
@@ -263,7 +263,7 @@ console.log('\nHostile environment — a worker that must never 1101 on a missin
     anon.status === 401, anon.status);
 
   const login = await T.handleRequest(
-    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
+    new Request('https://' + HOST + '/api/login', { method: 'POST', body: JSON.stringify({ username: 'admin', password: 'owner-secret' }), headers: { 'content-type': 'application/json' } }),
     env, { waitUntil() {} });
   const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
 

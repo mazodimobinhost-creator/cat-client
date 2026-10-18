@@ -45,17 +45,17 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   const panel = await get(env, '/panel');
   const html = await panel.text();
   ok('the panel path answers the setup screen (not a dead-end login)', panel.status === 200 && html.includes('type="password"'), panel.status);
-  ok('the setup screen shows the panel UUID', html.includes(UUID), UUID);
-  ok('…and the subscription link', html.includes('/sub/' + UUID));
-  ok('…and a one-tap sign-in link', html.includes('?p=' + encodeURIComponent(UUID)));
+  ok('the setup screen never exposes the panel UUID', !html.includes(UUID), UUID);
+  ok('…shows the admin bootstrap username', /Username:|نام کاربری:/.test(html) && html.includes('<code>admin</code>'));
+  ok('…requires an immediate password change', /Change the password|رمز عبور را.*تغییر/.test(html));
   ok('…and the KV steps by name (CAT_KV)', html.includes('CAT_KV'));
   ok('…and warns that nothing is stored and anyone can sign in',
     /nothing is stored|هیچ تنظیمی ذخیره نمی‌شود/.test(html));
 
-  // The one-tap link has to actually work, otherwise the card is decoration.
-  const tap = await get(env, '/panel?p=' + UUID);
+  // The documented bootstrap credentials have to actually work.
+  const tap = await get(env, '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'admin' }) });
   const cookie = (tap.headers.get('set-cookie') || '').split(';')[0];
-  ok('the one-tap link signs in (302 + session cookie)', tap.status === 302 && /cat_session=[0-9]+\.[0-9a-f]{64}/.test(cookie), `${tap.status} ${cookie.slice(0, 40)}`);
+  ok('admin / admin signs in (200 + session cookie)', tap.status === 200 && /cat_session=[0-9]+\.[0-9a-f]{64}/.test(cookie), `${tap.status} ${cookie.slice(0, 40)}`);
   const inside = await get(env, '/panel', { headers: { cookie } });
   const insideHtml = await inside.text();
   ok('…and the real panel then renders', insideHtml.includes('id="v-home"') && insideHtml.length > 100000, insideHtml.length + 'B');
@@ -86,9 +86,9 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   const kvOnly = await get(env, '/panel');
   const kvOnlyHtml = await kvOnly.text();
   ok('KV bound but no password yet → the setup card stays (this is the auto-provisioned state)',
-    kvOnlyHtml.includes(UUID) && /Storage \(KV\) is bound|ذخیره‌سازی \(KV\) بایند شده/.test(kvOnlyHtml));
+    !kvOnlyHtml.includes(UUID) && kvOnlyHtml.includes('<code>admin</code>') && /Storage \(KV\) is bound|ذخیره‌سازی \(KV\) بایند شده/.test(kvOnlyHtml));
   ok('…and it says the one remaining step is to set a password',
-    /set a password|رمز بگذار/.test(kvOnlyHtml));
+    /Change the password|رمز عبور را.*تغییر/.test(kvOnlyHtml));
 
   // The real configured state: a password exists.
   settings.passwordHash = await T.sha256Hex('owner-password-here');
