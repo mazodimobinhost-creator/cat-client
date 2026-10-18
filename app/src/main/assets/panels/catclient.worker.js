@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.6';
+const CAT_PANEL_VERSION = '6.69.7';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -2447,9 +2447,12 @@ function markRelayFailed(via) {
   // Only real relays cool down — a refused direct dial to one destination says
   // nothing about the next one (and cooling 'direct' reroutes everything).
   if (via && (/^proxy:/.test(via) || /^socks:/.test(via))) RELAY_COOLDOWN.set(via, Date.now() + RELAY_COOLDOWN_MS);
-  if (RELAY_COOLDOWN.size > 512) {
+  if (RELAY_COOLDOWN.size > 256) {
     const now = Date.now();
     for (const [k, until] of RELAY_COOLDOWN) if (until <= now) RELAY_COOLDOWN.delete(k);
+    // All entries can still be live when an authenticated client supplies many
+    // unique relay overrides. Evict oldest keys so isolate memory stays bounded.
+    while (RELAY_COOLDOWN.size > 256) RELAY_COOLDOWN.delete(RELAY_COOLDOWN.keys().next().value);
   }
 }
 function relayCool(via) {
@@ -4299,6 +4302,12 @@ async function handleDoh(request, env) {
 
 const GEO_CACHE = new Map();
 const GEO_TTL_MS = 10 * 60 * 1000;
+const GEO_CACHE_MAX = 256;
+function geoCachePut(key, value) {
+  if (GEO_CACHE.has(key)) GEO_CACHE.delete(key);
+  GEO_CACHE.set(key, { value, at: Date.now() });
+  while (GEO_CACHE.size > GEO_CACHE_MAX) GEO_CACHE.delete(GEO_CACHE.keys().next().value);
+}
 async function resolveHost(name) {
   const key = 'a:' + name;
   const hit = dnsCacheGet(key);
@@ -4322,7 +4331,7 @@ async function geoLookup(ip) {
     let target = key;
     if (!isIpv4(key) && !isIpv6(key)) {
       target = await resolveHost(key);
-      if (!target) { GEO_CACHE.set(key, { value, at: Date.now() }); return value; }
+      if (!target) { geoCachePut(key, value); return value; }
     }
     const res = await fetchTimed('https://ipwho.is/' + encodeURIComponent(target), { headers: { accept: 'application/json', 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } }, 5000);
     const data = await readResponseJsonBounded(res);
@@ -4337,7 +4346,7 @@ async function geoLookup(ip) {
       asn: (data.connection && data.connection.asn) || 0,
     };
   } catch (e) { /* keep ok:false */ }
-  GEO_CACHE.set(key, { value, at: Date.now() });
+  geoCachePut(key, value);
   return value;
 }
 
@@ -4790,8 +4799,9 @@ async function handleApi(request, url, env, ctx) {
   }
 
   if (path === '/api/geo') {
-    const ip = url.searchParams.get('ip') || request.headers.get('cf-connecting-ip') || '';
+    const ip = String(url.searchParams.get('ip') || request.headers.get('cf-connecting-ip') || '').trim().replace(/^\[|\]$/g, '');
     if (!ip) return json({ ok: false, error: 'missing ip' }, 400);
+    if (ip.length > 253 || !(isIpv4(ip) || isIpv6(ip) || isHostname(ip))) return json({ ok: false, error: 'invalid ip' }, 400);
     return json(await geoLookup(ip), 200, { 'cache-control': 'public, max-age=600' });
   }
   if (path === '/api/login') {
