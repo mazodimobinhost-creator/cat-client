@@ -79,9 +79,15 @@ object AppUpdatePolicy {
         return latest.preNum > current.preNum
     }
 
-    fun shouldPrompt(latest: String, current: String, skipped: String?): Boolean =
-        isNewer(latest, current) &&
-            (skipped == null || parts(latest)?.core?.dropLastWhile { it == 0L } != parts(skipped)?.core?.dropLastWhile { it == 0L })
+    fun shouldPrompt(latest: String, current: String, skipped: String?): Boolean {
+        if (!isNewer(latest, current)) return false
+        if (skipped == null) return true
+        // Skipping beta121 must suppress beta121 only, not every later beta that
+        // shares the 1.10.0 core (beta125 was consequently invisible in-app).
+        val latestNormalized = normalizedVersion(latest)
+        val skippedNormalized = normalizedVersion(skipped)
+        return latestNormalized.isNotEmpty() && latestNormalized != skippedNormalized
+    }
 
     fun detectVariant(entries: Sequence<String>): ApkVariant? {
         val nativeLibrary = Regex("^lib/([^/]+)/libclash\\.so$")

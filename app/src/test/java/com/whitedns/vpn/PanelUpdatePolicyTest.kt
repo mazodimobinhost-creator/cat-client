@@ -47,6 +47,9 @@ class PanelUpdatePolicyTest {
         assertTrue(AppUpdatePolicy.isNewer("1.4-rc1", "1.3.0"))
         assertFalse(AppUpdatePolicy.isNewer("1.4-rc1", "1.4.0"))
         assertTrue(AppUpdatePolicy.isNewer("1.4.0", "1.4-rc1"))
+        assertFalse(AppUpdatePolicy.shouldPrompt("1.10.0-beta121", "1.10.0-beta120", "1.10.0-beta121"))
+        assertTrue(AppUpdatePolicy.shouldPrompt("1.10.0-beta125", "1.10.0-beta124", "1.10.0-beta121"))
+        assertTrue(AppUpdatePolicy.shouldPrompt("v1.10.0-beta125", "1.10.0-beta124", "1.10.0-beta121"))
         for (invalid in listOf("1.-1", "1..4", "vV1.4", "1.4+build", "9999999999999999999999999")) {
             assertFalse(invalid, AppUpdatePolicy.isNewer(invalid, "1.3.0"))
             assertFalse(invalid, AppUpdatePolicy.isNewer("1.4.0", invalid))
