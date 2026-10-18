@@ -4587,7 +4587,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   switch (cmd) {
     case '/start': case '/help':
       return '🐱 <b>' + tgEsc(panelTitle(env, settings)) + '</b> ' + CAT_PANEL_VERSION + '\n\n' +
-        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info\n/deploy [branch] — deploy the panel via GitHub Actions\n/deploys — last deploy runs';
+        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info\n/update [branch] — safely update through GitHub Actions\n/deploy [branch] — same as /update\n/deploys — last update runs';
     case '/status': {
       const c = countrySummary(host, env, settings);
       return '🌐 ' + tgEsc(host) + '\n👥 users: ' + users.length + '\n🧹 ips: ' + settings.ips.length + '\n🌍 country: ' + (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n🔗 chain: ' + (settings.chain ? 'on' : 'off') + '\n🛡 ads: ' + (settings.blockAds ? 'blocked' : 'off') + ' · iran: ' + (settings.bypassIran ? 'direct' : 'via vpn') + '\n💾 kv: ' + (kvBinding(env) ? 'on' : 'OFF');
@@ -4635,6 +4635,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
       await writeSettings(env, { country: cc });
       return cc ? '🌍 preferred country → ' + flagOf(cc) + ' ' + cc : '🌍 country → auto';
     }
+    case '/update':
     case '/deploy': {
       if (!settings.ghPat || !settings.ghRepo) return '⚠️ Deploy bot is not configured yet.\nIn the panel set the GitHub repo (owner/repo) + a fine-grained token with Actions read/write.\nThe Cloudflare API token is NEVER stored here — it lives only in GitHub secrets (see docs/telegram-deploy.md).';
       const ref = String(arg[0] || '').trim() || deployCfg(settings).ref;
@@ -4650,7 +4651,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
       const r = await ghApi('GET', '/repos/' + settings.ghRepo + '/actions/workflows/' + encodeURIComponent(deployCfg(settings).workflow) + '/runs?per_page=3', settings);
       const runs = (r.body && r.body.workflow_runs) || [];
       if (!r.ok) return '🔴 GitHub error ' + r.status + (r.body && r.body.message ? ' — ' + tgEsc(r.body.message) : '');
-      if (!runs.length) return 'no deploy runs yet — send /deploy';
+      if (!runs.length) return 'no update runs yet — send /update';
       return runs.map((x) => (x.conclusion === 'success' ? '✅' : x.conclusion === 'failure' ? '❌' : '⏳') + ' ' + x.status + (x.conclusion ? ' → ' + x.conclusion : '') + ' · ' + tgEsc(String(x.head_branch)) + ' · #' + x.run_number + '\n' + x.html_url).join('\n\n');
     }
     default:
