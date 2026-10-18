@@ -3969,7 +3969,7 @@ class CatClientVpnService : VpnService() {
             endpoint = selection.freshEndpoint(),
         ).also { aetherPsiphonChain = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.start")
-        val carrier = chain.start()
+        val carrier = chain.start(selection.psiphonRegion)
         val dns = DnsRuntimeSettings(
             mode = dnsPrivacyPreferenceStore.readMode(),
             dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),

@@ -466,6 +466,8 @@
     <string name="aether_mode_h2">MASQUE · HTTP/2</string>
     <string name="aether_mode_wom">WireGuard over MASQUE</string>
     <string name="aether_mode_psiphon">MASQUE → Psiphon</string>
+    <string name="aether_region">Psiphon exit region</string>
+    <string name="aether_region_automatic">Best available</string>
     <string name="aether_get_key">Get new WARP identity</string>
     <string name="aether_key_ready">Aether identity is ready</string>
     <string name="aether_scan">Scan endpoints</string>

@@ -7,6 +7,7 @@ data class AetherSelection(
     val mode: AetherMode = AetherMode.MasqueHttp2,
     val endpoint: String? = null,
     val endpointScannedAt: Long = 0L,
+    val psiphonRegion: String = "",
 ) {
     fun freshEndpoint(now: Long = System.currentTimeMillis()): String? = endpoint?.takeIf {
         endpointScannedAt > 0L && now >= endpointScannedAt && now - endpointScannedAt <= ENDPOINT_MAX_AGE_MS
@@ -25,15 +26,19 @@ class AetherPreferenceStore(context: Context) {
         val mode = AetherMode.entries.firstOrNull { it.wireName == prefs.getString("mode", null) }
             ?: AetherMode.MasqueHttp2
         val endpoint = prefs.getString("endpoint", null)?.takeIf(AetherOperations::isSafePublicPeer)
-        return AetherSelection(enabled, mode, endpoint, prefs.getLong("endpointScannedAt", 0L))
+        val region = prefs.getString("psiphonRegion", "").orEmpty()
+            .takeIf { it.isEmpty() || it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+        return AetherSelection(enabled, mode, endpoint, prefs.getLong("endpointScannedAt", 0L), region)
     }
 
     fun save(selection: AetherSelection) {
+        require(selection.psiphonRegion.isEmpty() || selection.psiphonRegion.matches(Regex("[A-Z]{2}")))
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", selection.mode.wireName)
             .putString("endpoint", selection.endpoint)
             .putLong("endpointScannedAt", selection.endpointScannedAt)
+            .putString("psiphonRegion", selection.psiphonRegion)
             .apply()
     }
 }

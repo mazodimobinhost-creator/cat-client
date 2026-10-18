@@ -60,6 +60,9 @@ class PsiphonCarrierService : Service() {
         val host = object : PsiphonTunnel.HostService {
             override fun getContext(): Context = this@PsiphonCarrierService
             override fun getPsiphonConfig(): String = config
+            override fun onAvailableEgressRegions(regions: MutableList<String>?) {
+                PsiphonCarrierConfig.rememberRegions(this@PsiphonCarrierService, regions.orEmpty())
+            }
             override fun onListeningSocksProxyPort(port: Int) { socksPort.set(port); broadcast() }
             override fun onConnected() { state = State.Connected; broadcast() }
             override fun onConnecting() { state = State.Connecting; broadcast() }

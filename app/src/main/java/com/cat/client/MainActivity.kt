@@ -3543,6 +3543,25 @@ class MainActivity : Activity() {
             appPreferenceRow(R.string.aether_endpoint, endpointValue) { }.apply { isClickable = false },
             LinearLayout.LayoutParams(-1, -2),
         )
+        if (aetherSelection.mode == AetherMode.MasquePsiphon) {
+            val regionValue = aetherSelection.psiphonRegion.ifBlank { getString(R.string.aether_region_automatic) }
+            aetherPanel.addView(
+                appPreferenceRow(R.string.aether_region, regionValue) {
+                    val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this)
+                    val labels = regions.map { it.ifBlank { getString(R.string.aether_region_automatic) } }.toTypedArray()
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle(R.string.aether_region)
+                        .setItems(labels) { _, index ->
+                            val current = aetherPreferenceStore.read()
+                            aetherPreferenceStore.save(current.copy(psiphonRegion = regions[index]))
+                            recreate()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
         fun aetherActionButton(@StringRes label: Int, action: (MaterialButton) -> Unit) = MaterialButton(this).apply {
             setText(label)
             isAllCaps = false
