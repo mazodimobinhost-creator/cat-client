@@ -13,7 +13,10 @@ test('portal remains an independent control plane with D1 and static assets', as
   assert.match(config, /"binding"\s*:\s*"DB"/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS sessions/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS subscriptions/);
   assert.match(worker, /verifyTelegramInit/);
+  assert.match(worker, /subscriptionSignature/);
+  assert.match(worker, /\/sub\//);
   assert.match(worker, /\/api\/account\/credentials/);
   assert.match(worker, /\/api\/sessions\/revoke-others/);
   assert.match(worker, /\/api\/deployments/);

@@ -26,6 +26,17 @@ CREATE TABLE IF NOT EXISTS deployments (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS deployments_user ON deployments(user_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  links_json TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+  expires_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS subscriptions_user ON subscriptions(user_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,

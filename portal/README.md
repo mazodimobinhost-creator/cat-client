@@ -7,7 +7,7 @@ Independent Cloudflare control plane for account login, Telegram Mini App authen
 1. Create D1: `npx wrangler d1 create cat-portal` and replace the placeholder in `wrangler.jsonc`.
 2. Apply schema: `npx wrangler d1 execute cat-portal --remote --file schema.sql`.
 3. Set `PORTAL_URL` to the final HTTPS custom domain.
-4. Add encrypted secrets with `wrangler secret put TELEGRAM_BOT_TOKEN` and `wrangler secret put TELEGRAM_WEBHOOK_SECRET`.
+4. Add encrypted secrets with `wrangler secret put TELEGRAM_BOT_TOKEN`, `wrangler secret put TELEGRAM_WEBHOOK_SECRET` and `wrangler secret put SUBSCRIPTION_SIGNING_SECRET` (at least 32 random bytes).
 5. Deploy from this directory with `npx wrangler deploy`.
 6. Register `https://<domain>/api/telegram/webhook` using Telegram `setWebhook`, including the same `secret_token`.
 7. Configure the final HTTPS domain as the bot Mini App URL.

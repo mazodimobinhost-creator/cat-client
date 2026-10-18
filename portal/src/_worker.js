@@ -18,6 +18,8 @@ const body = async request => {
   return request.json().catch(() => { throw new Error('invalid_json'); });
 };
 const normalizeEmail = value => String(value || '').trim().toLowerCase();
+const subscriptionLinks = values => [...new Set((Array.isArray(values) ? values : []).map(x => String(x || '').trim()).filter(x => /^(vless|vmess|trojan|ss|hysteria2|tuic|wireguard):\/\//i.test(x) && x.length <= 8192))].slice(0, 100);
+const subscriptionSignature = (env, id) => hmac(env.SUBSCRIPTION_SIGNING_SECRET || '', `cat-sub:${id}`);
 const publicHttpsOrigin = value => {
   try {
     const url = new URL(String(value || ''));
@@ -83,7 +85,15 @@ async function telegramUser(env, tg, displayName) {
   return id;
 }
 async function api(request, env, ctx, url) {
-  if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true, service: 'cat-portal', version: '0.1.0', time: new Date().toISOString() });
+  if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true, service: 'cat-portal', version: '0.2.0', time: new Date().toISOString() });
+  const publicSub = url.pathname.match(/^\/sub\/([0-9a-f-]{36})\/([0-9a-f]{64})$/i);
+  if (request.method === 'GET' && publicSub) {
+    if (!env.SUBSCRIPTION_SIGNING_SECRET || !safeEqual(await subscriptionSignature(env, publicSub[1]), publicSub[2].toLowerCase())) return new Response('not found', { status: 404 });
+    const row = await env.DB.prepare('SELECT name,links_json,expires_at FROM subscriptions WHERE id=? AND enabled=1').bind(publicSub[1]).first();
+    if (!row || (row.expires_at && Number(row.expires_at) <= Date.now())) return new Response('subscription unavailable', { status: 404 });
+    const links = subscriptionLinks(JSON.parse(row.links_json || '[]'));
+    return new Response(links.join('\n'), { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'subscription-userinfo': 'upload=0; download=0; total=0; expire=' + (row.expires_at ? Math.floor(Number(row.expires_at) / 1000) : 0), 'content-disposition': `inline; filename="cat-${row.name.replace(/[^a-z0-9_-]/gi, '-').slice(0, 40) || 'subscription'}.txt"` } });
+  }
   if (request.method === 'POST' && url.pathname === '/api/register') {
     const input = await body(request), email = normalizeEmail(input.email);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json({ error: 'invalid_email' }, 400);
@@ -162,6 +172,36 @@ async function api(request, env, ctx, url) {
     await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'sessions.others_revoked', Date.now()).run();
     return json({ ok: true });
   }
+  if (request.method === 'GET' && url.pathname === '/api/subscriptions') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    if (!env.SUBSCRIPTION_SIGNING_SECRET) return json({ error: 'subscription_not_configured' }, 503);
+    const rows = await env.DB.prepare('SELECT id,name,links_json,enabled,expires_at,created_at,updated_at FROM subscriptions WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all();
+    const origin = new URL(request.url).origin;
+    const subscriptions = await Promise.all((rows.results || []).map(async row => ({ ...row, linkCount: subscriptionLinks(JSON.parse(row.links_json || '[]')).length, links_json: undefined, url: `${origin}/sub/${row.id}/${await subscriptionSignature(env, row.id)}` })));
+    return json({ ok: true, subscriptions });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/subscriptions') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    if (!env.SUBSCRIPTION_SIGNING_SECRET) return json({ error: 'subscription_not_configured' }, 503);
+    const input = await body(request), name = String(input.name || '').trim().slice(0, 80), links = subscriptionLinks(input.links), now = Date.now();
+    if (!name || !links.length) return json({ error: 'invalid_subscription' }, 400);
+    const expiresAt = input.expiresAt == null ? null : Number(input.expiresAt);
+    if (expiresAt != null && (!Number.isFinite(expiresAt) || expiresAt <= now)) return json({ error: 'invalid_expiry' }, 400);
+    const id = crypto.randomUUID();
+    await env.DB.prepare('INSERT INTO subscriptions(id,user_id,name,links_json,enabled,expires_at,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?)').bind(id, user.id, name, JSON.stringify(links), expiresAt, now, now).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'subscription.created', now).run();
+    return json({ ok: true, subscription: { id, name, linkCount: links.length, url: `${new URL(request.url).origin}/sub/${id}/${await subscriptionSignature(env, id)}` } }, 201);
+  }
+  const subMatch = url.pathname.match(/^\/api\/subscriptions\/([0-9a-f-]{36})$/i);
+  if (request.method === 'PUT' && subMatch) {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), name = String(input.name || '').trim().slice(0, 80), links = subscriptionLinks(input.links), now = Date.now();
+    if (!name || !links.length) return json({ error: 'invalid_subscription' }, 400);
+    const found = await env.DB.prepare('SELECT id FROM subscriptions WHERE id=? AND user_id=?').bind(subMatch[1], user.id).first();
+    if (!found) return json({ error: 'not_found' }, 404);
+    await env.DB.prepare('UPDATE subscriptions SET name=?,links_json=?,updated_at=? WHERE id=? AND user_id=?').bind(name, JSON.stringify(links), now, found.id, user.id).run();
+    return json({ ok: true });
+  }
   if (request.method === 'POST' && url.pathname === '/api/deployments') {
     if (!user) return json({ error: 'unauthorized' }, 401);
     const input = await body(request), origin = publicHttpsOrigin(input.url), target = String(input.target || '');
@@ -203,7 +243,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
-      if (url.pathname.startsWith('/api/')) return await api(request, env, ctx, url);
+      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/sub/')) return await api(request, env, ctx, url);
       return env.ASSETS.fetch(request);
     } catch (error) {
       console.error('portal_request_failed', { path: url.pathname, type: error?.name || 'Error' });
