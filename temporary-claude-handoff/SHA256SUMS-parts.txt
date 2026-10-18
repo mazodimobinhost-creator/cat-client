@@ -1,3 +1,0 @@
-d0cffc3813f28cfc5cee57d556646dda36019a033487efc5f47adf14a3520d55  temporary-claude-handoff/claude-handoff-62b9fa5.zip.part-00
-890f8e15827deb2f5efa1955e1e12076779ae10b10abe5bab65379f242154b45  temporary-claude-handoff/claude-handoff-62b9fa5.zip.part-01
-ae0f86e321e72e9013ed5e3b3161b12f1046309d0e0ae9d5ed049586fb60fca8  temporary-claude-handoff/claude-handoff-62b9fa5.zip.part-02
