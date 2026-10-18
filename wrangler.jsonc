@@ -88,6 +88,6 @@
   "vars": {
     // Keep management locked: fresh installs use admin/admin and must change it in settings.
     "OPEN_PANEL": "false",
-    "OPEN_SUB": "true"
+    "OPEN_SUB": "false"
   }
 }

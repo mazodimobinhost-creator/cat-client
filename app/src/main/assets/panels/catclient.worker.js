@@ -2525,7 +2525,22 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
  * to the first chunk. Nothing is counted — that was the CPU hog in v5.
  */
 async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) {
-  const upstream = clientReadable.pipeTo(socket.writable, { preventAbort: false }).catch(() => {});
+  // Activity-reset idle timeout: unlike the proposed fixed ten-minute lifetime,
+  // every real byte in either direction rearms the timer, so healthy long-lived
+  // tunnels stay alive while abandoned sockets release their resources.
+  const IDLE_MS = 10 * 60 * 1000;
+  let idleTimer = null;
+  let idleReject = null;
+  const idleFailure = new Promise((_, reject) => { idleReject = reject; });
+  const touch = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => idleReject(new Error('tunnel idle timeout')), IDLE_MS);
+  };
+  touch();
+  const activityMeter = new TransformStream({
+    transform(chunk, controller) { touch(); controller.enqueue(chunk); },
+  });
+  const upstream = clientReadable.pipeThrough(activityMeter).pipeTo(socket.writable, { preventAbort: false }).catch(() => {});
   // Downstream grain bundling (adopted from ZEUS): coalesce small reads into
   // ≤128KB messages and flush after 1ms of silence — far fewer ws.send calls
   // at the same latency. The first chunk (TLS server hello) stays unbuffered.
@@ -2552,6 +2567,7 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
         }
         if (chunk.done) break;
         if (!chunk.value || !chunk.value.byteLength) continue;
+        touch();
         if (ws.readyState !== WS_OPEN) break;
         if (header) { ws.send(concatBytes(header, chunk.value)); header = null; continue; }
         if (!grain) { grain = chunk.value; } else { grain = concatBytes(grain, chunk.value); }
@@ -2563,8 +2579,13 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
     safeCloseWs(ws, 1000, 'remote closed');
     try { await reader.cancel(); } catch (e) { /* ignore */ }
   })();
-  await Promise.all([upstream, downstream]);
-  try { socket.close(); } catch (e) { /* ignore */ }
+  try {
+    await Promise.race([Promise.all([upstream, downstream]), idleFailure]);
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+    try { socket.close(); } catch (e) { /* ignore */ }
+    safeCloseWs(ws, 1001, 'tunnel finished');
+  }
 }
 
 /* Trojan hash → uuid map, rebuilt only when the user list changes. */
