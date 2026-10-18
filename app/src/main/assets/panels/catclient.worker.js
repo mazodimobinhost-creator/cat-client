@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.11';
+const CAT_PANEL_VERSION = '6.69.12';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -1097,9 +1097,16 @@ async function sessionSecret(env, settings, masterUuid) {
   return 'cat:session:' + pass.hash + ':' + masterUuid;
 }
 
+async function sessionSignature(env, settings, masterUuid, exp) {
+  // Session auth needs only SHA-256, which is available in every Workers runtime.
+  // Keep the secret at the END: unlike secret-prefix hashing, this is not exposed
+  // to SHA-256 length-extension. `exp` is strictly parsed as a decimal timestamp.
+  return sha256Hex(String(exp) + '\0' + await sessionSecret(env, settings, masterUuid));
+}
+
 async function makeSession(env, settings, masterUuid) {
   const exp = Date.now() + SESSION_TTL_MS;
-  const sig = await hmacHex(await sessionSecret(env, settings, masterUuid), String(exp));
+  const sig = await sessionSignature(env, settings, masterUuid, exp);
   return exp + '.' + sig;
 }
 
@@ -1126,7 +1133,7 @@ async function verifySession(request, env, settings, masterUuid) {
   if (!token) return false;
   const [exp, sig] = token.split('.');
   if (!exp || !sig || Number(exp) < Date.now()) return false;
-  const expected = await hmacHex(await sessionSecret(env, settings, masterUuid), String(exp));
+  const expected = await sessionSignature(env, settings, masterUuid, exp);
   return safeEqualHex(expected, sig);
 }
 
@@ -8689,7 +8696,7 @@ export const _testing = {
   TUNE_CARRIERS, TUNE_PRESETS, sanitizeTune, PANEL_TUNE_MAGIC,
   PANEL_THEMES, DEFAULT_PANEL_THEME,
   normalizeUser, readUsers, writeUsers, userBlockedReason, findUser,
-  panelPassword, panelIsOpen, makeSession, verifySession, isOwner, checkLogin,
+  panelPassword, panelIsOpen, sessionSignature, makeSession, verifySession, isOwner, checkLogin,
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
