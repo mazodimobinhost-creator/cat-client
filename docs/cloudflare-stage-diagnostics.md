@@ -9,3 +9,5 @@ Deploy it only over the existing test Worker that already has a known-good boots
 - `/` or `/panel` → visible Persian diagnostic card
 
 If stage 01 fails with 1100/1101, stop: the failure is outside Cat Panel's networking bundle. If it succeeds, retain its Version ID as the rollback point before testing the next isolated stage.
+
+Stage 02 adds only the official `cloudflare:sockets` module import and verifies that `connect` is available; it never opens a socket. A production pass rules out module-load failure caused merely by the sockets import.

@@ -9,6 +9,13 @@ test('diagnostic is three physical lines and contains no proxy or camouflage cod
   assert.equal(source.trimEnd().split('\n').length, 3);
   assert.doesNotMatch(source, /cloudflare:sockets|websocket|vless|trojan|Sora|eval\s*\(|new Function/i);
 });
+test('stage 02 is a three-line import-only sockets diagnostic', async () => {
+  const stage2 = await readFile(new URL('../../diagnostics/cloudflare-stage-02-sockets-import.js', import.meta.url), 'utf8');
+  assert.equal(stage2.trimEnd().split('\n').length, 3);
+  assert.match(stage2, /from"cloudflare:sockets"/);
+  assert.doesNotMatch(stage2, /connect\s*\(|vless|trojan|websocket|Sora|eval\s*\(|new Function/i);
+});
+
 test('stage 01 health, selfcheck, panel and 404 respond', async () => {
   assert.equal(await (await worker.fetch(new Request('https://x/health'),env)).text(),'ok');
   const self=await (await worker.fetch(new Request('https://x/api/selfcheck'),env)).json();
