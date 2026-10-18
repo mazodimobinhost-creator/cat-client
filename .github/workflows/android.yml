@@ -110,6 +110,28 @@ jobs:
           done
           sha256sum app/src/main/jniLibs/{armeabi-v7a,arm64-v8a,x86_64}/libwhiteaesther_core.so | tee aether-packaged.sha256
 
+      # Persist the expensive native outputs immediately. A later Kotlin/test failure
+      # must not force all three Rust/NDK builds to run again on the next fix commit.
+      - name: Save reviewed Aether core immediately
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libwhiteaesther_core.so
+            app/src/main/jniLibs/arm64-v8a/libc++_shared.so
+            app/src/main/jniLibs/armeabi-v7a/libwhiteaesther_core.so
+            app/src/main/jniLibs/armeabi-v7a/libc++_shared.so
+            app/src/main/jniLibs/x86_64/libwhiteaesther_core.so
+            app/src/main/jniLibs/x86_64/libc++_shared.so
+          key: ${{ runner.os }}-aether-${{ hashFiles('aether/upstream.lock', 'scripts/build-aether-core.sh', 'scripts/verify-aether-upstream.sh') }}
+
+      - name: Upload packaged Aether checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: aether-packaged-checksums-${{ github.run_id }}
+          path: aether-packaged.sha256
+          retention-days: 14
+
       - name: Read app version
         id: app_version
         run: |
