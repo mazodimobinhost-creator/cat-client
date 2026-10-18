@@ -49,10 +49,11 @@ internal object AetherOperations {
         val literal = endpoint.ip
         if (!literal.matches(Regex("[0-9.]+|[0-9a-fA-F:]+"))) return false
         val address = runCatching { InetAddress.getByName(literal) }.getOrNull() ?: return false
-        if (address.address.size == 4) {
-            val bytes = address.address.map { it.toInt() and 0xff }
-            if (bytes[0] == 100 && bytes[1] in 64..127) return false
-        }
+        val bytes = address.address.map { it.toInt() and 0xff }
+        if (bytes.size == 4 && bytes[0] == 100 && bytes[1] in 64..127) return false
+        // Inet6Address.isSiteLocalAddress does not classify RFC 4193 ULA on all
+        // Android/JVM implementations, so reject fc00::/7 explicitly.
+        if (bytes.size == 16 && (bytes[0] and 0xfe) == 0xfc) return false
         return !address.isAnyLocalAddress && !address.isLoopbackAddress &&
             !address.isLinkLocalAddress && !address.isSiteLocalAddress && !address.isMulticastAddress
     }
