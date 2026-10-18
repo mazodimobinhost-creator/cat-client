@@ -3517,9 +3517,10 @@ class MainActivity : Activity() {
             R.string.aether_mode,
             getString(if (aetherSelection.mode == AetherMode.WireGuardOverMasque) R.string.aether_mode_wom else R.string.aether_mode_h2),
         ) {
+            if (aetherOperationJob?.isActive == true) return@appPreferenceRow
             val current = aetherPreferenceStore.read()
             val next = if (current.mode == AetherMode.MasqueHttp2) AetherMode.WireGuardOverMasque else AetherMode.MasqueHttp2
-            aetherPreferenceStore.save(current.copy(mode = next))
+            aetherPreferenceStore.save(current.copy(mode = next, endpoint = null, endpointScannedAt = 0L))
             recreate()
         }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }
         aetherPanel.addView(aetherModeRow, LinearLayout.LayoutParams(-1, -2))
