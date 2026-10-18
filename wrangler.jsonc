@@ -86,7 +86,7 @@
     "crons": ["0 */12 * * *"]
   },
   "vars": {
-    // Fresh installs start open; set a panel password in Tools → settings.
+    // Keep management locked: fresh installs use admin/admin and must change it in settings.
     "OPEN_PANEL": "false",
     "OPEN_SUB": "true"
   }
