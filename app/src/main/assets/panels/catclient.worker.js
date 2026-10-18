@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.3';
+const CAT_PANEL_VERSION = '6.69.4';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -588,6 +588,21 @@ function withTimeout(promise, ms, label) {
 /** Bounded async map: prevents a panel click from opening dozens of sockets or
  * D1/KV operations at once and exhausting a Worker invocation (a common 1101
  * source). Each item is isolated so one failed probe cannot reject the batch. */
+async function fetchTimed(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(url, Object.assign({}, options, { signal: controller.signal })); }
+  finally { clearTimeout(timer); }
+}
+
+async function readBoundedBody(request, maxBytes) {
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (declared > maxBytes) throw new Error('body_too_large');
+  const raw = await request.arrayBuffer();
+  if (raw.byteLength > maxBytes) throw new Error('body_too_large');
+  return raw;
+}
+
 async function mapBounded(items, limit, mapper) {
   const list = Array.from(items || []);
   const out = new Array(list.length);
@@ -4200,7 +4215,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
  * its latency) down. Only successful answers are cached. */
 const DNS_CACHE = new Map();
 const DNS_CACHE_TTL = 30 * 60 * 1000;
-const DNS_CACHE_MAX = 2048;
+const DNS_CACHE_MAX = 512;
 function dnsCacheGet(key) {
   const hit = DNS_CACHE.get(key);
   if (!hit) return null;
@@ -4218,22 +4233,26 @@ async function handleDoh(request, env) {
     if (!dns) return text('missing dns', 400);
     const hit = dnsCacheGet('g:' + dns);
     if (hit) return new Response(hit.slice(0), { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
-    const res = await fetch(upstream + '?dns=' + encodeURIComponent(dns), { headers: { accept: 'application/dns-message' } });
+    if (dns.length > 8192) return text('dns query too large', 413);
+    const res = await fetchTimed(upstream + '?dns=' + encodeURIComponent(dns), { headers: { accept: 'application/dns-message' } }, 5000);
     if (res.status === 200) {
       const body = await res.arrayBuffer();
+      if (body.byteLength > 65535) return text('dns response too large', 502);
       dnsCachePut('g:' + dns, new Uint8Array(body));
       return new Response(body, { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
     }
     return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
   }
   if (request.method === 'POST') {
-    const raw = await request.arrayBuffer();
+    let raw;
+    try { raw = await readBoundedBody(request, 65535); } catch (e) { return text('dns query too large', 413); }
     const key = 'p:' + (await sha256Hex(new Uint8Array(raw))).slice(0, 32);
     const hit = dnsCacheGet(key);
     if (hit) return new Response(hit.slice(0), { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
-    const res = await fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' }, body: raw });
+    const res = await fetchTimed(upstream, { method: 'POST', headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' }, body: raw }, 5000);
     if (res.status === 200) {
       const body = await res.arrayBuffer();
+      if (body.byteLength > 65535) return text('dns response too large', 502);
       dnsCachePut(key, new Uint8Array(body));
       return new Response(body, { status: 200, headers: { 'content-type': 'application/dns-message', 'cache-control': 'no-store' } });
     }
@@ -4337,8 +4356,11 @@ function subLinks(origin, uuid, user) {
   };
 }
 
-async function readJsonBody(request) {
-  try { return await request.json(); } catch (e) { return null; }
+async function readJsonBody(request, maxBytes = 256 * 1024) {
+  try {
+    const raw = await readBoundedBody(request, maxBytes);
+    return JSON.parse(new TextDecoder().decode(raw));
+  } catch (e) { return null; }
 }
 
 async function subResponse(kind, host, env, settings, uuid, user, url) {
@@ -5559,7 +5581,8 @@ async function handleRequest(request, env, ctx) {
   if (path === '/qr.svg' || path === '/qr') {
     const payload = url.searchParams.get('text') || url.searchParams.get('data') || '';
     if (!payload) return text('missing text', 400);
-    return new Response(qrSvg(payload.slice(0, 2000), { dark: '#0b0614', light: '#ffffff' }), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
+    if (payload.length > 512) return text('qr payload too large', 413);
+    return new Response(qrSvg(payload, { dark: '#0b0614', light: '#ffffff' }), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   }
 
   const settings = await readSettings(env);
@@ -5577,7 +5600,7 @@ async function handleRequest(request, env, ctx) {
   if (extm) {
     const idx = Math.min(4, Math.max(0, Number(extm[1]) - 1));
     const key = (extm[2] || url.searchParams.get('k') || '').toLowerCase();
-    const own = key === masterUuid;
+    const own = key === masterKey;
     let subUser = null;
     if (!own && key && isUuid(key)) subUser = findUser(await readUsers(env), key);
     if (!own && !subUser) return text('not found', 404);
