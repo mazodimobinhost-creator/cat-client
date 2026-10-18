@@ -3,12 +3,16 @@ package com.cat.client
 import org.json.JSONObject
 import java.io.File
 
+enum class AetherRuntimeEndpoint(val wireName: String) { Tun("tun"), Proxy("proxy") }
+
 data class AetherRuntimeConfig(
     val mode: AetherMode,
     val identityFile: File,
     val endpoint: String? = null,
     val scanBudgetMillis: Long = 180_000,
     val upstreamProxy: String? = null,
+    val runtimeEndpoint: AetherRuntimeEndpoint = AetherRuntimeEndpoint.Tun,
+    val listenPort: Int = 1819,
 ) {
     init {
         require(identityFile.isAbsolute) { "Aether identity path must be absolute" }
@@ -20,10 +24,11 @@ data class AetherRuntimeConfig(
                 "Aether provisioning proxy must be a loopback SOCKS endpoint"
             }
         }
+        require(listenPort in 1024..65535)
     }
 
     fun toNativeJson(): String = JSONObject()
-        .put("mode", "tun")
+        .put("mode", runtimeEndpoint.wireName)
         .put("configPath", identityFile.absolutePath)
         .put("transport", when (mode) {
             AetherMode.MasqueHttp2 -> "h2"
@@ -36,7 +41,7 @@ data class AetherRuntimeConfig(
         .put("validationEnabled", true)
         .put("autoReprovision", false)
         .put("lanSharing", false)
-        .put("listenPort", 1819)
+        .put("listenPort", listenPort)
         .apply {
             endpoint?.let { put("peer", it) }
             upstreamProxy?.let { put("upstreamProxy", it) }

@@ -32,6 +32,15 @@ class AetherRuntimeConfigTest {
             upstreamProxy = "socks5://127.0.0.1:7890",
         ).toNativeJson())
         assertEquals("socks5://127.0.0.1:7890", provision.getString("upstreamProxy"))
+
+        val proxy = JSONObject(AetherRuntimeConfig(
+            AetherMode.MasqueHttp2,
+            File("/tmp/aether.json"),
+            runtimeEndpoint = AetherRuntimeEndpoint.Proxy,
+            listenPort = 1819,
+        ).toNativeJson())
+        assertEquals("proxy", proxy.getString("mode"))
+        assertEquals(1819, proxy.getInt("listenPort"))
     }
 
     @Test fun refusesUnreadyCarrierUnsafePathAndInvalidEndpoint() {
