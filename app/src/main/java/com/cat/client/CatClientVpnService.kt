@@ -2079,10 +2079,12 @@ class CatClientVpnService : VpnService() {
         profiles: List<ConnectionProfile>,
         excludedEndpoint: CleanIpResult?,
     ): StartupTopIpCandidatePlan? {
-        val candidates = StartupScanPolicy.cachedCandidates(
+        val candidates = StartupScanPolicy.automaticCandidates(
             subscriptionPorts = profiles.map { it.port },
             lastEndpoint = scanStateStore.readLastEndpoint(),
             cachedResults = cleanIpCache.readResults(),
+            detectedCarrier = CarrierDetector.detect(this, refresh = true),
+            nowMs = System.currentTimeMillis(),
             excludedEndpoint = excludedEndpoint,
         )
         if (candidates.isEmpty()) return null
