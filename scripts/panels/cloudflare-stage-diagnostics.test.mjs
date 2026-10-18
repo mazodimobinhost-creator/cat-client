@@ -16,6 +16,14 @@ test('stage 02 is a three-line import-only sockets diagnostic', async () => {
   assert.doesNotMatch(stage2, /connect\s*\(|vless|trojan|websocket|Sora|eval\s*\(|new Function/i);
 });
 
+test('stage 03 is a bounded local WebSocket echo with no outbound connection', async () => {
+  const stage3 = await readFile(new URL('../../diagnostics/cloudflare-stage-03-websocket.js', import.meta.url), 'utf8');
+  assert.equal(stage3.trimEnd().split('\n').length, 3);
+  assert.match(stage3, /new WebSocketPair\(\)/);
+  assert.match(stage3, /cat-echo:/);
+  assert.doesNotMatch(stage3, /\bconnect\s*\(|vless|trojan|Sora|eval\s*\(|new Function/i);
+});
+
 test('stage 01 health, selfcheck, panel and 404 respond', async () => {
   assert.equal(await (await worker.fetch(new Request('https://x/health'),env)).text(),'ok');
   const self=await (await worker.fetch(new Request('https://x/api/selfcheck'),env)).json();
