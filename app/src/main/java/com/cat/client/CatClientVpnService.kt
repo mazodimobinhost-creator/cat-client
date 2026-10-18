@@ -3578,7 +3578,49 @@ class CatClientVpnService : VpnService() {
             )
         }
 
-        throw IOException("No working cached fronting IP is available")
+        // No reusable endpoint survived a fresh probe. Scan a small, bundled
+        // Cloudflare anycast catalogue from the phone itself instead of failing
+        // or pretending an old cache entry is suitable for the current network.
+        logScanInfo(
+            "scanner.fronting.fresh.start",
+            "ips=${IpScanner.IRAN_LIBRARY.size} ports=$fallbackPorts quickMs=${CleanIpDefaults.STARTUP_QUICK_SCAN_MS}",
+        )
+        val freshScanner = cleanIpScanner(
+            ports = fallbackPorts,
+            candidateIps = IpScanner.IRAN_LIBRARY,
+        )
+        val quick = freshScanner.findQuickCandidates(
+            maxDurationMs = CleanIpDefaults.STARTUP_QUICK_SCAN_MS,
+            targetResults = CleanIpDefaults.STARTUP_QUICK_TARGET_RESULTS,
+        )
+        if (quick.isNotEmpty()) {
+            logScanInfo(
+                "scanner.fronting.fresh.ready",
+                "phase=quick candidates=${quick.size} bestLatencyMs=${quick.first().latencyMs}",
+            )
+            return StartupTopIpCandidatePlan(
+                primaryPhase = "fresh-quick",
+                primaryCandidates = quick,
+                exhaustiveCandidates = emptyList(),
+            )
+        }
+
+        val exhaustive = freshScanner.findBestByQuality(
+            maxScanDurationMs = CleanIpDefaults.STARTUP_FALLBACK_SCAN_MS,
+        )
+        if (exhaustive != null) {
+            logScanInfo(
+                "scanner.fronting.fresh.ready",
+                "phase=fallback candidates=1 bestLatencyMs=${exhaustive.latencyMs}",
+            )
+            return StartupTopIpCandidatePlan(
+                primaryPhase = "fresh-fallback",
+                primaryCandidates = listOf(exhaustive),
+                exhaustiveCandidates = emptyList(),
+            )
+        }
+
+        throw IOException("No endpoint passed a device-side scan on the current network")
     }
 
     private fun cleanIpScanner(
