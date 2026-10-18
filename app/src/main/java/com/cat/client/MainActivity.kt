@@ -3519,6 +3519,74 @@ class MainActivity : Activity() {
             recreate()
         }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }
         aetherPanel.addView(aetherModeRow, LinearLayout.LayoutParams(-1, -2))
+        val endpointValue = aetherSelection.endpoint?.let { endpoint ->
+            val stamp = if (aetherSelection.endpointScannedAt > 0) {
+                java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                    .format(java.util.Date(aetherSelection.endpointScannedAt))
+            } else getString(R.string.aether_never_scanned)
+            "$endpoint · $stamp"
+        } ?: getString(R.string.aether_never_scanned)
+        aetherPanel.addView(
+            appPreferenceRow(R.string.aether_endpoint, endpointValue) { }.apply { isClickable = false },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        fun aetherActionButton(@StringRes label: Int, action: (MaterialButton) -> Unit) = MaterialButton(this).apply {
+            setText(label)
+            isAllCaps = false
+            minHeight = dp(48)
+            isEnabled = aetherCoreAvailable
+            setOnClickListener { action(this) }
+        }
+        val provisionButton = aetherActionButton(R.string.aether_get_key) { button ->
+            button.isEnabled = false
+            activityScope.launch {
+                val selected = aetherPreferenceStore.read()
+                val proxy = if (currentVpnServiceState == VpnState.Started) {
+                    "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                } else null
+                val result = withContext(Dispatchers.IO) {
+                    AetherOperations.provision(selected.mode, java.io.File(filesDir, "aether.toml"), proxy)
+                }
+                Toast.makeText(
+                    this@MainActivity,
+                    if (result.isSuccess) getString(R.string.aether_key_ready) else result.exceptionOrNull()?.message.orEmpty(),
+                    Toast.LENGTH_LONG,
+                ).show()
+                button.isEnabled = aetherCoreAvailable
+            }
+        }
+        val scanButton = aetherActionButton(R.string.aether_scan) { button ->
+            if (currentVpnServiceState != VpnState.Stopped) {
+                Toast.makeText(this, R.string.aether_scan_disconnect, Toast.LENGTH_LONG).show()
+                return@aetherActionButton
+            }
+            button.isEnabled = false
+            activityScope.launch {
+                val selected = aetherPreferenceStore.read()
+                val result = withContext(Dispatchers.IO) {
+                    AetherOperations.scan(selected.mode, java.io.File(filesDir, "aether.toml"))
+                }
+                val endpoints = result.getOrDefault(emptyList())
+                if (endpoints.isNotEmpty()) {
+                    aetherPreferenceStore.save(selected.copy(
+                        endpoint = endpoints.first().peer,
+                        endpointScannedAt = System.currentTimeMillis(),
+                    ))
+                }
+                Toast.makeText(
+                    this@MainActivity,
+                    when {
+                        endpoints.isNotEmpty() -> getString(R.string.aether_scan_ready, endpoints.first().peer, endpoints.first().rttMillis)
+                        result.isFailure -> result.exceptionOrNull()?.message.orEmpty()
+                        else -> getString(R.string.aether_scan_empty)
+                    },
+                    Toast.LENGTH_LONG,
+                ).show()
+                button.isEnabled = aetherCoreAvailable
+            }
+        }
+        aetherPanel.addView(provisionButton, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(16); marginEnd = dp(16); topMargin = dp(8) })
+        aetherPanel.addView(scanButton, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(16); marginEnd = dp(16); topMargin = dp(8); bottomMargin = dp(12) })
         connectionSettings.addView(
             advancedSectionLabel(getString(R.string.aether_title)),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },

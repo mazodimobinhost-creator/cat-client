@@ -2,7 +2,12 @@ package com.cat.client
 
 import android.content.Context
 
-data class AetherSelection(val enabled: Boolean = false, val mode: AetherMode = AetherMode.MasqueHttp2)
+data class AetherSelection(
+    val enabled: Boolean = false,
+    val mode: AetherMode = AetherMode.MasqueHttp2,
+    val endpoint: String? = null,
+    val endpointScannedAt: Long = 0L,
+)
 
 class AetherPreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("cat_client_aether", Context.MODE_PRIVATE)
@@ -11,7 +16,8 @@ class AetherPreferenceStore(context: Context) {
         val enabled = prefs.getBoolean("enabled", false)
         val mode = AetherMode.entries.firstOrNull { it.wireName == prefs.getString("mode", null) }
             ?: AetherMode.MasqueHttp2
-        return AetherSelection(enabled, mode)
+        val endpoint = prefs.getString("endpoint", null)?.takeIf { connectionChainEndpointOrNull(it) != null }
+        return AetherSelection(enabled, mode, endpoint, prefs.getLong("endpointScannedAt", 0L))
     }
 
     fun save(selection: AetherSelection) {
@@ -20,6 +26,8 @@ class AetherPreferenceStore(context: Context) {
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", selection.mode.wireName)
+            .putString("endpoint", selection.endpoint)
+            .putLong("endpointScannedAt", selection.endpointScannedAt)
             .apply()
     }
 }
