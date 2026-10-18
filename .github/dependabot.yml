@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      androidx:
+        patterns: ["androidx.*", "com.google.android.material:*"]
+      kotlin:
+        patterns: ["org.jetbrains.kotlin*", "com.android.tools.build:*"]
+    labels: [dependencies, android]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencies, panel]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencies, ci]

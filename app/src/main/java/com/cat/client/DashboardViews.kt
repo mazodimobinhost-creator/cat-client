@@ -78,67 +78,72 @@ data class CatClientPalette(
     val amberGradientEnd: Int,
     val redGradientStart: Int,
     val redGradientEnd: Int,
+    /** Secondary accent (Zed tertiary): upload tile, second gradient stop. */
+    val secondary: Int = tealGradientEnd,
 )
 
 object CatClientDesignTokens {
+    // ZedSecure palette (light): Iris primary on near-white tonal surfaces.
     private val Light = CatClientPalette(
         isDark = false,
-        background = 0xFFFFFFFF.toInt(),
-        surface = 0xFFFFFFFF.toInt(),
-        surfaceElevated1 = 0xFFF7F4FD.toInt(),
-        surfaceElevated2 = 0xFFF0EAFB.toInt(),
-        surfaceVariant = 0xFFE8E0F7.toInt(),
-        textPrimary = 0xFF12061F.toInt(),
-        textSecondary = 0xFF57506B.toInt(),
-        textTertiary = 0xFF7C7590.toInt(),
-        neutral = 0xFF3F3A50.toInt(),
-        outline = 0xFFDCD3EF.toInt(),
-        teal = 0xFF7C3AED.toInt(),
-        amber = 0xFFD97706.toInt(),
-        red = 0xFFDC2626.toInt(),
+        background = 0xFFFDF8FF.toInt(),
+        surface = 0xFFF7F2FA.toInt(),
+        surfaceElevated1 = 0xFFF1ECF4.toInt(),
+        surfaceElevated2 = 0xFFEBE6EE.toInt(),
+        surfaceVariant = 0xFFE5E0E9.toInt(),
+        textPrimary = 0xFF1C1B20.toInt(),
+        textSecondary = 0xFF47464F.toInt(),
+        textTertiary = 0xFF78767F.toInt(),
+        neutral = 0xFF47464F.toInt(),
+        outline = 0xFFC8C5D0.toInt(),
+        teal = 0xFF5646D6.toInt(),
+        amber = 0xFF9A5B00.toInt(),
+        red = 0xFFB3261E.toInt(),
         onAccent = 0xFFFFFFFF.toInt(),
         onProminent = 0xFFFFFFFF.toInt(),
         onStateFill = 0xFFFFFFFF.toInt(),
-        brandPillBackground = 0xFFF1E9FE.toInt(),
-        brandPillOutline = 0xFFC4B5FD.toInt(),
-        amberTrack = 0xFFFEF3C7.toInt(),
-        redTrack = 0xFFFFE4E6.toInt(),
-        idleRing = 0xFFC9BEE4.toInt(),
-        majorTick = 0xFFA99CCB.toInt(),
-        tealGradientStart = 0xFF7C3AED.toInt(),
-        tealGradientEnd = 0xFFA855F7.toInt(),
+        brandPillBackground = 0xFFE5DEFF.toInt(),
+        brandPillOutline = 0xFFC7BFFF.toInt(),
+        amberTrack = 0xFFFFDDB3.toInt(),
+        redTrack = 0xFFFFDAD6.toInt(),
+        idleRing = 0xFFD9D4DE.toInt(),
+        majorTick = 0xFFC8C5D0.toInt(),
+        tealGradientStart = 0xFF5646D6.toInt(),
+        tealGradientEnd = 0xFFC4326B.toInt(),
         amberGradientStart = 0xFFE8AA4E.toInt(),
         amberGradientEnd = 0xFFC37F00.toInt(),
         redGradientStart = 0xFFE97871.toInt(),
         redGradientEnd = 0xFFCF4040.toInt(),
     )
 
+    // ZedSecure palette (dark): #131318 canvas, tonal surface containers, lime accent on dark text,
+    // violet→pink gradient for the connected orb.
     private val Dark = CatClientPalette(
         isDark = true,
-        background = 0xFF000000.toInt(),
-        surface = 0xFF0A0710.toInt(),
-        surfaceElevated1 = 0xFF120C1E.toInt(),
-        surfaceElevated2 = 0xFF191128.toInt(),
-        surfaceVariant = 0xFF221733.toInt(),
-        textPrimary = 0xFFFFFFFF.toInt(),
-        textSecondary = 0xFFC9C6D6.toInt(),
-        textTertiary = 0xFF9B93AD.toInt(),
-        neutral = 0xFF9C93AE.toInt(),
-        outline = 0xFF3B2A5E.toInt(),
-        teal = 0xFFA855F7.toInt(),
-        amber = 0xFFFBBF24.toInt(),
-        red = 0xFFF87171.toInt(),
-        onAccent = 0xFFFFFFFF.toInt(),
-        onProminent = 0xFFFFFFFF.toInt(),
+        background = 0xFF131318.toInt(),
+        surface = 0xFF1B1B21.toInt(),
+        surfaceElevated1 = 0xFF1F1F25.toInt(),
+        surfaceElevated2 = 0xFF2A2930.toInt(),
+        surfaceVariant = 0xFF35343B.toInt(),
+        textPrimary = 0xFFE5E1E9.toInt(),
+        textSecondary = 0xFFC8C5D0.toInt(),
+        textTertiary = 0xFF928F9A.toInt(),
+        neutral = 0xFF928F9A.toInt(),
+        outline = 0xFF47464F.toInt(),
+        teal = 0xFFC7BFFF.toInt(),
+        amber = 0xFFFFB74D.toInt(),
+        red = 0xFFFFB4AB.toInt(),
+        onAccent = 0xFF2A0A93.toInt(),
+        onProminent = 0xFF2A0A93.toInt(),
         onStateFill = 0xFFFFFFFF.toInt(),
-        brandPillBackground = 0xFF1C1033.toInt(),
-        brandPillOutline = 0xFF5B21B6.toInt(),
+        brandPillBackground = 0xFF3E2FB0.toInt(),
+        brandPillOutline = 0xFFC7BFFF.toInt(),
         amberTrack = 0xFF3F2903.toInt(),
-        redTrack = 0xFF442321.toInt(),
-        idleRing = 0xFF2C2044.toInt(),
-        majorTick = 0xFF453467.toInt(),
-        tealGradientStart = 0xFF7C3AED.toInt(),
-        tealGradientEnd = 0xFFD946EF.toInt(),
+        redTrack = 0xFF93000A.toInt(),
+        idleRing = 0xFF2A2930.toInt(),
+        majorTick = 0xFF47464F.toInt(),
+        tealGradientStart = 0xFF7A5CFF.toInt(),
+        tealGradientEnd = 0xFFFF5FA2.toInt(),
         amberGradientStart = 0xFFF0B96B.toInt(),
         amberGradientEnd = 0xFFD99A35.toInt(),
         redGradientStart = 0xFFFF9E96.toInt(),
@@ -149,7 +154,42 @@ object CatClientDesignTokens {
 
     fun forContext(context: Context): CatClientPalette {
         val nightMode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        return palette(nightMode == Configuration.UI_MODE_NIGHT_YES)
+        val night = nightMode == Configuration.UI_MODE_NIGHT_YES
+        return themed(palette(night), AppAccentPreferenceStore(context).read(), night)
+    }
+
+    /**
+     * Zed "Theme presets": one preset re-colours the whole scheme — primary, secondary, the tonal
+     * surfaces (tinted toward the preset's surface hue), outlines, containers and gradients.
+     */
+    fun themed(base: CatClientPalette, preset: AppAccent, night: Boolean): CatClientPalette {
+        val tone = if (night) preset.dark else preset.light
+        val onTone = if (night) preset.onDark else preset.onLight
+        val secondary = if (night) preset.secondaryDark else preset.secondaryLight
+        val tint = if (night) preset.surfaceTintDark else preset.surfaceTintLight
+        val k = preset.tintStrength
+        fun mix(c: Int, amount: Float = k) = androidx.core.graphics.ColorUtils.blendARGB(c, tint, amount)
+        return base.copy(
+            background = mix(base.background),
+            surface = mix(base.surface),
+            surfaceElevated1 = mix(base.surfaceElevated1),
+            surfaceElevated2 = mix(base.surfaceElevated2),
+            surfaceVariant = mix(base.surfaceVariant),
+            outline = mix(base.outline, k * 0.8f),
+            idleRing = mix(base.idleRing),
+            majorTick = mix(base.majorTick),
+            textSecondary = mix(base.textSecondary, k * 0.5f),
+            textTertiary = mix(base.textTertiary, k * 0.5f),
+            neutral = mix(base.neutral, k * 0.5f),
+            teal = tone,
+            onAccent = onTone,
+            onProminent = onTone,
+            brandPillOutline = tone,
+            brandPillBackground = androidx.core.graphics.ColorUtils.blendARGB(mix(base.surfaceElevated2), tone, if (night) 0.35f else 0.45f),
+            tealGradientStart = tone,
+            tealGradientEnd = secondary,
+            secondary = secondary,
+        )
     }
 }
 
@@ -460,9 +500,9 @@ class SignalArcView(context: Context) : View(context) {
 class DashboardDataRowView(context: Context) : LinearLayout(context) {
     private val palette = CatClientDesignTokens.forContext(context)
     private val labelText = TextView(context).apply {
-        textSize = 12f
-        typeface = CatClientBodyTypeface
-        setTextColor(palette.textSecondary)
+        textSize = 16f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(palette.textPrimary)
         includeFontPadding = false
         isSingleLine = true
         ellipsize = TextUtils.TruncateAt.END
@@ -470,35 +510,35 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
         textAlignment = View.TEXT_ALIGNMENT_VIEW_START
     }
     private val valueText = TextView(context).apply {
-        textSize = 14f
-        typeface = CatClientBodyBoldTypeface
-        setTextColor(palette.textPrimary)
+        textSize = 13f
+        typeface = CatClientBodyTypeface
+        setTextColor(palette.textSecondary)
         includeFontPadding = false
-        isSingleLine = true
+        maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
-        gravity = Gravity.END
-        textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+        gravity = Gravity.START
+        textAlignment = View.TEXT_ALIGNMENT_VIEW_START
         textDirection = View.TEXT_DIRECTION_FIRST_STRONG
     }
     private val chevronText = TextView(context).apply {
         text = context.getString(R.string.chevron_forward)
-        textSize = 16f
+        textSize = 20f
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         textDirection = View.TEXT_DIRECTION_LTR
-        typeface = CatClientBodyTypeface
-        setTextColor(palette.textTertiary)
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(palette.teal)
         includeFontPadding = false
         isSingleLine = true
         gravity = Gravity.CENTER
     }
 
     init {
+        // ZedSecure SettingsItem: title over subtitle, accent chevron, full-row ripple.
         orientation = HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(48)
-        setPadding(dp(16), dp(12), dp(16), dp(12))
-        // Rounded ripple effect to match container
+        minimumHeight = dp(64)
+        setPadding(dp(16), dp(14), dp(16), dp(14))
         val rippleMask = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = dp(22).toFloat()
@@ -508,20 +548,18 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
             (palette.teal and 0x00FFFFFF) or (0x20 shl 24)  // 12% opacity
         )
         background = android.graphics.drawable.RippleDrawable(rippleColor, null, rippleMask)
-        // Label on left
         addView(
-            labelText,
-            LayoutParams(dp(104), ViewGroup.LayoutParams.WRAP_CONTENT),
-        )
-        // Value on right (takes remaining space)
-        addView(
-            valueText,
-            LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12)
-                marginEnd = dp(8)
+            LinearLayout(context).apply {
+                orientation = VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                addView(labelText, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                addView(
+                    valueText,
+                    LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) },
+                )
             },
+            LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) },
         )
-        // Chevron
         addView(
             chevronText,
             LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
@@ -529,7 +567,7 @@ class DashboardDataRowView(context: Context) : LinearLayout(context) {
     }
 
     fun setRow(label: String, value: CharSequence) {
-        labelText.text = label.uppercase()
+        labelText.text = label
         setValue(value)
     }
 

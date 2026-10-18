@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -42,6 +43,36 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_file_paths" />
+        </provider>
+
+        <!-- Crash evidence BEFORE androidx.startup runs: providers initialize
+             before Application.onCreate, so this one must exist to catch (and
+             report) a crash in that phase. initOrder is the maximum: providers
+             are ordered by it, and this one must be first. -->
+        <provider
+            android:name=".EarlyCrashProvider"
+            android:authorities="${applicationId}.earlycrash"
+            android:exported="false"
+            android:initOrder="2147483647"
+            tools:node="merge" />
+
+        <!-- WorkManager's automatic startup initialization is DISABLED on
+             purpose (meta-data removal is the documented mechanism). Its
+             androidx.startup initializer creates a Room database by reflection
+             during process start — before any app code, where nothing can
+             catch a failure. CatClientApplication now initializes WorkManager
+             itself, inside a guarded call, so a WorkManager problem can never
+             again be a crash-on-open: worst case the panel monitor is off and
+             the rest of the app runs. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
         </provider>
 
         <activity

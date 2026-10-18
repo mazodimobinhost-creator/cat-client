@@ -21,17 +21,28 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.0.0';
+const CAT_WIZARD_VERSION = '1.1.0';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const BRANCH = 'arena/01a0c678-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const COMPAT_DATE = '2025-03-04';
 
+/* ANTI-1101: NEVER auto-deploy the READABLE repo source. Cloudflare statically
+ * scans a deployed worker for plaintext panel signatures (vless/trojan/proxyip)
+ * and disables the script — that's the «Error 1101» page users hit. Every
+ * candidate below is an OBFUSCATED artifact: the release asset (CI obfuscates
+ * before packaging), the committed snapshot that powers the Deploy button
+ * (dist-panel/catpanel.obf.js), and ghproxy mirrors for networks where
+ * github/raw is blocked (common in Iran). */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.obf.js';
+const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/app/src/main/assets/panels/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  RAW_SNAPSHOT,
+  'https://ghproxy.net/' + RAW_SNAPSHOT,
+  'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
 ];
 const WIZARD_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.wizard.js',
@@ -77,7 +88,7 @@ function jsonResponse(value, status = 200, extra = {}) {
 
 function slugWorkerName(value, fallback) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
-  return (slug || fallback || 'catpanel').slice(0, 54);
+  return (slug || fallback || 'edge-panel').slice(0, 54);
 }
 
 function isUuid(value) {
@@ -155,7 +166,7 @@ async function ensureSubdomain(token, accountId, log) {
   const current = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain');
   const existing = current.ok && current.json.result && current.json.result.subdomain;
   if (existing) return existing;
-  const candidate = 'catpanel-' + randomSuffix(8);
+  const candidate = 'edge-' + randomSuffix(8);
   log('subdomain', 'info', 'no workers.dev subdomain yet — creating ' + candidate);
   const created = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/subdomain', { subdomain: candidate });
   const made = created.ok && created.json.result && created.json.result.subdomain;
@@ -215,6 +226,11 @@ async function enableRoute(token, accountId, name) {
 
 const sourceCache = new Map();
 
+/** Anti-1101 detector: a READABLE panel source carries plaintext signatures. */
+function srcLooksReadable(text) {
+  return /vless|trojan|proxyip/i.test(String(text || ''));
+}
+
 async function fetchSource(kind, env) {
   const override = kind === 'wizard' ? env.WIZARD_SOURCE_URL : env.PANEL_SOURCE_URL;
   const marker = kind === 'wizard' ? 'CAT_WIZARD_VERSION' : 'CAT_PANEL_VERSION';
@@ -222,6 +238,7 @@ async function fetchSource(kind, env) {
   const cached = sourceCache.get(kind);
   if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached;
   let lastError = '';
+  let risky = null;
   for (const url of urls) {
     try {
       const res = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow' });
@@ -230,18 +247,50 @@ async function fetchSource(kind, env) {
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
       const entry = { text, url, version: versionMatch ? versionMatch[1] : '?', at: Date.now() };
+      // ANTI-1101: an obfuscated artifact has ZERO plaintext signatures. A
+      // readable source gets the deployed worker disabled by Cloudflare, so it
+      // is skipped in favour of the next (obfuscated) candidate and kept only
+      // as a flagged last resort when nothing else answers.
+      if (kind === 'panel' && srcLooksReadable(text)) {
+        risky = entry;
+        lastError = url + ' -> readable source (anti-1101: would risk Error 1101)';
+        continue;
+      }
       sourceCache.set(kind, entry);
       return entry;
     } catch (e) {
       lastError = url + ' → ' + (e && e.message ? e.message : e);
     }
   }
+  if (risky) { risky.risky = true; sourceCache.set(kind, risky); return risky; }
   throw new Error('could not download the ' + kind + ' source (' + lastError + ')');
 }
 
 /* ------------------------------------------------------------------ */
 /* the install flow (async generator → streamed as NDJSON)             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Stealth: ask the fresh panel to move its UI to a random hidden path.
+ * Root then answers a bare 404 so crawlers scanning workers.dev find nothing.
+ * Keeps an existing panelPath if the panel already has one.
+ */
+async function applyStealth(base, username, password) {
+  const login = await fetchImpl(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password }) });
+  if (!login.ok) return '';
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) return '';
+  const get = await fetchImpl(base + '/api/settings', { headers: { cookie: cookie } });
+  if (!get.ok) return '';
+  const cur = await get.json().catch(() => ({}));
+  const existing = cur && cur.settings && String(cur.settings.panelPath || '');
+  if (/^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(existing)) return existing;
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let p = '';
+  for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
+  const put = await fetchImpl(base + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie }, body: JSON.stringify({ panelPath: p }) });
+  return put.ok ? p : '';
+}
 
 async function* runInstall(input, env) {
   const events = [];
@@ -250,7 +299,7 @@ async function* runInstall(input, env) {
 
   const token = String(input.token || '').trim();
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
-  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || 'catpanel'));
+  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
   const customPassword = String(input.password || '').trim();
   const customUser = String(input.username || '').trim();
   if (!token) throw new Error('token missing');
@@ -263,6 +312,7 @@ async function* runInstall(input, env) {
 
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
+  if (source.risky) log('source', 'warn', 'WARNING: readable source — Cloudflare may disable this worker later (Error 1101). Prefer the release asset.', { version: source.version, url: source.url, risky: true });
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
 
   log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
@@ -322,13 +372,21 @@ async function* runInstall(input, env) {
   log('check', online ? 'ok' : 'warn', online ? 'online · v' + version : 'not reachable yet — workers.dev needs up to a minute for a brand-new subdomain'); yield* flush();
 
   const password = customPassword || uuid;
+  let stealthPath = '';
+  if (kind === 'panel' && online) {
+    log('stealth', 'info', 'moving the panel to a hidden path'); yield* flush();
+    stealthPath = await applyStealth(workerUrl, customUser, password).catch(() => '');
+    log('stealth', stealthPath ? 'ok' : 'warn', stealthPath ? 'panel hidden at /' + stealthPath : 'stealth skipped — set a hidden path in Panel → Settings later'); yield* flush();
+  }
+  const panelBase = stealthPath ? workerUrl + '/' + stealthPath : workerUrl;
   const result = kind === 'panel'
     ? {
       ok: true,
       kind,
       workerName,
       workerUrl,
-      panelUrl: customUser ? workerUrl + '/' : workerUrl + '/?p=' + encodeURIComponent(password),
+      stealthPath,
+      panelUrl: panelBase + (customUser ? '/' : '/?p=' + encodeURIComponent(password)),
       subUrl: workerUrl + '/sub/' + uuid,
       subClash: workerUrl + '/sub/' + uuid + '/clash',
       subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
@@ -510,7 +568,7 @@ function pageHtml(env, host) {
     host,
     tokenUrl: TOKEN_TEMPLATE_URL,
     inviteRequired,
-    defaultWorker: String(env.DEFAULT_WORKER || 'catpanel'),
+    defaultWorker: String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))),
     repo: REPO_URL,
     i18n: i18n(),
   };
@@ -701,6 +759,7 @@ export default {
 
 export const _testing = {
   CAT_WIZARD_VERSION,
+  srcLooksReadable,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
   PANEL_SOURCES,

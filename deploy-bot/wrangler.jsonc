@@ -1,0 +1,12 @@
+// 🐱 Cat Deploy Bot — powers the "Deploy to Cloudflare" button for the bot.
+// After deploying, add these Secrets (Workers → cat-deploy-bot → Settings →
+// Variables → + Add → type Secret):
+//   TG_TOKEN, CF_API_TOKEN, CF_ACCOUNT_ID, TG_ADMIN_ID
+// Then open https://<bot-url>/register?key=<printed by /start> once.
+// Full guide: docs/deploy-bot.md
+{
+  "name": "cat-deploy-bot",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true
+}

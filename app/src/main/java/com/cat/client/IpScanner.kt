@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import javax.net.ssl.SNIHostName
@@ -47,9 +49,91 @@ object IpScanner {
         val perRange: Int = DEFAULT_PER_RANGE,
         /** Draw a random host from each slice of the range so repeated scans discover new IPs. */
         val randomSample: Boolean = true,
+        /** Walk IPv6 ranges too. The UI sets this from [hasIpv6Connectivity] so v6
+         * candidates are only spent when the carrier actually routes v6. */
+        val includeIpv6: Boolean = false,
     )
 
     const val DEFAULT_PER_RANGE = 24
+
+    /** Any Cloudflare-hosted SNI works on any edge; the official speed endpoint rides along. */
+    const val SPEED_TEST_SNI = "speed.cloudflare.com"
+
+    /** Cloudflare's plain-HTTP ports; every other port (incl. custom picks) is probed with TLS. */
+    val PLAIN_HTTP_PORTS = setOf(80, 8080, 8880, 2052, 2082, 2086, 2095)
+
+    /**
+     * XIU2-style download throughput probe: TLS to the edge IP with the speed-test
+     * SNI, then GET /__down and count bytes for up to [timeoutMs]. Returns bytes
+     * per second, or null when the edge did not deliver.
+     */
+    fun measureDownloadSpeed(
+        ip: String,
+        port: Int,
+        timeoutMs: Int = 9_000,
+        maxBytes: Int = 12_000_000,
+    ): Long? {
+        val tls = !PLAIN_HTTP_PORTS.contains(port)
+        var socket: java.net.Socket? = null
+        return try {
+            val connected: java.net.Socket = if (tls) {
+                val ssl = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+                ssl.apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                    val params = sslParameters
+                    params.serverNames = listOf(SNIHostName(SPEED_TEST_SNI))
+                    params.endpointIdentificationAlgorithm = null
+                    sslParameters = params
+                    startHandshake()
+                }
+            } else {
+                java.net.Socket().apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                }
+            }
+            socket = connected
+            val request = buildString {
+                append("GET /__down?bytes=").append(maxBytes).append(" HTTP/1.1\r\n")
+                append("Host: ").append(SPEED_TEST_SNI).append("\r\n")
+                append("User-Agent: CatClient\r\n")
+                append("Accept: */*\r\n")
+                append("Connection: close\r\n\r\n")
+            }
+            connected.getOutputStream().apply { write(request.toByteArray()); flush() }
+            val input = connected.getInputStream()
+            // Skip response headers.
+            var crlf = 0
+            var headerByteCount = 0
+            while (headerByteCount < 32_000) {
+                val b = input.read()
+                if (b == -1) return null
+                headerByteCount++
+                crlf = if (b == '\n'.code || b == '\r'.code) crlf + 1 else 0
+                if (crlf >= 4) break
+            }
+            if (crlf < 4) return null
+            val startedAt = System.currentTimeMillis()
+            var total = 0L
+            val buffer = ByteArray(64 * 1024)
+            while (total < maxBytes) {
+                val n = try { input.read(buffer) } catch (e: Exception) { -1 }
+                if (n <= 0) break
+                total += n
+                if (System.currentTimeMillis() - startedAt >= timeoutMs) break
+            }
+            val elapsed = System.currentTimeMillis() - startedAt
+            if (elapsed < 300 || total < 256 * 1024) return null // too little data to trust
+            total * 1000 / elapsed
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { socket?.close() }
+        }
+    }
 
     /** Recommended SNIs: the five curated defaults first — the suggestion chips,
      * `.first()` and the health-check retry budget keep behaving exactly as before —
@@ -330,7 +414,44 @@ object IpScanner {
         "199.27.128.0/21",
     )
 
+    /** Cloudflare IPv6 blocks; scanned only when the device has working v6. */
+    val IPV6_RANGES: List<String> = listOf("2606:4700::/32", "2a06:98c0::/29")
+
+    /**
+     * True when the device can actually open a v6 TCP connection to Cloudflare —
+     * a routable v6 address on an interface is not enough on many Iranian carriers.
+     */
+    fun hasIpv6Connectivity(timeoutMs: Int = 1800): Boolean =
+        tcpConnect("2606:4700:4700::1111", 443, timeoutMs) != null ||
+            tcpConnect("2606:4700::6810:84e5", 443, timeoutMs) != null ||
+            tcpConnect("2a06:98c0::6810:84e5", 443, timeoutMs) != null ||
+            tcpConnect("2606:4700::6810:84e5", 80, timeoutMs) != null
+
+    fun isIpv6(value: String): Boolean = value.contains(':')
+
     fun defaultRangesText(): String = DEFAULT_RANGES.joinToString(", ")
+
+    private val CLOUDFLARE_V4 = listOf(
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+        "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    ).map { cidr ->
+        val (ip, bits) = cidr.split('/')
+        val base = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or s.toLong() }
+        val mask = 0xFFFFFFFFL shl (32 - bits.toInt())
+        (base and mask) to mask
+    }
+
+    /** True for addresses inside Cloudflare's published IPv4/IPv6 edge ranges (a ProxyIP must NOT be one). */
+    fun isCloudflareAddress(host: String): Boolean {
+        val v4 = Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$")
+        if (v4.matches(host)) {
+            val value = host.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLongOrNull() ?: 0L) }
+            return CLOUDFLARE_V4.any { (base, mask) -> (value and mask) == base }
+        }
+        val h = host.lowercase()
+        return h.startsWith("2606:4700:") || h.startsWith("2803:f800:") || h.startsWith("2405:b500:") || h.startsWith("2405:8100:") || h.startsWith("2a06:98c0:") || h.startsWith("2c0f:f248:")
+    }
 
     data class ScanResult(
         val ip: String,
@@ -346,8 +467,13 @@ object IpScanner {
         val countryCode: String? = null,
         val countryName: String? = null,
         val sourceRange: String? = null,
+        /** Download throughput measured against this edge (bytes/sec), null = not measured. */
+        val speedBps: Long? = null,
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
+
+        /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
+        val panelLine: String get() = if (countryCode != null) "$ip:$port#$countryCode" else "$ip:$port"
 
         /** Colour band used by the UI: green < 300 ms, amber < 700 ms, red above. */
         val band: Int get() = when {
@@ -407,11 +533,27 @@ object IpScanner {
         results.sortedWith(compareBy({ it.pingMs }, { if (it.tlsOk) 0 else 1 }))
     }
 
+    /** Jitter pass helper: one fresh probe of an already-verified IP (used by
+     * the UI's second pass to estimate jitter). */
+    fun reprobeOnce(
+        ip: String,
+        sni: String,
+        port: Int,
+        connectTimeoutMs: Int = 1500,
+        tlsTimeoutMs: Int = 2500,
+    ): ScanResult? =
+        probe(ip, ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, randomSample = false, connectTimeoutMs = connectTimeoutMs, tlsTimeoutMs = tlsTimeoutMs, verifyHttp = true))
+
     /** Two-stage probe: TCP connect, then TLS + optional HTTP trace. */
     internal fun probe(ip: String, options: ScanOptions): ScanResult? {
         val tcpMs = tcpConnect(ip, options.port, options.connectTimeoutMs) ?: return null
-        val sourceRange = (parseRangeList(options.customSubnets) + DEFAULT_RANGES)
-            .firstOrNull { cidrContains(ip, it) }
+        val sourceRange = if (isValidIpv4(ip)) {
+            (parseRangeList(options.customSubnets) + DEFAULT_RANGES).firstOrNull { cidrContains(ip, it) }
+        } else if (isValidHostname(ip)) {
+            "domain"
+        } else {
+            "ipv6"
+        }
         if (!options.verifyHttp && options.sni.isBlank()) {
             return ScanResult(
                 ip = ip,
@@ -543,8 +685,9 @@ object IpScanner {
     fun expandSubnet(cidr: String, limitPerSubnet: Int = 80, random: Boolean = false): List<String> {
         val trimmed = cidr.trim()
         if (!trimmed.contains("/")) {
-            return if (isValidIpv4(trimmed)) listOf(trimmed) else emptyList()
+            return if (isValidIpv4(trimmed) || isValidIpv6(trimmed) || isValidHostname(trimmed)) listOf(trimmed) else emptyList()
         }
+        if (trimmed.contains(':')) return expandIpv6Subnet(trimmed, limitPerSubnet, random)
         val (ipPart, prefixPart) = trimmed.split("/", limit = 2)
         val prefix = prefixPart.toIntOrNull() ?: return emptyList()
         val ipBytes = ipPart.split(".").map { it.toIntOrNull() ?: return emptyList() }
@@ -569,12 +712,70 @@ object IpScanner {
         return out.toList()
     }
 
-    /** Splits a free-form "ip, cidr, cidr" string into the entries the scanner walks. */
+    /**
+     * IPv6 CIDR → up to [limitPerSubnet] random hosts inside the prefix. Cloudflare's
+     * v6 blocks (2606:4700::/32, 2a06:98c0::/29) answer on every address, so random
+     * sampling is as good as walking and finds fresh ones on each run.
+     */
+    internal fun expandIpv6Subnet(cidr: String, limitPerSubnet: Int, random: Boolean): List<String> {
+        val (ipPart, prefixPart) = cidr.split("/", limit = 2)
+        val prefix = prefixPart.toIntOrNull() ?: return emptyList()
+        if (prefix !in 16..128) return emptyList()
+        val base = runCatching { InetAddress.getByName(ipPart) as? Inet6Address }.getOrNull()?.address ?: return emptyList()
+        if (prefix == 128) return listOf(InetAddress.getByAddress(base).hostAddress ?: return emptyList())
+        val rnd = java.util.Random(if (random) System.nanoTime() else 0x6CA7L)
+        val out = LinkedHashSet<String>()
+        var guard = 0
+        while (out.size < limitPerSubnet.coerceIn(1, 256) && guard++ < limitPerSubnet * 4) {
+            val bytes = base.copyOf()
+            for (bit in prefix until 128) {
+                val byteIndex = bit / 8
+                val mask = (0x80 ushr (bit % 8)).toByte()
+                val set = rnd.nextBoolean()
+                bytes[byteIndex] = if (set) (bytes[byteIndex].toInt() or mask.toInt()).toByte() else (bytes[byteIndex].toInt() and mask.toInt().inv()).toByte()
+            }
+            // Avoid the all-zero host part (subnet-router anycast) for short prefixes.
+            if (prefix <= 64 && bytes.drop(8).all { it == 0.toByte() }) bytes[15] = 1
+            InetAddress.getByAddress(bytes).hostAddress?.let { out += it }
+        }
+        return out.toList()
+    }
+
+    fun isValidIpv6(value: String): Boolean =
+        value.contains(':') && !value.contains('/') &&
+            runCatching { InetAddress.getByName(value) is Inet6Address }.getOrDefault(false)
+
+    /** A bare host name such as `www.visa.com` (scanned by resolving it on the device). */
+    fun isValidHostname(value: String): Boolean =
+        value.length in 4..253 && !value.contains(':') && !value.contains('/') &&
+            value.contains('.') && !value.endsWith('.') &&
+            !isValidIpv4(value) &&
+            value.split('.').all { label -> label.isNotEmpty() && label.length <= 63 && label.all { it.isLetterOrDigit() || it == '-' } && !label.startsWith('-') && !label.endsWith('-') } &&
+            value.substringAfterLast('.').let { tld -> tld.length >= 2 && tld.all(Char::isLetter) }
+
+    /** Splits a free-form "ip, cidr, host, 2606:4700::/32" string into the entries the scanner walks. */
     fun parseRangeList(text: String): List<String> =
         text.split(",", "\n", " ", ";", "\t")
-            .map { it.trim() }
+            .map { it.trim().removePrefix("[").removeSuffix("]") }
             .filter { it.isNotEmpty() }
-            .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) }
+            .filter { part -> if (part.contains("/")) expandSubnet(part, 1).isNotEmpty() else isValidIpv4(part) || isValidIpv6(part) || isValidHostname(part) }
+
+    /** Concrete, always-probed IPv6 edges (the «repo» for v6): well-known
+     * Cloudflare anycast addresses that answer TLS on every port we scan.
+     * Added to the walk whenever the network really has IPv6 connectivity. */
+    val V6_LIBRARY: List<String> = listOf(
+        "2606:4700:4700::1111",
+        "2606:4700:4700::1001",
+        "2606:4700::6810:84e5",
+        "2606:4700:d0::a29f:c001",
+        "2606:4700:d0::a29f:c002",
+        "2606:4700:d0::1",
+        "2606:4700:d1::1",
+        "2606:4700::6812:1a2e",
+        "2606:4700::6812:3ed",
+        "2606:4700:3033::6810:84e5",
+        "2a06:98c0::6810:84e5",
+    )
 
     internal fun buildCandidateList(options: ScanOptions): List<String> {
         val ips = linkedSetOf<String>()
@@ -589,6 +790,13 @@ object IpScanner {
             BUILTIN_RANGES.forEach { cidr ->
                 ips += expandSubnet(cidr, perRange, options.randomSample)
             }
+        }
+        if (options.includeIpv6) {
+            IPV6_RANGES.forEach { cidr -> ips += expandSubnet(cidr, perRange, options.randomSample) }
+            ips += V6_LIBRARY
+        } else {
+            // No usable v6 on this network → drop v6 literals/ranges the user typed too.
+            ips.removeAll { isIpv6(it) }
         }
         if (options.includeIranLibrary) {
             ips += IRAN_LIBRARY

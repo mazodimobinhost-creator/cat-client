@@ -1,0 +1,105 @@
+name: Deploy panel worker
+
+# Deploys the Cat Panel worker to Cloudflare with `wrangler deploy`.
+# Triggers:
+#   - Telegram /deploy  → panel worker → repository_dispatch (cat-deploy)
+#   - push to the worker file / wrangler config
+#   - manual workflow_dispatch
+# Required repository Secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   — Cloudflare token with "Workers Scripts:Edit"
+#   CLOUDFLARE_ACCOUNT_ID  — your Cloudflare account id
+# Optional (Telegram result messages):
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Without secrets the workflow still passes — deploy is skipped with a notice.
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [cat-deploy]
+  push:
+    branches: [main, 'arena/*']
+    paths:
+      - 'app/src/main/assets/panels/catclient.worker.js'
+      - 'wrangler.jsonc'
+      - '.github/workflows/deploy-worker.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Read panel version
+        run: echo "PVER=$(grep -o "CAT_PANEL_VERSION = '[^']*" app/src/main/assets/panels/catclient.worker.js | cut -d"'" -f2)" >> "$GITHUB_ENV"
+
+      - name: Syntax check
+        run: node --check app/src/main/assets/panels/catclient.worker.js
+
+      # Anti-1101: Cloudflare statically scans deployed worker sources for
+      # VPN-panel fingerprints and disables matches (Error 1101). Deploy the
+      # obfuscated artifact — never the readable source (the BPB model).
+      - name: Obfuscate panel worker (anti-1101)
+        run: |
+          npm install --no-save javascript-obfuscator@5 --silent
+          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.worker.js --check
+
+      - name: Deploy to Cloudflare
+        id: deploy
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT }}
+        run: |
+          set -o pipefail
+          npx --yes wrangler@latest deploy 2>&1 | tee deploy.log
+
+      - name: Notice (secrets not configured)
+        if: env.CF_TOKEN == '' || env.CF_ACCOUNT == ''
+        run: |
+          echo "::warning::Deploy SKIPPED — set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repository secrets. This green run deployed NOTHING."
+          echo '### ⚠️ NOT deployed — no Cloudflare secrets configured' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify deployed health (anti-1101 gate)
+        if: steps.deploy.outcome == 'success'
+        run: |
+          set -e
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
+          if [ -z "$URL" ]; then echo "::warning::could not parse workers.dev URL from deploy.log — skipping health verify"; exit 0; fi
+          sleep 6
+          HEALTH=$(curl -s --max-time 20 "$URL/health" || true)
+          echo "health: $HEALTH"
+          # Anonymous /health is intentionally BARE (anti-fingerprint): {"ok":true}.
+          # The version is owner-only — accept the bare contract here (beta69+).
+          echo "$HEALTH" | grep -q '"ok":true' || { echo "::error::deployed /health does not answer ok:true — deploy did not take effect (open the URL, check Workers logs)"; exit 1; }
+          echo "✅ health verify OK: $URL is up (target panel $PVER)"
+
+      - name: Notify Telegram
+        if: always() && env.TG_TOKEN != '' && env.TG_CHAT != ''
+        run: |
+          if [ "${{ steps.deploy.outcome }}" = "success" ]; then
+            ICON="✅"; MSG="deployed to Cloudflare"
+          else
+            ICON="❌"; MSG="deploy FAILED"
+          fi
+          curl -s -o /dev/null --max-time 15 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="${TG_CHAT}" \
+            -d text="🐱 Cat Panel ${PVER:-?} ${ICON} ${MSG} — ${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}
+          $( [ -f deploy.log ] && tail -n 3 deploy.log | tr '\n' ' ' )
+          ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true

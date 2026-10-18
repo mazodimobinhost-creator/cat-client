@@ -15,7 +15,16 @@ combining one-tap connectivity with all the tools Iranian users need.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mazodimobinhost-creator/cat-client)
 
+> 🔒 The button deploys the **committed obfuscated snapshot** (`dist-panel/catpanel.obf.js`) — Cloudflare statically scans deployed worker sources (plaintext `vless`/`trojan` signatures get a worker disabled with «Error 1101»). The readable AGPL source lives at `app/src/main/assets/panels/catclient.worker.js`; CI refreshes the snapshot on every push.
+
 *(استقرار پنل شخصی خودت روی حساب کلودفلرت — بدون نصب هیچ اپی)*
+
+### 🤖 ربات دیپلوی تلگرام (جدید)
+بعد از نصب پنل، این دکمه رباتِ دیپلوی را هم بالا می‌آورد — با `/deploy` در تلگرام، آخرین نسخهٔ پنل با API Token کلادفلر خودکار آپدیت می‌شود:
+
+[![Deploy Cat Deploy Bot](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mazodimobinhost-creator/cat-client/tree/main/deploy-bot)
+
+راهنمای کامل: [docs/deploy-bot.md](docs/deploy-bot.md)
 
 1. Click the button → sign in with your (free) Cloudflare account.
 2. Confirm the setup page → Cloudflare clones this repo, creates the
@@ -41,52 +50,33 @@ combining one-tap connectivity with all the tools Iranian users need.
   and it lands in the list as its own profile — no subscription URL needed
 - 📷 **QR both ways** — scan a QR to import a config (camera) and render a QR for any
   config offline (ZXing; handy for moving a panel config to another device)
-- ☁️ **My Panel tab — Cat Panel v5.6 + external catalog** — deploy your own panel
+- ☁️ **My Panel tab — Cat Panel v6 "lean" + external catalog** — deploy your own panel
   on your Cloudflare account with one API token (or paste the single file into any
   Worker), or open install guides for 20+ researched panels (Z-E-U-S, BPB, Nova,
   Netra, Apex, Epeius, Marzban, 3x-ui, w-ui, Spider, Technamooz, SulgX, RVG, Luffy,
   Lunel, x4g, OpenVPN, wg-easy, BackPack …):
-  - 🐱 **Cat Panel v5 (built-in)** — single-file Cloudflare Worker panel, purple-night
-    UI, Persian + English, **five themes** (violet / OLED / orchid / mono / light):
-    - **Real data plane** — VLESS-WS and Trojan-WS relayed as raw TCP through
-      `cloudflare:sockets` with early-data (`?ed=2048`) support, a proxy-IP fallback for
-      Cloudflare-hosted destinations and UDP/53 answered through DoH; covered by an
-      end-to-end tunnel test suite
-    - **Location-aware config builder** — clean IPs / domains × TLS + HTTP ports × protocol
-      baked into every subscription; pick ports and SNI in the panel, and the app pulls
-      `/sub/<uuid>` (options persist in KV, or travel inside the link without KV)
-    - **Locked by default** — the UUID is both the subscription secret and the panel
-      password until you set your own
-    - **KV-backed accounts** — per-user UUID + subscription link `/u/<token>`, traffic
-      quota (GB), daily expiry, concurrent-device limit, live usage counting and a
-      `subscription-userinfo` header for the app's usage graph
-    - **Panel password** with hashed cookie sessions and brute-force throttling
-    - **Tools tab** — panel settings, full JSON backup/restore, live worker status
-      (IP / colo / ASN / TLS) and a **server-side scan API** (`/api/scan`)
-    - **Iranian resolvers first** — Shecan, Radar, Electro, 403.online, Begzar, AliDNS
-      and Yandex as IP-based DoH endpoints (filtering-proof), plus custom DoH/DoT
-    - **Clean-IP library for Iran** (`/api/ir-ips`) with a server-side scan button
-    - **Subscriptions for every client** — `/sub`, `/sub64` (base64), `/clash`
-      (Mihomo/Clash Meta YAML with DNS + Iran-direct rules), `/singbox`
-      (sing-box / Hiddify JSON), `/all` (everything in one JSON)
-    - **Offline QR codes** — `/qr.svg?d=…` renders QR entirely inside the worker
-      (self-contained encoder, verified against the reference implementation), so
-      the panel needs no CDN and works in Iran
-    - **Clean-IP scanner inside the panel** — browser-side latency probes (with a live
-      `done/total (pct%) · best ms` status) plus a server-side `/api/ping` probe, then
-      one tap builds VLESS/Trojan variants for the IPs you tick — or hands them to the
-      app via `catclient://scan`
-    - **Encrypted DNS (DoH + DoT)** — `/dns-query` (RFC 8484 GET + POST), a Custom
-      DoH/DoT card (test your own resolver, `/dns-query?u=` override, DoT host check
-      through `/api/resolve?host=`), a preset list that also covers Mullvad and
-      ControlD, plus ready-made instructions for Android Private DNS, Chrome/Firefox
-      and Mihomo
-    - **Single-config builder** — type any address/SNI/port/path and get a ready
-      `vless://` or `trojan://` link with copy, QR and a `catclient://add-sub` deep
-      link straight into the app
-    - **SNI whitelist** (rejects unknown SNIs), **clean Cloudflare IP variants**
-      (server = any CF edge IP, SNI stays the panel host), optional `REMOTE` wss
-      relay for full-TCP mode, panel password, `warp://` link
+  - 🐱 **Cat Panel v6 (built-in)** — single-file Cloudflare Worker, rebuilt from scratch
+    to stay inside the free-tier limits like BPB/ZEUS do (see
+    [`docs/panel-v6-why-no-ban.md`](docs/panel-v6-why-no-ban.md)):
+    - **Zero KV writes on the data path** — no per-connection traffic metering (that
+      was what burned the 1 000 writes/day and got v5 workers throttled); KV is written
+      only when the owner saves settings or users
+    - **No server-side scanning** — clean IPs are found on the device (Cat Client's
+      native scanner / your browser) and pasted or pushed into the panel once
+    - **Minimal relay** — VLESS-WS / Trojan-WS piped straight to `cloudflare:sockets`
+      (pipeTo, no counters), proxy-IP fallback for Cloudflare-hosted destinations,
+      UDP/53 via DoH; covered by the end-to-end tunnel test suite
+    - **ZEUS-style dashboard** in Cat purple — stat cards, user table/cards, neon
+      round action buttons, Persian + English, phone-first layout
+    - **Users** — per-user UUID, protocols (VLESS/Trojan), time-based validity with
+      quick picks (7/30/60/90/180/365 days), renew / pause / delete, `/u/<token>`
+      subscription + `/info/<token>` landing page with copy, QR and one-tap app imports
+    - **Config builder** — owner IP list × TLS ports × HTTP ports × protocol, SNI,
+      fingerprint, entry limit; `/sub`, `/sub64`, `/clash` (Mihomo YAML), `/singbox`
+    - **Locked by default** — UUID is the subscription secret and the panel password
+      until you set your own (HMAC cookie sessions, Bearer password for the app)
+    - **Offline QR** (`/qr.svg?text=…`), **DoH proxy** (`/dns-query`), full JSON
+      backup / restore, update check against GitHub, `/api/geo` for the app's globe
 - 🛰️ **Scanner tab — clean-IP scanner (SNI + fronting)** — built-in Cloudflare,
   Gcore and Fastly ranges, the **Iran clean-IP library** and custom CIDR/IP input;
   every candidate is probed in **two stages** (TCP connect, then TLS + `/cdn-cgi/trace`
@@ -190,60 +180,118 @@ step 5 passes; otherwise it tells you the upload succeeded and to tap
 
 ## 🐱 Cat Panel (built-in Cloudflare Worker)
 
-`app/src/main/assets/panels/catclient.worker.js` is the whole panel — one file.
+`app/src/main/assets/panels/catclient.worker.js` is the whole panel — one file (~145 KB).
 
 **Two ways to run it**
 
 1. **No token, pure paste** — Cloudflare Dashboard → Workers & Pages → *Create
-   Worker* → paste the file (Cat Client → Cloud tab → *Copy Worker code*) →
-   Deploy. Open the worker URL: the panel shows your sub link, all configs,
-   clean-IP list and Mihomo/Clash YAML.
+   Worker* → paste the file → Deploy → add a KV namespace binding named `CAT_KV`
+   (Settings → Bindings) and, ideally, a `UUID` variable. Open the worker URL and
+   sign in: the password **is the UUID** until you change it in settings.
 2. **Through Cat Client** — Cloud tab → paste an API token → *Deploy on my
-   Cloudflare*. The app uploads the worker, then offers to import the
-   subscription.
+   Cloudflare*. The app creates the KV, uploads the worker, and imports the sub.
 
-**SNI + clean Cloudflare IPs (ایپی سفید)**
+**Clean IPs (ایپی تمیز) — scanned on the device, not in the worker**
 
-- Clients can point the *server* at any Cloudflare edge IP and keep the panel
-  hostname as the TLS SNI. The worker validates `X-Forwarded-Sni` against the
-  host + `SNI` + `SNI_LIST` and returns 403 for anything else.
-- Set `CF_IPS` (comma-separated) and `/sub` automatically includes a VLESS +
-  Trojan variant per IP. Cat Client's IP Scanner (SNI + Spoof) finds the
-  fastest ones for your ISP.
+- Panel → 📡 tab → *Scan with Cat Client* opens the app scanner
+  (`catclient://scan?sni=<host>`); paste the winners back into the panel (or any
+  list from ircf / CFScanner). They go first in every subscription.
+- `CF_IPS` env adds more addresses; the built-in default list is appended after
+  yours (toggle in settings).
+
+**Stable exit IP / country (v6.1) — "خروجی ثابت"**
+
+Cloudflare egress differs per colo and per proxy-IP relay, so IP-check sites may
+show a different country each time you reconnect. Two fixes, both built in:
+
+- **Chain outbound** (like BPB *chain proxy* / Zeus *آی‌پی ثابت*): Settings →
+  *Fixed exit* → `socks5://user:pass@host:port` or `http://host:port` pointing at
+  a server you own. The worker opens every TCP connection through it, so the exit
+  IP never changes. Mode `all` chains everything; `cf` only replaces the proxy-IP
+  hop for Cloudflare-hosted sites. *Strict* refuses to fall back to a direct dial.
+  `🧪 Test chain` → `POST /api/chain-test` dials once through the relay.
+- **Pin one entry address** so the client cannot hop between Cloudflare edges:
+  `/sub/<uuid>?addr=<ip-or-host>&limit=1` (also `?port=`, `?proto=vless|trojan`,
+  `?limit=N`; works for `/clash` and `/singbox`). Clash's selector now defaults to
+  the first concrete proxy with `⚡ Auto` as a `fallback` group; sing-box's selector
+  defaults to the first outbound. Pick one server in V2Box instead of "Auto".
+
+**Countries (v6.2) — pick an exit country, auto-fallback only when it is dead**
+
+- Tag each entry address with the country it lands in *for you*: paste
+  `ip#DE` lines (the Cat Client scanner reads the colo from `/cdn-cgi/trace`) or
+  use the flag menu next to each ip in 📡 → *Countries*. `CF_IPS` accepts the same
+  `ip#CC` form. Config names start with the flag, so every client groups them.
+- Click a country → it becomes the preferred exit: its entries come first in
+  `/sub`, Clash gets a `url-test` group per country and a root **`fallback`**
+  group `[🇩🇪 Germany, ⚡ Auto]` (stays in Germany while any German ip answers,
+  otherwise the fastest other country), sing-box's selector defaults to that
+  country's `urltest`. *Fallback = never* keeps only that country.
+- `?country=DE` (`&strict=1` for that country only) works on every sub URL.
+- `🌍 Detect proxy-IP countries` tags the proxy ips (`POST /api/proxy-geo`); the
+  preferred country's proxy ip is tried first for Cloudflare-hosted sites.
+- `GET /api/colo` (public, free) tells a client which colo/country it reached.
+- Cat Client app: when the chosen location has no live server at start, it now
+  connects via Automatic and shows a notice instead of failing; the choice is kept.
+
+**Routing, fragment & full-Xray output (v6.3)**
+
+- Settings → *Routing*: **Iranian sites/apps direct** (default on — banking,
+  Snapp, Digikala behave as if no VPN) and **Block ads** (geosite
+  `category-ads-all` → REJECT). Applied to Clash, sing-box and Xray output.
+- Settings → *Fragment & advanced TLS*: Xray `fragment` (packets / length /
+  interval, Zeus-style), ALPN and cipher suites. Share links cannot carry these,
+  so there is a new **`/xray/<uuid>`** (and `/u/<token>/xray`) subscription:
+  a base64 list of full Xray JSON configs for v2rayNG / V2Box / Hiddify
+  (`?raw=1` for plain JSON). sing-box output gets `tls_fragment: true`.
+- Cat Client app: *Block ads* switch under Routing (bundled GEOSITE.dat), the
+  scanner now also walks **IPv6 ranges** (`2606:4700::/32`) and **host names**,
+  and *Send to Cat Panel* opens the panel with the results pre-filled as `ip#CC`.
+
+**Telegram bot (v6.4) — run the panel from chat**
+
+Settings → *Telegram bot*: paste a @BotFather token + your numeric id(s), Save,
+then *Connect bot* (registers `<origin>/tg/<secret>` as webhook, verified by
+Telegram's secret-token header). Admin-only commands: `/users`, `/add <name> [days]`,
+`/renew <name> [days]`, `/toggle`, `/del`, `/link [name]`, `/ips`, `/country DE|off`,
+`/status`. Nothing runs until you message it; each command is one KV write.
+`TG_BOT_TOKEN` / `TG_ADMIN_ID` env vars work too. Fragment is now opt-in (off by
+default, confirmed in the UI before it is applied). The app scanner probes real
+IPv6 connectivity first and, when present, scans v6 ranges and applies the best
+v4 + v6 pair as fronting.
 
 **Worker environment variables (all optional)**
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `UUID` | derived from host (stable) | UUID in generated links |
-| `SNI` | worker host | SNI written into links |
-| `SNI_LIST` | — | extra accepted SNIs (comma list) |
-| `CF_IPS` | — | clean Cloudflare IPs published in `/sub` |
-| `PORT` | `443` | link port |
-| `VLESS_PATH` | `/ws?ed=2048` | VLESS WebSocket path |
-| `TROJAN_PATH` | `/trojan` | Trojan WebSocket path |
-| `TROJAN_PASS` | `UUID` | Trojan password |
-| `REMOTE` | — | optional `wss://` relay for full-TCP mode |
-| `PANEL_PASSWORD` | — | require `?p=<pass>` on the panel page |
-| `ENABLE_WARP` | `true` | omit the `warp://` link when `false` |
-| `USER_TOTAL` | 1 TiB | `subscription-userinfo` total |
-| `DNS_UPSTREAM` | `https://cloudflare-dns.com/dns-query` | upstream resolver for `/dns-query` |
-| `PANEL_TITLE` | `Cat Panel` | title shown in the panel header |
-| `SCAN_IPS` | — | extra IPs/subnets added to the panel scanner list |
+| `UUID` | derived from host (stable) | master UUID (sub secret + default password) |
+| `PANEL_PASSWORD` | UUID | panel password (can also be set in the UI, stored hashed in KV) |
+| `PANEL_USER` | — | optional username the login form must match |
+| `CAT_KV` | — | KV binding; without it users/settings live only in memory |
+| `PROXYIP` | built-in list | proxy IPs for Cloudflare-hosted destinations |
+| `TG_BOT_TOKEN` / `TG_ADMIN_ID` | — | Telegram bot token + admin ids (UI settings win) |
+| `CHAIN` | — | `socks5://` / `http://` relay for a fixed exit IP (UI setting wins) |
+| `SNI` | worker host | SNI / Host written into links |
+| `CF_IPS` | — | extra clean IPs / domains for every subscription |
+| `VLESS_PATH` / `TROJAN_PATH` | `/ws?ed=2048` / `/trojan` | WebSocket paths |
+| `TROJAN_PASS` | UUID | master Trojan password |
+| `OPEN_PANEL` | — | `true` → panel open until a password is set (wizard default) |
+| `OPEN_SUB` | — | `true` → `/sub` without UUID also serves the master links |
+| `DNS_UPSTREAM` | `https://cloudflare-dns.com/dns-query` | upstream for `/dns-query` + tunnel UDP/53 |
+| `PANEL_TITLE` | `Cat Panel` | header title |
 
-**Endpoints**: `/` and `/panel` (the panel), `/sub`, `/sub64`, `/clash`,
-`/singbox`, `/all`, `/qr.svg?d=…`, `/dns-query`, `/health`,
-`/api/config.json`, `/api/scan-targets.json`, `/api/ping?ip=…`,
-`/api/dns-probe?u=…`, plus the VLESS/Trojan WebSocket paths.
+**Endpoints**: `/` (panel), `/sub/<uuid>`, `/sub64/<uuid>`, `/clash/<uuid>`,
+`/singbox/<uuid>`, `/xray/<uuid>`, `/u/<token>[/clash|/singbox|/xray|/64]`, `/info/<token>`,
+`/qr.svg?text=…`, `/dns-query`, `/health`, `/api/login`, `/api/settings`,
+`/api/users`, `/api/ips`, `/api/backup`, `/api/self`, `/api/geo?ip=`,
+`/api/scan-targets.json`, `/api/chain-test`, `/api/countries`, `/api/proxy-geo`, `/api/colo`, `/api/telegram[/webhook]`, `/tg/<secret>`, plus the VLESS/Trojan WebSocket paths.
 
-**Panel → app deep links** (used by the panel's buttons on a phone):
-`catclient://add-sub?url=…&name=…` imports a subscription,
-`catclient://scan?sni=<panel host>&ip=<clean ips>` opens the app's Scanner tab and
-applies those clean IPs as fronting endpoints.
+**Panel → app deep links**: `catclient://add-sub?url=…&name=…` imports a
+subscription, `catclient://scan?sni=<panel host>` opens the app's Scanner tab.
 
-The worker is tested on Node: `node scripts/panels/cat-panel.test.mjs`
-(44 checks: share-links, YAML/JSON output, SNI gate, DoH passthrough, QR fixtures
-vs. the reference encoder, scanner targets). Preview it locally with
+Tests (Node 18+, no deps): `node scripts/panels/cat-panel.test.mjs`,
+`node scripts/panels/tunnel-e2e.test.mjs`; UI smoke test (needs `npm i` for jsdom):
+`node scripts/panels/panel-dom.test.mjs`. Local preview:
 `node scripts/panels/preview-server.mjs 8787` → http://localhost:8787 .
 
 ## 📄 License

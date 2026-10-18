@@ -1,0 +1,56 @@
+name: Panel tests
+
+on:
+  push:
+    branches: [main, 'arena/*']
+    paths:
+      - 'app/src/main/assets/panels/**'
+      - 'scripts/panels/**'
+      - 'package.json'
+      - '.github/workflows/panel.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/assets/panels/**'
+      - 'scripts/panels/**'
+      - 'package.json'
+      - '.github/workflows/panel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: panel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Syntax check (Worker must stay a single valid script)
+        run: |
+          node --check app/src/main/assets/panels/catclient.worker.js
+          node --check app/src/main/assets/panels/catclient.wizard.js
+      - name: Unit tests
+        run: npm test
+      - name: Report panel test failures back to the branch
+        if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
+        run: |
+          for t in cat-panel panel-dom wizard multipart-upload; do
+            if node scripts/panels/$t.test.mjs > "/tmp/$t.out" 2>&1; then
+              echo "PASS $t" >> FAILED-TESTS.md
+            else
+              { echo "FAIL $t"; echo '```'; tail -n 60 "/tmp/$t.out"; echo '```'; } >> FAILED-TESTS.md
+            fi
+          done
+          git config user.name "ci-report-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git add FAILED-TESTS.md
+          git commit -m "CI panel test failure report [skip ci]" || true
+          git push origin HEAD:"${GITHUB_REF_NAME}" || true

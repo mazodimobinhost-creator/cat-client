@@ -1,54 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Primary colors — Purple on black (OLED-friendly) -->
-    <color name="catclient_primary">#A855F7</color>
-    <color name="catclient_on_primary">#0A0A0A</color>
-    <color name="catclient_primary_container">#2E1065</color>
-    <color name="catclient_on_primary_container">#F5F3FF</color>
+    <color name="catclient_primary">#C7BFFF</color>
+    <color name="catclient_on_primary">#2A0A93</color>
+    <color name="catclient_primary_container">#3E2FB0</color>
+    <color name="catclient_on_primary_container">#E5DEFF</color>
 
     <!-- Secondary accent -->
-    <color name="catclient_secondary">#C084FC</color>
+    <color name="catclient_secondary">#52DDCF</color>
 
     <!-- Background and surface — Pure OLED black -->
-    <color name="catclient_background">#000000</color>
-    <color name="catclient_surface">#0A0A0A</color>
-    <color name="catclient_surface_variant">#18181B</color>
+    <color name="catclient_background">#131318</color>
+    <color name="catclient_surface">#1B1B21</color>
+    <color name="catclient_surface_variant">#35343B</color>
 
     <!-- Surface elevations (lighter as elevation increases) -->
-    <color name="surface_elevated_1">#111111</color>
-    <color name="surface_elevated_2">#18181B</color>
-    <color name="surface_elevated_3">#27272A</color>
+    <color name="surface_elevated_1">#1F1F25</color>
+    <color name="surface_elevated_2">#2A2930</color>
+    <color name="surface_elevated_3">#35343B</color>
 
     <!-- On surface colors (high contrast) -->
-    <color name="catclient_on_surface">#FAFAFA</color>
-    <color name="catclient_on_surface_variant">#A1A1AA</color>
+    <color name="catclient_on_surface">#E5E1E9</color>
+    <color name="catclient_on_surface_variant">#C8C5D0</color>
 
     <!-- Text hierarchy -->
-    <color name="text_tertiary">#71717A</color>
-    <color name="text_muted">#52525B</color>
+    <color name="text_tertiary">#928F9A</color>
+    <color name="text_muted">#78767F</color>
 
     <!-- Outline -->
-    <color name="catclient_outline">#27272A</color>
+    <color name="catclient_outline">#47464F</color>
 
     <!-- Error (vibrant) -->
-    <color name="catclient_error">#F87171</color>
+    <color name="catclient_error">#FFB4AB</color>
 
     <!-- State container colors -->
-    <color name="teal_container">#2E1065</color>
+    <color name="teal_container">#2A1361</color>
     <color name="amber_container">#3F2903</color>
-    <color name="red_container">#442321</color>
+    <color name="red_container">#93000A</color>
 
     <!-- Gradient colors — Dark purple glow -->
-    <color name="background_gradient_start">#000000</color>
-    <color name="background_gradient_end">#0A0A0A</color>
-    <color name="accent_gradient_start">#7C3AED</color>
-    <color name="accent_gradient_end">#A855F7</color>
+    <color name="background_gradient_start">#131318</color>
+    <color name="background_gradient_end">#1B1B21</color>
+    <color name="accent_gradient_start">#7A5CFF</color>
+    <color name="accent_gradient_end">#FF5FA2</color>
 
     <!-- Custom Cat Client purple -->
-    <color name="cat_purple">#A855F7</color>
-    <color name="cat_purple_dark">#7C3AED</color>
-    <color name="cat_purple_light">#C4B5FD</color>
-    <color name="cat_purple_glow">#D946EF</color>
+    <color name="cat_purple">#C7BFFF</color>
+    <color name="cat_purple_dark">#7A5CFF</color>
+    <color name="cat_purple_light">#E5DEFF</color>
+    <color name="cat_purple_glow">#FF5FA2</color>
 
     <!-- Ping/signal colors -->
     <color name="ping_excellent">#22C55E</color>
