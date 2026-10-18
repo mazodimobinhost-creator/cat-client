@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.5';
+const CAT_PANEL_VERSION = '6.69.6';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -630,6 +630,13 @@ async function readResponseTextBounded(response, maxBytes) {
   let offset = 0;
   for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
   return new TextDecoder().decode(merged);
+}
+
+async function readResponseJsonBounded(response, maxBytes = 64 * 1024) {
+  // Unit-test/custom fetch adapters may expose json() without a real Response
+  // stream. Production Responses always take the size-bounded streaming path.
+  if ((!response.body || typeof response.body.getReader !== 'function') && typeof response.text !== 'function' && typeof response.json === 'function') return response.json();
+  return JSON.parse(await readResponseTextBounded(response, maxBytes));
 }
 
 async function mapBounded(items, limit, mapper) {
@@ -3390,9 +3397,9 @@ async function echConfigList(sni, env) {
   const hit = cached[sni];
   if (hit && now - (hit.ts || 0) < 24 * 3600 * 1000) return hit.ech || '';
   try {
-    const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(sni) + '&type=HTTPS', { headers: { accept: 'application/dns-json' } });
+    const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(sni) + '&type=HTTPS', { headers: { accept: 'application/dns-json' } }, 5000);
     if (!res.ok) throw new Error('http ' + res.status);
-    const j = await res.json();
+    const j = await readResponseJsonBounded(res);
     let ech = '';
     for (const a of (j && j.Answer) || []) {
       if (a.type !== 64) continue;
@@ -3493,7 +3500,7 @@ async function sniEdgeVerdict(sni) {
       signal: ctl.signal,
       headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION, accept: 'text/plain' },
     });
-    const body = res.status === 200 ? (await res.text()).slice(0, 512) : '';
+    const body = res.status === 200 ? await readResponseTextBounded(res, 2048) : '';
     const cf = res.headers.get('server') === 'cloudflare' || /(^|\n)colo=/.test(body);
     return { sni, cf, status: res.status, ms: Date.now() - started };
   } catch (e) {
@@ -4297,8 +4304,8 @@ async function resolveHost(name) {
   const hit = dnsCacheGet(key);
   if (hit !== null) return hit;
   try {
-    const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=A', { headers: { accept: 'application/dns-json' } });
-    const data = await res.json();
+    const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=A', { headers: { accept: 'application/dns-json' } }, 5000);
+    const data = await readResponseJsonBounded(res);
     const a = (data.Answer || []).find((r) => r.type === 1);
     const ip = a ? a.data : '';
     if (ip) dnsCachePut(key, ip);
@@ -4317,8 +4324,8 @@ async function geoLookup(ip) {
       target = await resolveHost(key);
       if (!target) { GEO_CACHE.set(key, { value, at: Date.now() }); return value; }
     }
-    const res = await fetch('https://ipwho.is/' + encodeURIComponent(target), { headers: { accept: 'application/json', 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } });
-    const data = await res.json();
+    const res = await fetchTimed('https://ipwho.is/' + encodeURIComponent(target), { headers: { accept: 'application/json', 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION } }, 5000);
+    const data = await readResponseJsonBounded(res);
     value = {
       ok: !!data.success,
       host: target !== key ? key : undefined,
@@ -4501,8 +4508,8 @@ function tgConfig(env, settings) {
 async function tgSecret(token) { return (await sha256Hex('cat-tg:' + token)).slice(0, 32); }
 
 async function tgApi(token, method, body) {
-  const res = await fetch('https://api.telegram.org/bot' + token + '/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
-  return res.json().catch(() => ({ ok: false }));
+  const res = await fetchTimed('https://api.telegram.org/bot' + token + '/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }, 8000);
+  try { return await readResponseJsonBounded(res, 128 * 1024); } catch (_) { return { ok: false }; }
 }
 
 function tgEsc(t) { return String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
@@ -4516,8 +4523,9 @@ function deployCfg(settings) {
 }
 async function ghApi(method, path, settings, body, fetchImpl) {
   const F = fetchImpl || fetch;
-  const res = await F('https://api.github.com' + path, { method, headers: { authorization: 'Bearer ' + (settings.ghPat || ''), accept: 'application/vnd.github+json', 'user-agent': 'cat-panel', 'x-github-api-version': '2022-11-28', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-  let j = null; try { j = await res.json(); } catch (e) { }
+  const options = { method, headers: { authorization: 'Bearer ' + (settings.ghPat || ''), accept: 'application/vnd.github+json', 'user-agent': 'cat-panel', 'x-github-api-version': '2022-11-28', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined };
+  const res = fetchImpl ? await F('https://api.github.com' + path, options) : await fetchTimed('https://api.github.com' + path, options, 8000);
+  let j = null; try { j = await readResponseJsonBounded(res, 256 * 1024); } catch (e) { }
   return { status: res.status, ok: res.ok, body: j };
 }
 async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
@@ -4761,8 +4769,8 @@ async function handleApi(request, url, env, ctx) {
     const host = String(url.searchParams.get('host') || '').trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
     if (!isHostname(host)) return json({ ok: false, error: 'bad host' }, 400);
     try {
-      const res = await fetch('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=A', { headers: { accept: 'application/dns-json' } });
-      const j = await res.json();
+      const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=A', { headers: { accept: 'application/dns-json' } }, 5000);
+      const j = await readResponseJsonBounded(res);
       const answers = ((j && j.Answer) || []).filter((a) => a.type === 1).map((a) => String(a.data || ''));
       const cf = answers.filter((ip) => isCloudflareIp(ip));
       return json({ ok: true, host, ips: answers, onCloudflare: answers.length > 0 && cf.length === answers.length });
@@ -5445,8 +5453,8 @@ async function handleApi(request, url, env, ctx) {
     const results = {};
     const exitInfo = await (async () => {
       try {
-        const tr = await fetch('https://www.cloudflare.com/cdn-cgi/trace', { headers: { 'user-agent': 'catclient-health' } });
-        const txt = await tr.text();
+        const tr = await fetchTimed('https://www.cloudflare.com/cdn-cgi/trace', { headers: { 'user-agent': 'catclient-health' } }, 4000);
+        const txt = await readResponseTextBounded(tr, 4096);
         const get = (k) => (txt.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || '';
         return { ip: get('ip'), loc: get('loc').slice(0, 2).toUpperCase(), colo: get('colo').slice(0, 8) };
       } catch (e) { return { ip: '', loc: '', colo: '' }; }
@@ -8563,7 +8571,14 @@ export default {
   async scheduled(controller, env, ctx) {
     void controller;
     try {
-      const job = Promise.allSettled([refreshRepos(env), refreshProxyRepos(env), cronSelfCheck(env), cronCountryQuality(env)]);
+      // Cloudflare allows only six simultaneous outgoing connections per
+      // invocation. Run the four maintenance groups sequentially; each feed
+      // group has its own concurrency ceiling of three.
+      const job = (async () => {
+        for (const task of [refreshRepos, refreshProxyRepos, cronSelfCheck, cronCountryQuality]) {
+          try { await task(env); } catch (error) { recordError('cron-task', safeText(error, 120)); }
+        }
+      })();
       if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job); else await job;
     } catch (e) {
       recordError('cron', safeText(e, 160));
