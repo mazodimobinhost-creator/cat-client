@@ -39,9 +39,12 @@ internal object AetherOperations {
 
     fun cancel(): Boolean = NativeAetherBridge.cancelPrepare() or NativeAetherBridge.cancelScan()
 
-    internal fun safeEndpoint(result: EndpointScanResult): Boolean {
-        if (result.rttMillis < 0 || result.peer.length !in 3..128) return false
-        val endpoint = connectionChainEndpointOrNull(result.peer) ?: return false
+    internal fun safeEndpoint(result: EndpointScanResult): Boolean =
+        result.rttMillis >= 0 && isSafePublicPeer(result.peer)
+
+    internal fun isSafePublicPeer(peer: String): Boolean {
+        if (peer.length !in 3..128) return false
+        val endpoint = connectionChainEndpointOrNull(peer) ?: return false
         if (endpoint.port !in 1..65535) return false
         val literal = endpoint.ip
         if (!literal.matches(Regex("[0-9.]+|[0-9a-fA-F:]+"))) return false

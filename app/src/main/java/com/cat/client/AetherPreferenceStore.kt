@@ -24,7 +24,7 @@ class AetherPreferenceStore(context: Context) {
         val enabled = prefs.getBoolean("enabled", false)
         val mode = AetherMode.entries.firstOrNull { it.wireName == prefs.getString("mode", null) }
             ?: AetherMode.MasqueHttp2
-        val endpoint = prefs.getString("endpoint", null)?.takeIf { connectionChainEndpointOrNull(it) != null }
+        val endpoint = prefs.getString("endpoint", null)?.takeIf(AetherOperations::isSafePublicPeer)
         return AetherSelection(enabled, mode, endpoint, prefs.getLong("endpointScannedAt", 0L))
     }
 

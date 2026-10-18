@@ -44,5 +44,8 @@ class AetherRuntimeConfigTest {
         assertThrows(IllegalArgumentException::class.java) {
             AetherRuntimeConfig(AetherMode.MasqueHttp2, File("/tmp/aether.json"), "bad endpoint")
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            AetherRuntimeConfig(AetherMode.MasqueHttp2, File("/tmp/aether.json"), "192.168.1.1:443")
+        }
     }
 }

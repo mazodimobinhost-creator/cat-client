@@ -14,7 +14,7 @@ data class AetherRuntimeConfig(
         require(identityFile.isAbsolute) { "Aether identity path must be absolute" }
         require(scanBudgetMillis in 10_000..300_000) { "Aether scan budget is out of range" }
         require(mode != AetherMode.MasquePsiphon) { "Psiphon requires its isolated carrier service" }
-        endpoint?.let { require(connectionChainEndpointOrNull(it) != null) { "Invalid Aether endpoint" } }
+        endpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether endpoint" } }
         upstreamProxy?.let {
             require(it.matches(Regex("socks5h?://127\\.0\\.0\\.1:[0-9]{2,5}"))) {
                 "Aether provisioning proxy must be a loopback SOCKS endpoint"
