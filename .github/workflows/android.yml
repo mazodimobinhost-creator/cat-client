@@ -347,6 +347,14 @@ jobs:
             ls "$ANDROID_HOME/platforms" 2>/dev/null || true
             ls "$ANDROID_HOME/ndk" 2>/dev/null || true
             tail -n 80 build-log.txt
+            # Surface the actual Gradle error through Checks annotations. Arena
+            # cannot always download GitHub's external log blob, but annotations
+            # remain available through api.github.com.
+            grep -E '(^e: |FAILURE:|What went wrong|Execution failed|Caused by:|More than one file|duplicate|error:)' build-log.txt |
+              tail -n 40 | while IFS= read -r line; do
+                safe=${line//'%'/'%25'}; safe=${safe//$'\r'/'%0D'}; safe=${safe//$'\n'/'%0A'}
+                echo "::error file=.github/workflows/android.yml,line=340::$safe"
+              done
           fi
           exit "$STATUS"
 
