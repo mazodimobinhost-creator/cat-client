@@ -2147,6 +2147,7 @@ class CatClientVpnService : VpnService() {
             throw IOException("All $phase top-IP candidates are quarantined by the TLS integrity check")
         }
 
+        publishAutomaticConnectionProgress(Actions.AUTO_PHASE_RUNTIME_TEST)
         var lastFailure: Throwable? = null
         for ((index, endpoint) in availableCandidates.withIndex()) {
             ensureStartupActive(eventPrefix)
@@ -3558,6 +3559,7 @@ class CatClientVpnService : VpnService() {
             throw IOException("No fresh fronting IP is available")
         }
 
+        publishAutomaticConnectionProgress(Actions.AUTO_PHASE_CHECKING_CACHE)
         val cachedCandidates = (listOfNotNull(scanStateStore.readLastEndpoint()) + cleanIpCache.readResults())
             .filter { it.port in fallbackPorts }
             .distinctBy { "${it.ip}:${it.port}" }
@@ -3581,6 +3583,7 @@ class CatClientVpnService : VpnService() {
         // No reusable endpoint survived a fresh probe. Scan a small, bundled
         // Cloudflare anycast catalogue from the phone itself instead of failing
         // or pretending an old cache entry is suitable for the current network.
+        publishAutomaticConnectionProgress(Actions.AUTO_PHASE_QUICK_SCAN)
         logScanInfo(
             "scanner.fronting.fresh.start",
             "ips=${IpScanner.IRAN_LIBRARY.size} ports=$fallbackPorts quickMs=${CleanIpDefaults.STARTUP_QUICK_SCAN_MS}",
@@ -3605,6 +3608,7 @@ class CatClientVpnService : VpnService() {
             )
         }
 
+        publishAutomaticConnectionProgress(Actions.AUTO_PHASE_FALLBACK_SCAN)
         val exhaustive = freshScanner.findBestByQuality(
             maxScanDurationMs = CleanIpDefaults.STARTUP_FALLBACK_SCAN_MS,
         )
@@ -4988,6 +4992,14 @@ class CatClientVpnService : VpnService() {
                 configRepository.refreshAllSubscriptions()
             }
         }
+    }
+
+    private fun publishAutomaticConnectionProgress(phase: String) {
+        sendBroadcast(
+            Intent(Actions.AUTOMATIC_CONNECTION_PROGRESS)
+                .setPackage(packageName)
+                .putExtra(Actions.EXTRA_AUTOMATIC_CONNECTION_PHASE, phase),
+        )
     }
 
     private fun publishState(newState: VpnState, notice: String? = null) {

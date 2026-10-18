@@ -1241,4 +1241,8 @@
     <string name="deployment_profiles_selected">Selected: %1$s · %2$s</string>
     <string name="deployment_profiles_none">No fresh healthy target</string>
     <string name="deployment_profiles_help">Tap to test /health and /api/version. Long-press to remove. Network changes and captive portals are inconclusive.</string>
+    <string name="auto_connection_checking_cache">Checking recent results on this network…</string>
+    <string name="auto_connection_quick_scan">Scanning this network for a working endpoint…</string>
+    <string name="auto_connection_fallback_scan">No quick result; running the extended scan…</string>
+    <string name="auto_connection_runtime_test">Testing the selected endpoint with a real connection…</string>
 </resources>

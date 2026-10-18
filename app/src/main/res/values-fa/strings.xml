@@ -1240,4 +1240,8 @@
     <string name="deployment_profiles_selected">انتخاب شد: %1$s · %2$s</string>
     <string name="deployment_profiles_none">مقصد سالم و تازه‌ای پیدا نشد</string>
     <string name="deployment_profiles_help">برای آزمایش /health و /api/version لمس کنید؛ نگه‌داشتن حذف می‌کند. تغییر شبکه و Captive Portal نتیجه نامشخص دارند.</string>
+    <string name="auto_connection_checking_cache">در حال بررسی نتیجه‌های اخیر روی این اینترنت…</string>
+    <string name="auto_connection_quick_scan">در حال یافتن مسیر سالم از اینترنت فعلی…</string>
+    <string name="auto_connection_fallback_scan">نتیجه سریع پیدا نشد؛ اسکن کامل‌تر در حال اجراست…</string>
+    <string name="auto_connection_runtime_test">در حال آزمایش مسیر انتخاب‌شده با اتصال واقعی…</string>
 </resources>

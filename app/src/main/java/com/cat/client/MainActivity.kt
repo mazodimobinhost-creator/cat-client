@@ -214,6 +214,7 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var publicServerNotice: TextView
     private lateinit var connectionDetailsText: TextView
+    private var automaticConnectionProgress: String = ""
     private lateinit var timerText: TextView
     private lateinit var downloadSpeedText: TextView
     private lateinit var uploadSpeedText: TextView
@@ -397,6 +398,7 @@ class MainActivity : Activity() {
                 Actions.STATE_CHANGED -> handleStateChanged(context, intent)
                 Actions.CONNECTION_DELAY_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
                 Actions.CONNECTION_SPEED_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
+                Actions.AUTOMATIC_CONNECTION_PROGRESS -> handleAutomaticConnectionProgress(intent)
             }
         }
     }
@@ -2405,7 +2407,11 @@ class MainActivity : Activity() {
 
     private fun renderConnectionDetails(state: VpnState) {
         if (!::connectionDetailsText.isInitialized) return
-        connectionDetailsText.text = connectionDetails.takeIf { state == VpnState.Started }.orEmpty()
+        connectionDetailsText.text = when {
+            state == VpnState.Started -> connectionDetails
+            state == VpnState.Starting -> automaticConnectionProgress
+            else -> ""
+        }
         connectionDetailsText.visibility =
             if (connectionDetailsText.text.isNotBlank()) View.VISIBLE else View.GONE
         if (::dashboardChainText.isInitialized) {
@@ -2462,6 +2468,7 @@ class MainActivity : Activity() {
             addAction(Actions.STATE_CHANGED)
             addAction(Actions.CONNECTION_DELAY_TEST_CHANGED)
             addAction(Actions.CONNECTION_SPEED_TEST_CHANGED)
+            addAction(Actions.AUTOMATIC_CONNECTION_PROGRESS)
         }
         // Below API 33 a bare registerReceiver is implicitly exported, which would let any other
         // app broadcast STATE_CHANGED and paint a false "connected" state over the UI.
@@ -11923,12 +11930,26 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun handleAutomaticConnectionProgress(intent: Intent) {
+        automaticConnectionProgress = when (
+            intent.getStringExtra(Actions.EXTRA_AUTOMATIC_CONNECTION_PHASE)
+        ) {
+            Actions.AUTO_PHASE_CHECKING_CACHE -> getString(R.string.auto_connection_checking_cache)
+            Actions.AUTO_PHASE_QUICK_SCAN -> getString(R.string.auto_connection_quick_scan)
+            Actions.AUTO_PHASE_FALLBACK_SCAN -> getString(R.string.auto_connection_fallback_scan)
+            Actions.AUTO_PHASE_RUNTIME_TEST -> getString(R.string.auto_connection_runtime_test)
+            else -> ""
+        }
+        renderConnectionDetails(buttonModel.state)
+    }
+
     private fun handleStateChanged(context: Context, intent: Intent) {
         val previousState = buttonModel.state
         val state = VpnState.fromWireName(
             intent.getStringExtra(Actions.EXTRA_STATE),
             intent.getStringExtra(Actions.EXTRA_ERROR),
         )
+        if (state != VpnState.Starting) automaticConnectionProgress = ""
         VpnAnalyticsEventPolicy.forStatePublished(previousState, state)?.let {
             AnalyticsEvents.log(this, it)
         }
