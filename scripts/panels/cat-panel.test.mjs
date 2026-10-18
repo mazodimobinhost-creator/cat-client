@@ -41,17 +41,14 @@ function req(path, { method='GET', headers={}, body, env=ENV } = {}) {
 }
 // health
 { const r = await req('/health'); const j = await r.json(); check('/health anonymous = bare ok (no fingerprint)', r.status===200 && j.ok===true && j.version===undefined && j.kv===undefined); }
-// beta57 stealth default: / = camouflage landing, real UI at /panel
-// 6.66.5 paste-and-go: «no password yet» is its own state. The root points at the
-// setup screen (the card that shows the UUID and the one-tap login) instead of a
-// dead-end login form. Camouflage still applies the moment a password exists —
-// proven right here by setting one temporarily.
-{ const r = await req('/'); check('first run (no password yet): / points at the setup screen', r.status===302 && r.headers.get('location')==='/panel'); }
+// Legacy installs can keep /panel as their owner-selected panel path. The public
+// entry point redirects transparently instead of serving an unrelated fake site.
+{ const r = await req('/'); check('first run (no password yet): / points at the setup screen', r.status===302 && r.headers.get('location')==='/panel/'); }
 { const rp = await req('/panel'); const bp = await rp.text(); check('/panel shows admin bootstrap without exposing UUID', rp.status===200 && bp.includes('/api/login') && bp.includes('admin') && !bp.includes(MASTER)); }
 { const key = T.KV_KEYS.settings; const before = await T.readSettings(ENV);
   await KV.put(key, JSON.stringify(Object.assign({}, before, { passwordHash: await T.sha256Hex('temporary-check') }))); T.kvCacheClear();
-  const r = await req('/'); const b = await r.text();
-  check('/ serves camouflage once a password is set (locked)', r.status===200 && b.includes('Sora') && !b.includes('/api/login'));
+  const r = await req('/');
+  check('/ redirects to the real panel once a password is set', r.status===302 && r.headers.get('location')==='/panel/');
   const rp = await req('/panel'); const bp = await rp.text();
   check('/panel is a plain login (no UUID) once a password is set', rp.status===200 && bp.includes('/api/login') && !bp.includes(MASTER));
   await KV.put(key, JSON.stringify(before)); T.kvCacheClear(); }
@@ -802,7 +799,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.10', T.CAT_PANEL_VERSION === '6.69.10');
+  check('panel version is 6.69.11', T.CAT_PANEL_VERSION === '6.69.11');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
@@ -1200,26 +1197,23 @@ let user;
     check('stealth: explicit path respected', st11.panelPath === 'myhole');
     const st12 = T.normalizeSettings({ panelPath: '', stealthOn: true });
     check('stealth: opting out stays off', st12.panelPath === '' && st12.stealthOn === true);
-    const camo = T.camouflagePage();
-    const banned = ['vless', 'trojan', 'proxy', 'panel', 'config', 'uuid', 'vpn', 'subscribe', 'worker'].filter((w) => camo.toLowerCase().includes(w));
-    check('camo: zero fingerprint words', banned.length === 0, banned.join(','));
-    check('camo: realistic page with decoy meta', camo.includes('generator') && camo.includes('<!doctype html>'));
     const html10 = T.panelPage(ENV, T.defaultSettings(), 'h.dev', 'u');
     check('panel: manual-add card wired', html10.includes('btnManualAdd') && html10.includes('ip_manual_add') && html10.includes('manualIps'));
     new Function(html10.match(/<script>[\s\S]*?<\/script>/)[1]);
     check('panel: inline script still parses (manual add)', true);
-    // Routing: enable stealth via the real settings API, then probe the camo.
+    // A legacy owner-selected panel path is transparent: known entry points
+    // redirect there and no fake personal site or server impersonation is served.
     const put = await req('/api/settings', { method: 'PUT', headers: auth, body: { panelPath: 'panel' } });
     const pj = await put.json();
-    check('stealth: settings PUT ok', pj.ok === true && pj.settings.panelPath === 'panel', JSON.stringify(pj.settings && pj.settings.panelPath));
+    check('panel path: settings PUT ok', pj.ok === true && pj.settings.panelPath === 'panel', JSON.stringify(pj.settings && pj.settings.panelPath));
     const root = await req('/');
-    const rootTxt = await root.text();
-    check('stealth: / serves camouflage', root.status === 200 && rootTxt.includes('Sora') && !rootTxt.includes('login'), root.status + ' ' + rootTxt.slice(0, 80));
+    check('panel path: / redirects transparently', root.status === 302 && root.headers.get('location') === '/panel/', root.status);
     const hole = await req('/panel');
     const holeTxt = await hole.text();
-    check('stealth: /panel serves the real login', hole.status === 200 && (holeTxt.includes('login') || holeTxt.includes('ورود')), hole.status);
+    check('panel path: /panel serves the real login', hole.status === 200 && (holeTxt.includes('login') || holeTxt.includes('ورود')), hole.status);
     const rnd = await req('/zzz-not-here');
-    check('stealth: unknown path = neutral 404', rnd.status === 404 && (await rnd.text()).includes('nginx'));
+    const rndTxt = await rnd.text();
+    check('panel path: unknown path is ordinary 404', rnd.status === 404 && !rndTxt.includes('nginx'), rnd.status);
     const rob = await req('/robots.txt');
     check('stealth: robots.txt quiet', rob.status === 200 && (await rob.text()).includes('Disallow'));
     // back to legacy-open for the remaining blocks
@@ -1241,8 +1235,8 @@ let user;
     const rP = await req('/?p=' + MASTER);
     check('beta58: /?p= quick-login hops to /panel', rP.status === 302 && (rP.headers.get('location') || '').startsWith('/panel/'), rP.status + ' ' + rP.headers.get('location'));
     const rPlain = await req('/');
-    check('beta58: plain / still camouflaged', rPlain.status === 200 && (await rPlain.text()).includes('Sora'));
-    // Pool life-support: camo + sub hits must trigger the refresh hooks.
+    check('beta58: plain / redirects transparently', rPlain.status === 302 && rPlain.headers.get('location') === '/panel/');
+    // Pool life-support: entry + sub hits must trigger the refresh hooks.
     const realFetch = globalThis.fetch;
     let feedHits = 0;
     globalThis.fetch = async (u) => { feedHits++; return { ok: true, status: 200, text: async () => '104.16.0.1\n104.16.0.2' }; };
@@ -1252,10 +1246,10 @@ let user;
       await KV.put('cat_repo_cache_v1', JSON.stringify({ ts: 0 }));
       await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0 }));
       T.kvCacheClear();
-      await req('/');                 // camo hit (expired cache → refresh fires)
+      await req('/');                 // panel entry (expired cache → refresh fires)
       await new Promise((r) => setTimeout(r, 120));
-      const afterCamo = feedHits;
-      check('beta58: camo hit nudges the repo pools', afterCamo > 0, 'feedHits=' + afterCamo);
+      const afterEntry = feedHits;
+      check('beta58: panel entry nudges the repo pools', afterEntry > 0, 'feedHits=' + afterEntry);
       feedHits = 0;
       await KV.put('cat_repo_cache_v1', JSON.stringify({ ts: 0 }));
       await KV.put('cat_prepo_cache_v1', JSON.stringify({ ts: 0 }));

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.10';
+const CAT_PANEL_VERSION = '6.69.11';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -5797,54 +5797,24 @@ async function handleRequest(request, env, ctx) {
     return html(userInfoPage(url.origin, host, env, settings, token, user));
   }
 
-  /* Stealth mode: when settings.panelPath is set, the panel UI only exists at
-   * /<panelPath>. Everything else — including /, /login and /panel — answers
-   * with a bare, brand-free 404 so workers.dev crawlers and automated
-   * abuse-reporters have nothing to fingerprint. The data plane (/api, /sub,
-   * /u, tunnels, DoH) is untouched. */
+  /* A hidden owner-selected panel path may still be retained for old installs, but
+   * well-known entry points redirect transparently to it. No fake site, nginx
+   * impersonation, or proxy-functionality camouflage is served. */
   const pp = String(settings.panelPath || '');
   const atPanel = pp !== '' && (path === '/' + pp || path === '/' + pp + '/');
-  if (pp !== '' && !atPanel) {
-    if (path === '/logout') {
-      return new Response(null, { status: 302, headers: { location: '/' + pp, 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' } });
-    }
-    // Camouflage: the well-known URLs (/, /login, /panel) answer with a plain
-    // personal landing page — no login form, no panel hints, nothing to
-    // fingerprint. Unknown paths keep the bare nginx-style 404, and robots.txt
-    // is exactly what a quiet site would serve.
-    // Quiet life-support: the pools must not go stale just because the real
-    // panel path is rarely opened — every camo hit nudges the refresh along.
+  if (pp !== '' && !atPanel && (path === '/' || path === '/login' || path === '/panel')) {
     maybeRepoRefresh(env, ctx);
     maybeProxyRepoRefresh(env, ctx);
-    // Owner handoffs survive stealth: a ?p=<password|uuid> quick-login and the
-    // scanner's ?ips= import hop over to the real panel path. The quick link is
-    // resolved HERE instead of after the hop, so the secret is already gone from
-    // the very first redirect rather than travelling one URL further (and landing
-    // in the history as /the/stealth/path?p=master-uuid).
-    if ((url.searchParams.get('p') || url.searchParams.get('ips')) && (path === '/' || path === '/login' || path === '/panel')) {
-      const rest = new URLSearchParams(url.search);
-      rest.delete('p');
-      rest.delete('u');
-      const quick = url.searchParams.get('p');
-      const signedIn = !!quick && (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick));
-      if (quick && !signedIn) rest.set('stale', '1'); // a flag, never an echo
-      const qs = rest.toString();
-      const headers = { location: '/' + pp + '/' + (qs ? '?' + qs : '') };
-      if (signedIn) headers['set-cookie'] = sessionCookieHeader(await makeSession(env, settings, masterUuid));
-      return new Response(null, { status: 302, headers });
-    }
-    // PASTE-AND-GO. An unconfigured install (no KV, no password) has nothing to
-    // camouflage yet — and answering its own root with a fake blog was exactly
-    // what made a fresh paste look like it did not work. Send the root to the
-    // panel path, where the setup card shows the UUID and the KV steps. As soon
-    // as a KV namespace is bound as CAT_KV (or a password exists) this stops and
-    // the camouflage applies again, unchanged.
-    if (!settings.passwordHash && !String(env.PANEL_PASSWORD || '').trim() && (path === '/' || path === '/login')) {
-      return new Response(null, { status: 302, headers: { location: '/' + pp } });
-    }
-    if (path === '/' || path === '/login' || path === '/panel') return html(camouflagePage());
-    if (path === '/robots.txt') return new Response('User-agent: *\nDisallow: /\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
-    return stealthNotFound();
+    const rest = new URLSearchParams(url.search);
+    rest.delete('p');
+    rest.delete('u');
+    const quick = url.searchParams.get('p');
+    const signedIn = !!quick && (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick));
+    if (quick && !signedIn) rest.set('stale', '1');
+    const qs = rest.toString();
+    const headers = { location: '/' + pp + '/' + (qs ? '?' + qs : '') };
+    if (signedIn) headers['set-cookie'] = sessionCookieHeader(await makeSession(env, settings, masterUuid));
+    return new Response(null, { status: 302, headers });
   }
   const panelBase = atPanel ? '/' + pp : '/';
 
@@ -6074,27 +6044,6 @@ try{var _sp=new URLSearchParams(location.search);if(_sp.has('stale')){_sp.delete
 
 function notFoundPage() {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>404</title><style>${BASE_CSS}body{display:grid;place-items:center;min-height:100vh}</style></head><body><div style="text-align:center"><div class="mute">404</div></div></body></html>`;
-}
-
-/** Camouflage landing (stealth mode): a harmless personal page served at /,
- * /login and /panel — zero panel/API hints, decoy meta only. */
-function camouflagePage() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="generator" content="Hugo 0.121.2"><meta name="robots" content="noindex">
-<title>Sora's notes</title>
-<style>body{margin:0;background:#faf9f6;color:#2b2b2b;font:16px/1.7 Georgia,'Times New Roman',serif;display:grid;place-items:center;min-height:100vh}main{max-width:34rem;padding:3rem 1.5rem}h1{font-size:1.6rem;font-weight:400;margin:0 0 .4rem}p{margin:.4rem 0;color:#555}small{color:#999}ul{list-style:none;padding:0;margin:1.2rem 0 0}li{padding:.5rem 0;border-top:1px solid #e8e5df}a{color:#2b2b2b;text-decoration:none}a:hover{color:#7a5c00}#clock{color:#999;font-size:.85rem}</style></head>
-<body><main><h1>Sora's notes</h1><p>A quiet place for half-finished thoughts.</p><p id="clock"></p><ul>
-<li><a href="#">On slow mornings</a></li>
-<li><a href="#">Notes on tea</a></li>
-<li><a href="#">A year of small walks</a></li>
-</ul><small>&copy; 2026 &mdash; rss soon</small></main>
-<script>function tick(){var d=new Date();var n=document.getElementById('clock');if(n)n.textContent=d.toDateString()}tick();setInterval(tick,30000);</script>
-</body></html>`;
-}
-
-/** Bare nginx-style 404 used in stealth mode — no branding, no engine hints. */
-function stealthNotFound() {
-  return new Response('<html>\r\n<head><title>404 Not Found</title>\r\n</head>\r\n<body>\r\n<center><h1>404 Not Found</h1>\r\n</center>\r\n<hr>\r\n<center>nginx</center>\r\n</body>\r\n</html>\r\n', { status: 404, headers: { 'content-type': 'text/html', 'cache-control': 'max-age=0, private' } });
 }
 
 function userInfoPage(origin, host, env, settings, token, user) {
@@ -8756,5 +8705,5 @@ export const _testing = {
   maskCreds,
   isProxyHostName, pinProxyEntry,
   fnv1a64Hex, relayTokenFor, resolveRelayToken,
-  loginPage, panelPage, userInfoPage, camouflagePage,
+  loginPage, panelPage, userInfoPage,
 };

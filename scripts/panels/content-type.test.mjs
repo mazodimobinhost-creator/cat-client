@@ -50,7 +50,7 @@ const ct = async (path) => (await get(env, path)).headers.get('content-type') ||
   const page = await ct('/panel');
   ok('/panel is HTML', /^text\/html;\s*charset=utf-8/.test(page), page);
   const login = await get(env, '/login');
-  ok('/login is a redirect to the panel, with no body to type', login.status === 302 && login.headers.get('location') === '/panel', login.status + ' ' + login.headers.get('location'));
+  ok('/login is a redirect to the panel, with no body to type', login.status === 302 && login.headers.get('location') === '/panel/', login.status + ' ' + login.headers.get('location'));
   ok('the user landing page is HTML', /text\/html/.test(await ct('/info/' + UUID)), await ct('/info/' + UUID));
 }
 

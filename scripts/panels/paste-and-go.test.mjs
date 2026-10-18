@@ -40,7 +40,7 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
 
   const root = await get(env, '/');
   ok('the worker root does not answer a fake blog to its own owner', root.status === 302, 'status ' + root.status);
-  ok('…it redirects to the panel path', root.headers.get('location') === '/panel', root.headers.get('location'));
+  ok('…it redirects to the panel path', root.headers.get('location') === '/panel/', root.headers.get('location'));
 
   const panel = await get(env, '/panel');
   const html = await panel.text();
@@ -96,8 +96,7 @@ console.log('\nPaste-and-go — a fresh Worker with nothing configured\n');
   T.kvCacheClear(); // settings are cached per isolate — a direct KV write must invalidate it
 
   const root = await get(env, '/');
-  const rootHtml = await root.text();
-  ok('with a password set, the root is camouflaged again (unchanged behaviour)', root.status === 200 && !rootHtml.includes(UUID), root.status);
+  ok('with a password set, the root redirects to the real panel', root.status === 302 && root.headers.get('location') === '/panel/', root.status);
 
   const panel = await get(env, '/panel');
   const html = await panel.text();

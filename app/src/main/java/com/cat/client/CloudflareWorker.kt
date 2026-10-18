@@ -997,9 +997,10 @@ object CloudflareWorker {
         // The panel may require a username (PANEL_USER binding): keep it so every
         // later «send to panel» / «update panel» action can log in.
         PanelCredentials.remember(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
-        val stealthPath = runCatching {
-            applyPanelStealth(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
-        }.getOrDefault("")
+        // Do not rewrite the public entry point into a disguised personal site.
+        // Existing owner-selected paths remain supported by the Worker, but fresh
+        // deployments keep a transparent panel URL.
+        val stealthPath = ""
         if (stealthPath.isNotBlank()) {
             PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
         }
