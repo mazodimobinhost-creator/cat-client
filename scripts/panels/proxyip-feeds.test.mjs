@@ -101,6 +101,17 @@ const MD_SAMPLE = [
   check('daily IPs reach the pool port-pinned 443', '35.210.99.51:443' in pmap && '3.29.240.49:443' in pmap, JSON.stringify(pmap));
   check('high-risk IP never reaches the pool', !('146.70.37.253:443' in pmap));
   check('space-txt IPs keep verified ports + repo country tag', pmap['103.121.48.87:8443'] === 'DE' && pmap['103.109.234.61:443'] === 'DE', JSON.stringify(pmap));
+
+  const importRequest = () => mod.default.fetch(new Request('https://' + HOST + '/api/prepos', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'import', cc: 'DE', limit: 8 }),
+  }), env, { waitUntil() {} });
+  const firstImport = await (await importRequest()).json();
+  check('country import writes the selected ProxyIPs into the active list', firstImport.ok && firstImport.persisted && firstImport.added === 2 && firstImport.total === 2, JSON.stringify(firstImport));
+  const secondImport = await (await importRequest()).json();
+  check('reselecting a country is actionable but reports zero real additions', secondImport.ok && secondImport.added === 0 && secondImport.total === 2, JSON.stringify(secondImport));
+  const settings = await (await mod.default.fetch(new Request('https://' + HOST + '/api/settings'), env, { waitUntil() {} })).json();
+  check('country import persists addresses and country metadata', settings.settings.proxyIps.length === 2 && settings.settings.proxyCountries['103.109.234.61:443'] === 'DE', JSON.stringify(settings.settings));
 }
 
 /* ── the default list ships the daily source ───────────────────────────────── */
