@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.4';
+const CAT_PANEL_VERSION = '6.69.5';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -154,7 +154,7 @@ async function fetchNewestPanelSource() {
     try {
       const r = await fetch(u, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
       if (!r.ok) continue;
-      const text = await r.text();
+      const text = await readResponseTextBounded(r, 1024 * 1024);
       const m = PANEL_VERSION_LINE.exec(text);
       if (m) return { text, version: m[1] };
     } catch (e) { /* try the next mirror */ }
@@ -601,6 +601,35 @@ async function readBoundedBody(request, maxBytes) {
   const raw = await request.arrayBuffer();
   if (raw.byteLength > maxBytes) throw new Error('body_too_large');
   return raw;
+}
+
+async function readResponseTextBounded(response, maxBytes) {
+  const declared = Number(response.headers && response.headers.get('content-length') || 0);
+  if (declared > maxBytes) throw new Error('response_too_large');
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Error('response_too_large');
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new Error('response_too_large');
+      chunks.push(value);
+    }
+  } catch (error) {
+    try { await reader.cancel(); } catch (_) { }
+    throw error;
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(merged);
 }
 
 async function mapBounded(items, limit, mapper) {
@@ -3101,14 +3130,14 @@ async function refreshRepos(env, fetchImpl) {
   const health = await readJsonKv(env, REPO_HEALTH_KEY, { f: {} });
   const per = {};
   const merged = new Map();
-  await Promise.allSettled(repos.map(async (r) => {
+  await mapBounded(repos, 3, async (r) => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
     try {
       const res = await F(r.url, { signal: ctl.signal });
       clearTimeout(timer);
       if (!res || !res.ok) throw new Error('http ' + (res && res.status));
-      const list = parseRepoFeed(r.kind, await res.text());
+      const list = parseRepoFeed(r.kind, await readResponseTextBounded(res, 512 * 1024));
       const alive = list.filter((x) => (health.f[x.ip] || 0) < REPO_FAILS_DROP);
       for (const x of alive) if (!merged.has(x.ip)) merged.set(x.ip, x);
       per[r.id] = { ts: Date.now(), ok: true, count: alive.length };
@@ -3116,7 +3145,7 @@ async function refreshRepos(env, fetchImpl) {
       clearTimeout(timer);
       per[r.id] = { ts: Date.now(), ok: false, error: String((e && e.message) || e).slice(0, 60) };
     }
-  }));
+  });
   const ips = Array.from(merged.values()).map((x) => (x.cc ? x.ip + '#' + x.cc : x.ip)).slice(0, 500);
   const cache = { ts: Date.now(), per, ips };
   await kv.put(REPO_CACHE_KEY, JSON.stringify(cache));
@@ -3278,14 +3307,14 @@ async function refreshProxyRepos(env, fetchImpl) {
   const health = await readJsonKv(env, PROXY_REPO_HEALTH_KEY, { f: {} });
   const per = {};
   const merged = new Map();
-  await Promise.allSettled(repos.map(async (r) => {
+  await mapBounded(repos, 3, async (r) => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
     try {
       const res = await F(r.url, { signal: ctl.signal });
       clearTimeout(timer);
       if (!res || !res.ok) throw new Error('http ' + (res && res.status));
-      const list = parseProxyFeed(r.kind, await res.text());
+      const list = parseProxyFeed(r.kind, await readResponseTextBounded(res, 512 * 1024));
       const alive = list.filter((x) => (health.f[x.ip] || 0) < PROXY_REPO_FAILS_DROP);
       for (const x of alive) { if (!x.cc && r.cc) x.cc = r.cc; if (!merged.has(x.ip)) merged.set(x.ip, x); }
       per[r.id] = { ts: Date.now(), ok: true, count: alive.length };
@@ -3293,7 +3322,7 @@ async function refreshProxyRepos(env, fetchImpl) {
       clearTimeout(timer);
       per[r.id] = { ts: Date.now(), ok: false, error: String((e && e.message) || e).slice(0, 60) };
     }
-  }));
+  });
   const ips = Array.from(merged.values()).map((x) => {
     const addr = x.ip + ':' + (x.port || 443); // every pool IP is pinned to ONE port
     return x.cc ? addr + '#' + x.cc : addr;
@@ -3424,7 +3453,7 @@ async function extSubContent(env, url, fetchImpl) {
     const res = await F(url, { signal: ctl.signal });
     clearTimeout(timer);
     if (!res || !res.ok) throw new Error('http ' + (res && res.status));
-    const body = String(await res.text()).slice(0, EXT_MAX_BYTES);
+    const body = await readResponseTextBounded(res, EXT_MAX_BYTES);
     if (kv) { try { await kv.put(key, JSON.stringify({ ts: Date.now(), body })); } catch { } }
     return body;
   } catch (e) {
@@ -4746,7 +4775,10 @@ async function handleApi(request, url, env, ctx) {
     // connection landed in. Cat Client's scanner calls it through each entry
     // address with the panel SNI to tag that address with a country.
     const cf = request.cf || {};
-    return json({ ok: true, colo: cf.colo || '', country: cf.country || '', ip: request.headers.get('cf-connecting-ip') || '' }, 200, { 'access-control-allow-origin': '*' });
+    // Deliberately no wildcard CORS: a random website must not be able to use
+    // the victim's browser as an IP/colo oracle. Same-origin panel calls and
+    // native Cat Client probes do not need Access-Control-Allow-Origin.
+    return json({ ok: true, colo: cf.colo || '', country: cf.country || '', ip: request.headers.get('cf-connecting-ip') || '' });
   }
 
   if (path === '/api/geo') {

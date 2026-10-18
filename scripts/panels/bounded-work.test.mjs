@@ -46,4 +46,7 @@ test('canonical Worker keeps conservative probe and subscription limits', async 
   assert.match(sourceText, /DNS_CACHE_MAX = 512/);
   assert.match(sourceText, /readBoundedBody\(request, 65535\)/);
   assert.match(sourceText, /payload\.length > 512/);
+  assert.match(sourceText, /readResponseTextBounded\(res, 512 \* 1024\)/);
+  assert.match(sourceText, /mapBounded\(repos, 3,/);
+  assert.doesNotMatch(sourceText, /access-control-allow-origin[^\n]+\*[^\n]+api\/colo/);
 });
