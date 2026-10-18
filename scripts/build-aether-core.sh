@@ -38,4 +38,6 @@ for abi in "${requested[@]}"; do
   test -s "$out/$abi/libwhiteaesther_core.so"
   test -s "$out/$abi/libc++_shared.so"
 done
-sha256sum "${requested[@]/#/$out/}"/libwhiteaesther_core.so
+for abi in "${requested[@]}"; do
+  sha256sum "$out/$abi/libwhiteaesther_core.so"
+done
