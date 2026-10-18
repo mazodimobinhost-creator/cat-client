@@ -1,0 +1,25 @@
+name: Cat account portal tests
+on:
+  push:
+    branches: [arena/c5b36768-cat-client]
+    paths: ['portal/**', 'scripts/pages/portal-target.test.mjs', 'package.json', '.github/workflows/portal-tests.yml']
+  pull_request:
+    paths: ['portal/**', 'scripts/pages/portal-target.test.mjs', 'package.json', '.github/workflows/portal-tests.yml']
+permissions:
+  contents: read
+concurrency:
+  group: portal-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+      - run: node --check portal/src/_worker.js
+      - run: node --test scripts/pages/portal-target.test.mjs
+      - name: Reject committed credentials
+        run: |
+          ! grep -RIE '([0-9]{8,10}:[A-Za-z0-9_-]{30,}|CF_API_TOKEN\s*[=:]\s*[^$])' portal
