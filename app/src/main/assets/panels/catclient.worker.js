@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.9';
+const CAT_PANEL_VERSION = '6.69.10';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -3070,7 +3070,7 @@ async function flushUsage(env, force) {
       const seen = new Map();
       const absorb = (e) => {
         if (!e || typeof e !== 'object') return;
-        const key = String(e.k || '') + ' ' + String(e.d || '');
+        const key = String(e.k || '') + '\0' + String(e.d || '');
         const hit = seen.get(key);
         if (hit) { hit.n = (hit.n || 1) + (e.n || 1); if ((e.t || 0) > hit.t) hit.t = e.t; return; }
         const copy = { t: e.t || now, k: String(e.k || 'error').slice(0, 24), d: String(e.d || '').slice(0, 160), n: e.n || 1 };

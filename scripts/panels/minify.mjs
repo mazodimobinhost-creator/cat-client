@@ -36,7 +36,12 @@ if (!inPath || !outPath) {
   process.exit(2);
 }
 
-const src = readFileSync(inPath, 'utf8');
+const srcBuffer = readFileSync(inPath);
+if (srcBuffer.includes(0)) {
+  console.error('minify: source contains a raw NUL byte — refusing an upload-fragile artifact');
+  process.exit(1);
+}
+const src = srcBuffer.toString('utf8');
 // Keep these two in lockstep with PanelUpdate.kt, deploy-bot/worker.js,
 // catclient.wizard.js and panel-update-contract.test.mjs.
 const VERSION_RE = /CAT_PANEL_VERSION\s*=\s*'([0-9]+(?:\.[0-9]+)+)'/;
