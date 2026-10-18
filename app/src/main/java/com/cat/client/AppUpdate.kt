@@ -3,6 +3,7 @@ package com.cat.client
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -135,7 +136,29 @@ object AppUpdatePolicy {
 
 object GitHubReleaseClient {
     suspend fun latest(variant: ApkVariant?): AppRelease = withContext(Dispatchers.IO) {
-        parseRelease(readText(LATEST_RELEASE_URL, 1_048_576, asset = false), variant)
+        parseReleaseList(readText(RELEASES_URL, 2_097_152, asset = false), variant)
+    }
+
+    /** GitHub's /releases/latest excludes every pre-release. Cat Client itself
+     * ships beta builds, so that endpoint incorrectly told beta116 users they
+     * were current while beta121 existed. The list is newest-first; accept the
+     * first non-draft release that has this device's signed APK + checksums. */
+    fun parseReleaseList(json: String, variant: ApkVariant?): AppRelease {
+        try {
+            val releases = JSONArray(json)
+            var lastError: IOException? = null
+            for (index in 0 until releases.length()) {
+                val item = releases.optJSONObject(index) ?: continue
+                if (item.optBoolean("draft", true)) continue
+                try {
+                    val release = parseRelease(item.toString(), variant)
+                    if (release.downloadable) return release
+                } catch (error: IOException) { lastError = error }
+            }
+            throw lastError ?: IOException("GitHub has no downloadable Cat Client release")
+        } catch (error: JSONException) {
+            throw IOException("GitHub release list was invalid", error)
+        }
     }
 
     /**
@@ -183,8 +206,8 @@ object GitHubReleaseClient {
     fun parseRelease(json: String, variant: ApkVariant?): AppRelease {
         try {
             val response = JSONObject(json)
-            if (response.getBoolean("draft") || response.getBoolean("prerelease")) {
-                throw IOException("GitHub release is not a stable release")
+            if (response.getBoolean("draft")) {
+                throw IOException("GitHub release is a draft")
             }
             val tag = response.getString("tag_name")
             val version = AppUpdatePolicy.normalizedVersion(tag)
@@ -278,7 +301,7 @@ object GitHubReleaseClient {
                 if (uri.host !in ASSET_HOSTS) {
                     throw IOException("GitHub asset redirected to an invalid host")
                 }
-            } else if (url != LATEST_RELEASE_URL) {
+            } else if (url != RELEASES_URL) {
                 throw IOException("GitHub API redirected to an invalid URL")
             }
             val connection = URL(url).openConnection() as HttpURLConnection
@@ -318,8 +341,8 @@ object GitHubReleaseClient {
 
     private const val GITHUB_OWNER = "mazodimobinhost-creator"
     private const val GITHUB_REPOSITORY = "cat-client"
-    private const val LATEST_RELEASE_URL =
-        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest"
+    private const val RELEASES_URL =
+        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20"
     private const val LATEST_DOWNLOAD_BASE =
         "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest/download"
 
