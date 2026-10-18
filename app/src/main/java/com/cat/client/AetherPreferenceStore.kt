@@ -29,8 +29,6 @@ class AetherPreferenceStore(context: Context) {
     }
 
     fun save(selection: AetherSelection) {
-        // Psiphon cannot be selected until its isolated carrier is packaged.
-        require(selection.mode != AetherMode.MasquePsiphon || !selection.enabled)
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", selection.mode.wireName)

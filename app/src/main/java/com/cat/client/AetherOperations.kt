@@ -16,7 +16,8 @@ internal object AetherOperations {
         upstreamProxy: String? = null,
     ): Result<AetherProvisionResult> = runCatching {
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
-        val config = AetherRuntimeConfig(mode, identityFile, upstreamProxy = upstreamProxy)
+        val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
+        val config = AetherRuntimeConfig(aetherMode, identityFile, upstreamProxy = upstreamProxy)
         val validation = NativeAetherBridge.validate(config.toNativeJson())
         check(validation.ok) { validation.error ?: "Aether configuration is invalid" }
         val identities = NativeAetherBridge.provision(config.toNativeJson()).getOrThrow()
@@ -26,7 +27,8 @@ internal object AetherOperations {
 
     fun scan(mode: AetherMode, identityFile: File): Result<List<AetherEndpoint>> = runCatching {
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
-        val config = AetherRuntimeConfig(mode, identityFile)
+        val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
+        val config = AetherRuntimeConfig(aetherMode, identityFile)
         NativeAetherBridge.scan(config.toNativeJson()).getOrThrow()
             .asSequence()
             .filter(::safeEndpoint)

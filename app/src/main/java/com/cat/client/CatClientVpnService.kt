@@ -264,6 +264,7 @@ class CatClientVpnService : VpnService() {
     private var startupJob: Job? = null
     /** Optional native Aether runtime; never runs concurrently with Mihomo. */
     private var aetherSession: AetherSession? = null
+    private var aetherPsiphonChain: AetherPsiphonChain? = null
     private var stopJob: Job? = null
     private var subscriptionRefreshJob: Job? = null
     private var notificationTrafficJob: Job? = null
@@ -530,6 +531,8 @@ class CatClientVpnService : VpnService() {
         cancelPostConnectHealthWatchdog()
         aetherSession?.close()
         aetherSession = null
+        aetherPsiphonChain?.close()
+        aetherPsiphonChain = null
         stopCoreImmediately()
         scope.cancel()
         currentVpnService = null
@@ -3936,9 +3939,12 @@ class CatClientVpnService : VpnService() {
     }
 
     private suspend fun runAetherStartup(eventPrefix: String, selection: AetherSelection) {
-        check(selection.mode != AetherMode.MasquePsiphon) { "Psiphon carrier is not available" }
         check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Aether native core is not packaged" }
         check(coreLifecycle.isIdle()) { "Mihomo must stop before Aether starts" }
+        if (selection.mode == AetherMode.MasquePsiphon) {
+            runAetherPsiphonStartup(eventPrefix, selection)
+            return
+        }
         val session = createAetherSession(resolveSplitTunnelRuntimePlan())
         val config = AetherRuntimeConfig(
             mode = selection.mode,
@@ -3951,6 +3957,36 @@ class CatClientVpnService : VpnService() {
         if (state != VpnState.Stopping && state != VpnState.Stopped) {
             throw IOException(result.error ?: "Aether tunnel closed")
         }
+    }
+
+    private suspend fun runAetherPsiphonStartup(eventPrefix: String, selection: AetherSelection) {
+        val splitPlan = resolveSplitTunnelRuntimePlan()
+        val chain = AetherPsiphonChain(
+            context = this,
+            scope = scope,
+            identityFile = File(filesDir, "aether.toml"),
+            protectSocket = { fd -> protect(fd) },
+            endpoint = selection.freshEndpoint(),
+        ).also { aetherPsiphonChain = it }
+        DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.start")
+        val carrier = chain.start()
+        val dns = DnsRuntimeSettings(
+            mode = dnsPrivacyPreferenceStore.readMode(),
+            dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
+            dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
+            doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
+            doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
+        )
+        val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
+            rawYaml = PsiphonTunPlan.yaml(carrier.socksPort),
+            splitTunnelPlan = splitPlan,
+            dns = dns,
+        )
+        setupCoreRuntime(paths)
+        startCoreTun(paths, splitPlan)
+        activeRuntimePaths = paths
+        DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.ready", "region=automatic")
+        publishState(VpnState.Started)
     }
 
     /** Creates the service-bound native session after mode selection has stopped Mihomo. */
@@ -4329,6 +4365,8 @@ class CatClientVpnService : VpnService() {
             cancelConnectionTestsAndWait()
             aetherSession?.close()
             aetherSession = null
+            aetherPsiphonChain?.close()
+            aetherPsiphonChain = null
             val terminalState = disconnectTerminalState(
                 stopCoreService(),
                 getString(R.string.state_connection_error),

@@ -3515,11 +3515,19 @@ class MainActivity : Activity() {
         )
         val aetherModeRow = appPreferenceRow(
             R.string.aether_mode,
-            getString(if (aetherSelection.mode == AetherMode.WireGuardOverMasque) R.string.aether_mode_wom else R.string.aether_mode_h2),
+            getString(when (aetherSelection.mode) {
+                AetherMode.MasqueHttp2 -> R.string.aether_mode_h2
+                AetherMode.WireGuardOverMasque -> R.string.aether_mode_wom
+                AetherMode.MasquePsiphon -> R.string.aether_mode_psiphon
+            }),
         ) {
             if (aetherOperationJob?.isActive == true) return@appPreferenceRow
             val current = aetherPreferenceStore.read()
-            val next = if (current.mode == AetherMode.MasqueHttp2) AetherMode.WireGuardOverMasque else AetherMode.MasqueHttp2
+            val next = when (current.mode) {
+                AetherMode.MasqueHttp2 -> AetherMode.WireGuardOverMasque
+                AetherMode.WireGuardOverMasque -> AetherMode.MasquePsiphon
+                AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
+            }
             aetherPreferenceStore.save(current.copy(mode = next, endpoint = null, endpointScannedAt = 0L))
             recreate()
         }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }

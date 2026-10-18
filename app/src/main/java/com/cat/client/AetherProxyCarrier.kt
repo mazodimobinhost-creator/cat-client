@@ -19,6 +19,7 @@ internal class AetherProxyCarrier(
     private val scope: CoroutineScope,
     private val identityFile: File,
     private val protectSocket: (Int) -> Boolean,
+    private val endpoint: String? = null,
     val port: Int = 1819,
 ) : Closeable {
     private val active = AtomicBoolean(false)
@@ -32,6 +33,7 @@ internal class AetherProxyCarrier(
         val config = AetherRuntimeConfig(
             mode = AetherMode.MasqueHttp2,
             identityFile = identityFile,
+            endpoint = endpoint,
             runtimeEndpoint = AetherRuntimeEndpoint.Proxy,
             listenPort = port,
         )

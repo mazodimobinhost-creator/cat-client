@@ -666,6 +666,23 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
         secret = secret,
     )
 
+    fun writeCarrier(
+        rawYaml: String,
+        splitTunnelPlan: SplitTunnelRuntimePlan,
+        dns: DnsRuntimeSettings,
+        secret: String = MihomoControllerSecret.generate(),
+    ): MihomoRuntimePaths = write(
+        document = MihomoRuntimeDocument(
+            rawYaml = rawYaml,
+            splitTunnelPlan = splitTunnelPlan,
+            lanSharing = LanSharingSettings(),
+            routingMode = RoutingMode.GlobalProxy,
+            dns = dns,
+            selectedMap = emptyMap(),
+        ),
+        secret = secret,
+    )
+
     fun writeProfileTest(
         plan: ProfileTestRuntimePlan,
         secret: String = MihomoControllerSecret.generate(),
