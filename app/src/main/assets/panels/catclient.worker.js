@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.0';
+const CAT_PANEL_VERSION = '6.69.1';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -583,6 +583,25 @@ async function svcProbe(sockets, env, settings, host) {
 function withTimeout(promise, ms, label) {
   let timer;
   return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label || 'timeout')), ms); })]).finally(() => clearTimeout(timer));
+}
+
+/** Bounded async map: prevents a panel click from opening dozens of sockets or
+ * D1/KV operations at once and exhausting a Worker invocation (a common 1101
+ * source). Each item is isolated so one failed probe cannot reject the batch. */
+async function mapBounded(items, limit, mapper) {
+  const list = Array.from(items || []);
+  const out = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, Number(limit) || 1), list.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= list.length) return;
+      try { out[index] = await mapper(list[index], index); }
+      catch (error) { out[index] = { ok: false, error: safeText(error, 120) || 'failed' }; }
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 /** Read an HTTP response head from a reader; resolves {status} on a status line, null otherwise. */
@@ -5134,7 +5153,7 @@ async function handleApi(request, url, env, ctx) {
     const action = path.split('/')[4] || '';
     const decorate = (u, lastOnline) => Object.assign({}, u, { status: userBlockedReason(u) || 'active', lastOnline: lastOnline || 0, links: subLinks(origin, masterUuid, u) });
     if (method === 'GET' && !id) {
-      const seen = await Promise.all(users.map((u) => readSeen(env, u.id)));
+      const seen = await mapBounded(users, 8, (u) => readSeen(env, u.id).catch(() => 0));
       return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i])) });
     }
     if (method === 'POST' && !id) {
@@ -5334,12 +5353,13 @@ async function handleApi(request, url, env, ctx) {
     const host = String(new URL(request.url).hostname).toLowerCase();
     const vpath = tunnelPaths(env)[PROTO_VLESS + 'Path'];
     const results = {};
-    await Promise.all(tests.map(async (t) => {
+    await mapBounded(tests, 6, async (t) => {
       const r = await healthProbe(sockets, { addr: t.addr, port: t.port, kind: t.kind, host, path: vpath });
       r.kind = t.kind;
       results[t.key || t.addr] = r;
       try { const g = await geoLookup(t.addr); if (g && g.ok && g.countryCode) r.cc = normalizeCountry(g.countryCode) || ''; } catch (e) { }
-    }));
+      return r;
+    });
     await pushEvent(env, 'ip-test', Object.values(results).filter((r) => r.ok).length + '/' + tests.length + ' healthy');
     return json({ ok: true, results });
   }
@@ -5363,7 +5383,7 @@ async function handleApi(request, url, env, ctx) {
         return { ip: get('ip'), loc: get('loc').slice(0, 2).toUpperCase(), colo: get('colo').slice(0, 8) };
       } catch (e) { return { ip: '', loc: '', colo: '' }; }
     })();
-    await Promise.all(list.map(async (h) => { results[h] = await svcProbe(sockets, env, now, h); }));
+    await mapBounded(list, 4, async (h) => { results[h] = await svcProbe(sockets, env, now, h); return results[h]; });
     await pushEvent(env, 'svc-test', Object.values(results).filter((r) => r.ok).length + '/' + list.length + ' open');
     return json({ ok: true, results, exit: exitInfo });
   }
@@ -5393,7 +5413,7 @@ async function handleApi(request, url, env, ctx) {
         return { name: t.name, status: 0, ms: Date.now() - t0, verdict: 'fail' };
       }
     };
-    const results = await Promise.all(targets.map(probe));
+    const results = await mapBounded(targets, 3, probe);
     return json({ ok: true, results });
   }
 
@@ -8559,7 +8579,7 @@ export default {
 export const _testing = {
   CAT_PANEL_VERSION,
   crashReport, crashReportMinimal, diagAllowed, diagFlag, safeText, safeStack, crashLocation,
-  splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
+  splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, mapBounded, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
   deriveUuid, resolveUuid,
   KV_KEYS, kvBinding, kvCacheClear, KV_READ_TTL_MS, DEFAULT_ECH_VALUE,
   defaultSettings, normalizeSettings, readSettings, writeSettings,

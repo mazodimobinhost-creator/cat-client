@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+const source = new URL('../../app/src/main/assets/panels/catclient.worker.js?bounded-work', import.meta.url);
+const { _testing } = await import(source);
+
+test('mapBounded caps concurrent Worker operations and preserves order', async () => {
+  let active = 0, peak = 0;
+  const result = await _testing.mapBounded([0, 1, 2, 3, 4, 5, 6, 7], 3, async value => {
+    active += 1; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 4));
+    active -= 1;
+    return value * 2;
+  });
+  assert.ok(peak <= 3, `peak concurrency was ${peak}`);
+  assert.deepEqual(result, [0, 2, 4, 6, 8, 10, 12, 14]);
+});
+
+test('mapBounded isolates one rejection instead of failing the invocation', async () => {
+  const result = await _testing.mapBounded(['ok', 'bad', 'last'], 2, async value => {
+    if (value === 'bad') throw new Error('probe_failed');
+    return value;
+  });
+  assert.equal(result[0], 'ok');
+  assert.deepEqual(result[1], { ok: false, error: 'probe_failed' });
+  assert.equal(result[2], 'last');
+});
+
+test('mapBounded accepts an empty batch without spawning workers', async () => {
+  assert.deepEqual(await _testing.mapBounded([], 6, async value => value), []);
+});
