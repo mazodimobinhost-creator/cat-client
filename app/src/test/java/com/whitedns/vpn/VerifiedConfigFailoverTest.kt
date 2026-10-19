@@ -7,12 +7,13 @@ import org.junit.Test
 
 class VerifiedConfigFailoverTest {
     private val now = 100_000L
-    private fun endpoint(host: String, port: Int, verdict: EndpointVerdict, role: EndpointRole = EndpointRole.CLEAN_IP) =
-        VerifiedEndpoint(host, port, role, EndpointFamily.IPV4, verdict, now - 10, 30, source = "device")
+    private fun endpoint(host: String, port: Int, verdict: EndpointVerdict, role: EndpointRole = EndpointRole.CLEAN_IP,
+                         checkedAtMs: Long = now - 10) =
+        VerifiedEndpoint(host, port, role, EndpointFamily.IPV4, verdict, checkedAtMs, 30, source = "device")
 
     @Test fun routeChangePreservesEveryNonIngressField() {
         val proxyIp = endpoint("103.237.102.191", 11111, EndpointVerdict.VERIFIED, EndpointRole.PROXY_IP)
-        val current = VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", endpoint("1.1.1.1", 80, EndpointVerdict.FAILED),
+        val current = VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", endpoint("1.1.1.1", 80, EndpointVerdict.VERIFIED, checkedAtMs = now - 60_001),
             "worker.example", "/vl?ed=2560", tls = true, fingerprint = "chrome", proxyIp = proxyIp)
         val result = VerifiedConfigFailover.changeRoute(current,
             listOf(endpoint("2.2.2.2", 8443, EndpointVerdict.VERIFIED)), now, 60_000)
@@ -29,7 +30,7 @@ class VerifiedConfigFailoverTest {
     }
 
     @Test fun noReplacementReturnsByteEquivalentUri() {
-        val current = VerifiedConfigUri(TunnelProtocol.TROJAN, "secret", endpoint("1.1.1.1", 443, EndpointVerdict.FAILED),
+        val current = VerifiedConfigUri(TunnelProtocol.TROJAN, "secret", endpoint("1.1.1.1", 443, EndpointVerdict.VERIFIED, checkedAtMs = now - 60_001),
             "worker.example", "/tr")
         val result = VerifiedConfigFailover.changeRoute(current,
             listOf(endpoint("2.2.2.2", 8443, EndpointVerdict.PARTIAL)), now, 60_000)
