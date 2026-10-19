@@ -15,6 +15,7 @@ internal data class RelayCatalogState(
  * a stale datacenter; filters never silently reset the selected country. */
 internal class RelayCatalogController(initialEntries: List<RelayCatalogEntry>) {
     private var entries: List<RelayCatalogEntry> = initialEntries.toList()
+    private var evidenceCache: List<CachedEndpointEvidence> = emptyList()
     var state: RelayCatalogState = RelayCatalogState()
         private set
 
@@ -80,12 +81,16 @@ internal class RelayCatalogController(initialEntries: List<RelayCatalogEntry>) {
     fun topFiveProbePlan(): List<PortProbeCandidate> = RelayCatalog.topForProbe(servers())
 
     /** Updates the exact `role + host + port` row after a bounded runtime probe
-     * without altering any sibling port or role on the same IP. */
+     * without altering any sibling port or role on the same IP, and optionally
+     * caches the runtime evidence under the active `networkId`. */
     fun recordRuntimeResult(
         candidate: PortProbeCandidate,
         evidence: EndpointProbeEvidence,
         checkedAtMs: Long,
         workerOutcome: WorkerRuntimeOutcome? = null,
+        networkId: String? = null,
+        protocol: String = "vless",
+        serverName: String = "worker",
     ): Boolean {
         val cleanHost = candidate.host.removePrefix("[").removeSuffix("]")
         val index = entries.indexOfFirst { row ->
@@ -121,6 +126,54 @@ internal class RelayCatalogController(initialEntries: List<RelayCatalogEntry>) {
         val next = entries.toMutableList()
         next[index] = finalRow
         entries = next
+
+        if (!networkId.isNullOrBlank()) {
+            val key = EndpointEvidenceKey(
+                networkId = networkId,
+                role = finalRow.endpoint.role,
+                host = finalRow.endpoint.host,
+                port = finalRow.endpoint.port,
+                protocol = protocol,
+                serverName = serverName,
+                tls = finalRow.endpoint.port !in EndpointPortDiscovery.cleanPlainPorts,
+            )
+            evidenceCache = EndpointEvidenceCache.put(
+                evidenceCache,
+                CachedEndpointEvidence(key = key, evidence = evidence, checkedAtMs = checkedAtMs),
+            )
+        }
         return true
     }
+
+    /** Recommends ports strictly from fresh runtime evidence measured on
+     * `networkId` for the given `role` (defaulting to `CLEAN_IP`). */
+    fun recommendPorts(
+        networkId: String,
+        nowMs: Long,
+        maxAgeMs: Long = 3_600_000L,
+        role: EndpointRole = EndpointRole.CLEAN_IP,
+    ): List<VerifiedPortRecommendation> = OperatorPortRecommendation.fromEvidence(
+        entries = evidenceCache,
+        currentNetworkId = networkId,
+        nowMs = nowMs,
+        maxAgeMs = maxAgeMs,
+        role = role,
+    )
+
+    /** Builds a typed panel batch payload (`cleanIps`, `proxyIps`, `relayUris`,
+     * `tunnelChains`) from the currently visible server rows. */
+    fun buildVisiblePanelBatch(): PanelEndpointBatchResult =
+        PanelEndpointBatch.build(servers().map { it.endpoint to null })
+
+    /** Verifies read-back for the currently visible server rows after a panel push. */
+    fun verifyVisiblePanelSync(
+        before: List<VerifiedEndpoint>,
+        after: List<VerifiedEndpoint>?,
+        kvAvailable: Boolean,
+    ): PanelEndpointBatchSyncResult = PanelEndpointBatchSync.verify(
+        requested = servers().map { it.endpoint },
+        before = before,
+        after = after,
+        kvAvailable = kvAvailable,
+    )
 }

@@ -80,6 +80,7 @@ class RelayCatalogControllerTest {
             ),
             checkedAtMs = 500L,
             workerOutcome = WorkerRuntimeOutcome(attempted = true, httpStatus = 200, runtimeCompleted = true),
+            networkId = "cell:43211",
         )
         assertTrue(updated)
         val rows = local.servers().associateBy { it.endpoint.authority }
@@ -87,5 +88,24 @@ class RelayCatalogControllerTest {
         assertEquals(RelayRisk.CLEAN, rows.getValue("103.237.102.191:11111").risk)
         assertEquals(EndpointVerdict.PARTIAL, rows.getValue("103.237.102.191:3118").endpoint.verdict)
         assertEquals(RelayRisk.UNKNOWN, rows.getValue("103.237.102.191:3118").risk)
+
+        assertEquals(emptyList<VerifiedPortRecommendation>(), local.recommendPorts("cell:43211", nowMs = 600L))
+        assertEquals(
+            listOf(11111),
+            local.recommendPorts("cell:43211", nowMs = 600L, role = EndpointRole.PROXY_IP).map { it.port },
+        )
+
+        val batch = local.buildVisiblePanelBatch()
+        assertEquals(listOf("103.237.102.191:11111"), batch.payload.proxyIps)
+        assertEquals(1, batch.accepted)
+        assertEquals(1, batch.rejected)
+
+        val sync = local.verifyVisiblePanelSync(
+            before = emptyList(),
+            after = listOf(rows.getValue("103.237.102.191:11111").endpoint),
+            kvAvailable = true,
+        )
+        assertEquals(1, sync.saved)
+        assertEquals(1, sync.rejected)
     }
 }
