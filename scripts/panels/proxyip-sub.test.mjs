@@ -85,11 +85,10 @@ const fromXray = (t) => {
   return (Array.isArray(doc) ? doc : [doc]).map((o) => { let p = ''; const walk = (n) => { if (n && typeof n === 'object') { if (n.wsSettings && n.wsSettings.path) p = n.wsSettings.path; Object.values(n).forEach(walk); } }; walk(o); return { name: o.remarks || '', wsPath: p }; });
 };
 
-const MY_PX = ['203.0.113.10', '203.0.113.11:8443', '198.51.100.7'];
-// beta94: a portless relay is kept but pinned to the default port, so it is
-// stored (and shown) as «host:443» instead of a bare host with an invisible port.
-const MY_PX_STORED = ['203.0.113.10:443', '203.0.113.11:8443', '198.51.100.7:443'];
-const DEFAULT_PX = ['proxyip.cmliussss.net', 'di.nscl.ir', 'tr.diam4.ggff.net'];
+const MY_PX = ['203.0.113.10:443', '203.0.113.11:8443', '198.51.100.7:443'];
+// Every scanner/panel endpoint carries the exact port that was verified.
+const MY_PX_STORED = MY_PX.slice();
+const DEFAULT_PX = ['proxyip.cmliussss.net:443', 'di.nscl.ir:443', 'tr.diam4.ggff.net:443'];
 
 // ═══ A) a panel whose owner added three ProxyIPs ═════════════════════════════
 const A = await panel('A');
@@ -155,7 +154,7 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
 // ═══ B) many ProxyIPs: the limit stays a hard total, the 🎭 part takes at most half ═══
 { const B = await panel('B');
   await B.call('/api/ips', 'POST', { ips: ['104.16.88.20', '104.17.12.4', '172.64.145.9'], source: 'manual' });
-  const many = Array.from({ length: 20 }, (_, i) => '203.0.113.' + (100 + i));
+  const many = Array.from({ length: 20 }, (_, i) => '203.0.113.' + (100 + i) + ':443');
   await B.call('/api/settings', 'PUT', { proxyIps: many });
   const get = async (q) => fromLinks(await (await B.call('/sub/' + UUID + q)).text());
   const e24 = await get('?limit=24');
@@ -229,10 +228,8 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
     check('… and it is used as a SOCKS relay, not as a Cloudflare ProxyIP', P.T.socksRelayList(P.env, r.settings).length === 1 && P.T.proxyIpList(P.env, r.settings, { explicitOnly: true }).length === 0); }
   { const P = await panel('F5');
     const r = await put(P, ['203.0.113.10', '203.0.113.11:8443 # my relay', '[2001:db8::1]:8443', '2001:db8::2', 'proxyip.example.com', '# only a comment', '', 'http://203.0.113.20:8080#HTTP proxy', 'not a host!!', '1.2.3.4:99999'].join('\n'));
-    // beta94: the two portless entries now carry the explicit default port, and the
-    // bare IPv6 is bracketed before it («[2001:db8::2]:443») — it must not read as «host:2».
-    check('valid relays kept: ip, ip:port, [v6]:port, bare v6, dotted name; remarks stripped', JSON.stringify(r.settings.proxyIps) === '["203.0.113.10:443","203.0.113.11:8443","[2001:db8::1]:8443","[2001:db8::2]:443","proxyip.example.com:443"]', JSON.stringify(r.settings.proxyIps));
-    check('everything else is REPORTED, not silently kept (http://, junk words, port out of range)', JSON.stringify(r.ignored) === '["http://203.0.113.20:8080","not","a","host!!","1.2.3.4:99999"]', JSON.stringify(r.ignored));
+    check('only relays carrying an explicit verified port are kept', JSON.stringify(r.settings.proxyIps) === '["203.0.113.11:8443","[2001:db8::1]:8443"]', JSON.stringify(r.settings.proxyIps));
+    check('portless, wrong-protocol, junk and out-of-range entries are REPORTED', JSON.stringify(r.ignored) === '["http://203.0.113.20:8080","not","a","host!!","1.2.3.4:99999","203.0.113.10","2001:db8::2","proxyip.example.com"]', JSON.stringify(r.ignored));
     check('a comment-only line is not an «ignored entry»', Array.isArray(r.ignored) && !r.ignored.includes('only') && !r.ignored.includes('#'));
     const again = await put(P, r.settings.proxyIps);
     check('saving the cleaned list again changes nothing and ignores nothing', JSON.stringify(again.settings.proxyIps) === JSON.stringify(r.settings.proxyIps) && Array.isArray(again.ignored) && again.ignored.length === 0);
