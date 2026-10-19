@@ -213,7 +213,11 @@ class ProxyIpScannerPage(
         val portRowHost = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         fun renderPorts() {
             portRowHost.removeAllViews()
-            listOf(443, 2053, 8443, 80, 8080, 2083, 2087, 2096).forEach { p ->
+            // A bare host is probed as explicit host+port candidates. Keep the
+            // complete ingress matrix plus common relay discovery ports visible;
+            // only the exact successful pair is persisted.
+            (EndpointPortDiscovery.cleanTlsPorts + EndpointPortDiscovery.cleanPlainPorts +
+                EndpointPortDiscovery.relaySuggestedPorts + listOf(11111, 3118)).distinct().forEach { p ->
                 val on = p in selectedPorts
                 portRowHost.addView(chip((if (on) "☑ " else "") + p, on) {
                     if (on) { if (selectedPorts.size > 1) selectedPorts.remove(p) } else selectedPorts.add(p)

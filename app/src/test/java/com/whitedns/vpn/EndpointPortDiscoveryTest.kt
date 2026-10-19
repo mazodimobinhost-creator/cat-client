@@ -13,6 +13,12 @@ class EndpointPortDiscoveryTest {
         assertTrue(PortProbeCandidate("104.16.1.1", 80, PortProbeKind.CLEAN_TLS) !in plan)
     }
 
+    @Test fun standardIngressMatricesAreCompleteAndNeverMixed() {
+        assertEquals(setOf(443, 2053, 2083, 2087, 2096, 8443), EndpointPortDiscovery.cleanTlsPorts.toSet())
+        assertEquals(setOf(80, 2052, 2082, 2086, 2095, 8080, 8880), EndpointPortDiscovery.cleanPlainPorts.toSet())
+        assertEquals(emptySet<Int>(), EndpointPortDiscovery.cleanTlsPorts.toSet().intersect(EndpointPortDiscovery.cleanPlainPorts.toSet()))
+    }
+
     @Test fun customProxyPortsAreNotReplacedByDefaults() {
         val de = EndpointPortDiscovery.plan("103.237.102.191", setOf(PortProbeKind.PROXY_IP), listOf(11111))
         val ca = EndpointPortDiscovery.plan("184.75.221.82", setOf(PortProbeKind.PROXY_IP), listOf(3118))
