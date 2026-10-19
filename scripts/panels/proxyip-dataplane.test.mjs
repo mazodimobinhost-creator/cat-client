@@ -121,9 +121,9 @@ async function run(P, wsPath, frame, opts) {
   return record;
 }
 
-const A = '203.0.113.10';
+const A = '203.0.113.10:443';
 const B = '203.0.113.11:8443';
-const C = '198.51.100.7';
+const C = '198.51.100.7:443';
 const CF_TARGET = ['104.16.5.5', 443]; // isCloudflareIp ⇒ the destination is itself behind Cloudflare ⇒ a ProxyIP is needed
 const SETTINGS = { proxyIps: [A, B, C] };
 
@@ -131,7 +131,7 @@ const SETTINGS = { proxyIps: [A, B, C] };
 { const P = await panel('base', SETTINGS); const ls = await links(P);
   const plain = ls.find((l) => !/🎯|🧦/.test(nameOf(l)) && l.startsWith('vless://'));
   const base = await run(P, clientPath(plain), vlessIp(...CF_TARGET));
-  check('baseline: a plain config to a Cloudflare-hosted target dials the FIRST relay of the panel list', base.dials[0] === A + ':443', base.dials.join(','));
+  check('baseline: a plain config to a Cloudflare-hosted target dials the FIRST relay of the panel list', base.dials[0] === A, base.dials.join(','));
   const pinB = pick(ls, 'vless', '203.0.113.11:8443');
   check('the 🎯 link for ' + B + ' carries a real pin in its client path', /[?&]proxyip=/.test(clientPath(pinB)), clientPath(pinB)); }
 { const P = await panel('vless-pin', SETTINGS); const ls = await links(P);
@@ -140,10 +140,10 @@ const SETTINGS = { proxyIps: [A, B, C] };
 { const P = await panel('trojan-pin', SETTINGS); const ls = await links(P);
   const hash = await P.T.trojanHash(UUID);
   const r = await run(P, clientPath(pick(ls, 'trojan', C)), trojanIp(hash, ...CF_TARGET));
-  check('Trojan 🎯 ' + C + ': the worker dials that relay first (default port = the target port)', r.dials[0] === C + ':443', r.dials.join(',')); }
+  check('Trojan 🎯 ' + C + ': the worker dials that relay first (default port = the target port)', r.dials[0] === C, r.dials.join(',')); }
 { const P = await panel('fallback', SETTINGS); const ls = await links(P);
   const r = await run(P, clientPath(pick(ls, 'vless', '203.0.113.11:8443')), vlessIp(...CF_TARGET), { refuse: new Set(['203.0.113.11']) });
-  check('a pin is a FIRST choice, not a cage: when it refuses, the panel list takes over', r.dials[0] === '203.0.113.11:8443' && r.dials[1] === A + ':443', r.dials.join(',')); }
+  check('a pin is a FIRST choice, not a cage: when it refuses, the panel list takes over', r.dials[0] === '203.0.113.11:8443' && r.dials[1] === A, r.dials.join(',')); }
 { const P = await panel('noncf', SETTINGS); const ls = await links(P);
   const r = await run(P, clientPath(pick(ls, 'vless', '203.0.113.11:8443')), vlessDomain('example.org', 80));
   check('a target that is NOT behind Cloudflare is dialled directly (a ProxyIP is only for Cloudflare-hosted sites)', r.dials[0] === 'example.org:80', r.dials.join(',')); }
