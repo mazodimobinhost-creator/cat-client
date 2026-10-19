@@ -34,6 +34,25 @@ class VerifiedEndpointTest {
         ))
     }
 
+    @Test fun cleanScannerAdapterKeepsMeasuredIpv6Port() {
+        val endpoint = VerifiedEndpointAdapters.fromCleanIpScan(IpScanner.ScanResult(
+            ip = "2606:4700::1", pingMs = 51, sni = "worker.example", tlsOk = true,
+            port = 8443, verifyTls = true, countryCode = "DE"
+        ), now)
+        assertEquals("[2606:4700::1]:8443", endpoint.authority)
+        assertEquals(EndpointVerdict.VERIFIED, endpoint.verdict)
+    }
+
+    @Test fun proxyScannerAdapterDoesNotMislabelHttpOrSocks4AsSocks5() {
+        val http = VerifiedEndpointAdapters.fromProxyScan(
+            ProxyScannerPage.Hit("relay.example", 3128, ProxyScannerPage.Proto.HTTP, 80), now)
+        val socks4 = VerifiedEndpointAdapters.fromProxyScan(
+            ProxyScannerPage.Hit("1.2.3.4", 1080, ProxyScannerPage.Proto.SOCKS4, 90), now)
+        assertEquals(EndpointRole.HTTP_RELAY, http.role)
+        assertEquals("relay.example:3128", http.authority)
+        assertEquals(EndpointRole.SOCKS4, socks4.role)
+    }
+
     @Test fun excludesFailedAndRelayEndpointsFromSubscriptions() {
         val result = VerifiedEndpointSelection.subscriptionEntries(listOf(
             endpoint("1.1.1.1", 443, EndpointFamily.IPV4, EndpointVerdict.FAILED),

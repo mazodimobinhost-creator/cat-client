@@ -1,6 +1,6 @@
 package com.cat.client
 
-internal enum class EndpointRole { CLEAN_IP, PROXY_IP, SOCKS5, HTTP_RELAY }
+internal enum class EndpointRole { CLEAN_IP, PROXY_IP, SOCKS4, SOCKS5, HTTP_RELAY }
 internal enum class EndpointFamily { IPV4, IPV6, DOMAIN }
 internal enum class EndpointVerdict { VERIFIED, PARTIAL, FAILED, UNKNOWN }
 
@@ -56,6 +56,42 @@ internal object VerifiedEndpointParser {
         }
         return VerifiedEndpoint(host, port, role, family, verdict, checkedAtMs, latencyMs, source = source)
     }
+}
+
+internal object VerifiedEndpointAdapters {
+    fun fromCleanIpScan(result: IpScanner.ScanResult, checkedAtMs: Long): VerifiedEndpoint =
+        VerifiedEndpoint(
+            host = result.ip.removePrefix("[").removeSuffix("]"),
+            port = result.port,
+            role = EndpointRole.CLEAN_IP,
+            family = if (result.ip.contains(':')) EndpointFamily.IPV6 else EndpointFamily.IPV4,
+            verdict = if (!result.verifyTls || result.tlsOk) EndpointVerdict.VERIFIED else EndpointVerdict.FAILED,
+            checkedAtMs = checkedAtMs,
+            latencyMs = result.pingMs,
+            countryCode = result.countryCode,
+            source = result.sourceRange ?: "device-clean-ip-scan",
+        )
+
+    fun fromProxyScan(hit: ProxyScannerPage.Hit, checkedAtMs: Long): VerifiedEndpoint =
+        VerifiedEndpoint(
+            host = hit.host.removePrefix("[").removeSuffix("]"),
+            port = hit.port,
+            role = when (hit.proto) {
+                ProxyScannerPage.Proto.SOCKS5 -> EndpointRole.SOCKS5
+                ProxyScannerPage.Proto.SOCKS4 -> EndpointRole.SOCKS4
+                ProxyScannerPage.Proto.HTTP -> EndpointRole.HTTP_RELAY
+            },
+            family = when {
+                hit.host.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(hit.host) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            },
+            verdict = EndpointVerdict.VERIFIED,
+            checkedAtMs = checkedAtMs,
+            latencyMs = hit.latencyMs,
+            countryCode = hit.country.ifBlank { null },
+            source = "device-proxy-scan",
+        )
 }
 
 internal object VerifiedEndpointSelection {
