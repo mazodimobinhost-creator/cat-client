@@ -1,6 +1,8 @@
 package com.cat.client
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProxyIpScannerHitTest {
@@ -29,5 +31,22 @@ class ProxyIpScannerHitTest {
         assertEquals("DE", row.countryCode)
         assertEquals("FRA", row.datacenter)
         assertEquals(RelayRisk.UNKNOWN, row.risk)
+    }
+
+    @Test fun pushOutcomeRequiresExactReadBackPortAndKvPersistence() {
+        val requested = listOf("103.237.102.191:11111", "184.75.221.82:3118")
+        val savedJson = """{"ok":true,"persisted":true,"settings":{"proxyIps":["103.237.102.191:11111","184.75.221.82:3118"]}}"""
+        val saved = ProxyIpScannerPage.PushOutcome.from(savedJson, requested)
+        assertTrue(saved.persisted)
+        assertEquals(2, saved.stored)
+        assertEquals(emptyList<String>(), saved.ignored)
+
+        val rewrittenJson = """{"ok":true,"persisted":true,"settings":{"proxyIps":["103.237.102.191:443","184.75.221.82:3118"]}}"""
+        val rewritten = ProxyIpScannerPage.PushOutcome.from(rewrittenJson, requested)
+        assertEquals(1, rewritten.stored)
+        assertEquals(listOf("103.237.102.191:11111"), rewritten.ignored)
+
+        val noKvJson = """{"ok":true,"persisted":false,"settings":{"proxyIps":["103.237.102.191:11111"]}}"""
+        assertFalse(ProxyIpScannerPage.PushOutcome.from(noKvJson, listOf("103.237.102.191:11111")).persisted)
     }
 }

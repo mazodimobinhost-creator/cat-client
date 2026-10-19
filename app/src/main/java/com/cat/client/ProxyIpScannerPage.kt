@@ -424,22 +424,33 @@ class ProxyIpScannerPage(
     /** What the panel did with what we sent — never leave the owner guessing.
      *  `ignored` = junk the panel refused; `capped` = valid relays dropped because
      *  the 32-entry list was full. The panel reports both; we show both. */
-    private data class PushOutcome(
+    internal data class PushOutcome(
         val stored: Int,
         val ignored: List<String>,
         val capped: List<String>,
+        val persisted: Boolean = true,
     ) {
         companion object {
-            fun from(body: String, asked: Int): PushOutcome {
-                val obj = runCatching { org.json.JSONObject(body) }.getOrNull()
-                fun list(key: String): List<String> {
-                    val arr = obj?.optJSONArray(key) ?: return emptyList()
-                    return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+            fun from(body: String, requested: List<String>): PushOutcome {
+                val snap = PanelSettingsReadBack.parse(body, 0L)
+                if (snap == null) {
+                    return PushOutcome(0, requested, emptyList(), persisted = false)
                 }
-                val settings = obj?.optJSONObject("settings")
-                val arr = settings?.optJSONArray("proxyIps")
-                val stored = arr?.length() ?: asked
-                return PushOutcome(stored, list("ignored"), list("capped"))
+                val storedAuthorities = snap.endpoints
+                    .filter { it.role != EndpointRole.CLEAN_IP }
+                    .map { it.authority.lowercase() }
+                    .toSet()
+                val normalizedRequested = requested.map { it.substringBefore('#').trim() }.filter { it.isNotBlank() }
+                val matched = normalizedRequested.count { it.lowercase() in storedAuthorities }
+                val missing = normalizedRequested.filter {
+                    it.lowercase() !in storedAuthorities && it !in snap.ignored && it !in snap.capped
+                }
+                return PushOutcome(
+                    stored = matched,
+                    ignored = (snap.ignored + missing).distinct(),
+                    capped = snap.capped,
+                    persisted = snap.kvAvailable,
+                )
             }
         }
     }
@@ -553,7 +564,9 @@ class ProxyIpScannerPage(
             val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
             put.disconnect()
             if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
-            return PushOutcome.from(putBody, lines.size)
+            val outcome = PushOutcome.from(putBody, lines)
+            if (!outcome.persisted) throw IllegalStateException("NO_KV")
+            return outcome
         }
         val (get, getBody) = call("/api/settings", "GET", null, cookie)
         val existing = ArrayList<String>()
@@ -582,7 +595,9 @@ class ProxyIpScannerPage(
         val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
         put.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
-        return PushOutcome.from(putBody, merged.size)
+        val outcome = PushOutcome.from(putBody, merged)
+        if (!outcome.persisted) throw IllegalStateException("NO_KV")
+        return outcome
     }
 
     /**
