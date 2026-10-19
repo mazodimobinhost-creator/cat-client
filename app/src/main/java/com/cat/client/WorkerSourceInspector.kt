@@ -9,7 +9,7 @@ internal data class WorkerSourceInspection(
 
 internal object WorkerSourceInspector {
     private val versionPattern = Regex("CAT_PANEL_VERSION\\s*=\\s*['\"]([^'\"]+)['\"]")
-    private val modulePattern = Regex("(?m)^\\s*export\\s+(default|const|function|class|\\{)")
+    private val modulePattern = Regex("(?m)(?:^|[;}])\\s*export\\s+(default|const|function|class|\\{)")
 
     fun inspect(bytes: ByteArray): WorkerSourceInspection {
         if (bytes.isEmpty()) return WorkerSourceInspection(false, false, null, "source-empty")
