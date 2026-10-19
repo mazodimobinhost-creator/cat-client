@@ -6817,7 +6817,7 @@ class MainActivity : Activity() {
         if (scannerSpeedTestRunning) return
         val targets = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
             .filter { it.tlsOk }
-            .distinctBy { it.ip }
+            .distinctBy { it.ip to it.port }
             .take(8)
         if (targets.isEmpty()) {
             Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
@@ -7090,7 +7090,7 @@ class MainActivity : Activity() {
         if (scannerRunning || scannerNeighborRunning) return
         val seeds = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
             .filter { it.tlsOk }
-            .distinctBy { it.ip }
+            .distinctBy { it.ip to it.port }
             .take(3)
         if (seeds.isEmpty()) {
             Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
@@ -7150,7 +7150,7 @@ class MainActivity : Activity() {
                     }
                 }
             }.getOrDefault(emptyList())
-            val added = found.filter { it.tlsOk }.distinctBy { it.ip }.filter { base -> scannerResults.none { it.ip == base.ip } }
+            val added = found.filter { it.tlsOk }.distinctBy { it.ip to it.port }.filter { base -> scannerResults.none { it.ip == base.ip && it.port == base.port } }
             scannerNeighborIps.addAll(added.map { it.ip })
             scannerResults = (scannerResults + added).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
             scannerFilter = "all"
@@ -7217,7 +7217,7 @@ class MainActivity : Activity() {
     private fun scannerPlainList(): String {
         val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
             .filter { it.tlsOk }
-            .distinctBy { it.ip }
+            .distinctBy { it.ip to it.port }
         val v4 = verified.filter { !it.ip.contains(':') }.map { it.ip }
         val v6 = verified.filter { it.ip.contains(':') }.map { it.ip }
         val sb = StringBuilder()
@@ -7609,7 +7609,7 @@ class MainActivity : Activity() {
     private fun shareScannerResults() {
         val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
             .filter { it.tlsOk }
-            .distinctBy { it.ip }
+            .distinctBy { it.ip to it.port }
             .take(60)
         if (verified.isEmpty()) {
             Toast.makeText(this, R.string.scanner_share_empty, Toast.LENGTH_SHORT).show()
