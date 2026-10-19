@@ -63,6 +63,11 @@ class ProxyIpScannerPage(
     private val pickPanel: (suspend () -> String?)? = null,
 ) {
     data class Hit(val host: String, val port: Int, var country: String, val colo: String, val latencyMs: Long, var selected: Boolean = true) {
+        val authority: String get() {
+            val address = if (host.contains(':')) "[${host.removePrefix("[").removeSuffix("]")}]" else host
+            return "$address:$port"
+        }
+
         /** 0..100 from the measured round trip. The relay probe is ONE handshake
          *  plus one trace, so there is no loss/jitter to fold in here — the score
          *  is latency only and says so; the clean-IP scanner reports all three. */
@@ -334,7 +339,7 @@ class ProxyIpScannerPage(
                     addView(text(if (hit.country.length == 2) hit.country.toFlagEmoji() else "🌐", 18f), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) })
                     addView(LinearLayout(ctx).apply {
                         orientation = LinearLayout.VERTICAL
-                        addView(text(if (hit.port == 443) hit.host else "${hit.host}:${hit.port}", 14f, bold = true).apply {
+                        addView(text(hit.authority, 14f, bold = true).apply {
                             typeface = CatClientDataTypeface; maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
                         })
                         addView(text("${hit.country.ifBlank { ctx.getString(R.string.pip_country_unknown) }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
@@ -379,12 +384,9 @@ class ProxyIpScannerPage(
     private fun selectedHits(): List<Hit> = visible().filter { it.selected }
 
     /** «host:port» exactly as it is stored in the panel (IPv6 bracketed). */
-    private fun panelKey(hit: Hit): String {
-        val host = if (hit.host.contains(':')) "[${hit.host.removePrefix("[").removeSuffix("]")}]" else hit.host
-        return "$host:${hit.port}"
-    }
+    private fun panelKey(hit: Hit): String = hit.authority
 
-    private fun selectedLines(): List<String> = selectedHits().map { panelKey(it) }
+    private fun selectedLines(): List<String> = selectedHits().map { panelKey(it) }.distinct()
 
     /** host:port → CC, so the panel can show the flag the scanner actually measured.
      *  Without this the relays arrive country-less and every 🎯 config loses its flag. */
