@@ -25,6 +25,7 @@ class ProxyIpScannerHitTest {
         val row = ProxyIpScannerPage.Hit("103.237.102.191", 11111, "DE", "FRA", 55).toCatalogEntry(100L)
         assertEquals("103.237.102.191:11111", row.endpoint.authority)
         assertEquals(EndpointRole.PROXY_IP, row.endpoint.role)
+        assertEquals(EndpointVerdict.PARTIAL, row.endpoint.verdict)
         assertEquals("DE", row.countryCode)
         assertEquals("FRA", row.datacenter)
         assertEquals(RelayRisk.UNKNOWN, row.risk)

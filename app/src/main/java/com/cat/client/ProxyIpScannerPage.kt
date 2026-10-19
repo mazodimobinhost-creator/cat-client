@@ -83,7 +83,9 @@ class ProxyIpScannerPage(
             }
             return RelayCatalogEntry(
                 endpoint = VerifiedEndpoint(cleanHost, port, EndpointRole.PROXY_IP, family,
-                    EndpointVerdict.VERIFIED, checkedAtMs, latencyMs, countryCode = country.ifBlank { null },
+                    // The scanner's relay trace proves the host:port responds, but only
+                    // a Worker tunnel runtime may promote it to VERIFIED.
+                    EndpointVerdict.PARTIAL, checkedAtMs, latencyMs, countryCode = country.ifBlank { null },
                     source = "device-proxyip-scan"),
                 countryCode = country.ifBlank { "??" },
                 countryName = country.ifBlank { "Unknown" },
