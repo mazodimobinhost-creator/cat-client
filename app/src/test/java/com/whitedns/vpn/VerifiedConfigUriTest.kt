@@ -28,6 +28,31 @@ class VerifiedConfigUriTest {
         assertEquals(1, Regex("\\[2606:4700::1]").findAll(uri).count())
     }
 
+    @Test fun proxyIpKeepsItsIndependentNonStandardPortInWorkerPath() {
+        val ingress = endpoint("104.16.1.1", 443, EndpointFamily.IPV4)
+        val germany = VerifiedEndpoint("103.237.102.191", 11111, EndpointRole.PROXY_IP,
+            EndpointFamily.IPV4, EndpointVerdict.VERIFIED, 1L, source = "manual")
+        val canada = VerifiedEndpoint("184.75.221.82", 3118, EndpointRole.PROXY_IP,
+            EndpointFamily.IPV4, EndpointVerdict.VERIFIED, 1L, source = "manual")
+
+        val deUri = VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", ingress,
+            "worker.example", "/vl", proxyIp = germany).encode()
+        val caUri = VerifiedConfigUri(TunnelProtocol.TROJAN, "secret", ingress,
+            "worker.example", "/tr?ed=2560", proxyIp = canada).encode()
+
+        assertTrue(deUri.startsWith("vless://uuid@104.16.1.1:443?"))
+        assertTrue(deUri.contains("path=%2Fvl%3Fproxyip%3D103.237.102.191%3A11111"))
+        assertTrue(caUri.contains("path=%2Ftr%3Fed%3D2560%26proxyip%3D184.75.221.82%3A3118"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun socksCannotBePassedAsProxyIp() {
+        val socks = VerifiedEndpoint("relay.example", 1080, EndpointRole.SOCKS5,
+            EndpointFamily.DOMAIN, EndpointVerdict.VERIFIED, 1L, source = "scan")
+        VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", endpoint("1.1.1.1", 443, EndpointFamily.IPV4),
+            "worker.example", "/vl", proxyIp = socks)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun failedEndpointCannotGenerateConfig() {
         VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", VerifiedEndpoint("1.1.1.1", 443,
