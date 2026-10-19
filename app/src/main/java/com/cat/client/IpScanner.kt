@@ -681,7 +681,7 @@ object IpScanner {
         /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
         val panelLine: String get() = if (countryCode != null) "$authority#$countryCode" else authority
 
-        fun toCatalogEntry(checkedAtMs: Long): RelayCatalogEntry {
+        internal fun toCatalogEntry(checkedAtMs: Long): RelayCatalogEntry {
             val endpoint = VerifiedEndpointAdapters.fromCleanIpScan(this, checkedAtMs)
             return RelayCatalogEntry(
                 endpoint = endpoint,

@@ -74,7 +74,7 @@ class ProxyIpScannerPage(
         val score: Int get() = ((600.0 - latencyMs.coerceAtMost(600)) / (600.0 - 50.0) * 100.0)
             .coerceIn(0.0, 100.0).toInt()
 
-        fun toCatalogEntry(checkedAtMs: Long): RelayCatalogEntry {
+        internal fun toCatalogEntry(checkedAtMs: Long): RelayCatalogEntry {
             val cleanHost = host.removePrefix("[").removeSuffix("]")
             val family = when {
                 cleanHost.contains(':') -> EndpointFamily.IPV6
