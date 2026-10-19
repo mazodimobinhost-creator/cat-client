@@ -10,8 +10,9 @@ internal data class PanelSettingsSnapshot(
     val capped: List<String> = emptyList(),
 )
 
-/** Parses real `/api/settings` GET/PUT JSON responses into verified endpoints so
- * panel writes are checked against what the Worker actually stored in KV. */
+/** Parses real `/api/settings` GET/PUT JSON responses into verified endpoints and
+ * serializes typed payloads so panel writes are checked against what the Worker
+ * actually stored in KV. */
 internal object PanelSettingsReadBack {
     fun parse(rawJson: String, checkedAtMs: Long): PanelSettingsSnapshot? {
         val root = runCatching { JSONObject(rawJson) }.getOrNull() ?: return null
@@ -28,18 +29,39 @@ internal object PanelSettingsReadBack {
                 clean, EndpointRole.CLEAN_IP, EndpointVerdict.VERIFIED, checkedAtMs, "panel-readback",
             )?.let(endpoints::add)
         }
-        for (raw in settings.optJSONArray("proxyIps").strings()) {
+        val rawProxyAndRelays = settings.optJSONArray("proxyIps").strings() +
+            settings.optJSONArray("relayUris").strings() +
+            settings.optJSONArray("relays").strings()
+        for (raw in rawProxyAndRelays) {
             parseProxyOrRelay(raw, checkedAtMs)?.let(endpoints::add)
         }
-        val chain = settings.optString("chain", "").trim()
-        if (chain.isNotEmpty()) {
-            parseChainEndpoint(chain, checkedAtMs)?.let(endpoints::add)
+        val rawChains = settings.optJSONArray("tunnelChains").strings() +
+            settings.optJSONArray("chains").strings() +
+            settings.optString("chain", "").lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        for (raw in rawChains) {
+            parseChainEndpoint(raw, checkedAtMs)?.let(endpoints::add)
         }
         return PanelSettingsSnapshot(
             kvAvailable = kvOk,
-            endpoints = endpoints,
+            endpoints = endpoints.distinctBy { Triple(it.role, it.host.lowercase(), it.port) },
             ignored = root.optJSONArray("ignored").strings(),
             capped = root.optJSONArray("capped").strings(),
+        )
+    }
+
+    fun verifySingle(
+        requested: VerifiedEndpoint,
+        beforeJson: String?,
+        afterJson: String?,
+        checkedAtMs: Long,
+    ): PanelEndpointSyncResult {
+        val before = beforeJson?.let { parse(it, checkedAtMs)?.endpoints }.orEmpty()
+        val after = afterJson?.let { parse(it, checkedAtMs) }
+        return PanelEndpointSync.verify(
+            requested = requested,
+            before = before,
+            after = after?.endpoints,
+            kvAvailable = after?.kvAvailable == true,
         )
     }
 
@@ -57,6 +79,33 @@ internal object PanelSettingsReadBack {
             after = after?.endpoints,
             kvAvailable = after?.kvAvailable == true,
         )
+    }
+
+    /** Builds a non-destructive JSON body for `PUT /api/settings`, merging any
+     * existing verified endpoints on distinct `role + host + port` with the new
+     * typed `PanelEndpointPayload`. */
+    fun toSettingsPutBody(
+        payload: PanelEndpointPayload,
+        existing: PanelSettingsSnapshot? = null,
+    ): String {
+        val existingBatch = existing?.let {
+            PanelEndpointBatch.build(it.endpoints.map { ep -> ep to null }).payload
+        } ?: PanelEndpointPayload()
+
+        val cleanIps = (existingBatch.cleanIps + payload.cleanIps).distinct()
+        val proxyIps = (existingBatch.proxyIps + payload.proxyIps).distinct()
+        val relayUris = (existingBatch.relayUris + payload.relayUris).distinct()
+        val tunnelChains = (existingBatch.tunnelChains + payload.tunnelChains).distinct()
+
+        return JSONObject().apply {
+            if (cleanIps.isNotEmpty()) put("ips", JSONArray(cleanIps))
+            if (proxyIps.isNotEmpty()) put("proxyIps", JSONArray(proxyIps))
+            if (relayUris.isNotEmpty()) put("relayUris", JSONArray(relayUris))
+            if (tunnelChains.isNotEmpty()) {
+                put("tunnelChains", JSONArray(tunnelChains))
+                put("chain", tunnelChains.first())
+            }
+        }.toString()
     }
 
     private fun parseProxyOrRelay(raw: String, checkedAtMs: Long): VerifiedEndpoint? {
