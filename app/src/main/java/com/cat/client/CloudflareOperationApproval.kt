@@ -13,6 +13,7 @@ internal enum class CloudflareOperation {
     REMOVE_BINDING,
     RESTORE_BACKUP,
     DOWNGRADE_WORKER,
+    OBFUSCATE_ARTIFACT,
     CLEAN_REBUILD,
     DELETE_WORKER,
 }
@@ -46,6 +47,7 @@ internal object CloudflareOperationApprovalPolicy {
         CloudflareOperation.REMOVE_BINDING,
         CloudflareOperation.RESTORE_BACKUP,
         CloudflareOperation.DOWNGRADE_WORKER,
+        CloudflareOperation.OBFUSCATE_ARTIFACT,
     )
     private val destructive = setOf(
         CloudflareOperation.CLEAN_REBUILD,
