@@ -31,6 +31,33 @@ internal data class VerifiedEndpoint(
         verdict == EndpointVerdict.VERIFIED && checkedAtMs in (nowMs - maxAgeMs)..nowMs
 }
 
+internal object VerifiedEndpointParser {
+    /** Parses only explicit host:port authorities. Missing ports are rejected so callers
+     * cannot silently replace the port measured by the scanner. */
+    fun parseAuthority(
+        value: String,
+        role: EndpointRole,
+        verdict: EndpointVerdict,
+        checkedAtMs: Long,
+        source: String,
+        latencyMs: Long? = null,
+    ): VerifiedEndpoint? {
+        val raw = value.trim()
+        val ipv6 = Regex("^\\[([^]]+)]:(\\d{1,5})$").matchEntire(raw)
+        val regular = Regex("^([^:]+):(\\d{1,5})$").matchEntire(raw)
+        val match = ipv6 ?: regular ?: return null
+        val host = match.groupValues[1].trim()
+        val port = match.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        if (host.isBlank() || host.any { it.isWhitespace() }) return null
+        val family = when {
+            ipv6 != null -> EndpointFamily.IPV6
+            Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(host) -> EndpointFamily.IPV4
+            else -> EndpointFamily.DOMAIN
+        }
+        return VerifiedEndpoint(host, port, role, family, verdict, checkedAtMs, latencyMs, source = source)
+    }
+}
+
 internal object VerifiedEndpointSelection {
     fun subscriptionEntries(endpoints: List<VerifiedEndpoint>, nowMs: Long, maxAgeMs: Long): List<VerifiedEndpoint> =
         endpoints.filter { it.role == EndpointRole.CLEAN_IP && it.eligibleForSubscription(nowMs, maxAgeMs) }

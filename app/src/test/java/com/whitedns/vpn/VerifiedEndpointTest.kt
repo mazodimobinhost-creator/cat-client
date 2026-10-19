@@ -19,6 +19,21 @@ class VerifiedEndpointTest {
         assertEquals("[2606:4700::1]:2053", endpoint("[2606:4700::1]", 2053, EndpointFamily.IPV6).authority)
     }
 
+    @Test fun parserRequiresAndPreservesExplicitPort() {
+        assertEquals("proxy.example:8443", VerifiedEndpointParser.parseAuthority(
+            "proxy.example:8443", EndpointRole.PROXY_IP, EndpointVerdict.VERIFIED, now, "panel"
+        )?.authority)
+        assertEquals("[2606:4700::1]:2053", VerifiedEndpointParser.parseAuthority(
+            "[2606:4700::1]:2053", EndpointRole.CLEAN_IP, EndpointVerdict.VERIFIED, now, "scanner"
+        )?.authority)
+        assertEquals(null, VerifiedEndpointParser.parseAuthority(
+            "proxy.example", EndpointRole.PROXY_IP, EndpointVerdict.VERIFIED, now, "panel"
+        ))
+        assertEquals(null, VerifiedEndpointParser.parseAuthority(
+            "1.1.1.1:0", EndpointRole.CLEAN_IP, EndpointVerdict.VERIFIED, now, "scanner"
+        ))
+    }
+
     @Test fun excludesFailedAndRelayEndpointsFromSubscriptions() {
         val result = VerifiedEndpointSelection.subscriptionEntries(listOf(
             endpoint("1.1.1.1", 443, EndpointFamily.IPV4, EndpointVerdict.FAILED),
