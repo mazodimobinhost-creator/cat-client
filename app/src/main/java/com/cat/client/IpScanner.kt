@@ -672,13 +672,14 @@ object IpScanner {
                 return capped.toInt()
             }
 
-        /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
-        val panelLine: String get() {
-            // Bracket IPv6 literals so the panel can distinguish the address's
-            // final hextet from the verified TCP port (e.g. [2606:4700::1]:2053).
+        /** Canonical scanner identity. The measured port is never dropped. */
+        val authority: String get() {
             val address = if (ip.contains(':')) "[${ip.removePrefix("[").removeSuffix("]")}]" else ip
-            return if (countryCode != null) "$address:$port#$countryCode" else "$address:$port"
+            return "$address:$port"
         }
+
+        /** `addr:port#CC` — Cat Panel pins the address to exactly the port this row verified. */
+        val panelLine: String get() = if (countryCode != null) "$authority#$countryCode" else authority
 
         /** Colour band used by the UI: green < 300 ms, amber < 700 ms, red above. */
         val band: Int get() = when {

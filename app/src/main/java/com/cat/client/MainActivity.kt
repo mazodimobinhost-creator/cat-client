@@ -7212,14 +7212,14 @@ class MainActivity : Activity() {
         }
     }
 
-    /** 📋 BPB-style plain list: bare IPv4 lines then bare IPv6 lines — ready to
-     * paste into any panel (ours or BPB's) manual-import box. */
+    /** 📋 Port-pinned list grouped by address family. Dropping ports here used to
+     * turn multiple verified rows into ambiguous bare IPs on paste/import. */
     private fun scannerPlainList(): String {
         val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
             .filter { it.tlsOk }
             .distinctBy { it.ip to it.port }
-        val v4 = verified.filter { !it.ip.contains(':') }.map { it.ip }
-        val v6 = verified.filter { it.ip.contains(':') }.map { it.ip }
+        val v4 = verified.filter { !it.ip.contains(':') }.map { it.authority }
+        val v6 = verified.filter { it.ip.contains(':') }.map { it.authority }
         val sb = StringBuilder()
         if (v4.isNotEmpty()) sb.append("IPv4:\n\n").append(v4.joinToString("\n")).append("\n")
         if (v6.isNotEmpty()) {

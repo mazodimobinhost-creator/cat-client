@@ -14,6 +14,7 @@ class IpScannerPanelLineTest {
             countryCode = "DE",
         )
 
+        assertEquals("104.16.1.1:2053", result.authority)
         assertEquals("104.16.1.1:2053#DE", result.panelLine)
     }
 
@@ -27,6 +28,7 @@ class IpScannerPanelLineTest {
             countryCode = "DE",
         )
 
+        assertEquals("[2606:4700::1]:2053", result.authority)
         assertEquals("[2606:4700::1]:2053#DE", result.panelLine)
     }
 
