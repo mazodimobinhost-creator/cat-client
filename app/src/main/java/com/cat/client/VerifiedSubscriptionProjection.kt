@@ -22,8 +22,8 @@ internal object VerifiedSubscriptionProjector {
             server = placement.server,
             serverPort = placement.port,
             hostHeader = placement.hostHeader,
-            serverName = placement.serverName,
-            path = config.path,
+            serverName = config.serverName,
+            path = config.effectivePath,
             tls = config.tls,
             fingerprint = config.fingerprint,
         )
@@ -39,32 +39,43 @@ internal object VerifiedSubscriptionProjector {
             "servername" to p.serverName,
             "network" to "ws",
             "ws-opts" to mapOf("path" to p.path, "headers" to mapOf("Host" to p.hostHeader)),
-        ).apply { p.fingerprint?.let { put("client-fingerprint", it) } }
+        ).apply { p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("client-fingerprint", it) } }
     }
 
     fun singBox(config: VerifiedConfigUri): Map<String, Any> = project(config).requireProjection().let { p ->
+        val tlsMap = linkedMapOf<String, Any>(
+            "enabled" to p.tls,
+            "server_name" to p.serverName,
+        ).apply {
+            p.fingerprint?.takeIf { it.isNotBlank() }?.let {
+                put("utls", mapOf("enabled" to true, "fingerprint" to it))
+            }
+        }
         linkedMapOf(
             "type" to p.protocol.scheme,
             "server" to p.server,
             "server_port" to p.serverPort,
             (if (p.protocol == TunnelProtocol.VLESS) "uuid" else "password") to p.credential,
-            "tls" to mapOf("enabled" to p.tls, "server_name" to p.serverName),
+            "tls" to tlsMap,
             "transport" to mapOf("type" to "ws", "path" to p.path, "headers" to mapOf("Host" to p.hostHeader)),
         )
     }
 
     fun xray(config: VerifiedConfigUri): Map<String, Any> = project(config).requireProjection().let { p ->
+        val stream = linkedMapOf<String, Any>(
+            "security" to if (p.tls) "tls" else "none",
+            "serverName" to p.serverName,
+            "network" to "ws",
+            "wsSettings" to mapOf("path" to p.path, "headers" to mapOf("Host" to p.hostHeader)),
+        ).apply {
+            p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("fingerprint", it) }
+        }
         linkedMapOf(
             "protocol" to p.protocol.scheme,
             "address" to p.server,
             "port" to p.serverPort,
             (if (p.protocol == TunnelProtocol.VLESS) "id" else "password") to p.credential,
-            "streamSettings" to mapOf(
-                "security" to if (p.tls) "tls" else "none",
-                "serverName" to p.serverName,
-                "network" to "ws",
-                "wsSettings" to mapOf("path" to p.path, "headers" to mapOf("Host" to p.hostHeader)),
-            ),
+            "streamSettings" to stream,
         )
     }
 

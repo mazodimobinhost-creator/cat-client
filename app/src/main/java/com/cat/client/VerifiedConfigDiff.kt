@@ -10,7 +10,7 @@ internal object VerifiedConfigDiff {
         addIfChanged("server", before.endpoint.host, after.endpoint.host)
         addIfChanged("port", before.endpoint.port.toString(), after.endpoint.port.toString())
         addIfChanged("host", before.workerDomain, after.workerDomain)
-        addIfChanged("sni", before.workerDomain, after.workerDomain)
+        addIfChanged("sni", before.serverName, after.serverName)
         addIfChanged("path", before.path, after.path)
         addIfChanged("tls", before.tls.toString(), after.tls.toString())
         addIfChanged("fingerprint", before.fingerprint, after.fingerprint)

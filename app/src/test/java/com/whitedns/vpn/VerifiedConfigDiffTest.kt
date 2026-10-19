@@ -25,6 +25,15 @@ class VerifiedConfigDiffTest {
         assertEquals(listOf(ConfigFieldChange("proxyIp", null, "184.75.221.82:3118")), VerifiedConfigDiff.between(before, after))
     }
 
+    @Test fun sniChangeIsReportedSeparatelyFromWorkerHost() {
+        val before = VerifiedConfigUri(TunnelProtocol.VLESS, "uuid", endpoint("1.1.1.1", 443), "worker.example", "/vl")
+        val after = before.copy(serverName = "scanner.worker.example")
+        assertEquals(
+            listOf(ConfigFieldChange("sni", "worker.example", "scanner.worker.example")),
+            VerifiedConfigDiff.between(before, after),
+        )
+    }
+
     @Test fun diffNeverLeaksCredentials() {
         val before = VerifiedConfigUri(TunnelProtocol.TROJAN, "old-secret", endpoint("1.1.1.1", 443), "worker.example", "/tr")
         val after = before.copy(credential = "new-secret")
