@@ -933,6 +933,45 @@ object CloudflareWorker {
         CfTokenPermissions(true, first.getString("id"), first.optString("name", ""), emptyList())
     }
 
+    suspend fun deployRawSource(
+        context: Context,
+        token: String,
+        accountId: String,
+        workerName: String,
+        sourceUrl: String,
+        approvedSha256: String,
+        panelUser: String = "",
+        panelPassword: String = "",
+    ): DeploymentResult {
+        val downloaded = WorkerSourceDownloader.download(sourceUrl)
+        if (!downloaded.sha256.equals(approvedSha256, ignoreCase = true)) {
+            throw WorkerSourceDownloadException("approved-hash-mismatch")
+        }
+        val inspection = WorkerSourceInspector.inspect(downloaded.bytes)
+        if (!inspection.valid) throw WorkerSourceDownloadException(inspection.reason ?: "source-invalid")
+        val approval = CloudflareOperationApprovalPolicy.decide(
+            CloudflareOperationPreview(
+                operation = CloudflareOperation.CREATE_WORKER,
+                workerName = workerName,
+                targetVersion = inspection.version,
+                artifactSha256 = downloaded.sha256,
+            ),
+            CloudflareOperationApproval(previewAccepted = true),
+        )
+        if (approval is CloudflareApprovalDecision.Blocked) {
+            throw WorkerSourceDownloadException(approval.reason)
+        }
+        return deployBuiltIn(
+            context = context,
+            token = token,
+            accountId = accountId,
+            workerName = workerName,
+            panelUser = panelUser,
+            panelPassword = panelPassword,
+            workerScriptOverride = downloaded.bytes.toString(Charsets.UTF_8),
+        )
+    }
+
     suspend fun deployBuiltIn(
         context: Context,
         token: String,
@@ -940,6 +979,7 @@ object CloudflareWorker {
         workerName: String,
         panelUser: String = "",
         panelPassword: String = "",
+        workerScriptOverride: String? = null,
     ): DeploymentResult = withContext(Dispatchers.IO) {
         // 1. Account workers.dev subdomain: read it, create it when missing.
         val subdomain = resolveWorkersSubdomain(token, accountId)
@@ -956,7 +996,7 @@ object CloudflareWorker {
         val kvId = kvAttempt.getOrNull()
 
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
-        val script = builtInWorkerScript(context)
+        val script = workerScriptOverride ?: builtInWorkerScript(context)
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
         // Admin gate bindings: with a username set, the panel login asks for
