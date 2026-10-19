@@ -1,6 +1,6 @@
 package com.cat.client
 
-internal enum class EndpointRole { CLEAN_IP, PROXY_IP, SOCKS4, SOCKS5, HTTP_RELAY }
+internal enum class EndpointRole { CLEAN_IP, PROXY_IP, SOCKS4, SOCKS5, HTTP_RELAY, VLESS_CHAIN, TROJAN_CHAIN }
 internal enum class EndpointFamily { IPV4, IPV6, DOMAIN }
 internal enum class EndpointVerdict { VERIFIED, PARTIAL, FAILED, UNKNOWN }
 
@@ -36,7 +36,7 @@ internal data class VerifiedEndpoint(
         EndpointRole.SOCKS4 -> "socks4://$authority"
         EndpointRole.SOCKS5 -> "socks5://$authority"
         EndpointRole.HTTP_RELAY -> "http://$authority"
-        EndpointRole.CLEAN_IP, EndpointRole.PROXY_IP -> null
+        EndpointRole.CLEAN_IP, EndpointRole.PROXY_IP, EndpointRole.VLESS_CHAIN, EndpointRole.TROJAN_CHAIN -> null
     }
 
     fun eligibleForSubscription(nowMs: Long, maxAgeMs: Long): Boolean =
