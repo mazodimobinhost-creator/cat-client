@@ -33,6 +33,30 @@ class IpScannerPanelLineTest {
     }
 
     @Test
+    fun verifiedScanFeedsNativeCatalogWithItsExactPort() {
+        val result = IpScanner.ScanResult(
+            ip = "104.16.1.1", pingMs = 42, sni = "worker.example", port = 8443,
+            countryCode = "DE", countryName = "Germany", colo = "FRA", verifyTls = true, tlsOk = true,
+        )
+        val row = result.toCatalogEntry(100L)
+        assertEquals("104.16.1.1:8443", row.endpoint.authority)
+        assertEquals(EndpointRole.CLEAN_IP, row.endpoint.role)
+        assertEquals(EndpointVerdict.VERIFIED, row.endpoint.verdict)
+        assertEquals("Germany", row.countryName)
+        assertEquals("FRA", row.datacenter)
+        assertEquals(RelayRisk.UNKNOWN, row.risk)
+    }
+
+    @Test
+    fun failedTlsScanIsNotPromotedByCatalogConversion() {
+        val result = IpScanner.ScanResult(
+            ip = "104.16.1.1", pingMs = 42, sni = "worker.example", port = 443,
+            verifyTls = true, tlsOk = false,
+        )
+        assertEquals(EndpointVerdict.FAILED, result.toCatalogEntry(100L).endpoint.verdict)
+    }
+
+    @Test
     fun alreadyBracketedIpv6IsNotDoubleBracketed() {
         val result = IpScanner.ScanResult(
             ip = "[2606:4700::1]",
