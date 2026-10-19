@@ -73,6 +73,25 @@ class ProxyIpScannerPage(
          *  is latency only and says so; the clean-IP scanner reports all three. */
         val score: Int get() = ((600.0 - latencyMs.coerceAtMost(600)) / (600.0 - 50.0) * 100.0)
             .coerceIn(0.0, 100.0).toInt()
+
+        fun toCatalogEntry(checkedAtMs: Long): RelayCatalogEntry {
+            val cleanHost = host.removePrefix("[").removeSuffix("]")
+            val family = when {
+                cleanHost.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            }
+            return RelayCatalogEntry(
+                endpoint = VerifiedEndpoint(cleanHost, port, EndpointRole.PROXY_IP, family,
+                    EndpointVerdict.VERIFIED, checkedAtMs, latencyMs, countryCode = country.ifBlank { null },
+                    source = "device-proxyip-scan"),
+                countryCode = country.ifBlank { "??" },
+                countryName = country.ifBlank { "Unknown" },
+                datacenter = colo.ifBlank { "Unknown" },
+                asn = null,
+                risk = RelayRisk.UNKNOWN,
+            )
+        }
     }
 
     private val ctx: Context = activity
