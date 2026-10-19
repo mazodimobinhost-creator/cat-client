@@ -381,7 +381,7 @@ let user;
   check('countryFallback=none → clash root is select (no auto-leave)', /name: "🐱 Cat"\n    type: select/.test(y2));
   // proxy ip order honours preferred country
   // beta94: both relays are pinned to the default port and the country tag follows.
-  const st = T.normalizeSettings({ country:'TR', proxyIps:['a.example','b.example'], proxyCountries:{ 'b.example':'TR' } });
+  const st = T.normalizeSettings({ country:'TR', proxyIps:['a.example:443','b.example:443'], proxyCountries:{ 'b.example:443':'TR' } });
   check('proxyIpList puts preferred-country proxy first', T.proxyIpList({}, st)[0]==='b.example:443' && st.proxyCountries['b.example:443']==='TR', JSON.stringify(T.proxyIpList({}, st)));
   const colo = await req('/api/colo'); check('/api/colo is public JSON', colo.status===200 && (await colo.json()).ok===true);
   check('helpers', T.splitAddrTag('1.2.3.4#de').cc==='DE' && T.normalizeCountry('xx')==='' && T.countryLabel('')==='🌐 Other');
@@ -703,7 +703,7 @@ let user;
     const imp = await (await req('/api/prepos', { method: 'POST', headers: auth, body: { action: 'import', cc: 'US', limit: 8 } })).json();
     check('proxy import by country', imp.ok && imp.added >= 1 && imp.total >= 1, JSON.stringify(imp));
     // auto-append to sub (?proxyip= entries), ?norepo=1 opt-out, off default
-    await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyRepoAuto: true, proxyIps: ['203.0.113.1'] } });
+    await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyRepoAuto: true, proxyIps: ['203.0.113.1:443'] } });
     const subAuto = await (await req('/sub/' + MASTER + '?norepo=0', { env: ENV })).text();
     // port-bearing relay: colon is double-encoded in the raw link (%253A)
     check('proxyRepoAuto on → appended port-pinned ProxyIP in sub', /proxyip(?:%3D|=)198\.51\.30\.1(?:%253A|%3A|:)443/.test(subAuto), 'searched');
@@ -743,13 +743,13 @@ let user;
         JSON.stringify(prepos.ips));
       check('prepos: pool entries keep their country tag', prepos.ips.some((x) => String(x).includes('#DE')), JSON.stringify(prepos.ips));
     }
-    const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
+    const stpx = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
     // beta94: the relay carries its default port, and its country tag moved with it.
     check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
     { // spoofing is opt-in: the rotation pool (and the ' · <sni>' remark suffix) only exist while sniFront is on
-      const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
+      const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
       const pxf = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, {}).entries.filter((e) => e.name.includes('🎯'));
       check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1:443 · '), pxf[0] && pxf[0].name); }
     // Path params must be real query params: one '?' only, `ed` and `proxyip`
@@ -766,7 +766,7 @@ let user;
       // («%253A»); the worker decodes it twice by design — the test mirrors that.
       return decodeURIComponent(String(params.get('proxyip') || '')) === '203.0.113.1:443' && params.has('ed');
     }), pxs[0] && pxs[0].link);
-    const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
+    const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
     check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
@@ -887,7 +887,7 @@ let user;
     check('sniRotate=false → single shared SNI (skk.moe default)', snisOff.size === 1 && snisOff.has('skk.moe'), [...snisOff].join(','));
     const pool = T.sniPoolOf('panelx.workers.dev', {}, { sniPool: ['panelx.workers.dev', 'skk.moe', 'BAD!!', 'www.visa.com', 'www.visa.com'] });
     check('custom SNI pool: panel host + skk.moe + invalid filtered, deduped', pool.length === 1 && pool[0] === 'www.visa.com', pool.join(','));
-    const stD = T.normalizeSettings({ useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, proxyIps: ['203.0.113.1'], domMap: { 'panelx.workers.dev': '104.17.24.14' } });
+    const stD = T.normalizeSettings({ useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, proxyIps: ['203.0.113.1:443'], domMap: { 'panelx.workers.dev': '104.17.24.14' } });
     const outD = T.buildConfigEntries('panelx.workers.dev', ENV, stD, 'u1', null, {});
     const pxs = outD.entries.filter((e) => e.name.includes('🎯'));
     check('🎯 configs dial the domMap IP of the worker host', pxs.length > 0 && pxs.every((e) => e.addr === '104.17.24.14'), pxs.map((e) => e.addr).join(','));
