@@ -24,7 +24,13 @@ data class IpHealthEntry(
     val countryName: String? = null,
     val checkedAt: Long = 0,
     val fails: Int = 0,
-)
+) {
+    val authority: String
+        get() {
+            val clean = ip.removePrefix("[").removeSuffix("]")
+            return if (clean.contains(':')) "[$clean]:$port" else "$clean:$port"
+        }
+}
 
 /** Rotation log entry: an evicted IP and (optionally) the replacement drawn for it. */
 data class IpRotationEvent(
@@ -209,7 +215,7 @@ object IpHealthMonitor {
         val removed = mutableListOf<IpRotationEvent>()
         coroutineScope {
             entries.map { entry ->
-                async { entry to IpScanner.probe(entry.ip, options) }
+                async { entry to IpScanner.probe(entry.ip, options.copy(port = entry.port)) }
             }.forEach { deferred ->
                 val (entry, result) = deferred.await()
                 val nowStamp = System.currentTimeMillis()
@@ -234,7 +240,7 @@ object IpHealthMonitor {
                     // the winning SNI is what this IP's config will carry.
                     var bestMs = result.pingMs
                     for (alt in (extraSnis + IpScanner.RECOMMENDED_SNIS).distinct().filter { it != best.sni }.take(3)) {
-                        val altResult = IpScanner.probe(entry.ip, options.copy(sni = alt))
+                        val altResult = IpScanner.probe(entry.ip, options.copy(port = entry.port, sni = alt))
                         if (altResult != null && altResult.tlsOk && altResult.pingMs < bestMs) {
                             bestMs = altResult.pingMs
                             best = best.copy(sni = alt, pingMs = altResult.pingMs, tlsMs = altResult.tlsMs)

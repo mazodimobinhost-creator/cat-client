@@ -7008,7 +7008,7 @@ class MainActivity : Activity() {
         val plan = withContext(Dispatchers.IO) {
             val options = IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)
             CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network, country = IpHealthStore(this@MainActivity).preferredCountry) { candidate ->
-                val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }))
+                val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }, port = candidate.port))
                 val ok = r != null && r.tlsOk && r.pingMs <= IpHealthMonitor.SLOW_MS
                 genomes.record(candidate.ip, Observation(System.currentTimeMillis(), network, r?.pingMs ?: -1L, r?.tlsMs ?: -1L, ok, if (ok) FailureClass.OK else CognitiveEngine.classify(r, IpHealthMonitor.SLOW_MS, genomes.genome(candidate.ip))))
                 ok
@@ -7016,7 +7016,9 @@ class MainActivity : Activity() {
         } ?: return
         val started = System.currentTimeMillis()
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps((listOf(plan.to.ip) + frontingIps.filter { it != plan.to.ip }).joinToString(","))
+        frontingIps = FrontingIpPolicy.normalizeIps(
+            (listOf(plan.to.authority) + frontingIps.filter { it != plan.to.authority && it != plan.to.ip }).take(5).joinToString(","),
+        )
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         genomes.updateStats {
@@ -7027,12 +7029,12 @@ class MainActivity : Activity() {
                 lastRecoveryMs = System.currentTimeMillis() - started,
                 lastFailoverAt = started,
                 lastFailoverFrom = plan.from,
-                lastFailoverTo = plan.to.ip,
+                lastFailoverTo = plan.to.authority,
                 lastFailoverReason = plan.reason,
             )
         }
         renderScannerIpHealth()
-        Toast.makeText(this, getString(if (plan.countryChanged) R.string.engine_failover_country_toast else R.string.engine_failover_toast, plan.from, plan.to.ip, plan.reason), Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(if (plan.countryChanged) R.string.engine_failover_country_toast else R.string.engine_failover_toast, plan.from, plan.to.authority, plan.reason), Toast.LENGTH_LONG).show()
     }
 
     private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
@@ -10837,7 +10839,7 @@ class MainActivity : Activity() {
         store.preferredCountry = countryCode
         store.pinned = false
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps(ranked.map { it.ip }.take(6).joinToString(","))
+        frontingIps = FrontingIpPolicy.normalizeIps(ranked.map { it.authority }.take(5).joinToString(","))
         renderFrontingIpChips()
         if (saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) {
             Toast.makeText(this, getString(R.string.multi_location_applied, countryCode.toFlagEmoji(), ranked.size), Toast.LENGTH_SHORT).show()
