@@ -5909,7 +5909,7 @@ class MainActivity : Activity() {
                                         countryName = "Cloudflare edge",
                                         sourceRange = "manual",
                                     )
-                                    if (scannerResults.none { r -> r.ip == target }) {
+                                    if (scannerResults.none { r -> r.authority == tcpOnly.authority }) {
                                         scannerResults = (scannerResults + tcpOnly).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
                                     }
                                     manualIpInput.setText("")
@@ -5917,18 +5917,18 @@ class MainActivity : Activity() {
                                     renderScannerResults()
                                     Toast.makeText(
                                         this@MainActivity,
-                                        getString(R.string.scanner_manual_tls_fail, target, tcpMs.toInt()),
+                                        getString(R.string.scanner_manual_tls_fail, tcpOnly.authority, tcpMs.toInt()),
                                         Toast.LENGTH_LONG,
                                     ).show()
                                 }
                                 else -> {
-                                    if (scannerResults.none { r -> r.ip == result.ip }) {
+                                    if (scannerResults.none { r -> r.authority == result.authority }) {
                                         scannerResults = (scannerResults + result).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
                                     }
                                     manualIpInput.setText("")
                                     scannerFilter = "all"
                                     renderScannerResults()
-                                    Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_ok, result.ip, result.pingMs.toInt()), Toast.LENGTH_LONG).show()
+                                    Toast.makeText(this@MainActivity, getString(R.string.scanner_manual_ip_ok, result.authority, result.pingMs.toInt()), Toast.LENGTH_LONG).show()
                                 }
                             }
                         }
@@ -6743,7 +6743,7 @@ class MainActivity : Activity() {
                         if (!scannerRunning) return@post
                         val percent = (done * 100) / total.coerceAtLeast(1)
                         scannerProgressBar.progress = percent
-                        if (result != null && scannerLiveResults.none { it.ip == result.ip }) {
+                        if (result != null && scannerLiveResults.none { it.authority == result.authority }) {
                             scannerLiveResults += result
                         }
                         val best = scannerLiveResults
@@ -6784,7 +6784,7 @@ class MainActivity : Activity() {
                 val out = mutableMapOf<String, Int>()
                 for (r in found.filter { it.tlsOk }.take(8)) {
                     val pings = mutableListOf(r.pingMs)
-                    repeat(2) { runCatching { IpScanner.reprobeOnce(r.ip, sni, scannerPort) }.getOrNull()?.let { pings += it.pingMs } }
+                    repeat(2) { runCatching { IpScanner.reprobeOnce(r.ip, sni, r.port) }.getOrNull()?.let { pings += it.pingMs } }
                     out[r.ip] = ((pings.maxOrNull() ?: r.pingMs) - (pings.minOrNull() ?: r.pingMs)).toInt()
                 }
                 out
@@ -8343,21 +8343,22 @@ class MainActivity : Activity() {
         if (neighborLines.isNotEmpty()) body.put("neighborIps", org.json.JSONArray(neighborLines))
         val (post, postBody) = call("/api/ips", "POST", body.toString(), cookie)
         val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
-        val count = if (ok) org.json.JSONObject(postBody).optInt("count", 0) else 0
         post.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${post.responseCode}")
-        return count
+        val outcome = PanelIpsReadBack.verify(postBody, lines)
+        if (!outcome.persisted) throw IllegalStateException("NO_KV")
+        return outcome.stored
     }
 
     private fun copyScannerIp(result: IpScanner.ScanResult) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.ip))
-        Toast.makeText(this, getString(R.string.scanner_ip_copied, result.ip), Toast.LENGTH_SHORT).show()
+        clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.authority))
+        Toast.makeText(this, getString(R.string.scanner_ip_copied, result.authority), Toast.LENGTH_SHORT).show()
     }
 
     /**
-     * Applies a scanned IP as a fronting endpoint: connects to that clean CDN IP
-     * while the profile's SNI/Host (the panel domain) stays untouched.
+     * Applies a scanned IP:port as a fronting endpoint: connects to that clean CDN
+     * endpoint while the profile's SNI/Host (the panel domain) stays untouched.
      */
     private fun applyScannerResult(result: IpScanner.ScanResult? = null) {
         val target = result ?: scannerResults.firstOrNull()
@@ -8371,16 +8372,16 @@ class MainActivity : Activity() {
         val companions = if (result == null) {
             val pool = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()).filter { it.tlsOk }
             val otherFamily = pool.firstOrNull { IpScanner.isIpv6(it.ip) != IpScanner.isIpv6(target.ip) }
-            listOfNotNull(otherFamily?.ip)
+            listOfNotNull(otherFamily?.authority)
         } else {
             emptyList()
         }
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip + companions).joinToString(","))
+        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.authority + companions).joinToString(","))
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(
             this,
-            getString(R.string.scanner_applied, target.ip, target.pingMs),
+            getString(R.string.scanner_applied, target.authority, target.pingMs),
             Toast.LENGTH_LONG,
         ).show()
     }
