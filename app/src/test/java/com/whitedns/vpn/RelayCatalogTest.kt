@@ -33,6 +33,27 @@ class RelayCatalogTest {
         assertEquals("1.1.1.1:443", RelayCatalog.filter(entries, RelayCatalogFilter(query = "1.1.1.1:443")).single().endpoint.authority)
     }
 
+    @Test fun topFiveProbePlanIsBoundedAndKeepsExactPorts() {
+        val many = (1..8).map { i -> entry("192.0.2.$i", if (i == 1) 8443 else 443,
+            EndpointFamily.IPV4, "DE", "DC", RelayRisk.UNKNOWN, i.toLong()) }
+        val plan = RelayCatalog.topForProbe(many)
+        assertEquals(5, plan.size)
+        assertEquals(PortProbeCandidate("192.0.2.1", 8443, PortProbeKind.CLEAN_TLS), plan.first())
+    }
+
+    @Test fun sameIpOnTwoPortsProducesTwoProbes() {
+        val rows = listOf(
+            entry("1.1.1.1", 443, EndpointFamily.IPV4, "DE", "DC", RelayRisk.UNKNOWN, 10),
+            entry("1.1.1.1", 8443, EndpointFamily.IPV4, "DE", "DC", RelayRisk.UNKNOWN, 11),
+        )
+        assertEquals(listOf(443, 8443), RelayCatalog.topForProbe(rows).map { it.port })
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun probePlanCannotExceedFive() {
+        RelayCatalog.topForProbe(entries, 6)
+    }
+
     @Test fun countsDriveCountryAndDatacenterSteps() {
         assertEquals(mapOf("DE" to 2, "CA" to 1), RelayCatalog.countryCounts(entries))
         assertEquals(mapOf("Hetzner" to 1, "OVH" to 1), RelayCatalog.datacenterCounts(entries, "de"))
