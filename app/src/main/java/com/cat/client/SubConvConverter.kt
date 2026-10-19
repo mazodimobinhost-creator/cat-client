@@ -88,7 +88,7 @@ object SubConvConverter {
             query["alpn"]?.takeIf(String::isNotBlank)?.let { proxy.put("alpn", it.split(',')) }
             query["pcs"]?.takeIf(String::isNotBlank)?.let { proxy.put("fingerprint", it) }
         }
-        query["sni"]?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+        (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
         query["pbk"]?.takeIf(String::isNotBlank)?.let { publicKey ->
             proxy.put(
                 "reality-opts",
@@ -218,7 +218,10 @@ object SubConvConverter {
                 // certificate validation off would hand anyone who can hand the user a link the
                 // ability to read the tunnelled traffic.
                 put("skip-cert-verify", false)
-                query["sni"]?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                if (query["security"].equals("none", ignoreCase = true)) {
+                    put("tls", false)
+                }
+                (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { put("sni", it) }
                 query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", it.split(',')) }
                 val network = query["type"].orEmpty().lowercase()
                 if (network.isNotBlank()) put("network", network)
@@ -532,7 +535,7 @@ object SubConvConverter {
         }
         val sentPath = if (pathParams.containsKey("ed")) {
             val remaining = pathParams.filterKeys { it != "ed" }
-                .entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
+                .entries.joinToString("&") { "${encodePathParam(it.key)}=${encodePathParam(it.value)}" }
             rawPath.substringBefore('?') + if (remaining.isEmpty()) "" else "?$remaining"
         } else {
             rawPath
@@ -564,6 +567,9 @@ object SubConvConverter {
 
     private fun encode(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+
+    private fun encodePathParam(value: String): String =
+        encode(value).replace("%3A", ":").replace("%5B", "[").replace("%5D", "]")
 
     private fun vmessWsOptions(path: String?, host: String?, network: String): JSONObject {
         var outputPath = path.orEmpty().ifBlank { "/" }

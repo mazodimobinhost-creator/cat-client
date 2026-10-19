@@ -129,4 +129,35 @@ class ShareLinkConverterTest {
         assertEquals(2048, ws.getInt("max-early-data"))
         assertEquals("/vl/seed1234", ws.getString("path"))
     }
+
+    @Test
+    fun proxyIpWithNonStandardPortSurvivesEdStripVerbatim() {
+        val link =
+            "vless://6bd76824-92b3-4b76-a733-a0a0b63ccd7a@104.17.148.22:8443?encryption=none&security=tls" +
+                "&type=ws&host=worker.example.workers.dev" +
+                "&path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111&sni=worker.example.workers.dev#DE"
+        val proxy = convertOne(link)
+        assertEquals(8443, proxy.getInt("port"))
+        val ws = proxy.getJSONObject("ws-opts")
+        assertEquals(2560, ws.getInt("max-early-data"))
+        assertEquals("/vl?proxyip=103.237.102.191:11111", ws.getString("path"))
+    }
+
+    @Test
+    fun ipv6AndPlainTrojanPreservePortAndTlsDisable() {
+        val ipv6Trojan =
+            "trojan://secret@[2606:4700::1]:2053?security=tls&type=ws&host=worker.example" +
+                "&path=%2Ftr%3Fproxyip%3D184.75.221.82%3A3118&servername=sni.worker.example#CA"
+        val v6Proxy = convertOne(ipv6Trojan)
+        assertEquals("2606:4700::1", v6Proxy.getString("server"))
+        assertEquals(2053, v6Proxy.getInt("port"))
+        assertEquals("sni.worker.example", v6Proxy.getString("sni"))
+        assertEquals("/tr?proxyip=184.75.221.82:3118", v6Proxy.getJSONObject("ws-opts").getString("path"))
+
+        val plainTrojan =
+            "trojan://secret@104.17.148.22:8080?security=none&type=ws&host=worker.example&path=%2Ftr#plain-tr"
+        val plainProxy = convertOne(plainTrojan)
+        assertEquals(8080, plainProxy.getInt("port"))
+        assertFalse(plainProxy.getBoolean("tls"))
+    }
 }
