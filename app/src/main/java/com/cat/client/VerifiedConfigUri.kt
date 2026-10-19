@@ -1,5 +1,7 @@
 package com.cat.client
 
+import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -46,5 +48,91 @@ internal data class VerifiedConfigUri(
     }
 }
 
+internal object VerifiedConfigUriParser {
+    /** Losslessly parses a VLESS/Trojan URI so route failover or subscription
+     * projection can replace the endpoint without losing SNI, Host, path or ProxyIP. */
+    fun parse(
+        value: String,
+        checkedAtMs: Long,
+        source: String,
+        verdict: EndpointVerdict = EndpointVerdict.VERIFIED,
+    ): VerifiedConfigUri? {
+        if (verdict != EndpointVerdict.VERIFIED) return null
+        val clean = value.trim().substringBefore('#')
+        val uri = runCatching { URI(clean) }.getOrNull() ?: return null
+        val protocol = TunnelProtocol.entries.firstOrNull { it.scheme.equals(uri.scheme, ignoreCase = true) } ?: return null
+        val credential = uri.rawUserInfo?.urlDecode()?.takeIf { it.isNotBlank() } ?: return null
+        val host = uri.host?.removePrefix("[")?.removeSuffix("]")?.takeIf { it.isNotBlank() } ?: return null
+        val port = uri.port.takeIf { it in 1..65535 } ?: return null
+        val family = when {
+            host.contains(':') -> EndpointFamily.IPV6
+            Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(host) -> EndpointFamily.IPV4
+            else -> EndpointFamily.DOMAIN
+        }
+        val params = uri.rawQuery.orEmpty().split('&').mapNotNull { part ->
+            val kv = part.split('=', limit = 2)
+            if (kv.isEmpty() || kv[0].isBlank()) null
+            else kv[0].urlDecode().lowercase() to kv.getOrElse(1) { "" }.urlDecode()
+        }.toMap()
+
+        val workerDomain = (params["host"]?.takeIf { it.isNotBlank() }
+            ?: params["sni"]?.takeIf { it.isNotBlank() }
+            ?: params["servername"]?.takeIf { it.isNotBlank() }
+            ?: host)
+        val serverName = (params["sni"]?.takeIf { it.isNotBlank() }
+            ?: params["servername"]?.takeIf { it.isNotBlank() }
+            ?: workerDomain)
+        val tls = !params["security"].equals("none", ignoreCase = true)
+        val fingerprint = (params["fp"] ?: params["fingerprint"])?.takeIf { it.isNotBlank() }
+        val rawPath = params["path"]?.takeIf { it.isNotBlank() } ?: "/"
+        if (!rawPath.startsWith('/')) return null
+
+        val (cleanPath, proxyIp) = extractPathAndProxyIp(rawPath, checkedAtMs, source) ?: return null
+        val endpoint = VerifiedEndpoint(host, port, EndpointRole.CLEAN_IP, family, verdict, checkedAtMs, source = source)
+        return runCatching {
+            VerifiedConfigUri(
+                protocol = protocol,
+                credential = credential,
+                endpoint = endpoint,
+                workerDomain = workerDomain,
+                path = cleanPath,
+                tls = tls,
+                fingerprint = fingerprint,
+                proxyIp = proxyIp,
+                serverName = serverName,
+            )
+        }.getOrNull()
+    }
+
+    private fun extractPathAndProxyIp(
+        rawPath: String,
+        checkedAtMs: Long,
+        source: String,
+    ): Pair<String, VerifiedEndpoint?>? {
+        if ('?' !in rawPath) return rawPath to null
+        val basePath = rawPath.substringBefore('?')
+        val query = rawPath.substringAfter('?')
+        val kept = ArrayList<String>()
+        var proxyIp: VerifiedEndpoint? = null
+        for (segment in query.split('&').filter { it.isNotBlank() }) {
+            val kv = segment.split('=', limit = 2)
+            if (kv[0].equals("proxyip", ignoreCase = true)) {
+                val rawAuthority = kv.getOrElse(1) { "" }.urlDecode().trim()
+                val parsed = VerifiedEndpointParser.parseAuthority(
+                    rawAuthority, EndpointRole.PROXY_IP, EndpointVerdict.VERIFIED, checkedAtMs, source,
+                ) ?: return null
+                proxyIp = parsed
+            } else {
+                kept += segment
+            }
+        }
+        val cleanPath = if (kept.isEmpty()) basePath else "$basePath?${kept.joinToString("&")}"
+        return cleanPath to proxyIp
+    }
+}
+
 private fun String.urlEncode(): String =
     URLEncoder.encode(this, StandardCharsets.UTF_8.name()).replace("+", "%20")
+
+private fun String.urlDecode(): String =
+    URLDecoder.decode(this, StandardCharsets.UTF_8.name())

@@ -20,4 +20,40 @@ internal object VerifiedConfigFailover {
         val rebuilt = if (choice.status == FailoverStatus.SWITCHED) current.copy(endpoint = choice.selected) else current
         return ConfigFailoverResult(choice.status, rebuilt, current.endpoint.authority, rebuilt.endpoint.authority)
     }
+
+    /** Rebuilds only the ProxyIP relay inside the Worker path while preserving the
+     * ingress endpoint, port, Host, SNI, protocol and credential. */
+    fun changeProxyIp(
+        current: VerifiedConfigUri,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long,
+    ): ConfigFailoverResult {
+        val currentProxy = current.proxyIp
+            ?: return ConfigFailoverResult(FailoverStatus.NO_VERIFIED_REPLACEMENT, current, "", "")
+        val choice = VerifiedEndpointFailover.choose(currentProxy, candidates, nowMs, maxAgeMs)
+        val rebuilt = if (choice.status == FailoverStatus.SWITCHED) current.copy(proxyIp = choice.selected) else current
+        return ConfigFailoverResult(
+            choice.status,
+            rebuilt,
+            currentProxy.authority,
+            rebuilt.proxyIp?.authority.orEmpty(),
+        )
+    }
+
+    /** Retest/failover entry point for a broken VLESS/Trojan share link. */
+    fun changeRouteUri(
+        rawUri: String,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long,
+        source: String = "retest",
+    ): String? {
+        val remark = rawUri.trim().substringAfter('#', missingDelimiterValue = "")
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = 0L, source = source) ?: return null
+        val result = changeRoute(parsed, candidates, nowMs, maxAgeMs)
+        if (result.status != FailoverStatus.SWITCHED) return null
+        val encoded = result.config.encode()
+        return if (remark.isEmpty()) encoded else "$encoded#$remark"
+    }
 }
