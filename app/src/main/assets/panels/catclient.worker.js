@@ -4587,7 +4587,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   switch (cmd) {
     case '/start': case '/help':
       return '🐱 <b>' + tgEsc(panelTitle(env, settings)) + '</b> ' + CAT_PANEL_VERSION + '\n\n' +
-        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info\n/update [branch] — safely update through GitHub Actions\n/deploy [branch] — same as /update\n/deploys — last update runs';
+        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info\n/update-check — compare current and available versions\n/update [branch] — safely update through GitHub Actions\n/update-status — last update runs\n/deploy [branch] — same as /update\n/deploys — same as /update-status';
     case '/status': {
       const c = countrySummary(host, env, settings);
       return '🌐 ' + tgEsc(host) + '\n👥 users: ' + users.length + '\n🧹 ips: ' + settings.ips.length + '\n🌍 country: ' + (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n🔗 chain: ' + (settings.chain ? 'on' : 'off') + '\n🛡 ads: ' + (settings.blockAds ? 'blocked' : 'off') + ' · iran: ' + (settings.bypassIran ? 'direct' : 'via vpn') + '\n💾 kv: ' + (kvBinding(env) ? 'on' : 'OFF');
@@ -4635,6 +4635,14 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
       await writeSettings(env, { country: cc });
       return cc ? '🌍 preferred country → ' + flagOf(cc) + ' ' + cc : '🌍 country → auto';
     }
+    case '/update-check': {
+      const src = await fetchNewestPanelSource();
+      if (!src) return '🔴 Update source unavailable — nothing was changed.';
+      const cmp = panelVersionCompare(src.version, CAT_PANEL_VERSION);
+      return cmp > 0
+        ? '⬆️ Update available: ' + tgEsc(CAT_PANEL_VERSION) + ' → ' + tgEsc(src.version) + '\nSend /update to queue the verified workflow.'
+        : '✅ Panel is current: ' + tgEsc(CAT_PANEL_VERSION);
+    }
     case '/update':
     case '/deploy': {
       if (!settings.ghPat || !settings.ghRepo) return '⚠️ Deploy bot is not configured yet.\nIn the panel set the GitHub repo (owner/repo) + a fine-grained token with Actions read/write.\nThe Cloudflare API token is NEVER stored here — it lives only in GitHub secrets (see docs/telegram-deploy.md).';
@@ -4646,6 +4654,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
       if (r.status === 404) return '🔴 Repo or workflow file not found (404) — check owner/repo and that ' + tgEsc(deployCfg(settings).workflow) + ' exists on branch ' + tgEsc(ref) + '.';
       return '🔴 GitHub error ' + r.status + (r.body && r.body.message ? ' — ' + tgEsc(r.body.message) : '');
     }
+    case '/update-status':
     case '/deploys': {
       if (!settings.ghPat || !settings.ghRepo) return '⚠️ Deploy bot is not configured yet — set the GitHub repo + token in the panel first.';
       const r = await ghApi('GET', '/repos/' + settings.ghRepo + '/actions/workflows/' + encodeURIComponent(deployCfg(settings).workflow) + '/runs?per_page=3', settings);
