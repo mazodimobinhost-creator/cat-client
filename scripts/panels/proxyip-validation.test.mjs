@@ -43,22 +43,22 @@ ok('isProxyHostName accepts a hyphen inside a label', T.isProxyHostName('my-prox
 }
 {
   const r = T.normalizeProxyList('ok.example.com:443 1.2.3.4 1.2.3.4:8443');
-  ok('valid hosts survive the new validator', r.list.length === 3, JSON.stringify(r.list));
+  ok('only valid explicit host:port endpoints survive the validator', r.list.length === 2, JSON.stringify(r.list));
   ok('valid hosts keep their own port', r.list.includes('1.2.3.4:8443') && r.list.includes('ok.example.com:443'), JSON.stringify(r.list));
 }
 
-/* ---------- 2) IPv6: bracketed and bare must collapse to one ---------- */
+/* ---------- 2) IPv6: an explicit port is mandatory ---------- */
 const V6 = '2606:4700::6812:1a2e';
-ok('bare IPv6 is pinned to [v6]:443', T.normalizeProxyList(V6).list[0] === '[' + V6 + ']:443', JSON.stringify(T.normalizeProxyList(V6).list));
+ok('bare IPv6 is rejected rather than silently pinned to 443', T.normalizeProxyList(V6).list.length === 0, JSON.stringify(T.normalizeProxyList(V6).list));
 ok('bracketed IPv6 keeps its port', T.normalizeProxyList('[' + V6 + ']:443').list[0] === '[' + V6 + ']:443');
 {
   const r = T.normalizeProxyList('[' + V6 + ']:443 ' + V6);
-  ok('both IPv6 forms dedupe into ONE entry', r.list.length === 1, JSON.stringify(r.list));
+  ok('only the explicit IPv6 endpoint survives', r.list.length === 1, JSON.stringify(r.list));
   ok('…and the stored form is the bracketed one', r.list[0] === '[' + V6 + ']:443', JSON.stringify(r.list));
 }
 {
   const r = T.normalizeProxyList(V6 + ' [' + V6 + ']:8443');
-  ok('different ports are still two entries', r.list.length === 2, JSON.stringify(r.list));
+  ok('portless IPv6 is rejected while its explicit 8443 endpoint survives', r.list.length === 1 && r.list[0] === '[' + V6 + ']:8443', JSON.stringify(r.list));
 }
 
 /* ---------- 3) socks5 credentials must not reach a subscription ---------- */

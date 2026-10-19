@@ -1859,19 +1859,18 @@ function isProxyHostName(h) {
   return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/.test(h);
 }
 
-/** Normalise ONE relay token: pin the default port, or return null when the
- *  host is not something we can dial (that token is then reported as ignored
- *  instead of being silently mangled). */
+/** Normalise ONE relay token. ProxyIP is an indivisible host+port endpoint:
+ * a bare host is rejected instead of being silently rewritten to :443. The app's
+ * port-discovery flow may test several ports and submit each successful pair. */
 function pinProxyEntry(e) {
-  if (/^socks5h?:\/\//i.test(e)) return e; // socks5 keeps its own port + is validated where it is parsed
+  if (/^socks5h?:\/\//i.test(e)) return e; // socks5 keeps its own explicit port
   const portOk = (n) => Number(n) > 0 && Number(n) < 65536;
   const br = /^\[([^\]]+)\]:(\d{1,5})$/.exec(e);
   if (br) return (portOk(br[2]) && isIpv6(br[1])) ? e : null;
   const host = e.replace(/^\[/, '').replace(/\]$/, '');
-  if (isIpv6(host)) return '[' + host + ']:443';
   const m = /^(.*):(\d{1,5})$/.exec(host);
   if (m) return (portOk(m[2]) && (isIpv4(m[1]) || isProxyHostName(m[1]))) ? e : null;
-  return (isIpv4(host) || isProxyHostName(host)) ? host + ':443' : null;
+  return null;
 }
 
 
@@ -1926,13 +1925,9 @@ function normalizeProxyList(input) {
   // stray portless «ip». A portless relay whose host is already one of this list's socks proxies is that leftover.
   const socksHosts = new Set(list.filter((e) => /^socks5h?:\/\//i.test(e)).map((e) => { const c = parseChain(e); return c ? c.host.toLowerCase() : ''; }));
   const kept = list.filter((e) => /^socks5h?:\/\//i.test(e) || e.includes(':') || !socksHosts.has(e.toLowerCase()));
-  // A portless relay is accepted (it used to be stored bare, which left the
-  // port it will be dialed on invisible). It now gets the default 443 pinned so
-  // the panel SHOWS «1.2.3.4:443» and the worker dials exactly that. socks5://
-  // always carries its own port; a bracketed IPv6 gets the port after the bracket.
-  // Pin the default port, validate the host, and dedupe AFTER pinning:
-  // «[2606:4700::6812:1a2e]:443» and the bare «2606:4700::6812:1a2e» must
-  // collapse into ONE entry — deduping before the port is pinned leaves both.
+  // Require an explicit port for every relay. Portless entries remain in `ignored`
+  // until the app's protocol-aware discovery verifies a concrete host+port pair.
+  // Validate and dedupe only after the explicit authority has been parsed.
   const pinned = [];
   const rejected = [];
   for (const e of kept) {
