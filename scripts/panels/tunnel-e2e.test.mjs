@@ -122,7 +122,7 @@ async function runTunnel(ws, frames, env, record, options = {}) {
   const ws = new FakeWs();
   const record = { dials: [], refuse: new Set(['blocked.example']) };
   const frame = vlessFrame('blocked.example', 443, []);
-  await runTunnel(ws, [frame], { PROXYIP: 'relay.example.net' }, record);
+  await runTunnel(ws, [frame], { PROXYIP: 'relay.example.net:443' }, record);
   check('refused direct dial falls back to proxy', record.dials.join(',') === 'blocked.example:443,relay.example.net:443', record.dials.join(','));
 }
 
