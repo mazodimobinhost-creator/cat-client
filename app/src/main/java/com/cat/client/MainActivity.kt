@@ -8969,6 +8969,99 @@ class MainActivity : Activity() {
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val rawSourceCard = advancedSettingsPanel()
+        rawSourceCard.addView(TextView(this).apply {
+            setText(R.string.cloud_raw_title)
+            textSize = 16f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+        }, LinearLayout.LayoutParams(-1, -2))
+        rawSourceCard.addView(
+            advancedSectionDetail(getString(R.string.cloud_raw_desc)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+        val rawSourceInput = TextInputEditText(this).apply {
+            hint = getString(R.string.cloud_raw_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            setSingleLine(true)
+            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+        }
+        rawSourceCard.addView(rawSourceInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        val rawInspectButton = cloudActionButton(R.string.cloud_raw_inspect, R.drawable.ic_cloud_tab, accent = false) { }
+        var rawInstallBusy = false
+        rawInspectButton.setOnClickListener {
+            if (rawInstallBusy) return@setOnClickListener
+            val sourceUrl = rawSourceInput.text?.toString()?.trim().orEmpty()
+            val initialDecision = WorkerSourcePolicy.validateUrl(sourceUrl)
+            if (initialDecision is WorkerSourceDecision.Blocked) {
+                Toast.makeText(this, getString(R.string.cloud_raw_invalid, initialDecision.reason), Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            rawInstallBusy = true
+            rawInspectButton.isEnabled = false
+            activityScope.launch {
+                try {
+                    val downloaded = WorkerSourceDownloader.download(sourceUrl)
+                    val inspection = WorkerSourceInspector.inspect(downloaded.bytes)
+                    if (!inspection.valid) throw WorkerSourceDownloadException(inspection.reason ?: "source-invalid")
+                    val workerName = workerNameInput.text?.toString()?.trim().orEmpty()
+                        .lowercase(Locale.US)
+                        .replace(Regex("[^a-z0-9-]"), "-")
+                        .replace(Regex("-{2,}"), "-")
+                        .trim('-')
+                        .ifEmpty { CloudflareWorker.randomWorkerName() }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.cloud_raw_title)
+                        .setMessage(getString(
+                            R.string.cloud_raw_preview,
+                            inspection.version ?: "—",
+                            downloaded.bytes.size,
+                            downloaded.sha256,
+                            workerName,
+                        ))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(R.string.cloud_raw_confirm) { _, _ ->
+                            activityScope.launch {
+                                try {
+                                    val token = tokenInput.text?.toString()?.trim().orEmpty()
+                                    if (token.isEmpty()) throw WorkerSourceDownloadException("token-required")
+                                    val permissions = CloudflareWorker.verifyToken(token)
+                                    val accountId = permissions.accountId
+                                    if (!permissions.valid || accountId == null) throw WorkerSourceDownloadException("token-invalid")
+                                    val result = CloudflareWorker.deployRawSource(
+                                        context = this@MainActivity,
+                                        token = token,
+                                        accountId = accountId,
+                                        workerName = workerName,
+                                        sourceUrl = sourceUrl,
+                                        approvedSha256 = downloaded.sha256,
+                                        panelUser = panelUserInput.text?.toString()?.trim().orEmpty(),
+                                        panelPassword = panelPassInput.text?.toString()?.trim().orEmpty(),
+                                    )
+                                    PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                                    showCloudDeploymentDialog(result)
+                                } catch (error: Exception) {
+                                    Toast.makeText(this@MainActivity, getString(R.string.cloud_deploy_failed, error.message.orEmpty()), Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                        .show()
+                } catch (error: Exception) {
+                    Toast.makeText(this@MainActivity, getString(R.string.cloud_raw_invalid, error.message.orEmpty()), Toast.LENGTH_LONG).show()
+                } finally {
+                    rawInstallBusy = false
+                    rawInspectButton.isEnabled = true
+                }
+            }
+        }
+        rawSourceCard.addView(rawInspectButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        body.addView(rawSourceCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         body.addView(buildPanelStatusCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val deploymentHistoryCard = advancedSettingsPanel()

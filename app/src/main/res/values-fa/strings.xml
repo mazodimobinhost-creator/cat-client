@@ -936,6 +936,13 @@
     <string name="ip_health_rotated">%1$d IP خراب حذف شد؛ %2$d جایگزین اضافه شد</string>
     <string name="ip_health_all_ok">همهٔ IPهای زیر نظر سالم‌اند</string>
     <string name="ip_health_failed">بررسی سلامت IP ناموفق بود: %1$s</string>
+    <string name="cloud_raw_title">نصب Worker از Raw URL</string>
+    <string name="cloud_raw_desc">فایل از URL امن دانلود و قبل از نصب از نظر حجم، ساختار، نسخه و SHA-256 بررسی می‌شود. پس از دیدن مشخصات باید جداگانه تأیید کنی.</string>
+    <string name="cloud_raw_hint">https://raw.githubusercontent.com/…/worker.js</string>
+    <string name="cloud_raw_inspect">بررسی و نمایش پیش‌نمایش</string>
+    <string name="cloud_raw_preview">نسخه: %1$s\nاندازه: %2$d بایت\nSHA-256:\n%3$s\n\nهمین فایل روی Worker «%4$s» نصب شود؟</string>
+    <string name="cloud_raw_confirm">تأیید و نصب</string>
+    <string name="cloud_raw_invalid">فایل Worker معتبر نیست: %1$s</string>
     <string name="cloud_wizard_title">Cat Wizard — نصب یک‌کلیکی برای دوستان</string>
     <string name="cloud_wizard_desc">یک صفحهٔ «ویزارد» کوچک روی حساب خودت می‌سازد. هرکس آن را باز کند «دریافت توکن» را می‌زند، توکن کلودفلر خودش را می‌چسباند و پنل Cat خودش را می‌گیرد (آدرس پنل + رمز + لینک ساب) — روی حساب خودش، چیزی از تو رد نمی‌شود. کد دعوت اختیاری صفحه را قفل می‌کند.</string>
     <string name="cloud_wizard_deploy">🧙 ساخت صفحهٔ ویزارد من</string>

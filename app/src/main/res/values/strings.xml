@@ -937,6 +937,13 @@
     <string name="ip_health_rotated">Removed %1$d broken IP(s); %2$d replacement(s) added</string>
     <string name="ip_health_all_ok">All tracked IPs are healthy</string>
     <string name="ip_health_failed">IP health check failed: %1$s</string>
+    <string name="cloud_raw_title">Install Worker from Raw URL</string>
+    <string name="cloud_raw_desc">The file is downloaded from a safe URL and checked for size, structure, version and SHA-256 before installation. You must review and confirm the preview separately.</string>
+    <string name="cloud_raw_hint">https://raw.githubusercontent.com/…/worker.js</string>
+    <string name="cloud_raw_inspect">Inspect and preview</string>
+    <string name="cloud_raw_preview">Version: %1$s\nSize: %2$d bytes\nSHA-256:\n%3$s\n\nInstall this exact file on Worker “%4$s”?</string>
+    <string name="cloud_raw_confirm">Confirm and install</string>
+    <string name="cloud_raw_invalid">Invalid Worker source: %1$s</string>
     <string name="cloud_wizard_title">Cat Wizard — one-click installer for friends</string>
     <string name="cloud_wizard_desc">Deploys a small “wizard” page on YOUR account. Anyone who opens it taps “Get token”, pastes their own Cloudflare token and gets their own Cat Panel (panel URL + password + sub link) — on their own account, nothing goes through you. Optional invite code protects the page.</string>
     <string name="cloud_wizard_deploy">🧙 Build my wizard page</string>
