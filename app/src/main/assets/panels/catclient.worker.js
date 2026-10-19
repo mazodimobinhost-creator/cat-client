@@ -797,7 +797,7 @@ const DEFAULT_CLEAN_ADDRESSES = [
   '2606:4700:d0::a29f:c001', '2606:4700:4700::1111',
 ];
 
-const DEFAULT_PROXY_IPS = ['proxyip.cmliussss.net', 'di.nscl.ir', 'tr.diam4.ggff.net'];
+const DEFAULT_PROXY_IPS = ['proxyip.cmliussss.net:443', 'di.nscl.ir:443', 'tr.diam4.ggff.net:443'];
 
 const DOM_CACHE_KEY = 'cat_dom_v1';
 const DOM_TTL_MS = 12 * 60 * 60 * 1000;

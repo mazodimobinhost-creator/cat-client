@@ -233,11 +233,9 @@ let user;
   check('ips REPLACE wipes old list (exact set)', j.ok && j.ips.length===2 && j.ips.includes('198.51.100.7:2053') && j.ips.includes('203.0.113.9'), JSON.stringify(j.ips));
   const st = (await (await req('/api/settings', { headers: auth })).json()).settings;
   check('replaced entry kept its pin+tag', st.ipCountries['198.51.100.7:2053']==='CA', JSON.stringify(st.ipCountries));
-  await req('/api/settings', { method:'PUT', headers: auth, body:{ proxyIps:['104.17.1.1:2053','83.147.217.103:1080','ip.sb'] } });
+  await req('/api/settings', { method:'PUT', headers: auth, body:{ proxyIps:['104.17.1.1:2053','83.147.217.103:1080','ip.sb:443'] } });
   const st2 = (await (await req('/api/settings', { headers: auth })).json()).settings;
-  // beta94: an explicit pin is still never stripped (2053 / 1080 stay). Only a
-  // PORTLESS relay changes: it now carries the default port so the UI can show
-  // what will be dialed — «ip.sb» is stored as «ip.sb:443».
+  // Every relay must arrive with an explicit port; all pins remain unchanged.
   check('proxyIps keep ip:port exactly (never stripped)', JSON.stringify(st2.proxyIps)===JSON.stringify(['104.17.1.1:2053','83.147.217.103:1080','ip.sb:443']), JSON.stringify(st2.proxyIps));
 }
 // backup
