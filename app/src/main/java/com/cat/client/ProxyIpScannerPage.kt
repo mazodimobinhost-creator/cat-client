@@ -357,10 +357,9 @@ class ProxyIpScannerPage(
                         addView(pill(ctx.getString(R.string.pip_use_entry_short), false) {
                             // This IP already completed a TLS handshake with the panel SNI —
                             // it can replace the worker hostname as the connect address.
-                            val endpoint = if (hit.port == 443) hit.host
-                                else if (hit.host.contains(":")) "[${hit.host}]:${hit.port}"
-                                else "${hit.host}:${hit.port}"
-                            onUseAsEntry.invoke(endpoint)
+                            // Never drop even the conventional 443: the entry scanner result
+                            // is an indivisible host+port observation.
+                            onUseAsEntry.invoke(hit.authority)
                         }, LinearLayout.LayoutParams(-2, -2))
                     }
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
