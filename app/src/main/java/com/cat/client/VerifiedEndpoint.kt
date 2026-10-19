@@ -27,6 +27,18 @@ internal data class VerifiedEndpoint(
     val authority: String
         get() = if (family == EndpointFamily.IPV6) "[${host.removePrefix("[").removeSuffix("]")}]:$port" else "$host:$port"
 
+    /** URI-safe host used by VLESS/Trojan generators. The scanner port remains separate
+     * and must be copied verbatim into the generated URI's port component. */
+    val uriHost: String
+        get() = if (family == EndpointFamily.IPV6) "[${host.removePrefix("[").removeSuffix("]")}]" else host
+
+    fun relayUri(): String? = when (role) {
+        EndpointRole.SOCKS4 -> "socks4://$authority"
+        EndpointRole.SOCKS5 -> "socks5://$authority"
+        EndpointRole.HTTP_RELAY -> "http://$authority"
+        EndpointRole.CLEAN_IP, EndpointRole.PROXY_IP -> null
+    }
+
     fun eligibleForSubscription(nowMs: Long, maxAgeMs: Long): Boolean =
         verdict == EndpointVerdict.VERIFIED && checkedAtMs in (nowMs - maxAgeMs)..nowMs
 }
@@ -92,6 +104,24 @@ internal object VerifiedEndpointAdapters {
             countryCode = hit.country.ifBlank { null },
             source = "device-proxy-scan",
         )
+}
+
+internal data class ConfigEndpointPlacement(
+    val server: String,
+    val port: Int,
+    val hostHeader: String,
+    val serverName: String,
+)
+
+internal object VerifiedEndpointPlacement {
+    /** Places only a verified clean endpoint on the ingress side. Host/SNI deliberately
+     * stay on the Worker domain; replacing them with a clean IP breaks TLS routing. */
+    fun forWorker(endpoint: VerifiedEndpoint, workerDomain: String): ConfigEndpointPlacement? {
+        val domain = workerDomain.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
+        if (endpoint.role != EndpointRole.CLEAN_IP || endpoint.verdict != EndpointVerdict.VERIFIED) return null
+        if (domain.isBlank() || domain.contains('/') || domain.any { it.isWhitespace() }) return null
+        return ConfigEndpointPlacement(endpoint.host, endpoint.port, domain, domain)
+    }
 }
 
 internal object VerifiedEndpointSelection {

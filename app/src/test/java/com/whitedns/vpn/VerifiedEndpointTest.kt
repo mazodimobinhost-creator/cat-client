@@ -53,6 +53,24 @@ class VerifiedEndpointTest {
         assertEquals(EndpointRole.SOCKS4, socks4.role)
     }
 
+    @Test fun placementKeepsScannerPortAndWorkerSni() {
+        val placement = VerifiedEndpointPlacement.forWorker(
+            endpoint("104.16.1.1", 8443, EndpointFamily.IPV4), "https://worker.example/"
+        )!!
+        assertEquals("104.16.1.1", placement.server)
+        assertEquals(8443, placement.port)
+        assertEquals("worker.example", placement.hostHeader)
+        assertEquals("worker.example", placement.serverName)
+    }
+
+    @Test fun relaySerializationKeepsItsOwnPortAndType() {
+        val socks = endpoint("2606:4700::2", 1080, EndpointFamily.IPV6, role = EndpointRole.SOCKS5)
+        val http = endpoint("relay.example", 3128, EndpointFamily.DOMAIN, role = EndpointRole.HTTP_RELAY)
+        assertEquals("socks5://[2606:4700::2]:1080", socks.relayUri())
+        assertEquals("http://relay.example:3128", http.relayUri())
+        assertEquals(null, endpoint("1.1.1.1", 443, EndpointFamily.IPV4).relayUri())
+    }
+
     @Test fun excludesFailedAndRelayEndpointsFromSubscriptions() {
         val result = VerifiedEndpointSelection.subscriptionEntries(listOf(
             endpoint("1.1.1.1", 443, EndpointFamily.IPV4, EndpointVerdict.FAILED),
