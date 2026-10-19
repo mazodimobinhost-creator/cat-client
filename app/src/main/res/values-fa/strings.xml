@@ -641,7 +641,7 @@
     <string name="scanner_apply_best">اعمال سریع‌ترین آی‌پی (فرانتینگ)</string>
     <string name="scanner_applied">✓ %1$s به‌عنوان آی‌پی فرانتینگ اعمال شد (%2$d میلی‌ثانیه). SNI همان دامنهٔ پنل می‌ماند.</string>
     <string name="scanner_ip_copied">%1$s کپی شد</string>
-    <string name="cloud_title">پنل من</string>
+    <string name="cloud_title">نصب و مدیریت Cat Panel</string>
     <string name="cloud_intro">پنل خودت (Cat Panel) را با یک توکن API روی حساب کلادفلر نصب کن، بعد از تب «اسکنر» آی‌پی تمیز بگیر. پنل‌های سروری هم با راهنمای نصب پایین فهرست شده‌اند.</string>
     <string name="cloud_token_hint">توکن API کلادفلر</string>
     <string name="cloud_token_help">توکن را اینجا بچسبان — فقط برای همین نصب استفاده می‌شود و ذخیره نمی‌شود</string>
@@ -661,7 +661,7 @@
     <string name="cloud_open_scanner">🛰️ رفتن به اسکنر آی‌پی تمیز</string>
     <string name="cloud_scanner_hint">بعد از دیپلوی: در اسکنر، دامنهٔ پنل را به‌عنوان SNI بگذار و سریع‌ترین آی‌پی کلودفلر را اعمال کن تا کانفیگ روی اپراتور خودت کار کند.</string>
     <string name="cloud_section_catpanel">Cat Panel — ورکر کلادفلر من</string>
-    <string name="cloud_catpanel_desc">کت پنل نسخهٔ ۵ — پنل شخصی تو روی کلودفلر: رلهٔ واقعی VLESS-WS / Trojan-WS، آی‌پی‌های تمیز داخل همهٔ کانفیگ‌ها (پورت و SNI را خودت انتخاب می‌کنی)، سهمیهٔ کاربران روی KV، قفل رمز (پیش‌فرض همان UUID)، DNSهای ایرانی، اسکنر داخل پنل و سمت ورکر، QR و خروجی Clash / sing-box. با توکن پایین دیپلوی کن — اپ خودش KV می‌سازد، UUID می‌گذارد و ساب را وارد می‌کند.</string>
+    <string name="cloud_catpanel_desc">نصب مستقیم از گوشی روی حساب Cloudflare خودت: اپ دسترسی توکن را بررسی می‌کند، CAT_KV را متصل می‌کند، Worker رسمی را با hash کنترل‌شده می‌فرستد و بعد از نصب سلامت و نسخه را می‌سنجد. توکن فقط برای ارتباط مستقیم اپ با Cloudflare استفاده می‌شود؛ حذف Worker، Clean Rebuild و مبهم‌سازی خودکار انجام نمی‌شود.</string>
     <string name="cloud_copy_code">📋 کپی کد Worker (بچسبان در کلادفلر)</string>
     <string name="cloud_code_copied">فایلِ رسمیِ سه‌خطی کپی شد — همان را بی‌کم‌وکاست در ورکر کلادفلر بچسبانید</string>
     <string name="cloud_code_copied_large">⚠️ فایلِ کاملِ داخلِ اپ کپی شد (حدود ۱٫۲ مگابایت) — پیستِ آن ممکن است بریده شود؛ ترجیحاً فایلِ رسمیِ سه‌خطی را بچسبانید</string>

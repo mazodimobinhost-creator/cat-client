@@ -642,7 +642,7 @@
     <string name="scanner_apply_best">Apply the fastest IP (fronting)</string>
     <string name="scanner_applied">✓ %1$s applied as fronting IP (%2$d ms). The SNI stays your panel domain.</string>
     <string name="scanner_ip_copied">%1$s copied</string>
-    <string name="cloud_title">My Panel</string>
+    <string name="cloud_title">Install &amp; manage Cat Panel</string>
     <string name="cloud_intro">Deploy Cat Panel — your own panel — on your Cloudflare account with one API token, then use the Scanner tab for clean IPs. Server-based panels are listed below with install guides.</string>
     <string name="cloud_token_hint">Cloudflare API Token</string>
     <string name="cloud_token_help">Paste the token here — it is used only for this deploy and never stored</string>
@@ -662,7 +662,7 @@
     <string name="cloud_open_scanner">🛰️ Open the clean-IP scanner</string>
     <string name="cloud_scanner_hint">After deploy: run the scanner with your panel domain as SNI, then apply the fastest Cloudflare IP so the config works on your own ISP.</string>
     <string name="cloud_section_catpanel">Cat Panel — my Cloudflare Worker</string>
-    <string name="cloud_catpanel_desc">Cat Panel v5 — your own panel on Cloudflare: real VLESS-WS / Trojan-WS relay, clean IPs baked into every config (you pick the ports and SNI), per-user quotas on KV, password lock (UUID by default), Iranian DNS presets, in-panel + server-side scanners, QR and Clash / sing-box output. Deploy with the API token below — the app creates the KV store, sets the UUID and imports the subscription for you.</string>
+    <string name="cloud_catpanel_desc">Install directly from your phone to your own Cloudflare account. The app verifies token scopes, binds CAT_KV, uploads the hash-checked official Worker, then probes its health and version. The token is used only for direct app-to-Cloudflare requests; Worker deletion, Clean Rebuild, and automatic obfuscation stay off.</string>
     <string name="cloud_copy_code">📋 Copy Worker code (paste into Cloudflare)</string>
     <string name="cloud_code_copied">Official 3-line file copied — paste it into your Cloudflare Worker as-is</string>
     <string name="cloud_code_copied_large">⚠️ Copied the app\'s full bundle (~1.2 MB) — a paste can truncate it; prefer the official 3-line file</string>
