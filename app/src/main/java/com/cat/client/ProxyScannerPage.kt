@@ -56,7 +56,19 @@ class ProxyScannerPage(
 ) {
     enum class Proto(val label: String) { SOCKS5("SOCKS5"), SOCKS4("SOCKS4"), HTTP("HTTP") }
     data class Candidate(val host: String, val port: Int, val proto: Proto?)
-    data class Hit(val host: String, val port: Int, val proto: Proto, val latencyMs: Long, var country: String = "")
+    data class Hit(val host: String, val port: Int, val proto: Proto, val latencyMs: Long, var country: String = "") {
+        internal fun toCatalogEntry(checkedAtMs: Long, datacenter: String = "Unknown"): RelayCatalogEntry {
+            val endpoint = VerifiedEndpointAdapters.fromProxyScan(this, checkedAtMs)
+            return RelayCatalogEntry(
+                endpoint = endpoint,
+                countryCode = country.ifBlank { "??" },
+                countryName = country.ifBlank { "Unknown" },
+                datacenter = datacenter.ifBlank { "Unknown" },
+                asn = null,
+                risk = RelayRisk.UNKNOWN,
+            )
+        }
+    }
 
     private val ctx: Context = activity
     private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()

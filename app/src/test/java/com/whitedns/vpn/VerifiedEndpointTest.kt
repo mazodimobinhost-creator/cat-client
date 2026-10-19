@@ -51,6 +51,8 @@ class VerifiedEndpointTest {
         assertEquals(EndpointRole.HTTP_RELAY, http.role)
         assertEquals("relay.example:3128", http.authority)
         assertEquals(EndpointRole.SOCKS4, socks4.role)
+        assertEquals(EndpointVerdict.PARTIAL, http.verdict)
+        assertEquals(EndpointVerdict.PARTIAL, socks4.verdict)
     }
 
     @Test fun placementKeepsScannerPortAndWorkerSni() {

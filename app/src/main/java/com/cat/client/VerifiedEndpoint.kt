@@ -100,7 +100,8 @@ internal object VerifiedEndpointAdapters {
                 Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(hit.host) -> EndpointFamily.IPV4
                 else -> EndpointFamily.DOMAIN
             },
-            verdict = EndpointVerdict.VERIFIED,
+            // Protocol handshake alone is pre-runtime; full tunnel proof promotes it.
+            verdict = EndpointVerdict.PARTIAL,
             checkedAtMs = checkedAtMs,
             latencyMs = hit.latencyMs,
             countryCode = hit.country.ifBlank { null },
