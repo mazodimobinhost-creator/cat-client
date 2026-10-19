@@ -328,9 +328,13 @@ class ProxyScannerPage(
                     addView(text("${hit.proto.label} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(chip(ctx.getString(if (hit.proto == Proto.SOCKS5) R.string.pscan_add else R.string.pscan_copy), hit.proto == Proto.SOCKS5) {
-                    if (hit.proto == Proto.SOCKS5) importLink("socks5://${hit.host}:${hit.port}#${hit.country.ifBlank { "SOCKS5" }} ${hit.host}")
-                    else {
-                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("proxy", "${hit.host}:${hit.port}"))
+                    if (hit.proto == Proto.SOCKS5) {
+                        ProxyScanImport.uri(hit, System.currentTimeMillis())?.let { uri ->
+                            importLink("$uri#${hit.country.ifBlank { "SOCKS5" }} ${hit.host}")
+                        }
+                    } else {
+                        val relay = ProxyScanImport.uri(hit, System.currentTimeMillis()) ?: "${hit.host}:${hit.port}"
+                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("proxy", relay))
                         Toast.makeText(ctx, R.string.pscan_copied, Toast.LENGTH_SHORT).show()
                     }
                 }, LinearLayout.LayoutParams(-2, -2))
