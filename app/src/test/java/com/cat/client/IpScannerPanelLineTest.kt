@@ -41,7 +41,7 @@ class IpScannerPanelLineTest {
         val row = result.toCatalogEntry(100L)
         assertEquals("104.16.1.1:8443", row.endpoint.authority)
         assertEquals(EndpointRole.CLEAN_IP, row.endpoint.role)
-        assertEquals(EndpointVerdict.VERIFIED, row.endpoint.verdict)
+        assertEquals(EndpointVerdict.PARTIAL, row.endpoint.verdict)
         assertEquals("Germany", row.countryName)
         assertEquals("FRA", row.datacenter)
         assertEquals(RelayRisk.UNKNOWN, row.risk)

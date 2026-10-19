@@ -77,7 +77,9 @@ internal object VerifiedEndpointAdapters {
             port = result.port,
             role = EndpointRole.CLEAN_IP,
             family = if (result.ip.contains(':')) EndpointFamily.IPV6 else EndpointFamily.IPV4,
-            verdict = if (!result.verifyTls || result.tlsOk) EndpointVerdict.VERIFIED else EndpointVerdict.FAILED,
+            // Scanner TCP/TLS/trace proves reachability, not a full VLESS/Trojan
+            // runtime. Keep it PARTIAL until protocol runtime evidence is recorded.
+            verdict = if (result.verifyTls && !result.tlsOk) EndpointVerdict.FAILED else EndpointVerdict.PARTIAL,
             checkedAtMs = checkedAtMs,
             latencyMs = result.pingMs,
             countryCode = result.countryCode,

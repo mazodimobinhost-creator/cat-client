@@ -40,7 +40,7 @@ class VerifiedEndpointTest {
             port = 8443, verifyTls = true, countryCode = "DE"
         ), now)
         assertEquals("[2606:4700::1]:8443", endpoint.authority)
-        assertEquals(EndpointVerdict.VERIFIED, endpoint.verdict)
+        assertEquals(EndpointVerdict.PARTIAL, endpoint.verdict)
     }
 
     @Test fun proxyScannerAdapterDoesNotMislabelHttpOrSocks4AsSocks5() {
