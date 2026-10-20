@@ -663,7 +663,7 @@ class ProxyIpScannerPage(
     }
 
     private fun showRowConfigDialog(proxyIpRow: RelayCatalogEntry) {
-        val base = panelBaseUrl?.trimEnd('/').orEmpty()
+        val base = panelUrl?.trimEnd('/').orEmpty()
         val workerDomain = runCatching { java.net.URI(base).host }.getOrNull().orEmpty().ifBlank { "worker.example.com" }
         val uuid = if (base.isNotBlank()) {
             runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty().ifBlank { "11111111-2222-4333-8444-555555555555" }
@@ -684,6 +684,8 @@ class ProxyIpScannerPage(
             countryCode = proxyIpRow.countryCode,
             countryName = proxyIpRow.countryName,
             datacenter = proxyIpRow.datacenter,
+            asn = proxyIpRow.asn,
+            risk = proxyIpRow.risk,
         )
         val config = RelayCatalogConfigFactory.buildForProxyIpRow(
             proxyIpRow = proxyIpRow,
@@ -695,7 +697,7 @@ class ProxyIpScannerPage(
             fingerprint = "chrome",
             serverName = workerDomain,
         ) ?: return
-        val uri = config.toUri()
+        val uri = config.encode()
         val clashMap = VerifiedSubscriptionProjector.clash(config)
         val singBoxMap = VerifiedSubscriptionProjector.singBox(config)
         val xrayMap = VerifiedSubscriptionProjector.xray(config)
