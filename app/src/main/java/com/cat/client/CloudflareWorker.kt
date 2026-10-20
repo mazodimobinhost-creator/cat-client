@@ -1005,9 +1005,9 @@ object CloudflareWorker {
         val builtInScript = builtInWorkerScript(context)
         val script = workerScriptOverride ?: run {
             val remote = runCatching { PanelUpdate.newestPanel(context) }.getOrNull()
-            val builtInVer = PanelUpdate.parseVersion(builtInScript)
-            if (remote != null && (builtInVer.isBlank() || PanelUpdate.isNewer(builtInVer, remote.version))) {
-                remote.script
+            val builtInVer = PanelUpdate.parseVersion(builtInScript).orEmpty()
+            if (remote != null && (builtInVer.isBlank() || PanelUpdate.preferRelease(builtInVer, remote.version))) {
+                remote.text
             } else {
                 builtInScript
             }
@@ -1065,7 +1065,7 @@ object CloudflareWorker {
         //    at all» (nothing answered).
         val health = waitForPanel(workerUrl, uuid, subscriptionKeys(context, workerUrl, uuid))
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
-        val bundledVersion = PanelUpdate.parseVersion(script).ifBlank { bundledPanelVersion(context) }
+        val bundledVersion = PanelUpdate.parseVersion(script).orEmpty().ifBlank { bundledPanelVersion(context) }
 
         // 7. Stealth hardening: snapshot settings into the local recovery backup
         // and move the panel UI to a random hidden path (root then 404s neutrally).
