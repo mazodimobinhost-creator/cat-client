@@ -418,12 +418,12 @@ class ProxyIpScannerPage(
         }
         scope.launch {
             Toast.makeText(ctx, "⚡ Testing top ${plan.size} endpoints…", Toast.LENGTH_SHORT).show()
-            val networkId = runCatching { NetworkContext.key(ctx) }.getOrDefault("active-net")
+            val networkId = runCatching { CurrentEndpointNetwork.identity(ctx) }.getOrDefault("active-net")
             val nowMs = System.currentTimeMillis()
-            withContext(Dispatchers.IO) {
-                plan.forEach { candidate ->
+            val outcomes = withContext(Dispatchers.IO) {
+                EndpointPortDiscoveryRunner.run(plan, nowMs, "top-five-probe") { candidate ->
                     val hit = probe(candidate.host, candidate.port)
-                    val evidence = if (hit != null) {
+                    if (hit != null) {
                         EndpointProbeEvidence(
                             tcpConnected = true,
                             tlsCompleted = true,
@@ -438,28 +438,35 @@ class ProxyIpScannerPage(
                             error = "probe-failed",
                         )
                     }
-                    val authority = if (candidate.host.contains(':')) {
-                        "[${candidate.host.removePrefix("[").removeSuffix("]")}]" + ":${candidate.port}"
-                    } else {
-                        "${candidate.host}:${candidate.port}"
-                    }
-                    probeDisplayByAuthority[authority] = RelayProbeDisplayPolicy.from(candidate.kind, evidence)
-                    riskByAuthority[authority] = if (hit != null) RelayRisk.CLEAN else RelayRisk.UNKNOWN
-                    catalogController.recordRuntimeResult(
-                        candidate = candidate,
-                        evidence = evidence,
-                        checkedAtMs = nowMs,
-                        workerOutcome = if (hit != null) {
-                            WorkerRuntimeOutcome(attempted = true, httpStatus = 200, runtimeCompleted = true)
-                        } else {
-                            WorkerRuntimeOutcome(attempted = true, runtimeCompleted = false)
-                        },
-                        networkId = networkId,
-                    )
                 }
             }
+            outcomes.forEach { outcome ->
+                val candidate = outcome.candidate
+                val evidence = outcome.evidence
+                val ok = outcome.endpoint != null
+                val authority = if (candidate.host.contains(':')) {
+                    "[${candidate.host.removePrefix("[").removeSuffix("]")}]" + ":${candidate.port}"
+                } else {
+                    "${candidate.host}:${candidate.port}"
+                }
+                probeDisplayByAuthority[authority] = RelayProbeDisplayPolicy.from(candidate.kind, evidence)
+                riskByAuthority[authority] = if (ok) RelayRisk.CLEAN else RelayRisk.UNKNOWN
+                catalogController.recordRuntimeResult(
+                    candidate = candidate,
+                    evidence = evidence,
+                    checkedAtMs = nowMs,
+                    workerOutcome = if (ok) {
+                        WorkerRuntimeOutcome(attempted = true, httpStatus = 200, runtimeCompleted = true)
+                    } else {
+                        WorkerRuntimeOutcome(attempted = true, runtimeCompleted = false)
+                    },
+                    networkId = networkId,
+                )
+            }
+            val verifiedCount = EndpointPortDiscoveryRunner.verified(outcomes).size
             VerifiedProxyIpStore(ctx).saveHits(synchronized(hits) { hits.toList() })
             renderResults()
+            Toast.makeText(ctx, "✓ Verified $verifiedCount / ${outcomes.size} endpoints", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -498,7 +505,7 @@ class ProxyIpScannerPage(
         }
 
         if (::portRecommendationText.isInitialized) {
-            val networkId = runCatching { NetworkContext.key(ctx) }.getOrDefault("active-net")
+            val networkId = runCatching { CurrentEndpointNetwork.identity(ctx) }.getOrDefault("active-net")
             val recommended = catalogController.recommendPorts(
                 networkId = networkId,
                 nowMs = System.currentTimeMillis(),
@@ -631,8 +638,14 @@ class ProxyIpScannerPage(
                             )
                             val action = RelayCatalogAction.useAsProxyIp(verifiedRow)
                             onUseAsEntry.invoke(action?.value ?: hit.authority)
-                        }, LinearLayout.LayoutParams(-2, -2))
+                        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
                     }
+                    addView(pill("⚙️ Config", false) {
+                        val verifiedRow = catalogRow.copy(
+                            endpoint = catalogRow.endpoint.copy(verdict = EndpointVerdict.VERIFIED),
+                        )
+                        showRowConfigDialog(verifiedRow)
+                    }, LinearLayout.LayoutParams(-2, -2))
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
@@ -647,6 +660,61 @@ class ProxyIpScannerPage(
                 DiagnosticLogger.warn(ctx, "pip.rows.failed", error = error)
             }
         }
+    }
+
+    private fun showRowConfigDialog(proxyIpRow: RelayCatalogEntry) {
+        val base = panelBaseUrl?.trimEnd('/').orEmpty()
+        val workerDomain = runCatching { java.net.URI(base).host }.getOrNull().orEmpty().ifBlank { "worker.example.com" }
+        val uuid = if (base.isNotBlank()) {
+            runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty().ifBlank { "11111111-2222-4333-8444-555555555555" }
+        } else {
+            "11111111-2222-4333-8444-555555555555"
+        }
+        val ingressEndpoint = VerifiedEndpoint(
+            host = workerDomain,
+            port = 443,
+            role = EndpointRole.CLEAN_IP,
+            family = EndpointFamily.DOMAIN,
+            verdict = EndpointVerdict.VERIFIED,
+            checkedAtMs = System.currentTimeMillis(),
+            source = "worker-host",
+        )
+        val ingressRow = RelayCatalogEntry(
+            endpoint = ingressEndpoint,
+            countryCode = proxyIpRow.countryCode,
+            countryName = proxyIpRow.countryName,
+            datacenter = proxyIpRow.datacenter,
+        )
+        val config = RelayCatalogConfigFactory.buildForProxyIpRow(
+            proxyIpRow = proxyIpRow,
+            ingressRow = ingressRow,
+            protocol = TunnelProtocol.VLESS,
+            credential = uuid,
+            workerDomain = workerDomain,
+            path = "/?ed=2560",
+            fingerprint = "chrome",
+            serverName = workerDomain,
+        ) ?: return
+        val uri = config.toUri()
+        val clashMap = VerifiedSubscriptionProjector.clash(config)
+        val singBoxMap = VerifiedSubscriptionProjector.singBox(config)
+        val xrayMap = VerifiedSubscriptionProjector.xray(config)
+        val preview = buildString {
+            append("URI:\n").append(uri).append("\n\n")
+            append("Clash/Mihomo server: ").append(clashMap["server"]).append(":").append(clashMap["port"]).append("\n")
+            append("Sing-box tag: ").append(singBoxMap["tag"]).append("\n")
+            append("Xray protocol: ").append(xrayMap["protocol"])
+        }
+        android.app.AlertDialog.Builder(activity)
+            .setTitle("⚙️ ${proxyIpRow.endpoint.authority}")
+            .setMessage(preview)
+            .setPositiveButton(android.R.string.copy) { _, _ ->
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("proxyip-config", uri))
+                Toast.makeText(ctx, R.string.pscan_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     // Port is NEVER dropped — the panel must dial the relay on exactly the port
@@ -1190,14 +1258,14 @@ class VerifiedProxyIpStore(context: Context) {
 
     internal fun verifiedEndpoints(nowMs: Long = System.currentTimeMillis()): List<VerifiedEndpoint> {
         val savedAt = prefs.getLong("savedAtMs", nowMs).takeIf { it > 0L } ?: nowMs
-        return loadHits().map { hit ->
+        return loadHits().fold(emptyList()) { acc, hit ->
             val cleanHost = hit.host.removePrefix("[").removeSuffix("]")
             val family = when {
                 cleanHost.contains(':') -> EndpointFamily.IPV6
                 Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
                 else -> EndpointFamily.DOMAIN
             }
-            VerifiedEndpoint(
+            val candidate = VerifiedEndpoint(
                 host = cleanHost,
                 port = hit.port,
                 role = EndpointRole.PROXY_IP,
@@ -1208,6 +1276,7 @@ class VerifiedProxyIpStore(context: Context) {
                 countryCode = hit.country.ifBlank { null },
                 source = "device-proxyip-scan",
             )
+            VerifiedEndpointRegistry.save(acc, candidate).first
         }
     }
 

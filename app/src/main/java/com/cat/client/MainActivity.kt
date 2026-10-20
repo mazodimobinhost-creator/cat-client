@@ -7154,31 +7154,38 @@ class MainActivity : Activity() {
                 }
             }
             val nowMs = System.currentTimeMillis()
-            val cleanEvidence = entries.filter { it.fails == 0 && it.pingMs > 0L && it.port in 1..65535 }.map { e ->
+            val currentNetId = CurrentEndpointNetwork.identity(applicationContext)
+            val cleanEvidence = entries.filter { it.fails == 0 && it.pingMs > 0L && it.port in 1..65535 }.mapNotNull { e ->
+                val ep = VerifiedEndpointParser.parseAuthority(
+                    "${e.ip}:${e.port}",
+                    EndpointRole.CLEAN_IP,
+                    EndpointVerdict.VERIFIED,
+                    e.checkedAt.takeIf { it > 0L } ?: nowMs,
+                    "scanner",
+                ) ?: return@mapNotNull null
+                val isTls = e.port !in EndpointPortDiscovery.cleanPlainPorts
                 CachedEndpointEvidence(
-                    key = EndpointEvidenceKey(
-                        networkId = network,
-                        role = EndpointRole.CLEAN_IP,
-                        host = e.ip.removePrefix("[").removeSuffix("]"),
-                        port = e.port,
+                    key = CurrentEndpointNetwork.evidenceKey(
+                        context = applicationContext,
+                        endpoint = ep,
                         protocol = "vless",
-                        tls = true,
                         serverName = "worker",
+                        tls = isTls,
                     ),
                     evidence = EndpointProbeEvidence(
                         tcpConnected = true,
-                        tlsCompleted = true,
+                        tlsCompleted = isTls,
                         protocolHandshakeCompleted = true,
                         websocketCompleted = true,
                         runtimeCompleted = true,
                         latencyMs = e.pingMs,
                     ),
-                    checkedAtMs = e.checkedAt.takeIf { it > 0L } ?: nowMs,
+                    checkedAtMs = ep.checkedAtMs,
                 )
             }
             val recommendedPorts = OperatorPortRecommendation.fromEvidence(
                 entries = cleanEvidence,
-                currentNetworkId = network,
+                currentNetworkId = currentNetId,
                 nowMs = nowMs,
                 maxAgeMs = 86_400_000L,
                 role = EndpointRole.CLEAN_IP,

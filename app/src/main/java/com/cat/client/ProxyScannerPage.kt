@@ -905,7 +905,7 @@ internal class VerifiedRelayStore(context: Context) {
         if (raw.isBlank()) return emptyList()
         return runCatching {
             val arr = JSONArray(raw)
-            val out = ArrayList<VerifiedEndpoint>(arr.length())
+            var out = emptyList<VerifiedEndpoint>()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val host = o.optString("host").trim().removePrefix("[").removeSuffix("]")
@@ -921,7 +921,8 @@ internal class VerifiedRelayStore(context: Context) {
                     country = o.optString("country", ""),
                 )
                 val checkedAtMs = o.optLong("checkedAtMs", defaultCheckedAtMs).takeIf { it > 0L } ?: defaultCheckedAtMs
-                out += VerifiedEndpointAdapters.fromProxyScan(hit, checkedAtMs).copy(verdict = EndpointVerdict.VERIFIED)
+                val candidate = VerifiedEndpointAdapters.fromProxyScan(hit, checkedAtMs).copy(verdict = EndpointVerdict.VERIFIED)
+                out = VerifiedEndpointRegistry.save(out, candidate).first
             }
             out
         }.getOrDefault(emptyList())
