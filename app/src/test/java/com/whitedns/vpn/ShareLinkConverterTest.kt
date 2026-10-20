@@ -167,4 +167,23 @@ class ShareLinkConverterTest {
         val proxy = convertOne(link)
         assertEquals("vless-[2606:4700::1]:2053", proxy.getString("name"))
     }
+
+    @Test
+    fun echOptionIsParsedAloneAndSuppressedWhenCombinedWithAdvancedFragmentOrSniMask() {
+        val cleanEch =
+            "vless://uuid@104.16.1.1:443?security=tls&type=ws&host=worker.example&sni=worker.example" +
+                "&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1&path=%2Fvl#ECH-OK"
+        val cleanProxy = convertOne(cleanEch)
+        val echOpts = cleanProxy.getJSONObject("ech-opts")
+        assertTrue(echOpts.getBoolean("enable"))
+        assertEquals("cloudflare-ech.com", echOpts.getString("query-server-name"))
+
+        val conflictingFragmentAndMask =
+            "vless://uuid@104.16.1.1:443?security=tls&type=ws&host=worker.example&sni=www.speedtest.net" +
+                "&fm=%7B%22tcp%22%3A%5B%5D%7D&cs=TLS_AES_256_GCM_SHA384" +
+                "&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1&path=%2Fvl#ECH-CONFLICT"
+        val conflictProxy = convertOne(conflictingFragmentAndMask)
+        assertFalse(conflictProxy.has("ech-opts"))
+        assertEquals("www.speedtest.net", conflictProxy.getString("servername"))
+    }
 }

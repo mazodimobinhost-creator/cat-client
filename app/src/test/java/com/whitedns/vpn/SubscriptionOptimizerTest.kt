@@ -81,4 +81,28 @@ class SubscriptionOptimizerTest {
         assertEquals(0, plan.changedCount)
         assertEquals(listOf(original), plan.optimizedLines)
     }
+
+    @Test fun echAndAdvancedFragmentOrCustomSniMaskAreMutuallyExclusive() {
+        val original = "vless://uuid@104.16.0.1:443?type=ws&security=tls&host=worker.example&sni=worker.example&path=%2Fvl#TLS"
+        val plan = SubscriptionOptimizer.plan(
+            lines = listOf(original),
+            candidates = listOf(candidate("104.16.1.1", 8443)),
+            nowMs = now,
+            maxAgeMs = 60_000L,
+            sniOverride = "www.speedtest.net",
+            echEnabled = true,
+            fragmentEnabled = true,
+            cipherSuitesOverride = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256",
+        )
+        assertEquals(0, plan.changedCount)
+        assertEquals(listOf(original), plan.optimizedLines)
+        assertEquals(
+            setOf(
+                TlsOptimizationConflictReason.ECH_CONFLICTS_WITH_FRAGMENT,
+                TlsOptimizationConflictReason.ECH_CONFLICTS_WITH_CUSTOM_SNI_MASK,
+                TlsOptimizationConflictReason.ECH_CONFLICTS_WITH_CUSTOM_CIPHER_SUITES,
+            ),
+            plan.conflict?.reasons,
+        )
+    }
 }

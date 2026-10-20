@@ -81,7 +81,8 @@ object SubConvConverter {
             .put("udp", true)
 
         val security = query["security"].orEmpty().lowercase()
-        if (security.endsWith("tls") || security == "reality") {
+        val tlsEnabled = security.endsWith("tls") || security == "reality"
+        if (tlsEnabled) {
             proxy.put("tls", true)
                 .put("skip-cert-verify", false)
                 .put("client-fingerprint", query["fp"].orEmpty().ifBlank { "chrome" })
@@ -89,6 +90,7 @@ object SubConvConverter {
             query["pcs"]?.takeIf(String::isNotBlank)?.let { proxy.put("fingerprint", it) }
         }
         (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+        echOptions(query, tlsEnabled = security.endsWith("tls"))?.let { proxy.put("ech-opts", it) }
         query["pbk"]?.takeIf(String::isNotBlank)?.let { publicKey ->
             proxy.put(
                 "reality-opts",
@@ -218,10 +220,12 @@ object SubConvConverter {
                 // certificate validation off would hand anyone who can hand the user a link the
                 // ability to read the tunnelled traffic.
                 put("skip-cert-verify", false)
-                if (query["security"].equals("none", ignoreCase = true)) {
+                val isPlain = query["security"].equals("none", ignoreCase = true)
+                if (isPlain) {
                     put("tls", false)
                 }
                 (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                echOptions(query, tlsEnabled = !isPlain)?.let { put("ech-opts", it) }
                 query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", it.split(',')) }
                 val network = query["type"].orEmpty().lowercase()
                 if (network.isNotBlank()) put("network", network)
@@ -570,6 +574,30 @@ object SubConvConverter {
 
     private fun encodePathParam(value: String): String =
         encode(value).replace("%3A", ":").replace("%5B", "[").replace("%5D", "]")
+
+    /**
+     * Parses `ech` from VLESS/Trojan share links (e.g. `ech=cloudflare-ech.com+udp://1.1.1.1`),
+     * while enforcing mutual exclusion with Advanced Optimization (`fm` fragment JSON,
+     * `cs` custom cipher suites, or a `TLS Mask` where `sni` is spoofed away from `host`).
+     * Enabling ECH and Fragment/TLS-Mask simultaneously breaks TLS 1.3 Inner ClientHello.
+     */
+    private fun echOptions(query: Map<String, String>, tlsEnabled: Boolean): JSONObject? {
+        if (!tlsEnabled) return null
+        val rawEch = query["ech"]?.trim()?.takeIf { it.isNotEmpty() && !it.equals("false", ignoreCase = true) }
+            ?: return null
+        val hasAdvancedFragmentOrCipher = !query["fm"].isNullOrBlank() || !query["cs"].isNullOrBlank()
+        val host = query["host"]?.trim().orEmpty()
+        val sni = (query["sni"] ?: query["servername"])?.trim().orEmpty()
+        val hasTlsMaskSniMismatch = host.isNotEmpty() && sni.isNotEmpty() && !host.equals(sni, ignoreCase = true)
+        if (hasAdvancedFragmentOrCipher || hasTlsMaskSniMismatch) {
+            return null
+        }
+        val queryServerName = rawEch.substringBefore('+').substringBefore(' ').trim()
+            .takeIf { it.isNotEmpty() && !it.equals("true", ignoreCase = true) && '.' in it }
+        return JSONObject().put("enable", true).apply {
+            if (queryServerName != null) put("query-server-name", queryServerName)
+        }
+    }
 
     private fun vmessWsOptions(path: String?, host: String?, network: String): JSONObject {
         var outputPath = path.orEmpty().ifBlank { "/" }
