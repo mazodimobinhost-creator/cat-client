@@ -24,8 +24,22 @@ import java.net.URL
  */
 object PanelUpdate {
 
-    /** A Cat Panel worker source plus the `CAT_PANEL_VERSION` it declares. */
-    data class PanelScript(val version: String, val text: String, val fromRelease: Boolean)
+    /** A Cat Panel worker source plus the `CAT_PANEL_VERSION` and `SHA-256` it declares. */
+    data class PanelScript(val version: String, val text: String, val fromRelease: Boolean) {
+        val sha256: String = WorkerDeploymentPlanner.sha256Hex(text.toByteArray(Charsets.UTF_8))
+
+        internal fun toArtifact(
+            channel: WorkerArtifactChannel = if (fromRelease) {
+                WorkerArtifactChannel.RELEASE_ASSET
+            } else {
+                WorkerArtifactChannel.APK_BUNDLE
+            },
+        ): WorkerChannelArtifact = WorkerArtifactManifest.fromSource(
+            channel = channel,
+            bytes = text.toByteArray(Charsets.UTF_8),
+            declaredVersion = version.takeIf { it != UNKNOWN_VERSION },
+        )
+    }
 
     internal val PANEL_VERSION_MARKER =
         Regex("CAT_PANEL_VERSION\\s*=\\s*'([0-9]+(?:\\.[0-9]+)+)'")
@@ -57,6 +71,29 @@ object PanelUpdate {
     /** True when installing [candidate] over the live [deployed] panel would move it backwards. */
     fun isDowngrade(deployed: String?, candidate: String): Boolean =
         !deployed.isNullOrBlank() && AppUpdatePolicy.isNewer(deployed, candidate)
+
+    /** Validates a candidate script against [WorkerArtifactManifest] (SHA-256, syntax,
+     * and blocked 1101 versions like `6.69.12`) and ensures it is not a downgrade. */
+    internal fun validateCandidate(
+        candidate: PanelScript,
+        channel: WorkerArtifactChannel = if (candidate.fromRelease) {
+            WorkerArtifactChannel.RELEASE_ASSET
+        } else {
+            WorkerArtifactChannel.APK_BUNDLE
+        },
+        expectedSha256: String? = null,
+        deployedVersion: String? = null,
+    ): WorkerManifestVerdict {
+        val manifestVerdict = WorkerArtifactManifest.validateChannel(
+            artifact = candidate.toArtifact(channel),
+            expectedSha256 = expectedSha256,
+        )
+        if (!manifestVerdict.ok) return manifestVerdict
+        if (isDowngrade(deployedVersion, candidate.version)) {
+            return WorkerManifestVerdict(false, "downgrade-blocked")
+        }
+        return manifestVerdict
+    }
 
     /** Panel source bundled into this APK (offline fallback and update baseline). */
     fun bundledPanel(context: Context): PanelScript {
@@ -95,7 +132,12 @@ object PanelUpdate {
                 if (index > 0 && !acceptRepositoryFallback(bundledVersion, version)) {
                     throw IOException("Repository copy $version is not newer than the bundled panel $bundledVersion")
                 }
-                return PanelScript(version = version, text = text, fromRelease = true)
+                val candidate = PanelScript(version = version, text = text, fromRelease = true)
+                val verdict = validateCandidate(candidate, WorkerArtifactChannel.RELEASE_ASSET)
+                if (!verdict.ok) {
+                    throw IOException("Released panel $version failed manifest validation: ${verdict.reason}")
+                }
+                return candidate
             } catch (error: IOException) {
                 lastError = error
             }

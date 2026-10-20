@@ -126,8 +126,20 @@ object JsonSubscriptionImporter {
     fun import(content: String, nowMs: Long): ImportedUserSubscription? {
         val first = content.firstOrNull() ?: return null
         val (proxies, format) = when (first) {
-            '{' -> clashProxies(runCatching { JSONObject(content) }.getOrNull() ?: return null) to
-                UserSubscriptionFormat.Mihomo
+            '{' -> {
+                val obj = runCatching { JSONObject(content) }.getOrNull() ?: return null
+                val clash = clashProxies(obj)
+                if (clash.isNotEmpty()) {
+                    clash to UserSubscriptionFormat.Mihomo
+                } else {
+                    val sing = singBoxProxies(obj)
+                    if (sing.isNotEmpty()) {
+                        sing to UserSubscriptionFormat.Links
+                    } else {
+                        xrayProxies(JSONArray().put(obj)) to UserSubscriptionFormat.Links
+                    }
+                }
+            }
             '[' -> xrayProxies(runCatching { JSONArray(content) }.getOrNull() ?: return null) to
                 UserSubscriptionFormat.Links
             else -> return null
@@ -144,9 +156,90 @@ object JsonSubscriptionImporter {
         val proxies = config.optJSONArray("proxies") ?: return emptyList()
         return (0 until proxies.length()).mapNotNull { index ->
             val proxy = proxies.optJSONObject(index) ?: return@mapNotNull null
+            val rawServer = proxy.optString("server")
+            if (rawServer.startsWith("[") && rawServer.endsWith("]")) {
+                proxy.put("server", rawServer.removePrefix("[").removeSuffix("]"))
+            }
             if (proxy.optString("type") in setOf("socks", "socks5")) {
                 proxy.put("type", "socks5")
                 if (!proxy.has("udp")) proxy.put("udp", true)
+            }
+            proxy.takeIf(::isSupportedMihomoProxy)
+        }
+    }
+
+    private fun singBoxProxies(config: JSONObject): List<JSONObject> {
+        val outbounds = config.optJSONArray("outbounds") ?: return emptyList()
+        return (0 until outbounds.length()).mapNotNull { index ->
+            val outbound = outbounds.optJSONObject(index) ?: return@mapNotNull null
+            val protocol = outbound.optString("type")
+            if (protocol !in setOf("vless", "vmess", "trojan", "socks")) return@mapNotNull null
+            val server = outbound.optString("server").removePrefix("[").removeSuffix("]")
+            val port = outbound.optInt("server_port")
+            if (server.isBlank() || port !in 1..65535) return@mapNotNull null
+
+            val proxy = JSONObject()
+                .put("name", outbound.optString("tag").ifBlank { "SingBox ${index + 1}" })
+                .put("type", if (protocol == "socks") "socks5" else protocol)
+                .put("server", server)
+                .put("port", port)
+                .put("udp", true)
+
+            when (protocol) {
+                "vless", "vmess" -> {
+                    val uuid = outbound.optString("uuid").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    proxy.put("uuid", uuid)
+                    if (protocol == "vless") {
+                        outbound.optString("flow").takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
+                    } else {
+                        proxy.put("alterId", outbound.optInt("alter_id", 0))
+                            .put("cipher", outbound.optString("security").ifBlank { "auto" })
+                    }
+                }
+                "trojan" -> {
+                    val password = outbound.optString("password").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    proxy.put("password", password)
+                }
+                "socks" -> {
+                    if (outbound.has("username") || outbound.has("password")) {
+                        val username = outbound.optString("username").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        proxy.put("username", username).put("password", outbound.optString("password"))
+                    }
+                    return@mapNotNull proxy.takeIf(::isSupportedMihomoProxy)
+                }
+            }
+
+            val tlsObj = outbound.optJSONObject("tls")
+            if (tlsObj?.optBoolean("enabled", false) == true) {
+                proxy.put("tls", true)
+                tlsObj.optString("server_name").takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+                val fp = tlsObj.optJSONObject("utls")?.optString("fingerprint").orEmpty()
+                    .ifBlank { tlsObj.optString("fingerprint") }
+                if (fp.isNotBlank()) proxy.put("client-fingerprint", fp)
+                proxy.put("skip-cert-verify", false)
+            } else if (protocol == "trojan") {
+                proxy.put("tls", false)
+            }
+
+            val transport = outbound.optJSONObject("transport")
+            when (transport?.optString("type")) {
+                "ws" -> {
+                    val wsOpts = JSONObject().put("path", transport.optString("path"))
+                    val host = transport.optJSONObject("headers")
+                        ?.let { it.optString("Host").ifBlank { it.optString("host") } }
+                        .orEmpty()
+                    if (host.isNotBlank()) wsOpts.put("headers", JSONObject().put("Host", host))
+                    proxy.put("network", "ws").put("ws-opts", wsOpts)
+                }
+                "grpc" -> {
+                    proxy.put(
+                        "network",
+                        "grpc",
+                    ).put(
+                        "grpc-opts",
+                        JSONObject().put("grpc-service-name", transport.optString("service_name")),
+                    )
+                }
             }
             proxy.takeIf(::isSupportedMihomoProxy)
         }
@@ -254,7 +347,7 @@ object JsonSubscriptionImporter {
             ?: supported.singleOrNull()
             ?: return null
         val protocol = outbound.optString("protocol")
-        val settings = outbound.optJSONObject("settings") ?: return null
+        val settings = outbound.optJSONObject("settings")
         val stream = outbound.optJSONObject("streamSettings") ?: JSONObject()
         val proxy = JSONObject()
             .put("name", config.optString("remarks").ifBlank { "Xray ${index + 1}" })
@@ -262,31 +355,42 @@ object JsonSubscriptionImporter {
             .put("udp", true)
         when (protocol) {
             "vless", "vmess" -> {
-                val endpoint = settings.optJSONArray("vnext")?.optJSONObject(0) ?: return null
-                val user = endpoint.optJSONArray("users")?.optJSONObject(0) ?: return null
-                proxy.put("server", endpoint.optString("address"))
-                    .put("port", endpoint.optInt("port"))
-                    .put("uuid", user.optString("id"))
+                val endpoint = settings?.optJSONArray("vnext")?.optJSONObject(0)
+                val user = endpoint?.optJSONArray("users")?.optJSONObject(0)
+                val address = (endpoint?.optString("address").orEmpty().ifBlank { outbound.optString("address") })
+                    .removePrefix("[").removeSuffix("]")
+                val port = endpoint?.optInt("port")?.takeIf { it > 0 } ?: outbound.optInt("port")
+                val id = user?.optString("id").orEmpty().ifBlank { outbound.optString("id") }
+                if (address.isBlank() || port !in 1..65535 || id.isBlank()) return null
+                proxy.put("server", address)
+                    .put("port", port)
+                    .put("uuid", id)
                 if (protocol == "vless") {
-                    user.optString("flow").takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
+                    user?.optString("flow")?.takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
                 } else {
-                    proxy.put("alterId", user.optInt("alterId", user.optInt("alter_id")))
-                        .put("cipher", user.optString("security").ifBlank { "auto" })
+                    proxy.put("alterId", user?.optInt("alterId", user.optInt("alter_id")) ?: 0)
+                        .put("cipher", user?.optString("security").orEmpty().ifBlank { "auto" })
                 }
             }
             "trojan" -> {
-                val endpoint = settings.optJSONArray("servers")?.optJSONObject(0) ?: return null
-                proxy.put("server", endpoint.optString("address"))
-                    .put("port", endpoint.optInt("port"))
-                    .put("password", endpoint.optString("password"))
+                val endpoint = settings?.optJSONArray("servers")?.optJSONObject(0)
+                val address = (endpoint?.optString("address").orEmpty().ifBlank { outbound.optString("address") })
+                    .removePrefix("[").removeSuffix("]")
+                val port = endpoint?.optInt("port")?.takeIf { it > 0 } ?: outbound.optInt("port")
+                val password = endpoint?.optString("password").orEmpty().ifBlank { outbound.optString("password") }
+                if (address.isBlank() || port !in 1..65535 || password.isBlank()) return null
+                proxy.put("server", address)
+                    .put("port", port)
+                    .put("password", password)
             }
             "socks" -> {
-                proxy.put("server", settings.optString("address"))
-                    .put("port", settings.optInt("port"))
-                if (settings.has("user") || settings.has("pass")) {
-                    val username = (settings.opt("user") as? String)
+                val s = settings ?: return null
+                proxy.put("server", s.optString("address").removePrefix("[").removeSuffix("]"))
+                    .put("port", s.optInt("port"))
+                if (s.has("user") || s.has("pass")) {
+                    val username = (s.opt("user") as? String)
                         ?.takeIf(String::isNotBlank) ?: return null
-                    val password = settings.opt("pass") as? String ?: return null
+                    val password = s.opt("pass") as? String ?: return null
                     proxy.put("username", username).put("password", password)
                 }
                 return proxy.takeIf(::isSupportedMihomoProxy)
@@ -295,14 +399,16 @@ object JsonSubscriptionImporter {
 
         val security = stream.optString("security")
         val tls = when (security) {
-            "tls" -> stream.optJSONObject("tlsSettings")
+            "tls" -> stream.optJSONObject("tlsSettings") ?: JSONObject()
             "reality" -> stream.optJSONObject("realitySettings")
             else -> null
         }
         if (tls != null) {
             proxy.put("tls", true)
-            tls.optString("serverName").takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
-            tls.optString("fingerprint").takeIf(String::isNotBlank)?.let { proxy.put("client-fingerprint", it) }
+            val sni = tls.optString("serverName").ifBlank { stream.optString("serverName") }
+            if (sni.isNotBlank()) proxy.put("servername", sni)
+            val fp = tls.optString("fingerprint").ifBlank { stream.optString("fingerprint") }
+            if (fp.isNotBlank()) proxy.put("client-fingerprint", fp)
             // `allowInsecure` from the imported document is deliberately not propagated; see
             // MihomoLinkConfigBuilder. Certificate validation stays on for every imported proxy.
             proxy.put("skip-cert-verify", false)
@@ -313,6 +419,8 @@ object JsonSubscriptionImporter {
                 tls.optString("shortId").takeIf(String::isNotBlank)?.let { reality.put("short-id", it) }
                 proxy.put("reality-opts", reality)
             }
+        } else if (protocol == "trojan") {
+            proxy.put("tls", false)
         }
 
         when (stream.optString("network")) {

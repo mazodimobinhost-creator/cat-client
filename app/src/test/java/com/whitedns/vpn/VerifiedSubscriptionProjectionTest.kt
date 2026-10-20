@@ -2,6 +2,7 @@ package com.whitedns.vpn
 
 import com.cat.client.*
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VerifiedSubscriptionProjectionTest {
@@ -12,12 +13,14 @@ class VerifiedSubscriptionProjectionTest {
         family: EndpointFamily,
         proxyIp: VerifiedEndpoint? = null,
         serverName: String = "worker.example",
+        tls: Boolean = true,
     ) = VerifiedConfigUri(
         protocol,
         if (protocol == TunnelProtocol.VLESS) "uuid" else "secret",
         VerifiedEndpoint(host, port, EndpointRole.CLEAN_IP, family, EndpointVerdict.VERIFIED, 1L, source = "scan"),
         "worker.example",
         "/ws?ed=2560",
+        tls = tls,
         fingerprint = "chrome",
         proxyIp = proxyIp,
         serverName = serverName,
@@ -87,5 +90,45 @@ class VerifiedSubscriptionProjectionTest {
         assertEquals(mapOf("Host" to "worker.example"), xrayWs["headers"])
         assertEquals("sni.worker.example", stream["serverName"])
         assertEquals("chrome", stream["fingerprint"])
+    }
+
+    @Test fun uriClashSingBoxAndXrayAllImportEndToEndIntoValidMihomoYaml() {
+        val proxy11111 = VerifiedEndpoint(
+            "103.237.102.191", 11111, EndpointRole.PROXY_IP, EndpointFamily.IPV4,
+            EndpointVerdict.VERIFIED, 1L, source = "manual",
+        )
+        val proxy3118 = VerifiedEndpoint(
+            "184.75.221.82", 3118, EndpointRole.PROXY_IP, EndpointFamily.IPV4,
+            EndpointVerdict.VERIFIED, 1L, source = "manual",
+        )
+        val vlessIpv6Tls = config(
+            TunnelProtocol.VLESS, "2606:4700::1", 2053, EndpointFamily.IPV6,
+            proxyIp = proxy11111, serverName = "sni.worker.example", tls = true,
+        )
+        val trojanPlain = config(
+            TunnelProtocol.TROJAN, "104.16.1.1", 8080, EndpointFamily.IPV4,
+            proxyIp = proxy3118, serverName = "worker.example", tls = false,
+        )
+        val configs = listOf(vlessIpv6Tls, trojanPlain)
+
+        val payloads = listOf(
+            configs.joinToString("\n") { it.encode() },
+            VerifiedSubscriptionProjector.toClashJson(configs),
+            VerifiedSubscriptionProjector.toSingBoxJson(configs),
+            VerifiedSubscriptionProjector.toXrayJson(configs),
+        )
+
+        for (payload in payloads) {
+            val imported = UserSubscriptionImporter.import(payload, nowMs = 1_000L)
+            assertEquals(2, imported.connectionCount)
+            assertTrue(imported.yaml.contains("2606:4700::1"))
+            assertTrue(imported.yaml.contains("2053"))
+            assertTrue(imported.yaml.contains("103.237.102.191:11111"))
+            assertTrue(imported.yaml.contains("sni.worker.example"))
+            assertTrue(imported.yaml.contains("104.16.1.1"))
+            assertTrue(imported.yaml.contains("8080"))
+            assertTrue(imported.yaml.contains("184.75.221.82:3118"))
+            assertTrue(imported.yaml.contains("tls: false"))
+        }
     }
 }

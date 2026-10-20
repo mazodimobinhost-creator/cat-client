@@ -100,5 +100,56 @@ class PanelUpdatePolicyTest {
         assertFalse(PanelUpdate.isDowngrade("garbage", "5.23.13"))
     }
 
+    @Test
+    fun validateCandidateBlocks1101VersionAndDowngradesAndChecksSha256() {
+        val valid = PanelUpdate.PanelScript(
+            version = "6.70.0",
+            text = "/* CAT_PANEL_VERSION = '6.70.0' */\nexport default { async fetch(req, env) { return new Response('ok'); } }",
+            fromRelease = true,
+        )
+        assertTrue(PanelUpdate.validateCandidate(valid, expectedSha256 = valid.sha256, deployedVersion = "6.69.11").ok)
+        assertEquals(
+            "downgrade-blocked",
+            PanelUpdate.validateCandidate(valid, deployedVersion = "6.71.0").reason,
+        )
+        assertEquals(
+            "sha256-mismatch",
+            PanelUpdate.validateCandidate(valid, expectedSha256 = "0".repeat(64)).reason,
+        )
 
+        val bad1101 = PanelUpdate.PanelScript(
+            version = "6.69.12",
+            text = "/* CAT_PANEL_VERSION = '6.69.12' */\nexport default { async fetch(req, env) { return new Response('ok'); } }",
+            fromRelease = true,
+        )
+        assertEquals(
+            "blocked-1101-version",
+            PanelUpdate.validateCandidate(bad1101).reason,
+        )
+    }
+
+    @Test
+    fun downloadedWorkerSourceIntegratesWithManifestStaticAnalysisAndPlanner() {
+        val src = "/* CAT_PANEL_VERSION = '6.70.0' */\nexport default { async fetch(req, env) { return env.CAT_KV.get(env.UUID); } }"
+        val bytes = src.toByteArray(Charsets.UTF_8)
+        val downloaded = com.cat.client.DownloadedWorkerSource(
+            finalUrl = "https://raw.githubusercontent.com/example/repo/main/worker.js",
+            bytes = bytes,
+            sha256 = com.cat.client.WorkerDeploymentPlanner.sha256Hex(bytes),
+            contentType = "application/javascript",
+        )
+        val artifact = downloaded.toChannelArtifact()
+        assertEquals("6.70.0", artifact.version)
+        val analysis = downloaded.staticAnalysis()
+        assertTrue(analysis.syntax.valid)
+        assertTrue(analysis.detectedEnvBindings.containsAll(listOf("CAT_KV", "UUID")))
+        val plan = downloaded.planDeployment(
+            target = com.cat.client.CloudflareTargetSelection(
+                accountId = "acc-1",
+                workerName = "cat-worker",
+                existingWorker = false,
+            ),
+        )
+        assertTrue(plan is com.cat.client.WorkerDeploymentPlanResult.Ready)
+    }
 }

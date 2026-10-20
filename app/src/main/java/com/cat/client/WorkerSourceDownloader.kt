@@ -12,7 +12,31 @@ internal data class DownloadedWorkerSource(
     val bytes: ByteArray,
     val sha256: String,
     val contentType: String,
-)
+) {
+    fun toChannelArtifact(
+        channel: WorkerArtifactChannel = WorkerArtifactChannel.RAW_URL,
+        declaredVersion: String? = null,
+    ): WorkerChannelArtifact = WorkerArtifactManifest.fromSource(
+        channel = channel,
+        bytes = bytes,
+        declaredVersion = declaredVersion,
+    )
+
+    fun staticAnalysis(): WorkerStaticAnalysisReport = WorkerStaticAnalyzer.analyze(bytes)
+
+    fun planDeployment(
+        target: CloudflareTargetSelection,
+        existingBindings: WorkerBindingSet = WorkerBindingSet(),
+        requestedBindings: WorkerBindingSet = WorkerBindingSet(),
+        rollbackSnapshot: WorkerRollbackSnapshot? = null,
+    ): WorkerDeploymentPlanResult = WorkerDeploymentPlanner.plan(
+        target = target,
+        sourceBytes = bytes,
+        existingBindings = existingBindings,
+        requestedBindings = requestedBindings,
+        rollbackSnapshot = rollbackSnapshot,
+    )
+}
 
 internal class WorkerSourceDownloadException(val reason: String) : Exception(reason)
 
