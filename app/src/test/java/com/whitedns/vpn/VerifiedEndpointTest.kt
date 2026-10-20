@@ -76,11 +76,12 @@ class VerifiedEndpointTest {
     @Test fun excludesFailedAndRelayEndpointsFromSubscriptions() {
         val cleanOk = endpoint("104.16.1.1", 443, EndpointFamily.IPV4)
         val failed = endpoint("1.1.1.1", 443, EndpointFamily.IPV4, EndpointVerdict.FAILED)
+        val stale = cleanOk.copy(checkedAtMs = now - 120_000)
         val relay = endpoint("proxy.example", 1080, EndpointFamily.DOMAIN, role = EndpointRole.SOCKS5)
         assertEquals(true, cleanOk.eligibleForSubscription(now, 60_000))
         assertEquals(false, failed.eligibleForSubscription(now, 60_000))
-        assertEquals(false, relay.eligibleForSubscription(now, 60_000))
-        val result = VerifiedEndpointSelection.subscriptionEntries(listOf(failed, relay), now, 60_000)
+        assertEquals(false, stale.eligibleForSubscription(now, 60_000))
+        val result = VerifiedEndpointSelection.subscriptionEntries(listOf(failed, stale, relay), now, 60_000)
         assertEquals(emptyList<VerifiedEndpoint>(), result)
     }
 }
