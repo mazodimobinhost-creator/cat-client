@@ -85,7 +85,7 @@ class WorkerStaticAnalyzerTest {
         assertFalse(payload.contains("my-secret-password"))
         assertEquals(
             "No Error 1101 issues detected.",
-            WorkerStaticAnalyzer.parseGeminiResponseText("""{"candidates":[{"content":{"parts":[{"text":"No Error 1101 issues detected.\\n"}]}}]}"""),
+            WorkerStaticAnalyzer.parseGeminiResponseText("""{"candidates":[{"content":{"parts":[{"text":"No Error 1101 issues detected.\n"}]}}]}"""),
         )
     }
 
