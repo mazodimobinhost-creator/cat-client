@@ -29,14 +29,29 @@ internal object VerifiedConfigFailover {
         nowMs: Long,
         maxAgeMs: Long,
     ): ConfigFailoverResult {
-        val currentProxy = current.proxyIp
-            ?: return ConfigFailoverResult(FailoverStatus.NO_VERIFIED_REPLACEMENT, current, "", "")
+        val currentProxy = current.proxyIp ?: VerifiedEndpoint(
+            host = "0.0.0.0",
+            port = 443,
+            role = EndpointRole.PROXY_IP,
+            family = EndpointFamily.IPV4,
+            verdict = EndpointVerdict.VERIFIED,
+            checkedAtMs = Long.MIN_VALUE,
+            source = "none",
+        )
         val choice = VerifiedEndpointFailover.choose(currentProxy, candidates, nowMs, maxAgeMs)
-        val rebuilt = if (choice.status == FailoverStatus.SWITCHED) current.copy(proxyIp = choice.selected) else current
+        if (choice.status != FailoverStatus.SWITCHED) {
+            return ConfigFailoverResult(
+                choice.status,
+                current,
+                current.proxyIp?.authority.orEmpty(),
+                current.proxyIp?.authority.orEmpty(),
+            )
+        }
+        val rebuilt = current.copy(proxyIp = choice.selected)
         return ConfigFailoverResult(
-            choice.status,
+            FailoverStatus.SWITCHED,
             rebuilt,
-            currentProxy.authority,
+            current.proxyIp?.authority.orEmpty(),
             rebuilt.proxyIp?.authority.orEmpty(),
         )
     }
