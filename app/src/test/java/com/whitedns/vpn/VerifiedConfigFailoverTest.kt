@@ -144,4 +144,13 @@ class VerifiedConfigFailoverTest {
         assertTrue(CommunityIpLibrary.proxyIpSeeds.contains("103.237.102.191:11111"))
         assertTrue(CommunityIpLibrary.proxyIpSeeds.contains("184.75.221.82:3118"))
     }
+
+    @Test fun proxyScannerHitAuthorityBracketsIpv6OnceAndMapsCatalogEntry() {
+        val v4Hit = ProxyScannerPage.Hit("198.51.100.7", 1080, ProxyScannerPage.Proto.SOCKS5, 42, "DE")
+        val v6Hit = ProxyScannerPage.Hit("[2001:db8::9]", 3128, ProxyScannerPage.Proto.HTTP, 55, "NL")
+        assertEquals("198.51.100.7:1080", v4Hit.authority)
+        assertEquals("[2001:db8::9]:3128", v6Hit.authority)
+        assertEquals(EndpointRole.SOCKS5, v4Hit.toCatalogEntry(now).endpoint.role)
+        assertEquals(EndpointRole.HTTP_RELAY, v6Hit.toCatalogEntry(now).endpoint.role)
+    }
 }

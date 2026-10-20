@@ -2317,6 +2317,7 @@ class MainActivity : Activity() {
             }
         }
         out += VerifiedProxyIpStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+        out += VerifiedRelayStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
         return out.distinctBy { Triple(it.role, it.host.lowercase(), it.port) }
     }
 
@@ -7012,11 +7013,11 @@ class MainActivity : Activity() {
                 val up = withContext(Dispatchers.IO) {
                     runCatching { IpScanner.measureUploadSpeed(target.ip, target.port) }.getOrNull()
                 }
-                if (speed != null) measured[target.ip] = speed
+                if (speed != null) measured["${target.ip}:${target.port}"] = speed
                 mainHandler.post {
                     val updated = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
                         .map {
-                            if (it.ip == target.ip) it.copy(speedBps = speed ?: it.speedBps, uploadBps = up ?: it.uploadBps)
+                            if (it.ip == target.ip && it.port == target.port) it.copy(speedBps = speed ?: it.speedBps, uploadBps = up ?: it.uploadBps)
                             else it
                         }
                     scannerResults = updated
@@ -7151,6 +7152,39 @@ class MainActivity : Activity() {
                     append('\n')
                     append(getString(R.string.engine_last_failover, stats.lastFailoverFrom, stats.lastFailoverTo, stats.lastFailoverReason))
                 }
+            }
+            val nowMs = System.currentTimeMillis()
+            val cleanEvidence = entries.filter { it.fails == 0 && it.pingMs > 0L && it.port in 1..65535 }.map { e ->
+                CachedEndpointEvidence(
+                    key = EndpointEvidenceKey(
+                        networkId = network,
+                        role = EndpointRole.CLEAN_IP,
+                        host = e.ip.removePrefix("[").removeSuffix("]"),
+                        port = e.port,
+                        protocol = "vless",
+                        serverName = "worker",
+                    ),
+                    evidence = EndpointProbeEvidence(
+                        tcpConnected = true,
+                        tlsCompleted = true,
+                        protocolHandshakeCompleted = true,
+                        websocketCompleted = true,
+                        runtimeCompleted = true,
+                        latencyMs = e.pingMs,
+                    ),
+                    checkedAtMs = e.checkedAt.takeIf { it > 0L } ?: nowMs,
+                )
+            }
+            val recommendedPorts = OperatorPortRecommendation.fromEvidence(
+                entries = cleanEvidence,
+                currentNetworkId = network,
+                nowMs = nowMs,
+                maxAgeMs = 86_400_000L,
+                role = EndpointRole.CLEAN_IP,
+            )
+            if (recommendedPorts.isNotEmpty()) {
+                append("\n⚡ Port recommendation ($network): ")
+                append(recommendedPorts.take(3).joinToString(" · ") { "${it.port} (${it.medianLatencyMs ?: "—"} ms)" })
             }
         }
     }
@@ -9209,6 +9243,18 @@ class MainActivity : Activity() {
                             ) + "\n\nCapabilities: $capsText\nWarnings: $warnText",
                         )
                         .setNegativeButton(android.R.string.cancel, null)
+                        .setNeutralButton("🤖 Copy Redacted Review") { _, _ ->
+                            val decision = WorkerStaticAnalyzer.prepareOptInGeminiReview(
+                                sourceText = downloaded.bytes.toString(Charsets.UTF_8),
+                                optInAccepted = true,
+                                apiKeyConfigured = true,
+                            )
+                            if (decision is GeminiWorkerReviewDecision.Ready) {
+                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("worker-gemini-review", decision.redactedSnippet))
+                                Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                            }
+                        }
                         .setPositiveButton(R.string.cloud_raw_confirm) { _, _ ->
                             activityScope.launch {
                                 try {
@@ -11378,7 +11424,14 @@ class MainActivity : Activity() {
     }
 
     private fun showProxyScannerPage() {
-        ProxyScannerPage(this, palette, activityScope) { link -> showAddSubscriptionDialog(link, "") }.show()
+        ProxyScannerPage(
+            activity = this,
+            palette = palette,
+            scope = activityScope,
+            panelBaseUrl = panelBaseUrl(),
+            pickPanel = { pickPanelBaseInteractive() },
+            importLink = { link -> showAddSubscriptionDialog(link, "") },
+        ).show()
     }
 
     /* ------------------------------------------------------------------ */
