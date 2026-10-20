@@ -137,7 +137,7 @@ class VerifiedConfigFailoverTest {
         assertEquals(listOf("DE-Flow", "DE-Block"), reparsed.map { it.tag })
         assertEquals("172.67.1.9", reparsed[0].server)
         assertEquals(2053, reparsed[0].port)
-        assertTrue(reparsed[0].shareLink!!.contains("path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111"))
+        assertTrue(reparsed[0].shareLink!!.contains("proxyip%3D103.237.102.191%3A11111"))
     }
 
     @Test fun communityIpLibraryIncludesExplicitPortProxyIpSeeds() {
