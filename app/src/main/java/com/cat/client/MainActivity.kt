@@ -11174,16 +11174,46 @@ class MainActivity : Activity() {
     private fun applyProxyIpAsEntry(ip: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("proxyip", ip))
+        val chain = connectionChainPreferenceStore.read()
+        val entrySlot = chain.firstConfiguredSlot()
+        if (chain.isActive && entrySlot != null) {
+            val pinned = connectionChainEndpointOrNull(ip)?.encoded() ?: ip
+            updateConnectionChainSettings(
+                chain.withHop(entrySlot, chain.hop(entrySlot).copy(serverOverride = pinned)),
+            )
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.scanner_applied_chain,
+                    pinned,
+                    getString(connectionChainSlotLabelRes(entrySlot)),
+                ),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         val nowMs = System.currentTimeMillis()
-        val parsed = VerifiedEndpointParser.parse(
-            raw = ip,
-            role = EndpointRole.PROXY_IP,
-            verdict = EndpointVerdict.VERIFIED,
-            checkedAtMs = nowMs,
-            source = "device-proxyip-scan",
-        ) as? EndpointParseResult.Success
-        val proxyEndpoint = parsed?.endpoint
-        val selectedSubId = subscriptionStore.readSelectedSubscriptionId()
+        val hostPort = VerifiedEndpointParser.parseHostPort(ip)
+        val proxyEndpoint = hostPort?.let { (rawHost, port) ->
+            val cleanHost = rawHost.removePrefix("[").removeSuffix("]")
+            val family = when {
+                cleanHost.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            }
+            runCatching {
+                VerifiedEndpoint(
+                    host = cleanHost,
+                    port = port,
+                    role = EndpointRole.PROXY_IP,
+                    family = family,
+                    verdict = EndpointVerdict.VERIFIED,
+                    checkedAtMs = nowMs,
+                    source = "device-proxyip-scan",
+                )
+            }.getOrNull()
+        }
+        val selectedSubId = SubscriptionStore(this).readSelectedSubscriptionId()
         val targetProfile = connectionSelectionPreferenceStore.readSelectedProfile(selectedSubId, connectionProfiles)
             ?.takeIf { !it.shareLink.isNullOrBlank() }
             ?: connectionProfiles.firstOrNull { !it.shareLink.isNullOrBlank() }
@@ -11216,7 +11246,17 @@ class MainActivity : Activity() {
                 }
             }
         }
-        Toast.makeText(this, "🎯 ProxyIP copied: $ip", Toast.LENGTH_LONG).show()
+        if (proxyEndpoint != null) {
+            Toast.makeText(this, "🎯 ProxyIP copied: ${proxyEndpoint.authority}", Toast.LENGTH_LONG).show()
+            return
+        }
+        val previousValue = frontingIpPreferenceStore.readFrontingIp()
+        frontingIps = runCatching {
+            FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
+        }.getOrDefault(frontingIps)
+        renderFrontingIpChips()
+        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+        Toast.makeText(this, getString(R.string.scanner_applied, ip, 0L), Toast.LENGTH_LONG).show()
     }
 
     /** Put an SNI into the live configs (servername of every TLS proxy) and reconnect; null clears it. */
@@ -13211,17 +13251,14 @@ class MainActivity : Activity() {
                         val newTestId = SystemClock.elapsedRealtimeNanos().toString()
                         delayTestId = newTestId
                         notifyDataSetChanged()
-                        val testSettings = connectionTestSettingsPreferenceStore.read()
                         startForegroundService(
                             Intent(this@MainActivity, CatClientVpnService::class.java)
                                 .setAction(Actions.TEST_CONNECTION_DELAYS)
                                 .putExtra(Actions.EXTRA_APP_INITIATED, true)
                                 .putExtra(Actions.EXTRA_DELAY_TEST_ID, newTestId)
                                 .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
-                                .putExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
-                                .putExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes))
-                                .putExtra(Actions.EXTRA_TEST_TIMEOUT_SECONDS, testSettings.timeoutSeconds)
-                                .putExtra(Actions.EXTRA_TEST_CONCURRENCY, 1),
+                                .putStringArrayListExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
+                                .putStringArrayListExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes.sorted())),
                         )
                     }
 
@@ -13375,17 +13412,14 @@ class MainActivity : Activity() {
                                 val newTestId = SystemClock.elapsedRealtimeNanos().toString()
                                 delayTestId = newTestId
                                 notifyDataSetChanged()
-                                val testSettings = connectionTestSettingsPreferenceStore.read()
                                 startForegroundService(
                                     Intent(this@MainActivity, CatClientVpnService::class.java)
                                         .setAction(Actions.TEST_CONNECTION_DELAYS)
                                         .putExtra(Actions.EXTRA_APP_INITIATED, true)
                                         .putExtra(Actions.EXTRA_DELAY_TEST_ID, newTestId)
                                         .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
-                                        .putExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
-                                        .putExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes))
-                                        .putExtra(Actions.EXTRA_TEST_TIMEOUT_SECONDS, testSettings.timeoutSeconds)
-                                        .putExtra(Actions.EXTRA_TEST_CONCURRENCY, 1),
+                                        .putStringArrayListExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
+                                        .putStringArrayListExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes.sorted())),
                                 )
                             }
                         } else null,
