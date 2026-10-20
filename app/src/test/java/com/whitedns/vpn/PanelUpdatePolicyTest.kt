@@ -155,8 +155,7 @@ class PanelUpdatePolicyTest {
                 workerName = "cat-worker",
             ),
             approval = com.cat.client.CloudflareOperationApproval(
-                previewReviewed = true,
-                confirmed = true,
+                previewAccepted = true,
             ),
         )
         assertTrue(plan is com.cat.client.WorkerDeploymentPlanResult.Ready)
