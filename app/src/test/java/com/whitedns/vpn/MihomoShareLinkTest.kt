@@ -69,4 +69,45 @@ class MihomoShareLinkTest {
         assertTrue(rotatedProxyIp.contains("proxyip%3D184.75.221.82%3A3118"))
         assertTrue(rotatedProxyIp.endsWith("#MainRoute"))
     }
+
+    @Test
+    fun echProxiesSkipDpiFragmentAndCustomSniMaskWhilePreservingEchShareLink() {
+        val links = listOf(
+            "vless://uuid@104.16.1.1:443?encryption=none&security=tls&type=ws&host=worker.example" +
+                "&path=%2Fvl%3Fed%3D2560&sni=worker.example&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1#ECH-Node",
+            "vless://uuid@104.16.1.2:2053?encryption=none&security=tls&type=ws&host=worker.example" +
+                "&path=%2Fvl%3Fed%3D2560&sni=worker.example#Standard-Node",
+        ).joinToString("\n")
+
+        val imported = UserSubscriptionImporter.import(links, now)
+        val parsed = MihomoConfigParser.parse(imported.yaml, now)
+        assertEquals(2, parsed.summary.proxies.size)
+
+        val echRebuilt = MihomoShareLink.fromYamlBlock(parsed.summary.proxies[0].rawYaml)!!
+        assertTrue(echRebuilt.contains("ech=cloudflare-ech.com"))
+        assertTrue(echRebuilt.endsWith("#ECH-Node"))
+
+        val fronted = MihomoFrontingPatcher.patchProxyServers(
+            rawYaml = imported.yaml,
+            serverOverrideIp = "172.67.10.20",
+            serverOverridePort = 8443,
+            sniOverride = "www.speedtest.net",
+        )
+        val frontedProxies = MihomoConfigParser.parse(fronted, now).summary.proxies
+        assertTrue(frontedProxies[0].rawYaml.contains("server: 172.67.10.20"))
+        assertTrue(frontedProxies[0].rawYaml.contains("port: 8443"))
+        assertTrue(!frontedProxies[0].rawYaml.contains("www.speedtest.net"))
+        assertTrue(frontedProxies[1].rawYaml.contains("www.speedtest.net"))
+
+        val dpiPatched = MihomoDpiBypassPatcher.patch(
+            rawYaml = imported.yaml,
+            enabled = true,
+            proxyPort = 18080,
+        )
+        val dpiProxies = MihomoConfigParser.parse(dpiPatched, now).summary.proxies
+        val echProxy = dpiProxies.first { it.name == "ECH-Node" }
+        val standardProxy = dpiProxies.first { it.name == "Standard-Node" }
+        assertTrue(!echProxy.rawYaml.contains("dialer-proxy"))
+        assertTrue(standardProxy.rawYaml.contains("dialer-proxy: 'CatClient ByeByeDPI'"))
+    }
 }

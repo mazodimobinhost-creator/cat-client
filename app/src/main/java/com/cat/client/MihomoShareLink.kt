@@ -414,6 +414,17 @@ object MihomoShareLink {
         reality?.str("public-key")?.let { params["pbk"] = it }
         reality?.str("short-id")?.let { params["sid"] = it }
         proxy.str("fingerprint")?.let { params["pcs"] = it }
+        val echOpts = proxy.child("ech-opts")
+        if (echOpts?.bool("enable") == true) {
+            val sniValue = params["sni"]
+            val wsHost = proxy.child("ws-opts")?.child("headers")?.let { it.str("Host") ?: it.str("host") }
+            val hasCustomSniMask = !sniValue.isNullOrBlank() &&
+                !wsHost.isNullOrBlank() &&
+                !sniValue.equals(wsHost, ignoreCase = true)
+            if (!hasCustomSniMask) {
+                params["ech"] = echOpts.str("query-server-name") ?: "cloudflare-ech.com"
+            }
+        }
         return params
     }
 

@@ -1655,13 +1655,24 @@ object MihomoFrontingPatcher {
         return output.joinToString("\n")
     }
 
+    internal fun hasEchEnabled(lines: List<String>): Boolean {
+        val joined = lines.joinToString("\n")
+        if ("ech-opts" !in joined) return false
+        return Regex("""ech-opts\s*:\s*\{[^}]*['"]?enable['"]?\s*:\s*true\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(joined) ||
+            Regex("""ech-opts\s*:\s*(?:#.*)?\n(?:\s{6,}.*\n)*?\s{6,}enable\s*:\s*['"]?true['"]?\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(joined)
+    }
+
     /**
      * Apply the SNI override to one proxy block: rewrite `servername:` / `sni:` when present,
      * otherwise add `servername:` to TLS-capable proxies. Only the TLS handshake name changes —
      * HTTP Host / ws headers still carry the panel domain so the Worker keeps routing.
+     * Proxies with ECH enabled are never masked with a custom SNI, because ECH requires the
+     * Inner ClientHello SNI to match the real Worker hostname.
      */
     private fun patchSni(lines: List<String>, sni: String?): List<String> {
-        if (sni == null) return lines
+        if (sni == null || hasEchEnabled(lines)) return lines
         val joined = lines.joinToString("\n")
         val tlsCapable = Regex("type:\\s*(vless|vmess|trojan|anytls|hysteria2|hysteria|tuic)").containsMatchIn(joined) ||
             Regex("tls:\\s*true").containsMatchIn(joined)
@@ -1946,6 +1957,8 @@ object MihomoDpiBypassPatcher {
             if (proxyName(currentProxy) == DpiBypassDefaults.PROXY_NAME) {
                 sawDpiProxy = true
                 output += dpiProxyBlock(proxyPort)
+            } else if (MihomoFrontingPatcher.hasEchEnabled(currentProxy)) {
+                output += currentProxy
             } else {
                 output += withDialerProxy(currentProxy)
             }
