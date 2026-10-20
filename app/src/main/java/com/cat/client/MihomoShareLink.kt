@@ -227,6 +227,35 @@ object MihomoShareLink {
         return runCatching { build(MihomoProxyYaml.parse(block)) }.getOrNull()
     }
 
+    /** Rebuilds the share link from a Mihomo YAML block and rotates its ingress
+     * `IP:port` to the next runtime-verified Clean-IP candidate while keeping
+     * protocol, credential, `Host`, `sni`, `path`, `proxyip=host:port` and `#remark`. */
+    internal fun changeRouteFromYamlBlock(
+        block: String,
+        candidates: List<VerifiedEndpoint>,
+        checkedAtMs: Long,
+    ): String? {
+        val rawUri = fromYamlBlock(block) ?: return null
+        val fragment = rawUri.substringAfter('#', "")
+        val rotated = VerifiedConfigFailover.changeRouteUri(rawUri, candidates, checkedAtMs, "mihomo-failover")
+            ?: return null
+        return if (fragment.isBlank()) rotated else "$rotated#$fragment"
+    }
+
+    /** Rebuilds the share link from a Mihomo YAML block and rotates its `proxyip=host:port`
+     * to the next runtime-verified ProxyIP candidate while keeping ingress `IP:port` untouched. */
+    internal fun changeProxyIpFromYamlBlock(
+        block: String,
+        candidates: List<VerifiedEndpoint>,
+        checkedAtMs: Long,
+    ): String? {
+        val rawUri = fromYamlBlock(block) ?: return null
+        val fragment = rawUri.substringAfter('#', "")
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs, "mihomo-failover") ?: return null
+        val rotated = VerifiedConfigFailover.changeProxyIp(parsed, candidates)?.encode() ?: return null
+        return if (fragment.isBlank()) rotated else "$rotated#$fragment"
+    }
+
     fun build(proxy: Map<String, Any?>): String? {
         val type = proxy.str("type")?.lowercase() ?: return null
         val name = proxy.str("name").orEmpty()
@@ -370,8 +399,8 @@ object MihomoShareLink {
             tls -> "tls"
             else -> "none"
         }
-        if (!tls) return params
         (proxy.str(sniKey) ?: proxy.str("servername") ?: proxy.str("sni"))?.let { params["sni"] = it }
+        if (!tls) return params
         proxy.str("client-fingerprint")?.let { params["fp"] = if (it == "random") "randomized" else it }
         proxy.list("alpn")?.takeIf { it.isNotEmpty() }?.let { params["alpn"] = it.joinToString(",") }
         if (proxy.bool("skip-cert-verify")) params["allowInsecure"] = "1"
@@ -438,8 +467,8 @@ object MihomoShareLink {
     }
 
     private fun hostLiteral(server: String): String {
-        val trimmed = server.trim()
-        return if (':' in trimmed && !trimmed.startsWith("[")) "[$trimmed]" else trimmed
+        val clean = server.trim().removePrefix("[").removeSuffix("]")
+        return if (':' in clean) "[$clean]" else clean
     }
 
     private fun query(params: Map<String, String>): String =
