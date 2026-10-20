@@ -944,18 +944,17 @@ object CloudflareWorker {
         panelPassword: String = "",
     ): DeploymentResult {
         val downloaded = WorkerSourceDownloader.download(sourceUrl)
-        when (val manifestDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.RAW_URL, downloaded.bytes, approvedSha256)) {
+        when (val manifestDecision = downloaded.verifyManifest(WorkerArtifactChannel.RAW_URL, approvedSha256)) {
             is WorkerManifestDecision.Rejected -> throw WorkerSourceDownloadException(manifestDecision.reason)
             is WorkerManifestDecision.Verified -> Unit
         }
-        val staticAnalysis = WorkerStaticAnalyzer.analyzeLocal(downloaded.bytes)
+        val staticAnalysis = downloaded.staticAnalysis()
         if (!staticAnalysis.inspection.valid) {
             throw WorkerSourceDownloadException(staticAnalysis.inspection.reason ?: "source-invalid")
         }
-        val plan = WorkerDeploymentPlanner.planRawUrlDeploy(
+        val plan = downloaded.planDeployment(
             target = CloudflareTargetSelection(accountId, workerName),
-            rawUrl = sourceUrl,
-            sourceBytes = downloaded.bytes,
+            approval = CloudflareOperationApproval(previewAccepted = true),
             desiredBindings = WorkerBindingSet(
                 plainTextVars = mapOf(
                     "OPEN_SUB" to "false",
@@ -963,7 +962,6 @@ object CloudflareWorker {
                 ),
                 secretNames = setOf("PANEL_PASSWORD"),
             ),
-            approval = CloudflareOperationApproval(previewAccepted = true),
         )
         if (plan is WorkerDeploymentPlanResult.Blocked) {
             throw WorkerSourceDownloadException(plan.reason)

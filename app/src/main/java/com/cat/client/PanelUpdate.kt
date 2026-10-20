@@ -107,6 +107,13 @@ object PanelUpdate {
     suspend fun newestPanel(context: Context): PanelScript = withContext(Dispatchers.IO) {
         val bundled = bundledPanel(context)
         val released = runCatching { releasedPanel(bundled.version) }.getOrNull()
+        if (released != null && released.version == bundled.version) {
+            val bDec = bundled.verifyManifest(WorkerArtifactChannel.APK_BUNDLE)
+            val rDec = released.verifyManifest(WorkerArtifactChannel.RELEASE_ASSET)
+            if (bDec is WorkerManifestDecision.Verified && rDec is WorkerManifestDecision.Verified) {
+                WorkerArtifactManifest.verifyCanonicalConsistency(bDec.record, rDec.record)
+            }
+        }
         if (released != null && preferRelease(bundled.version, released.version)) released else bundled
     }
 

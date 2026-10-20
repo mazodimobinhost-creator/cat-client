@@ -2316,9 +2316,12 @@ class MainActivity : Activity() {
                 )
             }
         }
-        out += VerifiedProxyIpStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
-        out += VerifiedRelayStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
-        return out.distinctBy { Triple(it.role, it.host.lowercase(), it.port) }
+        val orderedClean = VerifiedEndpointSelection.subscriptionEntries(out, nowMs, 86_400_000L)
+        val combined = ArrayList<VerifiedEndpoint>(orderedClean.size + 64)
+        combined += orderedClean
+        combined += VerifiedProxyIpStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+        combined += VerifiedRelayStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+        return combined.distinctBy { Triple(it.role, it.host.lowercase(), it.port) }
     }
 
     private fun rotateProfileRouteInSubscription(
@@ -9224,11 +9227,11 @@ class MainActivity : Activity() {
             activityScope.launch {
                 try {
                     val downloaded = WorkerSourceDownloader.download(sourceUrl)
-                    when (val manifestDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.RAW_URL, downloaded.bytes, downloaded.sha256)) {
+                    when (val manifestDecision = downloaded.verifyManifest(WorkerArtifactChannel.RAW_URL, downloaded.sha256)) {
                         is WorkerManifestDecision.Rejected -> throw WorkerSourceDownloadException(manifestDecision.reason)
                         is WorkerManifestDecision.Verified -> Unit
                     }
-                    val staticAnalysis = WorkerStaticAnalyzer.analyzeLocal(downloaded.bytes)
+                    val staticAnalysis = downloaded.staticAnalysis()
                     val inspection = staticAnalysis.inspection
                     if (!inspection.valid) throw WorkerSourceDownloadException(inspection.reason ?: "source-invalid")
                     val workerName = workerNameInput.text?.toString()?.trim().orEmpty()

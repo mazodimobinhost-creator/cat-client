@@ -460,7 +460,12 @@ class ProxyScannerPage(
                             importLink("$uri#${hit.country.ifBlank { "SOCKS5" }} ${hit.host}")
                         }
                     } else {
-                        val relay = ProxyScanImport.uri(hit, System.currentTimeMillis()) ?: hit.authority
+                        val verifiedRow = hit.toCatalogEntry(System.currentTimeMillis()).let {
+                            it.copy(endpoint = it.endpoint.copy(verdict = EndpointVerdict.VERIFIED))
+                        }
+                        val relay = RelayCatalogAction.copyRelay(verifiedRow)?.value
+                            ?: ProxyScanImport.uri(hit, System.currentTimeMillis())
+                            ?: hit.authority
                         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("proxy", relay))
                         Toast.makeText(ctx, R.string.pscan_copied, Toast.LENGTH_SHORT).show()
                     }
@@ -512,7 +517,9 @@ class ProxyScannerPage(
             val verifiedEndpoints = targets.take(32).map { h ->
                 VerifiedEndpointAdapters.fromProxyScan(h, nowMs).copy(verdict = EndpointVerdict.VERIFIED)
             }
-            val batchResult = PanelEndpointBatch.build(verifiedEndpoints.map { it to null })
+            val batchResult = catalogController.buildVisiblePanelBatch()
+                .takeIf { it.accepted > 0 && targets.size == visibleHits().size }
+                ?: PanelEndpointBatch.build(verifiedEndpoints.map { it to null })
             if (batchResult.accepted == 0) {
                 Toast.makeText(ctx, R.string.pscan_none_yet, Toast.LENGTH_SHORT).show()
                 return@launch
@@ -551,7 +558,19 @@ class ProxyScannerPage(
                     val respText = (if (code in 200..299) putConn.inputStream else putConn.errorStream)?.bufferedReader()?.readText().orEmpty()
                     putConn.disconnect()
                     if (code !in 200..299) throw IllegalStateException("HTTP $code")
-                    val syncResult = PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
+                    if (verifiedEndpoints.size == 1) {
+                        val singleSync = PanelSettingsReadBack.verifySingle(verifiedEndpoints.first(), beforeText, respText, nowMs)
+                        if (singleSync.outcome == PanelSyncOutcome.FAILED || singleSync.outcome == PanelSyncOutcome.INVALID_INPUT) {
+                            throw IllegalStateException("panel-readback-failed (1)")
+                        }
+                    }
+                    val syncResult = if (targets.size == visibleHits().size) {
+                        catalogController.verifyVisiblePanelSync(beforeText, respText, nowMs)
+                            .takeIf { it.outcomes.isNotEmpty() }
+                            ?: PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
+                    } else {
+                        PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
+                    }
                     if (syncResult.failed > 0) throw IllegalStateException("panel-readback-failed (${syncResult.failed})")
                     syncResult.saved + syncResult.duplicates
                 }

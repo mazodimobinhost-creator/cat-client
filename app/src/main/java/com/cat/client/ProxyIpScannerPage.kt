@@ -701,6 +701,9 @@ class ProxyIpScannerPage(
         val clashMap = VerifiedSubscriptionProjector.clash(config)
         val singBoxMap = VerifiedSubscriptionProjector.singBox(config)
         val xrayMap = VerifiedSubscriptionProjector.xray(config)
+        val clashJson = VerifiedSubscriptionProjector.toClashJson(config).toString()
+        val singBoxJson = VerifiedSubscriptionProjector.toSingBoxJson(config).toString()
+        val xrayJson = VerifiedSubscriptionProjector.toXrayJson(config).toString()
         val preview = buildString {
             append("URI:\n").append(uri).append("\n\n")
             append("Clash/Mihomo server: ").append(clashMap["server"]).append(":").append(clashMap["port"]).append("\n")
@@ -713,6 +716,15 @@ class ProxyIpScannerPage(
             .setPositiveButton(android.R.string.copy) { _, _ ->
                 val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("proxyip-config", uri))
+                Toast.makeText(ctx, R.string.pscan_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("JSON") { _, _ ->
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val bundle = org.json.JSONObject()
+                    .put("clash", org.json.JSONObject(clashJson))
+                    .put("singBox", org.json.JSONObject(singBoxJson))
+                    .put("xray", org.json.JSONObject(xrayJson))
+                cm.setPrimaryClip(ClipData.newPlainText("proxyip-config-json", bundle.toString()))
                 Toast.makeText(ctx, R.string.pscan_copied, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(android.R.string.cancel, null)
