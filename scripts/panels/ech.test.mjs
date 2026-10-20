@@ -129,12 +129,12 @@ const body = async (p, env) => (await req(p, env)).text();
 }
 /* ── 9: ECH is mutually exclusive with Fragment (fm/cs) and SNI spoofing ─ */
 {
-  const { env } = makeEnv({ sniFront: true, sniRotate: true, sni: 'www.speedtest.net', fmLinks: true });
+  const { env } = makeEnv({ sniFront: true, sniRotate: true, sni: 'spoof-sni.example.invalid', fmLinks: true });
   T.kvCacheClear();
-  const raw = await body('/sub/' + MASTER + '?raw=1&ech=1', env);
+  const raw = await body('/sub/' + MASTER + '?raw=1&dom=1&ech=1', env);
   const firstTls = raw.trim().split('\n').find((l) => l.includes('security=tls'));
   check('ech=1 links omit fm= and cs= (no Fragment + ECH conflict)', !!firstTls && !firstTls.includes('&fm=') && !firstTls.includes('&cs='), firstTls && firstTls.slice(0, 140));
-  check('ech=1 links keep real worker host as inner SNI (no custom SNI spoof)', !!firstTls && firstTls.includes('sni=' + encodeURIComponent(HOST)) && !firstTls.includes('speedtest.net'), firstTls && firstTls.slice(0, 140));
+  check('ech=1 links keep real worker host as inner SNI (no custom SNI spoof)', !!firstTls && firstTls.includes('sni=' + encodeURIComponent(HOST)) && !firstTls.includes('spoof-sni.example.invalid'), firstTls && firstTls.slice(0, 140));
 
   const xrayRaw = await body('/xray/' + MASTER + '?raw=1&survive=1&ech=1', env);
   const xrayJson = JSON.parse(xrayRaw);
