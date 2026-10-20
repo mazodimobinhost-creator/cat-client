@@ -985,6 +985,7 @@ object CloudflareWorker {
         panelUser: String = "",
         panelPassword: String = "",
         workerScriptOverride: String? = null,
+        isRepair: Boolean = false,
     ): DeploymentResult = withContext(Dispatchers.IO) {
         // 1. Account workers.dev subdomain: read it, create it when missing.
         val subdomain = resolveWorkersSubdomain(token, accountId)
@@ -1002,7 +1003,11 @@ object CloudflareWorker {
 
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
         val script = workerScriptOverride ?: builtInWorkerScript(context)
-        val channel = if (workerScriptOverride != null) WorkerArtifactChannel.RAW_URL else WorkerArtifactChannel.APK_BUNDLE
+        val channel = when {
+            workerScriptOverride != null -> WorkerArtifactChannel.RAW_URL
+            isRepair -> WorkerArtifactChannel.REPAIR
+            else -> WorkerArtifactChannel.APK_BUNDLE
+        }
         val manifestCheck = WorkerArtifactManifest.verify(channel, script.toByteArray(Charsets.UTF_8))
         if (manifestCheck is WorkerManifestDecision.Rejected && script != MINIMAL_WORKER_SCRIPT) {
             throw RuntimeException("Worker artifact rejected: ${manifestCheck.reason}")
@@ -1132,7 +1137,11 @@ object CloudflareWorker {
         if (PanelUpdate.isDowngrade(fromVersion, script.version)) {
             throw IllegalStateException("Refusing to downgrade the panel from $fromVersion to ${script.version}")
         }
-        val updateChannel = if (script.fromRelease) WorkerArtifactChannel.RELEASE_ASSET else WorkerArtifactChannel.UPDATE
+        val updateChannel = when {
+            fromVersion.isNotBlank() && fromVersion == script.version -> WorkerArtifactChannel.REPAIR
+            script.fromRelease -> WorkerArtifactChannel.RELEASE_ASSET
+            else -> WorkerArtifactChannel.UPDATE
+        }
         val manifestCheck = WorkerArtifactManifest.verify(
             updateChannel,
             script.text.toByteArray(Charsets.UTF_8),

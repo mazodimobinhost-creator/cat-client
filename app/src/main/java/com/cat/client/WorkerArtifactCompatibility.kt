@@ -30,6 +30,9 @@ internal object WorkerArtifactCompatibilityPolicy {
         if (request.outputSha256?.length != 64) return WorkerArtifactCompatibilityDecision.Blocked("output-hash-required")
         if (!request.syntaxVerified) return WorkerArtifactCompatibilityDecision.Blocked("syntax-verification-required")
         if (!request.importVerified) return WorkerArtifactCompatibilityDecision.Blocked("import-verification-required")
+        if (request.transform == WorkerArtifactTransform.MINIFY) {
+            return WorkerArtifactCompatibilityDecision.Allowed
+        }
         if (request.transform == WorkerArtifactTransform.OBFUSCATE && !request.warningAccepted) {
             return WorkerArtifactCompatibilityDecision.Blocked("obfuscation-warning-required")
         }

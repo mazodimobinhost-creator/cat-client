@@ -8845,6 +8845,7 @@ class MainActivity : Activity() {
                     token,
                     accountId,
                     CloudflareWorker.randomWorkerName(),
+                    isRepair = true,
                 )
                 PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
                 var usersNote = ""
