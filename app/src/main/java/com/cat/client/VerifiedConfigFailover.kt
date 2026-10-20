@@ -87,4 +87,34 @@ internal object VerifiedConfigFailover {
         val encoded = result.config.encode()
         return if (remark.isEmpty()) encoded else "$encoded#$remark"
     }
+
+    /** Full failover helper that returns both the rebuilt URI (preserving `#remark`)
+     * and the [ConfigFailoverResult] containing `previousAuthority` and `selectedAuthority`. */
+    fun failoverUriWithResult(
+        rawUri: String,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long,
+        preferProxyIp: Boolean = false,
+        source: String = "retest",
+    ): Pair<String, ConfigFailoverResult>? {
+        val remark = rawUri.trim().substringAfter('#', missingDelimiterValue = "")
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = Long.MIN_VALUE, source = source) ?: return null
+        val primary = if (preferProxyIp) {
+            changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
+        } else {
+            changeRoute(parsed, candidates, nowMs, maxAgeMs)
+        }
+        val chosen = if (primary.status == FailoverStatus.SWITCHED) {
+            primary
+        } else if (preferProxyIp) {
+            changeRoute(parsed, candidates, nowMs, maxAgeMs)
+        } else {
+            changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
+        }
+        if (chosen.status != FailoverStatus.SWITCHED) return null
+        val encoded = chosen.config.encode()
+        val rebuilt = if (remark.isEmpty()) encoded else "$encoded#$remark"
+        return rebuilt to chosen
+    }
 }

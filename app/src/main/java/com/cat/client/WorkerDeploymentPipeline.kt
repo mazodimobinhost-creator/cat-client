@@ -59,6 +59,14 @@ internal data class WorkerRollbackSnapshot(
             previousSourceBytes.isNotEmpty() &&
             previousSha256.length == 64 &&
             WorkerDeploymentPlanner.sha256Hex(previousSourceBytes).equals(previousSha256, ignoreCase = true)
+
+    fun describeMetadata(): String = buildString {
+        append("v").append(previousVersion?.takeIf { it.isNotBlank() } ?: "unknown")
+        append(" · sha256:").append(previousSha256.take(12))
+        append(" · bindings:").append(bindings.allBindingKeys().size)
+        if (!panelSettingsJson.isNullOrBlank()) append(" · settings:saved")
+        if (createdAtMs > 0L) append(" · t=").append(createdAtMs)
+    }
 }
 
 internal sealed interface WorkerDeploymentPlanResult {

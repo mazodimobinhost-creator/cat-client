@@ -71,6 +71,16 @@ class VerifiedConfigFailoverTest {
         assertTrue(switched.contains("sni=sni.worker.example"))
         assertTrue(switched.contains("path=%2Fvl%3Fproxyip%3D103.237.102.191%3A11111"))
         assertTrue(switched.endsWith("#DE-Route"))
+
+        val (withMetaUri, metaResult) = VerifiedConfigFailover.failoverUriWithResult(
+            broken,
+            listOf(endpoint("2606:4700::1", 2053, EndpointVerdict.VERIFIED)),
+            now, 60_000,
+            preferProxyIp = false,
+        )!!
+        assertEquals(switched, withMetaUri)
+        assertEquals("104.16.1.1:443", metaResult.previousAuthority)
+        assertEquals("[2606:4700::1]:2053", metaResult.selectedAuthority)
     }
 
     @Test fun noReplacementReturnsByteEquivalentUri() {

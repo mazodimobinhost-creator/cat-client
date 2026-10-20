@@ -1198,6 +1198,25 @@ object CloudflareWorker {
             }
         }
 
+        val rollbackBytes = runCatching { builtInWorkerScript(context).toByteArray(Charsets.UTF_8) }
+            .getOrElse { script.text.toByteArray(Charsets.UTF_8) }
+        val rollbackSnapshot = WorkerRollbackSnapshot(
+            target = CloudflareTargetSelection(accountId, workerName),
+            previousVersion = fromVersion.takeIf(String::isNotBlank),
+            previousSha256 = WorkerDeploymentPlanner.sha256Hex(rollbackBytes),
+            previousSourceBytes = rollbackBytes,
+            bindings = WorkerBindingSet(
+                kvNamespaces = if (kvId != null) mapOf("CAT_KV" to kvId) else emptyMap(),
+                plainTextVars = if (uuid.isNotBlank()) mapOf("UUID" to uuid) else emptyMap(),
+                secretNames = keptSecrets.toSet(),
+            ),
+            panelSettingsJson = runCatching { PanelBackup.read(context)?.settingsJson }.getOrNull(),
+            createdAtMs = System.currentTimeMillis(),
+        )
+        if (rollbackSnapshot.isValidForRollback()) {
+            PanelDeploymentStore(context).rememberRollbackSummary(normalized, rollbackSnapshot.describeMetadata())
+        }
+
         val putResult = cfUploadWorker(token, uploadUrl, script.text, uuid, kvId, extraBindings = extras, keepSecrets = keptSecrets.isNotEmpty())
         if (!putResult.optBoolean("success", false)) {
             val errors = putResult.optJSONArray("errors")?.toString() ?: "unknown"
@@ -1933,6 +1952,13 @@ class PanelDeploymentStore(context: Context) {
 
     fun tokenFor(workerUrl: String): String? =
         prefs.getString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
+
+    fun rememberRollbackSummary(workerUrl: String, summary: String) {
+        prefs.edit().putString("rollback:" + workerUrl.trimEnd('/').lowercase(Locale.US), summary).apply()
+    }
+
+    fun rollbackSummaryFor(workerUrl: String): String? =
+        prefs.getString("rollback:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
 
     /** Forget a deployment completely (worker deleted in the dashboard or via the API). */
     fun remove(workerUrl: String) {

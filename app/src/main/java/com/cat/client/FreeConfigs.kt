@@ -121,45 +121,62 @@ object FreeConfigs {
     }
 
     /** Sources that were reachable at the time of writing (verified against the GitHub API). */
-    fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = listOf(
-        freevlessnodeSource(baseUrl),
-        FreeSource(
-            "v2go-vless", "v2go VLESS", "v2go (VLESS)",
-            listOf("https://raw.githubusercontent.com/Danialsamadi/v2go/main/Splitted-By-Protocol/vless.txt"), limit = 250,
-        ),
-        FreeSource(
-            "v2go-trojan", "v2go Trojan", "v2go (Trojan)",
-            listOf("https://raw.githubusercontent.com/Danialsamadi/v2go/main/Splitted-By-Protocol/trojan.txt"), limit = 250,
-        ),
-        githubSource(
-            "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
-            "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
-        ),
-        githubSource(
-            "morpheusadam-iran", "Morpheus Iran bundle", "مورفیوس (ویژهٔ ایران)",
-            "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
-        ),
-        githubSource(
-            "radikal", "0xRadikal VLESS", "رادیکال VLESS",
-            "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
-        ),
-        githubSource(
-            "epodonios", "Epodonios collector", "اپودونیوس",
-            "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
-        ),
-        githubSource(
-            "aliilapro", "ALIILAPRO v2rayNG", "علی‌ال‌آپرو",
-            "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
-        ),
-        githubSource(
-            "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
-            "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
-        ),
-        githubSource(
-            "aras-free-warp", "Aras free WARP", "آراس (وارپ رایگان)",
-            "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
-        ),
-    )
+    fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = buildList {
+        add(freevlessnodeSource(baseUrl))
+        for (community in CommunitySourceRegistry.sources.mapNotNull(CommunitySourceRegistry::validate)) {
+            add(
+                FreeSource(
+                    id = community.id,
+                    nameEn = "${community.label} (${community.license})",
+                    nameFa = "${community.label} (${community.license})",
+                    urls = listOf(community.url),
+                    limit = 250,
+                ),
+            )
+        }
+        add(
+            githubSource(
+                "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
+                "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
+            ),
+        )
+        add(
+            githubSource(
+                "morpheusadam-iran", "Morpheus Iran bundle", "مورفیوس (ویژهٔ ایران)",
+                "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
+            ),
+        )
+        add(
+            githubSource(
+                "radikal", "0xRadikal VLESS", "رادیکال VLESS",
+                "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
+            ),
+        )
+        add(
+            githubSource(
+                "epodonios", "Epodonios collector", "اپودونیوس",
+                "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
+            ),
+        )
+        add(
+            githubSource(
+                "aliilapro", "ALIILAPRO v2rayNG", "علی‌ال‌آپرو",
+                "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
+            ),
+        )
+        add(
+            githubSource(
+                "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
+                "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
+            ),
+        )
+        add(
+            githubSource(
+                "aras-free-warp", "Aras free WARP", "آراس (وارپ رایگان)",
+                "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
+            ),
+        )
+    }
 
     const val DEFAULT_FREEVLESSNODE_BASE = "https://freevlessnode.github.io"
 
@@ -174,13 +191,28 @@ object FreeConfigs {
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): FetchReport = withContext(Dispatchers.IO) {
         val list = sources(baseUrl)
+        val communityById = CommunitySourceRegistry.sources.associateBy { it.id }
+        val communityFetcher = CommunitySourceFetcher()
         val done = java.util.concurrent.atomic.AtomicInteger(0)
         onProgress?.invoke(list.firstOrNull()?.nameFa.orEmpty(), 0, list.size)
         // All sources in parallel; inside each source the mirrors race (first body wins).
         val results = list.map { source ->
             async {
-                val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
-                val links = text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                val communitySource = if (!useTunnel) communityById[source.id] else null
+                val links = if (communitySource != null) {
+                    val fetched = withTimeoutOrNull(SOURCE_BUDGET_MS) {
+                        when (val res = communityFetcher.fetch(communitySource)) {
+                            is CommunityFetchResult.Success -> res.links.take(source.limit)
+                            is CommunityFetchResult.Failure -> null
+                        }
+                    }
+                    fetched ?: withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                        ?.let { extractLinks(it).take(source.limit) }
+                        .orEmpty()
+                } else {
+                    val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                    text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                }
                 val finished = done.incrementAndGet()
                 onProgress?.invoke(source.nameFa, finished, list.size)
                 source to links

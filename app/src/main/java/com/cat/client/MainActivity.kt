@@ -2333,35 +2333,27 @@ class MainActivity : Activity() {
         val nowMs = System.currentTimeMillis()
         val candidates = collectVerifiedEndpointsForFailover(nowMs)
         val maxAgeMs = 86_400_000L
-        val parsedBefore = VerifiedConfigUriParser.parse(link, checkedAtMs = Long.MIN_VALUE, source = "retest")
-        val rebuiltUri = if (preferProxyIp) {
-            VerifiedConfigFailover.changeProxyIpUri(link, candidates, nowMs, maxAgeMs)
-                ?: VerifiedConfigFailover.changeRouteUri(link, candidates, nowMs, maxAgeMs)
-        } else {
-            VerifiedConfigFailover.changeRouteUri(link, candidates, nowMs, maxAgeMs)
-                ?: VerifiedConfigFailover.changeProxyIpUri(link, candidates, nowMs, maxAgeMs)
-        } ?: return null
-        val parsedAfter = VerifiedConfigUriParser.parse(rebuiltUri, checkedAtMs = nowMs, source = "retest")
+        val (rebuiltUri, failoverResult) = VerifiedConfigFailover.failoverUriWithResult(
+            rawUri = link,
+            candidates = candidates,
+            nowMs = nowMs,
+            maxAgeMs = maxAgeMs,
+            preferProxyIp = preferProxyIp,
+        ) ?: return null
         val updatedProfile = userSubscriptionManager.replaceProfileShareLink(
             subscriptionId = subscriptionId,
             targetTag = profile.tag,
             updatedShareLink = rebuiltUri,
             nowMs = nowMs,
         ) ?: return null
-        val beforeLabel = if (preferProxyIp && parsedAfter?.proxyIp != parsedBefore?.proxyIp) {
-            parsedBefore?.proxyIp?.authority ?: "${profile.server}:${profile.port}"
-        } else {
-            parsedBefore?.endpoint?.authority ?: "${profile.server}:${profile.port}"
-        }
-        val afterLabel = if (preferProxyIp && parsedAfter?.proxyIp != parsedBefore?.proxyIp) {
-            parsedAfter?.proxyIp?.authority ?: "${updatedProfile.server}:${updatedProfile.port}"
-        } else {
-            parsedAfter?.endpoint?.authority ?: "${updatedProfile.server}:${updatedProfile.port}"
-        }
+        val beforeLabel = failoverResult.previousAuthority.ifBlank { "${profile.server}:${profile.port}" }
+        val afterLabel = failoverResult.selectedAuthority.ifBlank { "${updatedProfile.server}:${updatedProfile.port}" }
         return updatedProfile to (beforeLabel to afterLabel)
     }
 
     private fun optimizeUserSubscription(item: UserSubscription) {
+        val backupPrefs = getSharedPreferences("cat_sub_optimizer_backups", Context.MODE_PRIVATE)
+        val savedBackup = backupPrefs.getString("backup:${item.id}", null)?.takeIf(String::isNotBlank)
         val snapshot = runCatching { userSubscriptionManager.cachedSnapshot(item.id) }.getOrNull()
         val links = snapshot?.catalog?.profiles?.mapNotNull { it.shareLink?.takeIf(String::isNotBlank) }.orEmpty()
         if (links.isEmpty()) {
@@ -2388,7 +2380,7 @@ class MainActivity : Activity() {
             ).show()
             return
         }
-        if (plan.changedCount == 0) {
+        if (plan.changedCount == 0 && savedBackup == null) {
             Toast.makeText(this, R.string.connection_route_no_candidates, Toast.LENGTH_LONG).show()
             return
         }
@@ -2399,21 +2391,52 @@ class MainActivity : Activity() {
                 val changes = row.changes.joinToString(", ") { "${it.field}: ${it.before ?: "—"} → ${it.after ?: "—"}" }
                 "• $changes"
             }
-        MaterialAlertDialogBuilder(this)
+        val builder = MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.subscription_optimize_title, item.name))
-            .setMessage("Changed configs: ${plan.changedCount} / ${plan.items.size}\n\n$previewLines")
+            .setMessage(
+                "Changed configs: ${plan.changedCount} / ${plan.items.size}" +
+                    (if (previewLines.isNotEmpty()) "\n\n$previewLines" else "") +
+                    (if (savedBackup != null) "\n\n↩ Backup snapshot available (${savedBackup.lines().size} lines)" else ""),
+            )
             .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .setPositiveButton(R.string.subscription_optimize_apply) { _, _ ->
+        if (savedBackup != null) {
+            builder.setNeutralButton("↩ Rollback") { _, _ ->
                 activityScope.launch {
                     runCatching {
+                        val restoredName = item.name.removeSuffix(" (Optimized)")
+                        userSubscriptionManager.update(item.id, restoredName, savedBackup)
+                    }.onSuccess { restored ->
+                        userSubscriptionManager.select(restored.id)
+                        onSubscriptionSelected()
+                        Toast.makeText(this@MainActivity, "↩ ${restored.name}", Toast.LENGTH_LONG).show()
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            this@MainActivity,
+                            localizedError(error, R.string.subscription_operation_failed),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+        }
+        if (plan.changedCount > 0) {
+            builder.setPositiveButton(R.string.subscription_optimize_apply) { _, _ ->
+                activityScope.launch {
+                    runCatching {
+                        val backupPayload = plan.backupPayload()
                         val optimizedText = plan.optimizedLines.joinToString("\n")
                         val backupName = "${item.name} (Optimized)"
                         val existingOpt = userSubscriptionManager.list().firstOrNull { it.name == backupName }
-                        if (existingOpt != null) {
+                        val saved = if (existingOpt != null) {
                             userSubscriptionManager.update(existingOpt.id, backupName, optimizedText)
                         } else {
                             userSubscriptionManager.add(backupName, optimizedText)
                         }
+                        backupPrefs.edit()
+                            .putString("backup:${item.id}", backupPayload)
+                            .putString("backup:${saved.id}", backupPayload)
+                            .apply()
+                        saved
                     }.onSuccess { saved ->
                         userSubscriptionManager.select(saved.id)
                         onSubscriptionSelected()
@@ -2427,8 +2450,8 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            .create()
-            .showCatClientDialog()
+        }
+        builder.create().showCatClientDialog()
     }
 
     /**
@@ -8691,6 +8714,7 @@ class MainActivity : Activity() {
     private fun showPanelManageDialog(dep: PanelDeploymentRecord, deployed: String?, newest: PanelUpdate.PanelScript?) {
         // Strictly newer — `!=` used to flag an OLDER source as «⬆ update available».
         val updateAvailable = newest != null && (deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed))
+        val rollbackSummary = PanelDeploymentStore(this).rollbackSummaryFor(dep.workerUrl)
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 getString(R.string.panel_manage_title) +
@@ -8702,7 +8726,7 @@ class MainActivity : Activity() {
                     dep.workerUrl,
                     deployed ?: getString(R.string.panel_version_unknown),
                     newest?.version ?: getString(R.string.panel_version_unknown),
-                ),
+                ) + if (rollbackSummary != null) "\n\nRollback snapshot: $rollbackSummary" else "",
             )
             .setPositiveButton(R.string.panel_update_btn) { _, _ ->
                 val script = newest
@@ -9244,8 +9268,7 @@ class MainActivity : Activity() {
                         .replace(Regex("-{2,}"), "-")
                         .trim('-')
                         .ifEmpty { CloudflareWorker.randomWorkerName() }
-                    val capsText = if (staticAnalysis.capabilities.isEmpty()) "—" else staticAnalysis.capabilities.joinToString(", ") { it.name }
-                    val warnText = if (staticAnalysis.warnings.isEmpty()) "None" else staticAnalysis.warnings.joinToString(", ") { it.name }
+                    val localSummary = WorkerStaticAnalyzer.formatLocalSummary(staticAnalysis)
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(R.string.cloud_raw_title)
                         .setMessage(
@@ -9255,20 +9278,14 @@ class MainActivity : Activity() {
                                 downloaded.bytes.size,
                                 downloaded.sha256,
                                 workerName,
-                            ) + "\n\nCapabilities: $capsText\nWarnings: $warnText",
+                            ) + "\n\n$localSummary",
                         )
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setNeutralButton("🤖 Copy Redacted Review") { _, _ ->
-                            val decision = WorkerStaticAnalyzer.prepareOptInGeminiReview(
+                        .setNeutralButton("🤖 Gemini / Redacted Review") { _, _ ->
+                            showOptInGeminiWorkerReviewDialog(
                                 sourceText = downloaded.bytes.toString(Charsets.UTF_8),
-                                optInAccepted = true,
-                                apiKeyConfigured = true,
+                                localAnalysis = staticAnalysis,
                             )
-                            if (decision is GeminiWorkerReviewDecision.Ready) {
-                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("worker-gemini-review", decision.redactedSnippet))
-                                Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
-                            }
                         }
                         .setPositiveButton(R.string.cloud_raw_confirm) { _, _ ->
                             activityScope.launch {
@@ -9278,6 +9295,9 @@ class MainActivity : Activity() {
                                     val permissions = CloudflareWorker.verifyToken(token)
                                     val accountId = permissions.accountId
                                     if (!permissions.valid || accountId == null) throw WorkerSourceDownloadException("token-invalid")
+                                    if (!permissions.accountName.isNullOrBlank()) {
+                                        Toast.makeText(this@MainActivity, "Account: ${permissions.accountName}", Toast.LENGTH_SHORT).show()
+                                    }
                                     val result = CloudflareWorker.deployRawSource(
                                         context = this@MainActivity,
                                         token = token,
@@ -11508,12 +11528,109 @@ class MainActivity : Activity() {
         sheet.show()
     }
 
+    private fun showOptInGeminiWorkerReviewDialog(
+        sourceText: String,
+        localAnalysis: WorkerStaticAnalysis,
+    ) {
+        val prefs = getSharedPreferences("cat_gemini_worker_review", Context.MODE_PRIVATE)
+        val savedKey = prefs.getString("gemini_api_key", "").orEmpty()
+        val keyInput = TextInputEditText(this).apply {
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            hint = "Gemini API Key (optional)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(savedKey)
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+        }
+        val keyLayout = TextInputLayout(this).apply {
+            hint = "Gemini API Key"
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxStrokeColor = TEAL
+            addView(keyInput)
+        }
+        val optInCheck = android.widget.CheckBox(this).apply {
+            text = "I consent to redacting secrets/UUIDs and preparing this Worker for Gemini review"
+            textSize = 12.5f
+            setTextColor(TEXT_SECONDARY)
+            isChecked = true
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(wizardText(WorkerStaticAnalyzer.formatLocalSummary(localAnalysis), secondary = true))
+            addView(keyLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(optInCheck, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🤖 Worker Analysis & Opt-in Gemini Review")
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton("Copy Redacted") { _, _ ->
+                when (
+                    val decision = WorkerStaticAnalyzer.prepareOptInGeminiReview(
+                        sourceText = sourceText,
+                        optInAccepted = optInCheck.isChecked,
+                        apiKeyConfigured = true,
+                    )
+                ) {
+                    is GeminiWorkerReviewDecision.Ready -> {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("worker-gemini-review", decision.redactedSnippet))
+                        Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                    }
+                    is GeminiWorkerReviewDecision.Blocked -> {
+                        Toast.makeText(this, decision.reason, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setPositiveButton("Run Gemini") { _, _ ->
+                val apiKey = keyInput.text?.toString()?.trim().orEmpty()
+                val optIn = optInCheck.isChecked
+                if (apiKey.isNotEmpty()) {
+                    prefs.edit().putString("gemini_api_key", apiKey).apply()
+                }
+                activityScope.launch {
+                    val outcome = withContext(Dispatchers.IO) {
+                        WorkerStaticAnalyzer.runOptInGeminiReview(
+                            sourceText = sourceText,
+                            optInAccepted = optIn,
+                            apiKey = apiKey,
+                        )
+                    }
+                    when (outcome) {
+                        is GeminiWorkerReviewOutcome.Blocked -> {
+                            Toast.makeText(this@MainActivity, outcome.reason, Toast.LENGTH_LONG).show()
+                        }
+                        is GeminiWorkerReviewOutcome.Error -> {
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("worker-gemini-review", outcome.redactedSnippet))
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Gemini error (${outcome.message}) — redacted snippet copied",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        is GeminiWorkerReviewOutcome.Success -> {
+                            MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle("🤖 Gemini Worker Review")
+                                .setMessage(outcome.reviewText)
+                                .setPositiveButton(android.R.string.ok, null)
+                                .show()
+                        }
+                    }
+                }
+            }
+            .show()
+    }
+
     private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
         PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
         renderCloudDeploymentHistory()
         val status = panelStatusLine(
             verifiedOnline = result.verifiedOnline,
-            health = result.health,
+            health = if (result.panelUnreachable) null else result.health,
             bundledVersion = result.bundledVersion,
             panelVersion = result.panelVersion,
         )

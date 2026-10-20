@@ -53,6 +53,7 @@ internal data class SubscriptionOptimizationPlan(
     val changedCount: Int get() = items.count { it.changed }
     val optimizedLines: List<String> get() = items.map { it.optimizedUri }
     val backupLines: List<String> get() = items.map { it.originalUri }
+    fun backupPayload(): String = backupLines.joinToString("\n")
 }
 
 /** Independent subscription optimizer with non-destructive diff preview and

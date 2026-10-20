@@ -47,6 +47,7 @@ class SubscriptionOptimizerTest {
 
         assertEquals(2, plan.changedCount)
         assertEquals(lines, plan.backupLines)
+        assertEquals(lines.joinToString("\n"), plan.backupPayload())
 
         val first = plan.optimizedLines[0]
         assertTrue(first.startsWith("vless://secret-uuid@104.16.1.1:8443?"))
