@@ -94,5 +94,49 @@ const RELAY = 'socks5://alice:s3cret@1.2.3.4:1080';
   ok('different relays get different ids', T.fnv1a64Hex(RELAY) !== T.fnv1a64Hex('socks5://bob:other@5.6.7.8:1080'));
 }
 
+/* ---------- 4) shared validator + persistence across panel, app API and Telegram bot ---------- */
+{
+  const envWithKv = { CAT_KV: mkKv(), UUID };
+  T.kvCacheClear();
+  const s0 = await T.readSettings(envWithKv);
+  const r1 = await T.addCleanIpEntries(envWithKv, s0, ['104.16.1.1:8443#DE', '[2606:4700::1]:2053#NL', '104.16.1.1:8443', '-bad_host'], { source: 'app' });
+  ok('shared clean-IP validator reports added, duplicates, invalid and persisted=true',
+    r1.persisted === true && r1.noKv === false &&
+    r1.added.includes('104.16.1.1:8443') && r1.added.includes('[2606:4700::1]:2053') &&
+    r1.duplicates.includes('104.16.1.1:8443') && r1.invalid.includes('-bad_host'),
+    JSON.stringify(r1));
+
+  const s1 = await T.readSettings(envWithKv);
+  const botIpsReply = await T.tgCommand('/ips add 104.16.1.1:8443#DE 104.16.1.2:2083#FR -bad_host', {
+    origin: 'https://x.workers.dev', host: 'x.workers.dev', env: envWithKv, settings: s1, masterUuid: UUID,
+  });
+  ok('Telegram /ips add reports stored, duplicate, invalid and CAT_KV persistence',
+    botIpsReply.includes('stored (1)') && botIpsReply.includes('104.16.1.2:2083') &&
+    botIpsReply.includes('duplicate (1)') && botIpsReply.includes('104.16.1.1:8443') &&
+    botIpsReply.includes('invalid (1)') && botIpsReply.includes('persisted in CAT_KV'),
+    botIpsReply);
+
+  const s2 = await T.readSettings(envWithKv);
+  const botProxyReply = await T.tgCommand('/proxyips add 103.237.102.191:11111#SG 184.75.221.82:3118#CA 103.237.102.191:11111 1.2.3.4', {
+    origin: 'https://x.workers.dev', host: 'x.workers.dev', env: envWithKv, settings: s2, masterUuid: UUID,
+  });
+  ok('Telegram /proxyips add preserves 103.237.102.191:11111 and 184.75.221.82:3118 while rejecting bare IP',
+    botProxyReply.includes('stored (2)') &&
+    botProxyReply.includes('103.237.102.191:11111') &&
+    botProxyReply.includes('184.75.221.82:3118') &&
+    botProxyReply.includes('duplicate (1)') &&
+    botProxyReply.includes('invalid (1)') && botProxyReply.includes('1.2.3.4'),
+    botProxyReply);
+
+  const envNoKv = { UUID };
+  T.kvCacheClear();
+  const sNoKv = await T.readSettings(envNoKv);
+  const noKvReply = await T.tgCommand('/proxyips add 103.237.102.191:11111#SG', {
+    origin: 'https://x.workers.dev', host: 'x.workers.dev', env: envNoKv, settings: sNoKv, masterUuid: UUID,
+  });
+  ok('Telegram /proxyips add without CAT_KV explicitly warns no-KV',
+    noKvReply.includes('no-KV'), noKvReply);
+}
+
 console.log('\n' + (fail === 0 ? `proxyip validation: ALL ${pass} PASSED` : `proxyip validation: ${pass} passed, ${fail} FAILED`) + '\n');
 assert.equal(fail, 0, fail + ' checks failed');

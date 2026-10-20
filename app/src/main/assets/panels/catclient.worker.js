@@ -4577,6 +4577,117 @@ async function ghApi(method, path, settings, body, fetchImpl) {
   let j = null; try { j = await readResponseJsonBounded(res, 256 * 1024); } catch (e) { }
   return { status: res.status, ok: res.ok, body: j };
 }
+async function addCleanIpEntries(env, settings, rawInput, opts) {
+  opts = opts || {};
+  const tags = Object.assign({}, settings.ipCountries);
+  const existingSet = new Set(opts.replace ? [] : (settings.ips || []));
+  const seenBatch = new Set();
+  const incoming = [];
+  const added = [];
+  const duplicates = [];
+  const invalid = [];
+  const rawList = Array.isArray(rawInput) ? rawInput : splitCsv(rawInput);
+  for (const raw of rawList) {
+    const trimmed = String(raw == null ? '' : raw).trim();
+    if (!trimmed) continue;
+    const t = splitAddrTag(trimmed);
+    const clean = cleanAddrEntry(t.addr);
+    if (!clean) {
+      invalid.push(trimmed);
+      continue;
+    }
+    if (t.cc) tags[clean] = t.cc;
+    if (!seenBatch.has(clean)) {
+      seenBatch.add(clean);
+      incoming.push(clean);
+      if (existingSet.has(clean)) duplicates.push(clean);
+      else added.push(clean);
+    } else if (!duplicates.includes(clean)) {
+      duplicates.push(clean);
+    }
+  }
+  if (opts.countries && typeof opts.countries === 'object') {
+    Object.assign(tags, normalizeCountryMap(opts.countries, 500));
+  }
+  const next = opts.replace ? incoming : uniq(incoming.concat(settings.ips || []));
+  const src = String(opts.source || '').slice(0, 24);
+  const pings = (opts.pingMs && typeof opts.pingMs === 'object') ? opts.pingMs : {};
+  const neighborRaw = Array.isArray(opts.neighborIps) ? opts.neighborIps : splitCsv(opts.neighborIps);
+  const neighborSet = new Set((neighborRaw || []).map((v) => String(v).split('#')[0].trim()).filter(Boolean));
+  const srcMap = Object.assign({}, settings.ipSources || {});
+  for (const k of Object.keys(pings).slice(0, 400)) {
+    if (pings[k] != null) srcMap[k] = { src: neighborSet.has(String(k).split('#')[0]) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
+  }
+  if (src === 'manual' || src === 'bot') {
+    for (const e of incoming.slice(0, 400)) if (!srcMap[e]) srcMap[e] = { src, ms: 0, at: Date.now() };
+  }
+  const saved = await writeSettings(env, { ips: next, ipCountries: tags, ipSources: srcMap });
+  await pushEvent(env, opts.replace ? 'ips-replace' : 'ips-add', String(next.length) + ' ips');
+  return {
+    ok: true,
+    persisted: saved.persisted,
+    noKv: !saved.persisted,
+    count: saved.settings.ips.length,
+    ips: saved.settings.ips,
+    added,
+    duplicates,
+    invalid,
+  };
+}
+
+async function addProxyRelayEntries(env, settings, rawInput) {
+  const existing = Array.isArray(settings[PXIPS_KEY]) ? settings[PXIPS_KEY] : [];
+  const existingSet = new Set(existing);
+  const tags = Object.assign({}, settings.proxyCountries || {});
+  const tokens = Array.isArray(rawInput)
+    ? rawInput.map((x) => String(x == null ? '' : x).trim()).filter(Boolean)
+    : String(rawInput == null ? '' : rawInput).split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+  const added = [];
+  const duplicates = [];
+  const invalid = [];
+  for (const rawTok of tokens) {
+    const t = splitAddrTag(rawTok);
+    const norm = normalizeProxyList([t.addr]);
+    if (!norm.list.length) {
+      invalid.push(rawTok);
+      continue;
+    }
+    const entry = norm.list[0];
+    if (t.cc) tags[entry] = t.cc;
+    if (existingSet.has(entry) || added.includes(entry)) {
+      if (!duplicates.includes(entry)) duplicates.push(entry);
+    } else {
+      added.push(entry);
+    }
+  }
+  const combined = uniq(existing.concat(added));
+  const next = combined.slice(0, 32);
+  const capped = combined.slice(32, 48);
+  const saved = await writeSettings(env, { [PXIPS_KEY]: next, proxyCountries: tags });
+  await pushEvent(env, 'proxyips-add', '+' + added.length + ' relays');
+  return {
+    ok: true,
+    persisted: saved.persisted,
+    noKv: !saved.persisted,
+    added: added.filter((e) => next.includes(e)),
+    duplicates,
+    invalid,
+    capped,
+    proxyIps: saved.settings[PXIPS_KEY],
+  };
+}
+
+function formatBotEndpointOutcome(res) {
+  const lines = [];
+  if (res.added && res.added.length) lines.push('✅ stored (' + res.added.length + '): ' + res.added.map((x) => '<code>' + tgEsc(x) + '</code>').join(', '));
+  if (res.duplicates && res.duplicates.length) lines.push('♻️ duplicate (' + res.duplicates.length + '): ' + res.duplicates.map((x) => '<code>' + tgEsc(x) + '</code>').join(', '));
+  if (res.invalid && res.invalid.length) lines.push('❌ invalid (' + res.invalid.length + '): ' + res.invalid.map((x) => '<code>' + tgEsc(x) + '</code>').join(', '));
+  if (res.capped && res.capped.length) lines.push('⚠️ capped (' + res.capped.length + '): ' + res.capped.map((x) => '<code>' + tgEsc(x) + '</code>').join(', '));
+  if (res.noKv) lines.push('⚠️ no-KV: memory-only — attach CAT_KV');
+  else lines.push('💾 persisted in CAT_KV');
+  return lines.join('\n');
+}
+
 async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   const parts = String(text || '').trim().split(/\s+/);
   const cmd = (parts[0] || '').toLowerCase().replace(/@.*$/, '');
@@ -4588,7 +4699,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   switch (cmd) {
     case '/start': case '/help':
       return '🐱 <b>' + tgEsc(panelTitle(env, settings)) + '</b> ' + CAT_PANEL_VERSION + '\n\n' +
-        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips — clean-ip list\n/country [CC|off] — preferred exit country\n/status — panel info\n/update-check — compare current and available versions\n/update [branch] — safely update through GitHub Actions\n/update-status — last update runs\n/deploy [branch] — same as /update\n/deploys — same as /update-status';
+        '/users — list users\n/add &lt;name&gt; [days] — create user\n/renew &lt;name&gt; [days] — extend\n/toggle &lt;name&gt; — enable/disable\n/del &lt;name&gt; — delete\n/link [name] — subscription links\n/ips [add|del &lt;ip:port#CC&gt;] — clean-ip list\n/proxyips [add|del &lt;host:port|socks5://...&gt;] — proxyip/relay list\n/country [CC|off] — preferred exit country\n/status — panel info\n/update-check — compare current and available versions\n/update [branch] — safely update through GitHub Actions\n/update-status — last update runs\n/deploy [branch] — same as /update\n/deploys — same as /update-status';
     case '/status': {
       const c = countrySummary(host, env, settings);
       return '🌐 ' + tgEsc(host) + '\n👥 users: ' + users.length + '\n🧹 ips: ' + settings.ips.length + '\n🌍 country: ' + (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n🔗 chain: ' + (settings.chain ? 'on' : 'off') + '\n🛡 ads: ' + (settings.blockAds ? 'blocked' : 'off') + ' · iran: ' + (settings.bypassIran ? 'direct' : 'via vpn') + '\n💾 kv: ' + (kvBinding(env) ? 'on' : 'OFF');
@@ -4627,8 +4738,42 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
       const u = byName(arg[0]); if (!u) return 'not found';
       return userLine(u) + '\n' + links(u);
     }
-    case '/ips':
+    case '/ips': {
+      const sub = (arg[0] || '').toLowerCase();
+      if (sub === 'add') {
+        if (!arg[1]) return 'usage: /ips add 1.2.3.4:443#DE [2606:4700::1]:2053#DE';
+        const res = await addCleanIpEntries(env, settings, arg.slice(1).join(' '), { source: 'bot' });
+        return formatBotEndpointOutcome(res);
+      }
+      if (sub === 'del' || sub === 'rm') {
+        const target = cleanAddrEntry(splitAddrTag(arg[1] || '').addr);
+        if (!target) return 'usage: /ips del 1.2.3.4:443';
+        if (!(settings.ips || []).includes(target)) return 'not found: <code>' + tgEsc(target) + '</code>';
+        const saved = await writeSettings(env, { ips: settings.ips.filter((x) => x !== target) });
+        return '🗑 deleted <code>' + tgEsc(target) + '</code>' + (saved.persisted ? '' : '\n⚠️ no-KV: memory-only — attach CAT_KV');
+      }
       return settings.ips.length ? settings.ips.map((ip) => '<code>' + tgEsc(ip) + '</code>' + (settings.ipCountries[ip] ? ' ' + flagOf(settings.ipCountries[ip]) : '')).join('\n') : 'empty — paste ip#CC lines in the panel or send: /ips add 1.2.3.4#DE';
+    }
+    case '/proxyips':
+    case '/relays': {
+      const sub = (arg[0] || '').toLowerCase();
+      if (sub === 'add') {
+        if (!arg[1]) return 'usage: /proxyips add 103.237.102.191:11111#SG 184.75.221.82:3118#CA socks5://user:pass@host:1080';
+        const res = await addProxyRelayEntries(env, settings, arg.slice(1).join(' '));
+        return formatBotEndpointOutcome(res);
+      }
+      if (sub === 'del' || sub === 'rm') {
+        const norm = normalizeProxyList([arg[1] || '']);
+        const target = norm.list[0];
+        if (!target) return 'usage: /proxyips del 103.237.102.191:11111';
+        const current = settings[PXIPS_KEY] || [];
+        if (!current.includes(target)) return 'not found: <code>' + tgEsc(target) + '</code>';
+        const saved = await writeSettings(env, { [PXIPS_KEY]: current.filter((x) => x !== target) });
+        return '🗑 deleted <code>' + tgEsc(target) + '</code>' + (saved.persisted ? '' : '\n⚠️ no-KV: memory-only — attach CAT_KV');
+      }
+      const list = settings[PXIPS_KEY] || [];
+      return list.length ? list.map((p) => '<code>' + tgEsc(p) + '</code>' + ((settings.proxyCountries || {})[p] ? ' ' + flagOf(settings.proxyCountries[p]) : '')).join('\n') : 'empty — send: /proxyips add 103.237.102.191:11111#SG';
+    }
     case '/country': {
       if (!arg[0]) { const c = countrySummary(host, env, settings); return (c.preferred ? flagOf(c.preferred) + ' ' + c.preferred : 'auto') + '\n' + c.countries.map((x) => x.label + ' · ' + x.addresses.length).join('\n'); }
       const cc = arg[0].toLowerCase() === 'off' ? '' : normalizeCountry(arg[0]);
@@ -5256,37 +5401,18 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/ips' && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
-    // Entries may carry a country tag: "1.2.3.4#DE" (what Cat Client's scanner
-    // saw via /cdn-cgi/trace) → stored in ipCountries, address stays clean.
-    const tags = Object.assign({}, settings.ipCountries);
-    const incoming = uniq((Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((raw) => {
-      const t = splitAddrTag(raw);
-      const clean = cleanAddrEntry(t.addr);
-      if (!clean) return '';
-      // The tag belongs to the CLEANED address («1.2.3.4:99999#DE» → «1.2.3.4#DE»),
-      // otherwise the country silently follows an address that is no longer stored.
-      if (t.cc) tags[clean] = t.cc;
-      return clean;
-    }).filter(Boolean));
-    if (body.countries && typeof body.countries === 'object') Object.assign(tags, normalizeCountryMap(body.countries, 500));
-    const next = body.replace ? incoming : uniq(incoming.concat(settings.ips));
-    // Provenance: where each IP came from + latency measured on the SENDER's
-    // network («🏷 از اسکنر · 📶 320ms از شبکهٔ فرستنده») + worker checks later
-    // write their own status via /api/ip-test. Shown per-row in the IP list.
-    const src = String(body.source || '').slice(0, 24);
-    const pings = (body.pingMs && typeof body.pingMs === 'object') ? body.pingMs : {};
-    // 👑 Neighbor provenance: Cat Client's «اسکن همسایه» flags the IPs it found
-    // around known-good neighbours; those get src=neighbor (crown badge) even
-    // though they arrive in the same scanner batch.
-    const neighborRaw = Array.isArray(body.neighborIps) ? body.neighborIps : splitCsv(body.neighborIps);
-    const neighborSet = new Set((neighborRaw || []).map((v) => String(v).split('#')[0].trim()).filter(Boolean));
-    const srcMap = Object.assign({}, settings.ipSources || {});
-    for (const k of Object.keys(pings).slice(0, 400)) if (pings[k] != null) srcMap[k] = { src: neighborSet.has(String(k).split('#')[0]) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
-    // ✍️ Manually added IPs get their own provenance («ورودی دستی» badge).
-    if (src === 'manual') for (const e of incoming.slice(0, 400)) if (!srcMap[e]) srcMap[e] = { src: 'manual', ms: 0, at: Date.now() };
-    const saved = await writeSettings(env, { ips: next, ipCountries: tags, ipSources: srcMap });
-    await pushEvent(env, body.replace ? 'ips-replace' : 'ips-add', String(next.length) + ' ips');
-    return json({ ok: true, persisted: saved.persisted, count: saved.settings.ips.length, ips: saved.settings.ips });
+    return json(await addCleanIpEntries(env, settings, body.ips, {
+      replace: !!body.replace,
+      countries: body.countries,
+      source: body.source,
+      pingMs: body.pingMs,
+      neighborIps: body.neighborIps,
+    }));
+  }
+
+  if (path === '/api/proxyips' && method === 'POST') {
+    const body = (await readJsonBody(request)) || {};
+    return json(await addProxyRelayEntries(env, settings, body.proxyIps || body.relays || body.ips));
   }
 
   // beta90 «survival pack»: one click applies broad fallbacks, but no setting
@@ -8733,7 +8859,7 @@ export const _testing = {
   USAGE_KEY, ERROR_RING, DAILY_WRITE_BUDGET, FLUSH_MIN_GAP_MS, FLUSH_BATCH, FLUSH_MIN_REQS,
   usageDay, countRequest, recordError, readUsage, flushUsage, clearErrors, scheduleFlush,
   maskCreds,
-  isProxyHostName, pinProxyEntry,
+  isProxyHostName, pinProxyEntry, addCleanIpEntries, addProxyRelayEntries,
   fnv1a64Hex, relayTokenFor, resolveRelayToken,
   loginPage, panelPage, userInfoPage,
 };

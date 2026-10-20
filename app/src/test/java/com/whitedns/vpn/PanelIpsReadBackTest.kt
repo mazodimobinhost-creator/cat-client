@@ -26,9 +26,13 @@ class PanelIpsReadBackTest {
 
     @Test fun unpersistedWriteReportsFalseEvenWhenIpsReturned() {
         val requested = listOf("104.16.1.1:8443#DE")
-        val json = """{"ok":true,"persisted":false,"count":1,"ips":["104.16.1.1:8443"]}"""
+        val json = """{"ok":true,"persisted":false,"noKv":true,"count":1,"ips":["104.16.1.1:8443"],"added":["104.16.1.1:8443"],"duplicates":["1.1.1.1:443"],"invalid":["bad:999999"]}"""
         val out = PanelIpsReadBack.verify(json, requested)
         assertFalse(out.persisted)
+        assertTrue(out.noKv)
         assertEquals(1, out.stored)
+        assertEquals(listOf("104.16.1.1:8443"), out.added)
+        assertEquals(listOf("1.1.1.1:443"), out.duplicates)
+        assertEquals(listOf("bad:999999"), out.invalid)
     }
 }
