@@ -1,9 +1,9 @@
-# Android failure report (f35cd3b)
+# Android failure report (1bb9b90)
 
+    - java.lang.NullPointerException" type="java.lang.NullPointerException">java.lang.NullPointerException
 
 ## files with compile errors
       8 app/src/main/java/com/cat/client/MainActivity.kt
-      2 app/src/test/java/com/whitedns/vpn/MihomoShareLinkTest.kt
       1 app/src/main/java/com/cat/client/SmartRouteScout.kt
       1 app/src/main/java/com/cat/client/IpGeolocation.kt
       1 app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt
@@ -63,12 +63,13 @@ w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/clie
 w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:15652:12 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
 w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SmartRouteScout.kt:61:35 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
 
-BUILD SUCCESSFUL in 1m 18s
+BUILD SUCCESSFUL in 1m 7s
 15 actionable tasks: 15 executed
 ### build-log.txt
+C/C++:       |                                            ^
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
@@ -76,8 +77,7 @@ C/C++:       |                                            ^
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
 C/C++:       |                                              ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: 17 warnings generated.
+C/C++: 5 warnings generated.
 C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/extend.c:20:
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
@@ -184,7 +184,7 @@ C/C++: 23 warnings generated.
 > Task :app:createDebugApkListingFileRedirect
 > Task :app:assembleDebug
 
-BUILD SUCCESSFUL in 40s
+BUILD SUCCESSFUL in 30s
 46 actionable tasks: 31 executed, 15 up-to-date
 ### unit-test.log
 > Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
@@ -212,23 +212,25 @@ BUILD SUCCESSFUL in 40s
 > Task :app:processDebugJavaRes UP-TO-DATE
 > Task :app:bundleDebugClassesToRuntimeJar
 > Task :app:bundleDebugClassesToCompileJar
+> Task :app:compileDebugUnitTestKotlin
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
 
-> Task :app:compileDebugUnitTestKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/MihomoShareLinkTest.kt:54:49 No value passed for parameter 'source'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/MihomoShareLinkTest.kt:65:49 No value passed for parameter 'source'.
+> Task :app:testDebugUnitTest FAILED
+
+MihomoShareLinkTest > echProxiesSkipDpiFragmentAndCustomSniMaskWhilePreservingEchShareLink FAILED
+    java.lang.NullPointerException at MihomoShareLinkTest.kt:105
+
+354 tests completed, 1 failed
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugUnitTestKotlin'.
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///home/runner/work/cat-client/cat-client/app/build/reports/tests/testDebugUnitTest/index.html
 
 * Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
 > Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
 
-BUILD FAILED in 5s
-22 actionable tasks: 4 executed, 18 up-to-date
+BUILD FAILED in 8s
+24 actionable tasks: 6 executed, 18 up-to-date
