@@ -4475,7 +4475,11 @@ async function subResponse(kind, host, env, settings, uuid, user, url) {
   // address set + this worker hostname for this render only; user settings stay
   // unchanged. A later, manually added IP still leads the subscription.
   if (!addressList(host, env, settings).length) {
-    settings = Object.assign({}, settings, { useDefaults: true, includeHost: true });
+    settings = Object.assign({}, settings, {
+      useDefaults: true,
+      includeHost: true,
+      entryLimit: Math.max(Number(settings.entryLimit) || 0, (DEFAULT_CLEAN_ADDRESSES.length + 1) * 2),
+    });
   }
   if (q.dom !== '1') { try { settings = await withDomMap(env, settings); } catch (e) { /* best-effort */ } }
   if (q.nofm) settings = Object.assign({}, settings, { fmLinks: false });
