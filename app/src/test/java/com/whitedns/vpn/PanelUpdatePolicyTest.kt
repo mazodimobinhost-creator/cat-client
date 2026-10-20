@@ -107,14 +107,20 @@ class PanelUpdatePolicyTest {
             text = "/* CAT_PANEL_VERSION = '6.70.0' */\nexport default { async fetch(req, env) { return new Response('ok'); } }",
             fromRelease = true,
         )
-        assertTrue(PanelUpdate.validateCandidate(valid, expectedSha256 = valid.sha256, deployedVersion = "6.69.11").ok)
+        assertTrue(
+            PanelUpdate.validateCandidate(
+                valid,
+                expectedSha256 = valid.sha256,
+                deployedVersion = "6.69.11",
+            ) is com.cat.client.WorkerManifestDecision.Verified,
+        )
         assertEquals(
             "downgrade-blocked",
-            PanelUpdate.validateCandidate(valid, deployedVersion = "6.71.0").reason,
+            (PanelUpdate.validateCandidate(valid, deployedVersion = "6.71.0") as com.cat.client.WorkerManifestDecision.Rejected).reason,
         )
         assertEquals(
             "sha256-mismatch",
-            PanelUpdate.validateCandidate(valid, expectedSha256 = "0".repeat(64)).reason,
+            (PanelUpdate.validateCandidate(valid, expectedSha256 = "0".repeat(64)) as com.cat.client.WorkerManifestDecision.Rejected).reason,
         )
 
         val bad1101 = PanelUpdate.PanelScript(
@@ -124,7 +130,7 @@ class PanelUpdatePolicyTest {
         )
         assertEquals(
             "blocked-1101-version",
-            PanelUpdate.validateCandidate(bad1101).reason,
+            (PanelUpdate.validateCandidate(bad1101) as com.cat.client.WorkerManifestDecision.Rejected).reason,
         )
     }
 
@@ -138,16 +144,19 @@ class PanelUpdatePolicyTest {
             sha256 = com.cat.client.WorkerDeploymentPlanner.sha256Hex(bytes),
             contentType = "application/javascript",
         )
-        val artifact = downloaded.toChannelArtifact()
-        assertEquals("6.70.0", artifact.version)
+        val decision = downloaded.verifyManifest() as com.cat.client.WorkerManifestDecision.Verified
+        assertEquals("6.70.0", decision.record.version)
         val analysis = downloaded.staticAnalysis()
-        assertTrue(analysis.syntax.valid)
-        assertTrue(analysis.detectedEnvBindings.containsAll(listOf("CAT_KV", "UUID")))
+        assertTrue(analysis.inspection.valid)
+        assertTrue(com.cat.client.WorkerCapability.KV_STORAGE in analysis.capabilities)
         val plan = downloaded.planDeployment(
             target = com.cat.client.CloudflareTargetSelection(
-                accountId = "acc-1",
+                accountId = "account-12345678",
                 workerName = "cat-worker",
-                existingWorker = false,
+            ),
+            approval = com.cat.client.CloudflareOperationApproval(
+                previewReviewed = true,
+                confirmed = true,
             ),
         )
         assertTrue(plan is com.cat.client.WorkerDeploymentPlanResult.Ready)

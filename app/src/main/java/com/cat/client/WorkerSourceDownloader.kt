@@ -13,28 +13,35 @@ internal data class DownloadedWorkerSource(
     val sha256: String,
     val contentType: String,
 ) {
-    fun toChannelArtifact(
+    fun verifyManifest(
         channel: WorkerArtifactChannel = WorkerArtifactChannel.RAW_URL,
-        declaredVersion: String? = null,
-    ): WorkerChannelArtifact = WorkerArtifactManifest.fromSource(
+        expectedSha256: String? = null,
+    ): WorkerManifestDecision = WorkerArtifactManifest.verify(
         channel = channel,
         bytes = bytes,
-        declaredVersion = declaredVersion,
+        expectedSha256 = expectedSha256,
     )
 
-    fun staticAnalysis(): WorkerStaticAnalysisReport = WorkerStaticAnalyzer.analyze(bytes)
+    fun staticAnalysis(): WorkerStaticAnalysis = WorkerStaticAnalyzer.analyzeLocal(bytes)
 
     fun planDeployment(
         target: CloudflareTargetSelection,
-        existingBindings: WorkerBindingSet = WorkerBindingSet(),
-        requestedBindings: WorkerBindingSet = WorkerBindingSet(),
+        approval: CloudflareOperationApproval,
+        currentVersion: String? = null,
+        currentBindings: WorkerBindingSet = WorkerBindingSet(),
+        desiredBindings: WorkerBindingSet = WorkerBindingSet(),
+        cleanRebuild: Boolean = false,
         rollbackSnapshot: WorkerRollbackSnapshot? = null,
-    ): WorkerDeploymentPlanResult = WorkerDeploymentPlanner.plan(
+    ): WorkerDeploymentPlanResult = WorkerDeploymentPlanner.planRawUrlDeploy(
         target = target,
+        rawUrl = finalUrl,
         sourceBytes = bytes,
-        existingBindings = existingBindings,
-        requestedBindings = requestedBindings,
+        currentVersion = currentVersion,
+        currentBindings = currentBindings,
+        desiredBindings = desiredBindings,
+        cleanRebuild = cleanRebuild,
         rollbackSnapshot = rollbackSnapshot,
+        approval = approval,
     )
 }
 

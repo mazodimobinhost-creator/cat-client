@@ -20,9 +20,8 @@ internal data class VerifiedSubscriptionProjection(
 internal object VerifiedSubscriptionProjector {
     fun project(config: VerifiedConfigUri, index: Int = 0): VerifiedSubscriptionProjection? {
         val placement = VerifiedEndpointPlacement.forWorker(config.endpoint, config.workerDomain) ?: return null
-        val defaultName = "${config.protocol.scheme}-${config.endpoint.authority}"
-        val baseName = config.remark?.takeIf { it.isNotBlank() } ?: defaultName
-        val uniqueName = if (index > 0 && config.remark != null) "$baseName (${index + 1})" else baseName
+        val baseName = "${config.protocol.scheme}-${config.endpoint.authority}"
+        val uniqueName = if (index > 0) "$baseName (${index + 1})" else baseName
         return VerifiedSubscriptionProjection(
             protocol = config.protocol,
             credential = config.credential,

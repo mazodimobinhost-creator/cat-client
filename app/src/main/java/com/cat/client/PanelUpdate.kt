@@ -28,16 +28,17 @@ object PanelUpdate {
     data class PanelScript(val version: String, val text: String, val fromRelease: Boolean) {
         val sha256: String = WorkerDeploymentPlanner.sha256Hex(text.toByteArray(Charsets.UTF_8))
 
-        internal fun toArtifact(
+        internal fun verifyManifest(
             channel: WorkerArtifactChannel = if (fromRelease) {
                 WorkerArtifactChannel.RELEASE_ASSET
             } else {
                 WorkerArtifactChannel.APK_BUNDLE
             },
-        ): WorkerChannelArtifact = WorkerArtifactManifest.fromSource(
+            expectedSha256: String? = null,
+        ): WorkerManifestDecision = WorkerArtifactManifest.verify(
             channel = channel,
             bytes = text.toByteArray(Charsets.UTF_8),
-            declaredVersion = version.takeIf { it != UNKNOWN_VERSION },
+            expectedSha256 = expectedSha256,
         )
     }
 
@@ -83,16 +84,13 @@ object PanelUpdate {
         },
         expectedSha256: String? = null,
         deployedVersion: String? = null,
-    ): WorkerManifestVerdict {
-        val manifestVerdict = WorkerArtifactManifest.validateChannel(
-            artifact = candidate.toArtifact(channel),
-            expectedSha256 = expectedSha256,
-        )
-        if (!manifestVerdict.ok) return manifestVerdict
+    ): WorkerManifestDecision {
+        val decision = candidate.verifyManifest(channel, expectedSha256)
+        if (decision is WorkerManifestDecision.Rejected) return decision
         if (isDowngrade(deployedVersion, candidate.version)) {
-            return WorkerManifestVerdict(false, "downgrade-blocked")
+            return WorkerManifestDecision.Rejected("downgrade-blocked")
         }
-        return manifestVerdict
+        return decision
     }
 
     /** Panel source bundled into this APK (offline fallback and update baseline). */
@@ -133,9 +131,10 @@ object PanelUpdate {
                     throw IOException("Repository copy $version is not newer than the bundled panel $bundledVersion")
                 }
                 val candidate = PanelScript(version = version, text = text, fromRelease = true)
-                val verdict = validateCandidate(candidate, WorkerArtifactChannel.RELEASE_ASSET)
-                if (!verdict.ok) {
-                    throw IOException("Released panel $version failed manifest validation: ${verdict.reason}")
+                when (val decision = validateCandidate(candidate, WorkerArtifactChannel.RELEASE_ASSET)) {
+                    is WorkerManifestDecision.Rejected ->
+                        throw IOException("Released panel $version failed manifest validation: ${decision.reason}")
+                    is WorkerManifestDecision.Verified -> Unit
                 }
                 return candidate
             } catch (error: IOException) {
