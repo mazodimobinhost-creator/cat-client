@@ -227,45 +227,49 @@ jobs:
       # unconfirmed community hypothesis (see scripts/panels/minify.mjs).
       - name: Obfuscate panel worker (in-app updater) + minified deploy snapshot
         run: |
-          npm install --no-save javascript-obfuscator@5 terser acorn --silent
-          # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
-          node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
-          # The app's «copy code» button hands the clipboard the OFFICIAL paste
-          # artifact, so the 3-line file has to ride inside the APK — byte for byte
-          # (scripts/panels/paste-artifact.test.mjs fails the build if the two copies
-          # ever drift apart). It is copied from the freshly built dist-panel file,
-          # i.e. before the in-place obfuscation below touches the worker asset.
-          cp dist-panel/catpanel.min.js app/src/main/assets/panels/catpanel.min.js
-          node --input-type=module -e "import { readFileSync } from 'node:fs'; const a = readFileSync('dist-panel/catpanel.min.js'); const b = readFileSync('app/src/main/assets/panels/catpanel.min.js'); if (!a.equals(b)) { console.error('paste asset drift'); process.exit(1); } console.log('paste asset synced:', a.length, 'B');"
-          # Legacy obfuscated snapshot is retained only for comparison/archive; it is
-          # never selected by Wizard, app updater, Wrangler, or release assets.
-          node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
-          # STEALTH deploy artifact (wrangler.jsonc main): the owner asked for the
-          # worker on Cloudflare to carry no plaintext panel fingerprint at all —
-          # regexes, object keys, member properties and the version marker included.
-          node scripts/panels/stealth.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.stealth.js --check
-          # Ship and test the normal minified artifact. Do not put the large RC4 /
-          # control-flow-obfuscated runtime in the APK: that was the 1101 path.
-          cp dist-panel/catpanel.min.js app/src/main/assets/panels/catclient.worker.js
-          node --check app/src/main/assets/panels/catclient.worker.js
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ccq.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ech.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
-          # exactly the file that goes into the APK and the release assets:
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-host.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-sub.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-dataplane.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/addr-port-query.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/survival.test.mjs
-          # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
-          # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
-          CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-lab.test.mjs
+          {
+            set -e
+            npm install --no-save javascript-obfuscator@5 terser acorn --silent
+            # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
+            node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
+            # The app's «copy code» button hands the clipboard the OFFICIAL paste
+            # artifact, so the 3-line file has to ride inside the APK — byte for byte
+            # (scripts/panels/paste-artifact.test.mjs fails the build if the two copies
+            # ever drift apart). It is copied from the freshly built dist-panel file,
+            # i.e. before the in-place obfuscation below touches the worker asset.
+            cp dist-panel/catpanel.min.js app/src/main/assets/panels/catpanel.min.js
+            node --input-type=module -e "import { readFileSync } from 'node:fs'; const a = readFileSync('dist-panel/catpanel.min.js'); const b = readFileSync('app/src/main/assets/panels/catpanel.min.js'); if (!a.equals(b)) { console.error('paste asset drift'); process.exit(1); } console.log('paste asset synced:', a.length, 'B');"
+            # Legacy obfuscated snapshot is retained only for comparison/archive; it is
+            # never selected by Wizard, app updater, Wrangler, or release assets.
+            node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
+            # STEALTH deploy artifact (wrangler.jsonc main): the owner asked for the
+            # worker on Cloudflare to carry no plaintext panel fingerprint at all —
+            # regexes, object keys, member properties and the version marker included.
+            node scripts/panels/stealth.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.stealth.js --check
+            # Ship and test the normal minified artifact. Do not put the large RC4 /
+            # control-flow-obfuscated runtime in the APK: that was the 1101 path.
+            cp dist-panel/catpanel.min.js app/src/main/assets/panels/catclient.worker.js
+            node --check app/src/main/assets/panels/catclient.worker.js
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ccq.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ech.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
+            # exactly the file that goes into the APK and the release assets:
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-host.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-sub.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-dataplane.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/addr-port-query.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/survival.test.mjs
+            # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
+            # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-lab.test.mjs
+          } 2>&1 | tee step18.log
+          exit "${PIPESTATUS[0]}"
 
       - name: Commit refreshed public obfuscated snapshot (button deploy)
         if: github.event_name == 'push'
@@ -388,7 +392,7 @@ jobs:
             cat kotlin-precheck.log build-log.txt unit-test.log 2>/dev/null |
               grep -oE 'app/src/(main|test)/[^:]+\.kt' | sort | uniq -c | sort -rn | head -20
             echo '## log tail'
-            for log in kotlin-precheck.log build-log.txt unit-test.log; do
+            for log in step18.log kotlin-precheck.log build-log.txt unit-test.log; do
               if [[ -s "$log" ]]; then echo "### $log"; tail -n 120 "$log"; fi
             done
           } > FAILED-TESTS.md

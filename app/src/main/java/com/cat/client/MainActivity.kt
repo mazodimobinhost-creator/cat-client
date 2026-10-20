@@ -11193,26 +11193,13 @@ class MainActivity : Activity() {
             return
         }
         val nowMs = System.currentTimeMillis()
-        val hostPort = VerifiedEndpointParser.parseHostPort(ip)
-        val proxyEndpoint = hostPort?.let { (rawHost, port) ->
-            val cleanHost = rawHost.removePrefix("[").removeSuffix("]")
-            val family = when {
-                cleanHost.contains(':') -> EndpointFamily.IPV6
-                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
-                else -> EndpointFamily.DOMAIN
-            }
-            runCatching {
-                VerifiedEndpoint(
-                    host = cleanHost,
-                    port = port,
-                    role = EndpointRole.PROXY_IP,
-                    family = family,
-                    verdict = EndpointVerdict.VERIFIED,
-                    checkedAtMs = nowMs,
-                    source = "device-proxyip-scan",
-                )
-            }.getOrNull()
-        }
+        val proxyEndpoint = VerifiedEndpointParser.parseAuthority(
+            value = ip,
+            role = EndpointRole.PROXY_IP,
+            verdict = EndpointVerdict.VERIFIED,
+            checkedAtMs = nowMs,
+            source = "device-proxyip-scan",
+        )
         val selectedSubId = SubscriptionStore(this).readSelectedSubscriptionId()
         val targetProfile = connectionSelectionPreferenceStore.readSelectedProfile(selectedSubId, connectionProfiles)
             ?.takeIf { !it.shareLink.isNullOrBlank() }

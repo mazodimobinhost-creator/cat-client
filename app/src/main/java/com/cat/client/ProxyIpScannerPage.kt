@@ -449,7 +449,11 @@ class ProxyIpScannerPage(
                         candidate = candidate,
                         evidence = evidence,
                         checkedAtMs = nowMs,
-                        workerOutcome = if (hit != null) WorkerRuntimeOutcome.OK else null,
+                        workerOutcome = if (hit != null) {
+                            WorkerRuntimeOutcome(attempted = true, httpStatus = 200, runtimeCompleted = true)
+                        } else {
+                            WorkerRuntimeOutcome(attempted = true, runtimeCompleted = false)
+                        },
                         networkId = networkId,
                     )
                 }
@@ -502,7 +506,7 @@ class ProxyIpScannerPage(
             )
             if (recommended.isNotEmpty()) {
                 portRecommendationText.text = "⚡ Port recommendation ($networkId): " +
-                    recommended.joinToString(" · ") { "${it.port} (${it.bestLatencyMs} ms)" }
+                    recommended.joinToString(" · ") { "${it.port} (${it.medianLatencyMs ?: "—"} ms)" }
                 portRecommendationText.visibility = View.VISIBLE
             } else {
                 portRecommendationText.visibility = View.GONE
