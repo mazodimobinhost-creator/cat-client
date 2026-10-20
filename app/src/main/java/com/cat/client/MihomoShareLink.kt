@@ -233,13 +233,17 @@ object MihomoShareLink {
     internal fun changeRouteFromYamlBlock(
         block: String,
         candidates: List<VerifiedEndpoint>,
-        checkedAtMs: Long,
+        nowMs: Long,
+        maxAgeMs: Long = 3_600_000L,
     ): String? {
         val rawUri = fromYamlBlock(block) ?: return null
-        val fragment = rawUri.substringAfter('#', "")
-        val rotated = VerifiedConfigFailover.changeRouteUri(rawUri, candidates, checkedAtMs, "mihomo-failover")
-            ?: return null
-        return if (fragment.isBlank()) rotated else "$rotated#$fragment"
+        return VerifiedConfigFailover.changeRouteUri(
+            rawUri = rawUri,
+            candidates = candidates,
+            nowMs = nowMs,
+            maxAgeMs = maxAgeMs,
+            source = "mihomo-failover",
+        )
     }
 
     /** Rebuilds the share link from a Mihomo YAML block and rotates its `proxyip=host:port`
@@ -247,12 +251,15 @@ object MihomoShareLink {
     internal fun changeProxyIpFromYamlBlock(
         block: String,
         candidates: List<VerifiedEndpoint>,
-        checkedAtMs: Long,
+        nowMs: Long,
+        maxAgeMs: Long = 3_600_000L,
     ): String? {
         val rawUri = fromYamlBlock(block) ?: return null
         val fragment = rawUri.substringAfter('#', "")
-        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs, "mihomo-failover") ?: return null
-        val rotated = VerifiedConfigFailover.changeProxyIp(parsed, candidates)?.encode() ?: return null
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = 0L, source = "mihomo-failover") ?: return null
+        val result = VerifiedConfigFailover.changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
+        if (result.status != FailoverStatus.SWITCHED) return null
+        val rotated = result.config.encode()
         return if (fragment.isBlank()) rotated else "$rotated#$fragment"
     }
 
