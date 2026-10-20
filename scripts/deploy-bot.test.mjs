@@ -280,6 +280,9 @@ const ENV = (t) => ({ TG_TOKEN: t, CF_API_TOKEN: 'cf-tok', CF_ACCOUNT_ID: 'acc1'
   const b4 = mkBot('sec8'); const env4 = ENV('sec8'); env4.__fetch = () => ({ ok: false, status: 404, text: async () => '' });
   const missing = await T.runCommand(env4.__fetch, T.cfg(env4), '/deploy');
   check('missing release → honest 404 message', missing.includes('source 404'));
+  const b5 = mkBot('sec8b'); const env5 = ENV('sec8b'); env5.__fetch = (u) => String(u).includes('releases/latest') ? { ok: true, text: async () => "/* CAT_PANEL_VERSION = '6.69.12' */\nexport default {};" } : b5.F(u, {});
+  const blocked1101 = await T.runCommand(env5.__fetch, T.cfg(env5), '/deploy');
+  check('blocked 1101 version 6.69.12 rejected before upload', blocked1101.includes('6.69.12') && blocked1101.includes('blocked'));
 }
 // 5b) PANEL_UUID is required and blocks deploy before any Cloudflare/Telegram write
 {

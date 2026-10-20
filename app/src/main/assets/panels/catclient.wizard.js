@@ -311,6 +311,7 @@ async function fetchSource(kind, env) {
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
       const found = versionMatch ? versionMatch[1] : '';
+      if (kind === 'panel' && found === '6.69.12') { lastError = url + ' → blocked 1101 version v' + found; continue; }
       const floor = kind === 'wizard' ? CAT_WIZARD_VERSION : PANEL_MIN_VERSION;
       const cmp = compareVersions(found, floor);
       if (cmp === null) { lastError = url + ' → source version unknown or malformed'; continue; }

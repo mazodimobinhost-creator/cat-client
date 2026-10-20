@@ -111,6 +111,11 @@ await scenario('release unmarked, newer snapshot', { [RELEASE]: { body: UNMARKED
   check(n + ': snapshot used as the fallback', x.jc && x.jc.latest === '6.99.0', JSON.stringify(x.jc));
 });
 
+// 6b) blocked 1101 version (6.69.12) is skipped and falls back to valid snapshot
+await scenario('release is blocked 6.69.12, valid snapshot', { [RELEASE]: { body: marked('6.69.12') }, [SNAPSHOT]: { body: marked('6.99.0') } }, (n, x) => {
+  check(n + ': blocked 6.69.12 skipped, snapshot used', x.jc && x.jc.latest === '6.99.0', JSON.stringify(x.jc));
+});
+
 // 7) source discipline, across everything requested above
 behavior = { [RELEASE]: { status: 404 }, [SNAPSHOT]: { status: 404 } };
 requested.length = 0;

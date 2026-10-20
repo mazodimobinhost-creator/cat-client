@@ -148,7 +148,8 @@ function appSeenMismatch(seen) {
   return { appPanel: pv, panel: CAT_PANEL_VERSION, appOlder: panelVersionCompare(pv, CAT_PANEL_VERSION) < 0 };
 }
 
-// First source that carries a readable version line. Unmarked text is skipped, not trusted.
+const BLOCKED_1101_VERSIONS = new Set(['6.69.12']);
+// First source that carries a readable version line and is not a blocked 1101 build. Unmarked text is skipped, not trusted.
 async function fetchNewestPanelSource() {
   for (const u of PANEL_SOURCE_URLS) {
     try {
@@ -156,7 +157,7 @@ async function fetchNewestPanelSource() {
       if (!r.ok) continue;
       const text = await readResponseTextBounded(r, 1024 * 1024);
       const m = PANEL_VERSION_LINE.exec(text);
-      if (m) return { text, version: m[1] };
+      if (m && !BLOCKED_1101_VERSIONS.has(m[1])) return { text, version: m[1] };
     } catch (e) { /* try the next mirror */ }
   }
   return null;
