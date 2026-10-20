@@ -759,8 +759,8 @@ jobs:
           release_dir="$RUNNER_TEMP/catclient-release"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG" 2>/dev/null || true
-          git push origin "$TAG" || true
+          git tag -f "$TAG" 2>/dev/null || true
+          git push -f origin "$TAG" || true
           # The deploy asset is the normal minified ESM module. Never publish the heavy
           # RC4/control-flow-obfuscated APK artifact as a Cloudflare runtime.
           cp dist-panel/catpanel.min.js catclient.worker.js
@@ -783,12 +783,23 @@ jobs:
           # Google-Doc bundle(s), if present in this branch's docs/
           for d in docs/CatPanel-*-GoogleDoc.docx; do [[ -e "$d" ]] && release_assets+=("$d"); done
           notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
+          if [[ -f "$release_dir/SHA256SUMS" ]]; then
+            {
+              echo "### Release SHA256SUMS (${TAG} @ ${GITHUB_SHA:0:7})"
+              echo '```'
+              cat "$release_dir/SHA256SUMS"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
-            if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
-              rel_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' || true)"
-              if [[ -n "$rel_id" ]]; then
-                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=true >/dev/null || true
+            rel_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' || true)"
+            if [[ -n "$rel_id" ]]; then
+              if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+                pre_notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
+                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=true -f body="$(printf '%b' "$pre_notes")" >/dev/null || true
+              else
+                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -f body="$(printf '%b' "$notes")" >/dev/null || true
               fi
             fi
           else

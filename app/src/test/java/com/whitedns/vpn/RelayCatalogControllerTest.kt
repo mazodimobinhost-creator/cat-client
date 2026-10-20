@@ -29,6 +29,7 @@ class RelayCatalogControllerTest {
 
     @Test fun countryDatacenterServerFlowKeepsExactEndpoint() {
         assertEquals(RelayCatalogStep.COUNTRIES, controller.state.step)
+        assertEquals(mapOf("DE" to 2, "CA" to 1), controller.countries())
         controller.selectCountry("de")
         assertEquals(mapOf("OVH" to 1, "Hetzner" to 1), controller.datacenters())
         controller.selectDatacenter("Hetzner")
