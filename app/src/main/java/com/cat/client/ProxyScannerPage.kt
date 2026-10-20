@@ -560,13 +560,20 @@ class ProxyScannerPage(
                     if (code !in 200..299) throw IllegalStateException("HTTP $code")
                     if (verifiedEndpoints.size == 1) {
                         val singleSync = PanelSettingsReadBack.verifySingle(verifiedEndpoints.first(), beforeText, respText, nowMs)
-                        if (singleSync.outcome == PanelSyncOutcome.FAILED || singleSync.outcome == PanelSyncOutcome.INVALID_INPUT) {
+                        if (singleSync.status == PanelEndpointSyncStatus.REJECTED ||
+                            singleSync.status == PanelEndpointSyncStatus.NO_KV ||
+                            singleSync.status == PanelEndpointSyncStatus.READ_BACK_MISMATCH
+                        ) {
                             throw IllegalStateException("panel-readback-failed (1)")
                         }
                     }
+                    val afterSnap = PanelSettingsReadBack.parse(respText, nowMs)
                     val syncResult = if (targets.size == visibleHits().size) {
-                        catalogController.verifyVisiblePanelSync(beforeText, respText, nowMs)
-                            .takeIf { it.outcomes.isNotEmpty() }
+                        catalogController.verifyVisiblePanelSync(
+                            before = existingSnap?.endpoints.orEmpty(),
+                            after = afterSnap?.endpoints,
+                            kvAvailable = afterSnap?.kvAvailable == true,
+                        ).takeIf { it.results.isNotEmpty() }
                             ?: PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
                     } else {
                         PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
