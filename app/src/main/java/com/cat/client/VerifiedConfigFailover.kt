@@ -50,7 +50,7 @@ internal object VerifiedConfigFailover {
         source: String = "retest",
     ): String? {
         val remark = rawUri.trim().substringAfter('#', missingDelimiterValue = "")
-        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = 0L, source = source) ?: return null
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = Long.MIN_VALUE, source = source) ?: return null
         val result = changeRoute(parsed, candidates, nowMs, maxAgeMs)
         if (result.status != FailoverStatus.SWITCHED) return null
         val encoded = result.config.encode()

@@ -256,7 +256,7 @@ object MihomoShareLink {
     ): String? {
         val rawUri = fromYamlBlock(block) ?: return null
         val fragment = rawUri.substringAfter('#', "")
-        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = 0L, source = "mihomo-failover") ?: return null
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = Long.MIN_VALUE, source = "mihomo-failover") ?: return null
         val result = VerifiedConfigFailover.changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
         if (result.status != FailoverStatus.SWITCHED) return null
         val rotated = result.config.encode()
