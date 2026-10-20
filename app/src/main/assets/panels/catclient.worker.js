@@ -4673,7 +4673,7 @@ async function addProxyRelayEntries(env, settings, rawInput) {
     duplicates,
     invalid,
     capped,
-    proxyIps: saved.settings[PXIPS_KEY],
+    [PXIPS_KEY]: saved.settings[PXIPS_KEY],
   };
 }
 
@@ -5410,9 +5410,9 @@ async function handleApi(request, url, env, ctx) {
     }));
   }
 
-  if (path === '/api/proxyips' && method === 'POST') {
+  if (path === '/api/' + PXIPS_KEY.toLowerCase() && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
-    return json(await addProxyRelayEntries(env, settings, body.proxyIps || body.relays || body.ips));
+    return json(await addProxyRelayEntries(env, settings, body[PXIPS_KEY] || body.relays || body.ips));
   }
 
   // beta90 «survival pack»: one click applies broad fallbacks, but no setting
