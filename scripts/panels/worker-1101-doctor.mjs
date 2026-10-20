@@ -33,6 +33,7 @@ export function analyzeSource(source, name = 'worker.js') {
   const findings = [];
   const version = source.match(VERSION_RE)?.[1] || null;
   if (!version) findings.push(finding('error', 'VERSION_MISSING', 'CAT_PANEL_VERSION marker is missing.'));
+  if (version === '6.69.12') findings.push(finding('error', 'BLOCKED_1101_VERSION', 'Panel version 6.69.12 caused Error 1101 in production and must not be deployed.', version));
   if (bytes > MAX_SOURCE_BYTES) findings.push(finding('error', 'SOURCE_TOO_LARGE', 'Readable source exceeds the 2 MiB safety ceiling.', `${bytes} bytes`));
   else if (bytes > 1024 * 1024) findings.push(finding('warning', 'SOURCE_LARGE', 'Readable source is over 1 MiB; verify deployed and gzip sizes.', `${bytes} bytes`));
 
@@ -85,7 +86,7 @@ export async function probeDeployment(baseUrl, expectedVersion, { attempts = 3, 
       const response = await fetcher(url, timeoutMs);
       const cache = response.headers?.get?.('cf-cache-status') || '';
       const body = await response.json();
-      const passed = response.status >= 200 && response.status < 300 && body?.version === expectedVersion && !/HIT/i.test(cache);
+      const passed = response.status >= 200 && response.status < 300 && body?.version === expectedVersion && body?.version !== '6.69.12' && !/HIT/i.test(cache);
       probes.push({ passed, status: response.status, version: body?.version || null, cache: cache || null });
     } catch (error) {
       probes.push({ passed: false, error: redact(error?.name === 'AbortError' ? 'timeout' : String(error?.message || error)) });

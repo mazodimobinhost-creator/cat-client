@@ -25,6 +25,7 @@ const PANEL_VERSION = (panelSrc.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/) || []
 // than a large RC4/control-flow-obfuscated runtime.
 const minPanelSrc = "var CAT_PANEL_VERSION = '" + PANEL_VERSION + "';\n" + '/* payload */\n'.repeat(300);
 const stalePanelSrc = "var CAT_PANEL_VERSION = '6.60.0';\n" + '/* payload */\n'.repeat(300);
+const blocked1101Src = "var CAT_PANEL_VERSION = '6.69.12';\n" + '/* payload */\n'.repeat(300);
 const badVersionSrc = "var CAT_PANEL_VERSION = 'not-a-version';\n" + '/* payload */\n'.repeat(300);
 
 let failures = 0;
@@ -65,6 +66,7 @@ T.__setFetch(async (input, init = {}) => {
     if (url.endsWith('catclient.worker.js') && url.includes('/releases/latest/')) return new Response('nope', { status: 404 });
     if (url.endsWith('catclient.worker.js') || url.endsWith('catpanel.min.js')) {
       if (state.sourceMode === 'stale-all') return new Response(stalePanelSrc, { status: 200 });
+      if (state.sourceMode === 'blocked-1101') return new Response(blocked1101Src, { status: 200 });
       if (state.sourceMode === 'bad-version') return new Response(badVersionSrc, { status: 200 });
       if (state.sourceMode === 'stale-first' && url === T.PANEL_SOURCES[0]) return new Response(stalePanelSrc, { status: 200 });
       return new Response(minPanelSrc, { status: 200 });
@@ -285,6 +287,9 @@ let first;
   T.sourceCache.clear(); state.sourceMode = 'bad-version';
   const c = await installEvents({ token: 'good-token', workerName: 'src-c' });
   check('malformed source version → install refused', c.done.ok === false && /unknown or malformed/.test(c.done.msg) && !state.scripts['src-c'], JSON.stringify(c.done));
+  T.sourceCache.clear(); state.sourceMode = 'blocked-1101';
+  const c1101 = await installEvents({ token: 'good-token', workerName: 'src-1101' });
+  check('blocked 1101 version 6.69.12 → install refused, nothing uploaded', c1101.done.ok === false && /blocked 1101 version v6\.69\.12/.test(c1101.done.msg) && !state.scripts['src-1101'], JSON.stringify(c1101.done));
   T.sourceCache.clear(); state.sourceMode = 'hang';
   const d = await installEvents({ token: 'good-token', workerName: 'src-d' });
   check('hung source download → timeout, install refused', d.done.ok === false && /timed out/.test(d.done.msg) && !state.scripts['src-d'], JSON.stringify(d.done));

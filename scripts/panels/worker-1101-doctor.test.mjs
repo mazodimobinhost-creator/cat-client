@@ -11,8 +11,10 @@ test('source audit identifies version and dangerous runtime shapes', () => {
   assert.match(report.sha256, /^[0-9a-f]{64}$/);
 });
 
-test('source audit catches incomplete WebSocket lifecycle', () => {
-  const report = analyzeSource("const CAT_PANEL_VERSION='1.0.0'; const pair=new WebSocketPair();");
+test('source audit catches incomplete WebSocket lifecycle and blocked 6.69.12 version', () => {
+  const report = analyzeSource("const CAT_PANEL_VERSION='6.69.12'; const pair=new WebSocketPair();");
+  assert.equal(report.ok, false);
+  assert.ok(report.findings.some((x) => x.code === 'BLOCKED_1101_VERSION'));
   assert.ok(report.findings.some((x) => x.code === 'WEBSOCKET_NOT_ACCEPTED'));
   assert.ok(report.findings.some((x) => x.code === 'WEBSOCKET_CLOSE_MISSING'));
 });

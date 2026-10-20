@@ -5,13 +5,15 @@
 <body><main class="card"><h1>🩺 بررسی امن خطای 1101 پنل Cat</h1>
 <p class="note">این ابزار فقط health و version عمومی را بررسی می‌کند. API Token، رمز، UUID یا Cookie نمی‌گیرد، چیزی deploy یا حذف نمی‌کند و رفع قطعی 1101 را ادعا نمی‌کند.</p>
 <label for="url">آدرس HTTPS ورکر</label><input id="url" placeholder="https://your-worker.workers.dev" autocomplete="off">
-<label for="version">نسخه مورد انتظار پنل</label><input id="version" value="6.69.12" autocomplete="off">
+<label for="version">نسخه مورد انتظار پنل</label><input id="version" value="6.69.13" autocomplete="off">
 <button id="run">سه بررسی تازه انجام بده</button><div id="log" class="log">آماده…</div></main>
 <script>
 const byId=id=>document.getElementById(id), sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const safe=v=>String(v==null?'':v).replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi,'[REDACTED_UUID]').replace(/([?&](?:p|token|key|password|uuid)=)[^&#\s]+/gi,'$1[REDACTED]');
 byId('run').onclick=async()=>{const out=byId('log'),btn=byId('run');out.textContent='';let base=byId('url').value.trim().replace(/\/+$/,'');const expected=byId('version').value.trim();
-if(!/^https:\/\/[^/]+$/i.test(base)){out.textContent='FAILED: فقط آدرس HTTPS بدون path مجاز است.';return}btn.disabled=true;let passed=0;
-for(let i=1;i<=3;i++){const nonce=Date.now()+'-'+i+'-'+Math.random().toString(36).slice(2);try{const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);const r=await fetch(base+'/api/version?doctor='+encodeURIComponent(nonce),{signal:ctl.signal,cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});clearTimeout(timer);const cache=r.headers.get('cf-cache-status')||'';const j=await r.json();const ok=r.ok&&j.version===expected&&!/HIT/i.test(cache);if(ok)passed++;out.textContent+=safe('#'+i+' HTTP '+r.status+' version='+(j.version||'?')+' cache='+(cache||'-')+' '+(ok?'PASS':'FAIL'))+'\n'}catch(e){out.textContent+=safe('#'+i+' '+(e.name==='AbortError'?'TIMEOUT':e.message)+' FAIL')+'\n'}if(i<3)await sleep(800)}
+if(!/^https:\/\/[^/]+$/i.test(base)){out.textContent='FAILED: فقط آدرس HTTPS بدون path مجاز است.';return}
+if(expected==='6.69.12'){out.textContent='FAILED: نسخه 6.69.12 به دلیل خطای 1101 مسدود است (BLOCKED_1101_VERSION).';out.className='log bad';return}
+btn.disabled=true;let passed=0;
+for(let i=1;i<=3;i++){const nonce=Date.now()+'-'+i+'-'+Math.random().toString(36).slice(2);try{const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);const r=await fetch(base+'/api/version?doctor='+encodeURIComponent(nonce),{signal:ctl.signal,cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});clearTimeout(timer);const cache=r.headers.get('cf-cache-status')||'';const j=await r.json();const ok=r.ok&&j.version===expected&&j.version!=='6.69.12'&&!/HIT/i.test(cache);if(ok)passed++;out.textContent+=safe('#'+i+' HTTP '+r.status+' version='+(j.version||'?')+' cache='+(cache||'-')+' '+(ok?'PASS':'FAIL'))+'\n'}catch(e){out.textContent+=safe('#'+i+' '+(e.name==='AbortError'?'TIMEOUT':e.message)+' FAIL')+'\n'}if(i<3)await sleep(800)}
 out.textContent+='\n'+(passed===3?'VERIFIED: 3/3 fresh exact-version responses.':'FAILED CLOSED: '+passed+'/3. لاگ‌های Cloudflare، Ray ID و Event ID را بررسی کن؛ نسخه جدید را promote نکن.');out.className='log '+(passed===3?'ok':'bad');btn.disabled=false};
 </script></body></html>
