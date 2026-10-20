@@ -85,7 +85,7 @@ class ProxyScannerPage(
     private var filterProto: Proto? = null
     private var filterCountry: String? = null
     private var addressFilter: AddressFilter = AddressFilter.ALL
-    private val catalogController = RelayCatalogController(emptyList())
+    private var catalogController = RelayCatalogController(emptyList())
     private val probeDisplayByAuthority = java.util.concurrent.ConcurrentHashMap<String, RelayProbeDisplay>()
 
     private lateinit var countChecked: TextView; private lateinit var countOpen: TextView
@@ -320,21 +320,15 @@ class ProxyScannerPage(
         val nowMs = System.currentTimeMillis()
         val snapshot = synchronized(hits) { hits.toList() }
         val entries = snapshot.map { h -> h.toCatalogEntry(nowMs) }
-        catalogController.replaceEntries(entries)
+        catalogController = RelayCatalogController(entries)
         catalogController.updateFilters(
             address = addressFilter,
             exclude1101 = false,
             query = "",
         )
         val cc = filterCountry
-        when {
-            cc == null -> while (catalogController.state.step != RelayCatalogStep.COUNTRIES) catalogController.back()
-            else -> {
-                if (catalogController.state.countryCode != cc.ifBlank { "??" }.uppercase()) {
-                    catalogController.selectCountry(cc.ifBlank { "??" })
-                }
-                while (catalogController.state.step == RelayCatalogStep.SERVERS) catalogController.back()
-            }
+        if (cc != null) {
+            catalogController.selectCountry(cc.ifBlank { "??" })
         }
         return catalogController.servers()
     }
@@ -515,24 +509,24 @@ class ProxyScannerPage(
             }
             val base = picked.trimEnd('/')
             val nowMs = System.currentTimeMillis()
-            val verifiedEndpoints = targets.take(100).map { h ->
+            val verifiedEndpoints = targets.take(32).map { h ->
                 VerifiedEndpointAdapters.fromProxyScan(h, nowMs).copy(verdict = EndpointVerdict.VERIFIED)
             }
-            val batch = PanelEndpointBatch.fromEndpoints(verifiedEndpoints, emptyList(), nowMs, 300_000L)
-            if (batch.isEmpty) {
+            val batchResult = PanelEndpointBatch.build(verifiedEndpoints.map { it to null })
+            if (batchResult.accepted == 0) {
                 Toast.makeText(ctx, R.string.pscan_none_yet, Toast.LENGTH_SHORT).show()
                 return@launch
             }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val dep = PanelDeploymentStore(ctx).forUrl(base)
-                    val user = dep?.panelUser?.takeIf { it.isNotBlank() } ?: "admin"
-                    val pass = dep?.panelPassword?.takeIf { it.isNotBlank() } ?: "admin"
+                    val password = runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty().ifBlank { "admin" }
                     val loginConn = (URL("$base/api/login").openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 8_000; doOutput = true
                         setRequestProperty("Content-Type", "application/json")
                     }
-                    loginConn.outputStream.use { it.write(JSONObject().put("username", user).put("password", pass).toString().toByteArray()) }
+                    loginConn.outputStream.use {
+                        it.write(PanelCredentials.loginPayload(activity, base, password).toString().toByteArray())
+                    }
                     val cookie = loginConn.headerFields["Set-Cookie"]?.firstOrNull()?.substringBefore(';').orEmpty()
                     loginConn.disconnect()
 
@@ -540,10 +534,13 @@ class ProxyScannerPage(
                         connectTimeout = 8_000; readTimeout = 8_000
                         if (cookie.isNotEmpty()) setRequestProperty("Cookie", cookie)
                     }
-                    val cur = if (getConn.responseCode in 200..299) JSONObject(getConn.inputStream.bufferedReader().readText()) else JSONObject()
+                    val beforeText = if (getConn.responseCode in 200..299) {
+                        getConn.inputStream.bufferedReader().readText()
+                    } else null
                     getConn.disconnect()
 
-                    val putBody = PanelSettingsReadBack.toSettingsPutBody(cur, batch)
+                    val existingSnap = beforeText?.let { PanelSettingsReadBack.parse(it, nowMs) }
+                    val putBody = PanelSettingsReadBack.toSettingsPutBody(batchResult.payload, existingSnap)
                     val putConn = (URL("$base/api/settings").openConnection() as HttpURLConnection).apply {
                         requestMethod = "PUT"; connectTimeout = 8_000; readTimeout = 8_000; doOutput = true
                         setRequestProperty("Content-Type", "application/json")
@@ -554,15 +551,15 @@ class ProxyScannerPage(
                     val respText = (if (code in 200..299) putConn.inputStream else putConn.errorStream)?.bufferedReader()?.readText().orEmpty()
                     putConn.disconnect()
                     if (code !in 200..299) throw IllegalStateException("HTTP $code")
-                    val readBack = PanelSettingsReadBack.verify(respText, batch)
-                    if (!readBack.persisted) throw IllegalStateException("panel-missing-readback: ${readBack.missing.joinToString()}")
-                    batch.relayUris.size
+                    val syncResult = PanelSettingsReadBack.verifyBatch(verifiedEndpoints, beforeText, respText, nowMs)
+                    if (syncResult.failed > 0) throw IllegalStateException("panel-readback-failed (${syncResult.failed})")
+                    syncResult.saved + syncResult.duplicates
                 }
             }
             result.onSuccess { n ->
-                Toast.makeText(ctx, ctx.getString(R.string.pip_pushed_panel, n, base.removePrefix("https://")), Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, ctx.getString(R.string.pip_saved_direct, n), Toast.LENGTH_LONG).show()
             }.onFailure { e ->
-                Toast.makeText(ctx, ctx.getString(R.string.pip_push_failed, e.message ?: "error"), Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, ctx.getString(R.string.pip_save_failed, e.message ?: "error"), Toast.LENGTH_LONG).show()
             }
         }
     }

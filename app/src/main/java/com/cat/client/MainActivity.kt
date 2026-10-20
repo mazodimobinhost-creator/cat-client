@@ -7162,6 +7162,7 @@ class MainActivity : Activity() {
                         host = e.ip.removePrefix("[").removeSuffix("]"),
                         port = e.port,
                         protocol = "vless",
+                        tls = true,
                         serverName = "worker",
                     ),
                     evidence = EndpointProbeEvidence(
