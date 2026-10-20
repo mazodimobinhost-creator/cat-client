@@ -526,6 +526,13 @@ jobs:
               echo "::error::$base: the bundled paste artifact has no readable version line" >&2
               exit 1
             }
+            canonical_sha="$(sha256sum dist-panel/catpanel.min.js | awk '{print $1}')"
+            apk_worker_sha="$(unzip -p "$destination" assets/panels/catclient.worker.js 2>/dev/null | sha256sum | awk '{print $1}')"
+            apk_paste_sha="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | sha256sum | awk '{print $1}')"
+            if [[ "$apk_worker_sha" != "$canonical_sha" || "$apk_paste_sha" != "$canonical_sha" ]]; then
+              echo "::error::$base: canonical Worker SHA-256 mismatch (dist=$canonical_sha worker=$apk_worker_sha paste=$apk_paste_sha)" >&2
+              exit 1
+            fi
             found+=("$variant")
           done
           for variant in "${expected[@]}"; do
@@ -534,7 +541,8 @@ jobs:
               exit 1
             }
           done
-          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk > SHA256SUMS)
+          cp dist-panel/catpanel.min.js "$release_dir/catclient.worker.js"
+          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk catclient.worker.js > SHA256SUMS)
           echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
 
       - name: Emulator capability check (KVM)
@@ -777,11 +785,17 @@ jobs:
           notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
+            if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+              rel_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' || true)"
+              if [[ -n "$rel_id" ]]; then
+                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=true >/dev/null || true
+              fi
+            fi
           else
             release_flags=()
-            if [[ "$APP_VERSION" =~ ^1\.10\.0-beta11[3-8]$ && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+            if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
               release_flags+=(--prerelease)
-              notes="⚠️ TEST CANDIDATE — physical-device sign-off is pending. Do not treat this as the final beta113 release.\n\n${notes}"
+              notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
             fi
             gh release create "$TAG" "${release_assets[@]}" "${release_flags[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
           fi

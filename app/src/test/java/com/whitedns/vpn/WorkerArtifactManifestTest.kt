@@ -52,4 +52,37 @@ class WorkerArtifactManifestTest {
             ),
         )
     }
+
+    @Test fun realBundledAndPasteArtifactsPassManifestVerificationAndMatchSha256() {
+        val pasteFile = listOf(
+            java.io.File("src/main/assets/panels/catpanel.min.js"),
+            java.io.File("app/src/main/assets/panels/catpanel.min.js"),
+        ).first { it.isFile }
+        val distFile = listOf(
+            java.io.File("../dist-panel/catpanel.min.js"),
+            java.io.File("dist-panel/catpanel.min.js"),
+        ).first { it.isFile }
+        val pasteBytes = pasteFile.readBytes()
+        val distBytes = distFile.readBytes()
+
+        val apkDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.APK_BUNDLE, pasteBytes)
+        assertTrue("Expected APK bundle artifact to verify, got $apkDecision", apkDecision is WorkerManifestDecision.Verified)
+        val apkRecord = (apkDecision as WorkerManifestDecision.Verified).record
+        assertEquals("6.69.13", apkRecord.version)
+
+        val releaseDecision = WorkerArtifactManifest.verify(
+            WorkerArtifactChannel.RELEASE_ASSET,
+            distBytes,
+            expectedSha256 = apkRecord.sha256,
+        )
+        assertTrue("Expected release artifact to verify, got $releaseDecision", releaseDecision is WorkerManifestDecision.Verified)
+        val releaseRecord = (releaseDecision as WorkerManifestDecision.Verified).record
+        assertTrue(WorkerArtifactManifest.verifyCanonicalConsistency(apkRecord, releaseRecord))
+
+        val sumsText = """
+            ${"a".repeat(64)}  CatClient-V1.10.0-beta128-arm64-v8a.apk
+            ${releaseRecord.sha256}  catclient.worker.js
+        """.trimIndent()
+        assertEquals(releaseRecord.sha256, GitHubReleaseClient.parseChecksum(sumsText, "catclient.worker.js"))
+    }
 }

@@ -130,8 +130,11 @@ object PanelUpdate {
                 if (index > 0 && !acceptRepositoryFallback(bundledVersion, version)) {
                     throw IOException("Repository copy $version is not newer than the bundled panel $bundledVersion")
                 }
+                val expectedSha = if (index == 0) {
+                    runCatching { GitHubReleaseClient.releaseAssetSha256(WORKER_ASSET_NAME) }.getOrNull()
+                } else null
                 val candidate = PanelScript(version = version, text = text, fromRelease = true)
-                when (val decision = validateCandidate(candidate, WorkerArtifactChannel.RELEASE_ASSET)) {
+                when (val decision = validateCandidate(candidate, WorkerArtifactChannel.RELEASE_ASSET, expectedSha256 = expectedSha)) {
                     is WorkerManifestDecision.Rejected ->
                         throw IOException("Released panel $version failed manifest validation: ${decision.reason}")
                     is WorkerManifestDecision.Verified -> Unit

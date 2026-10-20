@@ -234,6 +234,11 @@ object GitHubReleaseClient {
         parseChecksum(readText(checksums.url, 65_536, asset = true), apk.name)
     }
 
+    suspend fun releaseAssetSha256(assetName: String): String? = withContext(Dispatchers.IO) {
+        val sumsText = runCatching { releaseAsset("SHA256SUMS", 65_536) }.getOrNull() ?: return@withContext null
+        runCatching { parseChecksum(sumsText, assetName) }.getOrNull()
+    }
+
     fun parseRelease(json: String, variant: ApkVariant?): AppRelease {
         try {
             val response = JSONObject(json)
