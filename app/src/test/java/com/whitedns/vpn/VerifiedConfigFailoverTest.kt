@@ -102,10 +102,13 @@ class VerifiedConfigFailoverTest {
     }
 
     @Test fun replaceProxyInYamlUpdatesBlockAndFlowProxiesInPlace() {
+        val flowLine = """  - {name: "DE-Flow", type: vless, server: 104.16.1.1, port: 443, uuid: 11111111-1111-1111-1111-111111111111, tls: true, servername: worker.example, network: ws, ws-opts: {path: "/vl?ed=2560", headers: {Host: worker.example}}}"""
+        assertEquals("DE-Flow", MihomoProxyYaml.parse(flowLine)["name"])
+
         val yaml = """
             mixed-port: 7890
             proxies:
-              - {name: "DE-Flow", type: vless, server: 104.16.1.1, port: 443, uuid: 11111111-1111-1111-1111-111111111111, tls: true, servername: worker.example, network: ws, ws-opts: {path: "/vl?ed=2560", headers: {Host: worker.example}}}
+            $flowLine
               - name: "DE-Block"
                 type: trojan
                 server: 104.16.1.2
@@ -125,16 +128,16 @@ class VerifiedConfigFailoverTest {
                   - "DE-Flow"
                   - "DE-Block"
         """.trimIndent()
-        val parsedFlow = MihomoProxyYaml.parse(yaml)
-        assertEquals(listOf("DE-Flow", "DE-Block"), parsedFlow.map { it.name })
+        val parsedBefore = MihomoConfigParser.parse(yaml).catalog.profiles
+        assertEquals(listOf("DE-Flow", "DE-Block"), parsedBefore.map { it.tag })
 
         val updatedFlowUri = "vless://11111111-1111-1111-1111-111111111111@172.67.1.9:2053?type=ws&security=tls&host=worker.example&sni=worker.example&path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111&fp=chrome#DE-Flow"
         val updatedYaml = MihomoLinkConfigBuilder.replaceProxyInYaml(yaml, "DE-Flow", updatedFlowUri)!!
-        val reparsed = MihomoProxyYaml.parse(updatedYaml)
-        assertEquals(listOf("DE-Flow", "DE-Block"), reparsed.map { it.name })
-        assertEquals("172.67.1.9", reparsed[0].fields["server"])
-        assertEquals("2053", reparsed[0].fields["port"])
-        assertEquals("/vl?ed=2560&proxyip=103.237.102.191:11111", reparsed[0].wsPath)
+        val reparsed = MihomoConfigParser.parse(updatedYaml).catalog.profiles
+        assertEquals(listOf("DE-Flow", "DE-Block"), reparsed.map { it.tag })
+        assertEquals("172.67.1.9", reparsed[0].server)
+        assertEquals(2053, reparsed[0].port)
+        assertTrue(reparsed[0].shareLink!!.contains("path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111"))
     }
 
     @Test fun communityIpLibraryIncludesExplicitPortProxyIpSeeds() {

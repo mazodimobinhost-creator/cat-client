@@ -308,13 +308,13 @@ jobs:
           chmod +x gradlew
           # Surface Kotlin errors in ~3 min instead of after the ~10 min native core build.
           set +e
-          ./gradlew :app:compileDebugKotlin --console=plain 2>&1 | tee kotlin-precheck.log
+          ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --console=plain 2>&1 | tee kotlin-precheck.log
           STATUS=${PIPESTATUS[0]}
           # A restored Gradle cache can contain a truncated/corrupted artifact
           # ("Archive is not a ZIP archive"); one refresh-dependencies retry clears it.
           if [[ "$STATUS" != "0" ]] && grep -qE "not a ZIP archive|Could not (resolve|download)" kotlin-precheck.log; then
             echo "=== corrupt cache artifact detected; retrying with --refresh-dependencies ==="
-            ./gradlew :app:compileDebugKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
+            ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
             STATUS=${PIPESTATUS[0]}
           fi
           set -e
