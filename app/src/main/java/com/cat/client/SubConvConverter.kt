@@ -726,7 +726,11 @@ object SubConvConverter {
         return output
     }
 
-    private fun name(uri: URI): String = decode(uri.rawFragment.orEmpty())
+    private fun name(uri: URI): String = decode(uri.rawFragment.orEmpty()).trim().ifBlank {
+        val scheme = uri.scheme?.lowercase().orEmpty().ifBlank { "proxy" }
+        val hostPort = uri.rawAuthority?.substringAfterLast('@')?.substringBefore('/').orEmpty()
+        if (hostPort.isNotBlank()) "$scheme-$hostPort" else scheme
+    }
 
     private fun decode(value: String): String =
         URLDecoder.decode(value, StandardCharsets.UTF_8.name())
@@ -736,7 +740,7 @@ object SubConvConverter {
         val query = parseQuery(path.substringAfter('?', ""))
             .filterKeys { it != key }
             .entries.joinToString("&") { (name, value) ->
-                "${URLEncoder.encode(name, StandardCharsets.UTF_8.name())}=${URLEncoder.encode(value, StandardCharsets.UTF_8.name())}"
+                "${encodePathParam(name)}=${encodePathParam(value)}"
             }
         return if (query.isBlank()) base else "$base?$query"
     }
@@ -764,7 +768,8 @@ object SubConvConverter {
     private class NameRegistry {
         private val names = mutableMapOf<String, Int>()
 
-        fun register(name: String): String {
+        fun register(rawName: String): String {
+            val name = rawName.trim().ifBlank { "proxy" }
             val index = names[name]
             if (index == null) {
                 names[name] = 0

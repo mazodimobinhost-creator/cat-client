@@ -160,4 +160,11 @@ class ShareLinkConverterTest {
         assertEquals(8080, plainProxy.getInt("port"))
         assertFalse(plainProxy.getBoolean("tls"))
     }
+
+    @Test
+    fun shareLinksWithoutFragmentGetNonBlankDefaultNames() {
+        val link = "vless://uuid@[2606:4700::1]:2053?security=tls&type=ws&host=worker.example&path=%2Fvl"
+        val proxy = convertOne(link)
+        assertEquals("vless-[2606:4700::1]:2053", proxy.getString("name"))
+    }
 }

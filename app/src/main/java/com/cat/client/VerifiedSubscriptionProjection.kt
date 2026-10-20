@@ -117,21 +117,35 @@ internal object VerifiedSubscriptionProjector {
     }
 
     fun toClashJson(configs: List<VerifiedConfigUri>): String = JSONObject()
-        .put("proxies", JSONArray(configs.mapIndexed { idx, cfg -> JSONObject(clash(cfg, idx)) }))
+        .put("proxies", JSONArray().apply { configs.forEachIndexed { idx, cfg -> put(toJsonObject(clash(cfg, idx))) } })
         .toString()
 
     fun toSingBoxJson(configs: List<VerifiedConfigUri>): String = JSONObject()
-        .put("outbounds", JSONArray(configs.mapIndexed { idx, cfg -> JSONObject(singBox(cfg, idx)) }))
+        .put("outbounds", JSONArray().apply { configs.forEachIndexed { idx, cfg -> put(toJsonObject(singBox(cfg, idx))) } })
         .toString()
 
-    fun toXrayJson(configs: List<VerifiedConfigUri>): String = JSONArray(
-        configs.mapIndexed { idx, cfg ->
+    fun toXrayJson(configs: List<VerifiedConfigUri>): String = JSONArray().apply {
+        configs.forEachIndexed { idx, cfg ->
             val p = project(cfg, idx).requireProjection()
-            JSONObject()
-                .put("remarks", p.name)
-                .put("outbounds", JSONArray().put(JSONObject(xray(cfg, idx))))
-        },
-    ).toString()
+            put(
+                JSONObject()
+                    .put("remarks", p.name)
+                    .put("outbounds", JSONArray().put(toJsonObject(xray(cfg, idx)))),
+            )
+        }
+    }.toString()
+
+    private fun toJsonObject(map: Map<*, *>): JSONObject = JSONObject().apply {
+        for ((k, v) in map) {
+            if (k != null && v != null) put(k.toString(), toJsonValue(v))
+        }
+    }
+
+    private fun toJsonValue(value: Any?): Any? = when (value) {
+        is Map<*, *> -> toJsonObject(value)
+        is Iterable<*> -> JSONArray().apply { value.forEach { put(toJsonValue(it)) } }
+        else -> value
+    }
 
     private fun VerifiedSubscriptionProjection?.requireProjection() = requireNotNull(this) { "unverified endpoint" }
 }
