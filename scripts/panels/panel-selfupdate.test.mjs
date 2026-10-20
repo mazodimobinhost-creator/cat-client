@@ -133,5 +133,68 @@ const b = await get('/api/update-download', closed);
 check('anonymous update-check → 401, no network', a.status === 401 && requested.length === 0, a.status + ' / ' + requested.length);
 check('anonymous update-download → 401, no network', b.status === 401 && requested.length === 0, b.status + ' / ' + requested.length);
 
+// 9) Pre-release discovery when /releases/latest points to an older stable release
+{
+  const PRERELEASE_ASSET = 'https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta999/catclient.worker.js';
+  behavior = {
+    [RELEASE]: { body: marked('5.0.0') },
+    [SNAPSHOT]: { status: 404 },
+    '/releases?per_page=8': {
+      body: JSON.stringify([
+        { draft: true, prerelease: true, assets: [{ name: 'catclient.worker.js', browser_download_url: 'https://github.com/draft/catclient.worker.js' }] },
+        { draft: false, prerelease: true, assets: [{ name: 'catclient.worker.js', browser_download_url: PRERELEASE_ASSET }] },
+      ]),
+    },
+    [PRERELEASE_ASSET]: { body: marked('6.99.5') },
+  };
+  const rc = await get('/api/update-check');
+  const jc = await readJson(rc);
+  check('prerelease asset discovered when /releases/latest is older', rc.status === 200 && jc && jc.latest === '6.99.5', JSON.stringify(jc));
+}
+
+// 10) Direct in-panel self-update (/api/update-apply) using bound CF_API_TOKEN + CF_ACCOUNT_ID + CF_WORKER_NAME without re-asking for token
+{
+  let uploadedMeta = null;
+  let uploadedScript = '';
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.includes(RELEASE)) return new Response(marked('6.99.9'), { status: 200 });
+    if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre/settings')) {
+      return new Response(JSON.stringify({
+        success: true,
+        result: {
+          bindings: [
+            { type: 'plain_text', name: 'UUID', text: UUID },
+            { type: 'kv_namespace', name: 'CAT_KV', namespace_id: 'kv-123' },
+            { type: 'd1', name: 'DB', id: 'd1-123' },
+            { type: 'secret_text', name: 'PANEL_PASSWORD' },
+            { type: 'secret_text', name: 'CF_API_TOKEN' },
+          ],
+        },
+      }), { status: 200 });
+    }
+    if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre') && init.method === 'PUT') {
+      const form = init.body;
+      uploadedMeta = JSON.parse(await form.get('metadata').text());
+      uploadedScript = await form.get('worker.js').text();
+      return new Response(JSON.stringify({ success: true, result: { id: 'edge-pedre' } }), { status: 200 });
+    }
+    return new Response('', { status: 404 });
+  };
+  try {
+    const boundEnv = { CAT_KV: new FakeKV(), UUID, OPEN_PANEL: 'true', CF_API_TOKEN: 'cf-bound-tok', CF_ACCOUNT_ID: 'acc-direct', CF_WORKER_NAME: 'edge-pedre' };
+    const chk = await readJson(await get('/api/update-check', boundEnv));
+    check('update-check reports directReady=true when CF_API_TOKEN is bound', chk && chk.directReady === true, JSON.stringify(chk));
+    const applyRes = await worker.fetch(new Request(HOST + '/api/update-apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), boundEnv, { waitUntil() {} });
+    const applyJson = await readJson(applyRes);
+    check('update-apply updates worker in-place without asking for token', applyRes.status === 200 && applyJson && applyJson.ok === true && applyJson.to === '6.99.9' && applyJson.worker === 'edge-pedre', JSON.stringify(applyJson));
+    const byName = Object.fromEntries((uploadedMeta ? uploadedMeta.bindings : []).map((b) => [b.name, b]));
+    check('update-apply preserves UUID, CAT_KV, D1, CF_ACCOUNT_ID, CF_WORKER_NAME and keep_secrets', uploadedMeta && uploadedMeta.keep_secrets === true && byName.UUID && byName.UUID.text === UUID && byName.CAT_KV && byName.CAT_KV.namespace_id === 'kv-123' && byName.DB && byName.DB.id === 'd1-123' && byName.CF_ACCOUNT_ID && byName.CF_ACCOUNT_ID.text === 'acc-direct' && byName.CF_WORKER_NAME && byName.CF_WORKER_NAME.text === 'edge-pedre' && uploadedScript.includes("6.99.9"), JSON.stringify(uploadedMeta));
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+}
+
 console.log(failures ? '\nPANEL SELF-UPDATE TESTS FAILED (' + failures + ')' : '\nPANEL SELF-UPDATE TESTS PASSED');
 process.exit(failures ? 1 : 0);

@@ -395,6 +395,9 @@ async function* runInstall(input, env) {
     // here. It is never derived from the UUID and never written to a log line.
     panelPassword = customPassword || randomPassword(24);
     bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: panelPassword });
+    bindings.push({ type: 'secret_text', name: 'CF_API_TOKEN', text: token });
+    bindings.push({ type: 'plain_text', name: 'CF_ACCOUNT_ID', text: String(account.id) });
+    bindings.push({ type: 'plain_text', name: 'CF_WORKER_NAME', text: workerName });
     if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
     log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
     try {

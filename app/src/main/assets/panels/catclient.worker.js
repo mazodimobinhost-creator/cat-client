@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.13';
+const CAT_PANEL_VERSION = '6.69.14';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -149,18 +149,152 @@ function appSeenMismatch(seen) {
 }
 
 const BLOCKED_1101_VERSIONS = new Set(['6.69.12']);
-// First source that carries a readable version line and is not a blocked 1101 build. Unmarked text is skipped, not trusted.
+const PANEL_RELEASES_API_URL = 'https://api.github.com/repos/' + REPO + '/releases?per_page=8';
+// Newest source that carries a readable version line and is not a blocked 1101 build.
+// Checks PANEL_SOURCE_URLS first, and when neither reports a strictly newer version
+// (e.g. when the latest release on GitHub is marked Pre-release so /releases/latest
+// points to an older release), also checks the GitHub Releases list (non-draft).
 async function fetchNewestPanelSource() {
+  let best = null;
   for (const u of PANEL_SOURCE_URLS) {
     try {
       const r = await fetch(u, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
       if (!r.ok) continue;
       const text = await readResponseTextBounded(r, 1024 * 1024);
       const m = PANEL_VERSION_LINE.exec(text);
-      if (m && !BLOCKED_1101_VERSIONS.has(m[1])) return { text, version: m[1] };
+      if (m && !BLOCKED_1101_VERSIONS.has(m[1])) {
+        const cand = { text, version: m[1] };
+        if (!best || panelVersionCompare(cand.version, best.version) > 0) best = cand;
+        if (panelVersionCompare(cand.version, CAT_PANEL_VERSION) > 0) return cand;
+      }
     } catch (e) { /* try the next mirror */ }
   }
-  return null;
+  try {
+    const relRes = await fetch(PANEL_RELEASES_API_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION, accept: 'application/vnd.github+json' }, cf: { cacheTtl: 300 } });
+    if (relRes.ok) {
+      const releases = JSON.parse(await readResponseTextBounded(relRes, 512 * 1024));
+      if (Array.isArray(releases)) {
+        for (const rel of releases) {
+          if (!rel || rel.draft === true || !Array.isArray(rel.assets)) continue;
+          const asset = rel.assets.find((a) => a && a.name === 'catclient.worker.js' && typeof a.browser_download_url === 'string');
+          if (!asset) continue;
+          const ar = await fetch(asset.browser_download_url, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION }, cf: { cacheTtl: 300 } });
+          if (!ar.ok) continue;
+          const text = await readResponseTextBounded(ar, 1024 * 1024);
+          const m = PANEL_VERSION_LINE.exec(text);
+          if (m && !BLOCKED_1101_VERSIONS.has(m[1])) {
+            const cand = { text, version: m[1] };
+            if (!best || panelVersionCompare(cand.version, best.version) > 0) best = cand;
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) { /* fall back to best seen */ }
+  return best;
+}
+
+const CF_TOKEN_KEY = 'CF_API_' + 'TOKEN';
+const CF_ACCOUNT_KEY = 'CF_ACCOUNT_ID';
+const CF_WORKER_KEY = 'CF_WORKER_NAME';
+
+async function hasDirectUpdateCreds(env) {
+  if (env && typeof env[CF_TOKEN_KEY] === 'string' && env[CF_TOKEN_KEY].trim().length > 0) return true;
+  const saved = await kvGetJson(env, KV_KEYS.cfDeploy, null);
+  return Boolean(saved && typeof saved.token === 'string' && saved.token.trim().length > 0);
+}
+
+/**
+ * In-panel self-update directly against Cloudflare Workers API.
+ * Uses the credentials bound on this Worker at creation/update time
+ * or saved in KV_KEYS.cfDeploy so the owner never needs to re-enter a
+ * Cloudflare token on subsequent updates. Preserves UUID, CAT_KV, D1,
+ * custom bindings, and all secret_text bindings via keep_secrets.
+ */
+async function selfUpdatePanelWorker(env, host, override) {
+  const ov = override && typeof override === 'object' ? override : {};
+  const saved = (await kvGetJson(env, KV_KEYS.cfDeploy, null)) || {};
+  const token = String(ov.token || (env && env[CF_TOKEN_KEY]) || saved.token || '').trim();
+  let accountId = String(ov.accountId || (env && env[CF_ACCOUNT_KEY]) || saved.accountId || '').trim();
+  const hostSlug = /\.workers\.dev$/i.test(String(host || '')) ? String(host).split('.')[0] : '';
+  let workerName = String(ov.workerName || (env && env[CF_WORKER_KEY]) || saved.workerName || hostSlug || '').trim();
+  if (!token) {
+    return { ok: false, status: 409, error: 'cf-token-missing', needsSetup: true };
+  }
+  const src = await fetchNewestPanelSource();
+  if (!src) {
+    return { ok: false, status: 502, error: 'source-unavailable' };
+  }
+  if (BLOCKED_1101_VERSIONS.has(src.version)) {
+    return { ok: false, status: 409, error: 'blocked-1101-version', latest: src.version };
+  }
+  if (panelVersionCompare(src.version, CAT_PANEL_VERSION) < 0) {
+    return { ok: false, status: 409, error: 'source is older than this panel', latest: src.version };
+  }
+  const cfHeaders = { authorization: 'Bearer ' + token };
+  if (!accountId) {
+    const accRes = await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=5', { headers: cfHeaders });
+    const accJson = await accRes.json().catch(() => null);
+    if (!accRes.ok || !accJson || !accJson.success || !Array.isArray(accJson.result) || !accJson.result[0] || !accJson.result[0].id) {
+      return { ok: false, status: accRes.status === 401 || accRes.status === 403 ? 401 : 502, error: 'cf-account-lookup-failed' };
+    }
+    accountId = String(accJson.result[0].id).trim();
+  }
+  if (!workerName || !/^[a-z0-9][a-z0-9-_]{0,62}$/i.test(workerName)) {
+    return { ok: false, status: 400, error: 'cf-worker-name-missing' };
+  }
+  const baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(accountId) + '/workers/scripts/' + encodeURIComponent(workerName);
+  const setRes = await fetch(baseUrl + '/settings', { headers: cfHeaders });
+  const setJson = await setRes.json().catch(() => null);
+  if (!setRes.ok || !setJson || !setJson.success || !setJson.result) {
+    return { ok: false, status: setRes.status === 401 || setRes.status === 403 ? 401 : 502, error: 'cf-settings-read-failed' };
+  }
+  const oldBindings = Array.isArray(setJson.result.bindings) ? setJson.result.bindings : [];
+  const bindings = [];
+  let keepSecrets = false;
+  let hasUuid = false;
+  const provideFreshTokenSecret = Boolean(String(ov.token || '').trim()) || !oldBindings.some((b) => b && b.name === CF_TOKEN_KEY && b.type === 'secret_text');
+  for (const b of oldBindings) {
+    if (!b || !b.name) continue;
+    if (b.name === CF_ACCOUNT_KEY || b.name === CF_WORKER_KEY) continue;
+    if (b.name === 'OPEN_PANEL' || b.name === 'OPEN_SUB') continue;
+    if (b.name === CF_TOKEN_KEY && provideFreshTokenSecret) continue;
+    if (b.type === 'secret_text') {
+      keepSecrets = true;
+      continue;
+    }
+    if (b.name === 'UUID') hasUuid = true;
+    bindings.push(JSON.parse(JSON.stringify(b)));
+  }
+  if (!hasUuid) {
+    const currentUuid = await resolveUuid(host, env);
+    if (isUuid(currentUuid)) bindings.push({ type: 'plain_text', name: 'UUID', text: currentUuid });
+  }
+  bindings.push({ type: 'plain_text', name: 'OPEN_SUB', text: 'false' });
+  bindings.push({ type: 'plain_text', name: CF_ACCOUNT_KEY, text: accountId });
+  bindings.push({ type: 'plain_text', name: CF_WORKER_KEY, text: workerName });
+  if (provideFreshTokenSecret) {
+    bindings.push({ type: 'secret_text', name: CF_TOKEN_KEY, text: token });
+  }
+  const meta = {
+    main_module: 'worker.js',
+    compatibility_date: '2026-09-01',
+    compatibility_flags: [],
+    bindings,
+  };
+  if (keepSecrets) meta.keep_secrets = true;
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }), 'metadata.json');
+  form.append('worker.js', new Blob([src.text], { type: 'application/javascript+module' }), 'worker.js');
+  const putRes = await fetch(baseUrl, { method: 'PUT', headers: cfHeaders, body: form });
+  const putJson = await putRes.json().catch(() => null);
+  if (!putRes.ok || !putJson || !putJson.success) {
+    const msg = (putJson && Array.isArray(putJson.errors) && putJson.errors[0] && putJson.errors[0].message) || ('HTTP ' + putRes.status);
+    return { ok: false, status: putRes.status === 401 || putRes.status === 403 ? 401 : 502, error: 'cf-upload-failed', message: String(msg) };
+  }
+  await kvPutJson(env, KV_KEYS.cfDeploy, { token, accountId, workerName, updatedAt: Date.now() });
+  await pushEvent(env, 'panel-self-updated', CAT_PANEL_VERSION + ' -> ' + src.version);
+  return { ok: true, status: 200, updated: true, from: CAT_PANEL_VERSION, to: src.version, worker: workerName, accountId };
 }
 
 /* ------------------------------------------------------------------ */
@@ -453,7 +587,7 @@ function newSubToken() {
 /* Writes happen only on owner actions.                                */
 /* ------------------------------------------------------------------ */
 
-const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users', uuid: 'cat:v6:uuid', appSeen: 'cat:v6:appseen' };
+const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users', uuid: 'cat:v6:uuid', appSeen: 'cat:v6:appseen', cfDeploy: 'cat:v6:cfdeploy' };
 const KV_READ_TTL_MS = 60 * 1000;
 const kvCache = new Map(); // key → { value, at }
 
@@ -4796,7 +4930,14 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
     }
     case '/update':
     case '/deploy': {
-      if (!settings.ghPat || !settings.ghRepo) return '⚠️ Deploy bot is not configured yet.\nIn the panel set the GitHub repo (owner/repo) + a fine-grained token with Actions read/write.\nThe Cloudflare API token is NEVER stored here — it lives only in GitHub secrets (see docs/telegram-deploy.md).';
+      if (!settings.ghPat || !settings.ghRepo) {
+        if (await hasDirectUpdateCreds(env)) {
+          const direct = await selfUpdatePanelWorker(env, host, {});
+          if (direct.ok) return '✅ Panel updated directly on Cloudflare: ' + tgEsc(direct.from) + ' → ' + tgEsc(direct.to) + ' (' + tgEsc(direct.worker) + ')';
+          return '🔴 Direct panel update failed (' + tgEsc(direct.error || 'error') + ')' + (direct.message ? ' — ' + tgEsc(direct.message) : '');
+        }
+        return '⚠️ Deploy bot is not configured yet.\nIn the panel set the GitHub repo (owner/repo) + a fine-grained token with Actions read/write.\nThe Cloudflare API token is NEVER stored here — it lives only in GitHub secrets (see docs/telegram-deploy.md).';
+      }
       const ref = String(arg[0] || '').trim() || deployCfg(settings).ref;
       if (!/^[A-Za-z0-9._/-]{1,120}$/.test(ref)) return 'bad branch name';
       const r = await ghApi('POST', '/repos/' + settings.ghRepo + '/actions/workflows/' + encodeURIComponent(deployCfg(settings).workflow) + '/dispatches', settings, { ref });
@@ -5781,8 +5922,20 @@ async function handleApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/update-apply' && method === 'POST') {
+    const body = (await readJsonBody(request)) || {};
+    const res = await selfUpdatePanelWorker(env, host, body);
+    return json(res, res.status || (res.ok ? 200 : 502));
+  }
+
   if (path === '/api/update-queue' && method === 'POST') {
-    if (!settings.ghPat || !settings.ghRepo) return json({ ok: false, error: 'github update workflow is not configured' }, 409);
+    if (!settings.ghPat || !settings.ghRepo) {
+      if (await hasDirectUpdateCreds(env)) {
+        const res = await selfUpdatePanelWorker(env, host, {});
+        return json(res, res.status || (res.ok ? 200 : 502));
+      }
+      return json({ ok: false, error: 'github update workflow is not configured' }, 409);
+    }
     const cfg = deployCfg(settings);
     const r = await ghApi('POST', '/repos/' + settings.ghRepo + '/actions/workflows/' + encodeURIComponent(cfg.workflow) + '/dispatches', settings, { ref: cfg.ref });
     if (r.status === 204) { await pushEvent(env, 'panel-update-queued', settings.ghRepo + '@' + cfg.ref); return json({ ok: true, queued: true, repo: settings.ghRepo, ref: cfg.ref }, 202); }
@@ -5806,7 +5959,8 @@ async function handleApi(request, url, env, ctx) {
       if (!src) return json({ ok: false, error: 'all sources failed' }, 502);
       // The UI flags ANY difference as «⬆️ update», so an older mirror is reported as «same as current».
       const latest = panelVersionCompare(src.version, CAT_PANEL_VERSION) > 0 ? src.version : CAT_PANEL_VERSION;
-      return json({ ok: true, current: CAT_PANEL_VERSION, latest, source: PANEL_SOURCE_URL });
+      const directReady = await hasDirectUpdateCreds(env);
+      return json({ ok: true, current: CAT_PANEL_VERSION, latest, source: PANEL_SOURCE_URL, directReady });
     } catch (e) {
       return json({ ok: false, error: 'fetch failed' }, 502);
     }
@@ -7428,7 +7582,7 @@ u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمار�
 unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر خطای 1101 دیدی',rec_hint:'طبق مستندات Cloudflare، خطای 1101 معمولاً یعنی Worker هنگام اجرا استثنای JavaScript داده است؛ به‌تنهایی بن‌شدن را ثابت نمی‌کند. در Workers & Pages ← Worker ← Logs/Observability متن خطا و stack trace را بررسی کن.',rec_steps:'۱) نسخهٔ پاسخ /api/version و زمان درخواست را ثبت کن؛ ۲) همان درخواست را در Logs یا wrangler tail پیدا کن؛ ۳) متن exception/stack trace و تنظیمات همان نسخه را بررسی کن؛ ۴) پس از اصلاح، /health و مسیر خطادار را دوباره آزمایش کن. اگر داشبورد صراحتاً پیام تعلیق یا سیاست نشان می‌دهد، همان اعلان رسمی را پیگیری کن.',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانه (۸ کشور در هر شب، چرخشی) از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',tune_title:'پیشنهاد پریست فرگمنت برای اپ (به تفکیک اپراتور)',tune_hint:'اپ خودش جدول داخلی دارد و آفلاین هم کار می‌کند؛ اینجا فقط می‌توانی برای هر اپراتور پریست بهتری تعیین کنی — بدون آپدیت اپ اعمال می‌شود.',tune_auto:'خودکار (پیش‌فرض اپ)',tune_save:'ذخیره پیشنهاد',tune_saved:'ذخیره شد ✓ — اپ در اتصال بعدی می‌خواند',tune_fail:'ذخیره نشد ✗',tune_mci:'همراه اول',tune_irancell:'ایرانسل',tune_rightel:'رایتل',tune_tci:'مخابرات',dpi_preset_default:'پیش‌فرض',dpi_preset_mci:'همراه اول',dpi_preset_irancell:'ایرانسل',dpi_preset_rightel:'رایتل',dpi_preset_tci:'مخابرات',dpi_preset_gaming:'گیمینگ',dpi_preset_pattn:'پترن‌ایها',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_choose:'فایل تنظیمات را انتخاب کن',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز پیش‌فرض admin (فوراً تغییر بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
-update_check:'بررسی نسخهٔ جدید…',update_safe:'به‌روزرسانی امن',update_safe_hint:'از GitHub Actions اجرا می‌شود؛ توکن Cloudflare داخل پنل ذخیره نمی‌شود.',update_confirm:'به‌روزرسانی پنل در GitHub Actions شروع شود؟',update_queued:'به‌روزرسانی در صف قرار گرفت',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'از تب «پنل من» در Cat Client یا با چسباندن فایل جدید در Workers به‌روزرسانی کن.',update_how2:'⬇️ را بزن تا worker.js جدید از خود پنل دانلود شود (گیت‌هاب لازم نیست). بعد در کلادفلر: Workers → پنلت → Edit code → کل کد را با فایل جدید عوض کن → Deploy.',
+update_check:'بررسی نسخهٔ جدید…',update_safe:'به‌روزرسانی امن',update_safe_hint:'از GitHub Actions اجرا می‌شود؛ توکن Cloudflare داخل پنل ذخیره نمی‌شود.',update_confirm:'به‌روزرسانی پنل در GitHub Actions شروع شود؟',update_queued:'به‌روزرسانی در صف قرار گرفت',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'با زدن «⚡ آپدیت مستقیم پنل» همین ورکر بدون نیاز به توکن مجدد یا کپی/پیست آپدیت می‌شود (یا از تب پنل من در Cat Client).',update_how2:'با زدن «⚡ آپدیت مستقیم پنل»، همین ورکر بدون نیاز به توکن مجدد مستقیماً روی کلودفلر آپدیت می‌شود (UUID، KV و تنظیمات حفظ می‌شوند). همچنین با ⬇️ می‌توانی فایل worker.js را مستقیم دانلود کنی.',update_direct_btn:'آپدیت مستقیم پنل',update_direct_reapply:'تعمیر / نصب مجدد مستقیم',update_direct_confirm:'همین ورکر پنل مستقیماً به آخرین نسخه آپدیت شود؟ (UUID، KV و تمام تنظیمات حفظ می‌شوند)',update_direct_working:'در حال آپدیت مستقیم ورکر…',update_direct_done:'✅ پنل با موفقیت آپدیت شد (%1 ← %2) — در حال بارگذاری مجدد…',update_token_once:'این پنل قدیمی‌تر است و توکن کلودفلر در زمان ساخت روی آن بایند نشده بود. فقط یک‌بار توکن Cloudflare API را وارد کن تا روی همین ورکر ذخیره شود و از این به بعد بدون توکن آپدیت شود:',
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box'},
 en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
@@ -7450,7 +7604,7 @@ u_noquota:'This version does not meter traffic (traffic metering is what filled 
 unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing Error 1101?',rec_hint:'Cloudflare documents Error 1101 as a Worker JavaScript runtime exception; it does not by itself prove a ban. Check Workers & Pages → your Worker → Logs/Observability for the exception and stack trace.',rec_steps:'1) Note the /api/version response and request time; 2) find that request in Logs or wrangler tail; 3) inspect the exception/stack trace and that deployment’s bindings; 4) after fixing it, retest /health and the failing route. If the dashboard explicitly shows a suspension or policy notice, follow that official notice.',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples (8 countries per night, rotating) of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',tune_title:'Fragment preset recommendation for the app (per carrier)',tune_hint:'The app ships its own table and works offline; this only overrides it per carrier and takes effect on the next connect — no app update needed.',tune_auto:'Automatic (app default)',tune_save:'Save recommendation',tune_saved:'Saved ✓ — the app reads it on the next connect',tune_fail:'Save failed ✗',tune_mci:'MCI',tune_irancell:'Irancell',tune_rightel:'Rightel',tune_tci:'TCI',dpi_preset_default:'Default',dpi_preset_mci:'MCI',dpi_preset_irancell:'Irancell',dpi_preset_rightel:'Rightel',dpi_preset_tci:'TCI',dpi_preset_gaming:'Gaming',dpi_preset_pattn:'PattN-style',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_choose:'Choose the settings file',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'default password admin (change now!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Tested from YOUR network (browser): domains via /cdn-cgi/trace and raw IPs via a TLS connection attempt — a fast answer = alive on your line, timeout = ✗ dead on your line. Plain (non-TLS) ports cannot be probed in a browser (⊘). Test ProxyIPs with the worker test instead — their path goes through the worker.',scan_prune:'Prune dead IPs from my list',scan_prune_confirm:'Remove %1 dead IPs (as seen from your line) from the list?',scan_prune_none:'Run “Test from my network” first — nothing to prune yet',scan_sum_alive:'IPs alive on your line',scan_sum_dead:'dead',scan_sum_skip:'plain-port',ws_test:'Real connection test (domains)',ws_note:'Opens a real WebSocket to the tunnel path (/ws) for each domain — the exact route a config takes: if it opens, configs really connect on your line. Your panel’s own address is always tested first (baseline). Raw IPs have no “real test” in a browser (it cannot send the Host header); a domain that is not routed to your worker fails too.',ws_base:'baseline — the panel itself',ws_ok:'config route opened',ws_fail:'no connection — dead on your line, or not routed to the worker',ws_sum:'domains verified with a real tunnel handshake',ws_noway:'This browser has no WebSocket',surv_title:'Survival pack — more fallbacks, not a guarantee',surv_hint:'One click enables daily rotation, both protocols, default addresses plus the worker host, ports 80/8080 as fallbacks, and ordering by scanner ping reported within 7 days. SNI stays on the worker hostname: fake/rotating SNI can make Cloudflare itself return 403. Fragment is supported only by Xray/sing-box. None of this guarantees 100% across carriers or clients; test the link on each real mobile/Wi-Fi network and client. Ping is from the scanner sender’s line, not every user.',surv_apply:'Apply survival pack',surv_done:'🛡 Survival pack applied',surv_applied:'Applied',surv_changed:'settings changed',surv_already:'Survival pack already active',surv_link:'Survive link',surv_formats:'Copy the format your client expects:',ov_seen:'Authenticated user attempts:',ov_seen_24:'connected in the last 24h',ov_seen_never:'no connection recorded yet (the user may simply not have used it)',ov_seen_hint:'Counts only tunnel attempts with a valid identity, not successful access to a destination. Cloudflare hides which clean-IP entry was used, so this cannot prove full connectivity or identify dead IPs.',
-update_check:'Checking for updates…',update_safe:'Safe update',update_safe_hint:'Runs through GitHub Actions; the Cloudflare token is not stored in the panel.',update_confirm:'Queue the panel update in GitHub Actions?',update_queued:'Update queued',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Update from the “My Panel” tab in Cat Client or paste the new file into Workers.',update_how2:'Tap ⬇️ to download the new worker.js straight from this panel (no GitHub needed). Then in Cloudflare: Workers → your panel → Edit code → replace all code with the new file → Deploy.',
+update_check:'Checking for updates…',update_safe:'Safe update',update_safe_hint:'Runs through GitHub Actions; the Cloudflare token is not stored in the panel.',update_confirm:'Queue the panel update in GitHub Actions?',update_queued:'Update queued',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Tap “⚡ Update panel now” to update this Worker directly in place without re-entering a token.',update_how2:'Tap “⚡ Update panel now” to update this Worker directly on Cloudflare (UUID, KV and settings are preserved), or tap ⬇️ to download worker.js.',update_direct_btn:'Update panel now',update_direct_reapply:'Direct repair / reinstall',update_direct_confirm:'Update this panel Worker directly to the latest version? (UUID, KV and all settings are preserved)',update_direct_working:'Updating Worker directly…',update_direct_done:'✅ Panel updated (%1 → %2) — reloading…',update_token_once:'This panel was created before direct-update bindings were attached. Enter your Cloudflare API token once to bind it to this Worker for all future updates:',
 sync_hint:'Opens the master subscription in Cat Client',restore_ok:'Restored',restore_bad:'Invalid file',sub:'Sub',clash:'Clash',singbox:'sing-box'}};
 var lang=document.documentElement.lang==='en'?'en':'fa';
 function t(k){return (I18N[lang][k]!==undefined?I18N[lang][k]:I18N.fa[k])||k}
@@ -7985,7 +8139,12 @@ function renderInbounds(){
  applyI18n();
 }
 function t_paths(){return CFG.paths||{vlessPath:'/vless',trojanPath:'/trojan'}}
-$('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}b.innerHTML=j.latest===j.current?'<span class="chip ok">\u2713 '+esc(j.current)+'</span>':'<span class="chip warn">\u2b06\ufe0f '+esc(j.latest)+'</span> <a class="btn sm p" href="/api/update-download" style="vertical-align:middle">\u2b07\ufe0f worker.js</a><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>'})});
+function renderUpdateBox(b,j,full){if(!b||!j||!j.ok||!j.latest){if(b)b.textContent='?';return}
+ var same=j.latest===j.current;
+ var act='<button class="btn sm '+(same?'':'p')+'" type="button" data-direct-update="1" style="vertical-align:middle">⚡ '+esc(t(same?'update_direct_reapply':'update_direct_btn'))+'</button> <a class="btn sm" href="/api/update-download" style="vertical-align:middle">\u2b07\ufe0f worker.js</a>';
+ b.innerHTML=(same?'<span class="chip ok">\u2713 '+(full?t('update_ok')+' ('+esc(j.current)+')':esc(j.current))+'</span> ':'<span class="chip warn">\u2b06\ufe0f '+(full?t('update_new'):'')+esc(j.latest)+'</span> ')+act+'<div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>';
+}
+$('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,false)})});
 $('#btnBulk').addEventListener('click',async function(){
  var n=Number(await ask(t('bulk_count'),{ph:'5',val:'5'}));if(!n||Number(n)<1)return;
  var prefix=await ask(t('bulk_prefix'),{ph:'user',val:'user'});if(prefix===null)return;
@@ -8622,14 +8781,31 @@ $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f
 
 /* ---------- update / lang ---------- */
 document.addEventListener('click',function(e){var b=e.target.closest('[data-queue-update]');if(!b)return;if(!confirm(t('update_confirm')))return;b.disabled=true;api('/api/update-queue',{method:'POST',body:{}}).then(function(j){toast(j&&j.ok?t('update_queued'):((j&&j.error)||'error'),!(j&&j.ok));if(j&&j.ok)b.textContent=t('update_queued')}).catch(function(){toast('error',true)}).then(function(){b.disabled=false})});
-$('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){if(!j.ok||!j.latest){b.textContent='?';return}
- b.innerHTML=j.latest===j.current?'<span class="chip ok">✓ '+t('update_ok')+' ('+esc(j.current)+')</span>':'<span class="chip warn">⬆️ '+t('update_new')+esc(j.latest)+'</span> <a class="btn sm p" href="/api/update-download" style="vertical-align:middle">⬇️ worker.js</a><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>'})});
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-direct-update]');if(!b)return;if(!confirm(t('update_direct_confirm')))return;var orig=b.textContent;b.disabled=true;b.textContent=t('update_direct_working');
+ try{
+  var j=await api('/api/update-apply',{method:'POST',body:{}});
+  if(j&&j.needsSetup){
+   var tok=await ask(t('update_token_once'),{ph:'Cloudflare API Token…'});
+   if(tok&&String(tok).trim()){j=await api('/api/update-apply',{method:'POST',body:{token:String(tok).trim()}})}
+   else{b.disabled=false;b.textContent=orig;return}
+  }
+  if(j&&j.ok){
+   var msg=t('update_direct_done').replace('%1',j.from||VERSION).replace('%2',j.to||'');
+   toast(msg);b.textContent='✓ '+(j.to||'');
+   setTimeout(function(){location.reload()},1500);
+   return;
+  }
+  toast((j&&(j.message||j.error))||'error',true);
+ }catch(err){toast('error',true)}
+ b.disabled=false;b.textContent=orig;
+});
+$('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,true)})});
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
 var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','nodes','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
-api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)b.innerHTML='<span class="chip warn">\u2b06\ufe0f '+t('update_new')+esc(j.latest)+'</span><div class="small mute" style="margin-top:6px">'+t('update_how')+'</div>';toast(t('update_new')+j.latest)}).catch(function(){});
+api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();
 </script></body></html>`;
 }
@@ -8865,6 +9041,7 @@ export const _testing = {
   usageDay, countRequest, recordError, readUsage, flushUsage, clearErrors, scheduleFlush,
   maskCreds,
   isProxyHostName, pinProxyEntry, addCleanIpEntries, addProxyRelayEntries,
+  hasDirectUpdateCreds, selfUpdatePanelWorker, fetchNewestPanelSource,
   fnv1a64Hex, relayTokenFor, resolveRelayToken,
   loginPage, panelPage, userInfoPage,
 };

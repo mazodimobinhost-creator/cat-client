@@ -68,7 +68,7 @@ class WorkerArtifactManifestTest {
         val apkDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.APK_BUNDLE, pasteBytes)
         assertTrue("Expected APK bundle artifact to verify, got $apkDecision", apkDecision is WorkerManifestDecision.Verified)
         val apkRecord = (apkDecision as WorkerManifestDecision.Verified).record
-        assertEquals("6.69.13", apkRecord.version)
+        assertEquals("6.69.14", apkRecord.version)
 
         val releaseDecision = WorkerArtifactManifest.verify(
             WorkerArtifactChannel.RELEASE_ASSET,
@@ -80,7 +80,7 @@ class WorkerArtifactManifestTest {
         assertTrue(WorkerArtifactManifest.verifyCanonicalConsistency(apkRecord, releaseRecord))
 
         val sumsText = """
-            ${"a".repeat(64)}  CatClient-V1.10.0-beta128-arm64-v8a.apk
+            ${"a".repeat(64)}  CatClient-V1.10.0-beta129-arm64-v8a.apk
             ${releaseRecord.sha256}  catclient.worker.js
         """.trimIndent()
         assertEquals(releaseRecord.sha256, GitHubReleaseClient.parseChecksum(sumsText, "catclient.worker.js"))

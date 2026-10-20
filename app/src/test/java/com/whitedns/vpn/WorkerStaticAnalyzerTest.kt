@@ -92,12 +92,12 @@ class WorkerStaticAnalyzerTest {
     @Test fun formatLocalSummaryRendersVersionCapabilitiesAndWarnings() {
         val script = """
             import { connect } from 'cloudflare:sockets';
-            const CAT_PANEL_VERSION = '6.69.13';
+            const CAT_PANEL_VERSION = '6.69.14';
             export default { async fetch() { return new Response('vless'); } };
         """.trimIndent().toByteArray(Charsets.UTF_8)
         val analysis = WorkerStaticAnalyzer.analyzeLocal(script)
         val summary = WorkerStaticAnalyzer.formatLocalSummary(analysis)
-        assertTrue(summary.contains("Version: 6.69.13"))
+        assertTrue(summary.contains("Version: 6.69.14"))
         assertTrue(summary.contains("VLESS"))
         assertTrue(summary.contains("CLOUDFLARE_SOCKETS"))
         assertTrue(summary.contains("Warnings: None"))

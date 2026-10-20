@@ -1023,6 +1023,15 @@ object CloudflareWorker {
             put(JSONObject().put("type", "plain_text").put("name", "OPEN_SUB").put("text", defaults["OPEN_SUB"] ?: "false"))
             put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", effectivePanelUser))
             put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", effectivePanelPassword))
+            if (token.isNotBlank()) {
+                put(JSONObject().put("type", "secret_text").put("name", "CF_API_TOKEN").put("text", token))
+            }
+            if (accountId.isNotBlank()) {
+                put(JSONObject().put("type", "plain_text").put("name", "CF_ACCOUNT_ID").put("text", accountId))
+            }
+            if (workerName.isNotBlank()) {
+                put(JSONObject().put("type", "plain_text").put("name", "CF_WORKER_NAME").put("text", workerName))
+            }
         }
         val putResult = cfUploadWorker(token, uploadUrl, script, uuid, kvId, extraBindings = authBindings)
         if (!putResult.optBoolean("success", false)) {
@@ -1180,7 +1189,7 @@ object CloudflareWorker {
         val extras = JSONArray()
         existing?.forEach { binding ->
             val name = binding.optString("name")
-            if (name.isBlank() || name == "UUID" || name == "CAT_KV") return@forEach
+            if (name.isBlank() || name == "UUID" || name == "CAT_KV" || name == "CF_ACCOUNT_ID" || name == "CF_WORKER_NAME" || name == "CF_API_TOKEN") return@forEach
             when (binding.optString("type")) {
                 "plain_text", "secret_text" -> {
                     // Unreadable secrets ride on keep_secrets — sending an empty
@@ -1196,6 +1205,15 @@ object CloudflareWorker {
                 }
                 else -> extras.put(JSONObject(binding.toString()))
             }
+        }
+        if (token.isNotBlank()) {
+            extras.put(JSONObject().put("type", "secret_text").put("name", "CF_API_TOKEN").put("text", token))
+        }
+        if (accountId.isNotBlank()) {
+            extras.put(JSONObject().put("type", "plain_text").put("name", "CF_ACCOUNT_ID").put("text", accountId))
+        }
+        if (workerName.isNotBlank()) {
+            extras.put(JSONObject().put("type", "plain_text").put("name", "CF_WORKER_NAME").put("text", workerName))
         }
 
         val rollbackBytes = runCatching { builtInWorkerScript(context).toByteArray(Charsets.UTF_8) }

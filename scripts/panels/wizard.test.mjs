@@ -208,6 +208,7 @@ let first;
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));
   check('CAT_KV bound', bind.CAT_KV && bind.CAT_KV.type === 'kv_namespace' && bind.CAT_KV.namespace_id === 'kv-1');
   check('PANEL_PASSWORD is bound as secret_text (never plain_text)', bind.PANEL_PASSWORD && bind.PANEL_PASSWORD.type === 'secret_text' && !s.bindings.some((b) => b.type === 'plain_text' && b.name === 'PANEL_PASSWORD'));
+  check('CF_API_TOKEN + CF_ACCOUNT_ID + CF_WORKER_NAME bound for direct in-panel self-update', bind.CF_API_TOKEN && bind.CF_API_TOKEN.type === 'secret_text' && bind.CF_ACCOUNT_ID && bind.CF_ACCOUNT_ID.text === 'acc-1' && bind.CF_WORKER_NAME && bind.CF_WORKER_NAME.text === 'my-panel');
   check('generated password is independent of the UUID and long enough', bind.PANEL_PASSWORD.text.length >= 24 && bind.PANEL_PASSWORD.text !== bind.UUID.text && !bind.PANEL_PASSWORD.text.includes(bind.UUID.text));
   check('no OPEN_PANEL / OPEN_SUB binding is set by the Wizard', !bind.OPEN_PANEL && !bind.OPEN_SUB);
   check('compat date + flags come from the single Wizard constants (no nodejs_compat)', s.meta.compatibility_date === T.COMPAT_DATE && JSON.stringify(s.meta.compatibility_flags) === JSON.stringify(T.COMPAT_FLAGS) && !s.meta.compatibility_flags.includes('nodejs_compat'));
