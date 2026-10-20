@@ -8585,6 +8585,9 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
             return
         }
+        val entryAuthority = RelayCatalogAction.useAsEntry(
+            target.toCatalogEntry(System.currentTimeMillis()),
+        )?.value ?: target.authority
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
         // Dual-stack apply: when nothing specific was tapped, take the best v4 AND
         // the best v6 so the tunnel survives either family dropping.
@@ -8595,12 +8598,12 @@ class MainActivity : Activity() {
         } else {
             emptyList()
         }
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.authority + companions).joinToString(","))
+        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + entryAuthority + companions).joinToString(","))
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(
             this,
-            getString(R.string.scanner_applied, target.authority, target.pingMs),
+            getString(R.string.scanner_applied, entryAuthority, target.pingMs),
             Toast.LENGTH_LONG,
         ).show()
     }
