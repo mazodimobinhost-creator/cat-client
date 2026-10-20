@@ -127,5 +127,24 @@ const body = async (p, env) => (await req(p, env)).text();
   const j = await r.json();
   check('/api/ech reports the effective + shared values', j.ok === true && j.effective === DEFAULT_ECH && j.shared === DEFAULT_ECH, JSON.stringify(j).slice(0, 140));
 }
+/* ── 9: ECH is mutually exclusive with Fragment (fm/cs) and SNI spoofing ─ */
+{
+  const { env } = makeEnv({ sniFront: true, sniRotate: true, sni: 'www.speedtest.net', fmLinks: true });
+  T.kvCacheClear();
+  const raw = await body('/sub/' + MASTER + '?raw=1&ech=1', env);
+  const firstTls = raw.trim().split('\n').find((l) => l.includes('security=tls'));
+  check('ech=1 links omit fm= and cs= (no Fragment + ECH conflict)', !!firstTls && !firstTls.includes('&fm=') && !firstTls.includes('&cs='), firstTls && firstTls.slice(0, 140));
+  check('ech=1 links keep real worker host as inner SNI (no custom SNI spoof)', !!firstTls && firstTls.includes('sni=' + encodeURIComponent(HOST)) && !firstTls.includes('speedtest.net'), firstTls && firstTls.slice(0, 140));
+
+  const xrayRaw = await body('/xray/' + MASTER + '?raw=1&survive=1&ech=1', env);
+  const xrayJson = JSON.parse(xrayRaw);
+  const firstProxy = xrayJson[0] && xrayJson[0].outbounds.find((o) => o.tag === 'proxy');
+  check('xray + ech=1 never stacks fragment outbound or finalmask on ECH',
+    !!firstProxy &&
+    firstProxy.streamSettings.tlsSettings.echConfigList === DEFAULT_ECH &&
+    !firstProxy.streamSettings.finalmask &&
+    !(firstProxy.streamSettings.sockopt && firstProxy.streamSettings.sockopt.dialerProxy === 'fragment') &&
+    !(xrayJson[0].outbounds || []).some((o) => o.tag === 'fragment'));
+}
 console.log(failures ? '✗ ' + failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

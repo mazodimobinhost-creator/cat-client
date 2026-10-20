@@ -535,7 +535,7 @@ const FIREWALL_BYPASS_PRESETS = Object.freeze({
   'irancell-ff': { address: '188.114.97.6', fingerprint: 'unsafe', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: FIREWALL_FF_CIPHER_SUITES, note: 'b_fw_irancell_ff_n' },
 });
 function maskParams(ctx, tls) {
-  if (!tls || !ctx.settings || ctx.settings.fmLinks === false) return '';
+  if (!tls || !ctx.settings || ctx.settings.fmLinks === false || ctx.ech) return '';
   const s = ctx.settings;
   // Firewall profiles have an explicit finalMask/cipher-suite pair. An empty
   // value is meaningful: don't silently substitute the panel's generic mask.
@@ -4227,15 +4227,15 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
   rules.push({ type: 'field', port: '0-65535', outboundTag: 'proxy' });
   const warpOut = buildWarpOutbounds(settings);
   let finalMask = null;
-  if (settings.fmLinks !== false && settings.finalMaskProfile) {
+  if (!ctx.ech && settings.fmLinks !== false && settings.finalMaskProfile) {
     try {
       const parsed = JSON.parse(settings.finalMaskProfile);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) finalMask = parsed;
     } catch { /* an invalid optional profile must not break the subscription */ }
   }
-  // F&F finalMask already fragments the TLS hello; do not stack the legacy
-  // fragment outbound on top of it (matches the Xray client profile contract).
-  const fragOn = !!(frag && frag.enabled && !finalMask);
+  // F&F finalMask and ECH must never stack with the legacy fragment outbound:
+  // ECH requires an unfragmented ClientHello and standard TLS 1.3 cipher negotiation.
+  const fragOn = !!(frag && frag.enabled && !finalMask && !ctx.ech);
   const one = (e) => {
     const stream = {
       network: 'ws',
@@ -4245,7 +4245,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
     };
     if (e.tls) {
       stream.tlsSettings = { serverName: ctx.sni, fingerprint: ctx.fp, alpn: settings.alpn.split(','), allowInsecure: false };
-      if (settings.cipherSuites) stream.tlsSettings.cipherSuites = settings.cipherSuites;
+      if (settings.cipherSuites && !ctx.ech) stream.tlsSettings.cipherSuites = settings.cipherSuites;
       // ECH per Xray docs: tlsSettings.echConfigList accepts a base64 ECHConfig
       // OR the «domain+udp://server» live-query form.
       if (ctx.ech) stream.tlsSettings.echConfigList = ctx.ech;
@@ -4489,7 +4489,13 @@ async function subResponse(kind, host, env, settings, uuid, user, url) {
       if (kw === 'auto') echList = (await echConfigList(effectiveSni(host, env, settings), env)) || 'off';
       else if (!rawVal) echList = DEFAULT_ECH_VALUE; // '' = the shared CF default
       if (kw === 'off' || echList === 'off') echList = '';
-      settings = Object.assign({}, settings, { echList });
+      settings = Object.assign(
+        {},
+        settings,
+        echList
+          ? { echList, fmLinks: false, sniFront: false, sniRotate: false, cipherSuites: '', finalMaskProfile: '', finalMaskCipherSuites: '' }
+          : { echList: '' }
+      );
     } catch { /* ECH is best-effort */ }
   } else if (settings.echList) {
     // ECH stays OPT-IN per subscription (?ech=1 — builder card toggle): with a
@@ -8154,7 +8160,7 @@ var bPortsBox=$('#bPorts');if(bPortsBox)bPortsBox.addEventListener('click',funct
 var bSrcBox=$('#bSrc');if(bSrcBox)bSrcBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('bSrc',b);B.src=b.getAttribute('data-v');if(B.src==='ech'){B.ech=1;$$('#bEch button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')==='1')})}renderB();bMaybe()});
 var bCcBox=$('#bCc');if(bCcBox)bCcBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;pickSel('bCc',b);B.cc=b.getAttribute('data-v');bMaybe()});
 $$('#bStrict button').forEach(function(b){b.addEventListener('click',function(){pickSel('bStrict',b);B.strict=Number(b.getAttribute('data-v'))||0;bMaybe()})});
-$$('#bEch button').forEach(function(b){b.addEventListener('click',function(){pickSel('bEch',b);B.ech=Number(b.getAttribute('data-v'))||0;bMaybe();if(B.fw){$('#bEchState').textContent='';return}if(B.ech&&!bEchChecked){bEchChecked=1;api('/api/ech').then(function(j){var el=$('#bEchState');if(el)el.textContent=j.has?(('⚡ ECH ✓ ('+j.sni+')')):(t('ech_none'))}).catch(function(){var el=$('#bEchState');if(el)el.textContent=t('ech_none')})}else if(!B.ech)$('#bEchState').textContent=''})});
+$$('#bEch button').forEach(function(b){b.addEventListener('click',function(){pickSel('bEch',b);B.ech=Number(b.getAttribute('data-v'))||0;if(B.ech&&B.fw&&FIREWALL_PRESETS_UI[B.fw]&&FIREWALL_PRESETS_UI[B.fw].finalMask){B.fw='';$$('#bFw button').forEach(function(x){x.classList.toggle('on',!x.getAttribute('data-v'))});var note=$('#bFwNote');if(note){note.textContent=t('b_fw_hint');note.className='note i small'}}bMaybe();if(B.fw){$('#bEchState').textContent='';return}if(B.ech&&!bEchChecked){bEchChecked=1;api('/api/ech').then(function(j){var el=$('#bEchState');if(el)el.textContent=j.has?(('⚡ ECH ✓ ('+j.sni+')')):(t('ech_none'))}).catch(function(){var el=$('#bEchState');if(el)el.textContent=t('ech_none')})}else if(!B.ech)$('#bEchState').textContent=''})});
 var bEchChecked=0;
 if($('#bLimit'))$('#bLimit').addEventListener('change',function(){B.limit=Math.min(200,Math.max(1,Number(this.value)||24));this.value=B.limit;bMaybe()});
 if($('#bGen'))$('#bGen').addEventListener('click',function(){bLive=true;bGen()});
