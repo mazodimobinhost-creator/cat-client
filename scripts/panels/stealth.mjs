@@ -270,7 +270,7 @@ let attempts = 0;
 let hits = {};
 do {
   attempts += 1;
-  const result = JavaScriptObfuscator.obfuscate(prepped, OPTIONS);
+  const result = JavaScriptObfuscator.obfuscate(prepped, { ...OPTIONS, seed: attempts });
   out = result.getObfuscatedCode()
     + '\nexport default globalThis.__d;\nexport const _testing = globalThis.__t;\n';
   hits = scanHits(out);

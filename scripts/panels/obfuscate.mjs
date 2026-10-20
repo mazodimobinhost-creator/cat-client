@@ -96,11 +96,11 @@ let out = '';
 let attempts = 0;
 do {
   attempts += 1;
-  const result = JavaScriptObfuscator.obfuscate(prepped, OPTIONS);
+  const result = JavaScriptObfuscator.obfuscate(prepped, { ...OPTIONS, seed: attempts });
   out = "/* CAT_PANEL_VERSION = '" + version + "' */\n"
     + result.getObfuscatedCode()
     + '\nexport default globalThis.__CAT_DEFAULT;\nexport const _testing = globalThis.__CAT_TESTING;\n';
-} while (SIGNATURE_RE.test(out) && attempts < 8);
+} while (SIGNATURE_RE.test(out) && attempts < 16);
 if (SIGNATURE_RE.test(out)) {
   console.error('obfuscate: a plaintext panel signature survived ' + attempts + ' independent builds — refusing to ship');
   process.exit(1);

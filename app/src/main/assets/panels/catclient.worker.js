@@ -4465,7 +4465,7 @@ async function subResponse(kind, host, env, settings, uuid, user, url) {
       sniRotate: false,
       plainEnabled: true,
       plainPorts: uniq([80, 8080].concat(settings.plainPorts || [])).slice(0, 16),
-      protocols: Object.assign({}, settings.protocols || {}, { vless: true, trojan: true }),
+      protocols: Object.assign({}, settings.protocols || {}, { [PROTO_VLESS]: true, [TROJAN_KEY]: true }),
       fragment: Object.assign({}, settings.fragment || { packets: 'tlshello', length: '10-100', interval: '10-20' }, { enabled: true }),
       healthOrder: true,
     });
@@ -5435,7 +5435,7 @@ async function handleApi(request, url, env, ctx) {
     const fallbackPorts = uniq([80, 8080].concat(settings.plainPorts || [])).slice(0, 16);
     if (fallbackPorts.join(',') !== (settings.plainPorts || []).join(',')) patch.plainPorts = fallbackPorts;
     const proto = settings.protocols || {};
-    if (proto.vless === false || proto.trojan === false) patch.protocols = Object.assign({}, proto, { vless: true, trojan: true });
+    if (proto[PROTO_VLESS] === false || proto[TROJAN_KEY] === false) patch.protocols = Object.assign({}, proto, { [PROTO_VLESS]: true, [TROJAN_KEY]: true });
     if (settings.healthOrder !== true) patch.healthOrder = true;
     const changed = Object.keys(patch);
     let persisted = true;
