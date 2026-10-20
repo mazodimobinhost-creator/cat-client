@@ -95,11 +95,27 @@ object MihomoConfigParser {
 
             if (indent == 2 && content.startsWith("- ")) {
                 flush()
+                val item = content.removePrefix("- ").trim()
                 if (activeSection == "proxies") {
-                    rawLines.append("    ").append(content.removePrefix("- ").trim()).append('\n')
+                    rawLines.append("    ").append(item).append('\n')
                 }
-                parseKeyValue(content.removePrefix("- ").trim())?.let { (key, value) ->
-                    current[key] = decodeScalar(value)
+                if (item.startsWith("{")) {
+                    val flowMap = MihomoProxyYaml.parse(item)
+                    listOf("name", "type", "server", "port", "tls").forEach { key ->
+                        flowMap[key]?.toString()?.takeIf(String::isNotBlank)?.let { current[key] = it }
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    val echOpts = flowMap["ech-opts"] as? Map<String, Any?>
+                    if (echOpts?.get("enable")?.toString()?.equals("true", ignoreCase = true) == true) {
+                        current["ech-enabled"] = "true"
+                    }
+                    if (flowMap["reality-opts"] != null) {
+                        current["reality-enabled"] = "true"
+                    }
+                } else {
+                    parseKeyValue(item)?.let { (key, value) ->
+                        current[key] = decodeScalar(value)
+                    }
                 }
                 return@forEach
             }

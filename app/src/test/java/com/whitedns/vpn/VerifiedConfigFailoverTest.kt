@@ -108,7 +108,7 @@ class VerifiedConfigFailoverTest {
         val yaml = """
             mixed-port: 7890
             proxies:
-            $flowLine
+              - {name: "DE-Flow", type: vless, server: 104.16.1.1, port: 443, uuid: 11111111-1111-1111-1111-111111111111, tls: true, servername: worker.example, network: ws, ws-opts: {path: "/vl?ed=2560", headers: {Host: worker.example}}}
               - name: "DE-Block"
                 type: trojan
                 server: 104.16.1.2
