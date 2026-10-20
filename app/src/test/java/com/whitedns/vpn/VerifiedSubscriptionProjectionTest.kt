@@ -131,4 +131,34 @@ class VerifiedSubscriptionProjectionTest {
             assertTrue(imported.yaml.contains("tls: false"))
         }
     }
+
+    @Test fun echPropagatesToUriClashAndXrayWhileRespectingConflictGuards() {
+        val rawEchUri =
+            "vless://uuid@104.16.1.1:443?type=ws&security=tls&host=worker.example&sni=worker.example" +
+                "&path=%2Fws%3Fed%3D2560&fp=chrome&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1"
+        val parsed = VerifiedConfigUriParser.parse(rawEchUri, 1_000L, "test")!!
+        assertEquals("cloudflare-ech.com+udp://1.1.1.1", parsed.ech)
+        assertTrue(parsed.encode().contains("ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1"))
+
+        val clash = VerifiedSubscriptionProjector.clash(parsed)
+        val echOpts = clash["ech-opts"] as Map<*, *>
+        assertEquals(true, echOpts["enable"])
+        assertEquals("cloudflare-ech.com", echOpts["query-server-name"])
+
+        val sing = VerifiedSubscriptionProjector.singBox(parsed)
+        val singTls = sing["tls"] as Map<*, *>
+        assertTrue(!singTls.containsKey("ech"))
+
+        val xrayJson = VerifiedSubscriptionProjector.toXrayJson(listOf(parsed))
+        assertTrue(xrayJson.contains("echConfigList"))
+        val importedXray = UserSubscriptionImporter.import(xrayJson, nowMs = 1_000L)
+        assertTrue(importedXray.yaml.contains("ech-opts:"))
+        assertTrue(importedXray.yaml.contains("cloudflare-ech.com"))
+
+        val conflictedUri =
+            "vless://uuid@104.16.1.1:443?type=ws&security=tls&host=worker.example&sni=www.speedtest.net" +
+                "&path=%2Fws&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1"
+        val parsedConflicted = VerifiedConfigUriParser.parse(conflictedUri, 1_000L, "test")!!
+        assertEquals(null, parsedConflicted.ech)
+    }
 }

@@ -87,6 +87,28 @@ class MihomoShareLinkTest {
         assertTrue(echRebuilt.contains("ech=cloudflare-ech.com"))
         assertTrue(echRebuilt.endsWith("#ECH-Node"))
 
+        val nextIngress = VerifiedEndpoint(
+            "2606:4700::9", 2053, EndpointRole.CLEAN_IP, EndpointFamily.IPV6,
+            EndpointVerdict.VERIFIED, now, 18L, source = "scan",
+        )
+        val rotatedEchRoute = MihomoShareLink.changeRouteFromYamlBlock(
+            parsed.summary.proxies[0].rawYaml, listOf(nextIngress), now,
+        )!!
+        assertTrue(rotatedEchRoute.startsWith("vless://uuid@[2606:4700::9]:2053?"))
+        assertTrue(rotatedEchRoute.contains("ech=cloudflare-ech.com"))
+        assertTrue(rotatedEchRoute.endsWith("#ECH-Node"))
+
+        val nextProxyIp = VerifiedEndpoint(
+            "103.237.102.191", 11111, EndpointRole.PROXY_IP, EndpointFamily.IPV4,
+            EndpointVerdict.VERIFIED, now, 15L, source = "scan",
+        )
+        val rotatedEchProxyIp = MihomoShareLink.changeProxyIpFromYamlBlock(
+            parsed.summary.proxies[0].rawYaml, listOf(nextProxyIp), now,
+        )!!
+        assertTrue(rotatedEchProxyIp.contains("proxyip%3D103.237.102.191%3A11111"))
+        assertTrue(rotatedEchProxyIp.contains("ech=cloudflare-ech.com"))
+        assertTrue(rotatedEchProxyIp.endsWith("#ECH-Node"))
+
         val fronted = MihomoFrontingPatcher.patchProxyServers(
             rawYaml = imported.yaml,
             serverOverrideIp = "172.67.10.20",

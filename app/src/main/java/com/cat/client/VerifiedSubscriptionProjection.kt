@@ -15,9 +15,13 @@ internal data class VerifiedSubscriptionProjection(
     val tls: Boolean,
     val fingerprint: String?,
     val name: String,
+    val ech: String? = null,
 )
 
 internal object VerifiedSubscriptionProjector {
+    private val ECH_QUERY_REGEX =
+        Regex("""^([A-Za-z0-9][A-Za-z0-9.-]{0,252})(?:\+(?:udp|tcp|https|h2c|tls)://.+)?$""")
+
     fun project(config: VerifiedConfigUri, index: Int = 0): VerifiedSubscriptionProjection? {
         val placement = VerifiedEndpointPlacement.forWorker(config.endpoint, config.workerDomain) ?: return null
         val baseName = "${config.protocol.scheme}-${config.endpoint.authority}"
@@ -33,6 +37,7 @@ internal object VerifiedSubscriptionProjector {
             tls = config.tls,
             fingerprint = config.fingerprint,
             name = uniqueName,
+            ech = config.ech?.takeIf { config.tls && it.isNotBlank() && config.serverName.equals(config.workerDomain, ignoreCase = true) },
         )
     }
 
@@ -48,7 +53,18 @@ internal object VerifiedSubscriptionProjector {
             "servername" to p.serverName,
             "network" to "ws",
             "ws-opts" to mapOf("path" to p.path, "headers" to mapOf("Host" to p.hostHeader)),
-        ).apply { p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("client-fingerprint", it) } }
+        ).apply {
+            p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("client-fingerprint", it) }
+            p.ech?.takeIf { p.tls && it.isNotBlank() }?.let { rawEch ->
+                val queryMatch = ECH_QUERY_REGEX.matchEntire(rawEch)
+                val echOpts = if (queryMatch != null && '.' in queryMatch.groupValues[1]) {
+                    linkedMapOf<String, Any>("enable" to true, "query-server-name" to queryMatch.groupValues[1])
+                } else {
+                    linkedMapOf<String, Any>("enable" to true, "config" to rawEch)
+                }
+                put("ech-opts", echOpts)
+            }
+        }
     }
 
     fun singBox(config: VerifiedConfigUri, index: Int = 0): Map<String, Any> = project(config, index).requireProjection().let { p ->
@@ -74,6 +90,7 @@ internal object VerifiedSubscriptionProjector {
     fun xray(config: VerifiedConfigUri, index: Int = 0): Map<String, Any> = project(config, index).requireProjection().let { p ->
         val tlsSettings = linkedMapOf<String, Any>("serverName" to p.serverName).apply {
             p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("fingerprint", it) }
+            p.ech?.takeIf { p.tls && it.isNotBlank() }?.let { put("echConfigList", it) }
         }
         val stream = linkedMapOf<String, Any>(
             "security" to if (p.tls) "tls" else "none",

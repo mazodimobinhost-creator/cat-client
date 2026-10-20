@@ -418,6 +418,24 @@ object JsonSubscriptionImporter {
                     .put("public-key", tls.optString("publicKey"))
                 tls.optString("shortId").takeIf(String::isNotBlank)?.let { reality.put("short-id", it) }
                 proxy.put("reality-opts", reality)
+            } else if (security == "tls") {
+                val rawEch = tls.optString("echConfigList").trim()
+                val ws = stream.optJSONObject("wsSettings")
+                val wsHost = ws?.optString("host").orEmpty()
+                    .ifBlank { ws?.optJSONObject("headers")?.optString("Host").orEmpty() }
+                val hasCustomSniMask = sni.isNotBlank() && wsHost.isNotBlank() && !sni.equals(wsHost, ignoreCase = true)
+                val hasFragmentConflict = stream.optJSONObject("finalmask") != null ||
+                    tls.optString("cipherSuites").isNotBlank() ||
+                    stream.optJSONObject("sockopt")?.optString("dialerProxy").equals("fragment", ignoreCase = true)
+                if (rawEch.isNotBlank() && !rawEch.equals("off", ignoreCase = true) && !hasCustomSniMask && !hasFragmentConflict) {
+                    val queryMatch = Regex("""^([A-Za-z0-9][A-Za-z0-9.-]{0,252})(?:\+(?:udp|tcp|https|h2c|tls)://.+)?$""")
+                        .matchEntire(rawEch)
+                    if (queryMatch != null && '.' in queryMatch.groupValues[1]) {
+                        proxy.put("ech-opts", JSONObject().put("enable", true).put("query-server-name", queryMatch.groupValues[1]))
+                    } else if (Regex("""^[A-Za-z0-9+/=]{16,}$""").matches(rawEch)) {
+                        proxy.put("ech-opts", JSONObject().put("enable", true).put("config", rawEch))
+                    }
+                }
             }
         } else if (protocol == "trojan") {
             proxy.put("tls", false)

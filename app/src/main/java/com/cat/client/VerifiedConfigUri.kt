@@ -17,6 +17,7 @@ internal data class VerifiedConfigUri(
     val fingerprint: String? = null,
     val proxyIp: VerifiedEndpoint? = null,
     val serverName: String = workerDomain,
+    val ech: String? = null,
 ) {
     init {
         require(credential.isNotBlank())
@@ -26,6 +27,7 @@ internal data class VerifiedConfigUri(
         require(serverName.isNotBlank() && !serverName.contains('/') && serverName.none(Char::isWhitespace))
         require(path.startsWith('/'))
         require(proxyIp == null || (proxyIp.role == EndpointRole.PROXY_IP && proxyIp.verdict == EndpointVerdict.VERIFIED))
+        require(ech == null || (tls && ech.isNotBlank() && serverName.equals(workerDomain, ignoreCase = true)))
     }
 
     /** Path handed to WebSocket transport across URI, Clash/Mihomo, sing-box and Xray.
@@ -43,6 +45,7 @@ internal data class VerifiedConfigUri(
             add("sni=${serverName.urlEncode()}")
             add("path=${effectivePath.urlEncode()}")
             fingerprint?.takeIf { it.isNotBlank() }?.let { add("fp=${it.urlEncode()}") }
+            if (tls && !ech.isNullOrBlank()) add("ech=${ech.urlEncode()}")
         }.joinToString("&")
         return "${protocol.scheme}://${credential.urlEncode()}@${endpoint.uriHost}:${endpoint.port}?$query"
     }
@@ -84,6 +87,11 @@ internal object VerifiedConfigUriParser {
             ?: workerDomain)
         val tls = !params["security"].equals("none", ignoreCase = true)
         val fingerprint = (params["fp"] ?: params["fingerprint"])?.takeIf { it.isNotBlank() }
+        val rawEch = params["ech"]?.trim()?.takeIf { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
+        val hasEchConflict = !params["fm"].isNullOrBlank() ||
+            !params["cs"].isNullOrBlank() ||
+            !serverName.equals(workerDomain, ignoreCase = true)
+        val ech = if (tls && !hasEchConflict) rawEch else null
         val rawPath = params["path"]?.takeIf { it.isNotBlank() } ?: "/"
         if (!rawPath.startsWith('/')) return null
 
@@ -100,6 +108,7 @@ internal object VerifiedConfigUriParser {
                 fingerprint = fingerprint,
                 proxyIp = proxyIp,
                 serverName = serverName,
+                ech = ech,
             )
         }.getOrNull()
     }
