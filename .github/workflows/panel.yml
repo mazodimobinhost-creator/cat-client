@@ -42,10 +42,15 @@ jobs:
           node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
           cp dist-panel/catpanel.min.js app/src/main/assets/panels/catpanel.min.js
       - name: Unit tests
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/npm-test.out
       - name: Report panel test failures back to the branch
         if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
         run: |
+          if [ -f /tmp/npm-test.out ]; then
+            { echo "### npm test failure excerpt"; echo '```'; grep -B 4 -A 16 "^not ok" /tmp/npm-test.out || tail -n 80 /tmp/npm-test.out; echo '```'; } > FAILED-TESTS.md
+          fi
           # Every suite file, not just the four old ones — a failure in ANY of them must be visible.
           for t in cat-panel ccq ech panel-dom wizard multipart-upload chain-protocols android-guard link-shape panel-integrity kv-persistence panel-update-contract panel-selfupdate sni-host proxyip-sub proxyip-dataplane addr-port-query proxyip-feeds browser-probe ws-probe survival hostile-env content-type paste-artifact secrets-tokens quicklink-version chain-tunnel sni-lab builder-link-repro; do
             test_file="scripts/panels/$t.test.mjs"
