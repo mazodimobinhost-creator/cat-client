@@ -51,7 +51,7 @@ class MihomoShareLinkTest {
 
         val nextIngress = VerifiedEndpoint(
             "2606:4700::9", 2053, EndpointRole.CLEAN_IP, EndpointFamily.IPV6,
-            EndpointVerdict.VERIFIED, now, 18L, "scan",
+            EndpointVerdict.VERIFIED, now, 18L, source = "scan",
         )
         val rotatedRoute = MihomoShareLink.changeRouteFromYamlBlock(rawBlock, listOf(nextIngress), now)!!
         assertTrue(rotatedRoute.startsWith("vless://uuid@[2606:4700::9]:2053?"))
@@ -62,7 +62,7 @@ class MihomoShareLinkTest {
 
         val nextProxyIp = VerifiedEndpoint(
             "184.75.221.82", 3118, EndpointRole.PROXY_IP, EndpointFamily.IPV4,
-            EndpointVerdict.VERIFIED, now, 22L, "scan",
+            EndpointVerdict.VERIFIED, now, 22L, source = "scan",
         )
         val rotatedProxyIp = MihomoShareLink.changeProxyIpFromYamlBlock(rawBlock, listOf(nextProxyIp), now)!!
         assertTrue(rotatedProxyIp.startsWith("vless://uuid@104.16.1.1:443?"))
