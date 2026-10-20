@@ -1251,4 +1251,12 @@
     <string name="auto_connection_quick_scan">در حال یافتن مسیر سالم از اینترنت فعلی…</string>
     <string name="auto_connection_fallback_scan">نتیجه سریع پیدا نشد؛ اسکن کامل‌تر در حال اجراست…</string>
     <string name="auto_connection_runtime_test">در حال آزمایش مسیر انتخاب‌شده با اتصال واقعی…</string>
+    <string name="connection_failover_retest_label">تعویض مسیر</string>
+    <string name="connection_action_change_route">تعویض مسیر (IP:port تأییدشده) و تست مجدد</string>
+    <string name="connection_action_change_proxyip">تعویض ProxyIP (رله تأییدشده) و تست مجدد</string>
+    <string name="connection_route_switched">مسیر تعویض شد: %1$s ← %2$s (در حال تست مجدد…)</string>
+    <string name="connection_route_no_candidates">اندپوینت تأییدشدهٔ جایگزینی در حافظه نیست — تست مجدد مسیر فعلی</string>
+    <string name="subscription_action_optimize">بهینه‌سازی با IP و ProxyIPهای تأییدشده</string>
+    <string name="subscription_optimize_title">بهینه‌سازی سابسکریپشن: %1$s</string>
+    <string name="subscription_optimize_apply">اعمال و ذخیره نسخه پشتیبان</string>
 </resources>

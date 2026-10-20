@@ -87,4 +87,58 @@ class VerifiedConfigFailoverTest {
         assertEquals(FailoverStatus.NO_VERIFIED_REPLACEMENT, result.status)
         assertEquals(current.encode(), result.config.encode())
     }
+
+    @Test fun changeProxyIpUriRotatesProxyIpAndPreservesRemark() {
+        val raw = "vless://uuid@104.16.1.1:8443?type=ws&security=tls&host=worker.example&sni=sni.worker.example&path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111&fp=chrome#DE-Route"
+        val switched = VerifiedConfigFailover.changeProxyIpUri(
+            raw,
+            listOf(endpoint("184.75.221.82", 3118, EndpointVerdict.VERIFIED, EndpointRole.PROXY_IP)),
+            now,
+            60_000,
+        )!!
+        assertTrue(switched.startsWith("vless://uuid@104.16.1.1:8443?"))
+        assertTrue(switched.contains("path=%2Fvl%3Fed%3D2560%26proxyip%3D184.75.221.82%3A3118"))
+        assertTrue(switched.endsWith("#DE-Route"))
+    }
+
+    @Test fun replaceProxyInYamlUpdatesBlockAndFlowProxiesInPlace() {
+        val yaml = """
+            mixed-port: 7890
+            proxies:
+              - {name: "DE-Flow", type: vless, server: 104.16.1.1, port: 443, uuid: 11111111-1111-1111-1111-111111111111, tls: true, servername: worker.example, network: ws, ws-opts: {path: "/vl?ed=2560", headers: {Host: worker.example}}}
+              - name: "DE-Block"
+                type: trojan
+                server: 104.16.1.2
+                port: 443
+                password: "secret"
+                tls: true
+                servername: "worker.example"
+                network: ws
+                ws-opts:
+                  path: "/tr?ed=2560"
+                  headers:
+                    Host: "worker.example"
+            proxy-groups:
+              - name: "Proxy"
+                type: select
+                proxies:
+                  - "DE-Flow"
+                  - "DE-Block"
+        """.trimIndent()
+        val parsedFlow = MihomoProxyYaml.parse(yaml)
+        assertEquals(listOf("DE-Flow", "DE-Block"), parsedFlow.map { it.name })
+
+        val updatedFlowUri = "vless://11111111-1111-1111-1111-111111111111@172.67.1.9:2053?type=ws&security=tls&host=worker.example&sni=worker.example&path=%2Fvl%3Fed%3D2560%26proxyip%3D103.237.102.191%3A11111&fp=chrome#DE-Flow"
+        val updatedYaml = MihomoLinkConfigBuilder.replaceProxyInYaml(yaml, "DE-Flow", updatedFlowUri)!!
+        val reparsed = MihomoProxyYaml.parse(updatedYaml)
+        assertEquals(listOf("DE-Flow", "DE-Block"), reparsed.map { it.name })
+        assertEquals("172.67.1.9", reparsed[0].fields["server"])
+        assertEquals("2053", reparsed[0].fields["port"])
+        assertEquals("/vl?ed=2560&proxyip=103.237.102.191:11111", reparsed[0].wsPath)
+    }
+
+    @Test fun communityIpLibraryIncludesExplicitPortProxyIpSeeds() {
+        assertTrue(CommunityIpLibrary.proxyIpSeeds.contains("103.237.102.191:11111"))
+        assertTrue(CommunityIpLibrary.proxyIpSeeds.contains("184.75.221.82:3118"))
+    }
 }

@@ -71,4 +71,20 @@ internal object VerifiedConfigFailover {
         val encoded = result.config.encode()
         return if (remark.isEmpty()) encoded else "$encoded#$remark"
     }
+
+    /** Retest/failover entry point that rotates or attaches a verified ProxyIP relay. */
+    fun changeProxyIpUri(
+        rawUri: String,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long,
+        source: String = "retest",
+    ): String? {
+        val remark = rawUri.trim().substringAfter('#', missingDelimiterValue = "")
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = Long.MIN_VALUE, source = source) ?: return null
+        val result = changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
+        if (result.status != FailoverStatus.SWITCHED) return null
+        val encoded = result.config.encode()
+        return if (remark.isEmpty()) encoded else "$encoded#$remark"
+    }
 }

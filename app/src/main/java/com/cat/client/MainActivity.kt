@@ -1752,6 +1752,7 @@ class MainActivity : Activity() {
                         },
                         R.string.subscription_action_edit to { showEditSubscriptionDialog(item) },
                         R.string.subscription_action_refresh to { refreshSubscription(item) },
+                        R.string.subscription_action_optimize to { optimizeUserSubscription(item) },
                     ) + shareActions + listOf(
                         R.string.subscription_action_delete to { confirmDeleteSubscription(item) },
                     ),
@@ -2269,17 +2270,188 @@ class MainActivity : Activity() {
 
     /* ---- share a single connection (long-press on a row) ---- */
 
+    private fun collectVerifiedEndpointsForFailover(nowMs: Long = System.currentTimeMillis()): List<VerifiedEndpoint> {
+        val out = ArrayList<VerifiedEndpoint>()
+        IpHealthStore(this).entries()
+            .filter { it.fails == 0 && it.port in 1..65535 }
+            .forEach { e ->
+                val cleanHost = e.ip.removePrefix("[").removeSuffix("]")
+                val family = when {
+                    cleanHost.contains(':') -> EndpointFamily.IPV6
+                    Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                    else -> EndpointFamily.DOMAIN
+                }
+                runCatching {
+                    out += VerifiedEndpoint(
+                        host = cleanHost,
+                        port = e.port,
+                        role = EndpointRole.CLEAN_IP,
+                        family = family,
+                        verdict = EndpointVerdict.VERIFIED,
+                        checkedAtMs = nowMs,
+                        latencyMs = e.pingMs.takeIf { it > 0L },
+                        countryCode = e.countryCode?.takeIf(String::isNotBlank),
+                        source = "ip-health",
+                    )
+                }
+            }
+        frontingIps.forEach { raw ->
+            val parsed = runCatching { FrontingIpPolicy.parseEndpoint(raw) }.getOrNull() ?: return@forEach
+            val port = parsed.port ?: return@forEach
+            val cleanHost = parsed.ip.removePrefix("[").removeSuffix("]")
+            val family = when {
+                cleanHost.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            }
+            runCatching {
+                out += VerifiedEndpoint(
+                    host = cleanHost,
+                    port = port,
+                    role = EndpointRole.CLEAN_IP,
+                    family = family,
+                    verdict = EndpointVerdict.VERIFIED,
+                    checkedAtMs = nowMs,
+                    source = "fronting-ip",
+                )
+            }
+        }
+        out += VerifiedProxyIpStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+        return out.distinctBy { Triple(it.role, it.host.lowercase(), it.port) }
+    }
+
+    private fun rotateProfileRouteInSubscription(
+        subscriptionId: String,
+        profile: ConnectionProfile,
+        preferProxyIp: Boolean = false,
+    ): Pair<ConnectionProfile, Pair<String, String>>? {
+        val link = profile.shareLink?.takeIf(String::isNotBlank) ?: return null
+        val nowMs = System.currentTimeMillis()
+        val candidates = collectVerifiedEndpointsForFailover(nowMs)
+        val maxAgeMs = 86_400_000L
+        val parsedBefore = VerifiedConfigUriParser.parse(link, checkedAtMs = Long.MIN_VALUE, source = "retest")
+        val rebuiltUri = if (preferProxyIp) {
+            VerifiedConfigFailover.changeProxyIpUri(link, candidates, nowMs, maxAgeMs)
+                ?: VerifiedConfigFailover.changeRouteUri(link, candidates, nowMs, maxAgeMs)
+        } else {
+            VerifiedConfigFailover.changeRouteUri(link, candidates, nowMs, maxAgeMs)
+                ?: VerifiedConfigFailover.changeProxyIpUri(link, candidates, nowMs, maxAgeMs)
+        } ?: return null
+        val parsedAfter = VerifiedConfigUriParser.parse(rebuiltUri, checkedAtMs = nowMs, source = "retest")
+        val updatedProfile = userSubscriptionManager.replaceProfileShareLink(
+            subscriptionId = subscriptionId,
+            targetTag = profile.tag,
+            updatedShareLink = rebuiltUri,
+            nowMs = nowMs,
+        ) ?: return null
+        val beforeLabel = if (preferProxyIp && parsedAfter?.proxyIp != parsedBefore?.proxyIp) {
+            parsedBefore?.proxyIp?.authority ?: "${profile.server}:${profile.port}"
+        } else {
+            parsedBefore?.endpoint?.authority ?: "${profile.server}:${profile.port}"
+        }
+        val afterLabel = if (preferProxyIp && parsedAfter?.proxyIp != parsedBefore?.proxyIp) {
+            parsedAfter?.proxyIp?.authority ?: "${updatedProfile.server}:${updatedProfile.port}"
+        } else {
+            parsedAfter?.endpoint?.authority ?: "${updatedProfile.server}:${updatedProfile.port}"
+        }
+        return updatedProfile to (beforeLabel to afterLabel)
+    }
+
+    private fun optimizeUserSubscription(item: UserSubscription) {
+        val snapshot = runCatching { userSubscriptionManager.cachedSnapshot(item.id) }.getOrNull()
+        val links = snapshot?.catalog?.profiles?.mapNotNull { it.shareLink?.takeIf(String::isNotBlank) }.orEmpty()
+        if (links.isEmpty()) {
+            Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val candidates = collectVerifiedEndpointsForFailover(nowMs)
+        val sniOverride = frontingIpPreferenceStore.readSniOverride().takeIf(String::isNotBlank)
+        val hasEch = snapshot?.catalog?.profiles?.any { it.echEnabled } == true
+        val plan = SubscriptionOptimizer.plan(
+            lines = links,
+            candidates = candidates,
+            nowMs = nowMs,
+            maxAgeMs = 86_400_000L,
+            sniOverride = if (hasEch) null else sniOverride,
+            echEnabled = hasEch,
+        )
+        if (plan.conflict != null) {
+            Toast.makeText(
+                this,
+                "TLS conflict: ${plan.conflict.reasons.joinToString()}",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        if (plan.changedCount == 0) {
+            Toast.makeText(this, R.string.connection_route_no_candidates, Toast.LENGTH_LONG).show()
+            return
+        }
+        val previewLines = plan.items
+            .filter { it.changed }
+            .take(6)
+            .joinToString("\n") { row ->
+                val changes = row.changes.joinToString(", ") { "${it.field}: ${it.before ?: "—"} → ${it.after ?: "—"}" }
+                "• $changes"
+            }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.subscription_optimize_title, item.name))
+            .setMessage("Changed configs: ${plan.changedCount} / ${plan.items.size}\n\n$previewLines")
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .setPositiveButton(R.string.subscription_optimize_apply) { _, _ ->
+                activityScope.launch {
+                    runCatching {
+                        val optimizedText = plan.optimizedLines.joinToString("\n")
+                        val backupName = "${item.name} (Optimized)"
+                        val existingOpt = userSubscriptionManager.list().firstOrNull { it.name == backupName }
+                        if (existingOpt != null) {
+                            userSubscriptionManager.update(existingOpt.id, backupName, optimizedText)
+                        } else {
+                            userSubscriptionManager.add(backupName, optimizedText)
+                        }
+                    }.onSuccess { saved ->
+                        userSubscriptionManager.select(saved.id)
+                        onSubscriptionSelected()
+                        Toast.makeText(this@MainActivity, "✓ ${saved.name} (${plan.changedCount})", Toast.LENGTH_LONG).show()
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            this@MainActivity,
+                            localizedError(error, R.string.subscription_operation_failed),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
     /**
      * Long-press menu on a connection row: copy / QR / share the `vless://`-style form of that one
      * connection, so a single working config can be moved to v2rayNG, V2Box, Streisand, etc.
      */
-    private fun showConnectionShareMenu(anchor: View, profile: ConnectionProfile) {
+    private fun showConnectionShareMenu(
+        anchor: View,
+        profile: ConnectionProfile,
+        onRotateAndRetest: ((preferProxyIp: Boolean) -> Unit)? = null,
+    ) {
         val link = profile.shareLink?.takeIf(String::isNotBlank)
         if (link == null) {
             Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
             return
         }
         catClientPopupMenu(anchor).apply {
+            if (onRotateAndRetest != null) {
+                menu.add(R.string.connection_action_change_route).setOnMenuItemClickListener {
+                    onRotateAndRetest(false)
+                    true
+                }
+                menu.add(R.string.connection_action_change_proxyip).setOnMenuItemClickListener {
+                    onRotateAndRetest(true)
+                    true
+                }
+            }
             menu.add(R.string.subscription_action_copy_link).setOnMenuItemClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", link))
@@ -6937,7 +7109,7 @@ class MainActivity : Activity() {
                 textDirection = View.TEXT_DIRECTION_LTR
                 setLineSpacing(dp(2).toFloat(), 1f)
                 text = shown.value.sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }.joinToString("\n") { e ->
-                    (if (e.ip == active) "● " else "   ") + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") + (if (e.fails > 0) "  ✗${e.fails}" else "")
+                    (if (e.authority == active || e.ip == active) "● " else "   ") + e.authority + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") + (if (e.fails > 0) "  ✗${e.fails}" else "")
                 }
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
@@ -6954,7 +7126,7 @@ class MainActivity : Activity() {
             val best = entries.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }
             if (best != null) {
                 append("  ·  ")
-                append(getString(R.string.ip_health_best, best.ip, best.pingMs))
+                append(getString(R.string.ip_health_best, best.authority, best.pingMs))
             }
             if (last != null) {
                 append('\n')
@@ -9010,7 +9182,12 @@ class MainActivity : Activity() {
             activityScope.launch {
                 try {
                     val downloaded = WorkerSourceDownloader.download(sourceUrl)
-                    val inspection = WorkerSourceInspector.inspect(downloaded.bytes)
+                    when (val manifestDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.RAW_URL, downloaded.bytes, downloaded.sha256)) {
+                        is WorkerManifestDecision.Rejected -> throw WorkerSourceDownloadException(manifestDecision.reason)
+                        is WorkerManifestDecision.Verified -> Unit
+                    }
+                    val staticAnalysis = WorkerStaticAnalyzer.analyzeLocal(downloaded.bytes)
+                    val inspection = staticAnalysis.inspection
                     if (!inspection.valid) throw WorkerSourceDownloadException(inspection.reason ?: "source-invalid")
                     val workerName = workerNameInput.text?.toString()?.trim().orEmpty()
                         .lowercase(Locale.US)
@@ -9018,15 +9195,19 @@ class MainActivity : Activity() {
                         .replace(Regex("-{2,}"), "-")
                         .trim('-')
                         .ifEmpty { CloudflareWorker.randomWorkerName() }
+                    val capsText = if (staticAnalysis.capabilities.isEmpty()) "—" else staticAnalysis.capabilities.joinToString(", ") { it.name }
+                    val warnText = if (staticAnalysis.warnings.isEmpty()) "None" else staticAnalysis.warnings.joinToString(", ") { it.name }
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(R.string.cloud_raw_title)
-                        .setMessage(getString(
-                            R.string.cloud_raw_preview,
-                            inspection.version ?: "—",
-                            downloaded.bytes.size,
-                            downloaded.sha256,
-                            workerName,
-                        ))
+                        .setMessage(
+                            getString(
+                                R.string.cloud_raw_preview,
+                                inspection.version ?: "—",
+                                downloaded.bytes.size,
+                                downloaded.sha256,
+                                workerName,
+                            ) + "\n\nCapabilities: $capsText\nWarnings: $warnText",
+                        )
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(R.string.cloud_raw_confirm) { _, _ ->
                             activityScope.launch {
@@ -10807,10 +10988,10 @@ class MainActivity : Activity() {
         pickRow.addView(smallButton(getString(R.string.static_ip_pick_pool)) {
             val pool = IpHealthStore(this).entries().sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }
             if (pool.isEmpty()) { Toast.makeText(this, R.string.static_ip_pool_empty, Toast.LENGTH_SHORT).show(); return@smallButton }
-            val labels = pool.map { e -> (e.countryCode?.toFlagEmoji() ?: "🌐") + " " + e.ip + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") }.toTypedArray()
+            val labels = pool.map { e -> (e.countryCode?.toFlagEmoji() ?: "🌐") + " " + e.authority + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") }.toTypedArray()
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.static_ip_pick_pool)
-                .setItems(labels) { _, which -> input.setText(pool[which].ip); if (toggle.isChecked) { applyStaticIp(pool[which].ip); renderStatus(); renderScannerIpHealth() } else toggle.isChecked = true }
+                .setItems(labels) { _, which -> input.setText(pool[which].authority); if (toggle.isChecked) { applyStaticIp(pool[which].authority); renderStatus(); renderScannerIpHealth() } else toggle.isChecked = true }
                 .show()
         }, LinearLayout.LayoutParams(-2, -2))
         pickRow.addView(smallButton(getString(R.string.static_ip_use_current)) {
@@ -10851,7 +11032,7 @@ class MainActivity : Activity() {
         val card = advancedSettingsPanel()
         card.addView(advancedSectionLabel(getString(R.string.sni_scanner_title)), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(6) })
         card.addView(advancedSectionDetail(getString(R.string.sni_scanner_desc)), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
-        val targetInput = scannerInput(getString(R.string.sni_scanner_target_hint), frontingIps.firstOrNull() ?: IpHealthStore(this).entries().firstOrNull()?.ip.orEmpty())
+        val targetInput = scannerInput(getString(R.string.sni_scanner_target_hint), frontingIps.firstOrNull() ?: IpHealthStore(this).entries().firstOrNull()?.authority.orEmpty())
         card.addView(scannerFieldLayout(getString(R.string.sni_scanner_target), targetInput), LinearLayout.LayoutParams(-1, -2))
         val listInput = TextInputEditText(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -10986,40 +11167,56 @@ class MainActivity : Activity() {
     }
 
     /**
-     * "Connect via this IP" from the ProxyIP scanner: the scanned Cloudflare edge
-     * IP becomes a fronting address — the tunnel dials the IP directly while the
-     * configs' SNI/Host stay the panel domain (works even when the workers.dev
-     * hostname is DNS-poisoned).
+     * Apply a verified ProxyIP (`host:port` or `[ipv6]:port`) from the ProxyIP scanner
+     * as an outbound ProxyIP (`?proxyip=host:port`) on the currently selected subscription
+     * profile — never into the Clean IP `frontingIps` pool.
      */
     private fun applyProxyIpAsEntry(ip: String) {
-        val chain = connectionChainPreferenceStore.read()
-        val entrySlot = chain.firstConfiguredSlot()
-        if (chain.isActive && entrySlot != null) {
-            // An IP on its own cannot be a hop — a hop carries UUID/SNI/transport — so the
-            // scanned address is pinned as the address the chain's first leg is dialled at,
-            // and the chain the user built stays untouched.
-            val pinned = connectionChainEndpointOrNull(ip)?.encoded() ?: ip
-            updateConnectionChainSettings(
-                chain.withHop(entrySlot, chain.hop(entrySlot).copy(serverOverride = pinned)),
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("proxyip", ip))
+        val nowMs = System.currentTimeMillis()
+        val parsed = VerifiedEndpointParser.parse(
+            raw = ip,
+            role = EndpointRole.PROXY_IP,
+            verdict = EndpointVerdict.VERIFIED,
+            checkedAtMs = nowMs,
+            source = "device-proxyip-scan",
+        ) as? EndpointParseResult.Success
+        val proxyEndpoint = parsed?.endpoint
+        val selectedSubId = subscriptionStore.readSelectedSubscriptionId()
+        val targetProfile = connectionSelectionPreferenceStore.readSelectedProfile(selectedSubId, connectionProfiles)
+            ?.takeIf { !it.shareLink.isNullOrBlank() }
+            ?: connectionProfiles.firstOrNull { !it.shareLink.isNullOrBlank() }
+        if (proxyEndpoint != null && targetProfile?.shareLink != null) {
+            val rebuiltUri = VerifiedConfigFailover.changeProxyIpUri(
+                rawUri = targetProfile.shareLink,
+                candidates = listOf(proxyEndpoint),
+                nowMs = nowMs,
+                maxAgeMs = 86_400_000L,
             )
-            Toast.makeText(
-                this,
-                getString(
-                    R.string.scanner_applied_chain,
-                    pinned,
-                    getString(connectionChainSlotLabelRes(entrySlot)),
-                ),
-                Toast.LENGTH_LONG,
-            ).show()
-            return
+            if (rebuiltUri != null) {
+                val updated = userSubscriptionManager.replaceProfileShareLink(
+                    subscriptionId = selectedSubId,
+                    targetTag = targetProfile.tag,
+                    updatedShareLink = rebuiltUri,
+                    nowMs = nowMs,
+                )
+                if (updated != null) {
+                    connectionProfiles = connectionProfiles.map { if (it.tag == targetProfile.tag) updated else it }
+                    val selectedTypes = connectionSelectionPreferenceStore
+                        .readAutomaticTypes(selectedSubId, connectionProfiles)
+                        .ifEmpty { ConnectionTypeSelectionPolicy.availableTypes(connectionProfiles).toSet() }
+                    handleConnectionSelected(updated, selectedTypes)
+                    Toast.makeText(
+                        this,
+                        "🎯 ProxyIP applied: ${proxyEndpoint.authority} (${updated.displayTag})",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return
+                }
+            }
         }
-        val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = runCatching {
-            FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
-        }.getOrDefault(frontingIps)
-        renderFrontingIpChips()
-        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
-        Toast.makeText(this, getString(R.string.scanner_applied, ip, 0L), Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "🎯 ProxyIP copied: $ip", Toast.LENGTH_LONG).show()
     }
 
     /** Put an SNI into the live configs (servername of every TLS proxy) and reconnect; null clears it. */
@@ -12350,7 +12547,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.connection_selector_loading, Toast.LENGTH_SHORT).show()
             return
         }
-        val selectorProfiles = if (usesActiveRuntime) {
+        var selectorProfiles = if (usesActiveRuntime) {
             pageProfiles.filter { it.fingerprint in liveSelectableConnectionFingerprints }
         } else {
             pageProfiles
@@ -12976,21 +13173,87 @@ class MainActivity : Activity() {
                         holder.delayBadge.background = null
                     }
 
-                    holder.speedAction.visibility = if (delayMs != null) View.VISIBLE else View.GONE
+                    fun triggerFailoverAndRetest(targetProfile: ConnectionProfile, preferProxyIp: Boolean) {
+                        if (!canRunConnectionTests || testRunning) return
+                        val rotated = rotateProfileRouteInSubscription(selectedSubscriptionId, targetProfile, preferProxyIp)
+                        val profileToTest = if (rotated != null) {
+                            val (updatedProfile, beforeAfter) = rotated
+                            selectorProfiles = selectorProfiles.map { if (it.tag == targetProfile.tag) updatedProfile else it }
+                            if (!pickerMode && selectedSubscriptionId == subscriptionStore.readSelectedSubscriptionId()) {
+                                connectionProfiles = connectionProfiles.map { if (it.tag == targetProfile.tag) updatedProfile else it }
+                            }
+                            connectionDelayRecords = connectionDelayRecords - targetProfile.fingerprint - updatedProfile.fingerprint
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.connection_route_switched, beforeAfter.first, beforeAfter.second),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            updatedProfile
+                        } else {
+                            connectionDelayRecords = connectionDelayRecords - targetProfile.fingerprint
+                            Toast.makeText(
+                                this@MainActivity,
+                                R.string.connection_route_no_candidates,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            targetProfile
+                        }
+                        testingFingerprints.clear()
+                        testingFingerprints.add(profileToTest.fingerprint)
+                        filteredProfiles = visibleProfiles()
+                        testRunning = true
+                        testPaused = false
+                        lastTestCompleted = 0
+                        lastTestTotal = 1
+                        lastTestAvailable = 0
+                        lastTestStatus = null
+                        lastTestError = ""
+                        val newTestId = SystemClock.elapsedRealtimeNanos().toString()
+                        delayTestId = newTestId
+                        notifyDataSetChanged()
+                        val testSettings = connectionTestSettingsPreferenceStore.read()
+                        startForegroundService(
+                            Intent(this@MainActivity, CatClientVpnService::class.java)
+                                .setAction(Actions.TEST_CONNECTION_DELAYS)
+                                .putExtra(Actions.EXTRA_APP_INITIATED, true)
+                                .putExtra(Actions.EXTRA_DELAY_TEST_ID, newTestId)
+                                .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
+                                .putExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
+                                .putExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes))
+                                .putExtra(Actions.EXTRA_TEST_TIMEOUT_SECONDS, testSettings.timeoutSeconds)
+                                .putExtra(Actions.EXTRA_TEST_CONCURRENCY, 1),
+                        )
+                    }
+
+                    val isFailedWithShareLink = delayMs == null &&
+                        delayRecord?.status == ConnectionDelayStatus.Failure &&
+                        !profile.shareLink.isNullOrBlank()
+                    holder.speedAction.visibility = if (delayMs != null || isFailedWithShareLink) View.VISIBLE else View.GONE
                     holder.speedButton.visibility = View.VISIBLE
                     holder.speedButton.setText(
-                        if (isSpeedTesting) R.string.connection_test_stop else R.string.connection_speed_test_label,
+                        when {
+                            isSpeedTesting -> R.string.connection_test_stop
+                            isFailedWithShareLink -> R.string.connection_failover_retest_label
+                            else -> R.string.connection_speed_test_label
+                        },
                     )
                     holder.speedButton.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        if (isSpeedTesting) R.drawable.ic_stop else R.drawable.ic_speedometer, 0, 0, 0,
+                        when {
+                            isSpeedTesting -> R.drawable.ic_stop
+                            isFailedWithShareLink -> 0
+                            else -> R.drawable.ic_speedometer
+                        },
+                        0,
+                        0,
+                        0,
                     )
                     holder.speedAction.isEnabled = isSpeedTesting ||
-                        (canRunConnectionTests && delayMs != null && !testRunning)
+                        (canRunConnectionTests && (delayMs != null || isFailedWithShareLink) && !testRunning)
                     holder.speedAction.alpha = if (holder.speedAction.isEnabled) 1f else 0.45f
-                    holder.speedAction.contentDescription = if (isSpeedTesting) {
-                        "${getString(R.string.connection_test_stop)}: ${profile.displayTag}"
-                    } else {
-                        getString(R.string.connection_speed_test_action, profile.displayTag)
+                    holder.speedAction.contentDescription = when {
+                        isSpeedTesting -> "${getString(R.string.connection_test_stop)}: ${profile.displayTag}"
+                        isFailedWithShareLink -> "${getString(R.string.connection_failover_retest_label)}: ${profile.displayTag}"
+                        else -> getString(R.string.connection_speed_test_action, profile.displayTag)
                     }
                     holder.speedAction.setOnClickListener {
                         speedTests[profile.fingerprint]?.let { running ->
@@ -13000,6 +13263,10 @@ class MainActivity : Activity() {
                                     .putExtra(Actions.EXTRA_APP_INITIATED, true)
                                     .putExtra(Actions.EXTRA_SPEED_TEST_ID, running.testId),
                             )
+                            return@setOnClickListener
+                        }
+                        if (isFailedWithShareLink) {
+                            triggerFailoverAndRetest(profile, preferProxyIp = false)
                             return@setOnClickListener
                         }
                         if (!canRunConnectionTests || testRunning || delayMs == null) {
@@ -13067,7 +13334,62 @@ class MainActivity : Activity() {
                 }
                 row.setOnLongClickListener {
                     val target = profile ?: return@setOnLongClickListener false
-                    showConnectionShareMenu(row, target)
+                    showConnectionShareMenu(
+                        anchor = row,
+                        profile = target,
+                        onRotateAndRetest = if (!pickerMode && canRunConnectionTests) { preferProxyIp ->
+                            if (!testRunning) {
+                                val rotated = rotateProfileRouteInSubscription(selectedSubscriptionId, target, preferProxyIp)
+                                val profileToTest = if (rotated != null) {
+                                    val (updatedProfile, beforeAfter) = rotated
+                                    selectorProfiles = selectorProfiles.map { if (it.tag == target.tag) updatedProfile else it }
+                                    if (selectedSubscriptionId == subscriptionStore.readSelectedSubscriptionId()) {
+                                        connectionProfiles = connectionProfiles.map { if (it.tag == target.tag) updatedProfile else it }
+                                    }
+                                    connectionDelayRecords = connectionDelayRecords - target.fingerprint - updatedProfile.fingerprint
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        getString(R.string.connection_route_switched, beforeAfter.first, beforeAfter.second),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    updatedProfile
+                                } else {
+                                    connectionDelayRecords = connectionDelayRecords - target.fingerprint
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        R.string.connection_route_no_candidates,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    target
+                                }
+                                testingFingerprints.clear()
+                                testingFingerprints.add(profileToTest.fingerprint)
+                                filteredProfiles = visibleProfiles()
+                                testRunning = true
+                                testPaused = false
+                                lastTestCompleted = 0
+                                lastTestTotal = 1
+                                lastTestAvailable = 0
+                                lastTestStatus = null
+                                lastTestError = ""
+                                val newTestId = SystemClock.elapsedRealtimeNanos().toString()
+                                delayTestId = newTestId
+                                notifyDataSetChanged()
+                                val testSettings = connectionTestSettingsPreferenceStore.read()
+                                startForegroundService(
+                                    Intent(this@MainActivity, CatClientVpnService::class.java)
+                                        .setAction(Actions.TEST_CONNECTION_DELAYS)
+                                        .putExtra(Actions.EXTRA_APP_INITIATED, true)
+                                        .putExtra(Actions.EXTRA_DELAY_TEST_ID, newTestId)
+                                        .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
+                                        .putExtra(Actions.EXTRA_CONNECTION_FINGERPRINTS, arrayListOf(profileToTest.fingerprint))
+                                        .putExtra(Actions.EXTRA_CONNECTION_TYPES, ArrayList(selectedTypes))
+                                        .putExtra(Actions.EXTRA_TEST_TIMEOUT_SECONDS, testSettings.timeoutSeconds)
+                                        .putExtra(Actions.EXTRA_TEST_CONCURRENCY, 1),
+                                )
+                            }
+                        } else null,
+                    )
                     true
                 }
                 row.isLongClickable = profile?.shareLink != null

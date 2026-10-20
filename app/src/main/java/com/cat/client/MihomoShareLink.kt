@@ -16,6 +16,11 @@ internal object MihomoProxyYaml {
     fun parse(block: String): Map<String, Any?> {
         val lines = block.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
         if (lines.isEmpty()) return emptyMap()
+        val firstTrimmed = lines.first().trim().removePrefix("- ").trim()
+        if (firstTrimmed.startsWith("{")) {
+            @Suppress("UNCHECKED_CAST")
+            return (FlowParser(firstTrimmed).value() as? Map<String, Any?>).orEmpty()
+        }
         val cursor = intArrayOf(0)
         return parseMapping(lines, cursor, indentOf(lines[0]))
     }

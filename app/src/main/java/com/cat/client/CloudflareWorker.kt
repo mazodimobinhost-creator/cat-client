@@ -944,22 +944,29 @@ object CloudflareWorker {
         panelPassword: String = "",
     ): DeploymentResult {
         val downloaded = WorkerSourceDownloader.download(sourceUrl)
-        if (!downloaded.sha256.equals(approvedSha256, ignoreCase = true)) {
-            throw WorkerSourceDownloadException("approved-hash-mismatch")
+        when (val manifestDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.RAW_URL, downloaded.bytes, approvedSha256)) {
+            is WorkerManifestDecision.Rejected -> throw WorkerSourceDownloadException(manifestDecision.reason)
+            is WorkerManifestDecision.Verified -> Unit
         }
-        val inspection = WorkerSourceInspector.inspect(downloaded.bytes)
-        if (!inspection.valid) throw WorkerSourceDownloadException(inspection.reason ?: "source-invalid")
-        val approval = CloudflareOperationApprovalPolicy.decide(
-            CloudflareOperationPreview(
-                operation = CloudflareOperation.CREATE_WORKER,
-                workerName = workerName,
-                targetVersion = inspection.version,
-                artifactSha256 = downloaded.sha256,
+        val staticAnalysis = WorkerStaticAnalyzer.analyzeLocal(downloaded.bytes)
+        if (!staticAnalysis.inspection.valid) {
+            throw WorkerSourceDownloadException(staticAnalysis.inspection.reason ?: "source-invalid")
+        }
+        val plan = WorkerDeploymentPlanner.planRawUrlDeploy(
+            target = CloudflareTargetSelection(accountId, workerName),
+            rawUrl = sourceUrl,
+            sourceBytes = downloaded.bytes,
+            desiredBindings = WorkerBindingSet(
+                plainTextVars = mapOf(
+                    "OPEN_SUB" to "false",
+                    "PANEL_USER" to panelUser.ifBlank { "admin" },
+                ),
+                secretNames = setOf("PANEL_PASSWORD"),
             ),
-            CloudflareOperationApproval(previewAccepted = true),
+            approval = CloudflareOperationApproval(previewAccepted = true),
         )
-        if (approval is CloudflareApprovalDecision.Blocked) {
-            throw WorkerSourceDownloadException(approval.reason)
+        if (plan is WorkerDeploymentPlanResult.Blocked) {
+            throw WorkerSourceDownloadException(plan.reason)
         }
         return deployBuiltIn(
             context = context,
@@ -997,13 +1004,20 @@ object CloudflareWorker {
 
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
         val script = workerScriptOverride ?: builtInWorkerScript(context)
+        val channel = if (workerScriptOverride != null) WorkerArtifactChannel.RAW_URL else WorkerArtifactChannel.APK_BUNDLE
+        val manifestCheck = WorkerArtifactManifest.verify(channel, script.toByteArray(Charsets.UTF_8))
+        if (manifestCheck is WorkerManifestDecision.Rejected && script != MINIMAL_WORKER_SCRIPT) {
+            throw RuntimeException("Worker artifact rejected: ${manifestCheck.reason}")
+        }
         val uploadUrl =
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
         // Admin gate bindings: with a username set, the panel login asks for
-        // username + password (a management panel, not open access).
-        val effectivePanelUser = panelUser.ifBlank { "admin" }
-        val effectivePanelPassword = panelPassword.ifBlank { "admin" }
+        // username + password (a management panel, not open access), and OPEN_SUB stays false.
+        val defaults = WorkerBindingSet.canonicalDefaults().plainTextVars
+        val effectivePanelUser = panelUser.ifBlank { defaults["PANEL_USER"] ?: "admin" }
+        val effectivePanelPassword = panelPassword.ifBlank { defaults["PANEL_PASSWORD"] ?: "admin" }
         val authBindings = JSONArray().apply {
+            put(JSONObject().put("type", "plain_text").put("name", "OPEN_SUB").put("text", defaults["OPEN_SUB"] ?: "false"))
             put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", effectivePanelUser))
             put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", effectivePanelPassword))
         }
@@ -1119,6 +1133,15 @@ object CloudflareWorker {
         // never moved backwards (a stale source once put 5.23.13 over a working 6.x panel).
         if (PanelUpdate.isDowngrade(fromVersion, script.version)) {
             throw IllegalStateException("Refusing to downgrade the panel from $fromVersion to ${script.version}")
+        }
+        val updateChannel = if (script.fromRelease) WorkerArtifactChannel.RELEASE_ASSET else WorkerArtifactChannel.UPDATE
+        val manifestCheck = WorkerArtifactManifest.verify(
+            updateChannel,
+            script.text.toByteArray(Charsets.UTF_8),
+            script.sha256.takeIf(String::isNotBlank),
+        )
+        if (manifestCheck is WorkerManifestDecision.Rejected) {
+            throw IllegalStateException("Refusing to upload rejected panel artifact: ${manifestCheck.reason}")
         }
         val normalized = workerUrl.trimEnd('/')
         val workerName = workerNameFromUrl(normalized)

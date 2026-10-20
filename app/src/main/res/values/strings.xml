@@ -1252,4 +1252,12 @@
     <string name="auto_connection_quick_scan">Scanning this network for a working endpoint…</string>
     <string name="auto_connection_fallback_scan">No quick result; running the extended scan…</string>
     <string name="auto_connection_runtime_test">Testing the selected endpoint with a real connection…</string>
+    <string name="connection_failover_retest_label">Change route</string>
+    <string name="connection_action_change_route">Change route (verified IP:port) &amp; retest</string>
+    <string name="connection_action_change_proxyip">Change ProxyIP (verified relay) &amp; retest</string>
+    <string name="connection_route_switched">Route switched: %1$s → %2$s (retesting…)</string>
+    <string name="connection_route_no_candidates">No alternative verified endpoint in cache — retesting current route</string>
+    <string name="subscription_action_optimize">Optimize with verified IPs / ProxyIPs</string>
+    <string name="subscription_optimize_title">Optimize subscription: %1$s</string>
+    <string name="subscription_optimize_apply">Apply &amp; save backup</string>
 </resources>

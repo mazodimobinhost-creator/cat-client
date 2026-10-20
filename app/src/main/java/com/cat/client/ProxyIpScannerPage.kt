@@ -104,6 +104,13 @@ class ProxyIpScannerPage(
     private val checked = AtomicInteger()
     private var total = 0
     private var filterCountry: String? = null
+    private var filterDatacenter: String? = null
+    private var addressFilter: AddressFilter = AddressFilter.ALL
+    private var exclude1101Risk: Boolean = false
+    private var searchQuery: String = ""
+    private val probeDisplayByAuthority = java.util.Collections.synchronizedMap(LinkedHashMap<String, RelayProbeDisplay>())
+    private val riskByAuthority = java.util.Collections.synchronizedMap(LinkedHashMap<String, RelayRisk>())
+    private var catalogController = RelayCatalogController(emptyList())
     /**
      * Result rows rebuilt per pass. Lowered automatically if a render ever hits an
      * `OutOfMemoryError` (see [renderResults]) — the list degrades instead of the app dying.
@@ -116,6 +123,11 @@ class ProxyIpScannerPage(
     private lateinit var progressText: TextView
     private lateinit var resultsList: LinearLayout
     private lateinit var countryChips: LinearLayout
+    private lateinit var datacenterChips: LinearLayout
+    private lateinit var datacenterScroll: HorizontalScrollView
+    private lateinit var filterChips: LinearLayout
+    private lateinit var portRecommendationText: TextView
+    private lateinit var searchInput: EditText
     private lateinit var startButton: MaterialButton
     private lateinit var customInput: EditText
     private val sources = linkedMapOf(
@@ -273,6 +285,34 @@ class ProxyIpScannerPage(
         }
 
         countryChips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        datacenterChips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        datacenterScroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(datacenterChips)
+        }
+        filterChips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        searchInput = EditText(ctx).apply {
+            hint = "🔍 IP / port / country / datacenter"
+            textSize = 13f
+            typeface = CatClientDataTypeface
+            setTextColor(palette.textPrimary)
+            setHintTextColor(palette.textTertiary)
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(palette.surfaceElevated2) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    searchQuery = s?.toString().orEmpty()
+                    renderResults()
+                }
+            })
+        }
+        portRecommendationText = text("", 11f, color = palette.teal).apply { visibility = View.GONE }
         resultsList = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
         val actions = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -284,11 +324,20 @@ class ProxyIpScannerPage(
         val resultsCard = card().apply {
             addView(text(ctx.getString(R.string.pip_results), 15f, bold = true))
             addView(text(ctx.getString(R.string.pip_results_hint), 12f, color = palette.textSecondary), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(searchInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(filterChips) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(portRecommendationText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(countryChips) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(datacenterScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(resultsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             addView(actions2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(actions3, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+        synchronized(hits) {
+            if (hits.isEmpty()) {
+                hits.addAll(VerifiedProxyIpStore(ctx).loadHits())
+            }
         }
         renderResults()
 
@@ -317,17 +366,200 @@ class ProxyIpScannerPage(
         }
     }
 
-    private fun visible() = hits.filter { filterCountry == null || it.country == filterCountry }.sortedBy { it.latencyMs }
+    private fun syncCatalogController(nowMs: Long = System.currentTimeMillis()): List<RelayCatalogEntry> {
+        val currentHits = synchronized(hits) { hits.toList() }
+        val entries = currentHits.map { hit ->
+            val base = hit.toCatalogEntry(nowMs)
+            val display = probeDisplayByAuthority[hit.authority]
+            val risk = riskByAuthority[hit.authority] ?: base.risk
+            val verdict = when {
+                display?.healthy == true -> EndpointVerdict.VERIFIED
+                display?.stage == RelayProbeStage.FAILED -> EndpointVerdict.FAILED
+                else -> base.endpoint.verdict
+            }
+            base.copy(
+                endpoint = base.endpoint.copy(
+                    verdict = verdict,
+                    latencyMs = display?.latencyMs ?: base.endpoint.latencyMs,
+                ),
+                risk = risk,
+            )
+        }
+        val merged = RelayCatalogMerge.merge(entries)
+        catalogController = RelayCatalogController(merged).also { ctrl ->
+            ctrl.updateFilters(address = addressFilter, exclude1101 = exclude1101Risk, query = searchQuery)
+            val cc = filterCountry
+            if (!cc.isNullOrBlank()) {
+                ctrl.selectCountry(cc)
+                val dc = filterDatacenter
+                if (!dc.isNullOrBlank()) {
+                    ctrl.selectDatacenter(dc)
+                }
+            }
+        }
+        return catalogController.servers()
+    }
+
+    private fun visible(): List<Hit> {
+        val allowedAuthorities = syncCatalogController()
+            .map { it.endpoint.authority.lowercase() }
+            .toSet()
+        return synchronized(hits) {
+            hits.filter { it.authority.lowercase() in allowedAuthorities }
+                .sortedBy { it.latencyMs }
+        }
+    }
+
+    private fun runTopFiveProbe() {
+        val plan = catalogController.topFiveProbePlan()
+        if (plan.isEmpty()) {
+            Toast.makeText(ctx, R.string.pscan_none_yet, Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch {
+            Toast.makeText(ctx, "⚡ Testing top ${plan.size} endpoints…", Toast.LENGTH_SHORT).show()
+            val networkId = runCatching { NetworkContext.key(ctx) }.getOrDefault("active-net")
+            val nowMs = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                plan.forEach { candidate ->
+                    val hit = probe(candidate.host, candidate.port)
+                    val evidence = if (hit != null) {
+                        EndpointProbeEvidence(
+                            tcpConnected = true,
+                            tlsCompleted = true,
+                            protocolHandshakeCompleted = true,
+                            websocketCompleted = true,
+                            runtimeCompleted = true,
+                            latencyMs = hit.latencyMs,
+                        )
+                    } else {
+                        EndpointProbeEvidence(
+                            tcpConnected = false,
+                            error = "probe-failed",
+                        )
+                    }
+                    val authority = if (candidate.host.contains(':')) {
+                        "[${candidate.host.removePrefix("[").removeSuffix("]")}]" + ":${candidate.port}"
+                    } else {
+                        "${candidate.host}:${candidate.port}"
+                    }
+                    probeDisplayByAuthority[authority] = RelayProbeDisplayPolicy.from(candidate.kind, evidence)
+                    riskByAuthority[authority] = if (hit != null) RelayRisk.CLEAN else RelayRisk.UNKNOWN
+                    catalogController.recordRuntimeResult(
+                        candidate = candidate,
+                        evidence = evidence,
+                        checkedAtMs = nowMs,
+                        workerOutcome = if (hit != null) WorkerRuntimeOutcome.OK else null,
+                        networkId = networkId,
+                    )
+                }
+            }
+            VerifiedProxyIpStore(ctx).saveHits(synchronized(hits) { hits.toList() })
+            renderResults()
+        }
+    }
 
     private fun renderResults() {
         lastListAt = SystemClock.elapsedRealtime()
         lastListCount = synchronized(hits) { hits.size }
+        val filteredRows = syncCatalogController()
+        val rowByAuthority = filteredRows.associateBy { it.endpoint.authority.lowercase() }
+
+        if (::filterChips.isInitialized) {
+            filterChips.removeAllViews()
+            listOf(
+                AddressFilter.ALL to "All IPv4/IPv6",
+                AddressFilter.IPV4 to "IPv4",
+                AddressFilter.IPV6 to "IPv6",
+            ).forEach { (mode, label) ->
+                filterChips.addView(
+                    chip(label, addressFilter == mode) {
+                        addressFilter = mode
+                        renderResults()
+                    },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) },
+                )
+            }
+            filterChips.addView(
+                chip("🛡 No-1101", exclude1101Risk) {
+                    exclude1101Risk = !exclude1101Risk
+                    renderResults()
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) },
+            )
+            filterChips.addView(
+                chip("⚡ Top 5 Test", false) { runTopFiveProbe() },
+                LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) },
+            )
+        }
+
+        if (::portRecommendationText.isInitialized) {
+            val networkId = runCatching { NetworkContext.key(ctx) }.getOrDefault("active-net")
+            val recommended = catalogController.recommendPorts(
+                networkId = networkId,
+                nowMs = System.currentTimeMillis(),
+                role = EndpointRole.PROXY_IP,
+            )
+            if (recommended.isNotEmpty()) {
+                portRecommendationText.text = "⚡ Port recommendation ($networkId): " +
+                    recommended.joinToString(" · ") { "${it.port} (${it.bestLatencyMs} ms)" }
+                portRecommendationText.visibility = View.VISIBLE
+            } else {
+                portRecommendationText.visibility = View.GONE
+            }
+        }
+
         countryChips.removeAllViews()
         val groups = hits.groupingBy { it.country }.eachCount().entries.sortedByDescending { it.value }
-        countryChips.addView(chip(ctx.getString(R.string.pscan_all_countries) + " (${hits.size})", filterCountry == null) { filterCountry = null; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        countryChips.addView(
+            chip(ctx.getString(R.string.pscan_all_countries) + " (${hits.size})", filterCountry == null) {
+                filterCountry = null
+                filterDatacenter = null
+                renderResults()
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+        )
         groups.forEach { (cc, n) ->
-            countryChips.addView(chip((if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "🌐 " + ctx.getString(R.string.pip_country_unknown)) + " ($n)", filterCountry == cc) { filterCountry = cc; renderResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+            val key = cc.ifBlank { "??" }
+            countryChips.addView(
+                chip(
+                    (if (cc.length == 2) cc.toFlagEmoji() + " " + cc else "🌐 " + ctx.getString(R.string.pip_country_unknown)) + " ($n)",
+                    filterCountry == key,
+                ) {
+                    filterCountry = key
+                    filterDatacenter = null
+                    renderResults()
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+            )
         }
+
+        if (::datacenterChips.isInitialized && ::datacenterScroll.isInitialized) {
+            datacenterChips.removeAllViews()
+            val dcs = catalogController.datacenters()
+            if (filterCountry != null && dcs.isNotEmpty()) {
+                datacenterScroll.visibility = View.VISIBLE
+                datacenterChips.addView(
+                    chip("All DCs (${dcs.values.sum()})", filterDatacenter == null) {
+                        filterDatacenter = null
+                        renderResults()
+                    },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) },
+                )
+                dcs.entries.sortedByDescending { it.value }.forEach { (dc, count) ->
+                    datacenterChips.addView(
+                        chip("🏢 $dc ($count)", filterDatacenter == dc) {
+                            filterDatacenter = dc
+                            renderResults()
+                        },
+                        LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) },
+                    )
+                }
+            } else {
+                datacenterScroll.visibility = View.GONE
+            }
+        }
+
         resultsList.removeAllViews()
         val shown = visible()
         if (shown.isEmpty()) {
@@ -344,6 +576,14 @@ class ProxyIpScannerPage(
         // the list stays usable and the log says it happened.
         val built = runCatching {
         shown.take(rowCap).forEach { hit ->
+            val catalogRow = rowByAuthority[hit.authority.lowercase()] ?: hit.toCatalogEntry(System.currentTimeMillis())
+            val probeDisplay = probeDisplayByAuthority[hit.authority]
+            val stageBadge = probeDisplay?.stage?.name ?: catalogRow.endpoint.verdict.name
+            val riskBadge = when (catalogRow.risk) {
+                RelayRisk.CLEAN -> "1101:CLEAN"
+                RelayRisk.RISK_1101 -> "1101:RISK"
+                RelayRisk.UNKNOWN -> "1101:UNKNOWN"
+            }
             // Two lines per row: the address owns the first one outright. The action
             // buttons used to sit beside it on the same line, and on a narrow phone
             // (or a large Display-size setting) their combined width squeezed the
@@ -368,7 +608,7 @@ class ProxyIpScannerPage(
                             typeface = CatClientDataTypeface; maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
                         })
                         addView(text("${hit.country.ifBlank { ctx.getString(R.string.pip_country_unknown) }} · edge ${hit.colo.ifBlank { "?" }} · ${hit.latencyMs} ms", 12f, color = palette.textSecondary))
-                        addView(text(ctx.getString(R.string.pip_score, hit.score), 11f, color = palette.textTertiary))
+                        addView(text("${ctx.getString(R.string.pip_score, hit.score)} · $stageBadge · $riskBadge", 11f, color = palette.textTertiary))
                     }, LinearLayout.LayoutParams(0, -2, 1f))
                 }, LinearLayout.LayoutParams(-1, -2))
                 addView(LinearLayout(ctx).apply {
@@ -379,12 +619,14 @@ class ProxyIpScannerPage(
                         renderResults()
                     }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
                     if (onUseAsEntry != null) {
-                        addView(pill(ctx.getString(R.string.pip_use_entry_short), false) {
-                            // This IP already completed a TLS handshake with the panel SNI —
-                            // it can replace the worker hostname as the connect address.
-                            // Never drop even the conventional 443: the entry scanner result
+                        addView(pill("🎯 ProxyIP", false) {
+                            // Never drop even the conventional 443: the scanner result
                             // is an indivisible host+port observation.
-                            onUseAsEntry.invoke(hit.authority)
+                            val verifiedRow = catalogRow.copy(
+                                endpoint = catalogRow.endpoint.copy(verdict = EndpointVerdict.VERIFIED),
+                            )
+                            val action = RelayCatalogAction.useAsProxyIp(verifiedRow)
+                            onUseAsEntry.invoke(action?.value ?: hit.authority)
                         }, LinearLayout.LayoutParams(-2, -2))
                     }
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -676,7 +918,12 @@ class ProxyIpScannerPage(
     }
 
     private fun clear() {
-        job?.cancel(); job = null; hits.clear(); checked.set(0); total = 0; filterCountry = null
+        job?.cancel(); job = null
+        synchronized(hits) { hits.clear() }
+        VerifiedProxyIpStore(ctx).clear()
+        checked.set(0); total = 0; filterCountry = null; filterDatacenter = null
+        probeDisplayByAuthority.clear()
+        riskByAuthority.clear()
         lastListCount = -1; lastListAt = 0L
         renderProgress(); renderResults()
     }
@@ -694,6 +941,7 @@ class ProxyIpScannerPage(
 
     private fun stop() {
         job?.cancel(); job = null
+        VerifiedProxyIpStore(ctx).saveHits(synchronized(hits) { hits.toList() })
         renderProgress()
         // The hits stay on screen after ⏹, so the country pass must still run for them
         // (it used to happen only after a full scan finished — that is the path that
@@ -708,6 +956,7 @@ class ProxyIpScannerPage(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { geolocate() }
+                VerifiedProxyIpStore(ctx).saveHits(synchronized(hits) { hits.toList() })
                 renderResults()
             }.onFailure { error -> DiagnosticLogger.warn(ctx, "proxyip.country.failed", error = error) }
         }
@@ -749,6 +998,7 @@ class ProxyIpScannerPage(
                 }.awaitAll()
                 geolocate()
             }
+            VerifiedProxyIpStore(ctx).saveHits(synchronized(hits) { hits.toList() })
             job = null
             renderProgress(); renderResults()
             logMemory("pip.mem.end")
@@ -763,7 +1013,7 @@ class ProxyIpScannerPage(
             if (line.isEmpty()) return
             var port = 443
             var explicit = false
-            Regex("^(.*):(\\d+)$").find(line)?.takeIf { !line.contains("::") || line.startsWith("[") }?.let { m -> line = m.groupValues[1].trim('[', ']'); port = m.groupValues[2].toInt(); explicit = true }
+            Regex("^(.*):(\\d+)$").find(line)?.takeIf { line.count { c -> c == ':' } == 1 || line.startsWith("[") }?.let { m -> line = m.groupValues[1].trim('[', ']'); port = m.groupValues[2].toInt(); explicit = true }
             // An explicit :port survives untouched; a bare host is probed on every
             // selected port — the result KEEPS exactly the port that answered.
             fun put(h: String) { if (explicit) { out += h to port } else selectedPorts.ifEmpty { linkedSetOf(443) }.forEach { out += h to it } }
@@ -885,3 +1135,80 @@ class ProxyIpScannerPage(
         const val OFFLINE_SEEDS = "📦 کتابخانهٔ آفلاین (بدون DNS)"
     }
 }
+
+/** Persists ProxyIP hits scanned on the device with their exact `host:port` so
+ * route/ProxyIP failover and subscription optimization can use them without
+ * losing non-standard ports or re-scanning after closing the dialog. */
+class VerifiedProxyIpStore(context: Context) {
+    private val prefs = context.getSharedPreferences("cat_client_verified_proxyips", Context.MODE_PRIVATE)
+
+    fun saveHits(hits: List<ProxyIpScannerPage.Hit>) {
+        val arr = org.json.JSONArray()
+        hits.distinctBy { it.authority.lowercase() }.take(100).forEach { hit ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("host", hit.host.removePrefix("[").removeSuffix("]"))
+                    .put("port", hit.port)
+                    .put("country", hit.country)
+                    .put("colo", hit.colo)
+                    .put("latencyMs", hit.latencyMs)
+                    .put("selected", hit.selected),
+            )
+        }
+        prefs.edit().putString("hits", arr.toString()).putLong("savedAtMs", System.currentTimeMillis()).apply()
+    }
+
+    fun loadHits(): List<ProxyIpScannerPage.Hit> {
+        val raw = prefs.getString("hits", null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val host = o.optString("host").trim()
+                    val port = o.optInt("port", 0)
+                    if (host.isBlank() || port !in 1..65535) continue
+                    add(
+                        ProxyIpScannerPage.Hit(
+                            host = host,
+                            port = port,
+                            country = o.optString("country"),
+                            colo = o.optString("colo"),
+                            latencyMs = o.optLong("latencyMs", 100L),
+                            selected = o.optBoolean("selected", true),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    internal fun verifiedEndpoints(nowMs: Long = System.currentTimeMillis()): List<VerifiedEndpoint> {
+        val savedAt = prefs.getLong("savedAtMs", nowMs).takeIf { it > 0L } ?: nowMs
+        return loadHits().map { hit ->
+            val cleanHost = hit.host.removePrefix("[").removeSuffix("]")
+            val family = when {
+                cleanHost.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            }
+            VerifiedEndpoint(
+                host = cleanHost,
+                port = hit.port,
+                role = EndpointRole.PROXY_IP,
+                family = family,
+                verdict = EndpointVerdict.VERIFIED,
+                checkedAtMs = savedAt,
+                latencyMs = hit.latencyMs,
+                countryCode = hit.country.ifBlank { null },
+                source = "device-proxyip-scan",
+            )
+        }
+    }
+
+    fun clear() {
+        prefs.edit().clear().apply()
+    }
+}
+

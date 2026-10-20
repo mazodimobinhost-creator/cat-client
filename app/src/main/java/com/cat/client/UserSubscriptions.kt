@@ -503,16 +503,84 @@ object MihomoLinkConfigBuilder {
         require(unique.isNotEmpty()) { "اتصال سازگار با v1 پیدا نشد" }
         val proxyYaml = buildString {
             appendLine("proxies:")
-            unique.forEach { proxy ->
-                val orderedKeys = listOf("name", "type", "server", "port") +
-                    proxy.keys().asSequence().filterNot { it in setOf("name", "type", "server", "port") }
-                orderedKeys.forEachIndexed { propertyIndex, key ->
-                    val prefix = if (propertyIndex == 0) "  - " else "    "
-                    append(prefix).append(key).append(": ").appendLine(yamlValue(proxy.get(key)))
-                }
-            }
+            unique.forEach { proxy -> append(renderProxyYamlBlock(proxy)) }
         }
         return addDefaultGroups(proxyYaml, unique.map { it.getString("name") })
+    }
+
+    internal fun renderProxyYamlBlock(proxy: JSONObject): String = buildString {
+        val orderedKeys = listOf("name", "type", "server", "port") +
+            proxy.keys().asSequence().filterNot { it in setOf("name", "type", "server", "port") }
+        orderedKeys.forEachIndexed { propertyIndex, key ->
+            val prefix = if (propertyIndex == 0) "  - " else "    "
+            append(prefix).append(key).append(": ").appendLine(yamlValue(proxy.get(key)))
+        }
+    }
+
+    /** Replaces a single proxy entry (`name == targetTag`) in a Mihomo YAML document
+     * with the converted form of `updatedShareLink`, keeping `targetTag`, all other
+     * proxies and all `proxy-groups:` / `rules:` sections untouched. */
+    internal fun replaceProxyInYaml(
+        yaml: String,
+        targetTag: String,
+        updatedShareLink: String,
+    ): String? {
+        if (targetTag.isBlank()) return null
+        val converted = SubConvConverter.convert(updatedShareLink).firstOrNull() ?: return null
+        converted.put("name", targetTag)
+        if (!isYamlSafeProxy(converted)) return null
+        val replacementBlock = renderProxyYamlBlock(converted).trimEnd('\n')
+
+        val out = StringBuilder(yaml.length + 128)
+        var inProxiesSection = false
+        val currentItemLines = ArrayList<String>()
+        var replaced = false
+
+        fun flushCurrentItem() {
+            if (currentItemLines.isEmpty()) return
+            val normalizedBlock = currentItemLines.mapIndexed { idx, line ->
+                if (idx == 0) {
+                    val trimmed = line.trimStart()
+                    if (trimmed.startsWith("- ")) "    " + trimmed.removePrefix("- ").trimStart() else line
+                } else {
+                    line
+                }
+            }.joinToString("\n")
+            val itemName = MihomoProxyYaml.parse(normalizedBlock)["name"]?.toString()
+            if (!replaced && itemName == targetTag) {
+                out.appendLine(replacementBlock)
+                replaced = true
+            } else {
+                currentItemLines.forEach { out.appendLine(it) }
+            }
+            currentItemLines.clear()
+        }
+
+        yaml.removePrefix("\uFEFF").lineSequence().forEach { rawLine ->
+            val indent = rawLine.indexOfFirst { !it.isWhitespace() }
+            if (indent == 0) {
+                flushCurrentItem()
+                val topKey = rawLine.trim().substringBefore(":").trim()
+                inProxiesSection = (topKey == "proxies")
+                out.appendLine(rawLine)
+                return@forEach
+            }
+            if (!inProxiesSection) {
+                out.appendLine(rawLine)
+                return@forEach
+            }
+            val content = rawLine.trimStart()
+            if (indent == 2 && content.startsWith("- ")) {
+                flushCurrentItem()
+                currentItemLines += rawLine
+            } else if (currentItemLines.isNotEmpty()) {
+                currentItemLines += rawLine
+            } else {
+                out.appendLine(rawLine)
+            }
+        }
+        flushCurrentItem()
+        return if (replaced) out.toString() else null
     }
 
     fun addDefaultGroups(yaml: String, proxyNames: List<String>): String {
@@ -661,6 +729,27 @@ class UserSubscriptionManager(
     fun delete(id: String) = store.deleteUserSubscription(id)
 
     fun cachedSnapshot(id: String): MihomoSubscriptionSnapshot? = snapshots.cached(id)
+
+    /** Replaces a single proxy (`targetTag`) in the cached YAML of `subscriptionId`
+     * with `updatedShareLink`, persists the updated snapshot, and returns the
+     * updated [ConnectionProfile] so the caller can immediately re-test it. */
+    fun replaceProfileShareLink(
+        subscriptionId: String,
+        targetTag: String,
+        updatedShareLink: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): ConnectionProfile? {
+        val adapter = AndroidSubscriptionSnapshotAdapter(appContext, store)
+        val entry = adapter.read(subscriptionId) ?: return null
+        val currentYaml = entry.cachedYaml?.takeIf(String::isNotBlank) ?: return null
+        val updatedYaml = MihomoLinkConfigBuilder.replaceProxyInYaml(currentYaml, targetTag, updatedShareLink)
+            ?: return null
+        val snapshot = runCatching { MihomoConfigParser.parse(updatedYaml, nowMs) }.getOrNull() ?: return null
+        if (snapshot.catalog.profiles.isEmpty()) return null
+        val format = store.readUserSubscription(subscriptionId)?.format ?: UserSubscriptionFormat.Mihomo
+        adapter.save(subscriptionId, CompiledSubscription(format, snapshot))
+        return snapshot.catalog.profiles.firstOrNull { it.tag == targetTag }
+    }
 
     private suspend fun compile(input: String): CompiledSubscription {
         val loaded = SubscriptionSourceLoader.loadDetailed(userSubscriptionSource(input))

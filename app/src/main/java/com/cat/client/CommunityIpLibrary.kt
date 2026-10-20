@@ -104,6 +104,12 @@ object CommunityIpLibrary {
         .distinct()
         .filter { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(false) }
 
+    /** Explicit-port ProxyIP relays preserved with their declared non-standard ports. */
+    val explicitPortProxyIpSeeds: List<String> = listOf(
+        "103.237.102.191:11111",
+        "184.75.221.82:3118",
+    )
+
     /**
      * The very entries [ips] drops: NON-Cloudflare relays from the same public
      * lists. They can never front a CF edge (that is why the clean-IP scanner
@@ -113,10 +119,13 @@ object CommunityIpLibrary {
      * be resolved at all (blocked DNS / filtered network), instead of coming back
      * with «nothing found» and no explanation.
      */
-    val proxyIpSeeds: List<String> = raw
-        .flatMap { it.split(',') }
-        .map { it.trim() }
-        .filter { ip -> ip.count { it == '.' } == 3 && ip.split('.').all { it.toIntOrNull() != null && it.toInt() in 0..255 } }
-        .distinct()
-        .filterNot { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(true) }
+    val proxyIpSeeds: List<String> = (
+        explicitPortProxyIpSeeds +
+            raw
+                .flatMap { it.split(',') }
+                .map { it.trim() }
+                .filter { ip -> ip.count { it == '.' } == 3 && ip.split('.').all { it.toIntOrNull() != null && it.toInt() in 0..255 } }
+                .distinct()
+                .filterNot { ip -> runCatching { IpScanner.isCloudflareAddress(ip) }.getOrDefault(true) }
+        ).distinct()
 }
