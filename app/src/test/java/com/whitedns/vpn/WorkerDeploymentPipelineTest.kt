@@ -32,7 +32,7 @@ class WorkerDeploymentPipelineTest {
         assertEquals("admin", defaults.plainTextVars["PANEL_USER"])
         assertEquals("admin", defaults.plainTextVars["PANEL_PASSWORD"])
         assertTrue("var:OPEN_SUB" in defaults.allBindingKeys())
-        assertTrue(snapshot().isValidForRollback(target))
+        assertTrue(snapshot().isValidForRollback())
     }
 
     @Test fun rawUrlUpdatePreservesExistingKvD1UuidAndSecretsWithRollbackSnapshot() {
