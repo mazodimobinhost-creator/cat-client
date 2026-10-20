@@ -196,11 +196,26 @@ object GitHubReleaseClient {
         throw (lastError ?: IOException("GitHub asset download failed"))
     }
 
-    /** A file straight from the repository main branch via jsDelivr — reachable
-     * on most Iranian networks and always the freshest committed copy. */
+    /** A file straight from the repository active branch via jsDelivr or raw GitHub —
+     * reachable on most Iranian networks and always the freshest committed copy. */
     suspend fun repositoryFile(path: String, maxBytes: Int): String {
         require(path.matches(Regex("[A-Za-z0-9/._-]{1,160}"))) { "Repository path is invalid" }
-        return readText("https://cdn.jsdelivr.net/gh/$GITHUB_OWNER/$GITHUB_REPOSITORY@main/$path", maxBytes, asset = true)
+        val candidates = listOf(
+            "https://cdn.jsdelivr.net/gh/$GITHUB_OWNER/$GITHUB_REPOSITORY@$ACTIVE_BRANCH/$path",
+            "https://raw.githubusercontent.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/$ACTIVE_BRANCH/$path",
+            "https://ghproxy.net/https://raw.githubusercontent.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/$ACTIVE_BRANCH/$path",
+            "https://cdn.jsdelivr.net/gh/$GITHUB_OWNER/$GITHUB_REPOSITORY@main/$path",
+            "https://raw.githubusercontent.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/main/$path",
+        )
+        var lastError: IOException? = null
+        for (url in candidates) {
+            try {
+                return readText(url, maxBytes, asset = true)
+            } catch (error: IOException) {
+                lastError = error
+            }
+        }
+        throw (lastError ?: IOException("Repository file download failed"))
     }
 
     internal fun resolveReleaseAssetUrl(json: String, name: String): String {
@@ -377,14 +392,18 @@ object GitHubReleaseClient {
 
     private const val GITHUB_OWNER = "mazodimobinhost-creator"
     private const val GITHUB_REPOSITORY = "cat-client"
+    private const val ACTIVE_BRANCH = "arena/c5b36768-cat-client"
     private const val RELEASES_URL =
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20"
     private val ASSET_HOSTS = setOf(
         "github.com",
+        "raw.githubusercontent.com",
         "release-assets.githubusercontent.com",
         "objects.githubusercontent.com",
         "ghproxy.net",
         "gh-proxy.com",
+        "ghproxy.link",
+        "mirror.ghproxy.com",
         "cdn.jsdelivr.net",
     )
 

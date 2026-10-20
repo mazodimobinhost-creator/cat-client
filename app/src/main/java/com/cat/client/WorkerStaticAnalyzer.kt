@@ -52,8 +52,12 @@ internal object WorkerStaticAnalyzer {
         }
         val text = bytes.toString(Charsets.UTF_8)
         val caps = LinkedHashSet<WorkerCapability>()
-        if (text.contains("vless", ignoreCase = true)) caps += WorkerCapability.VLESS
-        if (text.contains("trojan", ignoreCase = true)) caps += WorkerCapability.TROJAN
+        if (text.contains("vless", ignoreCase = true) || text.contains("dmxlc3M=") || text.contains("\"vl\"+\"ess\"") || text.contains("'vl'+'ess'")) {
+            caps += WorkerCapability.VLESS
+        }
+        if (text.contains("trojan", ignoreCase = true) || text.contains("\"tr\"+\"ojan\"") || text.contains("'tr'+'ojan'")) {
+            caps += WorkerCapability.TROJAN
+        }
         if (text.contains("socks5", ignoreCase = true)) caps += WorkerCapability.SOCKS5
         if (text.contains("httpConnect", ignoreCase = true) || text.contains("CONNECT ", ignoreCase = false)) {
             caps += WorkerCapability.HTTP_CONNECT

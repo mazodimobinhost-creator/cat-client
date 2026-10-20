@@ -1002,7 +1002,16 @@ object CloudflareWorker {
         val kvId = kvAttempt.getOrNull()
 
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
-        val script = workerScriptOverride ?: builtInWorkerScript(context)
+        val builtInScript = builtInWorkerScript(context)
+        val script = workerScriptOverride ?: run {
+            val remote = runCatching { PanelUpdate.newestPanel(context) }.getOrNull()
+            val builtInVer = PanelUpdate.parseVersion(builtInScript)
+            if (remote != null && (builtInVer.isBlank() || PanelUpdate.isNewer(builtInVer, remote.version))) {
+                remote.script
+            } else {
+                builtInScript
+            }
+        }
         val channel = when {
             workerScriptOverride != null -> WorkerArtifactChannel.RAW_URL
             isRepair -> WorkerArtifactChannel.REPAIR
@@ -1056,13 +1065,13 @@ object CloudflareWorker {
         //    at all» (nothing answered).
         val health = waitForPanel(workerUrl, uuid, subscriptionKeys(context, workerUrl, uuid))
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
-        val bundledVersion = bundledPanelVersion(context)
+        val bundledVersion = PanelUpdate.parseVersion(script).ifBlank { bundledPanelVersion(context) }
 
         // 7. Stealth hardening: snapshot settings into the local recovery backup
         // and move the panel UI to a random hidden path (root then 404s neutrally).
         // The panel may require a username (PANEL_USER binding): keep it so every
         // later «send to panel» / «update panel» action can log in.
-        PanelCredentials.remember(context, workerUrl, panelUser, panelPassword.ifBlank { uuid })
+        PanelCredentials.remember(context, workerUrl, effectivePanelUser, effectivePanelPassword)
         // Do not rewrite the public entry point into a disguised personal site.
         // Existing owner-selected paths remain supported by the Worker, but fresh
         // deployments keep a transparent panel URL.

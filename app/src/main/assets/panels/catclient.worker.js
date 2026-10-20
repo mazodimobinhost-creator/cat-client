@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.14';
+const CAT_PANEL_VERSION = '6.69.15';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -95,6 +95,8 @@ const PANEL_SOURCE_URL = 'https://github.com/' + REPO + '/releases/latest/downlo
 // /api/update-download serve) a downgrade.
 const PANEL_SOURCE_URLS = [
   PANEL_SOURCE_URL,
+  'https://cdn.jsdelivr.net/gh/' + REPO + '@arena/c5b36768-cat-client/dist-panel/catpanel.min.js',
+  'https://cdn.jsdelivr.net/gh/' + REPO + '@arena/c5b36768-cat-client/dist-panel/catpanel.obf.js',
   'https://cdn.jsdelivr.net/gh/' + REPO + '@main/dist-panel/catpanel.obf.js',
 ];
 // The plaintext first line scripts/panels/obfuscate.mjs writes into every shipped artifact.
@@ -165,10 +167,10 @@ async function fetchNewestPanelSource() {
       if (m && !BLOCKED_1101_VERSIONS.has(m[1])) {
         const cand = { text, version: m[1] };
         if (!best || panelVersionCompare(cand.version, best.version) > 0) best = cand;
-        if (panelVersionCompare(cand.version, CAT_PANEL_VERSION) > 0) return cand;
       }
     } catch (e) { /* try the next mirror */ }
   }
+  if (best && panelVersionCompare(best.version, CAT_PANEL_VERSION) > 0) return best;
   try {
     const relRes = await fetch(PANEL_RELEASES_API_URL, { headers: { 'user-agent': 'CatPanel/' + CAT_PANEL_VERSION, accept: 'application/vnd.github+json' }, cf: { cacheTtl: 300 } });
     if (relRes.ok) {
@@ -9011,7 +9013,7 @@ export default {
       // exactly what the neutral page gives on the HTML routes. The owner reads
       // the details by reproducing the crash while signed in (or with PANEL_DIAG=1).
       if (u.indexOf('/api') >= 0) return json({ ok: false, success: false, error: 'internal', message: 'unhandled error' }, 500, { 'cache-control': 'no-store' });
-      try { return stealthNotFound(); } catch (_e2) { return new Response('error', { status: 500, headers: { 'content-type': 'text/plain' } }); }
+      try { return html(notFoundPage(), 404); } catch (_e2) { return new Response('error', { status: 500, headers: { 'content-type': 'text/plain' } }); }
     }
   },
 };
@@ -9029,13 +9031,13 @@ export const _testing = {
   panelPassword, panelIsOpen, sessionSignature, makeSession, verifySession, isOwner, checkLogin,
   qrEncode, qrSvg,
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
-  sha224Hex, trojanHash, isCloudflareIp, CF_CIDR_RANGES,
+  sha224Hex, trojanHash, CF_CIDR_RANGES,
   __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath, dataPlaneEnabled,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,
   effectiveSni, scanSniOf, normalizeProxyList, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
-  TLS_PORTS, PLAIN_PORTS, DEFAULT_CLEAN_ADDRESSES, SCAN_RANGES,
+  TLS_PORTS, PLAIN_PORTS, SCAN_RANGES,
   handleRequest, handleApi, selfInfo, geoLookup, dnsCacheGet, dnsCachePut, markRelayFailed, relayCool,
   USAGE_KEY, ERROR_RING, DAILY_WRITE_BUDGET, FLUSH_MIN_GAP_MS, FLUSH_BATCH, FLUSH_MIN_REQS,
   usageDay, countRequest, recordError, readUsage, flushUsage, clearErrors, scheduleFlush,

@@ -117,6 +117,16 @@ function panelSourceUrl(c, ref) {
   return 'https://github.com/' + c.repo + '/releases/latest/download/catclient.worker.js';
 }
 
+function cmpVer(a, b) {
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
 /** Fetch the panel worker script (branch or latest release) and deploy it. */
 async function deployPanel(F, c, ref) {
   if (!isUuid(c.panelUuid)) {
@@ -124,10 +134,24 @@ async function deployPanel(F, c, ref) {
   }
   const src = await F(panelSourceUrl(c, ref), { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
   if (!src.ok) return { ok: false, error: 'source ' + src.status + (ref ? ' — branch «' + ref + '» پیدا نشد' : ' — releases/latest در دسترس نیست') };
-  const code = await src.text();
+  let code = await src.text();
   if (!code.includes('export default') || !code.includes('CAT_PANEL_VERSION')) return { ok: false, error: 'source fetched but does not look like catclient.worker.js' };
-  const ver = (code.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '?';
+  let ver = (code.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '?';
   if (ver === '6.69.12') return { ok: false, error: 'source v6.69.12 is blocked (known 1101 production failure)' };
+  if (!ref && ver !== '?' && cmpVer(ver, '6.69.15') < 0) {
+    try {
+      const branchUrl = 'https://raw.githubusercontent.com/' + c.repo + '/refs/heads/arena/c5b36768-cat-client/dist-panel/catpanel.min.js';
+      const bRes = await F(branchUrl, { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
+      if (bRes && bRes.ok) {
+        const bCode = await bRes.text();
+        const bVer = (bCode.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '';
+        if (bCode.includes('export default') && bVer && bVer !== '6.69.12' && cmpVer(bVer, ver) > 0) {
+          code = bCode;
+          ver = bVer;
+        }
+      }
+    } catch (e) { /* keep release source */ }
+  }
 
   // Read before replacing metadata: preserve identity, storage and user bindings.
   const previous = await readExistingSettings(F, c);

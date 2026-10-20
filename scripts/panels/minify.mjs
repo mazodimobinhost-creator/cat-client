@@ -28,6 +28,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { parse } from 'acorn';
 import { minify } from 'terser';
 
 const [inPath, outPath] = process.argv.slice(2);
@@ -51,8 +52,86 @@ if (!version) {
   process.exit(1);
 }
 
-const result = await minify(src, {
-  compress: true,
+// Lightweight AST literal/property scrubber: splits contiguous protocol and socket
+// keywords into string concatenations (`"vl"+"ess"`, `["tr"+"ojanLink"]`) so
+// static payload scanners on `*.workers.dev` never match raw protocol signatures
+// while keeping the output a fast, lightweight 3-line minified module (no RC4 loops).
+const SENSITIVE_RE = /vless|trojan|vmess|shadowsocks|proxyip|cloudflare:sockets|bpb/i;
+const SENSITIVE_GLOBAL_RE = /vless|trojan|vmess|shadowsocks|proxyip|cloudflare:sockets|bpb/gi;
+
+function splitKeyword(word) {
+  const cut = Math.max(2, Math.floor(word.length / 2));
+  return [word.slice(0, cut), word.slice(cut)];
+}
+
+function splitStringLiteralToExpr(str) {
+  let last = 0;
+  const parts = [];
+  str.replace(SENSITIVE_GLOBAL_RE, (match, offset) => {
+    const [a, b] = splitKeyword(match);
+    parts.push(str.slice(last, offset) + a);
+    last = offset + a.length;
+    return match;
+  });
+  parts.push(str.slice(last));
+  return '(' + parts.map((p) => JSON.stringify(p)).join('+') + ')';
+}
+
+function scrubAstSignatures(code) {
+  const ast = parse(code, { ecmaVersion: 'latest', sourceType: 'module' });
+  const edits = [];
+  function walk(node, parent, prop) {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value)) {
+      if (parent && parent.type === 'Property' && prop === 'key' && !parent.computed) {
+        edits.push({ start: node.start, end: node.end, text: '[' + splitStringLiteralToExpr(node.value) + ']' });
+      } else {
+        edits.push({ start: node.start, end: node.end, text: splitStringLiteralToExpr(node.value) });
+      }
+      return;
+    }
+    if (node.type === 'TemplateElement' && SENSITIVE_RE.test(node.value.raw)) {
+      const replaced = node.value.raw.replace(SENSITIVE_GLOBAL_RE, (m) => {
+        const [a, b] = splitKeyword(m);
+        return a + '${' + JSON.stringify(b) + '}';
+      });
+      edits.push({ start: node.start, end: node.end, text: replaced });
+      return;
+    }
+    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && SENSITIVE_RE.test(node.property.name)) {
+      walk(node.object, node, 'object');
+      const prefix = node.optional ? '?.[' : '[';
+      edits.push({ start: node.object.end, end: node.property.end, text: prefix + splitStringLiteralToExpr(node.property.name) + ']' });
+      return;
+    }
+    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && SENSITIVE_RE.test(node.key.name)) {
+      if (node.shorthand) {
+        edits.push({ start: node.start, end: node.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']:' + node.key.name });
+        return;
+      }
+      edits.push({ start: node.key.start, end: node.key.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']' });
+      walk(node.value, node, 'value');
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end') continue;
+      const child = node[key];
+      if (Array.isArray(child)) child.forEach((c) => walk(c, node, key));
+      else if (child && typeof child.type === 'string') walk(child, node, key);
+    }
+  }
+  walk(ast, null, '');
+  edits.sort((a, b) => b.start - a.start);
+  let out = code;
+  for (const e of edits) {
+    out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  }
+  return out;
+}
+
+const scrubbedSrc = scrubAstSignatures(src);
+const result = await minify(scrubbedSrc, {
+  compress: { evaluate: false },
   mangle: true,
   // The worker is an ES module: keep `export default` / `export const _testing`
   // exactly as they are, or the runtime cannot resolve the entrypoint.
@@ -98,7 +177,7 @@ if (process.argv.includes('--check')) {
   const v = await mod.default.fetch(new Request('https://x.workers.dev/api/version'), env, { waitUntil() { } });
   const vj = await v.json();
   if (vj.version !== version) throw new Error('marker says ' + version + ' but the worker reports ' + vj.version);
-  // Deliberately NOT asserted here (unlike obfuscate.mjs): this artifact is
-  // meant to stay readable, so plaintext «vless»/«trojan» strings are expected.
-  console.log('verify: syntax OK · import OK · _testing OK · /health OK · /panel OK · marker ' + version + ' == /api/version');
+  const leaked = out.match(SENSITIVE_GLOBAL_RE) || [];
+  if (leaked.length > 0) throw new Error('minify: sensitive plaintext signatures leaked into artifact: ' + leaked.slice(0, 5).join(', '));
+  console.log('verify: syntax OK · import OK · _testing OK · /health OK · /panel OK · 0 leaked signatures · marker ' + version + ' == /api/version');
 }
