@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.20';
+const CAT_PANEL_VERSION = '6.69.21';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -626,7 +626,7 @@ function countryLatency(results, tags) {
 
 const CIPHER_SUITES_DEFAULT = 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256';
 const FINAL_MASK_PROFILE = JSON.stringify({ tcp: [
-  { type: 'fragment', settings: { packets: 'tlshello', lengths: ['0-6', '100-140', '1-3'], delays: ['1-3'], maxSplit: '8' } },
+  { type: 'fragment', settings: { packets: 'tlshello', lengths: ['1-6', '100-140', '1-3'], delays: ['1-3'], maxSplit: '8' } },
   { type: 'fragment', settings: { packets: '1-3', lengths: ['80-160', '1-3'], delays: ['1-3'], maxSplit: '8' } },
 ] });
 // BlueKnight's v5.2.7 F&F recipe, copied as a small client profile (not a repo
@@ -927,12 +927,12 @@ const PLAIN_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
  * them MUST resolve to Cloudflare anycast, otherwise the config is dead.
  */
 const DEFAULT_CLEAN_ADDRESSES = [
-  'www.speedtest.net', 'www.visa.com', 'cdnjs.cloudflare.com', 'speed.cloudflare.com',
-  'www.shopify.com', 'icook.tw', 'www.wto.org', 'ip.sb',
-  '104.16.132.229', '172.67.181.32', '188.114.96.1', '162.159.192.1', '104.17.148.22', '172.64.80.1',
-  // IPv6 endpoints (2606:4700::/32) — on many Iranian carriers v6 egress is
-  // unfiltered while v4 TLS is throttled; they coexist with the v4 set.
-  '2606:4700:d0::a29f:c001', '2606:4700:4700::1111',
+  '104.16.132.229', '104.17.148.22', '172.67.181.32', '172.64.80.1',
+  '104.18.32.47', '104.19.144.33', '104.21.48.201', '172.66.40.112',
+  '162.159.135.42', '108.162.192.142', '141.101.90.96', '104.26.10.230',
+  'www.visa.com', 'cdnjs.cloudflare.com',
+  // IPv6 HTTP/WS edge endpoints (2606:4700:3030::/32) — never 2606:4700:4700::1111 (DNS-only)
+  '2606:4700:3030::6815:30c9', '2606:4700:3031::ac43:8320',
 ];
 
 const DEFAULT_PROXY_IPS = ['proxyip.cmliussss.net:443', 'di.nscl.ir:443', 'tr.diam4.ggff.net:443'];
@@ -947,26 +947,30 @@ const DOM_TTL_MS = 12 * 60 * 60 * 1000;
  * domain once (12h KV cache, CF-range validated) makes the config DNS-proof.
  * ?dom=1 on the sub link keeps the raw domains.
  */
-async function withDomMap(env, settings) {
+async function withDomMap(env, settings, host) {
   if (settings.domToIp === false) return settings;
   const kv = kvBinding(env);
   let cache = {};
   if (kv) { try { cache = JSON.parse((await kv.get(DOM_CACHE_KEY)) || '{}'); } catch (e) { cache = {}; } }
   const map = {};
   let lookups = 0;
-  for (const a of addressList('', env, settings)) {
+  const hostKey = String(host || '').trim().toLowerCase();
+  const candidates = addressList(hostKey, env, settings);
+  if (hostKey && !candidates.some((a) => String(a).toLowerCase() === hostKey)) candidates.unshift(hostKey);
+  for (const a of candidates) {
     if (!/[a-z]/i.test(String(a)) || isCloudflareIp(String(a).replace(/^\[|\]$/g, ''))) continue;
-    const hit = cache[a];
-    if (hit && hit.ip && Date.now() - (hit.ts || 0) < DOM_TTL_MS && isCloudflareIp(hit.ip)) { map[a] = hit.ip; continue; }
+    const key = String(a).toLowerCase();
+    const hit = cache[a] || cache[key];
+    if (hit && hit.ip && Date.now() - (hit.ts || 0) < DOM_TTL_MS && isCloudflareIp(hit.ip)) { map[a] = hit.ip; map[key] = hit.ip; continue; }
     if (lookups >= 16) continue;
     lookups++;
     try {
       const ip = await resolveHost(a);
-      if (ip && isCloudflareIp(ip)) { map[a] = ip; cache[a] = { ip, ts: Date.now() }; }
+      if (ip && isCloudflareIp(ip)) { map[a] = ip; map[key] = ip; cache[key] = { ip, ts: Date.now() }; }
     } catch (e) { /* keep the domain */ }
   }
   if (kv && Object.keys(map).length) { try { await kv.put(DOM_CACHE_KEY, JSON.stringify(cache)); } catch (e) { } }
-  return Object.keys(map).length ? Object.assign({}, settings, { domMap: map }) : settings;
+  return Object.keys(map).length ? Object.assign({}, settings, { domMap: Object.assign({}, settings.domMap || {}, map) }) : settings;
 }
 
 function defaultSettings() {
@@ -2644,17 +2648,19 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
   const fresh = allAttempts.filter((a) => !relayCool(a.via));
   const attempts = (fresh.length ? fresh : allAttempts);
   for (const attempt of attempts) {
+    let rawSock = null;
     try {
       if (attempt.socks) {
         const dialed = await dialViaChain(sockets, attempt.socks, host, port);
         if (log) log('dial ok ' + attempt.via + ' → ' + host + ':' + port);
         return { socket: dialed.socket, via: attempt.via, leftover: dialed.leftover };
       }
-      const socket = sockets.connect({ hostname: attempt.hostname, port: attempt.port }, { allowHalfOpen: false });
-      if (socket.opened) await socket.opened;
+      rawSock = sockets.connect({ hostname: attempt.hostname, port: attempt.port }, { allowHalfOpen: false });
+      if (rawSock.opened) await withTimeout(rawSock.opened, 4500, 'connect-timeout');
       if (log) log('dial ok ' + attempt.via + ' → ' + attempt.hostname + ':' + attempt.port);
-      return { socket, via: attempt.via, leftover: null };
+      return { socket: rawSock, via: attempt.via, leftover: null };
     } catch (e) {
+      try { if (rawSock) rawSock.close(); } catch (e2) { }
       lastError = e;
       markRelayFailed(attempt.via);
       if (log) log('dial failed ' + attempt.via + ': ' + (e && e.message ? e.message : e));
@@ -3360,7 +3366,7 @@ async function withRepoPool(env, settings, url) {
     if (!pool.length) return settings;
     const ips = [];
     const cc = {};
-    for (const r of pool) { const line = r.ip + ':443'; ips.push(line); if (r.cc) cc[line] = r.cc; }
+    for (const r of pool) { const line = formatAddr(r.ip) + ':443'; ips.push(line); if (r.cc) cc[line] = r.cc; }
     // repoIps marks these as «free library» entries: they are pinned to :443 so a
     // feed address is never advertised on a port it was not verified on, but they
     // must NOT ride the «pinned addresses first» pass — that pass would put the
@@ -3527,7 +3533,7 @@ async function proxyRepoHealthyPool(env, cap) {
     if ((health.f[ip] || 0) >= PROXY_REPO_FAILS_DROP) continue;
     // Port flows through: feed port wins, otherwise 443 — so 🎯 relay dials and
     // toAddrs imports each pool IP on exactly ONE port instead of all of them.
-    out.push({ ip: ip + ':' + (pin || 443), cc: t.cc || '' });
+    out.push({ ip: formatAddr(ip) + ':' + (pin || 443), cc: t.cc || '' });
     if (out.length >= (cap || 400)) break;
   }
   return out;
@@ -3879,7 +3885,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // The owner's own list (manual add / scanner import) leads in PANEL order —
   // rotation shuffles only the defaults/env extras, never the owner's entries
   // to the tail (regression: manual adds seemed to "never reach the configs").
-  const ownSet = new Set((settings.ips || []).map((a) => String(a).trim().toLowerCase()).filter(Boolean));
+  const repoIps = new Set((settings.repoIps || []).map((v) => String(v).trim().toLowerCase()));
+  const ownSet = new Set((settings.ips || []).map((a) => String(a).trim().toLowerCase()).filter((a) => a && !repoIps.has(a)));
   const ownAddrs = addresses.filter((a) => ownSet.has(a.toLowerCase()));
   const restAddrs = addresses.filter((a) => !ownSet.has(a.toLowerCase()));
   // beta90 health ordering (?health=1 / settings.healthOrder): sender-reported
@@ -3962,7 +3969,6 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // Scan-pinned addresses (`ip:port`) go FIRST — the owner imported them with a
   // verified entry point; the generic port walk must never crowd them out past
   // the entry limit (regression: pinned imports silently never appeared).
-  const repoIps = new Set((settings.repoIps || []).map((v) => String(v).trim().toLowerCase()));
   for (const addr of addresses) {
     if (entries.length >= limit) break;
     const pin = pinnedPortOf(addr);
@@ -4035,8 +4041,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (!sniHost || sniHost === ctx.sni) continue;
       const sctx = Object.assign({}, ctx, { sni: sniHost });
       const name = '🧬 SNI ' + sniHost;
-      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', link: vlessLink(sctx, workerDial, tlsPort, true, '', { name }), name });
-      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', link: trojanLink(sctx, workerDial, tlsPort, true, '', { name }), name });
+      if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: sniHost, link: vlessLink(sctx, workerDial, tlsPort, true, '', { name }), name });
+      if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: sniHost, link: trojanLink(sctx, workerDial, tlsPort, true, '', { name }), name });
     }
     const faUi = settings.lang !== 'en';
     let pxi = 0;
@@ -4195,7 +4201,9 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
       '        Host: ' + yamlStr(ctx.host),
     ];
     if (e.tls) {
-      base.push('    tls: true', '    servername: ' + yamlStr(ctx.sni), '    client-fingerprint: ' + ctx.fp, '    skip-cert-verify: false');
+      const entrySni = e.sni || ctx.sni;
+      base.push('    tls: true', '    servername: ' + yamlStr(entrySni), '    client-fingerprint: ' + ctx.fp, '    skip-cert-verify: false');
+      if (e.proto === 'trojan') base.push('    sni: ' + yamlStr(entrySni));
       if (ctx.ech) {
         // mihomo ech-opts (top-level proxy key, verified in FlClash/mihomo ≥1.19):
         // the «domain+…» form becomes query-server-name, a base64 list becomes config.
@@ -4205,7 +4213,7 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
         base.push('    ech-opts:', '      enable: true');
         base.push(em ? '      query-server-name: ' + yamlStr(em[1]) : '      config: ' + yamlStr(String(ctx.ech)));
       }
-      if (e.proto === 'vless') base.push('    alpn: ["http/1.1"]');
+      base.push('    alpn: ["http/1.1"]');
     } else if (e.proto === 'vless') {
       base.push('    tls: false');
     } else {
@@ -4288,7 +4296,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
     };
     if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx[TROJAN_KEY + 'Pass'];
     if (e.tls) {
-      out.tls = { enabled: true, server_name: ctx.sni, insecure: false, alpn: settings.alpn.split(','), utls: { enabled: true, fingerprint: ctx.fp } };
+      out.tls = { enabled: true, server_name: e.sni || ctx.sni, insecure: false, alpn: settings.alpn.split(','), utls: { enabled: true, fingerprint: ctx.fp } };
       // NOTE: ECH is intentionally NOT emitted into sing-box output. sing-box
       // (≤1.14.x, field report 2026-09) treats "enabled but no ECH config in
       // DNS" as FATAL and kills the whole config — one bad resolver and every
@@ -4382,7 +4390,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
       sockopt: (function () { const so = { tcpKeepAliveIdle: 100, tcpNoDelay: true }; const dial = warpOut.length ? 'warp' : (fragOn ? 'fragment' : undefined); if (dial) so.dialerProxy = dial; return so; })(),
     };
     if (e.tls) {
-      stream.tlsSettings = { serverName: ctx.sni, fingerprint: ctx.fp, alpn: settings.alpn.split(','), allowInsecure: false };
+      stream.tlsSettings = { serverName: e.sni || ctx.sni, fingerprint: ctx.fp, alpn: settings.alpn.split(','), allowInsecure: false };
       if (settings.cipherSuites && !ctx.ech) stream.tlsSettings.cipherSuites = settings.cipherSuites;
       // ECH per Xray docs: tlsSettings.echConfigList accepts a base64 ECHConfig
       // OR the «domain+udp://server» live-query form.
@@ -4619,7 +4627,7 @@ async function subResponse(kind, host, env, settings, uuid, user, url) {
       entryLimit: Math.max(Number(settings.entryLimit) || 0, (DEFAULT_CLEAN_ADDRESSES.length + 1) * 2),
     });
   }
-  if (q.dom !== '1') { try { settings = await withDomMap(env, settings); } catch (e) { /* best-effort */ } }
+  if (q.dom !== '1') { try { settings = await withDomMap(env, settings, host); } catch (e) { /* best-effort */ } }
   if (q.nofm) settings = Object.assign({}, settings, { fmLinks: false });
   if (q.ech) {
     try {

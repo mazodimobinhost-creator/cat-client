@@ -131,7 +131,7 @@ function walk(node, parent) {
   }
 
   // (2) string literal / object key
-  if (!skipChildren && node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value)) {
+  if (!skipChildren && node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value) && !(parent && parent.type === 'ImportExpression')) {
     const split = splitLiteral(node.value);
     const isKey = parent && parent.type === 'Property' && parent.key === node && !parent.computed;
     const isMethodKey = parent && (parent.type === 'MethodDefinition' || parent.type === 'PropertyDefinition') &&
@@ -219,7 +219,7 @@ const OPTIONS = {
   stringArrayThreshold: 1,
   transformObjectKeys: true,
   unicodeEscapeSequence: false,
-  reservedStrings: [],
+  reservedStrings: ['^cloudflare:sockets$'],
 };
 
 /**

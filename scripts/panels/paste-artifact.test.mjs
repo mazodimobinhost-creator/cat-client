@@ -88,6 +88,8 @@ const source = readFileSync(sourcePath, 'utf8');
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).
   ok('UTF-8 round-trips without losing a character',
     Buffer.from(text, 'utf8').equals(asset) && !text.includes('\uFFFD'));
+  ok('import("cloudflare:sockets") stays a literal string argument for workerd',
+    /import\(["']cloudflare:sockets["']\)/.test(text));
 }
 
 /* ---------- 3) the Kotlin side prefers it, announces the fallback ---------- */

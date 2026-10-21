@@ -65,12 +65,12 @@ const ALL_SENSITIVE_WORDS = [
   'wireguard', 'warp', 'proxy', 'bypass', 'iran', 'telegram',
   'subscription', 'sub64', 'panel', 'password', 'secret', 'token', 'uuid',
   'catclient', 'cat-client', 'cat_kv', 'camouflage',
-  'cloudflare:sockets', 'bpb',
+  'bpb',
   'cf-clean-ips', 'clean_ips', 'Cloudflare_IP', 'NiREvil', 'Scanner-matix', 'cloudflare-ech',
   'mazodimobinhost', 'arista-project', 'imatixofficel', 'xgonce', 'wanwushequ', 'patterniha',
   'geosite', 'geoip',
   'tlshello', 'finalmask', 'echConfigList', 'sniSpoof', 'sniRotate', 'sniFront', 'sniPool',
-  'WebSocketPair', 'startTls', 'allowHalfOpen', 'earlyData',
+  'WebSocketPair', 'earlyData',
   'tunnel', 'chain', 'relay',
   'پروکسی', 'تانل', 'اسکنر', 'فراگمنت', 'تحریم', 'فیلتر', 'سابسکریپشن', 'کانفیگ',
   'shadowsocks', 'socks5', 'proxyip', 'bypassiran', 'catpanel', 'cat_panel', 'cat-panel',
@@ -108,6 +108,8 @@ const JS_BUILTINS = new Set([
   'title', 'label', 'count', 'items', 'list', 'mode', 'state', 'time', 'date', 'size',
   'readable', 'writable', 'getReader', 'getWriter', 'read', 'write', 'releaseLock', 'close',
   'abort', 'signal', 'controller', 'closed', 'ready', 'enabled',
+  'connect', 'startTls', 'opened', 'allowHalfOpen', 'secureTransport',
+  'accept', 'send', 'addEventListener', 'removeEventListener', 'readyState', 'webSocket',
 ]);
 
 function scrubAstSignatures(code) {
@@ -123,7 +125,7 @@ function scrubAstSignatures(code) {
       return;
     }
     if (node.type === 'Literal' && typeof node.value === 'string') {
-      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
+      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ImportExpression' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
       if (node.value === '') return;
       bump(node.value);
       return;
@@ -187,7 +189,7 @@ function scrubAstSignatures(code) {
       return;
     }
     if (node.type === 'Literal' && typeof node.value === 'string') {
-      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
+      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ImportExpression' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
       if (node.value === '') return;
       const idx = getIdx(node.value);
       const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
