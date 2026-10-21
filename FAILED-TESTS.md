@@ -1,8 +1,13 @@
-# Android failure report (55b214b)
+# Android failure report (da554c5)
 
 
 ## files with compile errors
-     33 app/src/main/java/com/cat/client/MainActivity.kt
+     16 app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt
+      8 app/src/main/java/com/cat/client/MainActivity.kt
+      1 app/src/main/java/com/cat/client/SmartRouteScout.kt
+      1 app/src/main/java/com/cat/client/IpGeolocation.kt
+      1 app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt
+      1 app/src/main/java/com/cat/client/AppAccent.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -37,7 +42,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3523) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3315) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -55,7 +60,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3538) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3330) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -65,7 +70,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3557) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3349) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -98,7 +103,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3569) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3361) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -153,6 +158,7 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
+> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
@@ -163,52 +169,53 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 /home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-165:19 Warning:
 	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
 
-> Task :app:mergeDebugResources
 > Task :app:processDebugManifest
-> Task :app:javaPreCompileDebug
 > Task :app:processDebugManifestForPackage
+> Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9972:27 Unresolved reference 'aetherCredentialStore'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9974:43 Unresolved reference 'psiphonCountryCode'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9975:32 Unresolved reference 'orbotPreferenceStore'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9976:43 Unresolved reference 'customEndpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9980:82 Unresolved reference 'aetherModeLabel'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:9992:82 Unresolved reference 'aetherModeLabel'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10039:21 Unresolved reference 'saveAetherMode'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10040:21 Unresolved reference 'lifecycleScope'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10053:21 Unresolved reference 'showPsiphonRegionSelector'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10070:33 Unresolved reference 'orbotPreferenceStore'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10071:21 Unresolved reference 'saveOrbotEnabled'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10073:21 Unresolved reference 'lifecycleScope'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10074:34 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10074:64 Unresolved reference 'OrbotEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10075:42 Unresolved reference 'reachable'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10124:21 Unresolved reference 'showAetherModeSelector'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10134:21 Unresolved reference 'lifecycleScope'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10136:37 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10137:29 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10137:43 Unresolved reference 'AetherAutoProvisioner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10140:36 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10141:29 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10141:43 Unresolved reference 'MasqueEndpointScanner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10144:51 Unresolved reference 'writeCustomEndpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10144:76 Unresolved reference 'endpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10148:83 Unresolved reference 'endpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10148:101 Unresolved reference 'latencyMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10148:152 Unresolved reference 'endpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10148:170 Unresolved reference 'latencyMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10150:70 Unresolved reference 'endpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10150:88 Unresolved reference 'latencyMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10150:142 Unresolved reference 'endpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:10150:160 Unresolved reference 'latencyMs'.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:12:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
 
-> Task :app:compileDebugKotlin FAILED
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt:145:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/IpGeolocation.kt:156:51 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:584:13 'fun setSelectedTabIndicatorHeight(p0: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2009:9 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2011:46 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3015:58 'static field TRIM_MEMORY_RUNNING_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3024:26 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3024:43 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17429:12 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SmartRouteScout.kt:61:35 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:bundleDebugClassesToCompileJar
+
+> Task :app:compileDebugUnitTestKotlin FAILED
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:116:13 No value passed for parameter 'maxAgeMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:135:13 No value passed for parameter 'maxAgeMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:140:39 Unresolved reference 'parse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:141:44 Unresolved reference 'entry'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:142:38 Unresolved reference 'fingerprint'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:143:40 Unresolved reference 'alpn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:144:35 Unresolved reference 'ech'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:145:77 Unresolved reference 'cipherSuites'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:146:74 Unresolved reference 'finalMask'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:148:42 Unresolved reference 'parse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:149:47 Unresolved reference 'entry'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:150:41 Unresolved reference 'fingerprint'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:151:46 Unresolved reference 'alpn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:152:37 Unresolved reference 'ech'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:153:80 Unresolved reference 'cipherSuites'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:154:77 Unresolved reference 'finalMask'.
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugKotlin'.
+Execution failed for task ':app:compileDebugUnitTestKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -218,5 +225,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 51s
-16 actionable tasks: 16 executed
+BUILD FAILED in 2m 10s
+19 actionable tasks: 19 executed
