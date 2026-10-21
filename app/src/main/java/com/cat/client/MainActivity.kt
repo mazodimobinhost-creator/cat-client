@@ -9967,17 +9967,25 @@ class MainActivity : Activity() {
             engineProgressLabel.text = "$label ($clamped%)"
         }
 
+        fun modeLabelOf(mode: AetherMode): String = getString(
+            when (mode) {
+                AetherMode.MasqueHttp2 -> R.string.aether_mode_h2
+                AetherMode.WireGuardOverMasque -> R.string.aether_mode_wom
+                AetherMode.MasquePsiphon -> R.string.aether_mode_psiphon
+            },
+        )
+
         fun refreshEngineSummary() {
             val aetherSel = aetherPreferenceStore.read()
-            val hasKey = !aetherCredentialStore.read().isNullOrBlank()
-            val psiphonActive = aetherSel.mode == AetherMode.MasquePsiphon
-            val psiphonRegion = aetherSel.psiphonCountryCode ?: if (isFarsi) "اتوماتیک (سریع‌ترین)" else "Auto"
-            val orbotEnabled = orbotPreferenceStore.read()
-            val endpointLabel = aetherSel.customEndpoint ?: if (isFarsi) "خودکار (162.159.198.1:443)" else "Auto (162.159.198.1:443)"
+            val hasKey = java.io.File(filesDir, "aether.toml").exists() && java.io.File(filesDir, "aether.toml").length() > 0L
+            val psiphonActive = aetherSel.enabled && aetherSel.mode == AetherMode.MasquePsiphon
+            val psiphonRegion = aetherSel.psiphonRegion.ifBlank { if (isFarsi) "اتوماتیک (سریع‌ترین)" else "Auto" }
+            val orbotEnabled = orbotEnginePreferenceStore.isEnabled()
+            val endpointLabel = aetherSel.endpoint ?: if (isFarsi) "خودکار (162.159.198.1:443)" else "Auto (162.159.198.1:443)"
             statusSummaryText.text = if (isFarsi) {
                 buildString {
                     append("🌀 سایفون: ")
-                    append(if (psiphonActive) "فعال ✅" else "آماده (حالت فعلی: ${aetherModeLabel(aetherSel.mode)})")
+                    append(if (psiphonActive) "فعال ✅" else "آماده (حالت فعلی: ${modeLabelOf(aetherSel.mode)})")
                     append(" · کشور: $psiphonRegion\n")
                     append("🧅 تور (Orbot): ")
                     append(if (orbotEnabled) "روشن روی 127.0.0.1:9050 ✅" else "خاموش")
@@ -9989,7 +9997,7 @@ class MainActivity : Activity() {
             } else {
                 buildString {
                     append("🌀 Psiphon: ")
-                    append(if (psiphonActive) "Active ✅" else "Ready (Current: ${aetherModeLabel(aetherSel.mode)})")
+                    append(if (psiphonActive) "Active ✅" else "Ready (Current: ${modeLabelOf(aetherSel.mode)})")
                     append(" · Region: $psiphonRegion\n")
                     append("🧅 Tor (Orbot): ")
                     append(if (orbotEnabled) "Enabled on 127.0.0.1:9050 ✅" else "Off")
@@ -10036,11 +10044,22 @@ class MainActivity : Activity() {
                     accent = true,
                 ) {
                     updateEngineProgress(25, if (isFarsi) "در حال آماده‌سازی سایفون و کلید Masque…" else "Provisioning Psiphon + Masque…")
-                    saveAetherMode(AetherMode.MasquePsiphon)
-                    lifecycleScope.launch {
-                        kotlinx.coroutines.delay(350)
-                        updateEngineProgress(100, if (isFarsi) "✅ سایفون فعال شد و در لیست اشتراک‌ها انتخاب گردید" else "✅ Psiphon enabled & selected")
+                    val cur = aetherPreferenceStore.read()
+                    aetherPreferenceStore.save(cur.copy(enabled = true, mode = AetherMode.MasquePsiphon))
+                    activityScope.launch {
+                        val tomlFile = java.io.File(filesDir, "aether.toml")
+                        if (!tomlFile.exists() || tomlFile.length() == 0L) {
+                            updateEngineProgress(55, if (isFarsi) "در حال دریافت کلید رایگان برای سایفون…" else "Provisioning free key for Psiphon…")
+                            val proxy = if (currentVpnServiceState == VpnState.Started) {
+                                "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                            } else null
+                            withContext(Dispatchers.IO) {
+                                runCatching { AetherOperations.provision(AetherMode.MasquePsiphon, tomlFile, proxy) }
+                            }
+                        }
+                        updateEngineProgress(100, if (isFarsi) "✅ سایفون فعال شد" else "✅ Psiphon enabled")
                         refreshEngineSummary()
+                        renderAdvancedControls()
                     }
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
@@ -10050,8 +10069,18 @@ class MainActivity : Activity() {
                     label = if (isFarsi) "🌍 کشور سایفون" else "🌍 Psiphon Country",
                     accent = false,
                 ) {
-                    showPsiphonRegionSelector()
-                    mainHandler.postDelayed({ refreshEngineSummary() }, 600)
+                    val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this@MainActivity)
+                    val labels = regions.map { it.ifBlank { getString(R.string.aether_region_automatic) } }.toTypedArray()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.aether_region)
+                        .setItems(labels) { _, index ->
+                            val current = aetherPreferenceStore.read()
+                            aetherPreferenceStore.save(current.copy(psiphonRegion = regions[index]))
+                            refreshEngineSummary()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
             )
@@ -10067,15 +10096,21 @@ class MainActivity : Activity() {
                     label = if (isFarsi) "🧅 روشن/خاموش Tor" else "🧅 Toggle Tor/Orbot",
                     accent = false,
                 ) {
-                    val next = !orbotPreferenceStore.read()
-                    saveOrbotEnabled(next)
+                    val next = !orbotEnginePreferenceStore.isEnabled()
+                    orbotEnginePreferenceStore.setEnabled(next)
+                    renderOrbotRow()
                     refreshEngineSummary()
-                    lifecycleScope.launch {
-                        val st = withContext(Dispatchers.IO) { OrbotEngine.probe() }
+                    reconnectForConnectionOptionChange()
+                    activityScope.launch {
+                        val host = orbotEnginePreferenceStore.readHost()
+                        val port = orbotEnginePreferenceStore.readPort()
+                        val st = withContext(Dispatchers.IO) { OrbotProbe.probe(host, port) }
+                        lastOrbotProbe = st
+                        renderOrbotRow()
                         val msg = if (st.reachable) {
-                            if (isFarsi) "✅ پورت 9050 (Orbot) فعال و متصل است" else "✅ Orbot SOCKS5 127.0.0.1:9050 reachable"
+                            if (isFarsi) "✅ پورت $port (Orbot) فعال و متصل است" else "✅ Orbot SOCKS5 $host:$port reachable"
                         } else {
-                            if (isFarsi) "⚠️ حالت Tor تغییر کرد؛ برای اتصال، اپ Orbot را روشن کنید (پورت 9050)" else "⚠️ Tor mode updated; start Orbot on port 9050"
+                            if (isFarsi) "⚠️ حالت Tor تغییر کرد؛ برای اتصال، اپ Orbot را روشن کنید (پورت $port)" else "⚠️ Tor mode updated; start Orbot on port $port"
                         }
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                     }
@@ -10121,8 +10156,18 @@ class MainActivity : Activity() {
                     label = if (isFarsi) "⚡ حالت WARP / Gool" else "⚡ WARP / Gool Mode",
                     accent = false,
                 ) {
-                    showAetherModeSelector()
-                    mainHandler.postDelayed({ refreshEngineSummary() }, 600)
+                    val modes = listOf(AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque, AetherMode.MasquePsiphon)
+                    val labels = modes.map { modeLabelOf(it) }.toTypedArray()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(R.string.aether_mode)
+                        .setItems(labels) { _, index ->
+                            val current = aetherPreferenceStore.read()
+                            aetherPreferenceStore.save(current.copy(enabled = true, mode = modes[index], endpoint = null, endpointScannedAt = 0L))
+                            refreshEngineSummary()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
@@ -10131,24 +10176,40 @@ class MainActivity : Activity() {
                     label = if (isFarsi) "📡 اسکن و کلید WARP" else "📡 Scan & Key WARP",
                     accent = false,
                 ) {
-                    lifecycleScope.launch {
+                    activityScope.launch {
+                        val selected = aetherPreferenceStore.read()
+                        val tomlFile = java.io.File(filesDir, "aether.toml")
                         updateEngineProgress(20, if (isFarsi) "در حال دریافت کلید رایگان WARP/Masque…" else "Provisioning free WARP/Masque key…")
-                        val creds = withContext(Dispatchers.IO) {
-                            runCatching { AetherAutoProvisioner.ensureCredentials(this@MainActivity, forceRefresh = false) }.getOrNull()
+                        val proxy = if (currentVpnServiceState == VpnState.Started) {
+                            "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                        } else null
+                        val provResult = withContext(Dispatchers.IO) {
+                            runCatching { AetherOperations.provision(selected.mode, tomlFile, proxy) }.getOrNull()
                         }
                         updateEngineProgress(60, if (isFarsi) "در حال اسکن سریع‌ترین اندپوینت WARP/Masque روی خط شما…" else "Scanning fastest WARP/Masque endpoint…")
-                        val best = withContext(Dispatchers.IO) {
-                            runCatching { MasqueEndpointScanner.scanBest() }.getOrNull()
-                        }
+                        val scanResult = if (currentVpnServiceState == VpnState.Stopped) {
+                            withContext(Dispatchers.IO) {
+                                runCatching { AetherOperations.scan(selected.mode, tomlFile) }.getOrNull()
+                            }
+                        } else null
+                        val endpoints = scanResult?.getOrDefault(emptyList()).orEmpty()
+                        val best = endpoints.firstOrNull()
                         if (best != null) {
-                            aetherPreferenceStore.writeCustomEndpoint(best.endpoint)
+                            aetherPreferenceStore.save(
+                                aetherPreferenceStore.read().copy(
+                                    enabled = true,
+                                    endpoint = best.peer,
+                                    endpointScannedAt = System.currentTimeMillis(),
+                                ),
+                            )
                         }
+                        val keyOk = provResult?.isSuccess == true || (tomlFile.exists() && tomlFile.length() > 0L)
                         val doneMsg = when {
-                            creds != null && best != null ->
-                                if (isFarsi) "✅ کلید آماده + اندپوینت تمیز ${best.endpoint} (${best.latencyMs}ms)" else "✅ Key ready + endpoint ${best.endpoint} (${best.latencyMs}ms)"
+                            keyOk && best != null ->
+                                if (isFarsi) "✅ کلید آماده + اندپوینت تمیز ${best.peer} (${best.rttMillis}ms)" else "✅ Key ready + endpoint ${best.peer} (${best.rttMillis}ms)"
                             best != null ->
-                                if (isFarsi) "✅ اندپوینت تمیز ${best.endpoint} (${best.latencyMs}ms) ذخیره شد" else "✅ Clean endpoint ${best.endpoint} (${best.latencyMs}ms) saved"
-                            creds != null ->
+                                if (isFarsi) "✅ اندپوینت تمیز ${best.peer} (${best.rttMillis}ms) ذخیره شد" else "✅ Clean endpoint ${best.peer} (${best.rttMillis}ms) saved"
+                            keyOk ->
                                 if (isFarsi) "✅ کلید رایگان WARP/Masque دریافت و ذخیره شد" else "✅ Free WARP/Masque key saved"
                             else ->
                                 if (isFarsi) "⚠️ دریافت کلید/اسکن نیاز به اینترنت باز یا تغییر شبکه دارد" else "⚠️ Provision/scan failed on current network"
