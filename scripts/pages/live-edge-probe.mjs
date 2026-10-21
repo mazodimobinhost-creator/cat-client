@@ -1,13 +1,20 @@
 import { readFileSync } from 'node:fs';
 
 const base = process.env.LIVE_PANEL_URL || 'https://edge-aybca.catclient-ldqlurrj.workers.dev';
-const out = { base };
+const out = { base, event: process.env.GITHUB_EVENT_NAME || '?' };
 
 function summarizeHtml(html) {
   const title = (html.match(/<title[^>]*>([^<]+)<\/title>/i) || [])[1] || '';
   const code = (html.match(/cf-error-code[^>]*>([^<]+)</i) || [])[1] || '';
   const desc = (html.match(/<h2[^>]*>([^<]+)<\/h2>/i) || [])[1] || '';
-  return { title: title.trim(), code: code.trim(), desc: desc.trim(), len: html.length };
+  const what = (html.match(/What happened\?<\/h2>\s*<p[^>]*>([\s\S]{1,220}?)</i) || [])[1] || '';
+  return {
+    title: title.trim(),
+    code: code.trim(),
+    desc: desc.trim(),
+    what: what.replace(/\s+/g, ' ').trim(),
+    len: html.length,
+  };
 }
 
 for (const p of ['/health', '/api/version', '/?av=1.10.0-beta132&pv=6.69.17']) {
@@ -26,12 +33,30 @@ for (const p of ['/health', '/api/version', '/?av=1.10.0-beta132&pv=6.69.17']) {
 }
 
 const token = (process.env.CF_TOKEN || '').trim();
-const accountId = (process.env.CF_ACCOUNT || '').trim();
-out.hasSecrets = { token: token.length > 0, account: accountId.length > 0 };
+let accountId = (process.env.CF_ACCOUNT || '').trim();
+out.hasSecrets = { tokenLen: token.length, accountLen: accountId.length };
 
-if (token && accountId) {
+if (token) {
   const cfTest = {};
   const cfHdr = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  try {
+    const vr = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', { headers: cfHdr });
+    const vj = await vr.json();
+    cfTest.verifyStatus = vr.status;
+    cfTest.verifyResult = vj?.result?.status || vj?.errors || null;
+  } catch (e) {
+    cfTest.verifyErr = String((e && e.message) || e);
+  }
+  try {
+    const ar = await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=10', { headers: cfHdr });
+    const aj = await ar.json();
+    cfTest.accountsStatus = ar.status;
+    cfTest.accountsCount = (aj?.result || []).length;
+    if (aj?.result?.[0]?.id) accountId = aj.result[0].id;
+  } catch (e) {
+    cfTest.accountsErr = String((e && e.message) || e);
+  }
+
   let subdomain = 'zojfup';
   try {
     const subRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`, { headers: cfHdr });
@@ -88,41 +113,43 @@ if (token && accountId) {
     cfTest.uploadErr = String((e && e.message) || e);
   }
 
-  try {
-    const sr = await fetch(`${uploadUrl}/subdomain`, {
-      method: 'POST',
-      headers: cfHdr,
-      body: JSON.stringify({ enabled: true, previews_enabled: false }),
-    });
-    cfTest.subdomainEnableStatus = sr.status;
-  } catch (e) {
-    cfTest.subdomainEnableErr = String((e && e.message) || e);
-  }
-
-  const testUrl = `https://${workerName}.${subdomain}.workers.dev`;
-  cfTest.testUrl = testUrl;
-  cfTest.probes = [];
-  for (let i = 0; i < 6; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
+  if (cfTest.uploadOk) {
     try {
-      const pr = await fetch(`${testUrl}/api/version?t=${Date.now()}`, { redirect: 'manual' });
-      const ptxt = await pr.text();
-      cfTest.probes.push({
-        i,
-        status: pr.status,
-        body: ptxt.trimStart().startsWith('<') ? summarizeHtml(ptxt) : ptxt.slice(0, 200),
+      const sr = await fetch(`${uploadUrl}/subdomain`, {
+        method: 'POST',
+        headers: cfHdr,
+        body: JSON.stringify({ enabled: true, previews_enabled: false }),
       });
-      if (pr.status === 200 && ptxt.trimStart().startsWith('{')) break;
+      cfTest.subdomainEnableStatus = sr.status;
     } catch (e) {
-      cfTest.probes.push({ i, error: String((e && e.message) || e) });
+      cfTest.subdomainEnableErr = String((e && e.message) || e);
     }
-  }
 
-  try {
-    await fetch(uploadUrl, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
-    cfTest.cleanedUp = true;
-  } catch (e) {
-    cfTest.cleanupErr = String((e && e.message) || e);
+    const testUrl = `https://${workerName}.${subdomain}.workers.dev`;
+    cfTest.testUrl = testUrl;
+    cfTest.probes = [];
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const pr = await fetch(`${testUrl}/api/version?t=${Date.now()}`, { redirect: 'manual' });
+        const ptxt = await pr.text();
+        cfTest.probes.push({
+          i,
+          status: pr.status,
+          body: ptxt.trimStart().startsWith('<') ? summarizeHtml(ptxt) : ptxt.slice(0, 200),
+        });
+        if (pr.status === 200 && ptxt.trimStart().startsWith('{')) break;
+      } catch (e) {
+        cfTest.probes.push({ i, error: String((e && e.message) || e) });
+      }
+    }
+
+    try {
+      await fetch(uploadUrl, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+      cfTest.cleanedUp = true;
+    } catch (e) {
+      cfTest.cleanupErr = String((e && e.message) || e);
+    }
   }
   out.cfTest = cfTest;
 }
