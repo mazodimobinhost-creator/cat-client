@@ -853,7 +853,13 @@ async function healthProbe(sockets, opts) {
     raw = sockets.connect({ hostname: dial, port }, { allowHalfOpen: false, secureTransport: kind === 'plain' ? 'off' : 'starttls' });
     await withTimeout(raw.opened, 5000, 'connect-timeout');
     let sock = raw;
-    if (kind !== 'plain') { const up = raw.startTls(); if (up && up.writable) sock = up; }
+    if (kind !== 'plain') {
+      const tlsHost = kind === 'proxyip'
+        ? PX_PROBE_HOST
+        : (opts.host && !/^\d{1,3}(\.\d{1,3}){3}$/.test(opts.host) && opts.host.indexOf(':') < 0 && opts.host !== 'localhost' ? opts.host : PX_PROBE_HOST);
+      const up = raw.startTls({ expectedServerHostname: tlsHost });
+      if (up && up.writable) sock = up;
+    }
     const req = kind === 'proxyip'
       ? 'GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + PX_PROBE_HOST + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'
       : 'GET ' + (opts.path || '/') + ' HTTP/1.1\r\nHost: ' + opts.host + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n';
@@ -2413,12 +2419,14 @@ function wsClientLayer(socket) {
 async function openChainTransport(sockets, chain) {
   let socket;
   if (chain.tls) {
+    const sniName = chain.sni || chain.host;
     socket = sockets.connect({ hostname: chain.host, port: chain.port, allowHalfOpen: false }, { secureTransport: 'starttls' });
-    if (socket.opened) await socket.opened;
-    await socket.startTls({ servername: chain.sni || chain.host });
+    if (socket.opened) await withTimeout(socket.opened, 5000, 'connect-timeout');
+    const up = await socket.startTls({ expectedServerHostname: sniName, servername: sniName });
+    if (up && up.writable) socket = up;
   } else {
     socket = sockets.connect({ hostname: chain.host, port: chain.port, allowHalfOpen: false });
-    if (socket.opened) await socket.opened;
+    if (socket.opened) await withTimeout(socket.opened, 5000, 'connect-timeout');
   }
   if (chain.transport === 'ws' || chain.transport === 'httpupgrade') {
     const keyBytes = crypto.getRandomValues(new Uint8Array(16));

@@ -108,7 +108,7 @@ const JS_BUILTINS = new Set([
   'title', 'label', 'count', 'items', 'list', 'mode', 'state', 'time', 'date', 'size',
   'readable', 'writable', 'getReader', 'getWriter', 'read', 'write', 'releaseLock', 'close',
   'abort', 'signal', 'controller', 'closed', 'ready', 'enabled',
-  'connect', 'startTls', 'opened', 'allowHalfOpen', 'secureTransport',
+  'connect', 'startTls', 'opened', 'allowHalfOpen', 'secureTransport', 'expectedServerHostname',
   'accept', 'send', 'addEventListener', 'removeEventListener', 'readyState', 'webSocket',
 ]);
 
