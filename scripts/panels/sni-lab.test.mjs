@@ -178,7 +178,7 @@ console.log('\nSNI Lab — live SNI testing (panel 6.67.4)\n');
   // identifiers and encode string literals, so a regex would be testing the obfuscator. CI
   // re-runs this suite twice on purpose (readable source, then the obfuscated artifact), so
   // gating here loses nothing — and the behavioral checks above run on every artifact.
-  const readableSource = /function labCandidates\(/.test(source);
+  const readableSource = /function labCandidates\(/.test(source) && source.includes('lean single-file');
   if (readableSource) {
     ok('the browser probe is cross-origin and no-cors (a readable cross-origin GET is impossible)',
       /mode:'no-cors'/.test(source) && /fetch\('https:\/\/'\+sni/.test(source), 'labNet body changed');
