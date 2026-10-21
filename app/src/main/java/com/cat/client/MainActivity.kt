@@ -10556,7 +10556,12 @@ class MainActivity : Activity() {
     private fun copyPanelPasteCode() {
         val paste = CloudflareWorker.builtInPasteScript(this)
         val official = CloudflareWorker.pasteScriptIsSane(paste)
-        val text = if (official) paste else runCatching { CloudflareWorker.builtInWorkerScript(this) }.getOrNull()
+        val localText = if (official) paste else runCatching { CloudflareWorker.builtInWorkerScript(this) }.getOrNull()
+        val remoteText = newestPanelCache?.takeIf {
+            CloudflareWorker.pasteScriptIsSane(it.text) &&
+                PanelUpdate.preferRelease(PanelUpdate.parseVersion(localText.orEmpty()).orEmpty(), it.version)
+        }?.text
+        val text = remoteText ?: localText
         if (text.isNullOrBlank()) {
             Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
             return
@@ -10571,7 +10576,7 @@ class MainActivity : Activity() {
         }
         Toast.makeText(
             this,
-            if (official) R.string.cloud_code_copied else R.string.cloud_code_copied_large,
+            if (official || remoteText != null) R.string.cloud_code_copied else R.string.cloud_code_copied_large,
             Toast.LENGTH_LONG,
         ).show()
     }

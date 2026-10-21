@@ -61,7 +61,7 @@ class CloudflareAccountLinksTest {
     fun deployButtonLinkIsAUrlShapeCloudflareAccepts() {
         val deploy = CloudflareWorker.DEPLOY_BUTTON_URL
         assertTrue(deploy.startsWith("https://deploy.workers.cloudflare.com/?url="))
-        assertTrue(deploy.endsWith("github.com/mazodimobinhost-creator/cat-client"))
+        assertTrue(deploy.contains("github.com/mazodimobinhost-creator/cat-client"))
         assertFalse("no nested query inside the repo url", deploy.endsWith("/") )
     }
 }

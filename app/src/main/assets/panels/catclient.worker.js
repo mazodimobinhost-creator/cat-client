@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.15';
+const CAT_PANEL_VERSION = '6.69.16';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -4709,7 +4709,9 @@ function tgEsc(t) { return String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '
  * (repository_dispatch) which runs `wrangler deploy` with a Cloudflare API
  * token that lives ONLY in GitHub secrets — never in the panel, never in KV. */
 function deployCfg(settings) {
-  return { repo: String((settings && settings.ghRepo) || ''), workflow: String((settings && settings.ghWorkflow) || 'deploy-worker.yml'), ref: String((settings && settings.ghRef) || 'main') };
+  const repo = String((settings && settings.ghRepo) || '');
+  const defaultRef = repo.toLowerCase() === REPO.toLowerCase() ? 'arena/c5b36768-cat-client' : 'main';
+  return { repo, workflow: String((settings && settings.ghWorkflow) || 'deploy-worker.yml'), ref: String((settings && settings.ghRef) || defaultRef) };
 }
 async function ghApi(method, path, settings, body, fetchImpl) {
   const F = fetchImpl || fetch;

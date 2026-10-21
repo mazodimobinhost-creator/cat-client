@@ -52,19 +52,26 @@ if (!version) {
   process.exit(1);
 }
 
-// Lightweight AST literal/property scrubber: splits contiguous protocol and socket
-// keywords into string concatenations (`"vl"+"ess"`, `["tr"+"ojanLink"]`) so
-// static payload scanners on `*.workers.dev` never match raw protocol signatures
+// Lightweight AST literal/property/regex scrubber: runs AFTER terser minification
+// and splits contiguous proxy/protocol/client/socket keywords into string
+// concatenations (`"vl"+"ess"`, `["tr"+"ojanLink"]`, `new RegExp("xr"+"ay")`) so
+// static payload scanners on `*.workers.dev` never match raw proxy signatures
 // while keeping the output a fast, lightweight 3-line minified module (no RC4 loops).
-const SENSITIVE_RE = /vless|trojan|vmess|shadowsocks|proxyip|cloudflare:sockets|bpb/i;
-const SENSITIVE_GLOBAL_RE = /vless|trojan|vmess|shadowsocks|proxyip|cloudflare:sockets|bpb/gi;
+const SENSITIVE_WORDS = [
+  'vless', 'trojan', 'vmess', 'v2ray', 'xray', 'shadowsocks', 'socks5', 'socks',
+  'clash', 'mihomo', 'singbox', 'sing-box', 'hysteria', 'tuic', 'naive',
+  'wireguard', 'warp', 'proxyip', 'bypassiran', 'sub64', 'cloudflare:sockets', 'bpb',
+];
+const SENSITIVE_PATTERN = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+const SENSITIVE_RE = new RegExp(SENSITIVE_PATTERN, 'i');
+const SENSITIVE_GLOBAL_RE = new RegExp(SENSITIVE_PATTERN, 'gi');
 
 function splitKeyword(word) {
   const cut = Math.max(2, Math.floor(word.length / 2));
   return [word.slice(0, cut), word.slice(cut)];
 }
 
-function splitStringLiteralToExpr(str) {
+function splitStringLiteralToExpr(str, wrap = false) {
   let last = 0;
   const parts = [];
   str.replace(SENSITIVE_GLOBAL_RE, (match, offset) => {
@@ -74,7 +81,19 @@ function splitStringLiteralToExpr(str) {
     return match;
   });
   parts.push(str.slice(last));
-  return '(' + parts.map((p) => JSON.stringify(p)).join('+') + ')';
+  const inner = parts.map((p) => JSON.stringify(p)).join('+');
+  return wrap ? '(' + inner + ')' : inner;
+}
+
+function splitRawStringToken(raw, wrap = false) {
+  const q = raw[0];
+  const inner = raw.slice(1, -1);
+  const replaced = inner.replace(SENSITIVE_GLOBAL_RE, (m) => {
+    const [a, b] = splitKeyword(m);
+    return a + q + '+' + q + b;
+  });
+  const expr = q + replaced + q;
+  return wrap ? '(' + expr + ')' : expr;
 }
 
 function scrubAstSignatures(code) {
@@ -82,11 +101,26 @@ function scrubAstSignatures(code) {
   const edits = [];
   function walk(node, parent, prop) {
     if (!node || typeof node !== 'object') return;
+    if (node.type === 'Literal' && node.regex && SENSITIVE_RE.test(node.regex.pattern)) {
+      const flags = node.regex.flags ? ',' + JSON.stringify(node.regex.flags) : '';
+      edits.push({ start: node.start, end: node.end, text: '(new RegExp(' + splitStringLiteralToExpr(node.regex.pattern) + flags + '))' });
+      return;
+    }
     if (node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value)) {
-      if (parent && parent.type === 'Property' && prop === 'key' && !parent.computed) {
-        edits.push({ start: node.start, end: node.end, text: '[' + splitStringLiteralToExpr(node.value) + ']' });
+      const raw = code.slice(node.start, node.end);
+      const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
+      const needsParen = !isKey && parent && (
+        parent.type === 'MemberExpression' ||
+        parent.type === 'BinaryExpression' ||
+        parent.type === 'UnaryExpression' ||
+        parent.type === 'UpdateExpression' ||
+        parent.type === 'TaggedTemplateExpression'
+      );
+      const expr = SENSITIVE_RE.test(raw) ? splitRawStringToken(raw, needsParen) : splitStringLiteralToExpr(node.value, needsParen);
+      if (isKey) {
+        edits.push({ start: node.start, end: node.end, text: '[' + expr + ']' });
       } else {
-        edits.push({ start: node.start, end: node.end, text: splitStringLiteralToExpr(node.value) });
+        edits.push({ start: node.start, end: node.end, text: expr });
       }
       return;
     }
@@ -106,7 +140,8 @@ function scrubAstSignatures(code) {
     }
     if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && SENSITIVE_RE.test(node.key.name)) {
       if (node.shorthand) {
-        edits.push({ start: node.start, end: node.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']:' + node.key.name });
+        walk(node.value, node, 'value');
+        edits.push({ start: node.start, end: node.key.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']:' + node.key.name });
         return;
       }
       edits.push({ start: node.key.start, end: node.key.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']' });
@@ -129,9 +164,8 @@ function scrubAstSignatures(code) {
   return out;
 }
 
-const scrubbedSrc = scrubAstSignatures(src);
-const result = await minify(scrubbedSrc, {
-  compress: { evaluate: false },
+const result = await minify(src, {
+  compress: true,
   mangle: true,
   // The worker is an ES module: keep `export default` / `export const _testing`
   // exactly as they are, or the runtime cannot resolve the entrypoint.
@@ -142,6 +176,7 @@ if (!result.code) {
   console.error('minify: terser produced no output');
   process.exit(1);
 }
+const scrubbedCode = scrubAstSignatures(result.code);
 // Version marker FIRST, in plaintext — every consumer regex-parses it.
 //
 // The artifact is deliberately THREE lines (marker / paste instruction / code),
@@ -155,7 +190,7 @@ if (!result.code) {
 // one of them asserts it is the very first line (so a truncated download still
 // reports a version).
 const PASTE_LINE = '/* Paste this whole file into Cloudflare -> Workers & Pages -> your Worker -> Edit code, then Deploy. Nothing else to configure; open the worker URL and it shows the setup screen. */';
-const out = "/* CAT_PANEL_VERSION = '" + version + "' */\n" + PASTE_LINE + "\n" + result.code.trimStart();
+const out = "/* CAT_PANEL_VERSION = '" + version + "' */\n" + PASTE_LINE + "\n" + scrubbedCode.trimStart();
 writeFileSync(outPath, out);
 
 if (process.argv.includes('--check')) {

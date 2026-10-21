@@ -132,15 +132,21 @@ async function deployPanel(F, c, ref) {
   if (!isUuid(c.panelUuid)) {
     return { ok: false, error: 'PANEL_UUID is missing or invalid. Add a stable UUID as the bot Worker Secret before deploying; no Cloudflare request was made.' };
   }
-  const src = await F(panelSourceUrl(c, ref), { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
+  const branchUrl = 'https://raw.githubusercontent.com/' + c.repo + '/refs/heads/arena/c5b36768-cat-client/dist-panel/catpanel.min.js';
+  let src = await F(panelSourceUrl(c, ref), { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
+  if (!src.ok && !ref) {
+    try {
+      const bRes = await F(branchUrl, { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
+      if (bRes && bRes.ok) src = bRes;
+    } catch (e) { /* keep original error */ }
+  }
   if (!src.ok) return { ok: false, error: 'source ' + src.status + (ref ? ' — branch «' + ref + '» پیدا نشد' : ' — releases/latest در دسترس نیست') };
   let code = await src.text();
   if (!code.includes('export default') || !code.includes('CAT_PANEL_VERSION')) return { ok: false, error: 'source fetched but does not look like catclient.worker.js' };
   let ver = (code.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '?';
   if (ver === '6.69.12') return { ok: false, error: 'source v6.69.12 is blocked (known 1101 production failure)' };
-  if (!ref && ver !== '?' && cmpVer(ver, '6.69.15') < 0) {
+  if (!ref && ver !== '?' && cmpVer(ver, '6.69.16') < 0) {
     try {
-      const branchUrl = 'https://raw.githubusercontent.com/' + c.repo + '/refs/heads/arena/c5b36768-cat-client/dist-panel/catpanel.min.js';
       const bRes = await F(branchUrl, { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
       if (bRes && bRes.ok) {
         const bCode = await bRes.text();

@@ -29,6 +29,7 @@
   // before connecting Workers Builds.
   "name": "empty-wave-5d02",
   "main": "dist-panel/catpanel.min.js",
+  "no_bundle": true,
   // A snapshot date, not a version. It MUST equal the date the Wizard and the app
   // upload with (catclient.wizard.js COMPAT_DATE, CloudflareWorker.kt) so that every
   // deploy path runs the Worker with the same runtime behaviour;
