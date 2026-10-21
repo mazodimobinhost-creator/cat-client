@@ -764,7 +764,7 @@
     <string name="cloud_kv_bound">✓ KV storage bound (users, clean IPs and ports are saved in the panel).</string>
     <string name="cloud_kv_missing">⚠ No KV storage bound — the panel cannot save ANYTHING: clean IPs, users and settings disappear within minutes and subscriptions come out empty. Fix: make the API token with «Workers KV Storage: Edit», then tap “Update panel” (or deploy again).</string>
     <string name="cloud_panel_url">Panel (already unlocked with your UUID)</string>
-    <string name="cloud_uuid_is_password">UUID = your subscription secret AND the panel password: %1$s</string>
+    <string name="cloud_uuid_is_password">Subscription UUID: %1$s\nPanel login: username admin · default password admin (or your chosen password)</string>
     <string name="cloud_copy_all">Copy all</string>
     <string name="scanner_build_configs">📥 Build Cat configs from these IPs</string>
     <string name="scanner_build_title">Build configs from scan</string>

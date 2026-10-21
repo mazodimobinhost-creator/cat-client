@@ -2011,12 +2011,12 @@ class MainActivity : Activity() {
     private suspend fun pushChainToPanelSuspend(link: String) {
         val base = withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
-        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(this, base) }.getOrNull().orEmpty()
         withContext(Dispatchers.Main) {
             val input = TextInputEditText(this@MainActivity).apply {
                 hint = getString(R.string.pip_password_hint)
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                if (storedUuid.isNotBlank()) setText(storedUuid)
+                if (storedPass.isNotBlank()) setText(storedPass)
             }
             val box = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -8496,7 +8496,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
             return
         }
-        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(this, base) }.getOrNull().orEmpty()
         // A panel deployed with a username rejects password-only logins, so ask
         // for it right here (once — it is remembered per panel) instead of
         // letting the push fail with «wrong password».
@@ -8505,14 +8505,12 @@ class MainActivity : Activity() {
         val userInput = TextInputEditText(this).apply {
             hint = getString(R.string.cloud_panel_user_hint)
             inputType = InputType.TYPE_CLASS_TEXT
+            setText("admin")
         }
         val input = TextInputEditText(this).apply {
             hint = getString(R.string.pip_password_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            // Default panel password IS the deploy UUID — the app already knows
-            // it, so prefill: send-to-panel becomes one tap (still editable for
-            // users who changed their panel password).
-            if (storedUuid.isNotBlank()) setText(storedUuid)
+            if (storedPass.isNotBlank()) setText(storedPass)
         }
         val replaceToggle = android.widget.CheckBox(this).apply {
             text = getString(R.string.scanner_replace_mode)
@@ -8739,7 +8737,7 @@ class MainActivity : Activity() {
                 panelUpdateInProgress = true
                 // No token? Token-free guided update — NEVER a token prompt.
                 if (token.isBlank()) presentTokenlessPanelUpdate(dep, deployed, script, updateAvailable)
-                else runPanelUpdate(dep, token, deployed, script)
+                else presentPanelUpdatePasswordDialog(dep, deployed, script, updateAvailable, token)
             }
             .setNeutralButton(R.string.panel_delete) { _, _ -> confirmPanelDelete(dep) }
             .setNegativeButton(android.R.string.cancel, null)
@@ -8880,7 +8878,8 @@ class MainActivity : Activity() {
                                 workerUrl = result.workerUrl,
                                 settingsJson = backup.settingsJson,
                                 usersJson = backup.usersJson,
-                                password = result.uuid,
+                                username = PanelCredentials.defaultUsername(this@MainActivity, result.workerUrl),
+                                password = PanelCredentials.defaultPassword(this@MainActivity, result.workerUrl),
                             )
                         }.getOrElse { CloudflareWorker.PanelRestoreResult(false, 0) }
                     }
@@ -9064,7 +9063,7 @@ class MainActivity : Activity() {
             panelUserLayout,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
-        val suggestedPanelPassword = List(12) { "abcdefghjkmnpqrstuvwxyz23456789".random() }.joinToString("")
+        val suggestedPanelPassword = "admin"
         val panelPassInput = TextInputEditText(this).apply {
             setSingleLine(true)
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -9172,47 +9171,62 @@ class MainActivity : Activity() {
                 ?.replace(Regex("-{2,}"), "-")
                 ?.trim('-')
                 ?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
-            cloudDeployInProgress = true
-            deployButton.isEnabled = false
-            activityScope.launch {
-                try {
-                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
-                    val permissions = CloudflareWorker.verifyToken(token)
-                    val accountId = permissions.accountId
-                    if (!permissions.valid || accountId == null) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                        return@launch
+            val effectiveUser = panelUserInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
+            val effectivePass = panelPassInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
+            val bundledVer = CloudflareWorker.bundledPanelVersion(this).ifBlank { "6.69.17" }
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.cloud_deploy)
+                .setMessage(
+                    "Worker: $workerName\n" +
+                        "Version: Cat Panel v$bundledVer\n" +
+                        "Login: $effectiveUser / $effectivePass\n" +
+                        "Bindings: UUID + CAT_KV + OPEN_SUB=false + CF_API_TOKEN (one-click update)",
+                )
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.cloud_deploy) { _, _ ->
+                    cloudDeployInProgress = true
+                    deployButton.isEnabled = false
+                    activityScope.launch {
+                        try {
+                            Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
+                            val permissions = CloudflareWorker.verifyToken(token)
+                            val accountId = permissions.accountId
+                            if (!permissions.valid || accountId == null) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                return@launch
+                            }
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.cloud_deploying, workerName),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            val result = CloudflareWorker.deployBuiltIn(
+                                this@MainActivity,
+                                token,
+                                accountId,
+                                workerName,
+                                panelUser = effectiveUser,
+                                panelPassword = effectivePass,
+                            )
+                            PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                            showCloudDeploymentDialog(result)
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        } finally {
+                            cloudDeployInProgress = false
+                            deployButton.isEnabled = true
+                        }
                     }
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploying, workerName),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    val result = CloudflareWorker.deployBuiltIn(
-                        this@MainActivity,
-                        token,
-                        accountId,
-                        workerName,
-                        panelUser = panelUserInput.text?.toString()?.trim().orEmpty(),
-                        panelPassword = panelPassInput.text?.toString()?.trim().orEmpty(),
-                    )
-                    PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
-                    showCloudDeploymentDialog(result)
-                } catch (e: Exception) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                } finally {
-                    cloudDeployInProgress = false
-                    deployButton.isEnabled = true
                 }
-            }
+                .show()
         }
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
@@ -9801,10 +9815,10 @@ class MainActivity : Activity() {
     private fun showPanelStatusDialog(base0: String) {
         val base = base0.trim().trimEnd('/')
         activityScope.launch {
-            var password = runCatching { PanelDeploymentStore(this@MainActivity).uuidFor(base) }.getOrNull().orEmpty()
+            var password = runCatching { PanelCredentials.defaultPassword(this@MainActivity, base) }.getOrNull().orEmpty()
             var result = withContext(Dispatchers.IO) { runCatching { fetchPanelStatus(base, password) } }
             if (result.isFailure && password.isNotBlank()) {
-                // stored UUID rejected (password changed) → ask once
+                // stored password rejected (password changed) → ask once
                 val asked = kotlinx.coroutines.withContext(Dispatchers.Main) {
                     suspendCancellableCoroutine<String?> { cont ->
                         val input = TextInputEditText(this@MainActivity).apply {
@@ -9830,6 +9844,9 @@ class MainActivity : Activity() {
                 if (asked.isNullOrBlank()) return@launch
                 password = asked
                 result = withContext(Dispatchers.IO) { runCatching { fetchPanelStatus(base, password) } }
+                if (result.isSuccess) {
+                    PanelCredentials.remember(this@MainActivity, base, PanelCredentials.defaultUsername(this@MainActivity, base), password)
+                }
             }
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 result.onSuccess { text ->
@@ -10182,7 +10199,7 @@ class MainActivity : Activity() {
             .setTitle(R.string.cloud_update_tokenless_title)
             .setMessage(message)
             .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
-            .setPositiveButton(R.string.cloud_update_tokenless_btn) { _, _ ->
+            .setNeutralButton(R.string.cloud_update_tokenless_btn) { _, _ ->
                 panelUpdateInProgress = false
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", newest.text))
@@ -10191,6 +10208,20 @@ class MainActivity : Activity() {
                 }
                 Toast.makeText(this, R.string.cloud_update_tokenless_go, Toast.LENGTH_LONG).show()
             }
+            .setPositiveButton(R.string.cloud_update_confirm) { _, _ ->
+                Toast.makeText(this, R.string.cloud_update_running, Toast.LENGTH_SHORT).show()
+                activityScope.launch {
+                    val selfUpdated = CloudflareWorker.triggerPanelSelfUpdate(this@MainActivity, deployment.workerUrl)
+                    if (selfUpdated != null) {
+                        panelUpdateInProgress = false
+                        renderCloudDeploymentHistory()
+                        showCloudUpdateDialog(selfUpdated)
+                    } else {
+                        presentPanelTokenPrompt(deployment, deployed, newest)
+                    }
+                }
+            }
+            .setOnCancelListener { panelUpdateInProgress = false }
             .show()
     }
 
@@ -10281,7 +10312,25 @@ class MainActivity : Activity() {
         hasUpdate: Boolean,
         savedToken: String,
     ) {
-        runPanelUpdate(deployment, savedToken, deployed, newest)
+        val message = if (hasUpdate) {
+            getString(
+                R.string.cloud_update_message,
+                deployment.workerUrl.removePrefix("https://"),
+                deployed ?: "?",
+                newest.version,
+            )
+        } else {
+            getString(R.string.cloud_update_uptodate_message, newest.version)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cloud_update_title)
+            .setMessage(message)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
+            .setPositiveButton(if (hasUpdate) R.string.cloud_update_confirm else R.string.cloud_update_reinstall) { _, _ ->
+                runPanelUpdate(deployment, savedToken, deployed, newest)
+            }
+            .setOnCancelListener { panelUpdateInProgress = false }
+            .show()
     }
 
     private fun runPanelUpdate(
@@ -10690,7 +10739,7 @@ class MainActivity : Activity() {
     /** Step 3/4 — name + password, then deploy with a progress dialog. */
     private fun showPanelWizardOptions(token: String, accountId: String) {
         val (nameLayout, nameEdit) = wizardField(getString(R.string.cloud_worker_name_hint), initial = CloudflareWorker.randomWorkerName())
-        val (passLayout, passEdit) = wizardField(getString(R.string.cloud_panel_password_hint), password = true)
+        val (passLayout, passEdit) = wizardField(getString(R.string.cloud_panel_password_hint), password = true, initial = "admin")
         MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.wizard_step, 3, 4) + " · " + getString(R.string.wizard_options_title))
             .setView(wizardBody(wizardText(getString(R.string.wizard_options_help)), nameLayout, passLayout, wizardText(getString(R.string.wizard_options_note), secondary = true)))
@@ -11354,12 +11403,12 @@ class MainActivity : Activity() {
     private suspend fun pushSniMainToPanelSuspend(sni: String) {
         val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
-        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(this, base) }.getOrNull().orEmpty()
         kotlinx.coroutines.withContext(Dispatchers.Main) {
             val input = TextInputEditText(this@MainActivity).apply {
                 hint = getString(R.string.pip_password_hint)
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                if (storedUuid.isNotBlank()) setText(storedUuid)
+                if (storedPass.isNotBlank()) setText(storedPass)
             }
             val box = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -11408,9 +11457,9 @@ class MainActivity : Activity() {
     private suspend fun pushSniToPanelSuspend(sni: String) {
         val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
-        val storedUuid = runCatching { PanelDeploymentStore(this).uuidFor(base) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(this, base) }.getOrNull().orEmpty()
         val input = EditText(this).apply {
-            if (storedUuid.isNotBlank()) setText(storedUuid)
+            if (storedPass.isNotBlank()) setText(storedPass)
             hint = getString(R.string.pip_password_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }

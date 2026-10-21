@@ -1076,8 +1076,9 @@ object CloudflareWorker {
         // Existing owner-selected paths remain supported by the Worker, but fresh
         // deployments keep a transparent panel URL.
         val stealthPath = ""
-        if (stealthPath.isNotBlank()) {
-            PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
+        PanelDeploymentStore(context).rememberLast(workerUrl, uuid, stealthPath)
+        if (token.isNotBlank()) {
+            PanelDeploymentStore(context).rememberToken(workerUrl, token)
         }
 
         DeploymentResult(
@@ -1090,8 +1091,10 @@ object CloudflareWorker {
             verifiedOnline = verifiedOnline,
             uuid = uuid,
             panelUrl = (if (stealthPath.isNotBlank()) {
-                "$workerUrl/$stealthPath" + if (panelUser.isNotBlank()) "/" else "/?p=$uuid"
-            } else if (panelUser.isNotBlank()) workerUrl else "$workerUrl/?p=$uuid")
+                "$workerUrl/$stealthPath/"
+            } else {
+                workerUrl
+            })
                 // The panel drops ?p= into a cookie and redirects to the clean URL
                 // (6.67.0), so these handshake params survive the hop and the panel
                 // can warn the owner when the app and the panel disagree.
@@ -1121,9 +1124,9 @@ object CloudflareWorker {
         ) : PanelUpdateOutcome() {
             val panelUrl: String
                 get() {
-                    val base = workerUrl.trimEnd('/') + "/?p=" + uuid
+                    val base = workerUrl.trimEnd('/')
                     val q = panelHandshakeQuery(bundledVersion)
-                    return if (q.isBlank()) base else base + "&" + q
+                    return if (q.isBlank()) base else base + "?" + q
                 }
             val panelVersion: String get() = health?.version.orEmpty()
             val scriptNeverLoaded: Boolean get() = health?.scriptNeverLoaded == true
@@ -1259,6 +1262,9 @@ object CloudflareWorker {
         val health = waitForPanel(normalized, uuid, subscriptionKeys(context, normalized, uuid))
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         PanelDeploymentStore(context).rememberLast(normalized, uuid)
+        if (token.isNotBlank()) {
+            PanelDeploymentStore(context).rememberToken(normalized, token)
+        }
         PanelUpdateOutcome.Success(
             workerUrl = normalized,
             uuid = uuid,
@@ -1270,6 +1276,75 @@ object CloudflareWorker {
             health = health,
             bundledVersion = bundledPanelVersion(context),
         )
+    }
+
+    /**
+     * Trigger the panel's own self-update endpoint (`POST /api/update-apply`),
+     * which uses the `CF_API_TOKEN` / `CF_ACCOUNT_ID` / `CF_WORKER_NAME` bound
+     * on the Worker at deploy time so no token is needed on the phone.
+     */
+    suspend fun triggerPanelSelfUpdate(
+        context: Context,
+        workerUrl: String,
+        password: String = "",
+    ): PanelUpdateOutcome.Success? = withContext(Dispatchers.IO) {
+        val base = workerUrl.trimEnd('/')
+        runCatching {
+            val loginConn = (URL("$base/api/login").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+            }
+            loginConn.outputStream.use {
+                it.write(PanelCredentials.loginPayload(context, base, password).toString().toByteArray(Charsets.UTF_8))
+            }
+            val loginCode = loginConn.responseCode
+            val loginBody = (if (loginCode in 200..299) loginConn.inputStream else loginConn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val cookie = loginConn.headerFields?.entries
+                ?.filter { it.key.equals("set-cookie", true) }
+                ?.flatMap { it.value }
+                ?.joinToString("; ") { it.substringBefore(';') }
+                .orEmpty()
+            loginConn.disconnect()
+            if (loginCode != 200 || cookie.isBlank() || !JSONObject(loginBody).optBoolean("ok", false)) {
+                return@runCatching null
+            }
+            val applyConn = (URL("$base/api/update-apply").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 20_000
+                readTimeout = 45_000
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cookie", cookie)
+            }
+            applyConn.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+            val applyCode = applyConn.responseCode
+            val applyBody = (if (applyCode in 200..299) applyConn.inputStream else applyConn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            applyConn.disconnect()
+            val json = JSONObject(applyBody)
+            if (applyCode != 200 || !json.optBoolean("ok", false)) return@runCatching null
+            val toVer = json.optString("to").ifBlank { json.optString("toVersion").ifBlank { json.optString("version") } }
+            val fromVer = json.optString("from").ifBlank { json.optString("fromVersion") }
+            val uuid = PanelDeploymentStore(context).uuidFor(base)
+            val health = waitForPanel(base, uuid, subscriptionKeys(context, base, uuid), attempts = 6, delayMs = 2_500L)
+            PanelUpdateOutcome.Success(
+                workerUrl = base,
+                uuid = uuid,
+                fromVersion = fromVer,
+                toVersion = toVer.ifBlank { health.version },
+                verifiedOnline = health.online,
+                kvBound = true,
+                fromRelease = true,
+                health = health,
+                bundledVersion = bundledPanelVersion(context),
+            )
+        }.getOrNull()
     }
 
     /** Neutral, non-branded worker name for fresh deploys (e.g. "edge-a7k2m9"). */
@@ -1515,9 +1590,17 @@ object CloudflareWorker {
             return Triple(code, text, setCookie)
         }
 
-        val (loginCode, loginBody, cookie) = call("/api/login", "POST", JSONObject().put("username", username).put("password", password).toString(), null)
-        val loginOk = loginCode == 200 && cookie.isNotBlank() &&
+        val effectiveUser = username.ifBlank { "admin" }
+        val effectivePass = password.ifBlank { "admin" }
+        var (loginCode, loginBody, cookie) = call("/api/login", "POST", JSONObject().put("username", effectiveUser).put("password", effectivePass).toString(), null)
+        var loginOk = loginCode == 200 && cookie.isNotBlank() &&
             runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        if (!loginOk && (effectiveUser != "admin" || effectivePass != "admin")) {
+            val retry = call("/api/login", "POST", JSONObject().put("username", "admin").put("password", "admin").toString(), null)
+            loginCode = retry.first; loginBody = retry.second; cookie = retry.third
+            loginOk = loginCode == 200 && cookie.isNotBlank() &&
+                runCatching { JSONObject(loginBody).optBoolean("ok") }.getOrDefault(false)
+        }
         if (!loginOk) return PanelRestoreResult(false, 0)
 
         var settingsOk = false
@@ -1878,9 +1961,7 @@ data class PanelDeploymentRecord(
     val panelUrl: String
         get() {
             val base = workerUrl.trimEnd('/')
-            // Attached external panels have no stored UUID: open them plainly.
-            if (uuid.isBlank()) return if (path.isBlank()) base else base + "/" + path
-            return if (path.isBlank()) base + "/?p=" + uuid else base + "/" + path + "/?p=" + uuid
+            return if (path.isBlank()) base else base + "/" + path
         }
 }
 
@@ -1974,11 +2055,15 @@ class PanelDeploymentStore(context: Context) {
      * the panel password instead.
      */
     fun rememberToken(workerUrl: String, token: String) {
-        prefs.edit().putString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), token).apply()
+        val edit = prefs.edit()
+            .putString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), token)
+        if (token.isNotBlank()) edit.putString("last_token", token)
+        edit.apply()
     }
 
     fun tokenFor(workerUrl: String): String? =
         prefs.getString("token:" + workerUrl.trimEnd('/').lowercase(Locale.US), null)?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("last_token", null)?.takeIf { it.isNotBlank() }
 
     fun rememberRollbackSummary(workerUrl: String, summary: String) {
         prefs.edit().putString("rollback:" + workerUrl.trimEnd('/').lowercase(Locale.US), summary).apply()

@@ -10,13 +10,13 @@
 
 <br>
 
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta131/CatClient-V1.10.0-beta131-arm64-v8a.apk"><kbd>📥 دانلود برای بیشتر گوشی‌ها</kbd></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta132/CatClient-V1.10.0-beta132-arm64-v8a.apk"><kbd>📥 دانلود برای بیشتر گوشی‌ها</kbd></a>
 &nbsp;
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta131/CatClient-V1.10.0-beta131-universal.apk"><kbd>📦 دانلود نسخه Universal</kbd></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta132/CatClient-V1.10.0-beta132-universal.apk"><kbd>📦 دانلود نسخه Universal</kbd></a>
 
 <br><br>
 
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta131"><kbd>🐙 همه فایل‌های نسخه beta131</kbd></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/tag/v1.10.0-beta132"><kbd>🐙 همه فایل‌های نسخه beta132</kbd></a>
 &nbsp;
 <a href="https://github.com/mazodimobinhost-creator/cat-client/issues/new"><kbd>💬 گزارش مشکل</kbd></a>
 
@@ -29,7 +29,7 @@
 </div>
 
 > [!IMPORTANT]
-> `beta131` نسخه آزمایشی است؛ تست‌های خودکار موفق‌اند، اما تست گوشی فیزیکی و Cloudflare واقعی هنوز نهایی نشده‌اند.
+> `beta132` نسخه آزمایشی است؛ تست‌های خودکار موفق‌اند، اما تست گوشی فیزیکی و Cloudflare واقعی هنوز نهایی نشده‌اند.
 
 ## ✨ چه چیزهایی دارد؟
 
@@ -49,9 +49,9 @@ Cat Panel یک Worker تک‌فایلی و phone-first است که پنل مدی
 
 <div align="center">
 
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta131/catclient.worker.js"><kbd>📄 دریافت Worker</kbd></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta132/catclient.worker.js"><kbd>📄 دریافت Worker</kbd></a>
 &nbsp;
-<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta131/catclient.wizard.js"><kbd>🧙 دریافت Wizard</kbd></a>
+<a href="https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta132/catclient.wizard.js"><kbd>🧙 دریافت Wizard</kbd></a>
 &nbsp;
 <a href="docs/error-1101-fa.md"><kbd>🧯 راهنمای Error 1101</kbd></a>
 

@@ -763,7 +763,7 @@
     <string name="cloud_kv_bound">✓ فضای KV وصل شد (کاربران، آی‌پی‌های تمیز و پورت‌ها داخل پنل ذخیره می‌شوند).</string>
     <string name="cloud_kv_missing">⚠ فضای KV وصل نشد — پنل هیچ‌چیز را ذخیره نمی‌کند: IP تمیز، کاربر و تنظیمات بعد از چند دقیقه می‌روند و ساب خالی درمی‌آید. راه‌حل: توکن را با دسترسی «Workers KV Storage: Edit» بساز و «به‌روزرسانی پنل» را بزن (یا دوباره دیپلوی کن).</string>
     <string name="cloud_panel_url">پنل (با UUID تو باز شده)</string>
-    <string name="cloud_uuid_is_password">UUID = هم رمز سابسکریپشن و هم رمز ورود پنل: %1$s</string>
+    <string name="cloud_uuid_is_password">کلید سابسکریپشن (UUID): %1$s\nورود به پنل: نام کاربری admin · رمز پیش‌فرض admin (یا رمز انتخابی شما)</string>
     <string name="cloud_copy_all">کپی همه</string>
     <string name="scanner_build_configs">📥 ساخت کانفیگ Cat با همین آی‌پی‌ها</string>
     <string name="scanner_build_title">ساخت کانفیگ از نتیجهٔ اسکن</string>

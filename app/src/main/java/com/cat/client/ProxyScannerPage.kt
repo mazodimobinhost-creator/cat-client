@@ -526,7 +526,7 @@ class ProxyScannerPage(
             }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val password = runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty().ifBlank { "admin" }
+                    val password = runCatching { PanelCredentials.defaultPassword(activity, base) }.getOrNull().orEmpty().ifBlank { "admin" }
                     val loginConn = (URL("$base/api/login").openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 8_000; doOutput = true
                         setRequestProperty("Content-Type", "application/json")

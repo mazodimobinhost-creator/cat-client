@@ -814,11 +814,11 @@ class ProxyIpScannerPage(
         scope.launch {
         val base = (pickPanel?.invoke() ?: panelUrl)?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) { Toast.makeText(ctx, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return@launch }
-        val storedUuid = runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(activity, base) }.getOrNull().orEmpty()
         val input = EditText(ctx).apply {
             hint = ctx.getString(R.string.pip_password_hint); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
-            if (storedUuid.isNotBlank()) setText(storedUuid)
+            if (storedPass.isNotBlank()) setText(storedPass)
         }
         val replaceToggle = android.widget.CheckBox(ctx).apply {
             text = ctx.getString(R.string.pip_replace_mode); textSize = 13f
@@ -948,11 +948,11 @@ class ProxyIpScannerPage(
     }
 
     private fun showPullDialog(resolved: String) {
-        val storedUuid = runCatching { PanelDeploymentStore(activity).uuidFor(resolved) }.getOrNull().orEmpty()
+        val storedPass = runCatching { PanelCredentials.defaultPassword(activity, resolved) }.getOrNull().orEmpty()
         val input = EditText(ctx).apply {
             hint = ctx.getString(R.string.pip_password_hint); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setTextColor(palette.textPrimary); setHintTextColor(palette.textTertiary); setPadding(dp(16), dp(12), dp(16), dp(12))
-            if (storedUuid.isNotBlank()) setText(storedUuid)
+            if (storedPass.isNotBlank()) setText(storedPass)
         }
         com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
             .setTitle(ctx.getString(R.string.pip_pull_panel))

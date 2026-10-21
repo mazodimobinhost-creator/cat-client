@@ -49,14 +49,22 @@ object PanelCredentials {
             .getString(key(workerUrl, "pass"), null)
             .orEmpty()
 
+    /** Effective panel username: stored username, falling back to 'admin'. */
+    fun defaultUsername(context: Context, workerUrl: String): String =
+        username(context, workerUrl).ifBlank { "admin" }
+
+    /** Effective panel password: stored password, falling back to 'admin'. */
+    fun defaultPassword(context: Context, workerUrl: String): String =
+        password(context, workerUrl).ifBlank { "admin" }
+
     /**
      * Login body for /api/login. `username` is always present (empty string when
      * the panel has none) — the worker compares it only when PANEL_USER is set,
      * and an empty value never matches a set username, so this stays correct for
      * both flavours of panel.
      *
-     * The pure overload is what the JVM tests pin; the Context one only supplies
-     * the stored values.
+     * The pure overload is what the JVM tests pin; the Context one supplies
+     * the stored values (defaulting to admin/admin when not overridden).
      */
     fun loginPayload(storedUsername: String, password: String, storedPassword: String = ""): JSONObject =
         JSONObject()
@@ -64,5 +72,5 @@ object PanelCredentials {
             .put("password", if (password.isNotBlank()) password else storedPassword)
 
     fun loginPayload(context: Context, workerUrl: String, password: String): JSONObject =
-        loginPayload(username(context, workerUrl), password, password(context, workerUrl))
+        loginPayload(defaultUsername(context, workerUrl), password, defaultPassword(context, workerUrl))
 }
