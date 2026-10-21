@@ -50,12 +50,12 @@ jobs:
           sleep 3
           W_HEALTH=$(curl -sS -i -m 4 http://127.0.0.1:8798/health 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
           W_VER=$(curl -sS -i -m 4 http://127.0.0.1:8798/api/version 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
-          W_PANEL=$(curl -sS -i -m 4 "http://127.0.0.1:8798/panel/?av=1.10.0-beta136&pv=6.69.21" 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
+          W_PANEL=$(curl -sS -i -m 4 "http://127.0.0.1:8798/panel/?av=1.10.0-beta137&pv=6.69.22" 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
           W_SOCK=$(curl -sS -i -m 6 -X POST -H "x-cat-key: admin" -H "content-type: application/json" -d '{"tests":[{"addr":"104.16.132.229","port":443,"kind":"proxyip"}]}' http://127.0.0.1:8798/api/ip-test 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
           kill "$WPID" 2>/dev/null || true
           rm -f scripts/panels/min-test.capnp
           W_LOG=$(tail -n 20 /tmp/workerd-min.log 2>/dev/null | tr '\r\n' ' ' | head -c 400 || true)
-          echo "::notice title=workerd-min-6.69.21::health=$W_HEALTH | ver=$W_VER | sock=$W_SOCK | panel=$W_PANEL | log=$W_LOG"
+          echo "::notice title=workerd-min-6.69.22::health=$W_HEALTH | ver=$W_VER | sock=$W_SOCK | panel=$W_PANEL | log=$W_LOG"
           node scripts/pages/live-edge-probe.mjs
       - name: Reject committed credentials
         run: |

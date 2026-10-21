@@ -989,7 +989,9 @@ object CloudflareWorker {
         panelPassword: String = "",
         workerScriptOverride: String? = null,
         isRepair: Boolean = false,
+        onProgress: (percent: Int, stepFa: String, stepEn: String) -> Unit = { _, _, _ -> },
     ): DeploymentResult = withContext(Dispatchers.IO) {
+        onProgress(20, "در حال دریافت دامنه workers.dev اکانت…", "Resolving workers.dev subdomain…")
         // 1. Account workers.dev subdomain: read it, create it when missing.
         val subdomain = resolveWorkersSubdomain(token, accountId)
         val workerUrl = "https://$workerName.$subdomain.workers.dev"
@@ -997,6 +999,7 @@ object CloudflareWorker {
         // 2. Keep the UUID stable across re-deploys (it is the sub secret AND the panel password).
         val uuid = PanelDeploymentStore(context).uuidFor(workerUrl)
 
+        onProgress(40, "در حال ساخت و اتصال حافظه پنل (CAT_KV)…", "Creating and binding CAT_KV namespace…")
         // 3. KV namespace so users / clean IPs / ports survive restarts (optional: token may lack the scope).
         //    A deployment WITHOUT it looks alive but forgets everything (clean IPs
         //    «disappear», every save button seems broken) — so the failure is kept
@@ -1004,6 +1007,7 @@ object CloudflareWorker {
         val kvAttempt = runCatching { ensureKvNamespace(token, accountId, "${workerName}-catpanel") }
         val kvId = kvAttempt.getOrNull()
 
+        onProgress(60, "در حال آماده‌سازی و آپلود کد ورکر پنل…", "Preparing and uploading panel Worker…")
         // 4. Upload the worker module (multipart: metadata JSON + worker.js).
         val builtInScript = builtInWorkerScript(context)
         val script = workerScriptOverride ?: run {
@@ -1052,6 +1056,7 @@ object CloudflareWorker {
         }
 
         // 5. Make sure the workers.dev route is enabled for this script.
+        onProgress(80, "در حال فعال‌سازی مسیر عمومی workers.dev…", "Enabling workers.dev route…")
         runCatching {
             cfPost(
                 token,
@@ -1066,7 +1071,9 @@ object CloudflareWorker {
         //    normal for a fresh route), «the file never loaded» (any other edge error
         //    page instead of JSON — the 1101 that has no report) and «not reachable
         //    at all» (nothing answered).
+        onProgress(92, "در حال بررسی بالا آمدن پنل و آماده‌سازی لینک اشتراک…", "Verifying live panel and subscription…")
         val health = waitForPanel(workerUrl, uuid, subscriptionKeys(context, workerUrl, uuid))
+        onProgress(100, "✅ نصب پنل کامل شد!", "Panel deployment complete!")
         val verifiedOnline = health.online && (uuid.isBlank() || health.subOk)
         val bundledVersion = PanelUpdate.parseVersion(script).orEmpty().ifBlank { bundledPanelVersion(context) }
 

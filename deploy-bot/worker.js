@@ -145,7 +145,7 @@ async function deployPanel(F, c, ref) {
   if (!code.includes('export default') || !code.includes('CAT_PANEL_VERSION')) return { ok: false, error: 'source fetched but does not look like catclient.worker.js' };
   let ver = (code.match(/CAT_PANEL_VERSION = '([^']+)'/) || [])[1] || '?';
   if (ver === '6.69.12') return { ok: false, error: 'source v6.69.12 is blocked (known 1101 production failure)' };
-  if (!ref && ver !== '?' && cmpVer(ver, '6.69.21') < 0) {
+  if (!ref && ver !== '?' && cmpVer(ver, '6.69.22') < 0) {
     try {
       const bRes = await F(branchUrl, { redirect: 'follow', headers: { 'user-agent': 'cat-deploy-bot' } });
       if (bRes && bRes.ok) {

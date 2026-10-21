@@ -1916,19 +1916,73 @@ class MainActivity : Activity() {
             gravity = Gravity.START
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        val refreshAction = actions.firstOrNull { it.first == R.string.subscription_action_refresh }?.second
+        val optimizeAction = actions.firstOrNull { it.first == R.string.subscription_action_optimize }?.second
+        val isFarsiSub = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val bottomActionRow = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = getString(R.string.servers_open_list) + "  ›"
+                    textSize = 13f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    includeFontPadding = false
+                    isClickable = true
+                    isFocusable = true
+                    setPaddingRelative(0, dp(6), dp(8), dp(6))
+                    setOnClickListener { onTestConnections() }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            if (refreshAction != null) {
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = if (isFarsiSub) "🔄 بروزرسانی" else "🔄 Refresh"
+                        textSize = 11.5f
+                        typeface = CatClientBodyBoldTypeface
+                        setTextColor(TEXT_PRIMARY)
+                        includeFontPadding = false
+                        isClickable = true
+                        isFocusable = true
+                        setPadding(dp(10), dp(5), dp(10), dp(5))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(999).toFloat()
+                            setColor(withAlpha(TEAL, 24))
+                            setStroke(dp(1), withAlpha(TEAL, 110))
+                        }
+                        setOnClickListener { refreshAction() }
+                    },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) },
+                )
+            }
+            if (optimizeAction != null) {
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = if (isFarsiSub) "⚡ بهینه‌سازی خط من" else "⚡ Optimize"
+                        textSize = 11.5f
+                        typeface = CatClientBodyBoldTypeface
+                        setTextColor(TEAL)
+                        includeFontPadding = false
+                        isClickable = true
+                        isFocusable = true
+                        setPadding(dp(10), dp(5), dp(10), dp(5))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(999).toFloat()
+                            setColor(withAlpha(TEAL, 32))
+                            setStroke(dp(1), TEAL)
+                        }
+                        setOnClickListener { optimizeAction() }
+                    },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) },
+                )
+            }
+        }
         addView(
-            TextView(this@MainActivity).apply {
-                text = getString(R.string.servers_open_list) + "  ›"
-                textSize = 13f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEAL)
-                includeFontPadding = false
-                isClickable = true
-                isFocusable = true
-                setPaddingRelative(0, dp(6), dp(8), 0)
-                setOnClickListener { onTestConnections() }
-            },
-            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
+            bottomActionRow,
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
         )
     }
 
@@ -5500,8 +5554,12 @@ class MainActivity : Activity() {
             badge = updateSettingsBadge,
         )
         indexBody.addView(
+            buildAntiCensorshipEnginesCard(),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) },
+        )
+        indexBody.addView(
             categoriesPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
         )
         val footerCopyrightText = TextView(this).apply {
             gravity = Gravity.CENTER
@@ -5645,7 +5703,54 @@ class MainActivity : Activity() {
                 bottomMargin = dp(18)
             },
         )
-        body.addView(
+        val isFarsiScanner = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val unifiedScannerTabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            background = glassSurfaceDrawable(radiusDp = 16)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            fun tabBtn(label: String, active: Boolean, onClick: () -> Unit): MaterialButton =
+                MaterialButton(this@MainActivity).apply {
+                    text = label
+                    isAllCaps = false
+                    textSize = 11.5f
+                    typeface = CatClientBodyBoldTypeface
+                    minHeight = dp(40)
+                    minimumHeight = dp(40)
+                    insetTop = 0
+                    insetBottom = 0
+                    cornerRadius = dp(12)
+                    setPadding(dp(8), 0, dp(8), 0)
+                    if (active) {
+                        backgroundTintList = ColorStateList.valueOf(TEAL)
+                        setTextColor(palette.onAccent)
+                    } else {
+                        backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+                        setTextColor(TEXT_PRIMARY)
+                    }
+                    setOnClickListener { onClick() }
+                }
+            addView(
+                tabBtn(if (isFarsiScanner) "💦 آی‌پی تمیز CF" else "💦 Clean IP", active = true) {},
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                tabBtn(if (isFarsiScanner) "🎯 اسکنر ProxyIP" else "🎯 ProxyIP", active = false) { showProxyIpScannerPage() },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) },
+            )
+            addView(
+                tabBtn(if (isFarsiScanner) "🧦 اسکنر SOCKS5" else "🧦 SOCKS5/Proxy", active = false) { showProxyScannerPage() },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) },
+            )
+        }
+        body.addView(unifiedScannerTabs, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
+        val extraScannerToolsHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+
+        extraScannerToolsHost.addView(
             advancedSettingsPanel().apply {
                 isClickable = true
                 isFocusable = true
@@ -5670,10 +5775,10 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(-1, -2),
                 )
             },
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) },
         )
 
-        body.addView(
+        extraScannerToolsHost.addView(
             advancedSettingsPanel().apply {
                 isClickable = true
                 isFocusable = true
@@ -5698,14 +5803,14 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams(-1, -2),
                 )
             },
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) },
         )
 
         // ---- Static IP: exactly one fronting address, never rotated / failed-over / re-ranked ----
-        body.addView(buildStaticIpCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        extraScannerToolsHost.addView(buildStaticIpCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
 
         // ---- SNI scanner: which SNI works best (fastest TLS) with the active IP ----
-        body.addView(buildSniScannerCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        extraScannerToolsHost.addView(buildSniScannerCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
 
         // ---- live IP health: auto-refresh the pool and replace broken IPs ----
         val ipHealthStore = IpHealthStore(this)
@@ -5840,7 +5945,7 @@ class MainActivity : Activity() {
             intervalRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
         healthCard.addView(intervalRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        body.addView(healthCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        extraScannerToolsHost.addView(healthCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
         renderScannerIpHealth()
         startIpHealthLoop()
 
@@ -6272,12 +6377,30 @@ class MainActivity : Activity() {
             setOnClickListener { sendScanToPanel() }
         }
         body.addView(scannerPanelButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        // 👑 Neighbor scan (like the reference app): take the best verified hits
-        // and probe their close neighbours inside the SAME block — fresh finds
-        // on every run, tagged «neighbor» when sent to the panel.
+        val panelPushStatus = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEAL)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            visibility = View.GONE
+        }
+        val panelPushProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 180))
+            visibility = View.GONE
+        }
+        scannerPanelPushStatusText = panelPushStatus
+        scannerPanelPushProgressBar = panelPushProgress
+        body.addView(panelPushStatus, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        body.addView(panelPushProgress, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(4) })
+
+        // 👑 Neighbor scan + Copy list + Share + Speed test grouped cleanly in 2 rows
         val scannerNeighborButton = MaterialButton(this).apply {
             setText(R.string.scanner_neighbor_btn)
-            textSize = 13.5f
+            textSize = 12f
             typeface = CatClientBodyBoldTypeface
             isAllCaps = false
             cornerRadius = dp(10)
@@ -6287,11 +6410,9 @@ class MainActivity : Activity() {
             insetBottom = 0
             setOnClickListener { runNeighborScan() }
         }
-        body.addView(scannerNeighborButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        // ⤴ Share the verified hits anywhere (Telegram, clipboard apps, …).
         val scannerListButton = MaterialButton(this).apply {
             setText(R.string.scanner_copy_list)
-            textSize = 13.5f
+            textSize = 12f
             typeface = CatClientBodyBoldTypeface
             isAllCaps = false
             cornerRadius = dp(10)
@@ -6301,10 +6422,9 @@ class MainActivity : Activity() {
             insetBottom = 0
             setOnClickListener { copyScannerPlainList() }
         }
-        body.addView(scannerListButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val scannerShareButton = MaterialButton(this).apply {
             setText(R.string.scanner_share_btn)
-            textSize = 13.5f
+            textSize = 12f
             typeface = CatClientBodyBoldTypeface
             isAllCaps = false
             cornerRadius = dp(10)
@@ -6314,10 +6434,9 @@ class MainActivity : Activity() {
             insetBottom = 0
             setOnClickListener { shareScannerResults() }
         }
-        body.addView(scannerShareButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         val scannerSpeedButton = MaterialButton(this).apply {
             setText(R.string.scanner_speed_btn)
-            textSize = 13.5f
+            textSize = 12f
             typeface = CatClientBodyBoldTypeface
             isAllCaps = false
             cornerRadius = dp(10)
@@ -6331,17 +6450,22 @@ class MainActivity : Activity() {
             setOnClickListener { runScannerSpeedTest() }
         }
         scannerSpeedTestButton = scannerSpeedButton
-        body.addView(scannerSpeedButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val quickScanToolsRow1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(scannerNeighborButton, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(scannerListButton, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+        }
+        val quickScanToolsRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(scannerShareButton, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(scannerSpeedButton, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+        }
+        body.addView(quickScanToolsRow1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        body.addView(quickScanToolsRow2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         // 🔎 «منابع اسکن» — the card that answers «منبع نداره اسکن کنه».
-        //
-        // The scanner always had sources (the ranges box, the built-in Cloudflare
-        // ranges, the Iran/community collections, and the country's v6 blocks), but
-        // the screen showed none of them: a walk of ~500 candidates looked exactly
-        // like a walk of zero. Each chip below is a switch, and each carries the
-        // number of addresses it will contribute to the next run — computed from the
-        // very same IpScanner.sourceReport() the scan itself walks, so the numbers
-        // cannot drift away from reality.
         val sourcesCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -6369,8 +6493,6 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2),
         )
-        // Local vals: addView() takes a non-null View, while the fields are nullable
-        // because the card is built after the range box's text watcher can fire.
         val sourceRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -6386,10 +6508,6 @@ class MainActivity : Activity() {
         }
         scannerSourceSummary = sourceSummary
         sourcesCard.addView(sourceSummary, LinearLayout.LayoutParams(-1, -2))
-        // The escape hatch the old chip was: on a line where the quick v6 probe fails but
-        // v6 really does work, forcing is the only way in. It used to be the ONLY thing the
-        // chip did, which is why its state was invisible; it is now a labelled switch of its
-        // own, right under the counts, and the status line says «forced» when it is on.
         val forceRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -6398,75 +6516,8 @@ class MainActivity : Activity() {
         sourcesCard.addView(forceRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         body.addView(sourcesCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         renderScannerSources()
-        addDeploymentProfilesSection(body)
 
-        // 🌍 Probe commonly requested foreign services from this device's CURRENT
-        // network (through the VPN tunnel when it is connected). Results stay on
-        // device unless the user explicitly shares the redacted report.
-        scannerForeignList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        val foreignButton = MaterialButton(this).apply {
-            setText(R.string.scanner_foreign_btn)
-            textSize = 13.5f
-            typeface = CatClientBodyBoldTypeface
-            isAllCaps = false
-            cornerRadius = dp(10)
-            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 78))
-            setTextColor(palette.onAccent)
-            insetTop = 0
-            insetBottom = 0
-            setOnClickListener { runScannerForeignTest() }
-        }
-        body.addView(foreignButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        val foreignHint = TextView(this).apply {
-            setText(R.string.scanner_foreign_hint)
-            textSize = 11.5f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(4), dp(4), dp(4), dp(2))
-        }
-        body.addView(foreignHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-        body.addView(scannerForeignList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-        scannerForeignShareButton = MaterialButton(this).apply {
-            setText(R.string.scanner_foreign_share)
-            textSize = 12.5f
-            typeface = CatClientBodyBoldTypeface
-            isAllCaps = false
-            cornerRadius = dp(10)
-            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 105))
-            setTextColor(TEAL)
-            insetTop = 0
-            insetBottom = 0
-            visibility = View.GONE
-            setOnClickListener { shareScannerForeignReport() }
-        }
-        body.addView(scannerForeignShareButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-
-        // Keep the existing AI service checks alongside the broader foreign-site probe.
-        scannerAiList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        val aiButton = MaterialButton(this).apply {
-            setText(R.string.scanner_ai_btn)
-            textSize = 13.5f
-            typeface = CatClientBodyBoldTypeface
-            isAllCaps = false
-            cornerRadius = dp(10)
-            backgroundTintList = ColorStateList.valueOf(withAlpha(AMBER, 70))
-            setTextColor(palette.onAccent)
-            insetTop = 0
-            insetBottom = 0
-            setOnClickListener { runScannerAiTest() }
-        }
-        body.addView(aiButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        body.addView(scannerAiList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-
+        // Results table right below controls + sources so the user sees results immediately!
         body.addView(
             scannerFilterRow(),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
@@ -6506,6 +6557,94 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
         )
         renderScannerResults()
+
+        // Secondary tools placed inside collapsible extraScannerToolsHost
+        addDeploymentProfilesSection(extraScannerToolsHost)
+
+        scannerForeignList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val foreignButton = MaterialButton(this).apply {
+            setText(R.string.scanner_foreign_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 78))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerForeignTest() }
+        }
+        extraScannerToolsHost.addView(foreignButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val foreignHint = TextView(this).apply {
+            setText(R.string.scanner_foreign_hint)
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(4), dp(4), dp(4), dp(2))
+        }
+        extraScannerToolsHost.addView(foreignHint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        extraScannerToolsHost.addView(scannerForeignList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        scannerForeignShareButton = MaterialButton(this).apply {
+            setText(R.string.scanner_foreign_share)
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 105))
+            setTextColor(TEAL)
+            insetTop = 0
+            insetBottom = 0
+            visibility = View.GONE
+            setOnClickListener { shareScannerForeignReport() }
+        }
+        extraScannerToolsHost.addView(scannerForeignShareButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        scannerAiList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val aiButton = MaterialButton(this).apply {
+            setText(R.string.scanner_ai_btn)
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(AMBER, 70))
+            setTextColor(palette.onAccent)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { runScannerAiTest() }
+        }
+        extraScannerToolsHost.addView(aiButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        extraScannerToolsHost.addView(scannerAiList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        val extraScannerToggleBtn = MaterialButton(this).apply {
+            val closedText = if (isFarsiScanner) "🛠️ ابزارهای تکمیلی اسکنر (اسکنر SNI · ایپی ثابت · سلامت خودکار · تست سرویس‌ها) ▾" else "🛠️ More Scanner Tools (SNI Scanner · Static IP · Auto-Health · Service Probes) ▾"
+            val openText = if (isFarsiScanner) "🛠️ بستن ابزارهای تکمیلی اسکنر ▴" else "🛠️ Hide More Scanner Tools ▴"
+            text = closedText
+            isAllCaps = false
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 180))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 180))
+            cornerRadius = dp(12)
+            minHeight = dp(44)
+            setOnClickListener {
+                val show = extraScannerToolsHost.visibility != View.VISIBLE
+                extraScannerToolsHost.visibility = if (show) View.VISIBLE else View.GONE
+                text = if (show) openText else closedText
+            }
+        }
+        body.addView(extraScannerToggleBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        body.addView(extraScannerToolsHost, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         return scroll.apply { addView(body, FrameLayout.LayoutParams(-1, -2)) }
     }
@@ -8459,9 +8598,25 @@ class MainActivity : Activity() {
         org.json.JSONObject(text).optBoolean("needsUser", false)
     }.getOrDefault(false)
 
+    private var scannerPanelPushProgressBar: ProgressBar? = null
+    private var scannerPanelPushStatusText: TextView? = null
+
+    private fun updateScannerPanelPushProgress(percent: Int, label: String, visible: Boolean = true) {
+        val clamped = percent.coerceIn(0, 100)
+        scannerPanelPushProgressBar?.apply {
+            visibility = if (visible) View.VISIBLE else View.GONE
+            progress = clamped
+        }
+        scannerPanelPushStatusText?.apply {
+            visibility = if (visible) View.VISIBLE else View.GONE
+            text = "$label ($clamped%)"
+        }
+    }
+
     private fun sendScanToPanel() = activityScope.launch { sendScanToPanelSuspend() }
 
     private suspend fun sendScanToPanelSuspend(override: List<IpScanner.ScanResult>? = null) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val source = override ?: (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
         // ONLY IPs whose TLS handshake actually passed ON THIS NETWORK are sent
         // (checked → then → panel). No unchecked fallback: an unverified IP in
@@ -8474,6 +8629,10 @@ class MainActivity : Activity() {
         }
         val selected = verified.take(60)
         val lines = selected.map { it.panelLine }
+        updateScannerPanelPushProgress(
+            15,
+            if (isFarsi) "⏳ در حال آماده‌سازی ${lines.size} آی‌پی تمیز برای ارسال به پنل…" else "⏳ Preparing ${lines.size} clean IPs for panel…",
+        )
         // Provenance travels WITH the IPs: every entry is tagged with its source
         // (this scanner), the latency measured ON THIS NETWORK and the country
         // seen by this device — the panel shows the badge next to each IP.
@@ -8493,6 +8652,7 @@ class MainActivity : Activity() {
         // never arrived — the panel host comes from the subscriptions now.
         val base = kotlinx.coroutines.withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
         if (base.isNullOrBlank()) {
+            updateScannerPanelPushProgress(100, if (isFarsi) "📋 در کلیپ‌بورد کپی شد (آدرس پنل انتخاب نشد)" else "📋 Copied to clipboard")
             Toast.makeText(this, getString(R.string.scanner_panel_none, lines.size), Toast.LENGTH_LONG).show()
             return
         }
@@ -8528,13 +8688,19 @@ class MainActivity : Activity() {
             .setTitle(R.string.scanner_send_panel)
             .setMessage(base.removePrefix("https://"))
             .setView(box)
-            .setNegativeButton(android.R.string.cancel, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                updateScannerPanelPushProgress(0, "", visible = false)
+            }
             .setPositiveButton(android.R.string.ok) { dialog, _ ->
                 val password = input.text?.toString().orEmpty()
                 if (needsUser) PanelCredentials.remember(this, base, userInput.text?.toString().orEmpty(), "")
                 activityScope.launch {
                     val replacing = replaceToggle.isChecked
                     val neighborLines = selected.filter { scannerNeighborIps.contains(it.ip) }.map { it.panelLine }
+                    updateScannerPanelPushProgress(
+                        55,
+                        if (isFarsi) "📡 در حال ورود و ثبت ${lines.size} آی‌پی سالم در پنل…" else "📡 Pushing ${lines.size} verified IPs to panel…",
+                    )
                     val result = withContext(Dispatchers.IO) { runCatching { pushIpsToPanel(base, password, lines, replacing, ping, countries, neighborLines) } }
                     result.onSuccess { n ->
                         val msg = when {
@@ -8542,9 +8708,13 @@ class MainActivity : Activity() {
                             n > 0 -> R.string.scanner_panel_saved
                             else -> R.string.scanner_panel_zero
                         }
-                        Toast.makeText(this@MainActivity, getString(msg, n), Toast.LENGTH_LONG).show()
+                        val doneLabel = getString(msg, n)
+                        updateScannerPanelPushProgress(100, "✅ $doneLabel")
+                        Toast.makeText(this@MainActivity, doneLabel, Toast.LENGTH_LONG).show()
                     }.onFailure { e ->
-                        Toast.makeText(this@MainActivity, getString(R.string.pip_save_failed, e.message ?: "?"), Toast.LENGTH_LONG).show()
+                        val errLabel = getString(R.string.pip_save_failed, e.message ?: "?")
+                        updateScannerPanelPushProgress(100, "❌ $errLabel")
+                        Toast.makeText(this@MainActivity, errLabel, Toast.LENGTH_LONG).show()
                     }
                 }
                 dialog.dismiss()
@@ -8997,22 +9167,16 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2),
         )
 
-        catPanelCard.addView(
-            cloudActionButton(R.string.cloud_copy_code, R.drawable.ic_cloud_tab, accent = true) {
-                copyPanelPasteCode()
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
+        val copyPasteCodeButton = cloudActionButton(R.string.cloud_copy_code, R.drawable.ic_cloud_tab, accent = false) {
+            copyPanelPasteCode()
+        }
 
         // The no-app path (v1.9.48): share the official one-click Deploy-to-
         // Cloudflare link — the same button as the README — with anyone. The
         // recipient deploys their own panel straight from their browser.
-        catPanelCard.addView(
-            cloudActionButton(R.string.cloud_share_deploy_link, R.drawable.ic_cloud_tab, accent = false) {
-                shareDeployButtonLink()
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
+        val shareDeployLinkButton = cloudActionButton(R.string.cloud_share_deploy_link, R.drawable.ic_cloud_tab, accent = false) {
+            shareDeployButtonLink()
+        }
 
         val workerNameInput = TextInputEditText(this).apply {
             setSingleLine(true)
@@ -9033,10 +9197,6 @@ class MainActivity : Activity() {
             setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
             addView(workerNameInput)
         }
-        catPanelCard.addView(
-            workerNameLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
 
         // Admin gate: every new panel gets a username + password (management
         // panel — not open access). Suggested values are prefilled.
@@ -9059,10 +9219,6 @@ class MainActivity : Activity() {
             setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
             addView(panelUserInput)
         }
-        catPanelCard.addView(
-            panelUserLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
         val suggestedPanelPassword = "admin"
         val panelPassInput = TextInputEditText(this).apply {
             setSingleLine(true)
@@ -9084,10 +9240,6 @@ class MainActivity : Activity() {
             setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
             addView(panelPassInput)
         }
-        catPanelCard.addView(
-            panelPassLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
 
         val tokenInput = TextInputEditText(this).apply {
             setSingleLine(true)
@@ -9116,7 +9268,7 @@ class MainActivity : Activity() {
             cloudActionButton(R.string.cloud_get_token, R.drawable.ic_cloud_tab, accent = true) {
                 openCloudflareTokenPage()
             },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
         )
         // No Cloudflare account yet? These two are plain dashboard URLs, so the
         // account can always be created/opened first — the token template link
@@ -9156,7 +9308,78 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
 
-        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = false) { }
+        val customWorkerFieldsHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(workerNameLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(panelUserLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(panelPassLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+        val isFarsiUi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val customFieldsToggle = MaterialButton(this).apply {
+            text = if (isFarsiUi) "⚙️ سفارشی‌سازی نام ورکر و رمز ورود (پیش‌فرض: admin / admin)" else "⚙️ Customize Worker name & login (default: admin / admin)"
+            isAllCaps = false
+            textSize = 12f
+            setTextColor(TEXT_SECONDARY)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 140))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 140))
+            cornerRadius = dp(10)
+            minHeight = dp(38)
+            setOnClickListener {
+                val show = customWorkerFieldsHost.visibility != View.VISIBLE
+                customWorkerFieldsHost.visibility = if (show) View.VISIBLE else View.GONE
+            }
+        }
+        catPanelCard.addView(customFieldsToggle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        catPanelCard.addView(customWorkerFieldsHost, LinearLayout.LayoutParams(-1, -2))
+
+        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = true) { }
+        val deployProgressHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(TEAL, if (palette.isDark) 24 else 16))
+                setStroke(dp(1), withAlpha(TEAL, 96))
+            }
+        }
+        val deployProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 52))
+        }
+        val deployProgressLabel = TextView(this).apply {
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val deployProgressSubLabel = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            text = if (isFarsiUi) "لطفاً چند ثانیه صبر کنید و از صفحه خارج نشوید…" else "Please wait a few seconds while deployment completes…"
+        }
+        deployProgressHost.addView(deployProgressLabel, LinearLayout.LayoutParams(-1, -2))
+        deployProgressHost.addView(deployProgressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(8) })
+        deployProgressHost.addView(deployProgressSubLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        fun updateDeployProgressUi(percent: Int, stepFa: String, stepEn: String) {
+            runOnUiThread {
+                val clamped = percent.coerceIn(0, 100)
+                deployProgressHost.visibility = View.VISIBLE
+                deployProgressBar.progress = clamped
+                val msg = if (isFarsiUi) stepFa else stepEn
+                deployProgressLabel.text = "$clamped% — $msg"
+                deployButton.text = if (isFarsiUi) "⏳ در حال نصب پنل… ($clamped%)" else "⏳ Installing… ($clamped%)"
+            }
+        }
+
         var cloudDeployInProgress = false
         deployButton.setOnClickListener {
             if (cloudDeployInProgress) return@setOnClickListener
@@ -9173,7 +9396,7 @@ class MainActivity : Activity() {
                 ?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
             val effectiveUser = panelUserInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
             val effectivePass = panelPassInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
-            val bundledVer = CloudflareWorker.bundledPanelVersion(this).ifBlank { "6.69.19" }
+            val bundledVer = CloudflareWorker.bundledPanelVersion(this).ifBlank { "6.69.22" }
             MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.cloud_deploy)
                 .setMessage(
@@ -9186,12 +9409,13 @@ class MainActivity : Activity() {
                 .setPositiveButton(R.string.cloud_deploy) { _, _ ->
                     cloudDeployInProgress = true
                     deployButton.isEnabled = false
+                    updateDeployProgressUi(10, "در حال بررسی اعتبار توکن و دسترسی‌های Cloudflare…", "Verifying Cloudflare API token and permissions…")
                     activityScope.launch {
                         try {
-                            Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
                             val permissions = CloudflareWorker.verifyToken(token)
                             val accountId = permissions.accountId
                             if (!permissions.valid || accountId == null) {
+                                deployProgressHost.visibility = View.GONE
                                 Toast.makeText(
                                     this@MainActivity,
                                     getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
@@ -9199,11 +9423,6 @@ class MainActivity : Activity() {
                                 ).show()
                                 return@launch
                             }
-                            Toast.makeText(
-                                this@MainActivity,
-                                getString(R.string.cloud_deploying, workerName),
-                                Toast.LENGTH_SHORT,
-                            ).show()
                             val result = CloudflareWorker.deployBuiltIn(
                                 this@MainActivity,
                                 token,
@@ -9211,10 +9430,13 @@ class MainActivity : Activity() {
                                 workerName,
                                 panelUser = effectiveUser,
                                 panelPassword = effectivePass,
+                                onProgress = { pct, faMsg, enMsg -> updateDeployProgressUi(pct, faMsg, enMsg) },
                             )
                             PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
+                            renderCloudDeploymentHistory()
                             showCloudDeploymentDialog(result)
                         } catch (e: Exception) {
+                            deployProgressSubLabel.text = e.message ?: e::class.java.simpleName
                             Toast.makeText(
                                 this@MainActivity,
                                 getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
@@ -9223,12 +9445,14 @@ class MainActivity : Activity() {
                         } finally {
                             cloudDeployInProgress = false
                             deployButton.isEnabled = true
+                            deployButton.setText(R.string.cloud_deploy)
                         }
                     }
                 }
                 .show()
         }
         catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        catPanelCard.addView(deployProgressHost, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
@@ -9339,9 +9563,6 @@ class MainActivity : Activity() {
             }
         }
         rawSourceCard.addView(rawInspectButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        body.addView(rawSourceCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
-        body.addView(buildPanelStatusCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val deploymentHistoryCard = advancedSettingsPanel()
         deploymentHistoryCard.addView(
@@ -9368,6 +9589,8 @@ class MainActivity : Activity() {
         )
         body.addView(deploymentHistoryCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         renderCloudDeploymentHistory()
+
+        body.addView(buildPanelStatusCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         // ---- Cat Wizard: a shareable one-click installer page on the user's own account ----
         val wizardCard = advancedSettingsPanel()
@@ -9403,6 +9626,20 @@ class MainActivity : Activity() {
         wizardCard.addView(wizardUrlView, LinearLayout.LayoutParams(-1, -2))
         var wizardInProgress = false
         val wizardButton = cloudActionButton(R.string.cloud_wizard_deploy, R.drawable.ic_cloud_tab, accent = false) { }
+        val wizardProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            visibility = View.GONE
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 52))
+        }
+        val wizardProgressText = TextView(this).apply {
+            textSize = 12f
+            setTextColor(TEXT_SECONDARY)
+            visibility = View.GONE
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
         wizardButton.setOnClickListener {
             if (wizardInProgress) return@setOnClickListener
             val token = tokenInput.text?.toString()?.trim().orEmpty()
@@ -9412,12 +9649,17 @@ class MainActivity : Activity() {
             }
             wizardInProgress = true
             wizardButton.isEnabled = false
+            wizardProgressBar.visibility = View.VISIBLE
+            wizardProgressText.visibility = View.VISIBLE
+            wizardProgressBar.progress = 15
+            wizardProgressText.text = if (isFarsiUi) "۱۵٪ — در حال بررسی توکن Cloudflare…" else "15% — Verifying Cloudflare token…"
             activityScope.launch {
                 try {
-                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
                     val permissions = CloudflareWorker.verifyToken(token)
                     val accountId = permissions.accountId
                     if (!permissions.valid || accountId == null) {
+                        wizardProgressBar.visibility = View.GONE
+                        wizardProgressText.visibility = View.GONE
                         Toast.makeText(
                             this@MainActivity,
                             getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
@@ -9425,17 +9667,17 @@ class MainActivity : Activity() {
                         ).show()
                         return@launch
                     }
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploying, "cat-wizard"),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    wizardProgressBar.progress = 60
+                    wizardProgressText.text = if (isFarsiUi) "۶۰٪ — در حال آپلود و راه‌اندازی cat-wizard…" else "60% — Uploading and enabling cat-wizard…"
                     val result = CloudflareWorker.deployWizard(this@MainActivity, token, accountId)
+                    wizardProgressBar.progress = 100
+                    wizardProgressText.text = if (isFarsiUi) "۱۰۰٪ — ✅ ویزارد آماده شد!" else "100% — Wizard deployed!"
                     PanelDeploymentStore(this@MainActivity).rememberWizard(result.wizardUrl)
                     wizardUrlView.text = result.wizardUrl
                     wizardUrlView.visibility = View.VISIBLE
                     showWizardDeployedDialog(result)
                 } catch (e: Exception) {
+                    wizardProgressText.text = e.message ?: e::class.java.simpleName
                     Toast.makeText(
                         this@MainActivity,
                         getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
@@ -9448,7 +9690,8 @@ class MainActivity : Activity() {
             }
         }
         wizardCard.addView(wizardButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        body.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        wizardCard.addView(wizardProgressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        wizardCard.addView(wizardProgressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(4) })
 
         // Cross-link: the built-in panel is only useful with a clean IP — jump to the scanner.
         val scannerLinkCard = advancedSettingsPanel()
@@ -9467,12 +9710,38 @@ class MainActivity : Activity() {
         )
         body.addView(scannerLinkCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
+        // ---- 3 Anti-Censorship & Emergency Engines (Psiphon · Tor/Orbot/dnstt · WARP/Gool) ----
+        body.addView(buildAntiCensorshipEnginesCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
+        // ---- Collapsible Advanced Cloud Tools & Catalog ----
+        val advancedCloudToolsHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val manualCopyShareCard = advancedSettingsPanel().apply {
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = if (isFarsiUi) "📋 کپی کد دستی و اشتراک لینک ساخت پنل" else "📋 Manual Paste Code & Share Deploy Link"
+                    textSize = 15f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_PRIMARY)
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+            addView(copyPasteCodeButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(shareDeployLinkButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+        advancedCloudToolsHost.addView(manualCopyShareCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        advancedCloudToolsHost.addView(rawSourceCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        advancedCloudToolsHost.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
         // ---- panel catalog ----
-        body.addView(
+        advancedCloudToolsHost.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catalog)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
         )
-        body.addView(
+        advancedCloudToolsHost.addView(
             TextView(this).apply {
                 text = getString(R.string.cloud_intro)
                 textSize = 13f
@@ -9607,10 +9876,294 @@ class MainActivity : Activity() {
                 )
             }
         }
-        body.addView(catalogCard, LinearLayout.LayoutParams(-1, -2))
+        advancedCloudToolsHost.addView(catalogCard, LinearLayout.LayoutParams(-1, -2))
+
+        val advancedCloudToggleBtn = MaterialButton(this).apply {
+            val closedLabel = if (isFarsiUi) "🛠️ ابزارهای پیشرفته (کپی کد دستی · لینک Raw · ویزارد · سایر پنل‌ها) ▾" else "🛠️ Advanced Tools (Copy Code · Raw URL · Wizard · Other Panels) ▾"
+            val openLabel = if (isFarsiUi) "🛠️ بستن ابزارهای پیشرفته ▴" else "🛠️ Hide Advanced Tools ▴"
+            text = closedLabel
+            isAllCaps = false
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 180))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 180))
+            cornerRadius = dp(12)
+            minHeight = dp(44)
+            setOnClickListener {
+                val show = advancedCloudToolsHost.visibility != View.VISIBLE
+                advancedCloudToolsHost.visibility = if (show) View.VISIBLE else View.GONE
+                text = if (show) openLabel else closedLabel
+            }
+        }
+        body.addView(advancedCloudToggleBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        body.addView(advancedCloudToolsHost, LinearLayout.LayoutParams(-1, -2))
 
         scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
         return scroll
+    }
+
+    private fun buildAntiCensorshipEnginesCard(): View {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val card = advancedSettingsPanel()
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) "🛡 اتصال اضطراری و ضدسانسور (سایفون · تور/dnstt · وارپ/گول)" else "🛡 Anti-Censorship & Emergency Engines (Psiphon · Tor/dnstt · WARP/Gool)"
+                textSize = 15.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEAL)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "دسترسی یکجا به ۳ موتور ضدسانسور اپ: سایفون (Psiphon روی Masque)، شبکه تور (Orbot + پل اضطراری dnstt برای زمان قطعی کامل) و وارپ/گول (WireGuard-over-MASQUE)."
+                } else {
+                    "Unified controls for the 3 built-in anti-censorship engines: Psiphon over Masque, Tor/Orbot + emergency dnstt DNS bridges, and WARP / Gool."
+                }
+                textSize = 12f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(dp(2).toFloat(), 1f)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+
+        val statusSummaryText = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(dp(2).toFloat(), 1f)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        card.addView(statusSummaryText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        val engineProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(TEAL)
+            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 180))
+            visibility = View.GONE
+        }
+        val engineProgressLabel = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEAL)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            visibility = View.GONE
+        }
+        card.addView(engineProgressLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        card.addView(engineProgressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(4) })
+
+        fun updateEngineProgress(percent: Int, label: String, visible: Boolean = true) {
+            val clamped = percent.coerceIn(0, 100)
+            engineProgressBar.visibility = if (visible) View.VISIBLE else View.GONE
+            engineProgressBar.progress = clamped
+            engineProgressLabel.visibility = if (visible) View.VISIBLE else View.GONE
+            engineProgressLabel.text = "$label ($clamped%)"
+        }
+
+        fun refreshEngineSummary() {
+            val aetherSel = aetherPreferenceStore.read()
+            val hasKey = !aetherCredentialStore.read().isNullOrBlank()
+            val psiphonActive = aetherSel.mode == AetherMode.MasquePsiphon
+            val psiphonRegion = aetherSel.psiphonCountryCode ?: if (isFarsi) "اتوماتیک (سریع‌ترین)" else "Auto"
+            val orbotEnabled = orbotPreferenceStore.read()
+            val endpointLabel = aetherSel.customEndpoint ?: if (isFarsi) "خودکار (162.159.198.1:443)" else "Auto (162.159.198.1:443)"
+            statusSummaryText.text = if (isFarsi) {
+                buildString {
+                    append("🌀 سایفون: ")
+                    append(if (psiphonActive) "فعال ✅" else "آماده (حالت فعلی: ${aetherModeLabel(aetherSel.mode)})")
+                    append(" · کشور: $psiphonRegion\n")
+                    append("🧅 تور (Orbot): ")
+                    append(if (orbotEnabled) "روشن روی 127.0.0.1:9050 ✅" else "خاموش")
+                    append(" · پل اضطراری dnstt: ۳ پل رسمی آماده\n")
+                    append("⚡ وارپ/گول: ")
+                    append(if (hasKey) "کلید آماده ✅" else "نیاز به دریافت کلید")
+                    append(" · اندپوینت: $endpointLabel")
+                }
+            } else {
+                buildString {
+                    append("🌀 Psiphon: ")
+                    append(if (psiphonActive) "Active ✅" else "Ready (Current: ${aetherModeLabel(aetherSel.mode)})")
+                    append(" · Region: $psiphonRegion\n")
+                    append("🧅 Tor (Orbot): ")
+                    append(if (orbotEnabled) "Enabled on 127.0.0.1:9050 ✅" else "Off")
+                    append(" · Emergency dnstt: 3 official bridges ready\n")
+                    append("⚡ WARP/Gool: ")
+                    append(if (hasKey) "Key provisioned ✅" else "No key yet")
+                    append(" · Endpoint: $endpointLabel")
+                }
+            }
+        }
+        refreshEngineSummary()
+
+        fun smallActionBtn(label: String, accent: Boolean = false, onClick: () -> Unit): MaterialButton =
+            MaterialButton(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(40)
+                minimumHeight = dp(40)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(10)
+                setPadding(dp(10), 0, dp(10), 0)
+                if (accent) {
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(BACKGROUND)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 210))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 200))
+                    setTextColor(TEXT_PRIMARY)
+                }
+                setOnClickListener { onClick() }
+            }
+
+        // Row 1: Psiphon controls
+        val psiphonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🌀 فعال‌سازی سایفون" else "🌀 Enable Psiphon",
+                    accent = true,
+                ) {
+                    updateEngineProgress(25, if (isFarsi) "در حال آماده‌سازی سایفون و کلید Masque…" else "Provisioning Psiphon + Masque…")
+                    saveAetherMode(AetherMode.MasquePsiphon)
+                    lifecycleScope.launch {
+                        kotlinx.coroutines.delay(350)
+                        updateEngineProgress(100, if (isFarsi) "✅ سایفون فعال شد و در لیست اشتراک‌ها انتخاب گردید" else "✅ Psiphon enabled & selected")
+                        refreshEngineSummary()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🌍 کشور سایفون" else "🌍 Psiphon Country",
+                    accent = false,
+                ) {
+                    showPsiphonRegionSelector()
+                    mainHandler.postDelayed({ refreshEngineSummary() }, 600)
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(psiphonRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        // Row 2: Tor / Orbot / dnstt emergency bridges
+        val torRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🧅 روشن/خاموش Tor" else "🧅 Toggle Tor/Orbot",
+                    accent = false,
+                ) {
+                    val next = !orbotPreferenceStore.read()
+                    saveOrbotEnabled(next)
+                    refreshEngineSummary()
+                    lifecycleScope.launch {
+                        val st = withContext(Dispatchers.IO) { OrbotEngine.probe() }
+                        val msg = if (st.reachable) {
+                            if (isFarsi) "✅ پورت 9050 (Orbot) فعال و متصل است" else "✅ Orbot SOCKS5 127.0.0.1:9050 reachable"
+                        } else {
+                            if (isFarsi) "⚠️ حالت Tor تغییر کرد؛ برای اتصال، اپ Orbot را روشن کنید (پورت 9050)" else "⚠️ Tor mode updated; start Orbot on port 9050"
+                        }
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "📋 کپی پل اضطراری dnstt" else "📋 Copy dnstt Bridges",
+                    accent = false,
+                ) {
+                    val dnsttLines = listOf(
+                        "dnstt 192.0.2.4:1 A998F319ADB60EE344540EC4B21524CC484F96BE doh=https://dns.google/dns-query pubkey=241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f domain=t.ruhnama.net",
+                        "dnstt 192.0.2.4:2 80EEFA4F4875ED2B7B5A86DF2D7588AD32E29F15 doh=https://dns.google/dns-query pubkey=a2fb71077eeaa54a02cda7a90be306af5d299ab21822a8b277d4eacbc9168631 domain=t2.bypasscensorship.org",
+                        "dnstt 192.0.2.4:3 74D409BED3E2F881F365543A72C8F079CB84FFEB doh=https://dns.google/dns-query pubkey=c596c458fc3453dc40903ab235f5854a2609831075640c4c5584f76de05b8271 domain=t.arkadag.org",
+                    ).joinToString("\n")
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("tor-dnstt-bridges", dnsttLines))
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "🧅 پل‌های اضطراری dnstt تور کپی شد" else "🧅 Tor Emergency dnstt Bridges Copied")
+                        .setMessage(
+                            if (isFarsi) {
+                                "۳ خط پل رسمی dnstt در کلیپ‌بورد کپی شد.\n\nراهنمای استفاده در زمان قطعی شدید:\n۱) در اپ Orbot به بخش Set Transport → Custom Bridges بروید.\n۲) خطوط کپی‌شده را Paste کنید و Connect را بزنید.\n۳) سپس دکمه «🧅 روشن/خاموش Tor» را در همین کارت روشن کنید.\n\n(اگر dns.google روی خط شما بسته بود، مقدار doh= را با dot=1.1.1.1:853 یا udp=8.8.8.8:53 جایگزین کنید.)"
+                            } else {
+                                "3 official Tor dnstt bridge lines copied to clipboard.\n\n1) In Orbot open Set Transport → Custom Bridges.\n2) Paste the lines and tap Connect.\n3) Enable 'Toggle Tor/Orbot' here to route through 127.0.0.1:9050."
+                            },
+                        )
+                        .setPositiveButton(android.R.string.ok, null)
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(torRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Row 3: WARP / Gool / Masque controls with progress bar
+        val warpRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "⚡ حالت WARP / Gool" else "⚡ WARP / Gool Mode",
+                    accent = false,
+                ) {
+                    showAetherModeSelector()
+                    mainHandler.postDelayed({ refreshEngineSummary() }, 600)
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "📡 اسکن و کلید WARP" else "📡 Scan & Key WARP",
+                    accent = false,
+                ) {
+                    lifecycleScope.launch {
+                        updateEngineProgress(20, if (isFarsi) "در حال دریافت کلید رایگان WARP/Masque…" else "Provisioning free WARP/Masque key…")
+                        val creds = withContext(Dispatchers.IO) {
+                            runCatching { AetherAutoProvisioner.ensureCredentials(this@MainActivity, forceRefresh = false) }.getOrNull()
+                        }
+                        updateEngineProgress(60, if (isFarsi) "در حال اسکن سریع‌ترین اندپوینت WARP/Masque روی خط شما…" else "Scanning fastest WARP/Masque endpoint…")
+                        val best = withContext(Dispatchers.IO) {
+                            runCatching { MasqueEndpointScanner.scanBest() }.getOrNull()
+                        }
+                        if (best != null) {
+                            aetherPreferenceStore.writeCustomEndpoint(best.endpoint)
+                        }
+                        val doneMsg = when {
+                            creds != null && best != null ->
+                                if (isFarsi) "✅ کلید آماده + اندپوینت تمیز ${best.endpoint} (${best.latencyMs}ms)" else "✅ Key ready + endpoint ${best.endpoint} (${best.latencyMs}ms)"
+                            best != null ->
+                                if (isFarsi) "✅ اندپوینت تمیز ${best.endpoint} (${best.latencyMs}ms) ذخیره شد" else "✅ Clean endpoint ${best.endpoint} (${best.latencyMs}ms) saved"
+                            creds != null ->
+                                if (isFarsi) "✅ کلید رایگان WARP/Masque دریافت و ذخیره شد" else "✅ Free WARP/Masque key saved"
+                            else ->
+                                if (isFarsi) "⚠️ دریافت کلید/اسکن نیاز به اینترنت باز یا تغییر شبکه دارد" else "⚠️ Provision/scan failed on current network"
+                        }
+                        updateEngineProgress(100, doneMsg)
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(warpRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        return card
     }
 
     private var techNamoozDeployInProgress = false
@@ -14058,23 +14611,28 @@ class MainActivity : Activity() {
             minHeight = dp(48)
             minimumHeight = dp(48)
         }
-        val smartRecommendationCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor(SURFACE)
-                setStroke(dp(1), OUTLINE)
-            }
-            addView(TextView(this@MainActivity).apply {
-                setText(R.string.smart_connection_title)
-                textSize = 18f
-                typeface = CatClientBodyBoldTypeface
+        val isFarsiSmart = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val currentUserSub = userSubscriptionManager.list().firstOrNull { it.id == selectedSubscriptionId }
+        val smartOptimizeSubButton = if (currentUserSub != null) {
+            MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = if (isFarsiSmart) "⚡ بهینه‌سازی خودکار ساب با آی‌پی‌های سالم خط من" else "⚡ Optimize Subscription with Verified IPs"
+                setAllCaps(false)
+                minHeight = dp(44)
+                minimumHeight = dp(44)
+                cornerRadius = dp(22)
+                strokeColor = ColorStateList.valueOf(TEAL)
                 setTextColor(TEAL)
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(-1, -2))
+                setOnClickListener { optimizeUserSubscription(currentUserSub) }
+            }
+        } else null
+        val smartDetailsHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
             addView(smartRecommendationText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            addView(smartScoutButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+            if (smartOptimizeSubButton != null) {
+                addView(smartOptimizeSubButton, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(10) })
+            }
+            addView(smartScoutButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(10) })
             addView(smartCountryButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
             addView(smartApplyButton, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
             addView(smartAutoFailover, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
@@ -14082,6 +14640,50 @@ class MainActivity : Activity() {
             tools.addView(smartScanButton, LinearLayout.LayoutParams(0, dp(48), 1f))
             tools.addView(smartHealthButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
             addView(tools, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        }
+        val smartToggleIndicator = TextView(this).apply {
+            text = if (isFarsiSmart) "نمایش ابزارها ▾" else "Show tools ▾"
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+        }
+        val smartHeaderBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            isClickable = true
+            isFocusable = true
+            addView(
+                TextView(this@MainActivity).apply {
+                    setText(R.string.smart_connection_title)
+                    textSize = 15.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    includeFontPadding = false
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(smartToggleIndicator, LinearLayout.LayoutParams(-2, -2))
+            setOnClickListener {
+                val show = smartDetailsHost.visibility != View.VISIBLE
+                smartDetailsHost.visibility = if (show) View.VISIBLE else View.GONE
+                smartToggleIndicator.text = if (show) {
+                    if (isFarsiSmart) "بستن ▴" else "Hide ▴"
+                } else {
+                    if (isFarsiSmart) "نمایش ابزارها ▾" else "Show tools ▾"
+                }
+            }
+        }
+        val smartRecommendationCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(SURFACE)
+                setStroke(dp(1), OUTLINE)
+            }
+            addView(smartHeaderBar, LinearLayout.LayoutParams(-1, -2))
+            addView(smartDetailsHost, LinearLayout.LayoutParams(-1, -2))
         }
 
         fun renderSmartRecommendation() {
