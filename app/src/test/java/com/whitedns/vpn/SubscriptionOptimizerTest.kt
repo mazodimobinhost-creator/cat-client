@@ -139,16 +139,16 @@ class SubscriptionOptimizerTest {
         assertEquals(2, plan.changedCount)
         assertTrue(plan.pagesDevDomains.isEmpty())
 
-        val outWs = VerifiedConfigUriParser.parse(plan.optimizedLines[0])!!
-        assertEquals("188.114.98.0", outWs.entry.host)
+        val outWs = VerifiedConfigUriParser.parse(plan.optimizedLines[0], now, "test")!!
+        assertEquals("188.114.98.0", outWs.endpoint.host)
         assertEquals("unsafe", outWs.fingerprint)
         assertEquals("http/1.1", outWs.alpn)
         assertEquals(null, outWs.ech)
         assertEquals(FirewallBypassRecipes.FIREWALL_FF_CIPHER_SUITES, outWs.cipherSuites)
         assertEquals(FirewallBypassRecipes.FIREWALL_FF_FINAL_MASK, outWs.finalMask)
 
-        val outXhttp = VerifiedConfigUriParser.parse(plan.optimizedLines[1])!!
-        assertEquals("188.114.98.0", outXhttp.entry.host)
+        val outXhttp = VerifiedConfigUriParser.parse(plan.optimizedLines[1], now, "test")!!
+        assertEquals("188.114.98.0", outXhttp.endpoint.host)
         assertEquals("unsafe", outXhttp.fingerprint)
         assertEquals("h2,http/1.1", outXhttp.alpn)
         assertEquals(null, outXhttp.ech)
