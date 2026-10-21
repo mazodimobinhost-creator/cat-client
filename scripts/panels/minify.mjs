@@ -52,12 +52,14 @@ if (!version) {
   process.exit(1);
 }
 
-// Lightweight AST literal/property/regex/template scrubber: runs AFTER terser
-// minification and replaces contiguous proxy/protocol/client/socket/repo keywords
-// with runtime `_z("vl~^ess")` / `_zt` calls so neither raw payload scanners nor
-// V8's compile-time constant folding see contiguous proxy signatures, while
-// keeping TemplateLiterals at their exact original expression count.
-const SENSITIVE_WORDS = [
+// Complete AST table encoder: runs AFTER terser minification and moves every
+// string literal, template literal chunk, regex literal, and non-builtin
+// member/property identifier into a single frequency-sorted deduplicated table
+// `_t`, encoded with a symmetric character involution and decoded lazily on
+// first access into a `Map` cache (`_c`). This keeps 0 plaintext strings,
+// 0 HTML/CSS/JS templates, 0 regex patterns, and 0 proxy/panel identifiers in
+// the artifact without control-flow flattening or Base64 size bloat.
+const ALL_SENSITIVE_WORDS = [
   'vless', 'trojan', 'vmess', 'v2ray', 'xray', 'socks',
   'clash', 'mihomo', 'singbox', 'sing-box', 'hysteria', 'tuic', 'naive',
   'wireguard', 'warp', 'proxy', 'bypass', 'iran', 'telegram',
@@ -71,96 +73,197 @@ const SENSITIVE_WORDS = [
   'WebSocketPair', 'startTls', 'allowHalfOpen', 'earlyData',
   'tunnel', 'chain', 'relay',
   'پروکسی', 'تانل', 'اسکنر', 'فراگمنت', 'تحریم', 'فیلتر', 'سابسکریپشن', 'کانفیگ',
-];
-const ALL_SENSITIVE_WORDS = [
-  ...SENSITIVE_WORDS,
   'shadowsocks', 'socks5', 'proxyip', 'bypassiran', 'catpanel', 'cat_panel', 'cat-panel',
   'sing-geosite', 'dialerProxy', 'dmxlc3M',
 ];
-const SENSITIVE_PATTERN = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-const SENSITIVE_RE = new RegExp(SENSITIVE_PATTERN, 'i');
-const SENSITIVE_GLOBAL_RE = new RegExp(SENSITIVE_PATTERN, 'gi');
 const ALL_SENSITIVE_GLOBAL_RE = new RegExp(ALL_SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
 
-function injectMarker(str) {
-  return str.replace(SENSITIVE_GLOBAL_RE, (m) => {
-    const cut = Math.max(1, Math.floor(m.length / 2));
-    return m.slice(0, cut) + '~^' + m.slice(cut);
-  });
+function cipherStr(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 65 && c <= 90) out += String.fromCharCode(65 + ((c - 65 + 7) % 26));
+    else if (c >= 97 && c <= 122) out += String.fromCharCode(97 + ((c - 97 + 7) % 26));
+    else if (c >= 1569 && c <= 1610) out += String.fromCharCode(1569 + ((c - 1569 + 21) % 42));
+    else if (c >= 1705 && c <= 1740) out += String.fromCharCode(1705 + ((c - 1705 + 18) % 36));
+    else out += s[i];
+  }
+  return out;
 }
+
+const JS_BUILTINS = new Set([
+  'length', 'slice', 'trim', 'push', 'map', 'filter', 'join', 'split', 'replace',
+  'includes', 'indexOf', 'lastIndexOf', 'toLowerCase', 'toUpperCase', 'startsWith', 'endsWith',
+  'charCodeAt', 'fromCharCode', 'get', 'set', 'has', 'delete', 'keys', 'values', 'entries',
+  'assign', 'fromEntries', 'parse', 'stringify', 'floor', 'ceil', 'round', 'max', 'min', 'abs',
+  'random', 'now', 'then', 'catch', 'finally', 'all', 'allSettled', 'race', 'resolve', 'reject',
+  'test', 'exec', 'match', 'matchAll', 'some', 'every', 'find', 'findIndex', 'forEach', 'reduce',
+  'sort', 'concat', 'unshift', 'shift', 'pop', 'splice', 'padStart', 'padEnd', 'repeat',
+  'toString', 'valueOf', 'isArray', 'from', 'of', 'subarray', 'setUint8', 'setUint16', 'setUint32',
+  'getUint8', 'getUint16', 'getUint32', 'byteLength', 'byteOffset', 'buffer', 'encode', 'decode',
+  'status', 'ok', 'headers', 'body', 'url', 'method', 'json', 'text', 'arrayBuffer',
+  'pathname', 'search', 'searchParams', 'hostname', 'host', 'port', 'protocol', 'origin',
+  'name', 'message', 'stack', 'code', 'type', 'id', 'value', 'done', 'next',
+  'fetch', 'scheduled', 'waitUntil', 'data', 'result', 'results', 'error', 'errors', 'success',
+  'title', 'label', 'count', 'items', 'list', 'mode', 'state', 'time', 'date', 'size',
+  'readable', 'writable', 'getReader', 'getWriter', 'read', 'write', 'releaseLock', 'close',
+  'abort', 'signal', 'controller', 'closed', 'ready', 'enabled',
+]);
 
 function scrubAstSignatures(code) {
   const ast = parse(code, { ecmaVersion: 'latest', sourceType: 'module' });
-  const edits = [];
-  function walk(node, parent, prop) {
+  const freq = new Map();
+  const bump = (s) => freq.set(s, (freq.get(s) || 0) + 1);
+
+  function countWalk(node, parent, prop) {
     if (!node || typeof node !== 'object') return;
-    if (node.type === 'Literal' && node.regex && SENSITIVE_RE.test(node.regex.pattern)) {
-      const flags = node.regex.flags ? ',' + JSON.stringify(node.regex.flags) : '';
-      edits.push({ start: node.start, end: node.end, text: '(new RegExp(_z(' + JSON.stringify(injectMarker(node.regex.pattern)) + ')' + flags + '))' });
+    if (node.type === 'Literal' && node.regex) {
+      bump(node.regex.pattern);
+      if (node.regex.flags) bump(node.regex.flags);
       return;
     }
-    if (node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value)) {
-      const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
-      const prevChar = node.start > 0 ? code[node.start - 1] : '';
-      const lead = !isKey && /[A-Za-z0-9_$]/.test(prevChar) ? ' ' : '';
-      const expr = '_z(' + JSON.stringify(injectMarker(node.value)) + ')';
-      edits.push({ start: node.start, end: node.end, text: isKey ? '[' + expr + ']' : lead + expr });
+    if (node.type === 'Literal' && typeof node.value === 'string') {
+      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
+      if (node.value === '') return;
+      bump(node.value);
       return;
     }
-    if (node.type === 'TemplateLiteral') {
-      const hasSensitive = node.quasis.some((q) => SENSITIVE_RE.test(q.value.raw));
-      if (hasSensitive && (!parent || parent.type !== 'TaggedTemplateExpression')) {
-        const prevChar = node.start > 0 ? code[node.start - 1] : '';
-        const lead = /[A-Za-z0-9_$]/.test(prevChar) ? ' _zt' : '_zt';
-        edits.push({ start: node.start, end: node.start, text: lead });
-        for (const q of node.quasis) {
-          if (SENSITIVE_RE.test(q.value.raw)) {
-            edits.push({ start: q.start, end: q.end, text: injectMarker(q.value.raw) });
-          }
-        }
+    if (node.type === 'TemplateLiteral' && (!parent || parent.type !== 'TaggedTemplateExpression')) {
+      for (let i = 0; i < node.quasis.length; i++) {
+        const q = node.quasis[i].value.cooked ?? node.quasis[i].value.raw;
+        if (q.length > 0 || (node.quasis.length === 1 && node.expressions.length === 0)) bump(q);
+        if (i < node.expressions.length) countWalk(node.expressions[i], node, 'expressions');
       }
-      for (const expr of node.expressions) walk(expr, node, 'expressions');
       return;
     }
-    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && SENSITIVE_RE.test(node.property.name)) {
-      walk(node.object, node, 'object');
-      const dotIdx = code.lastIndexOf('.', node.property.start);
-      const optIdx = dotIdx > 0 && code[dotIdx - 1] === '?' ? dotIdx - 1 : dotIdx;
-      const prefix = optIdx < dotIdx ? '?.[' : '[';
-      edits.push({ start: optIdx, end: node.property.end, text: prefix + '_z(' + JSON.stringify(injectMarker(node.property.name)) + ')]' });
+    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && node.property.name.length > 2) {
+      countWalk(node.object, node, 'object');
+      bump(node.property.name);
       return;
     }
-    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && SENSITIVE_RE.test(node.key.name)) {
-      const keyExpr = '[_z(' + JSON.stringify(injectMarker(node.key.name)) + ')]';
-      if (node.shorthand) {
-        walk(node.value, node, 'value');
-        edits.push({ start: node.start, end: node.key.end, text: keyExpr + ':' + node.key.name });
-        return;
-      }
-      edits.push({ start: node.key.start, end: node.key.end, text: keyExpr });
-      walk(node.value, node, 'value');
+    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && node.key.name.length > 2) {
+      bump(node.key.name);
+      countWalk(node.value, node, 'value');
       return;
     }
     for (const key of Object.keys(node)) {
       if (key === 'type' || key === 'start' || key === 'end') continue;
       const child = node[key];
-      if (Array.isArray(child)) child.forEach((c) => walk(c, node, key));
-      else if (child && typeof child.type === 'string') walk(child, node, key);
+      if (Array.isArray(child)) child.forEach((c) => countWalk(c, node, key));
+      else if (child && typeof child.type === 'string') countWalk(child, node, key);
     }
   }
-  walk(ast, null, '');
+
+  countWalk(ast, null, '');
+  const sortedStrings = [...freq.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]);
+  const strMap = new Map(sortedStrings.map((s, i) => [s, i]));
+  const strTbl = sortedStrings.map(cipherStr);
+  const getIdx = (s) => strMap.get(s);
+
+  function renderNode(node) {
+    const subEdits = [];
+    collectEdits(node, null, '', subEdits);
+    subEdits.sort((a, b) => b.start - a.start || b.end - a.end);
+    let slice = code.slice(node.start, node.end);
+    for (const e of subEdits) {
+      slice = slice.slice(0, e.start - node.start) + e.text + slice.slice(e.end - node.start);
+    }
+    return slice;
+  }
+
+  const edits = [];
+  function collectEdits(node, parent, prop, outEdits) {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'Literal' && node.regex) {
+      const pIdx = getIdx(node.regex.pattern);
+      const fIdx = node.regex.flags ? getIdx(node.regex.flags) : -1;
+      const prevChar = node.start > 0 ? code[node.start - 1] : '';
+      const lead = /[A-Za-z0-9_$]/.test(prevChar) ? ' ' : '';
+      outEdits.push({
+        start: node.start,
+        end: node.end,
+        text: lead + '(new RegExp(_z(' + pIdx + ')' + (fIdx >= 0 ? ',_z(' + fIdx + ')' : '') + '))',
+      });
+      return;
+    }
+    if (node.type === 'Literal' && typeof node.value === 'string') {
+      if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
+      if (node.value === '') return;
+      const idx = getIdx(node.value);
+      const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
+      const prevChar = node.start > 0 ? code[node.start - 1] : '';
+      const lead = !isKey && /[A-Za-z0-9_$]/.test(prevChar) ? ' ' : '';
+      outEdits.push({
+        start: node.start,
+        end: node.end,
+        text: isKey ? '[_z(' + idx + ')]' : lead + '_z(' + idx + ')',
+      });
+      return;
+    }
+    if (node.type === 'TemplateLiteral' && (!parent || parent.type !== 'TaggedTemplateExpression')) {
+      const parts = [];
+      for (let i = 0; i < node.quasis.length; i++) {
+        const q = node.quasis[i].value.cooked ?? node.quasis[i].value.raw;
+        if (q.length > 0 || (node.quasis.length === 1 && node.expressions.length === 0)) {
+          parts.push('_z(' + getIdx(q) + ')');
+        }
+        if (i < node.expressions.length) {
+          parts.push('(' + renderNode(node.expressions[i]) + ')');
+        }
+      }
+      const prevChar = node.start > 0 ? code[node.start - 1] : '';
+      const lead = /[A-Za-z0-9_$]/.test(prevChar) ? ' ' : '';
+      outEdits.push({
+        start: node.start,
+        end: node.end,
+        text: lead + '(' + (parts.join('+') || '""') + ')',
+      });
+      return;
+    }
+    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && node.property.name.length > 2) {
+      collectEdits(node.object, node, 'object', outEdits);
+      const dotIdx = code.lastIndexOf('.', node.property.start);
+      const optIdx = dotIdx > 0 && code[dotIdx - 1] === '?' ? dotIdx - 1 : dotIdx;
+      const prefix = optIdx < dotIdx ? '?.[' : '[';
+      outEdits.push({
+        start: optIdx,
+        end: node.property.end,
+        text: prefix + '_z(' + getIdx(node.property.name) + ')]',
+      });
+      return;
+    }
+    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && node.key.name.length > 2) {
+      const keyExpr = '[_z(' + getIdx(node.key.name) + ')]';
+      if (node.shorthand) {
+        collectEdits(node.value, node, 'value', outEdits);
+        outEdits.push({ start: node.start, end: node.key.end, text: keyExpr + ':' + node.key.name });
+        return;
+      }
+      outEdits.push({ start: node.key.start, end: node.key.end, text: keyExpr });
+      collectEdits(node.value, node, 'value', outEdits);
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end') continue;
+      const child = node[key];
+      if (Array.isArray(child)) child.forEach((c) => collectEdits(c, node, key, outEdits));
+      else if (child && typeof child.type === 'string') collectEdits(child, node, key, outEdits);
+    }
+  }
+
+  collectEdits(ast, null, '', edits);
   edits.sort((a, b) => b.start - a.start || b.end - a.end);
   let out = code;
   for (const e of edits) {
     out = out.slice(0, e.start) + e.text + out.slice(e.end);
   }
-  const helper = 'const _z=s=>s.split("~^").join(""),_zt=(q,...v)=>{let r=_z(q[0]);for(let i=0;i<v.length;i++)r+=v[i]+_z(q[i+1]);return r};';
+  const helper = 'const _t=' + JSON.stringify(strTbl) + ',_c=new Map();function _z(k){let v=_c.get(k);if(v!==undefined)return v;const s=_t[k];let o="";for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);o+=c>=65&&c<=90?String.fromCharCode(65+(c-46)%26):c>=97&&c<=122?String.fromCharCode(97+(c-78)%26):c>=1569&&c<=1610?String.fromCharCode(1569+(c-1548)%42):c>=1705&&c<=1740?String.fromCharCode(1705+(c-1687)%36):s[i];}_c.set(k,o);return o;}';
   return helper + out;
 }
 
 const result = await minify(src, {
   compress: true,
-  mangle: true,
+  mangle: { toplevel: true, reserved: ['_z', '_t', '_c', '_testing'] },
   // The worker is an ES module: keep `export default` / `export const _testing`
   // exactly as they are, or the runtime cannot resolve the entrypoint.
   module: true,

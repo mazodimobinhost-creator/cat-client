@@ -40,7 +40,7 @@ const COMPAT_FLAGS = [];
  * `releases/latest` that still serves an older artifact is rejected instead of
  * being installed silently. Keep it equal to CAT_PANEL_VERSION at release time
  * (compat-consistency.test.mjs enforces <=). */
-const PANEL_MIN_VERSION = '6.69.19';
+const PANEL_MIN_VERSION = '6.69.20';
 
 /* Network timeouts. A hung Cloudflare/GitHub/health request must become a
  * clear failure (fail-closed), never an endless install. */

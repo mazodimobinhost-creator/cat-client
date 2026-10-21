@@ -82,7 +82,7 @@ const source = readFileSync(sourcePath, 'utf8');
   // This is a repository regression budget, not a Cloudflare platform limit.
   // Keep modest headroom for the installer/update UI while still catching a
   // sudden return to the much larger obfuscated artifact.
-  ok('gzip stays under the 162 KB regression budget', gz < 162_000, gz);
+  ok('gzip stays under the 168 KB regression budget', gz < 168_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

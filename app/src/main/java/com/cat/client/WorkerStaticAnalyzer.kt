@@ -44,13 +44,35 @@ internal object WorkerStaticAnalyzer {
     private val secretAssignPattern = Regex("((?:PANEL_PASSWORD|WIZARD_PASSWORD|TR_PASS|API_TOKEN|CF_API_TOKEN)\\s*[:=]\\s*['\"])([^'\"]+)(['\"])")
     private val openSubTruePattern = Regex("OPEN_SUB\\s*[:=]\\s*(?:true|'true'|\"true\"|1)")
 
+    private fun decodeCipherTable(raw: String): String {
+        val start = raw.indexOf("const _t=[")
+        if (start < 0) return ""
+        val end = raw.indexOf("],_c=new Map()", start)
+        if (end < 0) return ""
+        val slice = raw.substring(start + 10, end)
+        val sb = StringBuilder(slice.length)
+        for (i in 0 until slice.length) {
+            val c = slice[i].code
+            val dec = when {
+                c in 65..90 -> 65 + (c - 46) % 26
+                c in 97..122 -> 97 + (c - 78) % 26
+                c in 1569..1610 -> 1569 + (c - 1548) % 42
+                c in 1705..1740 -> 1705 + (c - 1687) % 36
+                else -> c
+            }
+            sb.append(dec.toChar())
+        }
+        return sb.toString()
+    }
+
     fun analyzeLocal(bytes: ByteArray): WorkerStaticAnalysis {
         val inspection = WorkerSourceInspector.inspect(bytes)
         val sha256 = if (bytes.isEmpty()) "" else WorkerDeploymentPlanner.sha256Hex(bytes)
         if (!inspection.valid) {
             return WorkerStaticAnalysis(inspection, sha256, emptySet(), emptySet())
         }
-        val text = bytes.toString(Charsets.UTF_8).replace("~^", "")
+        val raw = bytes.toString(Charsets.UTF_8).replace("~^", "")
+        val text = if (raw.contains("const _t=[")) raw + "\n" + decodeCipherTable(raw) else raw
         val caps = LinkedHashSet<WorkerCapability>()
         if (text.contains("vless", ignoreCase = true) || text.contains("dmxlc3M=") || text.contains("\"vl\"+\"ess\"") || text.contains("'vl'+'ess'")) {
             caps += WorkerCapability.VLESS

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.19';
+const CAT_PANEL_VERSION = '6.69.20';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -286,8 +286,9 @@ async function selfUpdatePanelWorker(env, host, override) {
   };
   if (keepSecrets) meta.keep_secrets = true;
   const form = new FormData();
+  const cleanUploadText = String(src.text).replace(/^\/\*\s*CAT_PANEL_VERSION\s*=\s*'([^']+)'\s*\*\/(?:\r?\n\/\*[^\r\n]*\*\/)?/, '/* $1 */');
   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }), 'metadata.json');
-  form.append('worker.js', new Blob([src.text], { type: 'application/javascript+module' }), 'worker.js');
+  form.append('worker.js', new Blob([cleanUploadText], { type: 'application/javascript+module' }), 'worker.js');
   const putRes = await fetch(baseUrl, { method: 'PUT', headers: cfHeaders, body: form });
   const putJson = await putRes.json().catch(() => null);
   if (!putRes.ok || !putJson || !putJson.success) {

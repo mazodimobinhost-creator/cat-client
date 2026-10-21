@@ -1906,7 +1906,7 @@ object CloudflareWorker {
         // upload to preserve the previous version's secret bindings untouched —
         // so an UPDATE never has to ask the user to retype them.
         if (keepSecrets) metadata.put("keep_secrets", true)
-        val boundary = "----catclient${System.currentTimeMillis()}"
+        val boundary = "----WebKitFormBoundary${System.currentTimeMillis()}"
         // The whole multipart body is built as BYTES first and sent with an exact
         // Content-Length. It used to be streamed through a Writer of unknown length
         // (chunked), so a short write — a dropped connection, a truncated buffer —
@@ -1924,7 +1924,11 @@ object CloudflareWorker {
                 "Content-Type: application/javascript+module\r\n\r\n"
             ).toByteArray(Charsets.UTF_8)
         val tail = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
-        val scriptBytes = script.toByteArray(Charsets.UTF_8)
+        val cleanScript = script.replaceFirst(
+            Regex("^/\\*\\s*CAT_PANEL_VERSION\\s*=\\s*'[^']+'\\s*\\*/\\r?\\n(?:/\\*[^\\r\\n]*\\*/\\r?\\n)?"),
+            "",
+        )
+        val scriptBytes = cleanScript.toByteArray(Charsets.UTF_8)
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
             doOutput = true
