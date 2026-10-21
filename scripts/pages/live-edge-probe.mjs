@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const base = process.env.LIVE_PANEL_URL || 'https://edge-aybca.catclient-ldqlurrj.workers.dev';
+const base = process.env.LIVE_PANEL_URL || 'https://edge-n7x8p.catclient-j0vjpz8u.workers.dev';
 const out = { base, event: process.env.GITHUB_EVENT_NAME || '?' };
 
 function summarizeHtml(html) {
@@ -17,7 +17,7 @@ function summarizeHtml(html) {
   };
 }
 
-for (const p of ['/health', '/api/version', '/?av=1.10.0-beta132&pv=6.69.17']) {
+for (const p of ['/health', '/api/version', '/?av=1.10.0-beta133&pv=6.69.18', '/panel/?av=1.10.0-beta133&pv=6.69.18', '/api/selfcheck']) {
   try {
     const r = await fetch(base + p, { redirect: 'manual' });
     const txt = await r.text();
