@@ -385,6 +385,13 @@ code{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius
 .skel{height:14px;border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.04),var(--line),rgba(255,255,255,.04));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[dir="rtl"] .marq span,html[dir="rtl"] .chip{text-transform:none;letter-spacing:normal}
+.card-collapsed > :not(h2){display:none!important}
+.card-toggle-head{cursor:pointer;user-select:none}
+.card-toggle-ar{margin-inline-start:auto;font-size:12px;color:var(--mute);padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+.pbar-wrap{display:none;margin-top:8px}
+.pbar-lbl{font-size:12px;color:var(--cyan);margin-bottom:4px}
+.pbar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden}
+.pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
 </style></head><body>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -904,6 +911,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   <div class="small mute" data-i="ip_list_hint"></div>
   <div class="ipl" id="ipList"></div>
   <div class="row" style="margin-top:10px"><button class="btn r sm" id="btnIpClear" data-i="ip_clear"></button><button class="btn sm" id="btnIpCopy" data-i="copy_all"></button><button class="btn sm" id="btnSvcTest" type="button" style="margin-inline-start:auto">🧪 <span data-i="svc_btn"></span></button><button class="btn p sm" id="btnIpTest" type="button">🩺 <span data-i="ip_test_btn"></span></button></div>
+  <div class="pbar-wrap" id="ipTestProgWrap"><div class="mono pbar-lbl" id="ipTestProgLbl"></div><div class="pbar-track"><div class="pbar-fill" id="ipTestProgBar"></div></div></div>
   <div class="small mute" id="ipTestOut" style="margin-top:6px"></div>
   <div class="row small mute" data-i="ip_test_hint" style="margin-top:4px"></div>
   <div class="row" id="pxTestChips" style="flex-wrap:wrap;gap:4px;margin-top:6px"></div>
@@ -1815,7 +1823,7 @@ function t_paths(){return CFG.paths||{vlessPath:'/vless',trojanPath:'/trojan'}}
 function renderUpdateBox(b,j,full){if(!b||!j||!j.ok||!j.latest){if(b)b.textContent='?';return}
  var same=j.latest===j.current;
  var act='<button class="btn sm '+(same?'':'p')+'" type="button" data-direct-update="1" style="vertical-align:middle">⚡ '+esc(t(same?'update_direct_reapply':'update_direct_btn'))+'</button> <a class="btn sm" href="/api/update-download" style="vertical-align:middle">⬇️ worker.js</a>';
- b.innerHTML=(same?'<span class="chip ok">✓ '+(full?t('update_ok')+' ('+esc(j.current)+')':esc(j.current))+'</span> ':'<span class="chip warn">⬆️ '+(full?t('update_new'):'')+esc(j.latest)+'</span> ')+act+'<div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>';
+ b.innerHTML=(same?'<span class="chip ok">✓ '+(full?t('update_ok')+' ('+esc(j.current)+')':esc(j.current))+'</span> ':'<span class="chip warn">⬆️ '+(full?t('update_new'):'')+esc(j.latest)+'</span> ')+act+'<div class="pbar-wrap up-prog"><div class="mono pbar-lbl up-lbl"></div><div class="pbar-track"><div class="pbar-fill up-bar"></div></div></div><div class="small mute" style="margin-top:6px">'+t('update_how2')+'</div>';
 }
 $('#btnOvUpdate').addEventListener('click',function(){var b=$('#ovUpdateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,false)})});
 $('#btnBulk').addEventListener('click',async function(){
@@ -1991,8 +1999,11 @@ function renderSvc(){var S=window.__svcTest||{},box=$('#svcChips');if(!box)retur
 function renderPxTest(){var px=CFG.settings.proxyIps||[],TT=window.__ipTest||{},box=$('#pxTestChips');if(!box)return;box.innerHTML=px.map(function(p){var st=TT[p];var w=st?(st.ok?'<span style="color:#34d399">relay✓ '+st.ms+'ms</span>':'<span style="color:#f87171">relay✗'+(st.error?' · '+esc(String(st.error).slice(0,42)):'')+'</span>'):'<span class="dim">—</span>';var isSk=(/^socks5h?:\/\//i).test(p);var lbl=isSk?'🧦 '+p.replace(/^socks5h?:\/\//i,'').replace(/^[^@\/]*@/,''):'🎯 '+p;return '<span class="chip mono">'+lbl+' '+w+'</span>'}).join('')}
 $('#btnSvcTest').addEventListener('click',function(){var out=$('#ipTestOut');out.textContent='…';$('#btnSvcTest').disabled=true;
 api('/api/svc-test',{method:'POST',body:{}}).then(function(j){window.__svcTest=j.results||{};window.__svcExit=j.exit||{};renderSvc();var o=Object.keys(window.__svcTest).length,k=Object.values(window.__svcTest).filter(function(r){return r.ok}).length;out.textContent='🪧 '+k+' / '+o}).catch(function(e){out.textContent='✗ '+esc(e&&e.message||e)}).finally(function(){$('#btnSvcTest').disabled=false})});
+function setIpTestProg(pct,lbl,show){var w=$('#ipTestProgWrap'),b=$('#ipTestProgBar'),l=$('#ipTestProgLbl');if(!w)return;w.style.display=show===false?'none':'block';if(b)b.style.width=Math.max(0,Math.min(100,pct))+'%';if(l)l.textContent=lbl+' ('+Math.max(0,Math.min(100,pct))+'%)'}
 $('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.slice(0,48),pxs=(CFG.settings.proxyIps||[]).slice(0,16);if(!ips.length&&!pxs.length){toast(t('scan_empty'),true);return}var tests=ips.map(function(a){var m=a.match(/:(d{1,5})$/);var port=m?+m[1]:443;return {addr:a,port:port,kind:PLAIN_SET.indexOf(port)>-1?'plain':'clean'}}).concat((function(){var sp=pxSplit(pxs),out=sp.cf.map(function(p){var m=p.match(/:(d{1,5})$/);return {addr:m?p.slice(0,p.lastIndexOf(':')):p,port:m?+m[1]:443,kind:'proxyip',key:p}});return out.concat(sp.sk.map(function(p){return {addr:p,port:0,kind:'socks',key:p}}))})()).slice(0,64);var out=$('#ipTestOut');out.textContent='… 0/'+tests.length;$('#btnIpTest').disabled=true;
-api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){window.__ipTest=j.results||{};renderIps();var cl=tests.filter(function(x){return x.kind!=='proxyip'}),ok=cl.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length,po=tests.filter(function(x){return x.kind==='proxyip'||x.kind==='socks'}),pok=po.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length;var best=null;cl.forEach(function(x){var r=window.__ipTest[x.key||x.addr];if(r&&r.ok&&r.ms!=null&&(best===null||r.ms<best))best=r.ms});out.textContent='🩺 💦 '+ok+' / '+cl.length+(po.length?' · 🎯 '+pok+' / '+po.length:'')+(best!==null?' · کمترین: '+best+'ms':'')}).catch(function(e){out.textContent='✗ '+esc(e&&e.message||e)}).finally(function(){$('#btnIpTest').disabled=false})});
+setIpTestProg(25,lang==='fa'?'🩺 در حال تست سلامت '+tests.length+' اندپوینت (TCP/TLS)…':'🩺 Probing '+tests.length+' endpoints (TCP/TLS)…',true);
+var progTimer=setTimeout(function(){setIpTestProg(65,lang==='fa'?'🩺 در حال بررسی پاسخ لبه و رله‌ها…':'🩺 Verifying edge & relay handshakes…',true)},600);
+api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){clearTimeout(progTimer);window.__ipTest=j.results||{};renderIps();var cl=tests.filter(function(x){return x.kind!=='proxyip'}),ok=cl.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length,po=tests.filter(function(x){return x.kind==='proxyip'||x.kind==='socks'}),pok=po.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length;var best=null;cl.forEach(function(x){var r=window.__ipTest[x.key||x.addr];if(r&&r.ok&&r.ms!=null&&(best===null||r.ms<best))best=r.ms});var summary='🩺 💦 '+ok+' / '+cl.length+(po.length?' · 🎯 '+pok+' / '+po.length:'')+(best!==null?' · کمترین: '+best+'ms':'');out.textContent=summary;setIpTestProg(100,summary,true)}).catch(function(e){clearTimeout(progTimer);out.textContent='✗ '+esc(e&&e.message||e);setIpTestProg(100,'✗ '+(e&&e.message||e),true)}).finally(function(){$('#btnIpTest').disabled=false})});
 $('#btnBrowserTest').addEventListener('click',function(){var box=$('#scanRes');var raw=CFG.settings.ips.concat(CFG.settings.useDefaults?CFG.defaults.addresses:[]);var targets=[],seen={},i,j;
  for(i=0;i<raw.length;i++){var a=String(raw[i]||'').trim();if(!a||seen[a])continue;seen[a]=1;var base=a.split('#')[0],m=/^(.+):([0-9]{1,5})$/.exec(base),host=base,port=443;
   if(m&&!/^[0-9a-fA-F:]+$/.test(base)){host=m[1];port=+m[2]}
@@ -2455,23 +2466,51 @@ $('#restoreFile').addEventListener('change',function(){var f=this.files[0];if(!f
 /* ---------- update / lang ---------- */
 document.addEventListener('click',function(e){var b=e.target.closest('[data-queue-update]');if(!b)return;if(!confirm(t('update_confirm')))return;b.disabled=true;api('/api/update-queue',{method:'POST',body:{}}).then(function(j){toast(j&&j.ok?t('update_queued'):((j&&j.error)||'error'),!(j&&j.ok));if(j&&j.ok)b.textContent=t('update_queued')}).catch(function(){toast('error',true)}).then(function(){b.disabled=false})});
 document.addEventListener('click',async function(e){var b=e.target.closest('[data-direct-update]');if(!b)return;if(!confirm(t('update_direct_confirm')))return;var orig=b.textContent;b.disabled=true;b.textContent=t('update_direct_working');
+ var hostBox=b.parentElement,pw=hostBox&&hostBox.querySelector('.up-prog'),pb=hostBox&&hostBox.querySelector('.up-bar'),pl=hostBox&&hostBox.querySelector('.up-lbl');
+ function setUpProg(pct,lbl){if(!pw)return;pw.style.display='block';if(pb)pb.style.width=Math.max(0,Math.min(100,pct))+'%';if(pl)pl.textContent=lbl+' ('+Math.max(0,Math.min(100,pct))+'%)'}
+ setUpProg(20,lang==='fa'?'⏳ در حال بررسی اعتبار کلودفلر و دریافت آخرین نسخه…':'⏳ Checking credentials & fetching release…');
  try{
   var j=await api('/api/update-apply',{method:'POST',body:{}});
   if(j&&j.needsSetup){
+   setUpProg(40,lang==='fa'?'🔑 نیاز به توکن کلودفلر برای ثبت یک‌باره…':'🔑 Waiting for one-time Cloudflare token…');
    var tok=await ask(t('update_token_once'),{ph:'Cloudflare API Token…'});
-   if(tok&&String(tok).trim()){j=await api('/api/update-apply',{method:'POST',body:{token:String(tok).trim()}})}
-   else{b.disabled=false;b.textContent=orig;return}
+   if(tok&&String(tok).trim()){
+    setUpProg(65,lang==='fa'?'📦 در حال آپدیت مستقیم ورکر (حفظ UUID و تنظیمات)…':'📦 Updating Worker & preserving bindings…');
+    j=await api('/api/update-apply',{method:'POST',body:{token:String(tok).trim()}});
+   }
+   else{if(pw)pw.style.display='none';b.disabled=false;b.textContent=orig;return}
   }
   if(j&&j.ok){
    var msg=t('update_direct_done').replace('%1',j.from||VERSION).replace('%2',j.to||'');
+   setUpProg(100,'✅ '+msg);
    toast(msg);b.textContent='✓ '+(j.to||'');
    setTimeout(function(){location.reload()},1500);
    return;
   }
-  toast((j&&(j.message||j.error))||'error',true);
- }catch(err){toast('error',true)}
+  var errMsg=(j&&(j.message||j.error))||'error';
+  setUpProg(100,'✗ '+errMsg);
+  toast(errMsg,true);
+ }catch(err){setUpProg(100,'✗ error');toast('error',true)}
  b.disabled=false;b.textContent=orig;
 });
+function initCollapsibleCards(){
+ var sel=['#fWarp','#secCard'];
+ $$('[data-i="mitm_title"],[data-i="g_tg"],[data-i="g_gh"],[data-i="rec_title"],[data-i="dom_title"],[data-i="limits"]').forEach(function(s){var c=s.closest&&s.closest('.card');if(c)sel.push(c)});
+ sel.forEach(function(item){
+  var c=typeof item==='string'?$(item):item;if(!c||c._colInit)return;
+  var h=c.querySelector('h2');if(!h)return;c._colInit=1;
+  c.classList.add('card-collapsed');h.classList.add('card-toggle-head');
+  var ar=document.createElement('span');ar.className='card-toggle-ar';
+  ar.textContent=lang==='fa'?'باز کردن ▾':'Expand ▾';
+  h.appendChild(ar);
+  h.addEventListener('click',function(ev){
+   if(ev.target&&ev.target.closest&&ev.target.closest('button,a,input,select'))return;
+   var col=c.classList.toggle('card-collapsed');
+   ar.textContent=col?(lang==='fa'?'باز کردن ▾':'Expand ▾'):(lang==='fa'?'بستن ▴':'Collapse ▴');
+  });
+ });
+}
+initCollapsibleCards();
 $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,true)})});
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
