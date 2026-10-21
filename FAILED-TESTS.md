@@ -1,9 +1,9 @@
-# Android failure report (da554c5)
+# Android failure report (6d93e46)
 
 
 ## files with compile errors
-     16 app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt
       8 app/src/main/java/com/cat/client/MainActivity.kt
+      6 app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt
       1 app/src/main/java/com/cat/client/SmartRouteScout.kt
       1 app/src/main/java/com/cat/client/IpGeolocation.kt
       1 app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt
@@ -42,7 +42,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3315) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3531) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -60,7 +60,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3330) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3546) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -70,7 +70,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3349) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3565) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -103,7 +103,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3361) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3577) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -158,7 +158,6 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
-> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
@@ -169,6 +168,7 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 /home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-165:19 Warning:
 	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
 
+> Task :app:mergeDebugResources
 > Task :app:processDebugManifest
 > Task :app:processDebugManifestForPackage
 > Task :app:javaPreCompileDebug
@@ -195,22 +195,12 @@ w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/clie
 > Task :app:bundleDebugClassesToCompileJar
 
 > Task :app:compileDebugUnitTestKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:116:13 No value passed for parameter 'maxAgeMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:135:13 No value passed for parameter 'maxAgeMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:140:39 Unresolved reference 'parse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:141:44 Unresolved reference 'entry'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:142:38 Unresolved reference 'fingerprint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:143:40 Unresolved reference 'alpn'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:144:35 Unresolved reference 'ech'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:145:77 Unresolved reference 'cipherSuites'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:146:74 Unresolved reference 'finalMask'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:148:42 Unresolved reference 'parse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:149:47 Unresolved reference 'entry'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:150:41 Unresolved reference 'fingerprint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:151:46 Unresolved reference 'alpn'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:152:37 Unresolved reference 'ech'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:153:80 Unresolved reference 'cipherSuites'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:154:77 Unresolved reference 'finalMask'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:142:51 No value passed for parameter 'checkedAtMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:142:51 No value passed for parameter 'source'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:143:44 Unresolved reference 'entry'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:150:54 No value passed for parameter 'checkedAtMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:150:54 No value passed for parameter 'source'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/whitedns/vpn/SubscriptionOptimizerTest.kt:151:47 Unresolved reference 'entry'.
 
 FAILURE: Build failed with an exception.
 
@@ -225,5 +215,5 @@ Execution failed for task ':app:compileDebugUnitTestKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 2m 10s
+BUILD FAILED in 2m 25s
 19 actionable tasks: 19 executed
