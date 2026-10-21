@@ -113,6 +113,7 @@ class SubscriptionOptimizerTest {
             lines = listOf(original),
             candidates = emptyList(),
             nowMs = now,
+            maxAgeMs = 60_000L,
             firewallProfile = FirewallBypassProfile.MCI_CDN_IPV6,
         )
         assertEquals(1, plan.changedCount)
@@ -132,20 +133,21 @@ class SubscriptionOptimizerTest {
             lines = listOf(wsConfig, xhttpConfig),
             candidates = emptyList(),
             nowMs = now,
+            maxAgeMs = 60_000L,
             firewallProfile = FirewallBypassProfile.IRANCELL_CDN_FF,
         )
         assertEquals(2, plan.changedCount)
         assertTrue(plan.pagesDevDomains.isEmpty())
 
-        val outWs = VerifiedConfigUri.parse(plan.optimizedLines[0])!!
+        val outWs = VerifiedConfigUriParser.parse(plan.optimizedLines[0])!!
         assertEquals("188.114.98.0", outWs.entry.host)
         assertEquals("unsafe", outWs.fingerprint)
         assertEquals("http/1.1", outWs.alpn)
-        assertEquals( null, outWs.ech)
+        assertEquals(null, outWs.ech)
         assertEquals(FirewallBypassRecipes.FIREWALL_FF_CIPHER_SUITES, outWs.cipherSuites)
         assertEquals(FirewallBypassRecipes.FIREWALL_FF_FINAL_MASK, outWs.finalMask)
 
-        val outXhttp = VerifiedConfigUri.parse(plan.optimizedLines[1])!!
+        val outXhttp = VerifiedConfigUriParser.parse(plan.optimizedLines[1])!!
         assertEquals("188.114.98.0", outXhttp.entry.host)
         assertEquals("unsafe", outXhttp.fingerprint)
         assertEquals("h2,http/1.1", outXhttp.alpn)
