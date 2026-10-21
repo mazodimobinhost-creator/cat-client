@@ -117,7 +117,7 @@ class SubscriptionOptimizerTest {
             firewallProfile = FirewallBypassProfile.MCI_CDN_IPV6,
         )
         assertEquals(1, plan.changedCount)
-        assertEquals(listOf("my-sub.pages.dev"), plan.pagesDevDomains)
+        assertEquals(setOf("my-sub.pages.dev"), plan.pagesDevDomains)
         val out = plan.optimizedLines.single()
         assertTrue(out.startsWith("vless://uuid@[2a06:98c1:3101::6812:202f]:443?"))
         assertTrue(out.contains("fp=chrome"))
