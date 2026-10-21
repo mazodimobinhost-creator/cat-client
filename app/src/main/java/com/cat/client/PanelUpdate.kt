@@ -167,7 +167,7 @@ object PanelUpdate {
                 requestMethod = "GET"
                 connectTimeout = 8_000
                 readTimeout = 8_000
-                setRequestProperty("User-Agent", "CatClient/${BuildConfig.VERSION_NAME} (panel-update-check)")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             }
             try {
                 val code = connection.responseCode

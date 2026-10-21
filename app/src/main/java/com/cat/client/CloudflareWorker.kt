@@ -771,7 +771,7 @@ object CloudflareWorker {
                 requestMethod = "GET"
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
-                setRequestProperty("User-Agent", "CatClient/1.0 (panel-probe)")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
                 setRequestProperty("Accept", "application/json")
             }
             val code = conn.responseCode
@@ -855,18 +855,21 @@ object CloudflareWorker {
                 var served: String? = null
                 for (key in subKeys) {
                     val sub = runCatching {
-                        val conn = (URL(workerUrl.trimEnd('/') + "/sub/" + key + "?raw=1").openConnection() as HttpURLConnection).apply {
+                        val conn = (URL(workerUrl.trimEnd('/') + "/sub64/" + key).openConnection() as HttpURLConnection).apply {
                             requestMethod = "GET"
                             connectTimeout = 8_000
                             readTimeout = 8_000
-                            setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
                         }
                         val code = conn.responseCode
                         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
                             ?.bufferedReader()?.use { it.readText() }.orEmpty()
                         code to body
                     }.getOrElse { 0 to "" }
-                    if (sub.first == 200 && (sub.second.contains("vless://") || sub.second.contains("trojan://"))) {
+                    val decoded = runCatching {
+                        String(java.util.Base64.getDecoder().decode(sub.second.trim().replace(Regex("\\s+"), "")), Charsets.UTF_8)
+                    }.getOrDefault(sub.second)
+                    if (sub.first == 200 && (decoded.contains("vless://") || decoded.contains("trojan://"))) {
                         served = key
                         break
                     }
@@ -900,7 +903,7 @@ object CloudflareWorker {
                     connectTimeout = 10_000
                     readTimeout = 10_000
                     setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("User-Agent", "CatClient/${BuildConfig.VERSION_NAME} (panel-login-check)")
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
                 }
                 conn.outputStream.use { out ->
                     out.write(
@@ -1347,8 +1350,11 @@ object CloudflareWorker {
         }.getOrNull()
     }
 
-    /** Neutral, non-branded worker name for fresh deploys (e.g. "edge-a7k2m9"). */
-    fun randomWorkerName(): String = "edge-" + randomToken(5)
+    /** Neutral, non-branded worker name for fresh deploys (e.g. "app-a7k2m9"). */
+    fun randomWorkerName(): String {
+        val prefixes = listOf("app", "web", "svc", "api", "site", "node", "work", "hub")
+        return prefixes[Random.nextInt(prefixes.size)] + "-" + randomToken(6)
+    }
 
     /** Random 10-char hidden panel path used by stealth mode. */
     fun randomPanelPath(): String = randomToken(10)
@@ -1436,7 +1442,7 @@ object CloudflareWorker {
                 connectTimeout = 8_000
                 readTimeout = 8_000
                 instanceFollowRedirects = false
-                setRequestProperty("User-Agent", "Mozilla/5.0 (panel-status)")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             }
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -1524,7 +1530,7 @@ object CloudflareWorker {
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
             instanceFollowRedirects = false
-            setRequestProperty("User-Agent", "CatClient")
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             setRequestProperty("Accept", "application/json, text/html;q=0.8, */*;q=0.5")
         }
         return try {
@@ -1658,7 +1664,8 @@ object CloudflareWorker {
             val arr = namespaces.optJSONArray("result") ?: JSONArray()
             for (i in 0 until arr.length()) {
                 val ns = arr.optJSONObject(i) ?: continue
-                if (ns.optString("title") == "${workerName}-catpanel") {
+                val nsTitle = ns.optString("title")
+                if (nsTitle == "${workerName}-catpanel" || nsTitle == "${workerName}-store") {
                     val id = ns.optString("id")
                     if (id.isNotBlank() && cfDelete(token, "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces/$id").optBoolean("success", false)) kvDeleted++
                 }
@@ -1709,13 +1716,15 @@ object CloudflareWorker {
         val base = "https://api.cloudflare.com/client/v4/accounts/$accountId/storage/kv/namespaces"
         val listing = cfGet(token, "$base?per_page=100")
         val existing = listing.optJSONArray("result")
+        val neutralTitle = title.replace(Regex("-catpanel$"), "-store")
         if (existing != null) {
             for (i in 0 until existing.length()) {
                 val ns = existing.getJSONObject(i)
-                if (ns.optString("title") == title) return ns.getString("id")
+                val t = ns.optString("title")
+                if (t == neutralTitle || t == title) return ns.getString("id")
             }
         }
-        val created = cfPost(token, base, JSONObject().put("title", title).toString())
+        val created = cfPost(token, base, JSONObject().put("title", neutralTitle).toString())
         val id = created.optJSONObject("result")?.optString("id").orEmpty()
         if (id.isBlank()) {
             throw RuntimeException("KV namespace create failed: ${created.optJSONArray("errors")}")
@@ -1732,7 +1741,8 @@ object CloudflareWorker {
         getJson.optJSONObject("result")?.optString("subdomain")?.takeIf { it.isNotBlank() }
             ?.let { return it }
         // Not found or no read permission: create the subdomain (needs Workers Subdomain: Edit).
-        val candidate = "catclient-" + randomSubdomainSuffix()
+        val prefixes = listOf("app", "web", "svc", "api", "cdn", "net", "dev", "cloud")
+        val candidate = prefixes[Random.nextInt(prefixes.size)] + "-" + randomSubdomainSuffix()
         val putJson = cfPut(
             token,
             "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain",
@@ -1769,7 +1779,7 @@ object CloudflareWorker {
                         requestMethod = "GET"
                         connectTimeout = 8_000
                         readTimeout = 8_000
-                        setRequestProperty("User-Agent", "CatClient/1.0 (panel-smoke-test)")
+                        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
                     }
                     val code = conn.responseCode
                     val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -1782,9 +1792,12 @@ object CloudflareWorker {
                 else {
                     // Same two keys as waitForPanel: UUID, then a rotated subscription token.
                     (listOf(uuid) + extraSubKeys).map { it.trim() }.filter { it.isNotBlank() }.distinct().any { key ->
-                        val subscription = get("/sub/" + key + "?raw=1")
+                        val subscription = get("/sub64/" + key)
+                        val decoded = runCatching {
+                            String(java.util.Base64.getDecoder().decode(subscription.second.trim().replace(Regex("\\s+"), "")), Charsets.UTF_8)
+                        }.getOrDefault(subscription.second)
                         subscription.first == 200 &&
-                            (subscription.second.contains("vless://") || subscription.second.contains("trojan://"))
+                            (decoded.contains("vless://") || decoded.contains("trojan://"))
                     }
                 }
             }.getOrDefault(false)

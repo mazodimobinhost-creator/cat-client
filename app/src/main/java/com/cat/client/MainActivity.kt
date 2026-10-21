@@ -9173,7 +9173,7 @@ class MainActivity : Activity() {
                 ?.ifEmpty { CloudflareWorker.randomWorkerName() } ?: CloudflareWorker.randomWorkerName()
             val effectiveUser = panelUserInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
             val effectivePass = panelPassInput.text?.toString()?.trim().orEmpty().ifBlank { "admin" }
-            val bundledVer = CloudflareWorker.bundledPanelVersion(this).ifBlank { "6.69.18" }
+            val bundledVer = CloudflareWorker.bundledPanelVersion(this).ifBlank { "6.69.19" }
             MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.cloud_deploy)
                 .setMessage(

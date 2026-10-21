@@ -50,7 +50,7 @@ internal object WorkerStaticAnalyzer {
         if (!inspection.valid) {
             return WorkerStaticAnalysis(inspection, sha256, emptySet(), emptySet())
         }
-        val text = bytes.toString(Charsets.UTF_8)
+        val text = bytes.toString(Charsets.UTF_8).replace("~^", "")
         val caps = LinkedHashSet<WorkerCapability>()
         if (text.contains("vless", ignoreCase = true) || text.contains("dmxlc3M=") || text.contains("\"vl\"+\"ess\"") || text.contains("'vl'+'ess'")) {
             caps += WorkerCapability.VLESS

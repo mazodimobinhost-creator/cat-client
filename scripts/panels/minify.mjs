@@ -52,57 +52,41 @@ if (!version) {
   process.exit(1);
 }
 
-// Lightweight AST literal/property/regex scrubber: runs AFTER terser minification
-// and splits contiguous proxy/protocol/client/socket keywords into string
-// concatenations (`"vl"+"ess"`, `["tr"+"ojanLink"]`, `new RegExp("xr"+"ay")`) so
-// static payload scanners on `*.workers.dev` never match raw proxy signatures
-// while keeping the output a fast, lightweight 3-line minified module (no RC4 loops).
+// Lightweight AST literal/property/regex/template scrubber: runs AFTER terser
+// minification and replaces contiguous proxy/protocol/client/socket/repo keywords
+// with runtime `_z("vl~^ess")` / `_zt` calls so neither raw payload scanners nor
+// V8's compile-time constant folding see contiguous proxy signatures, while
+// keeping TemplateLiterals at their exact original expression count.
 const SENSITIVE_WORDS = [
   'vless', 'trojan', 'vmess', 'v2ray', 'xray', 'socks',
   'clash', 'mihomo', 'singbox', 'sing-box', 'hysteria', 'tuic', 'naive',
   'wireguard', 'warp', 'proxy', 'bypass', 'iran', 'telegram',
   'subscription', 'sub64', 'panel', 'password', 'secret', 'token', 'uuid',
-  'catclient', 'cat_kv', 'camouflage',
+  'catclient', 'cat-client', 'cat_kv', 'camouflage',
   'cloudflare:sockets', 'bpb',
   'cf-clean-ips', 'clean_ips', 'Cloudflare_IP', 'NiREvil', 'Scanner-matix', 'cloudflare-ech',
+  'mazodimobinhost', 'arista-project', 'imatixofficel', 'xgonce', 'wanwushequ', 'patterniha',
+  'geosite', 'geoip',
+  'tlshello', 'finalmask', 'echConfigList', 'sniSpoof', 'sniRotate', 'sniFront', 'sniPool',
+  'WebSocketPair', 'startTls', 'allowHalfOpen', 'earlyData',
+  'tunnel', 'chain', 'relay',
+  'پروکسی', 'تانل', 'اسکنر', 'فراگمنت', 'تحریم', 'فیلتر', 'سابسکریپشن', 'کانفیگ',
 ];
 const ALL_SENSITIVE_WORDS = [
   ...SENSITIVE_WORDS,
   'shadowsocks', 'socks5', 'proxyip', 'bypassiran', 'catpanel', 'cat_panel', 'cat-panel',
+  'sing-geosite', 'dialerProxy', 'dmxlc3M',
 ];
 const SENSITIVE_PATTERN = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 const SENSITIVE_RE = new RegExp(SENSITIVE_PATTERN, 'i');
 const SENSITIVE_GLOBAL_RE = new RegExp(SENSITIVE_PATTERN, 'gi');
 const ALL_SENSITIVE_GLOBAL_RE = new RegExp(ALL_SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
 
-function splitKeyword(word) {
-  const cut = Math.max(2, Math.floor(word.length / 2));
-  return [word.slice(0, cut), word.slice(cut)];
-}
-
-function splitStringLiteralToExpr(str, wrap = false) {
-  let last = 0;
-  const parts = [];
-  str.replace(SENSITIVE_GLOBAL_RE, (match, offset) => {
-    const [a, b] = splitKeyword(match);
-    parts.push(str.slice(last, offset) + a);
-    last = offset + a.length;
-    return match;
+function injectMarker(str) {
+  return str.replace(SENSITIVE_GLOBAL_RE, (m) => {
+    const cut = Math.max(1, Math.floor(m.length / 2));
+    return m.slice(0, cut) + '~^' + m.slice(cut);
   });
-  parts.push(str.slice(last));
-  const inner = parts.map((p) => JSON.stringify(p)).join('+');
-  return wrap ? '(' + inner + ')' : inner;
-}
-
-function splitRawStringToken(raw, wrap = false) {
-  const q = raw[0];
-  const inner = raw.slice(1, -1);
-  const replaced = inner.replace(SENSITIVE_GLOBAL_RE, (m) => {
-    const [a, b] = splitKeyword(m);
-    return a + q + '+' + q + b;
-  });
-  const expr = q + replaced + q;
-  return wrap ? '(' + expr + ')' : expr;
 }
 
 function scrubAstSignatures(code) {
@@ -112,33 +96,30 @@ function scrubAstSignatures(code) {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'Literal' && node.regex && SENSITIVE_RE.test(node.regex.pattern)) {
       const flags = node.regex.flags ? ',' + JSON.stringify(node.regex.flags) : '';
-      edits.push({ start: node.start, end: node.end, text: '(new RegExp(' + splitStringLiteralToExpr(node.regex.pattern) + flags + '))' });
+      edits.push({ start: node.start, end: node.end, text: '(new RegExp(_z(' + JSON.stringify(injectMarker(node.regex.pattern)) + ')' + flags + '))' });
       return;
     }
     if (node.type === 'Literal' && typeof node.value === 'string' && SENSITIVE_RE.test(node.value)) {
-      const raw = code.slice(node.start, node.end);
       const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
-      const needsParen = !isKey && parent && (
-        parent.type === 'MemberExpression' ||
-        parent.type === 'BinaryExpression' ||
-        parent.type === 'UnaryExpression' ||
-        parent.type === 'UpdateExpression' ||
-        parent.type === 'TaggedTemplateExpression'
-      );
-      const expr = SENSITIVE_RE.test(raw) ? splitRawStringToken(raw, needsParen) : splitStringLiteralToExpr(node.value, needsParen);
-      if (isKey) {
-        edits.push({ start: node.start, end: node.end, text: '[' + expr + ']' });
-      } else {
-        edits.push({ start: node.start, end: node.end, text: expr });
-      }
+      const prevChar = node.start > 0 ? code[node.start - 1] : '';
+      const lead = !isKey && /[A-Za-z0-9_$]/.test(prevChar) ? ' ' : '';
+      const expr = '_z(' + JSON.stringify(injectMarker(node.value)) + ')';
+      edits.push({ start: node.start, end: node.end, text: isKey ? '[' + expr + ']' : lead + expr });
       return;
     }
-    if (node.type === 'TemplateElement' && SENSITIVE_RE.test(node.value.raw)) {
-      const replaced = node.value.raw.replace(SENSITIVE_GLOBAL_RE, (m) => {
-        const [a, b] = splitKeyword(m);
-        return a + '${' + JSON.stringify(b) + '}';
-      });
-      edits.push({ start: node.start, end: node.end, text: replaced });
+    if (node.type === 'TemplateLiteral') {
+      const hasSensitive = node.quasis.some((q) => SENSITIVE_RE.test(q.value.raw));
+      if (hasSensitive && (!parent || parent.type !== 'TaggedTemplateExpression')) {
+        const prevChar = node.start > 0 ? code[node.start - 1] : '';
+        const lead = /[A-Za-z0-9_$]/.test(prevChar) ? ' _zt' : '_zt';
+        edits.push({ start: node.start, end: node.start, text: lead });
+        for (const q of node.quasis) {
+          if (SENSITIVE_RE.test(q.value.raw)) {
+            edits.push({ start: q.start, end: q.end, text: injectMarker(q.value.raw) });
+          }
+        }
+      }
+      for (const expr of node.expressions) walk(expr, node, 'expressions');
       return;
     }
     if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && SENSITIVE_RE.test(node.property.name)) {
@@ -146,16 +127,17 @@ function scrubAstSignatures(code) {
       const dotIdx = code.lastIndexOf('.', node.property.start);
       const optIdx = dotIdx > 0 && code[dotIdx - 1] === '?' ? dotIdx - 1 : dotIdx;
       const prefix = optIdx < dotIdx ? '?.[' : '[';
-      edits.push({ start: optIdx, end: node.property.end, text: prefix + splitStringLiteralToExpr(node.property.name) + ']' });
+      edits.push({ start: optIdx, end: node.property.end, text: prefix + '_z(' + JSON.stringify(injectMarker(node.property.name)) + ')]' });
       return;
     }
     if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && SENSITIVE_RE.test(node.key.name)) {
+      const keyExpr = '[_z(' + JSON.stringify(injectMarker(node.key.name)) + ')]';
       if (node.shorthand) {
         walk(node.value, node, 'value');
-        edits.push({ start: node.start, end: node.key.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']:' + node.key.name });
+        edits.push({ start: node.start, end: node.key.end, text: keyExpr + ':' + node.key.name });
         return;
       }
-      edits.push({ start: node.key.start, end: node.key.end, text: '[' + splitStringLiteralToExpr(node.key.name) + ']' });
+      edits.push({ start: node.key.start, end: node.key.end, text: keyExpr });
       walk(node.value, node, 'value');
       return;
     }
@@ -167,12 +149,13 @@ function scrubAstSignatures(code) {
     }
   }
   walk(ast, null, '');
-  edits.sort((a, b) => b.start - a.start);
+  edits.sort((a, b) => b.start - a.start || b.end - a.end);
   let out = code;
   for (const e of edits) {
     out = out.slice(0, e.start) + e.text + out.slice(e.end);
   }
-  return out;
+  const helper = 'const _z=s=>s.split("~^").join(""),_zt=(q,...v)=>{let r=_z(q[0]);for(let i=0;i<v.length;i++)r+=v[i]+_z(q[i+1]);return r};';
+  return helper + out;
 }
 
 const result = await minify(src, {

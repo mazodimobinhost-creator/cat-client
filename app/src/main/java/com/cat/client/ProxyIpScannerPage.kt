@@ -1177,7 +1177,7 @@ class ProxyIpScannerPage(
             val ssl = (SSLContext.getDefault().socketFactory.createSocket(raw, TRACE_HOST, port, true) as SSLSocket)
             ssl.sslParameters = ssl.sslParameters.apply { serverNames = listOf(SNIHostName(TRACE_HOST)) }
             ssl.startHandshake()
-            ssl.outputStream.write("GET /cdn-cgi/trace HTTP/1.1\r\nHost: $TRACE_HOST\r\nUser-Agent: CatClient\r\nConnection: close\r\n\r\n".toByteArray())
+            ssl.outputStream.write("GET /cdn-cgi/trace HTTP/1.1\r\nHost: $TRACE_HOST\r\nUser-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36\r\nConnection: close\r\n\r\n".toByteArray())
             ssl.outputStream.flush()
             val body = ssl.inputStream.bufferedReader().readText()
             val latency = SystemClock.elapsedRealtime() - t0

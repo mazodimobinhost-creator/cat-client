@@ -115,7 +115,7 @@ object IpScanner {
             val request = buildString {
                 append("GET /__down?bytes=").append(maxBytes).append(" HTTP/1.1\r\n")
                 append("Host: ").append(SPEED_TEST_SNI).append("\r\n")
-                append("User-Agent: CatClient\r\n")
+                append("User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36\r\n")
                 append("Accept: */*\r\n")
                 append("Connection: close\r\n\r\n")
             }
@@ -199,7 +199,7 @@ object IpScanner {
             val head = buildString {
                 append("POST /__up HTTP/1.1\r\n")
                 append("Host: ").append(SPEED_TEST_SNI).append("\r\n")
-                append("User-Agent: CatClient\r\n")
+                append("User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36\r\n")
                 append("Content-Type: application/octet-stream\r\n")
                 append("Content-Length: ").append(body.size).append("\r\n")
                 append("Connection: close\r\n\r\n")
@@ -910,7 +910,7 @@ object IpScanner {
             val request = buildString {
                 append("GET /cdn-cgi/trace HTTP/1.1\r\n")
                 append("Host: ").append(host).append("\r\n")
-                append("User-Agent: CatClient\r\n")
+                append("User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36\r\n")
                 append("Accept: */*\r\n")
                 append("Connection: close\r\n\r\n")
             }
