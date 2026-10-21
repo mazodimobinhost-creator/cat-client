@@ -55,10 +55,10 @@ internal object WorkerStaticAnalyzer {
         if (text.contains("vless", ignoreCase = true) || text.contains("dmxlc3M=") || text.contains("\"vl\"+\"ess\"") || text.contains("'vl'+'ess'")) {
             caps += WorkerCapability.VLESS
         }
-        if (text.contains("trojan", ignoreCase = true) || text.contains("\"tr\"+\"ojan\"") || text.contains("'tr'+'ojan'")) {
+        if (text.contains("trojan", ignoreCase = true) || text.contains("\"tr\"+\"ojan\"") || text.contains("\"tro\"+\"jan\"") || text.contains("'tr'+'ojan'") || text.contains("'tro'+'jan'")) {
             caps += WorkerCapability.TROJAN
         }
-        if (text.contains("socks5", ignoreCase = true)) caps += WorkerCapability.SOCKS5
+        if (text.contains("socks5", ignoreCase = true) || text.contains("\"so\"+\"cks5\"") || text.contains("\"soc\"+\"ks5\"")) caps += WorkerCapability.SOCKS5
         if (text.contains("httpConnect", ignoreCase = true) || text.contains("CONNECT ", ignoreCase = false)) {
             caps += WorkerCapability.HTTP_CONNECT
         }
@@ -69,7 +69,7 @@ internal object WorkerStaticAnalyzer {
             caps += WorkerCapability.KV_STORAGE
         }
         if (text.contains(".prepare(")) caps += WorkerCapability.D1_DATABASE
-        if (text.contains("api.telegram.org")) caps += WorkerCapability.TELEGRAM_BOT
+        if (text.contains("api.telegram.org") || text.contains("api.tele")) caps += WorkerCapability.TELEGRAM_BOT
 
         val warnings = LinkedHashSet<WorkerStaticWarning>()
         if (openSubTruePattern.containsMatchIn(text)) {

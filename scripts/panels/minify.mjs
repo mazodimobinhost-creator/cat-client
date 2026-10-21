@@ -58,13 +58,22 @@ if (!version) {
 // static payload scanners on `*.workers.dev` never match raw proxy signatures
 // while keeping the output a fast, lightweight 3-line minified module (no RC4 loops).
 const SENSITIVE_WORDS = [
-  'vless', 'trojan', 'vmess', 'v2ray', 'xray', 'shadowsocks', 'socks5', 'socks',
+  'vless', 'trojan', 'vmess', 'v2ray', 'xray', 'socks',
   'clash', 'mihomo', 'singbox', 'sing-box', 'hysteria', 'tuic', 'naive',
-  'wireguard', 'warp', 'proxyip', 'bypassiran', 'sub64', 'cloudflare:sockets', 'bpb',
+  'wireguard', 'warp', 'proxy', 'bypass', 'iran', 'telegram',
+  'subscription', 'sub64', 'panel', 'password', 'secret', 'token', 'uuid',
+  'catclient', 'cat_kv', 'camouflage',
+  'cloudflare:sockets', 'bpb',
+  'cf-clean-ips', 'clean_ips', 'Cloudflare_IP', 'NiREvil', 'Scanner-matix', 'cloudflare-ech',
+];
+const ALL_SENSITIVE_WORDS = [
+  ...SENSITIVE_WORDS,
+  'shadowsocks', 'socks5', 'proxyip', 'bypassiran', 'catpanel', 'cat_panel', 'cat-panel',
 ];
 const SENSITIVE_PATTERN = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 const SENSITIVE_RE = new RegExp(SENSITIVE_PATTERN, 'i');
 const SENSITIVE_GLOBAL_RE = new RegExp(SENSITIVE_PATTERN, 'gi');
+const ALL_SENSITIVE_GLOBAL_RE = new RegExp(ALL_SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
 
 function splitKeyword(word) {
   const cut = Math.max(2, Math.floor(word.length / 2));
@@ -134,8 +143,10 @@ function scrubAstSignatures(code) {
     }
     if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && SENSITIVE_RE.test(node.property.name)) {
       walk(node.object, node, 'object');
-      const prefix = node.optional ? '?.[' : '[';
-      edits.push({ start: node.object.end, end: node.property.end, text: prefix + splitStringLiteralToExpr(node.property.name) + ']' });
+      const dotIdx = code.lastIndexOf('.', node.property.start);
+      const optIdx = dotIdx > 0 && code[dotIdx - 1] === '?' ? dotIdx - 1 : dotIdx;
+      const prefix = optIdx < dotIdx ? '?.[' : '[';
+      edits.push({ start: optIdx, end: node.property.end, text: prefix + splitStringLiteralToExpr(node.property.name) + ']' });
       return;
     }
     if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && SENSITIVE_RE.test(node.key.name)) {
@@ -212,7 +223,7 @@ if (process.argv.includes('--check')) {
   const v = await mod.default.fetch(new Request('https://x.workers.dev/api/version'), env, { waitUntil() { } });
   const vj = await v.json();
   if (vj.version !== version) throw new Error('marker says ' + version + ' but the worker reports ' + vj.version);
-  const leaked = out.match(SENSITIVE_GLOBAL_RE) || [];
+  const leaked = scrubbedCode.match(ALL_SENSITIVE_GLOBAL_RE) || [];
   if (leaked.length > 0) throw new Error('minify: sensitive plaintext signatures leaked into artifact: ' + leaked.slice(0, 5).join(', '));
   console.log('verify: syntax OK · import OK · _testing OK · /health OK · /panel OK · 0 leaked signatures · marker ' + version + ' == /api/version');
 }
