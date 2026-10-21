@@ -7,8 +7,7 @@ function summarizeHtml(html) {
   const title = (html.match(/<title[^>]*>([^<]+)<\/title>/i) || [])[1] || '';
   const code = (html.match(/cf-error-code[^>]*>([^<]+)</i) || [])[1] || '';
   const desc = (html.match(/<h2[^>]*>([^<]+)<\/h2>/i) || [])[1] || '';
-  const what = (html.match(/What happened\?<\/h2>\s*<p[^>]*>([^<]+)</i) || [])[1] || '';
-  return { title: title.trim(), code: code.trim(), desc: desc.trim(), what: what.trim(), len: html.length };
+  return { title: title.trim(), code: code.trim(), desc: desc.trim(), len: html.length };
 }
 
 for (const p of ['/health', '/api/version', '/?av=1.10.0-beta132&pv=6.69.17']) {
@@ -28,15 +27,26 @@ for (const p of ['/health', '/api/version', '/?av=1.10.0-beta132&pv=6.69.17']) {
 
 const token = (process.env.CF_TOKEN || '').trim();
 const accountId = (process.env.CF_ACCOUNT || '').trim();
+out.hasSecrets = { token: token.length > 0, account: accountId.length > 0 };
+
 if (token && accountId) {
+  const cfTest = {};
+  const cfHdr = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  let subdomain = 'zojfup';
   try {
-    const cfHdr = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
     const subRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`, { headers: cfHdr });
     const subJson = await subRes.json();
-    const subdomain = subJson?.result?.subdomain || '';
-    const workerName = 'catpanel-test';
+    cfTest.subStatus = subRes.status;
+    if (subJson?.result?.subdomain) subdomain = subJson.result.subdomain;
+  } catch (e) {
+    cfTest.subErr = String((e && e.message) || e);
+  }
+  cfTest.subdomain = subdomain;
+
+  const workerName = 'catpanel-test';
+  const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`;
+  try {
     const script = readFileSync('dist-panel/catpanel.min.js', 'utf8');
-    const uploadUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`;
     const bindings = [
       { type: 'plain_text', name: 'UUID', text: '11111111-2222-4333-8444-555555555555' },
       { type: 'plain_text', name: 'OPEN_SUB', text: 'false' },
@@ -71,34 +81,50 @@ if (token && accountId) {
       body,
     });
     const putJson = await putRes.json();
-    await fetch(`${uploadUrl}/subdomain`, {
+    cfTest.uploadStatus = putRes.status;
+    cfTest.uploadOk = Boolean(putJson?.success);
+    cfTest.uploadErrors = putJson?.errors || [];
+  } catch (e) {
+    cfTest.uploadErr = String((e && e.message) || e);
+  }
+
+  try {
+    const sr = await fetch(`${uploadUrl}/subdomain`, {
       method: 'POST',
       headers: cfHdr,
       body: JSON.stringify({ enabled: true, previews_enabled: false }),
     });
-    const testUrl = `https://${workerName}.${subdomain}.workers.dev`;
-    const probes = [];
-    for (let i = 0; i < 4; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
+    cfTest.subdomainEnableStatus = sr.status;
+  } catch (e) {
+    cfTest.subdomainEnableErr = String((e && e.message) || e);
+  }
+
+  const testUrl = `https://${workerName}.${subdomain}.workers.dev`;
+  cfTest.testUrl = testUrl;
+  cfTest.probes = [];
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
       const pr = await fetch(`${testUrl}/api/version?t=${Date.now()}`, { redirect: 'manual' });
       const ptxt = await pr.text();
-      probes.push({
+      cfTest.probes.push({
+        i,
         status: pr.status,
         body: ptxt.trimStart().startsWith('<') ? summarizeHtml(ptxt) : ptxt.slice(0, 200),
       });
-      if (pr.status === 200 && ptxt.startsWith('{')) break;
+      if (pr.status === 200 && ptxt.trimStart().startsWith('{')) break;
+    } catch (e) {
+      cfTest.probes.push({ i, error: String((e && e.message) || e) });
     }
-    out.cfTest = {
-      uploadOk: Boolean(putJson?.success),
-      uploadErrors: putJson?.errors || [],
-      testUrl,
-      probes,
-    };
-  } catch (e) {
-    out.cfTestError = String((e && e.message) || e);
   }
-} else {
-  out.cfTest = 'no-secrets-in-env';
+
+  try {
+    await fetch(uploadUrl, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+    cfTest.cleanedUp = true;
+  } catch (e) {
+    cfTest.cleanupErr = String((e && e.message) || e);
+  }
+  out.cfTest = cfTest;
 }
 
 const msg = JSON.stringify(out)
