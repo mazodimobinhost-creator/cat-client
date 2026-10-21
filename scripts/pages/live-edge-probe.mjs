@@ -1,10 +1,10 @@
-import { verifyLivePanelDeployment } from '../panels/worker-1101-doctor.mjs';
+import { probeDeployment } from '../panels/worker-1101-doctor.mjs';
 
 const base = process.env.LIVE_PANEL_URL || 'https://edge-aybca.catclient-ldqlurrj.workers.dev';
 const out = { base };
 
 try {
-  out.doctor = await verifyLivePanelDeployment(base, '6.69.17', { attempts: 3, delayMs: 400 });
+  out.doctor = await probeDeployment(base, '6.69.17', { attempts: 3, timeoutMs: 8000 });
 } catch (e) {
   out.doctorError = String((e && e.message) || e);
 }
