@@ -18,6 +18,10 @@ internal data class VerifiedConfigUri(
     val proxyIp: VerifiedEndpoint? = null,
     val serverName: String = workerDomain,
     val ech: String? = null,
+    val alpn: String? = null,
+    val cipherSuites: String? = null,
+    val finalMask: String? = null,
+    val transportType: String = "ws",
 ) {
     init {
         require(credential.isNotBlank())
@@ -27,7 +31,7 @@ internal data class VerifiedConfigUri(
         require(serverName.isNotBlank() && !serverName.contains('/') && serverName.none(Char::isWhitespace))
         require(path.startsWith('/'))
         require(proxyIp == null || (proxyIp.role == EndpointRole.PROXY_IP && proxyIp.verdict == EndpointVerdict.VERIFIED))
-        require(ech == null || (tls && ech.isNotBlank() && serverName.equals(workerDomain, ignoreCase = true)))
+        require(ech == null || (tls && ech.isNotBlank() && serverName.equals(workerDomain, ignoreCase = true) && cipherSuites.isNullOrBlank() && finalMask.isNullOrBlank()))
     }
 
     /** Path handed to WebSocket transport across URI, Clash/Mihomo, sing-box and Xray.
@@ -39,13 +43,19 @@ internal data class VerifiedConfigUri(
 
     fun encode(): String {
         val query = buildList {
-            add("type=ws")
+            add("type=${transportType.ifBlank { "ws" }.urlEncode()}")
             add("security=${if (tls) "tls" else "none"}")
             add("host=${workerDomain.urlEncode()}")
             add("sni=${serverName.urlEncode()}")
             add("path=${effectivePath.urlEncode()}")
             fingerprint?.takeIf { it.isNotBlank() }?.let { add("fp=${it.urlEncode()}") }
-            if (tls && !ech.isNullOrBlank()) add("ech=${ech.urlEncode()}")
+            alpn?.takeIf { it.isNotBlank() }?.let { add("alpn=${it.urlEncode()}") }
+            if (tls && !ech.isNullOrBlank()) {
+                add("ech=${ech.urlEncode()}")
+            } else if (tls) {
+                cipherSuites?.takeIf { it.isNotBlank() }?.let { add("cs=${it.urlEncode()}") }
+                finalMask?.takeIf { it.isNotBlank() }?.let { add("fm=${it.urlEncode()}") }
+            }
         }.joinToString("&")
         return "${protocol.scheme}://${credential.urlEncode()}@${endpoint.uriHost}:${endpoint.port}?$query"
     }
@@ -87,11 +97,17 @@ internal object VerifiedConfigUriParser {
             ?: workerDomain)
         val tls = !params["security"].equals("none", ignoreCase = true)
         val fingerprint = (params["fp"] ?: params["fingerprint"])?.takeIf { it.isNotBlank() }
+        val transportType = params["type"]?.trim()?.takeIf { it.isNotBlank() }?.lowercase() ?: "ws"
+        val alpn = params["alpn"]?.trim()?.takeIf { it.isNotBlank() }
+        val rawCs = (params["cs"] ?: params["ciphersuites"])?.trim()?.takeIf { it.isNotBlank() }
+        val rawFm = (params["fm"] ?: params["finalmask"])?.trim()?.takeIf { it.isNotBlank() }
         val rawEch = params["ech"]?.trim()?.takeIf { it.isNotBlank() && !it.equals("off", ignoreCase = true) }
-        val hasEchConflict = !params["fm"].isNullOrBlank() ||
-            !params["cs"].isNullOrBlank() ||
+        val hasEchConflict = !rawFm.isNullOrBlank() ||
+            !rawCs.isNullOrBlank() ||
             !serverName.equals(workerDomain, ignoreCase = true)
         val ech = if (tls && !hasEchConflict) rawEch else null
+        val cipherSuites = if (tls && ech == null) rawCs else null
+        val finalMask = if (tls && ech == null) rawFm else null
         val rawPath = params["path"]?.takeIf { it.isNotBlank() } ?: "/"
         if (!rawPath.startsWith('/')) return null
 
@@ -109,6 +125,10 @@ internal object VerifiedConfigUriParser {
                 proxyIp = proxyIp,
                 serverName = serverName,
                 ech = ech,
+                alpn = alpn,
+                cipherSuites = cipherSuites,
+                finalMask = finalMask,
+                transportType = transportType,
             )
         }.getOrNull()
     }

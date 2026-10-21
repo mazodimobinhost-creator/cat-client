@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.22', T.CAT_PANEL_VERSION === '6.69.22');
+  check('panel version is 6.69.23', T.CAT_PANEL_VERSION === '6.69.23');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
@@ -1100,6 +1100,12 @@ let user;
     const mciV6 = await (await req('/sub/' + MASTER + '?fw=mci-ipv6-ff&proto=vless&port=443&limit=1&rotate=off&noext=1')).text();
     const mciV6Uri = new URL(mciV6.trim().split('\n')[0]);
     check('MCI IPv6 + F&F preset pins IPv6 and omits the Irancell-only cipher list', mciV6Uri.hostname === '[2a06:98c1:3121::7]' && mciV6Uri.searchParams.get('fm') === T.FIREWALL_FF_FINAL_MASK && !mciV6Uri.searchParams.has('cs'));
+    const mciPlainV6 = await (await req('/sub/' + MASTER + '?fw=mci-ipv6&proto=vless&port=443&limit=1&rotate=off&noext=1')).text();
+    const mciPlainV6Uri = new URL(mciPlainV6.trim().split('\n')[0]);
+    check('MCI IPv6 preset uses 2a06:98c1:3101::6812:202f + chrome and clears ECH/FM/CS', mciPlainV6Uri.hostname === '[2a06:98c1:3101::6812:202f]' && mciPlainV6Uri.searchParams.get('fp') === 'chrome' && !mciPlainV6Uri.searchParams.has('ech') && !mciPlainV6Uri.searchParams.has('fm') && !mciPlainV6Uri.searchParams.has('cs'));
+    const irancell98 = await (await req('/sub/' + MASTER + '?fw=irancell-ff-98&type=xhttp&proto=vless&port=443&limit=1&rotate=off&noext=1')).text();
+    const irancell98Uri = new URL(irancell98.trim().split('\n')[0]);
+    check('Irancell F&F 188.114.98.0 + XHTTP sets h2,http/1.1 ALPN and F&F mask/ciphers', irancell98Uri.hostname === '188.114.98.0' && irancell98Uri.searchParams.get('fp') === 'unsafe' && irancell98Uri.searchParams.get('alpn') === 'h2,http/1.1' && irancell98Uri.searchParams.get('fm') === T.FIREWALL_FF_FINAL_MASK && irancell98Uri.searchParams.get('cs') === T.FIREWALL_FF_CIPHER_SUITES && !irancell98Uri.searchParams.has('ech'));
     const unsupported = await req('/clash/' + MASTER + '?fw=irancell-ff');
     check('Clash rejects an Xray-only firewall preset instead of silently dropping finalmask', unsupported.status === 400 && (await unsupported.text()).includes('Xray-compatible'));
     const unsupportedSingbox = await req('/singbox/' + MASTER + '?fw=irancell-ff');

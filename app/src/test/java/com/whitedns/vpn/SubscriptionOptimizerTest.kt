@@ -106,4 +106,51 @@ class SubscriptionOptimizerTest {
             plan.conflict?.reasons,
         )
     }
+
+    @Test fun mciCdnIpv6ProfileClearsEchCipherSuitesAndFinalMaskSetsChromeAndDetectsPagesDev() {
+        val original = "vless://uuid@104.16.0.1:443?type=ws&security=tls&host=my-sub.pages.dev&sni=my-sub.pages.dev&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1&cs=OLD_CS&fm=OLD_FM&fp=firefox&path=%2Fvl#MCI"
+        val plan = SubscriptionOptimizer.plan(
+            lines = listOf(original),
+            candidates = emptyList(),
+            nowMs = now,
+            firewallProfile = FirewallBypassProfile.MCI_CDN_IPV6,
+        )
+        assertEquals(1, plan.changedCount)
+        assertEquals(listOf("my-sub.pages.dev"), plan.pagesDevDomains)
+        val out = plan.optimizedLines.single()
+        assertTrue(out.startsWith("vless://uuid@[2a06:98c1:3101::6812:202f]:443?"))
+        assertTrue(out.contains("fp=chrome"))
+        assertFalse(out.contains("ech="))
+        assertFalse(out.contains("cs="))
+        assertFalse(out.contains("fm="))
+    }
+
+    @Test fun irancellCdnFfProfileSetsFfMaskCipherSuitesUnsafeFingerprintAndTransportAlpn() {
+        val wsConfig = "vless://uuid@104.16.0.1:443?type=ws&security=tls&host=worker.workers.dev&sni=worker.workers.dev&ech=cloudflare-ech.com%2Budp%3A%2F%2F1.1.1.1&path=%2Fvl#WS"
+        val xhttpConfig = "vless://uuid@104.16.0.2:443?type=xhttp&security=tls&host=worker.workers.dev&sni=worker.workers.dev&path=%2Fxhttp#XHTTP"
+        val plan = SubscriptionOptimizer.plan(
+            lines = listOf(wsConfig, xhttpConfig),
+            candidates = emptyList(),
+            nowMs = now,
+            firewallProfile = FirewallBypassProfile.IRANCELL_CDN_FF,
+        )
+        assertEquals(2, plan.changedCount)
+        assertTrue(plan.pagesDevDomains.isEmpty())
+
+        val outWs = VerifiedConfigUri.parse(plan.optimizedLines[0])!!
+        assertEquals("188.114.98.0", outWs.entry.host)
+        assertEquals("unsafe", outWs.fingerprint)
+        assertEquals("http/1.1", outWs.alpn)
+        assertEquals( null, outWs.ech)
+        assertEquals(FirewallBypassRecipes.FIREWALL_FF_CIPHER_SUITES, outWs.cipherSuites)
+        assertEquals(FirewallBypassRecipes.FIREWALL_FF_FINAL_MASK, outWs.finalMask)
+
+        val outXhttp = VerifiedConfigUri.parse(plan.optimizedLines[1])!!
+        assertEquals("188.114.98.0", outXhttp.entry.host)
+        assertEquals("unsafe", outXhttp.fingerprint)
+        assertEquals("h2,http/1.1", outXhttp.alpn)
+        assertEquals(null, outXhttp.ech)
+        assertEquals(FirewallBypassRecipes.FIREWALL_FF_CIPHER_SUITES, outXhttp.cipherSuites)
+        assertEquals(FirewallBypassRecipes.FIREWALL_FF_FINAL_MASK, outXhttp.finalMask)
+    }
 }

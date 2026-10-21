@@ -39,6 +39,32 @@ internal object TlsOptimizationConflictPolicy {
     }
 }
 
+internal enum class FirewallBypassProfile(
+    val wireId: String,
+    val defaultAddress: String,
+    val requiresIpv6: Boolean,
+) {
+    NONE("", "", false),
+    MCI_CDN_IPV6("mci-ipv6", FirewallBypassRecipes.MCI_DEFAULT_IPV6, true),
+    IRANCELL_CDN_FF("irancell-ff", FirewallBypassRecipes.IRANCELL_DEFAULT_IPV4, false),
+}
+
+internal object FirewallBypassRecipes {
+    const val MCI_DEFAULT_IPV6 = "2a06:98c1:3101::6812:202f"
+    const val IRANCELL_DEFAULT_IPV4 = "188.114.98.0"
+    const val FIREWALL_FF_FINAL_MASK =
+        """{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["5","94","1"],"delays":["0"],"maxSplit":"0"}},{"type":"fragment","settings":{"packets":"1-1","lengths":["109","1"],"delays":["1"],"maxSplit":"355"}}]}"""
+    const val FIREWALL_FF_CIPHER_SUITES =
+        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+
+    fun alpnForTransport(transportType: String): String =
+        if (transportType.equals("xhttp", ignoreCase = true) || transportType.equals("splithttp", ignoreCase = true)) {
+            "h2,http/1.1"
+        } else {
+            "http/1.1"
+        }
+}
+
 internal data class SubscriptionOptimizationItem(
     val originalUri: String,
     val optimizedUri: String,
@@ -49,6 +75,7 @@ internal data class SubscriptionOptimizationItem(
 internal data class SubscriptionOptimizationPlan(
     val items: List<SubscriptionOptimizationItem>,
     val conflict: TlsOptimizationValidation.Conflict? = null,
+    val pagesDevDomains: Set<String> = emptySet(),
 ) {
     val changedCount: Int get() = items.count { it.changed }
     val optimizedLines: List<String> get() = items.map { it.optimizedUri }
@@ -71,9 +98,12 @@ internal object SubscriptionOptimizer {
         echEnabled: Boolean = false,
         fragmentEnabled: Boolean = false,
         cipherSuitesOverride: String? = null,
+        firewallProfile: FirewallBypassProfile = FirewallBypassProfile.NONE,
+        customEntryIp: String? = null,
     ): SubscriptionOptimizationPlan {
+        val effectiveEch = if (firewallProfile != FirewallBypassProfile.NONE) false else echEnabled
         val validation = TlsOptimizationConflictPolicy.validate(
-            echEnabled = echEnabled,
+            echEnabled = effectiveEch,
             fragmentEnabled = fragmentEnabled,
             sniMaskOverride = sniOverride,
             cipherSuitesOverride = cipherSuitesOverride,
@@ -98,7 +128,11 @@ internal object SubscriptionOptimizer {
             it.isNotEmpty() && !it.contains('/') && it.none(Char::isWhitespace)
         }
         val cleanFp = fingerprintOverride?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanCustomIp = customEntryIp?.trim()?.removePrefix("[")?.removeSuffix("]")?.takeIf {
+            it.isNotEmpty() && !it.contains('/') && it.none(Char::isWhitespace)
+        }
 
+        val pagesDevFound = LinkedHashSet<String>()
         var cleanIndex = 0
         var proxyIndex = 0
         val items = lines.map { raw ->
@@ -108,25 +142,102 @@ internal object SubscriptionOptimizer {
             if (parsed == null) {
                 SubscriptionOptimizationItem(raw, raw, changed = false, changes = emptyList())
             } else {
-                val matchingClean = cleanPool.filter {
-                    (it.port !in EndpointPortDiscovery.cleanPlainPorts) == parsed.tls
+                if (parsed.workerDomain.endsWith(".pages.dev", ignoreCase = true) ||
+                    parsed.serverName.endsWith(".pages.dev", ignoreCase = true)
+                ) {
+                    pagesDevFound += parsed.workerDomain
                 }
-                val nextEndpoint = if (matchingClean.isNotEmpty()) {
-                    matchingClean[cleanIndex++ % matchingClean.size]
-                } else {
-                    parsed.endpoint
+                val matchingClean = cleanPool.filter {
+                    val tlsMatches = (it.port !in EndpointPortDiscovery.cleanPlainPorts) == parsed.tls
+                    val familyMatches = when (firewallProfile) {
+                        FirewallBypassProfile.MCI_CDN_IPV6 -> it.family == EndpointFamily.IPV6
+                        FirewallBypassProfile.IRANCELL_CDN_FF -> it.family == EndpointFamily.IPV4
+                        FirewallBypassProfile.NONE -> true
+                    }
+                    tlsMatches && familyMatches
+                }
+                val nextEndpoint = when {
+                    cleanCustomIp != null && parsed.tls -> {
+                        val fam = if (cleanCustomIp.contains(':')) EndpointFamily.IPV6 else EndpointFamily.IPV4
+                        VerifiedEndpoint(
+                            host = cleanCustomIp,
+                            port = parsed.endpoint.port,
+                            role = EndpointRole.CLEAN_IP,
+                            family = fam,
+                            verdict = EndpointVerdict.VERIFIED,
+                            checkedAtMs = nowMs,
+                            source = "firewall-profile",
+                        )
+                    }
+                    matchingClean.isNotEmpty() -> matchingClean[cleanIndex++ % matchingClean.size]
+                    firewallProfile == FirewallBypassProfile.MCI_CDN_IPV6 && parsed.tls -> {
+                        VerifiedEndpoint(
+                            host = FirewallBypassRecipes.MCI_DEFAULT_IPV6,
+                            port = parsed.endpoint.port,
+                            role = EndpointRole.CLEAN_IP,
+                            family = EndpointFamily.IPV6,
+                            verdict = EndpointVerdict.VERIFIED,
+                            checkedAtMs = nowMs,
+                            source = "mci-ipv6",
+                        )
+                    }
+                    firewallProfile == FirewallBypassProfile.IRANCELL_CDN_FF && parsed.tls -> {
+                        VerifiedEndpoint(
+                            host = FirewallBypassRecipes.IRANCELL_DEFAULT_IPV4,
+                            port = parsed.endpoint.port,
+                            role = EndpointRole.CLEAN_IP,
+                            family = EndpointFamily.IPV4,
+                            verdict = EndpointVerdict.VERIFIED,
+                            checkedAtMs = nowMs,
+                            source = "irancell-ff",
+                        )
+                    }
+                    else -> parsed.endpoint
                 }
                 val nextProxy = when {
                     parsed.proxyIp != null && proxyPool.isNotEmpty() ->
                         proxyPool[proxyIndex++ % proxyPool.size]
                     else -> parsed.proxyIp
                 }
-                val updated = parsed.copy(
-                    endpoint = nextEndpoint,
-                    proxyIp = nextProxy,
-                    serverName = cleanSni ?: parsed.serverName,
-                    fingerprint = cleanFp ?: parsed.fingerprint,
-                )
+                val updated = when (firewallProfile) {
+                    FirewallBypassProfile.MCI_CDN_IPV6 -> {
+                        // MCI Firewall CDN/Worker with IPv6:
+                        // Clear echConfigList, cipherSuites and finalMask; set fingerprint = chrome; use IPv6 address.
+                        parsed.copy(
+                            endpoint = nextEndpoint,
+                            proxyIp = nextProxy,
+                            serverName = cleanSni ?: parsed.serverName,
+                            fingerprint = cleanFp ?: "chrome",
+                            ech = null,
+                            cipherSuites = null,
+                            finalMask = null,
+                        )
+                    }
+                    FirewallBypassProfile.IRANCELL_CDN_FF -> {
+                        // Irancell Firewall CDN/Worker with F&F method:
+                        // Clear echConfigList; set finalMask = tlshello-0-len (F&F); set cipherSuites = semi-python (F&F);
+                        // set fingerprint = unsafe; set ALPN = http/1.1 for ws and h2,http/1.1 for xhttp.
+                        parsed.copy(
+                            endpoint = nextEndpoint,
+                            proxyIp = nextProxy,
+                            serverName = cleanSni ?: parsed.serverName,
+                            fingerprint = cleanFp ?: "unsafe",
+                            ech = null,
+                            alpn = FirewallBypassRecipes.alpnForTransport(parsed.transportType),
+                            cipherSuites = cipherSuitesOverride?.takeIf { it.isNotBlank() }
+                                ?: FirewallBypassRecipes.FIREWALL_FF_CIPHER_SUITES,
+                            finalMask = FirewallBypassRecipes.FIREWALL_FF_FINAL_MASK,
+                        )
+                    }
+                    FirewallBypassProfile.NONE -> {
+                        parsed.copy(
+                            endpoint = nextEndpoint,
+                            proxyIp = nextProxy,
+                            serverName = cleanSni ?: parsed.serverName,
+                            fingerprint = cleanFp ?: parsed.fingerprint,
+                        )
+                    }
+                }
                 val diff = VerifiedConfigDiff.between(parsed, updated)
                 if (diff.isEmpty()) {
                     SubscriptionOptimizationItem(raw, raw, changed = false, changes = emptyList())
@@ -137,6 +248,6 @@ internal object SubscriptionOptimizer {
                 }
             }
         }
-        return SubscriptionOptimizationPlan(items)
+        return SubscriptionOptimizationPlan(items, pagesDevDomains = pagesDevFound)
     }
 }

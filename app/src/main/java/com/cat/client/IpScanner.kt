@@ -595,6 +595,7 @@ object IpScanner {
         val hosts = listOf(
             "2606:4700:4700::1111",
             "2606:4700::6810:84e5",
+            "2a06:98c1:3101::6812:202f",
             "2a06:98c0::6810:84e5",
             "2606:4700:d0::a29f:c001",
         )
@@ -626,8 +627,13 @@ object IpScanner {
             val value = host.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLongOrNull() ?: 0L) }
             return CLOUDFLARE_V4.any { (base, mask) -> (value and mask) == base }
         }
-        val h = host.lowercase()
-        return h.startsWith("2606:4700:") || h.startsWith("2803:f800:") || h.startsWith("2405:b500:") || h.startsWith("2405:8100:") || h.startsWith("2a06:98c0:") || h.startsWith("2c0f:f248:")
+        val h = host.removePrefix("[").removeSuffix("]").lowercase()
+        return h.startsWith("2606:4700:") ||
+            h.startsWith("2803:f800:") ||
+            h.startsWith("2405:b500:") ||
+            h.startsWith("2405:8100:") ||
+            Regex("^2a06:98c[0-7]:.*").matches(h) ||
+            h.startsWith("2c0f:f248:")
     }
 
     data class ScanResult(
@@ -1030,6 +1036,8 @@ object IpScanner {
      * Cloudflare anycast addresses that answer TLS on every port we scan.
      * Added to the walk whenever the network really has IPv6 connectivity. */
     val V6_LIBRARY: List<String> = listOf(
+        "2a06:98c1:3101::6812:202f",
+        "2a06:98c1:3121::7",
         "2606:4700:4700::1111",
         "2606:4700:4700::1001",
         "2606:4700::6810:84e5",

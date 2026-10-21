@@ -16,6 +16,9 @@ internal data class VerifiedSubscriptionProjection(
     val fingerprint: String?,
     val name: String,
     val ech: String? = null,
+    val alpn: String? = null,
+    val cipherSuites: String? = null,
+    val finalMask: String? = null,
 )
 
 internal object VerifiedSubscriptionProjector {
@@ -26,6 +29,10 @@ internal object VerifiedSubscriptionProjector {
         val placement = VerifiedEndpointPlacement.forWorker(config.endpoint, config.workerDomain) ?: return null
         val baseName = "${config.protocol.scheme}-${config.endpoint.authority}"
         val uniqueName = if (index > 0) "$baseName (${index + 1})" else baseName
+        val validEch = config.ech?.takeIf {
+            config.tls && it.isNotBlank() && config.serverName.equals(config.workerDomain, ignoreCase = true) &&
+                config.cipherSuites.isNullOrBlank() && config.finalMask.isNullOrBlank()
+        }
         return VerifiedSubscriptionProjection(
             protocol = config.protocol,
             credential = config.credential,
@@ -37,7 +44,10 @@ internal object VerifiedSubscriptionProjector {
             tls = config.tls,
             fingerprint = config.fingerprint,
             name = uniqueName,
-            ech = config.ech?.takeIf { config.tls && it.isNotBlank() && config.serverName.equals(config.workerDomain, ignoreCase = true) },
+            ech = validEch,
+            alpn = config.alpn?.takeIf { it.isNotBlank() },
+            cipherSuites = config.cipherSuites?.takeIf { config.tls && validEch == null && it.isNotBlank() },
+            finalMask = config.finalMask?.takeIf { config.tls && validEch == null && it.isNotBlank() },
         )
     }
 
@@ -90,7 +100,12 @@ internal object VerifiedSubscriptionProjector {
     fun xray(config: VerifiedConfigUri, index: Int = 0): Map<String, Any> = project(config, index).requireProjection().let { p ->
         val tlsSettings = linkedMapOf<String, Any>("serverName" to p.serverName).apply {
             p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("fingerprint", it) }
+            p.alpn?.takeIf { it.isNotBlank() }?.let { rawAlpn ->
+                val list = rawAlpn.split(',').map(String::trim).filter(String::isNotEmpty)
+                if (list.isNotEmpty()) put("alpn", list)
+            }
             p.ech?.takeIf { p.tls && it.isNotBlank() }?.let { put("echConfigList", it) }
+            p.cipherSuites?.takeIf { p.tls && p.ech.isNullOrBlank() && it.isNotBlank() }?.let { put("cipherSuites", it) }
         }
         val stream = linkedMapOf<String, Any>(
             "security" to if (p.tls) "tls" else "none",
@@ -100,6 +115,9 @@ internal object VerifiedSubscriptionProjector {
         ).apply {
             p.fingerprint?.takeIf { it.isNotBlank() }?.let { put("fingerprint", it) }
             if (p.tls) put("tlsSettings", tlsSettings)
+            p.finalMask?.takeIf { p.tls && p.ech.isNullOrBlank() && it.isNotBlank() }?.let { rawFm ->
+                runCatching { JSONObject(rawFm) }.getOrNull()?.let { put("finalmask", it) }
+            }
         }
         val settings = if (p.protocol == TunnelProtocol.VLESS) {
             mapOf(

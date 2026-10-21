@@ -18,6 +18,16 @@ class AetherRuntimeConfigTest {
         assertFalse(h2.getBoolean("autoReprovision"))
         assertFalse(h2.getBoolean("lanSharing"))
 
+        val wgV6 = JSONObject(AetherRuntimeConfig(
+            AetherMode.WireGuard,
+            File("/tmp/aether-wg.json"),
+            "[2606:4700:d0::a29f:c001]:2408",
+            ipScan = "v6",
+        ).toNativeJson())
+        assertEquals("wg", wgV6.getString("transport"))
+        assertEquals("v6", wgV6.getString("ipScan"))
+        assertEquals("[2606:4700:d0::a29f:c001]:2408", wgV6.getString("peer"))
+
         val wom = JSONObject(AetherRuntimeConfig(
             AetherMode.WireGuardOverMasque,
             File("/tmp/aether-wom.json"),

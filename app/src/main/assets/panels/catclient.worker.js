@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.22';
+const CAT_PANEL_VERSION = '6.69.23';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -668,9 +668,10 @@ function sanitizeTune(raw) {
 
 const FIREWALL_BYPASS_PRESETS = Object.freeze({
   'mci-ech': { address: '188.114.97.6', fingerprint: 'chrome', echList: 'cloudflare-ech.com+udp://1.1.1.1', finalMask: '', cipherSuites: '', note: 'b_fw_mci_ech_n' },
-  'mci-ipv6': { address: '2a06:98c1:3121::7', fingerprint: 'chrome', echList: '', finalMask: '', cipherSuites: '', note: 'b_fw_mci_ipv6_n' },
+  'mci-ipv6': { address: '2a06:98c1:3101::6812:202f', fingerprint: 'chrome', echList: '', finalMask: '', cipherSuites: '', note: 'b_fw_mci_ipv6_n' },
   'mci-ipv6-ff': { address: '2a06:98c1:3121::7', fingerprint: 'chrome', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: '', note: 'b_fw_mci_ff_n' },
   'irancell-ff': { address: '188.114.97.6', fingerprint: 'unsafe', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: FIREWALL_FF_CIPHER_SUITES, note: 'b_fw_irancell_ff_n' },
+  'irancell-ff-98': { address: '188.114.98.0', fingerprint: 'unsafe', echList: '', finalMask: FIREWALL_FF_FINAL_MASK, cipherSuites: FIREWALL_FF_CIPHER_SUITES, note: 'b_fw_irancell_ff_n' },
 });
 function maskParams(ctx, tls) {
   if (!tls || !ctx.settings || ctx.settings.fmLinks === false || ctx.ech) return '';
@@ -3747,7 +3748,7 @@ function configName(proto, addr, port, tls, cc, host, index) {
   return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : '💦 ') + n + protoName + ' - ' + label + ' : ' + port;
 }
 
-function wsParams(hostHeader, path, sni, fp, tls, ech) {
+function wsParams(hostHeader, path, sni, fp, tls, ech, alpn) {
   const params = [
     'security=' + (tls ? 'tls' : 'none'),
     'type=ws',
@@ -3758,7 +3759,7 @@ function wsParams(hostHeader, path, sni, fp, tls, ech) {
     params.push('sni=' + encodeURIComponent(sni));
     params.push('fp=' + encodeURIComponent(fp));
     if (ech) params.push('ech=' + encodeURIComponent(ech));
-    params.push('alpn=' + encodeURIComponent('http/1.1'));
+    params.push('alpn=' + encodeURIComponent(alpn || 'http/1.1'));
   }
   return params.join('&');
 }
@@ -3766,15 +3767,17 @@ function wsParams(hostHeader, path, sni, fp, tls, ech) {
 function vlessLink(ctx, addr, port, tls, cc, opts) {
   const name = (opts && opts.name) || configName('vless', addr, port, tls, cc, ctx.host);
   const path = (opts && opts.path) || ctx.paths[PROTO_VLESS + 'Path'];
+  const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return PROTO_VLESS + '://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
-    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 function trojanLink(ctx, addr, port, tls, cc, opts) {
   const name = (opts && opts.name) || configName('trojan', addr, port, tls, cc, ctx.host);
   const path = (opts && opts.path) || ctx.paths[TROJAN_KEY + 'Path'];
+  const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return 'trojan://' + encodeURIComponent(ctx[TROJAN_KEY + 'Pass']) + '@' + formatAddr(addr) + ':' + port + '?' +
-    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 /** Link context for one identity (master or a panel user). */
@@ -4116,9 +4119,10 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
 function applyFirewallBypassPreset(settings, q) {
   const preset = q && FIREWALL_BYPASS_PRESETS[q.firewall];
   if (!preset) return { settings, q };
+  const resolvedAlpn = (q && q.type === 'xhttp') ? 'h2,http/1.1' : 'http/1.1';
   const nextSettings = Object.assign({}, settings, {
     fingerprint: preset.fingerprint,
-    alpn: 'http/1.1',
+    alpn: resolvedAlpn,
     echList: preset.echList,
     fmLinks: !!preset.finalMask,
     cipherSuites: preset.cipherSuites,
@@ -4178,6 +4182,7 @@ function subQuery(url) {
     ech: q.get('ech') === '1',
     echSpecified: q.has('ech'),
     firewall: Object.prototype.hasOwnProperty.call(FIREWALL_BYPASS_PRESETS, String(q.get('fw') || '')) ? String(q.get('fw')) : '',
+    type: String(q.get('type') || '').toLowerCase(),
     sni: sniHostnameOk(q.get('sni') || '') ? String(q.get('sni')).trim().toLowerCase() : '',
     nofm: q.get('nofm') === '1',
     noext: q.get('noext') === '1' || q.get('noext') === 'true',
@@ -7140,10 +7145,20 @@ ${(() => {
    <button type="button" data-v="mci-ipv6" data-i="b_fw_mci_ipv6"></button>
    <button type="button" data-v="mci-ipv6-ff" data-i="b_fw_mci_ff"></button>
    <button type="button" data-v="irancell-ff" data-i="b_fw_irancell_ff"></button>
+   <button type="button" data-v="irancell-ff-98" data-i="b_fw_irancell_ff98"></button>
   </div>
   <div class="note i small" id="bFwNote" data-i="b_fw_hint" style="margin-top:8px"></div>
   <div class="two" style="margin-top:10px">
-   <div><label data-i="b_fw_addr"></label><input id="bAddr" class="mono" dir="ltr" autocomplete="off" data-ph="b_fw_addr_ph"></div>
+   <div>
+    <label data-i="b_fw_addr"></label>
+    <input id="bAddr" class="mono" dir="ltr" autocomplete="off" data-ph="b_fw_addr_ph">
+    <div class="pick" id="bAddrChips" style="margin-top:6px">
+     <button type="button" data-baddr="2a06:98c1:3101::6812:202f">2a06:98c1:3101::6812:202f (MCI IPv6)</button>
+     <button type="button" data-baddr="188.114.98.0">188.114.98.0 (Irancell F&amp;F)</button>
+     <button type="button" data-baddr="188.114.97.6">188.114.97.6</button>
+     <button type="button" data-baddr="2a06:98c1:3121::7">2a06:98c1:3121::7</button>
+    </div>
+   </div>
   </div>
   <div class="two" style="margin-top:10px">
    <div><label data-i="b_proto"></label><div class="pick" id="bProto"><button type="button" data-v="" class="on" data-i="b_both"></button><button type="button" data-v="vless">VLESS</button><button type="button" data-v="trojan">TROJAN</button></div></div>
@@ -7206,6 +7221,11 @@ ${(() => {
   <div class="two" style="margin-top:10px">
    <div><label data-i="aether_name"></label><input id="aeName" value="Omni"></div>
    <div><label data-i="aether_family"></label><div class="pick" id="aeFam"><button type="button" data-v="both" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
+  </div>
+  <div class="pick" id="aeQuickFw" style="margin-top:8px">
+   <button type="button" data-aefw="mci-warp-v6" data-i="aether_fw_mci_warp"></button>
+   <button type="button" data-aefw="masque-h2" data-i="aether_fw_masque"></button>
+   <button type="button" data-aefw="irancell-warp" data-i="aether_fw_irancell_warp"></button>
   </div>
   <label data-i="b_link" style="margin-top:12px"></label>
   <input id="aeLink" readonly class="mono" dir="ltr" value="">
@@ -7613,7 +7633,7 @@ unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز پیش‌فرض admin (فوراً تغییر بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
 update_check:'بررسی نسخهٔ جدید…',update_safe:'به‌روزرسانی امن',update_safe_hint:'از GitHub Actions اجرا می‌شود؛ توکن Cloudflare داخل پنل ذخیره نمی‌شود.',update_confirm:'به‌روزرسانی پنل در GitHub Actions شروع شود؟',update_queued:'به‌روزرسانی در صف قرار گرفت',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'با زدن «⚡ آپدیت مستقیم پنل» همین ورکر بدون نیاز به توکن مجدد یا کپی/پیست آپدیت می‌شود (یا از تب پنل من در Cat Client).',update_how2:'با زدن «⚡ آپدیت مستقیم پنل»، همین ورکر بدون نیاز به توکن مجدد مستقیماً روی کلودفلر آپدیت می‌شود (UUID، KV و تنظیمات حفظ می‌شوند). همچنین با ⬇️ می‌توانی فایل worker.js را مستقیم دانلود کنی.',update_direct_btn:'آپدیت مستقیم پنل',update_direct_reapply:'تعمیر / نصب مجدد مستقیم',update_direct_confirm:'همین ورکر پنل مستقیماً به آخرین نسخه آپدیت شود؟ (UUID، KV و تمام تنظیمات حفظ می‌شوند)',update_direct_working:'در حال آپدیت مستقیم ورکر…',update_direct_done:'✅ پنل با موفقیت آپدیت شد (%1 ← %2) — در حال بارگذاری مجدد…',update_token_once:'این پنل قدیمی‌تر است و توکن کلودفلر در زمان ساخت روی آن بایند نشده بود. فقط یک‌بار توکن Cloudflare API را وارد کن تا روی همین ورکر ذخیره شود و از این به بعد بدون توکن آپدیت شود:',
-sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box'},
+sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box',b_fw_mci_ipv6:'همراه اول · IPv6 (2a06:98c1:3101::6812:202f)',b_fw_irancell_ff98:'ایرانسل · F&F (188.114.98.0)',b_fw_mci_ipv6_n:'🟦 فایروال همراه اول (CDN/WORKER with IPv6): پاک شدن echConfigList، cipherSuites و finalMask، تنظیم fingerprint=chrome و آدرس IPv6 پیش‌فرض 2a06:98c1:3101::6812:202f (مناسب دامنه شخصی فیلترنشده یا *.workers.dev؛ دامنه *.pages.dev فیلتر است).',b_fw_irancell_ff_n:'🟧 فایروال ایرانسل (CDN/WORKER with F&F method): پاک شدن echConfigList، آدرس 188.114.98.0 (یا 188.114.97.6)، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe و ALPN متناسب (http/1.1 برای ws و h2,http/1.1 برای XHTTP) جهت رفع محدودیت سرعت آپلود.',b_fw_hint:'⚠️ در برخی مناطق سیم‌کارت شما همراه اول است ولی فایروال منطقه ایرانسل است و بالعکس (سایر نت‌ها هم از یکی از این دو فایروال استفاده می‌کنند). دامنه *.pages.dev فیلتر است. F&F به Xray Core 26.9+ نیاز دارد.',b_fw_addr_ph:'2a06:98c1:3101::6812:202f یا 188.114.98.0',aether_fw_mci_warp:'🟦 همراه اول: WARP با IPv6',aether_fw_masque:'🟦🟧 همراه اول/ایرانسل: MASQUE-HTTP/2',aether_fw_irancell_warp:'🟧 ایرانسل: WARP (هر نوع IP)'},
 en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
@@ -7635,7 +7655,7 @@ unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabl
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'default password admin (change now!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Tested from YOUR network (browser): domains via /cdn-cgi/trace and raw IPs via a TLS connection attempt — a fast answer = alive on your line, timeout = ✗ dead on your line. Plain (non-TLS) ports cannot be probed in a browser (⊘). Test ProxyIPs with the worker test instead — their path goes through the worker.',scan_prune:'Prune dead IPs from my list',scan_prune_confirm:'Remove %1 dead IPs (as seen from your line) from the list?',scan_prune_none:'Run “Test from my network” first — nothing to prune yet',scan_sum_alive:'IPs alive on your line',scan_sum_dead:'dead',scan_sum_skip:'plain-port',ws_test:'Real connection test (domains)',ws_note:'Opens a real WebSocket to the tunnel path (/ws) for each domain — the exact route a config takes: if it opens, configs really connect on your line. Your panel’s own address is always tested first (baseline). Raw IPs have no “real test” in a browser (it cannot send the Host header); a domain that is not routed to your worker fails too.',ws_base:'baseline — the panel itself',ws_ok:'config route opened',ws_fail:'no connection — dead on your line, or not routed to the worker',ws_sum:'domains verified with a real tunnel handshake',ws_noway:'This browser has no WebSocket',surv_title:'Survival pack — more fallbacks, not a guarantee',surv_hint:'One click enables daily rotation, both protocols, default addresses plus the worker host, ports 80/8080 as fallbacks, and ordering by scanner ping reported within 7 days. SNI stays on the worker hostname: fake/rotating SNI can make Cloudflare itself return 403. Fragment is supported only by Xray/sing-box. None of this guarantees 100% across carriers or clients; test the link on each real mobile/Wi-Fi network and client. Ping is from the scanner sender’s line, not every user.',surv_apply:'Apply survival pack',surv_done:'🛡 Survival pack applied',surv_applied:'Applied',surv_changed:'settings changed',surv_already:'Survival pack already active',surv_link:'Survive link',surv_formats:'Copy the format your client expects:',ov_seen:'Authenticated user attempts:',ov_seen_24:'connected in the last 24h',ov_seen_never:'no connection recorded yet (the user may simply not have used it)',ov_seen_hint:'Counts only tunnel attempts with a valid identity, not successful access to a destination. Cloudflare hides which clean-IP entry was used, so this cannot prove full connectivity or identify dead IPs.',
 update_check:'Checking for updates…',update_safe:'Safe update',update_safe_hint:'Runs through GitHub Actions; the Cloudflare token is not stored in the panel.',update_confirm:'Queue the panel update in GitHub Actions?',update_queued:'Update queued',update_ok:'You are on the latest version',update_new:'New version available: ',update_how:'Tap “⚡ Update panel now” to update this Worker directly in place without re-entering a token.',update_how2:'Tap “⚡ Update panel now” to update this Worker directly on Cloudflare (UUID, KV and settings are preserved), or tap ⬇️ to download worker.js.',update_direct_btn:'Update panel now',update_direct_reapply:'Direct repair / reinstall',update_direct_confirm:'Update this panel Worker directly to the latest version? (UUID, KV and all settings are preserved)',update_direct_working:'Updating Worker directly…',update_direct_done:'✅ Panel updated (%1 → %2) — reloading…',update_token_once:'This panel was created before direct-update bindings were attached. Enter your Cloudflare API token once to bind it to this Worker for all future updates:',
-sync_hint:'Opens the master subscription in Cat Client',restore_ok:'Restored',restore_bad:'Invalid file',sub:'Sub',clash:'Clash',singbox:'sing-box'}};
+sync_hint:'Opens the master subscription in Cat Client',restore_ok:'Restored',restore_bad:'Invalid file',sub:'Sub',clash:'Clash',singbox:'sing-box',b_fw_mci_ipv6:'MCI · IPv6 (2a06:98c1:3101::6812:202f)',b_fw_irancell_ff98:'Irancell · F&F (188.114.98.0)',b_fw_mci_ipv6_n:'🟦 MCI Firewall (CDN/WORKER with IPv6): clears echConfigList, cipherSuites & finalMask, sets fingerprint=chrome and IPv6=2a06:98c1:3101::6812:202f (use custom domain or *.workers.dev; *.pages.dev is blocked).',b_fw_irancell_ff_n:'🟧 Irancell Firewall (CDN/WORKER with F&F method): clears echConfigList, IP=188.114.98.0 (or 188.114.97.6), finalMask=tlshello-0-len, cipherSuites=semi-python, fingerprint=unsafe, ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP) to eliminate upload throttling.',b_fw_hint:'⚠️ In some regions an MCI SIM sits behind an Irancell firewall and vice versa. *.pages.dev is blocked. F&F requires Xray-core 26.9+.',b_fw_addr_ph:'2a06:98c1:3101::6812:202f or 188.114.98.0',aether_fw_mci_warp:'🟦 MCI Firewall: WARP + IPv6',aether_fw_masque:'🟦🟧 MCI/Irancell: MASQUE-HTTP/2',aether_fw_irancell_warp:'🟧 Irancell Firewall: WARP (All IPs)'}};
 var lang=document.documentElement.lang==='en'?'en':'fa';
 function t(k){return (I18N[lang][k]!==undefined?I18N[lang][k]:I18N.fa[k])||k}
 function $(s,r){return (r||document).querySelector(s)}
@@ -8477,6 +8497,7 @@ function bMaybe(){if(bLive){clearTimeout(bT);bT=setTimeout(bGen,300)}}
 $$('#bIsp button').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-isp');pickSel('bIsp',b);var sp=ISP[k]||{};B.ports={};(sp.p||[]).forEach(function(p){B.ports[p]=true});B.fam=sp.fam||'';if(sp.frag)$('#bFrag').value=sp.frag;if(sp.fp)$('#bFp').value=sp.fp;$('#bIspNote').textContent=t(sp.n||'b_isp_direct_n');renderB();bMaybe()})});
 $$('#bFw button').forEach(function(b){b.addEventListener('click',function(){pickSel('bFw',b);B.fw=b.getAttribute('data-v')||'';var p=FIREWALL_PRESETS_UI[B.fw];B.addr=p?p.address:'';$('#bAddr').value=B.addr;$('#bFp').value=p?p.fingerprint:'';B.ech=p&&p.ech?1:0;$$('#bEch button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===String(B.ech))});var note=$('#bFwNote');note.textContent=t(p?p.note:'b_fw_hint');note.className='note '+(p&&p.finalMask?'w':'i')+' small';$('#bEchState').textContent='';bMaybe()})});
 if($('#bAddr'))$('#bAddr').addEventListener('input',function(){B.addr=this.value;bMaybe()});
+$$('#bAddrChips button').forEach(function(b){b.addEventListener('click',function(){pickSel('bAddrChips',b);var v=b.getAttribute('data-baddr')||'';B.addr=v;if($('#bAddr'))$('#bAddr').value=v;bMaybe()})});
 $$('#bProto button').forEach(function(b){b.addEventListener('click',function(){pickSel('bProto',b);B.proto=b.getAttribute('data-v');bMaybe()})});
 $$('#bFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('bFam',b);B.fam=b.getAttribute('data-v');bMaybe()})});
 var bPortsBox=$('#bPorts');if(bPortsBox)bPortsBox.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;b.classList.toggle('on');B.ports[b.getAttribute('data-v')]=b.classList.contains('on');bMaybe()});
@@ -8781,6 +8802,7 @@ function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Omni';va
  $('#aeLink').value=u;$('#aeQr').setAttribute('data-qr',u);$('#aeQr').setAttribute('data-qrl',name);$('#aeOpen').href=u;return u}
 $$('#aePick button').forEach(function(b){b.addEventListener('click',function(){pickSel('aePick',b);AE.mode=b.getAttribute('data-v');aeBuild()})});
 $$('#aeFam button').forEach(function(b){b.addEventListener('click',function(){pickSel('aeFam',b);AE.fam=b.getAttribute('data-v');aeBuild()})});
+$$('#aeQuickFw button').forEach(function(b){b.addEventListener('click',function(){pickSel('aeQuickFw',b);var k=b.getAttribute('data-aefw');if(k==='mci-warp-v6'){AE.mode='warp';AE.fam='v6';if($('#aeName'))$('#aeName').value='MCI-WARP-IPv6'}else if(k==='masque-h2'){AE.mode='masque';AE.fam='both';if($('#aeName'))$('#aeName').value='MASQUE-H2'}else{AE.mode='warp';AE.fam='both';if($('#aeName'))$('#aeName').value='Irancell-WARP'}$$('#aePick button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.mode)});$$('#aeFam button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.fam)});aeBuild()})});
 if($('#aeName'))$('#aeName').addEventListener('input',aeBuild);
 if($('#aeCopy'))$('#aeCopy').addEventListener('click',function(){copy($('#aeLink').value)});
 if($('#aeBuild')===null){} /* noop */
@@ -8881,7 +8903,7 @@ const CF_V6_POOL = [
   '2606:4700:4700::1111', '2606:4700:4700::1001', '2606:4700::6810:84e5',
   '2606:4700:d0::a29f:c001', '2606:4700:d0::a29f:c002', '2606:4700:d0::1',
   '2606:4700:d1::1', '2606:4700::6812:1a2e', '2606:4700::6812:3ed',
-  '2606:4700:3033::6810:84e5', '2a06:98c0::6810:84e5',
+  '2606:4700:3033::6810:84e5', '2a06:98c1:3101::6812:202f',
 ];
 
 /** Internal monitor (the INWARD half — the app's WorkManager is the outward

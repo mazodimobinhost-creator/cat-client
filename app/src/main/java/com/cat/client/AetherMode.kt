@@ -8,6 +8,7 @@ enum class AetherMode(
     val requiresPsiphon: Boolean,
 ) {
     MasqueHttp2("masque-h2", true, false, false),
+    WireGuard("wireguard", true, false, false),
     WireGuardOverMasque("wireguard-over-masque", false, true, false),
     MasquePsiphon("masque-h2-psiphon", true, false, true),
 }

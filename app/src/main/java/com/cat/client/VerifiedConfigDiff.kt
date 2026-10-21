@@ -14,6 +14,10 @@ internal object VerifiedConfigDiff {
         addIfChanged("path", before.path, after.path)
         addIfChanged("tls", before.tls.toString(), after.tls.toString())
         addIfChanged("fingerprint", before.fingerprint, after.fingerprint)
+        addIfChanged("ech", before.ech, after.ech)
+        addIfChanged("alpn", before.alpn, after.alpn)
+        addIfChanged("cipherSuites", before.cipherSuites, after.cipherSuites)
+        addIfChanged("finalMask", before.finalMask, after.finalMask)
         addIfChanged("proxyIp", before.proxyIp?.authority, after.proxyIp?.authority)
         if (before.credential != after.credential) add(ConfigFieldChange("credential", "changed", "changed"))
     }

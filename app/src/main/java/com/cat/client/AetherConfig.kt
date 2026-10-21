@@ -13,11 +13,13 @@ data class AetherRuntimeConfig(
     val upstreamProxy: String? = null,
     val runtimeEndpoint: AetherRuntimeEndpoint = AetherRuntimeEndpoint.Tun,
     val listenPort: Int = 1819,
+    val ipScan: String = "both",
 ) {
     init {
         require(identityFile.isAbsolute) { "Aether identity path must be absolute" }
         require(scanBudgetMillis in 10_000..300_000) { "Aether scan budget is out of range" }
         require(mode != AetherMode.MasquePsiphon) { "Psiphon requires its isolated carrier service" }
+        require(ipScan in setOf("both", "v4", "v6")) { "Aether ipScan must be both, v4 or v6" }
         endpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether endpoint" } }
         upstreamProxy?.let {
             require(it.matches(Regex("socks5h?://127\\.0\\.0\\.1:[0-9]{2,5}"))) {
@@ -32,10 +34,11 @@ data class AetherRuntimeConfig(
         .put("configPath", identityFile.absolutePath)
         .put("transport", when (mode) {
             AetherMode.MasqueHttp2 -> "h2"
+            AetherMode.WireGuard -> "wg"
             AetherMode.WireGuardOverMasque -> "wom"
             AetherMode.MasquePsiphon -> error("Psiphon carrier is not ready")
         })
-        .put("ipScan", "both")
+        .put("ipScan", ipScan)
         .put("scanMode", "balanced")
         .put("scanBudgetMillis", scanBudgetMillis)
         .put("validationEnabled", true)

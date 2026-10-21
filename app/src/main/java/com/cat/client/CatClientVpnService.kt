@@ -3998,6 +3998,7 @@ class CatClientVpnService : VpnService() {
             mode = selection.mode,
             identityFile = File(filesDir, "aether.toml"),
             endpoint = selection.freshEndpoint(),
+            ipScan = selection.ipScan,
         )
         DiagnosticLogger.info(this, "$eventPrefix.aether.start", "mode=${selection.mode.wireName}")
         val result = withContext(Dispatchers.IO) { session.run(config) }
