@@ -9,6 +9,7 @@ data class AetherSavedProfile(
     val endpoint: String,
     val scannedAt: Long,
     val chainTarget: String = "none",
+    val exitLocation: String = "auto",
 )
 
 data class AetherSelection(
@@ -20,6 +21,7 @@ data class AetherSelection(
     val ipScan: String = "both",
     val profileName: String = "",
     val chainTarget: String = "none",
+    val exitLocation: String = "auto",
 ) {
     fun freshEndpoint(now: Long = System.currentTimeMillis()): String? = endpoint?.takeIf {
         endpointScannedAt > 0L && now >= endpointScannedAt && now - endpointScannedAt <= ENDPOINT_MAX_AGE_MS
@@ -36,9 +38,23 @@ data class AetherSelection(
         else -> if (ipScan == "v6") AetherMode.WireGuard else AetherMode.MasqueHttp2
     }
 
+    /**
+     * Effective exit location policy:
+     * - If Psiphon/Tor chain is active, exit is always `"foreign"`.
+     * - If `exitLocation` is explicitly `"iran"` or `"foreign"`, returns it.
+     * - If `exitLocation == "auto"`, `WireGuardOverMasque` implies `"foreign"` and single-hop implies `"iran"`.
+     */
+    fun effectiveExitLocation(): String = when {
+        chainTarget in setOf("psiphon", "tor") || mode == AetherMode.MasquePsiphon -> "foreign"
+        exitLocation in setOf("iran", "foreign") -> exitLocation
+        mode == AetherMode.WireGuardOverMasque -> "foreign"
+        else -> "iran"
+    }
+
     companion object {
         const val ENDPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000L
         val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "tor")
+        val VALID_EXIT_LOCATIONS = setOf("auto", "iran", "foreign")
 
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
             if (chainTarget !in setOf("psiphon", "tor")) return mode
@@ -69,6 +85,8 @@ class AetherPreferenceStore(context: Context) {
             mode == AetherMode.MasquePsiphon -> "psiphon"
             else -> "none"
         }
+        val exitLocation = prefs.getString("exitLocation", "auto").orEmpty()
+            .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
         return AetherSelection(
             enabled = enabled,
             mode = mode,
@@ -78,14 +96,23 @@ class AetherPreferenceStore(context: Context) {
             ipScan = ipScan,
             profileName = profileName,
             chainTarget = chainTarget,
+            exitLocation = exitLocation,
         )
     }
 
     fun save(selection: AetherSelection) {
         require(selection.psiphonRegion.isEmpty() || selection.psiphonRegion.matches(Regex("[A-Z]{2}")))
         val validIpScan = selection.ipScan.takeIf { it in setOf("both", "v4", "v6") } ?: "both"
-        val validChain = selection.chainTarget.takeIf { it in AetherSelection.VALID_CHAIN_TARGETS } ?: "none"
-        val normalizedMode = AetherSelection.simplifyModeForChain(selection.mode, validChain)
+        val validExitLoc = selection.exitLocation.takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
+        val validChain = if (validExitLoc == "iran") {
+            "none"
+        } else {
+            selection.chainTarget.takeIf { it in AetherSelection.VALID_CHAIN_TARGETS } ?: "none"
+        }
+        val normalizedMode = when {
+            validExitLoc == "iran" && selection.mode == AetherMode.WireGuardOverMasque -> AetherMode.MasqueHttp2
+            else -> AetherSelection.simplifyModeForChain(selection.mode, validChain)
+        }
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", normalizedMode.wireName)
@@ -95,6 +122,7 @@ class AetherPreferenceStore(context: Context) {
             .putString("ipScan", validIpScan)
             .putString("profileName", selection.profileName.trim())
             .putString("chainTarget", validChain)
+            .putString("exitLocation", validExitLoc)
             .apply()
     }
 
@@ -113,7 +141,9 @@ class AetherPreferenceStore(context: Context) {
                     val ts = obj.optLong("scannedAt", 0L)
                     val chain = obj.optString("chainTarget", "none")
                         .takeIf { it in AetherSelection.VALID_CHAIN_TARGETS } ?: "none"
-                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain))
+                    val exitLoc = obj.optString("exitLocation", "auto")
+                        .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
+                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc))
                 }
             }
         }.getOrDefault(emptyList())
@@ -131,7 +161,8 @@ class AetherPreferenceStore(context: Context) {
                     .put("ipScan", item.ipScan)
                     .put("endpoint", item.endpoint)
                     .put("scannedAt", item.scannedAt)
-                    .put("chainTarget", item.chainTarget),
+                    .put("chainTarget", item.chainTarget)
+                    .put("exitLocation", item.exitLocation),
             )
         }
         prefs.edit().putString("savedProfilesJson", arr.toString()).apply()

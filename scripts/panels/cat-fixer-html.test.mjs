@@ -20,6 +20,6 @@ test('HTML inspector redacts common secrets, blocks 6.69.12, and accepts HTTPS o
   assert.match(html, /REDACTED_UUID/);
   assert.match(html, /REDACTED/);
   assert.match(html, /\^https:/);
-  assert.match(html, /value="6\.69\.24"/);
+  assert.match(html, /value="6\.69\.25"/);
   assert.match(html, /BLOCKED_1101_VERSION/);
 });

@@ -81,6 +81,12 @@ check('stats rendered', document.querySelector('#stUsers').textContent==='0');
   document.querySelector('#aeChain [data-v="tor"]').click();
   const torChain = parseAether(document.querySelector('#aeLink').value);
   check('chaining Tor uses simple wg/masque protocol and sets chain=tor', torChain.get('protocol') === 'wg' && torChain.get('chain') === 'tor');
+  document.querySelector('#aeLoc [data-v="iran"]').click();
+  const iranLoc = parseAether(document.querySelector('#aeLink').value);
+  check('choosing Iran exit IP switches to single-hop and sets exit_loc=IR', iranLoc.get('exit_loc') === 'IR' && iranLoc.get('protocol') === 'wg' && !iranLoc.has('chain'));
+  document.querySelector('#aeLoc [data-v="foreign"]').click();
+  const foreignLoc = parseAether(document.querySelector('#aeLink').value);
+  check('choosing Foreign exit IP upgrades single-hop to Gool and sets exit_loc=!IR', foreignLoc.get('exit_loc') === '!IR' && foreignLoc.get('protocol') === 'gool');
   document.querySelector('#aeChain [data-v="none"]').click();
   document.querySelector('#aePick [data-v="gool-classic"]').click();
 }

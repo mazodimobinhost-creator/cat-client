@@ -39,4 +39,27 @@ class AetherSelectionTest {
             AetherSelection.simplifyModeForChain(AetherMode.WireGuardOverMasque, "none"),
         )
     }
+
+    @Test fun effectiveExitLocationReflectsIranVsForeignChoice() {
+        assertEquals(
+            "iran",
+            AetherSelection(mode = AetherMode.WireGuard, exitLocation = "iran").effectiveExitLocation(),
+        )
+        assertEquals(
+            "foreign",
+            AetherSelection(mode = AetherMode.WireGuard, exitLocation = "foreign").effectiveExitLocation(),
+        )
+        assertEquals(
+            "foreign",
+            AetherSelection(mode = AetherMode.WireGuard, exitLocation = "iran", chainTarget = "psiphon").effectiveExitLocation(),
+        )
+        assertEquals(
+            "foreign",
+            AetherSelection(mode = AetherMode.WireGuardOverMasque, exitLocation = "auto").effectiveExitLocation(),
+        )
+        assertEquals(
+            "iran",
+            AetherSelection(mode = AetherMode.MasqueHttp2, exitLocation = "auto").effectiveExitLocation(),
+        )
+    }
 }

@@ -3971,6 +3971,28 @@ class MainActivity : Activity() {
             recreate()
         }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }
         aetherPanel.addView(aetherModeRow, LinearLayout.LayoutParams(-1, -2))
+        val exitLocValue = when {
+            aetherSelection.chainTarget == "psiphon" ->
+                if (isFarsiAether) "🌍 آی‌پی خارج تضمینی (WARP → سایفون)" else "🌍 Foreign IP (WARP → Psiphon)"
+            aetherSelection.chainTarget == "tor" ->
+                if (isFarsiAether) "🌍 آی‌پی خارج تضمینی (WARP → تور)" else "🌍 Foreign IP (WARP → Tor)"
+            aetherSelection.effectiveExitLocation() == "foreign" ->
+                if (isFarsiAether) "🌍 آی‌پی خارج (دو لایه کلودفلر · Gool)" else "🌍 Foreign IP (Double-Hop Gool)"
+            else ->
+                if (isFarsiAether) "🇮🇷 آی‌پی ایران (تک‌لایه مستقیم · سریع‌ترین)" else "🇮🇷 Iran IP (Single-Hop · Fastest)"
+        }
+        val exitLocTitle = if (isFarsiAether) "مکان آی‌پی خروجی (ایران / خارج)" else "Exit IP Location (Iran / Foreign)"
+        val exitLocRow = PreferenceRowView(this).apply {
+            setRow(exitLocTitle, exitLocValue)
+            contentDescription = getString(R.string.settings_value_content_description, exitLocTitle, exitLocValue)
+            setOnRowClickListener {
+                showAetherExitLocationPickerDialog {
+                    recreate()
+                }
+            }
+            isEnabled = currentVpnServiceState == VpnState.Stopped
+        }
+        aetherPanel.addView(exitLocRow, LinearLayout.LayoutParams(-1, -2))
         val endpointValue = aetherSelection.endpoint?.let { endpoint ->
             val stamp = if (aetherSelection.endpointScannedAt > 0) {
                 java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
@@ -4026,7 +4048,13 @@ class MainActivity : Activity() {
                     "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
                 } else null
                 val result = withContext(Dispatchers.IO) {
-                    AetherOperations.provision(selected.mode, java.io.File(filesDir, "aether.toml"), proxy, selected.ipScan)
+                    AetherOperations.provision(
+                        selected.mode,
+                        java.io.File(filesDir, "aether.toml"),
+                        proxy,
+                        selected.ipScan,
+                        selected.exitLocation,
+                    )
                 }
                 Toast.makeText(
                     this@MainActivity,
@@ -10178,8 +10206,28 @@ class MainActivity : Activity() {
             }
             val endpointLabel = aetherSel.endpoint?.let { "$namePrefix$it (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)" }
                 ?: if (isFarsi) "خودکار (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)" else "Auto (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)"
+            val exitLocSummary = when {
+                aetherSel.chainTarget == "psiphon" ->
+                    if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → سایفون · کشور: $psiphonRegion)"
+                    else "🌍 Foreign IP (WARP → Psiphon · $psiphonRegion)"
+                aetherSel.chainTarget == "tor" ->
+                    if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → تور)"
+                    else "🌍 Foreign IP (WARP → Tor)"
+                aetherSel.effectiveExitLocation() == "foreign" ->
+                    if (isFarsi) {
+                        val goolKind = if (aetherSel.mode == AetherMode.WireGuard) "WARP-in-WARP" else "WG-over-MASQUE"
+                        "🌍 آی‌پی خارج (دو لایه کلودفلر Gool · $goolKind)"
+                    } else {
+                        val goolKind = if (aetherSel.mode == AetherMode.WireGuard) "WARP-in-WARP" else "WG-over-MASQUE"
+                        "🌍 Foreign IP (Double-Hop Gool · $goolKind)"
+                    }
+                else ->
+                    if (isFarsi) "🇮🇷 آی‌پی ایران (تک‌لایه مستقیم · بالاترین سرعت)"
+                    else "🇮🇷 Iran IP (Single-Hop · Fastest)"
+            }
             statusSummaryText.text = if (isFarsi) {
                 buildString {
+                    append("🧭 مکان آی‌پی خروجی Aether: $exitLocSummary\n")
                     append("🌀 سایفون: ")
                     append(if (psiphonActive) "فعال (WARP → Psiphon) ✅" else "آماده (حالت فعلی: ${modeLabelOf(aetherSel.mode)})")
                     append(" · کشور: $psiphonRegion\n")
@@ -10192,6 +10240,7 @@ class MainActivity : Activity() {
                 }
             } else {
                 buildString {
+                    append("🧭 Aether Exit IP: $exitLocSummary\n")
                     append("🌀 Psiphon: ")
                     append(if (psiphonActive) "Active (WARP → Psiphon) ✅" else "Ready (Current: ${modeLabelOf(aetherSel.mode)})")
                     append(" · Region: $psiphonRegion\n")
@@ -10372,7 +10421,195 @@ class MainActivity : Activity() {
         }
         card.addView(warpRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Row 4: Exit IP Location (Iran 🇮🇷 vs Foreign 🌍) + Live Exit IP Probe
+        val exitLocControlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🇮🇷/🌍 آی‌پی: ایران یا خارج" else "🇮🇷/🌍 Exit IP: Iran / Foreign",
+                    accent = true,
+                ) {
+                    showAetherExitLocationPickerDialog {
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🌐 تست آی‌پی و کشور خروجی" else "🌐 Check Exit IP & Country",
+                    accent = false,
+                ) {
+                    probeAndShowAetherExitIpDialog {
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(exitLocControlRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         return card
+    }
+
+    private fun showAetherExitLocationPickerDialog(onUpdated: (() -> Unit)? = null) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val current = aetherPreferenceStore.read()
+        val options = if (isFarsi) {
+            arrayOf(
+                "🇮🇷 آی‌پی ایران (WARP / MASQUE تک‌لایه — بالاترین سرعت و کمترین پینگ)",
+                "🌍 آی‌پی خارج — دو لایه کلودفلر (Gool: WARP-in-WARP / WG-over-MASQUE — پرسرعت)",
+                "🌍 آی‌پی خارج تضمینی — چین WARP → سایفون (رفع کامل تحریم + انتخاب کشور)",
+                "🌍 آی‌پی خارج تضمینی — چین WARP → تور (Orbot)",
+            )
+        } else {
+            arrayOf(
+                "🇮🇷 Iran IP (Single-Hop WARP / MASQUE — Highest Speed & Lowest Ping)",
+                "🌍 Foreign IP — Cloudflare Double-Hop (Gool: WARP-in-WARP / WG-over-MASQUE — Fast)",
+                "🌍 Guaranteed Foreign IP — WARP → Psiphon Chain (Sanction Bypass + Country Pick)",
+                "🌍 Guaranteed Foreign IP — WARP → Tor Chain (Orbot)",
+            )
+        }
+        val activeIdx = when {
+            current.chainTarget == "psiphon" -> 2
+            current.chainTarget == "tor" -> 3
+            current.effectiveExitLocation() == "foreign" -> 1
+            else -> 0
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🧭 انتخاب مکان آی‌پی خروجی Aether (ایران 🇮🇷 یا خارج 🌍)"
+                else "🧭 Select Aether Exit IP Location (Iran 🇮🇷 or Foreign 🌍)",
+            )
+            .setSingleChoiceItems(options, activeIdx) { dialog, idx ->
+                dialog.dismiss()
+                val cur = aetherPreferenceStore.read()
+                val updated = when (idx) {
+                    0 -> cur.copy(
+                        enabled = true,
+                        exitLocation = "iran",
+                        chainTarget = "none",
+                        mode = if (cur.mode == AetherMode.WireGuardOverMasque) AetherMode.MasqueHttp2 else cur.mode,
+                    )
+                    1 -> cur.copy(
+                        enabled = true,
+                        exitLocation = "foreign",
+                        chainTarget = "none",
+                    )
+                    2 -> cur.copy(
+                        enabled = true,
+                        exitLocation = "foreign",
+                        chainTarget = "psiphon",
+                        mode = AetherSelection.simplifyModeForChain(cur.mode, "psiphon"),
+                    )
+                    else -> cur.copy(
+                        enabled = true,
+                        exitLocation = "foreign",
+                        chainTarget = "tor",
+                        mode = AetherSelection.simplifyModeForChain(cur.mode, "tor"),
+                    )
+                }
+                aetherPreferenceStore.save(updated)
+                activityScope.launch {
+                    val tomlFile = java.io.File(filesDir, "aether.toml")
+                    val proxy = if (currentVpnServiceState == VpnState.Started) {
+                        "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                    } else null
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            AetherOperations.provision(
+                                updated.mode,
+                                tomlFile,
+                                proxy,
+                                updated.ipScan,
+                                updated.exitLocation,
+                            )
+                        }
+                    }
+                    val toastMsg = when (idx) {
+                        0 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🇮🇷 ایران (تک‌لایه سریع)» قرار گرفت"
+                        else "✅ Aether exit IP set to 🇮🇷 Iran (Single-Hop Fast)"
+                        1 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج (دو لایه کلودفلر Gool)» قرار گرفت"
+                        else "✅ Aether exit IP set to 🌍 Foreign (Cloudflare Double-Hop Gool)"
+                        2 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → سایفون)» قرار گرفت"
+                        else "✅ Aether exit IP set to 🌍 Foreign (WARP → Psiphon)"
+                        else -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → تور)» قرار گرفت"
+                        else "✅ Aether exit IP set to 🌍 Foreign (WARP → Tor)"
+                    }
+                    Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_LONG).show()
+                    onUpdated?.invoke()
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun probeAndShowAetherExitIpDialog(onUpdated: (() -> Unit)? = null) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال بررسی آی‌پی و کشور خروجی فعلی…" else "⏳ Checking current exit IP & country…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val result = withContext(Dispatchers.IO) { AetherOperations.probeExitTrace(5_000) }
+            val trace = result.getOrNull()
+            if (trace == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ امکان دریافت وضعیت آی‌پی خروجی نبود: ${result.exceptionOrNull()?.message.orEmpty()}"
+                    else "⚠️ Could not probe exit IP: ${result.exceptionOrNull()?.message.orEmpty()}",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val isIran = trace.isIranIp
+            val flagAndTitle = if (isIran) {
+                if (isFarsi) "🇮🇷 آی‌پی فعلی شما: ایران (IR)" else "🇮🇷 Current Exit IP: Iran (IR)"
+            } else {
+                if (isFarsi) "🌍 آی‌پی فعلی شما: خارج از ایران (${trace.countryCode})"
+                else "🌍 Current Exit IP: Foreign (${trace.countryCode})"
+            }
+            val msg = if (isFarsi) {
+                "• کشور خروجی: ${if (isIran) "🇮🇷 ایران (IR)" else "🌍 خارج (${trace.countryCode})"}\n" +
+                    "• آدرس آی‌پی: ${trace.ip}\n" +
+                    "• دیتاسنتر کلودفلر: ${trace.colo}\n" +
+                    "• وضعیت WARP: ${trace.warpStatus}\n\n" +
+                    if (isIran) {
+                        "💡 اگر آی‌پی خارج (غیر ایران) می‌خواهید، دکمه «🌍 تغییر به آی‌پی خارج» را بزنید تا از حالت دو لایه Gool یا چین سایفون استفاده شود."
+                    } else {
+                        "💡 آی‌پی شما غیر ایران (${trace.countryCode}) است. اگر برای سایت‌های داخلی یا سرعت بالاتر آی‌پی ایران می‌خواهید، دکمه «🇮🇷 تغییر به آی‌پی ایران» را بزنید."
+                    }
+            } else {
+                "• Exit Country: ${if (isIran) "🇮🇷 Iran (IR)" else "🌍 Foreign (${trace.countryCode})"}\n" +
+                    "• Exit IP: ${trace.ip}\n" +
+                    "• Cloudflare Colo: ${trace.colo}\n" +
+                    "• WARP Status: ${trace.warpStatus}\n\n" +
+                    if (isIran) {
+                        "💡 Want a non-Iran (Foreign) IP? Tap '🌍 Switch to Foreign IP'."
+                    } else {
+                        "💡 Your IP is outside Iran (${trace.countryCode}). Want an Iran IP instead? Tap '🇮🇷 Switch to Iran IP'."
+                    }
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(flagAndTitle)
+                .setMessage(msg)
+                .setNeutralButton(
+                    if (isFarsi) "🧭 تغییر مکان آی‌پی (ایران / خارج)" else "🧭 Change Exit IP (Iran / Foreign)",
+                ) { _, _ ->
+                    showAetherExitLocationPickerDialog(onUpdated)
+                }
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+                .showCatClientDialog()
+        }
     }
 
     /**
@@ -10388,6 +10625,7 @@ class MainActivity : Activity() {
         var chosenMode = if (current.mode == AetherMode.MasquePsiphon) AetherMode.WireGuard else current.mode
         var chosenIpScan = current.ipScan
         var chosenChain = current.chainTarget
+        var chosenExitLocation = current.effectiveExitLocation()
         var scannedEndpoint: String? = current.endpoint
 
         val root = LinearLayout(this).apply {
@@ -10468,11 +10706,20 @@ class MainActivity : Activity() {
                 "tor" -> if (isFarsi) "WARP → Tor (رفع تحریم · سرعت متوسط)" else "WARP → Tor (Sanction Bypass · Medium Speed)"
                 else -> if (isFarsi) "بدون چین (مستقیم · سرعت کامل)" else "Direct (No Chain · Full Speed)"
             }
+            val exitLocLabel = when {
+                chosenChain == "psiphon" -> if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → سایفون)" else "🌍 Foreign IP (WARP → Psiphon)"
+                chosenChain == "tor" -> if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → تور)" else "🌍 Foreign IP (WARP → Tor)"
+                chosenExitLocation == "foreign" -> {
+                    val goolType = if (chosenMode == AetherMode.WireGuard) "WARP-in-WARP" else "WG-over-MASQUE"
+                    if (isFarsi) "🌍 آی‌پی خارج (دو لایه Gool: $goolType)" else "🌍 Foreign IP (Double-Hop Gool: $goolType)"
+                }
+                else -> if (isFarsi) "🇮🇷 آی‌پی ایران (تک‌لایه · سریع‌ترین)" else "🇮🇷 Iran IP (Single-Hop · Fastest)"
+            }
             val epName = scannedEndpoint ?: if (isFarsi) "هنوز اسکن نشده" else "Not scanned yet"
             stateLabel.text = if (isFarsi) {
-                "پروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName"
+                "مکان آی‌پی خروجی: $exitLocLabel\nپروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName"
             } else {
-                "Protocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName"
+                "Exit IP Location: $exitLocLabel\nProtocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName"
             }
         }
         updateStateLabel()
@@ -10535,6 +10782,32 @@ class MainActivity : Activity() {
             )
         }
         root.addView(presetRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Explicit Exit IP Location selector: Iran IP 🇮🇷 vs Foreign IP 🌍
+        val exitLocRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                chipBtn(if (isFarsi) "🇮🇷 آی‌پی ایران (تک‌لایه سریع)" else "🇮🇷 Iran IP (Fast Single-Hop)") {
+                    chosenExitLocation = "iran"
+                    chosenChain = "none"
+                    if (chosenMode == AetherMode.WireGuardOverMasque) {
+                        chosenMode = AetherMode.MasqueHttp2
+                    }
+                    updateStateLabel()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                chipBtn(if (isFarsi) "🌍 آی‌پی خارج (دو لایه Gool)" else "🌍 Foreign IP (Double-Hop Gool)", accent = true) {
+                    chosenExitLocation = "foreign"
+                    chosenChain = "none"
+                    updateStateLabel()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(exitLocRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         // Step 1 & 2 selectors: Protocol + IP Type
         val selectorRow = LinearLayout(this).apply {
@@ -10620,6 +10893,9 @@ class MainActivity : Activity() {
                 .setTitle(if (isFarsi) "چین کردن سایفون / تور (warp -> psiphon/tor)" else "Chain Psiphon / Tor (warp -> psiphon/tor)")
                 .setItems(chainTitles) { _, idx ->
                     chosenChain = chains[idx]
+                    if (chosenChain != "none") {
+                        chosenExitLocation = "foreign"
+                    }
                     if (chosenChain != "none" && chosenMode == AetherMode.WireGuardOverMasque) {
                         chosenMode = AetherMode.WireGuard
                         Toast.makeText(
@@ -10676,9 +10952,7 @@ class MainActivity : Activity() {
                     "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
                 } else null
                 withContext(Dispatchers.IO) {
-                    if (!tomlFile.exists() || tomlFile.length() == 0L) {
-                        runCatching { AetherOperations.provision(chosenMode, tomlFile, proxy, chosenIpScan) }
-                    }
+                    runCatching { AetherOperations.provision(chosenMode, tomlFile, proxy, chosenIpScan, chosenExitLocation) }
                 }
                 setScanProgress(60, if (isFarsi) "📡 در حال اسکن اندپوینت (${chosenIpScan.uppercase(Locale.US)})…" else "📡 Scanning endpoints (${chosenIpScan.uppercase(Locale.US)})…")
                 val scanResult = if (currentVpnServiceState == VpnState.Stopped) {
@@ -10727,11 +11001,14 @@ class MainActivity : Activity() {
             root.addView(savedTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             savedProfiles.take(3).forEach { prof ->
                 val chainBadge = if (prof.chainTarget != "none") " → ${prof.chainTarget}" else ""
+                val locBadge = if (prof.exitLocation == "foreign" || prof.chainTarget != "none") "🌍" else "🇮🇷"
                 root.addView(
-                    chipBtn("⚡ ${prof.name} · ${prof.mode.wireName}$chainBadge (${prof.ipScan.uppercase(Locale.US)}) · ${prof.endpoint}") {
+                    chipBtn("⚡ $locBadge ${prof.name} · ${prof.mode.wireName}$chainBadge (${prof.ipScan.uppercase(Locale.US)}) · ${prof.endpoint}") {
                         chosenMode = prof.mode
                         chosenIpScan = prof.ipScan
                         chosenChain = prof.chainTarget
+                        chosenExitLocation = prof.exitLocation.takeIf { it in setOf("iran", "foreign") }
+                            ?: if (prof.chainTarget != "none" || prof.mode == AetherMode.WireGuardOverMasque) "foreign" else "iran"
                         scannedEndpoint = prof.endpoint
                         nameInput.setText(prof.name)
                         updateStateLabel()
@@ -10767,6 +11044,7 @@ class MainActivity : Activity() {
                         ipScan = chosenIpScan,
                         profileName = profName,
                         chainTarget = chosenChain,
+                        exitLocation = chosenExitLocation,
                     ),
                 )
                 aetherPreferenceStore.saveNamedProfile(
@@ -10777,6 +11055,7 @@ class MainActivity : Activity() {
                         endpoint = finalPeer,
                         scannedAt = now,
                         chainTarget = chosenChain,
+                        exitLocation = chosenExitLocation,
                     ),
                 )
                 Toast.makeText(

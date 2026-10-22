@@ -4006,8 +4006,13 @@ class CatClientVpnService : VpnService() {
             identityFile = File(filesDir, "aether.toml"),
             endpoint = selection.freshEndpoint(),
             ipScan = selection.ipScan,
+            exitLocation = selection.exitLocation,
         )
-        DiagnosticLogger.info(this, "$eventPrefix.aether.start", "mode=${selection.mode.wireName}")
+        DiagnosticLogger.info(
+            this,
+            "$eventPrefix.aether.start",
+            "mode=${selection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${selection.effectiveExitLocation()}",
+        )
         val result = withContext(Dispatchers.IO) { session.run(config) }
         if (aetherSession === session) aetherSession = null
         if (state != VpnState.Stopping && state != VpnState.Stopped) {

@@ -51,6 +51,32 @@ class AetherRuntimeConfigTest {
         ).toNativeJson())
         assertEquals("proxy", proxy.getString("mode"))
         assertEquals(1819, proxy.getInt("listenPort"))
+
+        // Foreign exit location upgrades WireGuard to wiw (WARP-in-WARP) and MasqueHttp2 to wom
+        val wgForeign = JSONObject(AetherRuntimeConfig(
+            AetherMode.WireGuard,
+            File("/tmp/aether-wg-foreign.json"),
+            "[2606:4700:d0::a29f:c001]:2408",
+            ipScan = "v6",
+            exitLocation = "foreign",
+        ).toNativeJson())
+        assertEquals("wiw", wgForeign.getString("transport"))
+        assertEquals("v6", wgForeign.getString("ipScan"))
+
+        val h2Foreign = JSONObject(AetherRuntimeConfig(
+            AetherMode.MasqueHttp2,
+            File("/tmp/aether-h2-foreign.json"),
+            exitLocation = "foreign",
+        ).toNativeJson())
+        assertEquals("wom", h2Foreign.getString("transport"))
+
+        // Iran exit location forces single-hop transport so exit IP remains IR
+        val womIran = JSONObject(AetherRuntimeConfig(
+            AetherMode.WireGuardOverMasque,
+            File("/tmp/aether-iran.json"),
+            exitLocation = "iran",
+        ).toNativeJson())
+        assertEquals("h2", womIran.getString("transport"))
     }
 
     @Test fun refusesUnreadyCarrierUnsafePathAndInvalidEndpoint() {
