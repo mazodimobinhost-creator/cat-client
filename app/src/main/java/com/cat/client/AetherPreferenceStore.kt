@@ -421,4 +421,86 @@ class AetherPreferenceStore(context: Context) {
         }
         prefs.edit().putString("savedProfilesJson", arr.toString()).apply()
     }
+
+    /**
+     * Remembers a verified endpoint specifically for the current SIM operator or Wi-Fi network
+     * (inspired by WhiteAestherMobile's EndpointDiscoveryMemory + NetworkIdentity).
+     */
+    fun rememberEndpointForNetwork(
+        networkKey: String,
+        mode: AetherMode,
+        ipScan: String,
+        peer: String,
+        rttMs: Long = 0L,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        if (networkKey.isBlank() || !AetherOperations.isSafePublicPeer(peer)) return
+        val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
+        val slotKey = "netmem_${networkKey}_${family}_$ipScan"
+        val payload = org.json.JSONObject()
+            .put("peer", peer)
+            .put("rttMs", rttMs.coerceAtLeast(0L))
+            .put("savedAt", nowMs)
+            .toString()
+        prefs.edit().putString(slotKey, payload).apply()
+    }
+
+    fun recallEndpointForNetwork(
+        networkKey: String,
+        mode: AetherMode,
+        ipScan: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): String? {
+        if (networkKey.isBlank()) return null
+        val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
+        val slotKey = "netmem_${networkKey}_${family}_$ipScan"
+        val raw = prefs.getString(slotKey, null) ?: return null
+        return runCatching {
+            val obj = org.json.JSONObject(raw)
+            val savedAt = obj.optLong("savedAt", 0L)
+            val age = nowMs - savedAt
+            if (age !in 0L..(7L * 24 * 60 * 60 * 1000L)) return null
+            obj.optString("peer").trim().takeIf(AetherOperations::isSafePublicPeer)
+        }.getOrNull()
+    }
+
+    companion object {
+        /**
+         * Identifies the underlying non-VPN network (SIM 1 vs SIM 2 operator MCC+MNC or Wi-Fi gateway/DNS)
+         * without requiring any extra permissions.
+         */
+        fun underlyingNetworkKey(context: Context): String = runCatching {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return "default"
+            fun usable(net: android.net.Network): Boolean {
+                val cap = cm.getNetworkCapabilities(net) ?: return false
+                return cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            }
+            @Suppress("DEPRECATION")
+            val net = cm.activeNetwork?.takeIf(::usable) ?: cm.allNetworks.firstOrNull(::usable) ?: return "default"
+            val cap = cm.getNetworkCapabilities(net) ?: return "default"
+            when {
+                cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> {
+                    val tm = context.getSystemService(android.telephony.TelephonyManager::class.java)
+                    val subId = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
+                    val scoped = if (tm != null && subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                        tm.createForSubscriptionId(subId)
+                    } else tm
+                    val op = scoped?.networkOperator?.trim().orEmpty().ifEmpty { "mobile" }
+                    "cell:$op"
+                }
+                cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> {
+                    val lp = cm.getLinkProperties(net)
+                    val gw = lp?.routes?.firstOrNull { it.isDefaultRoute && it.gateway != null }?.gateway?.hostAddress.orEmpty()
+                    val dns = lp?.dnsServers.orEmpty().mapNotNull { it.hostAddress }.sorted().joinToString(",")
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest("wifi|$gw|$dns".toByteArray(Charsets.UTF_8))
+                        .take(6)
+                        .joinToString("") { "%02x".format(it) }
+                    "wifi:$digest"
+                }
+                else -> "other"
+            }
+        }.getOrDefault("default")
+    }
 }

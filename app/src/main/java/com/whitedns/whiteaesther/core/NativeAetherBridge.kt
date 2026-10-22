@@ -44,6 +44,49 @@ object NativeAetherBridge {
             PreparedEngine(json.getString("ipv4"), json.getString("ipv6"), json.getString("peer"))
         }
 
+    fun testEndpoint(configJson: String): Result<EndpointScanResult> =
+        call { nativeTestEndpoint(configJson) }.mapCatching { raw ->
+            val json = JSONObject(raw)
+            check(json.optBoolean("ok")) { json.optString("error", "Endpoint test failed") }
+            EndpointScanResult(json.getString("peer"), json.getLong("rttMs"))
+        }
+
+    fun scanProgress(): NativeScanProgress? =
+        call(::nativeScanProgress).getOrNull()?.let { raw ->
+            runCatching {
+                val json = JSONObject(raw)
+                val results = json.optJSONArray("results")
+                NativeScanProgress(
+                    completed = json.optInt("completed"),
+                    total = json.optInt("total"),
+                    failures = json.optString("failures"),
+                    scanId = json.optLong("scanId"),
+                    results = if (results == null) emptyList() else List(results.length()) { index ->
+                        results.getJSONObject(index).let {
+                            EndpointScanResult(it.getString("peer"), it.getLong("rttMs"))
+                        }
+                    },
+                )
+            }.getOrNull()
+        }
+
+    fun exportIdentity(configPath: String): Result<String> =
+        call { nativeExportIdentity(configPath) }.mapCatching { raw ->
+            val json = JSONObject(raw)
+            check(json.optBoolean("ok")) { json.optString("error", "Nothing to export") }
+            json.getString("payload")
+        }
+
+    fun importIdentity(configPath: String, payload: String): NativeResult =
+        call { nativeImportIdentity(configPath, payload) }.toNativeResult()
+
+    fun drainLog(): List<String> {
+        if (!isLoaded) return emptyList()
+        return runCatching { nativeDrainLog()?.filterNotNull().orEmpty() }.getOrDefault(emptyList())
+    }
+
+    fun migrate(): Boolean = isLoaded && runCatching { nativeMigrate() }.getOrDefault(false)
+
     fun run(
         configJson: String,
         preparedPeer: String,
@@ -80,7 +123,13 @@ object NativeAetherBridge {
     @JvmStatic private external fun validateConfig(configJson: String): String
     @JvmStatic private external fun nativeProvision(configJson: String): String
     @JvmStatic private external fun nativeScan(configJson: String): String
+    @JvmStatic private external fun nativeScanProgress(): String
+    @JvmStatic private external fun nativeTestEndpoint(configJson: String): String
     @JvmStatic private external fun nativePrepare(configJson: String): String
+    @JvmStatic private external fun nativeExportIdentity(configPath: String): String
+    @JvmStatic private external fun nativeImportIdentity(configPath: String, payload: String): String
+    @JvmStatic private external fun nativeDrainLog(): Array<String?>?
+    @JvmStatic private external fun nativeMigrate(): Boolean
     @JvmStatic private external fun nativeRun(
         configJson: String,
         preparedPeer: String,
@@ -97,4 +146,11 @@ fun interface NativeSocketProtector { fun protectSocket(fd: Int): Boolean }
 fun interface NativeEngineListener { fun onNativeReady() }
 data class NativeResult(val ok: Boolean, val error: String? = null)
 data class EndpointScanResult(val peer: String, val rttMillis: Long)
+data class NativeScanProgress(
+    val completed: Int = 0,
+    val total: Int = 0,
+    val failures: String = "",
+    val results: List<EndpointScanResult> = emptyList(),
+    val scanId: Long = 0,
+)
 data class PreparedEngine(val ipv4: String, val ipv6: String, val peer: String)

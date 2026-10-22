@@ -110,6 +110,96 @@ internal object AetherOperations {
             .toList()
     }
 
+    /**
+     * Two-stage endpoint confirmation (from WhiteAestherMobile):
+     * verifies that the candidate peer actually completes a tunnel handshake and carries traffic.
+     */
+    fun confirmEndpoint(
+        mode: AetherMode,
+        identityFile: File,
+        peer: String,
+        ipScan: String = "both",
+        exitLocation: String = "auto",
+        budgetMillis: Long = 10_000L,
+    ): Result<AetherEndpoint> = runCatching {
+        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        require(isSafePublicPeer(peer)) { "Peer must be a public IP literal with port" }
+        val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
+        val baseConfig = AetherRuntimeConfig(
+            mode = aetherMode,
+            identityFile = identityFile,
+            endpoint = peer,
+            ipScan = ipScan,
+            exitLocation = exitLocation,
+        )
+        val json = org.json.JSONObject(baseConfig.toNativeJson())
+            .put("scanBudgetMillis", budgetMillis.coerceIn(1_000L, 30_000L))
+            .put("peerFallback", false)
+            .toString()
+        val tested = NativeAetherBridge.testEndpoint(json).getOrThrow()
+        check(safeEndpoint(tested)) { "Confirmed endpoint failed safety validation" }
+        AetherEndpoint(tested.peer, tested.rttMillis.coerceAtLeast(1L))
+    }
+
+    fun exportIdentity(identityFile: File): Result<String> = runCatching {
+        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        require(identityFile.isAbsolute) { "Identity path must be absolute" }
+        NativeAetherBridge.exportIdentity(identityFile.absolutePath).getOrThrow()
+    }
+
+    fun importIdentity(identityFile: File, payload: String): Result<Unit> = runCatching {
+        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        require(identityFile.isAbsolute) { "Identity path must be absolute" }
+        val trimmed = payload.trim()
+        require(trimmed.isNotEmpty()) { "Identity payload is empty" }
+        val res = NativeAetherBridge.importIdentity(identityFile.absolutePath, trimmed)
+        check(res.ok) { res.error ?: "Failed to import Aether identity" }
+    }
+
+    fun drainEngineLogs(): List<String> = NativeAetherBridge.drainLog()
+
+    fun migrateRunningTunnel(): Boolean = NativeAetherBridge.migrate()
+
+    /**
+     * Parses Tor Moat circumvention JSON response into bridge lines.
+     */
+    internal fun parseMoatBridgesJson(rawJson: String): List<String> = runCatching {
+        val settings = org.json.JSONObject(rawJson).optJSONArray("settings") ?: return emptyList()
+        buildList {
+            for (i in 0 until settings.length()) {
+                val bridgesObj = settings.optJSONObject(i)?.optJSONObject("bridges") ?: continue
+                val arr = bridgesObj.optJSONArray("bridge_strings") ?: continue
+                for (j in 0 until arr.length()) {
+                    val line = arr.optString(j).trim()
+                    if (line.isNotEmpty()) add(line)
+                }
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    fun fetchMoatTorBridges(country: String = "ir", timeoutMs: Int = 8_000): Result<List<String>> = runCatching {
+        val safeCountry = country.trim().lowercase().takeIf { it.matches(Regex("[a-z]{2}")) } ?: "ir"
+        val payload = """{"country":"$safeCountry"}"""
+        val conn = (java.net.URL("https://bridges.torproject.org/moat/circumvention/settings").openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            doOutput = true
+            setRequestProperty("Content-Type", "application/vnd.api+json")
+            setRequestProperty("User-Agent", "")
+        }
+        try {
+            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            check(conn.responseCode in 200..299) { "Moat bridge service HTTP ${conn.responseCode}" }
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val parsed = parseMoatBridgesJson(body)
+            check(parsed.isNotEmpty()) { "No bridges returned by Moat" }
+            parsed
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun cancel(): Boolean = NativeAetherBridge.cancelPrepare() or NativeAetherBridge.cancelScan()
 
     internal fun safeEndpoint(result: EndpointScanResult): Boolean =

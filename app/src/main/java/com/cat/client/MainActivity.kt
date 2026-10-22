@@ -10634,6 +10634,16 @@ class MainActivity : Activity() {
         }
         card.addView(autoWizardBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Row 7: Conceptual All-in-One Helper Menu (6-Port Cloudflare + SNI Scanner, Iran DNS + dnstt Scanner, Identity Backup/Restore, Moat Tor Bridges)
+        val helperMenuBtn = smallActionBtn(
+            label = if (isFarsi) "🧰 ابزارهای کمکی (اسکن ۶ پورت / DNS ایران / پشتیبان کلید / پل تور) ▾"
+            else "🧰 Smart Tools (6-Port Scan / Iran DNS / Key Backup / Tor Moat) ▾",
+            accent = false,
+        ) {
+            showWhiteDnsAndAetherToolsDialog()
+        }
+        card.addView(helperMenuBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
         return card
     }
 
@@ -11327,17 +11337,26 @@ class MainActivity : Activity() {
                     }
                 } else null
                 val found = scanResult?.getOrDefault(emptyList()).orEmpty()
+                val netKey = AetherPreferenceStore.underlyingNetworkKey(this@MainActivity)
                 if (found.isNotEmpty()) {
-                    val best = found.first()
-                    scannedEndpoint = best.peer
+                    val top = found.first()
+                    setScanProgress(85, if (isFarsi) "🔍 مرحله ۲/۲: تأیید واقعی عبور ترافیک روی ${top.peer}…" else "🔍 Stage 2/2: Confirming real traffic on ${top.peer}…")
+                    val confirmed = if (currentVpnServiceState == VpnState.Stopped) {
+                        withContext(Dispatchers.IO) {
+                            AetherOperations.confirmEndpoint(chosenMode, tomlFile, top.peer, chosenIpScan, chosenExitLocation, 8_000L).getOrNull()
+                        } ?: top
+                    } else top
+                    scannedEndpoint = confirmed.peer
+                    aetherPreferenceStore.rememberEndpointForNetwork(netKey, chosenMode, chosenIpScan, confirmed.peer, confirmed.rttMillis)
                     updateStateLabel()
                     setScanProgress(
                         100,
-                        if (isFarsi) "✅ آی‌پی پیدا شد: ${best.peer} (${best.rttMillis}ms) — نام را انتخاب و ذخیره کنید"
-                        else "✅ Found: ${best.peer} (${best.rttMillis}ms) — choose a name and save",
+                        if (isFarsi) "✅ آی‌پی تأییدشده: ${confirmed.peer} (${confirmed.rttMillis}ms · ذخیره برای همین سیم‌کارت/وای‌فای)"
+                        else "✅ Traffic-verified: ${confirmed.peer} (${confirmed.rttMillis}ms · remembered for this network)",
                     )
                 } else {
-                    val fallbackPeer = when {
+                    val remembered = aetherPreferenceStore.recallEndpointForNetwork(netKey, chosenMode, chosenIpScan)
+                    val fallbackPeer = remembered ?: when {
                         chosenIpScan == "v6" && chosenMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
                         chosenIpScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
                         chosenMode == AetherMode.WireGuard -> "162.159.192.1:2408"
@@ -11347,8 +11366,8 @@ class MainActivity : Activity() {
                     updateStateLabel()
                     setScanProgress(
                         100,
-                        if (isFarsi) "ℹ️ اندپوینت پیش‌فرض $fallbackPeer انتخاب شد — نام را وارد و ذخیره کنید"
-                        else "ℹ️ Selected fallback endpoint $fallbackPeer — enter a name and save",
+                        if (isFarsi) "ℹ️ اندپوینت $fallbackPeer انتخاب شد — نام را وارد و ذخیره کنید"
+                        else "ℹ️ Selected endpoint $fallbackPeer — enter a name and save",
                     )
                 }
             }
@@ -11382,6 +11401,14 @@ class MainActivity : Activity() {
             )
         }
         root.addView(copyAndQrRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        val toolsBtnInDialog = chipBtn(
+            if (isFarsi) "🧰 ابزارهای کمکی (پشتیبان کلید کلودفلر / اسکن ۶ پورت و DNS ایران / پل تور) ▾"
+            else "🧰 Smart Tools (Cloudflare Key Backup / 6-Port & Iran DNS Scan / Tor Moat) ▾",
+        ) {
+            showWhiteDnsAndAetherToolsDialog()
+        }
+        root.addView(toolsBtnInDialog, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val savedProfiles = aetherPreferenceStore.readSavedProfiles()
         if (savedProfiles.isNotEmpty()) {
@@ -11722,6 +11749,10 @@ class MainActivity : Activity() {
                 }
 
                 val builtSelection = buildSelectionForCandidate(winner)
+                val netKey = AetherPreferenceStore.underlyingNetworkKey(this@MainActivity)
+                builtSelection.endpoint?.let { peer ->
+                    aetherPreferenceStore.rememberEndpointForNetwork(netKey, builtSelection.mode, builtSelection.ipScan, peer, winner.rttMs)
+                }
                 aetherPreferenceStore.save(builtSelection)
                 aetherPreferenceStore.saveNamedProfile(
                     AetherSavedProfile(
@@ -11868,6 +11899,281 @@ class MainActivity : Activity() {
             .setNegativeButton(android.R.string.cancel, null)
             .create()
             .showCatClientDialog()
+    }
+
+    /**
+     * Conceptual 5-in-1 menu exposing all WhiteDNS & WhiteAestherMobile power tools
+     * without cluttering the main UI.
+     */
+    private fun showWhiteDnsAndAetherToolsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val items = if (isFarsi) {
+            arrayOf(
+                "🌐 ۱) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
+                "📡 ۲) پیدا کردن سریع‌ترین DNS ایران + ساخت پل اضطراری dnstt (از ۵۰۰ سرور WhiteDNS)",
+                "🧅 ۳) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
+                "💾 ۴) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
+                "📥 ۵) بازیابی کلید کلودفلر از کلیپ‌بورد",
+            )
+        } else {
+            arrayOf(
+                "🌐 1) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
+                "📡 2) Find Fastest Iran DNS + Build Emergency dnstt Bridges (WhiteDNS Pool)",
+                "🧅 3) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
+                "💾 4) Backup Cloudflare Identity Key to Clipboard",
+                "📥 5) Restore Cloudflare Identity Key from Clipboard",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS و Aether"
+                else "🧰 WhiteDNS & Aether Smart Tools",
+            )
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> runCloudflareSixPortsAndSniScanDialog()
+                    1 -> runIranDnsAndDnsttScanDialog()
+                    2 -> runFetchMoatTorBridgesDialog()
+                    3 -> exportAetherIdentityToClipboard()
+                    4 -> importAetherIdentityFromClipboard()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun runCloudflareSixPortsAndSniScanDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست ۶ پورت TLS کلودفلر (443, 2053, 2083, 2087, 2096, 8443) و SNI روی خط شما…"
+            else "⏳ Scanning 6 Cloudflare TLS ports & SNI pool on your line…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val customSni = frontingIpPreferenceStore.readSniOverride().takeIf { it.isNotBlank() }
+            val hits = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.scanCloudflareSixPortsAndSni(customSni = customSni)
+            }
+            if (hits.isEmpty()) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ روی این خط هیچ‌کدام از ۶ پورت TLS مستقیم پاسخ نداد؛ از «🤖 اسکن خودکار Aether (WARP/MASQUE)» استفاده کنید."
+                    else "⚠️ No direct TLS port responded; use Aether Auto-Scan (WARP/MASQUE).",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val best = hits.first()
+            val lines = hits.take(6).mapIndexed { i, h ->
+                val star = if (i == 0) " ⭐" else ""
+                "${i + 1}) ${h.endpoint} · SNI: ${h.sni} (${h.rttMs}ms)$star"
+            }.joinToString("\n")
+            val msg = if (isFarsi) {
+                "✅ بهترین پورت و آی‌پی فعال روی خط شما:\n" +
+                    "• آدرس دقیق (با حفظ پورت): ${best.endpoint}\n" +
+                    "• بهترین SNI: ${best.sni} (${best.rttMs}ms)\n\n" +
+                    "لیست پورت‌های باز روی اینترنت شما:\n$lines"
+            } else {
+                "✅ Best active IP:port & SNI on your line:\n" +
+                    "• Exact Endpoint: ${best.endpoint}\n" +
+                    "• Best SNI: ${best.sni} (${best.rttMs}ms)\n\n" +
+                    "Open ports on your network:\n$lines"
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🌐 نتیجه اسکن ۶ پورت TLS کلودفلر + SNI"
+                    else "🌐 6-Port Cloudflare TLS + SNI Scan Results",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "📋 کپی آدرس و SNI" else "📋 Copy IP:port & SNI") { _, _ ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("cf-6port", "${best.endpoint}\nSNI: ${best.sni}"))
+                    Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                }
+                .setPositiveButton(if (isFarsi) "✅ اعمال روی کانفیگ‌های ساب" else "✅ Apply to Subscription") { _, _ ->
+                    val prev = frontingIpPreferenceStore.readFrontingIp()
+                    frontingIps = runCatching {
+                        FrontingIpPolicy.normalizeIps(( listOf(best.endpoint) + frontingIps ).joinToString(","))
+                    }.getOrDefault(listOf(best.endpoint))
+                    renderFrontingIpChips()
+                    saveFrontingIps(reconnectIfChanged = true, previousValue = prev)
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ آدرس ${best.endpoint} با همان پورت دقیق اعمال شد"
+                        else "✅ Applied exact endpoint ${best.endpoint}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runIranDnsAndDnsttScanDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست سرورهای DNS ایران (WhiteDNS UDP/TCP) روی خط شما…"
+            else "⏳ Probing Iranian DNS resolvers (WhiteDNS UDP/TCP) on your line…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val hits = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.scanIranDnsResolvers()
+            }
+            val bestIp = hits.firstOrNull()?.ip ?: "185.51.200.2"
+            val bridges = WhiteDnsSmartScanner.buildDnsttBridgesForResolver(bestIp).joinToString("\n")
+            val listText = if (hits.isNotEmpty()) {
+                hits.take(6).mapIndexed { idx, h ->
+                    "${idx + 1}) ${h.ip} (${h.transport} · ${h.rttMs}ms)" + if (idx == 0) " ⭐ سریع‌ترین" else ""
+                }.joinToString("\n")
+            } else {
+                if (isFarsi) "ℹ️ پاسخ مستقیم دریافت نشد؛ از پیش‌فرض شکن/رادار ($bestIp) استفاده شد."
+                else "ℹ️ Using fallback resolver ($bestIp)."
+            }
+            val msg = if (isFarsi) {
+                "📡 سریع‌ترین DNSهای فعال ایران روی خط شما:\n$listText\n\n" +
+                    "🧅 خطوط پل اضطراری dnstt ساخته‌شده با سریع‌ترین DNS خط شما ($bestIp):\n$bridges"
+            } else {
+                "📡 Fastest active Iranian DNS resolvers on your line:\n$listText\n\n" +
+                    "🧅 Emergency dnstt bridge lines built with your fastest DNS ($bestIp):\n$bridges"
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "📡 نتیجه اسکن DNS ایران و پل اضطراری dnstt"
+                    else "📡 Iran DNS Scan & dnstt Emergency Bridges",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "📋 فقط کپی آی‌پی DNS ($bestIp)" else "📋 Copy DNS IP ($bestIp)") { _, _ ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("iran-dns", bestIp))
+                    Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                }
+                .setPositiveButton(if (isFarsi) "📋 کپی پل‌های dnstt برای Orbot" else "📋 Copy dnstt Bridges") { _, _ ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("dnstt-bridges", bridges))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ پل‌های dnstt با DNS خط شما ($bestIp) کپی شد"
+                        else "✅ Copied dnstt bridges with DNS $bestIp",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runFetchMoatTorBridgesDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال دریافت پل‌های جدید Tor از سرور رسمی Moat…"
+            else "⏳ Fetching fresh Tor bridges from official Moat service…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val fetched = withContext(Dispatchers.IO) {
+                AetherOperations.fetchMoatTorBridges("ir").getOrElse {
+                    WhiteDnsSmartScanner.buildDnsttBridgesForResolver("185.51.200.2")
+                }
+            }
+            val text = fetched.joinToString("\n")
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("tor-moat-bridges", text))
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🧅 پل‌های Tor کپی شد (${fetched.size} پل)"
+                    else "🧅 Tor Bridges Copied (${fetched.size} bridges)",
+                )
+                .setMessage(text)
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun exportAetherIdentityToClipboard() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            val tomlFile = java.io.File(filesDir, "aether.toml")
+            val cur = aetherPreferenceStore.read()
+            val payload = withContext(Dispatchers.IO) {
+                AetherOperations.exportIdentity(tomlFile).recoverCatching {
+                    AetherOperations.provision(cur.mode, tomlFile, null, cur.ipScan, cur.exitLocation).getOrThrow()
+                    AetherOperations.exportIdentity(tomlFile).getOrThrow()
+                }
+            }
+            payload.fold(
+                onSuccess = { exported ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("aether-identity-backup", exported))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ پشتیبان کلید کلودفلر در کلیپ‌بورد کپی شد (در جایی امن ذخیره کنید تا در نصب مجدد کلیدتان نسوزد)"
+                        else "✅ Cloudflare identity backup copied to clipboard!",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+                onFailure = { err ->
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ خطا در تهیه پشتیبان کلید: ${err.message}"
+                        else "⚠️ Failed to export identity: ${err.message}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
+    }
+
+    private fun importAetherIdentityFromClipboard() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val clip = getSystemService(ClipboardManager::class.java)?.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(this)
+            ?.toString()
+            ?.trim()
+            .orEmpty()
+        if (clip.isEmpty()) {
+            Toast.makeText(
+                this,
+                if (isFarsi) "⚠️ کلیپ‌بورد خالی است؛ ابتدا متن پشتیبان کلید را کپی کنید"
+                else "⚠️ Clipboard is empty; copy your identity backup first",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        activityScope.launch {
+            val tomlFile = java.io.File(filesDir, "aether.toml")
+            val res = withContext(Dispatchers.IO) {
+                AetherOperations.importIdentity(tomlFile, clip)
+            }
+            res.fold(
+                onSuccess = {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ کلید کلودفلر با موفقیت بازیابی و جایگزین شد!"
+                        else "✅ Cloudflare identity restored successfully!",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+                onFailure = { err ->
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ متن داخل کلیپ‌بورد یک کلید معتبر Aether نیست: ${err.message}"
+                        else "⚠️ Invalid Aether identity backup in clipboard: ${err.message}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
     }
 
     private fun showFirewallConnectionGuideDialog() {

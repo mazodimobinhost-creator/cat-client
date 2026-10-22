@@ -3992,28 +3992,40 @@ class CatClientVpnService : VpnService() {
     private suspend fun runAetherStartup(eventPrefix: String, selection: AetherSelection) {
         check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Aether native core is not packaged" }
         check(coreLifecycle.isIdle()) { "Mihomo must stop before Aether starts" }
-        if (selection.mode == AetherMode.MasquePsiphon || selection.chainTarget == "psiphon") {
-            runAetherPsiphonStartup(eventPrefix, selection)
+        val networkKey = AetherPreferenceStore.underlyingNetworkKey(this)
+        val effectiveEndpoint = selection.freshEndpoint()
+            ?: aetherPreferenceStore.recallEndpointForNetwork(networkKey, selection.mode, selection.ipScan)
+        if (effectiveEndpoint != null) {
+            aetherPreferenceStore.rememberEndpointForNetwork(networkKey, selection.mode, selection.ipScan, effectiveEndpoint)
+        }
+        val effectiveSelection = if (effectiveEndpoint != null && selection.endpoint == null) {
+            selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
+        } else selection
+        if (effectiveSelection.mode == AetherMode.MasquePsiphon || effectiveSelection.chainTarget == "psiphon") {
+            runAetherPsiphonStartup(eventPrefix, effectiveSelection)
             return
         }
-        if (selection.chainTarget == "tor") {
-            runAetherTorStartup(eventPrefix, selection)
+        if (effectiveSelection.chainTarget == "tor") {
+            runAetherTorStartup(eventPrefix, effectiveSelection)
             return
         }
         val session = createAetherSession(resolveSplitTunnelRuntimePlan())
         val config = AetherRuntimeConfig(
-            mode = selection.mode,
+            mode = effectiveSelection.mode,
             identityFile = File(filesDir, "aether.toml"),
-            endpoint = selection.freshEndpoint(),
-            ipScan = selection.ipScan,
-            exitLocation = selection.exitLocation,
+            endpoint = effectiveEndpoint,
+            ipScan = effectiveSelection.ipScan,
+            exitLocation = effectiveSelection.exitLocation,
         )
         DiagnosticLogger.info(
             this,
             "$eventPrefix.aether.start",
-            "mode=${selection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${selection.effectiveExitLocation()}",
+            "mode=${effectiveSelection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${effectiveSelection.effectiveExitLocation()} net=$networkKey",
         )
         val result = withContext(Dispatchers.IO) { session.run(config) }
+        AetherOperations.drainEngineLogs().takeLast(8).forEach { line ->
+            DiagnosticLogger.info(this, "aether.engine.log", line)
+        }
         if (aetherSession === session) aetherSession = null
         if (state != VpnState.Stopping && state != VpnState.Stopped) {
             throw IOException(result.error ?: "Aether tunnel closed")
@@ -4746,6 +4758,10 @@ class CatClientVpnService : VpnService() {
         )
         pendingDefaultNetworkDnsReplay = !applyDefaultNetworkDns(candidate, force)
         if (networkChanged) {
+            if (aetherSession != null && candidate != null) {
+                val migrated = AetherOperations.migrateRunningTunnel()
+                DiagnosticLogger.info(this, "aether.network.migrate", "migrated=$migrated")
+            }
             if (candidate == null && state == VpnState.Started && activeRuntimePaths != null) {
                 awaitingPreservedRuntimeHealth = true
                 publishState(VpnState.Starting)
