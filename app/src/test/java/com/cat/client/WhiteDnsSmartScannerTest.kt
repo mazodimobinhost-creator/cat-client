@@ -43,4 +43,17 @@ class WhiteDnsSmartScannerTest {
         assertEquals(2, bridges.size)
         assertTrue(bridges.first().startsWith("obfs4 1.2.3.4:443"))
     }
+
+    @Test fun proguardRulesKeepAetherJniCallbacksAgainstR8Stripping() {
+        val candidates = listOf(
+            java.io.File("proguard-rules.pro"),
+            java.io.File("app/proguard-rules.pro"),
+        )
+        val rulesFile = candidates.firstOrNull { it.isFile } ?: error("proguard-rules.pro not found")
+        val rules = rulesFile.readText()
+        assertTrue(rules.contains("com.whitedns.whiteaesther.core.NativeSocketProtector"))
+        assertTrue(rules.contains("protectSocket(int)"))
+        assertTrue(rules.contains("com.whitedns.whiteaesther.core.NativeEngineListener"))
+        assertTrue(rules.contains("onNativeReady()"))
+    }
 }

@@ -24,15 +24,30 @@ internal class AetherSession(
         return try {
             check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
             NativeAetherBridge.setSocketProtector(NativeSocketProtector(protectSocket))
-            val json = config.toNativeJson()
-            val validation = NativeAetherBridge.validate(json)
+            val primaryJson = config.toNativeJson()
+            val validation = NativeAetherBridge.validate(primaryJson)
             if (!validation.ok) throw IOException(validation.error ?: "Aether configuration is invalid")
-            val prepared = NativeAetherBridge.prepare(json).getOrThrow()
+            var effectiveJson = primaryJson
+            val prepared = NativeAetherBridge.prepare(primaryJson).recoverCatching { firstError ->
+                // Automatic fallback 1: if a pinned endpoint or IPv6-only scan failed (e.g. SIM has no IPv6 route),
+                // retry with dual-stack automatic endpoint discovery.
+                val autoDiscovery = config.copy(endpoint = null, ipScan = "both").toNativeJson()
+                NativeAetherBridge.prepare(autoDiscovery).onSuccess {
+                    effectiveJson = autoDiscovery
+                }.recoverCatching {
+                    // Automatic fallback 2: switch between MASQUE and WireGuard while preserving Iran/Foreign exit policy.
+                    val altMode = if (config.mode == AetherMode.WireGuard) AetherMode.MasqueHttp2 else AetherMode.WireGuard
+                    val altJson = config.copy(mode = altMode, endpoint = null, ipScan = "both").toNativeJson()
+                    NativeAetherBridge.prepare(altJson).onSuccess {
+                        effectiveJson = altJson
+                    }.getOrElse { throw firstError }
+                }.getOrThrow()
+            }.getOrThrow()
             val (ipv4, ipv6) = AetherTunPolicy.validatedAddresses(prepared.ipv4, prepared.ipv6)
             tunFd = establishTun(ipv4, ipv6)
             check(tunFd >= 0) { "Could not establish Aether TUN" }
             handedOff = true
-            NativeAetherBridge.run(json, prepared.peer, tunFd, NativeEngineListener(onReady))
+            NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady))
         } catch (error: Throwable) {
             NativeResult(false, error.message ?: "Aether session failed")
         } finally {

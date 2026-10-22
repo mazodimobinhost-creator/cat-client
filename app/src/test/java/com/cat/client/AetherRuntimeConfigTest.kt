@@ -27,6 +27,7 @@ class AetherRuntimeConfigTest {
         assertEquals("wg", wgV6.getString("transport"))
         assertEquals("v6", wgV6.getString("ipScan"))
         assertEquals("[2606:4700:d0::a29f:c001]:2408", wgV6.getString("peer"))
+        assertTrue(wgV6.getBoolean("peerFallback"))
 
         val wom = JSONObject(AetherRuntimeConfig(
             AetherMode.WireGuardOverMasque,

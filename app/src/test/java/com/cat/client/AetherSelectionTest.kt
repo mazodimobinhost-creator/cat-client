@@ -69,16 +69,19 @@ class AetherSelectionTest {
             mode = AetherMode.WireGuard,
             endpoint = "[2606:4700:d0::a29f:c001]:2408",
             ipScan = "v6",
+            psiphonRegion = "DE",
             profileName = "MCI-WARP-IPv6",
             chainTarget = "psiphon",
             exitLocation = "foreign",
         )
         val uri = mciSelection.toAetherUri()
-        org.junit.Assert.assertTrue(uri.startsWith("aether://?"))
+        org.junit.Assert.assertTrue(uri.startsWith("aether://[2606:4700:d0::a29f:c001]:2408?"))
         org.junit.Assert.assertTrue(uri.contains("protocol=wg"))
         org.junit.Assert.assertTrue(uri.contains("ip=v6"))
-        org.junit.Assert.assertTrue(uri.contains("chain=psiphon"))
-        org.junit.Assert.assertTrue(uri.contains("exit_loc=!IR"))
+        org.junit.Assert.assertTrue(uri.contains("psiphon=chain"))
+        org.junit.Assert.assertTrue(uri.contains("psiphon_mode=auto"))
+        org.junit.Assert.assertTrue(uri.contains("region=DE"))
+        org.junit.Assert.assertFalse(uri.contains("exit_loc="))
         org.junit.Assert.assertTrue(uri.endsWith("#MCI-WARP-IPv6"))
 
         val parsed = AetherSelection.fromAetherUri(uri, nowMs = 123456L)!!
@@ -86,9 +89,28 @@ class AetherSelectionTest {
         assertEquals(AetherMode.WireGuard, parsed.mode)
         assertEquals("[2606:4700:d0::a29f:c001]:2408", parsed.endpoint)
         assertEquals("v6", parsed.ipScan)
+        assertEquals("DE", parsed.psiphonRegion)
         assertEquals("psiphon", parsed.chainTarget)
         assertEquals("foreign", parsed.exitLocation)
         assertEquals("MCI-WARP-IPv6", parsed.profileName)
+
+        val foreignGool = AetherSelection(
+            enabled = true,
+            mode = AetherMode.WireGuard,
+            endpoint = "162.159.192.156:945",
+            ipScan = "v4",
+            profileName = "Auto-Gool-WARP",
+            chainTarget = "none",
+            exitLocation = "foreign",
+        )
+        val goolUri = foreignGool.toAetherUri()
+        org.junit.Assert.assertTrue(goolUri.startsWith("aether://?"))
+        org.junit.Assert.assertTrue(goolUri.contains("protocol=gool"))
+        org.junit.Assert.assertTrue(goolUri.contains("outer=162.159.192.156%3A945"))
+        org.junit.Assert.assertFalse(goolUri.contains("exit_loc="))
+        val parsedGool = AetherSelection.fromAetherUri(goolUri, nowMs = 555L)!!
+        assertEquals("foreign", parsedGool.exitLocation)
+        assertEquals("162.159.192.156:945", parsedGool.endpoint)
 
         val iranMasque = AetherSelection(
             enabled = true,
@@ -100,11 +122,25 @@ class AetherSelectionTest {
             exitLocation = "iran",
         )
         val iranUri = iranMasque.toAetherUri()
+        org.junit.Assert.assertTrue(iranUri.startsWith("aether://162.159.198.1:443?"))
         org.junit.Assert.assertTrue(iranUri.contains("protocol=masque"))
-        org.junit.Assert.assertTrue(iranUri.contains("exit_loc=IR"))
+        org.junit.Assert.assertTrue(iranUri.contains("fragment_size=16-32"))
+        org.junit.Assert.assertTrue(iranUri.contains("fragment_delay=2-10"))
+        org.junit.Assert.assertFalse(iranUri.contains("exit_loc="))
         val parsedIran = AetherSelection.fromAetherUri(iranUri, nowMs = 999L)!!
         assertEquals("iran", parsedIran.exitLocation)
+        assertEquals("162.159.198.1:443", parsedIran.endpoint)
         assertEquals(AetherMode.MasqueHttp2, parsedIran.mode)
+
+        // Backward compatibility with legacy query-only URIs
+        val legacy = AetherSelection.fromAetherUri(
+            "aether://?protocol=wg&ip=both&scan=balanced&endpoint=162.159.192.156%3A945&cfil=psiphon&chain=psiphon&region=US&exit_loc=!IR#Auto-US-WARP",
+            nowMs = 777L,
+        )!!
+        assertEquals("162.159.192.156:945", legacy.endpoint)
+        assertEquals("psiphon", legacy.chainTarget)
+        assertEquals("US", legacy.psiphonRegion)
+        assertEquals("foreign", legacy.exitLocation)
     }
 
     @Test fun smartRecommendationsProvideActionableCombosForEachTopic() {

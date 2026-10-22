@@ -44,13 +44,26 @@ internal class AetherProxyCarrier(
             listenPort = port,
             ipScan = ipScan,
         )
-        val json = config.toNativeJson()
-        val validation = NativeAetherBridge.validate(json)
+        val primaryJson = config.toNativeJson()
+        val validation = NativeAetherBridge.validate(primaryJson)
         check(validation.ok) { validation.error ?: "Invalid Aether proxy configuration" }
         NativeAetherBridge.setSocketProtector(NativeSocketProtector(protectSocket))
-        val prepared = NativeAetherBridge.prepare(json).getOrThrow()
+        var effectiveJson = primaryJson
+        val prepared = NativeAetherBridge.prepare(primaryJson).recoverCatching { firstError ->
+            val autoDiscovery = config.copy(endpoint = null, ipScan = "both").toNativeJson()
+            NativeAetherBridge.prepare(autoDiscovery).onSuccess {
+                effectiveJson = autoDiscovery
+            }.recoverCatching {
+                val altMode = if (simpleMode == AetherMode.WireGuard) AetherMode.MasqueHttp2 else AetherMode.WireGuard
+                val altJson = config.copy(mode = altMode, endpoint = null, ipScan = "both").toNativeJson()
+                NativeAetherBridge.prepare(altJson).onSuccess {
+                    effectiveJson = altJson
+                }.getOrElse { throw firstError }
+            }.getOrThrow()
+        }.getOrThrow()
+        val runJson = effectiveJson
         job = scope.launch(Dispatchers.IO) {
-            val result = NativeAetherBridge.run(json, prepared.peer, -1, NativeEngineListener {
+            val result = NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
                 ready.complete(Unit)
             })
             if (!result.ok && !ready.isCompleted) {

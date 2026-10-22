@@ -11595,7 +11595,13 @@ class MainActivity : Activity() {
                     val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                         runCatching { AetherOperations.scan(AetherMode.MasqueHttp2, tomlFile, "both") }.getOrNull()?.getOrNull()
                     } else null
-                    val bestNative = nativeScan?.firstOrNull()
+                    val bestNative = nativeScan?.let { hits ->
+                        hits.take(3).firstOrNull { hit ->
+                            runCatching {
+                                AetherOperations.confirmEndpoint(AetherMode.MasqueHttp2, tomlFile, hit.peer, null, "both", exitLocation).isSuccess
+                            }.getOrDefault(false)
+                        } ?: hits.firstOrNull()
+                    }
                     if (bestNative != null) {
                         AetherNetworkProbeCandidate(
                             titleFa = "MASQUE-HTTP/2 (مناسب فایروال همراه اول و ایرانسل)",
@@ -11636,7 +11642,13 @@ class MainActivity : Activity() {
                     val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                         runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v6") }.getOrNull()?.getOrNull()
                     } else null
-                    val bestNative = nativeScan?.firstOrNull()
+                    val bestNative = nativeScan?.let { hits ->
+                        hits.take(3).firstOrNull { hit ->
+                            runCatching {
+                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, null, "v6", exitLocation).isSuccess
+                            }.getOrDefault(false)
+                        } ?: hits.firstOrNull()
+                    }
                     if (bestNative != null) {
                         AetherNetworkProbeCandidate(
                             titleFa = "WARP + IPv6 (مخصوص فایروال همراه اول)",
@@ -11677,13 +11689,19 @@ class MainActivity : Activity() {
                     val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                         runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v4") }.getOrNull()?.getOrNull()
                     } else null
-                    val bestNative = nativeScan?.firstOrNull()
+                    val bestNative = nativeScan?.let { hits ->
+                        hits.take(3).firstOrNull { hit ->
+                            runCatching {
+                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, null, "v4", exitLocation).isSuccess
+                            }.getOrDefault(false)
+                        } ?: hits.firstOrNull()
+                    }
                     if (bestNative != null) {
                         AetherNetworkProbeCandidate(
-                            titleFa = "WARP + IPv4/IPv6 (مخصوص فایروال ایرانسل)",
-                            titleEn = "WARP + IPv4/IPv6 (Best for Irancell Firewall)",
+                            titleFa = "WARP + IPv4 (مخصوص فایروال ایرانسل و همراه اول)",
+                            titleEn = "WARP + IPv4 (Best for Irancell & MCI Firewall)",
                             baseMode = AetherMode.WireGuard,
-                            ipScan = "both",
+                            ipScan = "v4",
                             endpoint = bestNative.peer,
                             reachable = true,
                             rttMs = bestNative.rttMillis.coerceAtLeast(1L),
@@ -11700,10 +11718,10 @@ class MainActivity : Activity() {
                             }
                         }
                         AetherNetworkProbeCandidate(
-                            titleFa = "WARP + IPv4/IPv6 (مخصوص فایروال ایرانسل)",
-                            titleEn = "WARP + IPv4/IPv6 (Best for Irancell Firewall)",
+                            titleFa = "WARP + IPv4 (مخصوص فایروال ایرانسل و همراه اول)",
+                            titleEn = "WARP + IPv4 (Best for Irancell & MCI Firewall)",
                             baseMode = AetherMode.WireGuard,
-                            ipScan = "both",
+                            ipScan = "v4",
                             endpoint = bestPeer,
                             reachable = bestRtt != null,
                             rttMs = bestRtt ?: 9999L,

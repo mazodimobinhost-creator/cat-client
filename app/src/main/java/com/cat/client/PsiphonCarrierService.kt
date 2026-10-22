@@ -49,39 +49,56 @@ class PsiphonCarrierService : Service() {
         super.onDestroy()
     }
 
+    @Volatile
+    private var starting = false
+
     private fun startCarrier(upstreamPort: Int, region: String) {
-        if (tunnel != null) return
+        if (tunnel != null || starting) return
+        starting = true
         state = State.Connecting
         failure = null
         socksPort.set(0)
         broadcast()
         val config = runCatching { PsiphonCarrierConfig.render(this, upstreamPort, region) }
-            .getOrElse { fail(it.message ?: "Invalid Psiphon carrier configuration"); return }
-        val host = object : PsiphonTunnel.HostService {
-            override fun getContext(): Context = this@PsiphonCarrierService
-            override fun getPsiphonConfig(): String = config
-            override fun onAvailableEgressRegions(regions: MutableList<String>?) {
-                PsiphonCarrierConfig.rememberRegions(this@PsiphonCarrierService, regions.orEmpty())
+            .getOrElse {
+                starting = false
+                fail(it.message ?: "Invalid Psiphon carrier configuration")
+                return
             }
-            override fun onListeningSocksProxyPort(port: Int) { socksPort.set(port); broadcast() }
-            override fun onConnected() { state = State.Connected; broadcast() }
-            override fun onConnecting() { state = State.Connecting; broadcast() }
-            override fun onExiting() { if (state != State.Failed) state = State.Stopped; broadcast() }
-            override fun onDiagnosticMessage(message: String) {
-                DiagnosticLogger.info(this@PsiphonCarrierService, "psiphon.notice", message.take(300))
+        kotlin.concurrent.thread(name = "psiphon-bootstrap", isDaemon = true) {
+            val entries = runCatching {
+                PsiphonCarrierConfig.loadOrFetchBootstrapEntries(this@PsiphonCarrierService, upstreamPort)
+            }.getOrDefault("")
+            handler.post {
+                starting = false
+                if (state != State.Connecting || tunnel != null) return@post
+                val host = object : PsiphonTunnel.HostService {
+                    override fun getContext(): Context = this@PsiphonCarrierService
+                    override fun getPsiphonConfig(): String = config
+                    override fun onAvailableEgressRegions(regions: MutableList<String>?) {
+                        PsiphonCarrierConfig.rememberRegions(this@PsiphonCarrierService, regions.orEmpty())
+                    }
+                    override fun onListeningSocksProxyPort(port: Int) { socksPort.set(port); broadcast() }
+                    override fun onConnected() { state = State.Connected; broadcast() }
+                    override fun onConnecting() { state = State.Connecting; broadcast() }
+                    override fun onExiting() { if (state != State.Failed) state = State.Stopped; broadcast() }
+                    override fun onDiagnosticMessage(message: String) {
+                        DiagnosticLogger.info(this@PsiphonCarrierService, "psiphon.notice", message.take(300))
+                    }
+                }
+                runCatching {
+                    PsiphonTunnel.newPsiphonTunnel(host).also {
+                        tunnel = it
+                        it.setVpnMode(false)
+                        it.startTunneling(entries)
+                    }
+                }.onFailure { tunnel = null; fail(it.message ?: "Psiphon failed to start") }
             }
         }
-        runCatching {
-            PsiphonTunnel.newPsiphonTunnel(host).also {
-                tunnel = it
-                it.setVpnMode(false)
-                // The signed remote list in the config provides bootstrap entries.
-                it.startTunneling("")
-            }
-        }.onFailure { tunnel = null; fail(it.message ?: "Psiphon failed to start") }
     }
 
     private fun stopCarrier() {
+        starting = false
         tunnel?.let { runCatching { it.stop() } }
         tunnel = null
         socksPort.set(0)

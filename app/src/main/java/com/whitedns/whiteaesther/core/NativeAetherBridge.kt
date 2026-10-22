@@ -1,5 +1,6 @@
 package com.whitedns.whiteaesther.core
 
+import androidx.annotation.Keep
 import org.json.JSONObject
 
 /**
@@ -8,6 +9,7 @@ import org.json.JSONObject
  * The package and exported JNI names intentionally remain upstream-compatible;
  * Cat Client does not rename or represent the AGPL Aether implementation as its own.
  */
+@Keep
 object NativeAetherBridge {
     val loadResult: Result<Unit> by lazy { runCatching { System.loadLibrary("whiteaesther_core") } }
     val isLoaded: Boolean get() = loadResult.isSuccess
@@ -92,11 +94,13 @@ object NativeAetherBridge {
         preparedPeer: String,
         tunFd: Int,
         listener: NativeEngineListener,
-    ): NativeResult = call { nativeRun(configJson, preparedPeer, tunFd, listener) }.toNativeResult()
+    ): NativeResult = call {
+        nativeRun(configJson, preparedPeer, tunFd, JniEngineListenerBridge(listener))
+    }.toNativeResult()
 
     fun setSocketProtector(protector: NativeSocketProtector?) {
         loadResult.getOrThrow()
-        nativeSetSocketProtector(protector)
+        nativeSetSocketProtector(protector?.let(::JniSocketProtectorBridge))
     }
 
     fun cancelScan(): Boolean = isLoaded && runCatching { nativeCancelScan() }.getOrDefault(false)
@@ -142,10 +146,39 @@ object NativeAetherBridge {
     @JvmStatic private external fun nativeStop(): Boolean
 }
 
-fun interface NativeSocketProtector { fun protectSocket(fd: Int): Boolean }
-fun interface NativeEngineListener { fun onNativeReady() }
+@Keep
+private class JniSocketProtectorBridge(
+    private val delegate: NativeSocketProtector,
+) : NativeSocketProtector {
+    @Keep
+    override fun protectSocket(fd: Int): Boolean = delegate.protectSocket(fd)
+}
+
+@Keep
+private class JniEngineListenerBridge(
+    private val delegate: NativeEngineListener,
+) : NativeEngineListener {
+    @Keep
+    override fun onNativeReady() = delegate.onNativeReady()
+}
+
+@Keep
+fun interface NativeSocketProtector {
+    @Keep
+    fun protectSocket(fd: Int): Boolean
+}
+
+@Keep
+fun interface NativeEngineListener {
+    @Keep
+    fun onNativeReady()
+}
+
+@Keep
 data class NativeResult(val ok: Boolean, val error: String? = null)
+@Keep
 data class EndpointScanResult(val peer: String, val rttMillis: Long)
+@Keep
 data class NativeScanProgress(
     val completed: Int = 0,
     val total: Int = 0,
@@ -153,4 +186,5 @@ data class NativeScanProgress(
     val results: List<EndpointScanResult> = emptyList(),
     val scanId: Long = 0,
 )
+@Keep
 data class PreparedEngine(val ipv4: String, val ipv6: String, val peer: String)

@@ -15,8 +15,81 @@ internal object PsiphonCarrierConfig {
         "MIICIDANBgkqhkiG9w0BAQEFAAOCAg0AMIICCAKCAgEAt7Ls+/39r+T6zNW7GiVpJfzq/xvL9SBH5rIFnk0RXYEYavax3WS6HOD35eTAqn8AniOwiH+DOkvgSKF2caqk/y1dfq47Pdymtwzp9ikpB1C5OfAysXzBiwVJlCdajBKvBZDerV1cMvRzCKvKwRmvDmHgphQQ7WfXIGbRbmmk6opMBh3roE42KcotLFtqp0RRwLtcBRNtCdsrVsjiI1Lqz/lH+T61sGjSjQ3CHMuZYSQJZo/KrvzgQXpkaCTdbObxHqb6/+i1qaVOfEsvjoiyzTxJADvSytVtcTjijhPEV6XskJVHE1Zgl+7rATr/pDQkw6DPCNBS1+Y6fy7GstZALQXwEDN/qhQI9kWkHijT8ns+i1vGg00Mk/6J75arLhqcodWsdeG/M/moWgqQAnlZAGVtJI1OgeF5fsPpXu4kctOfuZlGjVZXQNW34aOzm8r8S0eVZitPlbhcPiR4gT/aSMz/wd8lZlzZYsje/Jr8u/YtlwjjreZrGRmG8KMOzukV3lLmMppXFMvl4bxv6YFEmIuTsOhbLTwFgh7KYNjodLj/LsqRVfwz31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xalKxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM="
     private const val REMOTE_SERVER_LIST_URL =
         "https://s3.amazonaws.com//psiphon/web/mjr4-p23r-puwl/server_list_compressed"
+    const val SERVER_ENTRIES_ASSET = "psiphon_server_entries.txt"
 
     private fun regionsFile(context: Context) = File(context.noBackupFilesDir, "psiphon/regions.txt")
+    private fun entriesCacheFile(context: Context) = File(context.noBackupFilesDir, "psiphon/server_entries.txt")
+
+    internal fun unpackSignedServerList(
+        packed: ByteArray,
+        signingKey: String = REMOTE_SERVER_LIST_SIGNATURE_PUBLIC_KEY,
+    ): String {
+        val text = java.util.zip.InflaterInputStream(java.io.ByteArrayInputStream(packed)).use {
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+        val json = JSONObject(text)
+        val data = json.optString("data").trim()
+        val keyDigest = json.optString("signingPublicKeyDigest").trim()
+        val signature = json.optString("signature").trim()
+        check(data.isNotEmpty() && keyDigest.isNotEmpty() && signature.isNotEmpty()) {
+            "Signed Psiphon server list is incomplete"
+        }
+        val b64 = java.util.Base64.getDecoder()
+        val expectedDigest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(signingKey.toByteArray(Charsets.US_ASCII))
+        check(b64.decode(keyDigest).contentEquals(expectedDigest)) {
+            "Psiphon server list key digest mismatch"
+        }
+        val pubKey = java.security.KeyFactory.getInstance("RSA")
+            .generatePublic(java.security.spec.X509EncodedKeySpec(b64.decode(signingKey)))
+        val verifier = java.security.Signature.getInstance("SHA256withRSA").apply {
+            initVerify(pubKey)
+            update(data.toByteArray(Charsets.UTF_8))
+        }
+        check(verifier.verify(b64.decode(signature))) {
+            "Psiphon server list RSA signature verification failed"
+        }
+        return data
+    }
+
+    fun loadOrFetchBootstrapEntries(context: Context, upstreamPort: Int): String {
+        runCatching {
+            context.assets.open(SERVER_ENTRIES_ASSET).bufferedReader().use { it.readText().trim() }
+        }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { bundled ->
+            return bundled
+        }
+        val cacheFile = entriesCacheFile(context)
+        runCatching {
+            if (cacheFile.isFile) cacheFile.readText().trim() else ""
+        }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { cached ->
+            return cached
+        }
+        if (upstreamPort in 1024..65535) {
+            runCatching {
+                val proxy = java.net.Proxy(
+                    java.net.Proxy.Type.SOCKS,
+                    java.net.InetSocketAddress("127.0.0.1", upstreamPort),
+                )
+                val conn = (java.net.URL(REMOTE_SERVER_LIST_URL).openConnection(proxy) as java.net.HttpURLConnection).apply {
+                    connectTimeout = 15_000
+                    readTimeout = 20_000
+                    instanceFollowRedirects = true
+                }
+                try {
+                    if (conn.responseCode in 200..299) {
+                        val packed = conn.inputStream.use { it.readBytes() }
+                        val unpacked = unpackSignedServerList(packed)
+                        cacheFile.parentFile?.mkdirs()
+                        cacheFile.writeText(unpacked)
+                        return unpacked
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            }
+        }
+        return ""
+    }
 
     val DEFAULT_REGIONS: List<String> = listOf(
         "DE", "NL", "FI", "FR", "GB", "CH", "SE", "AT", "US", "CA",

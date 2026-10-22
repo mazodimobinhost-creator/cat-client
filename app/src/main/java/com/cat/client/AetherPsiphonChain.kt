@@ -25,7 +25,17 @@ internal class AetherPsiphonChain(
         check(active.compareAndSet(false, true)) { "Aether-Psiphon chain is already active" }
         return try {
             aether.start()
-            psiphon.start(aetherPort, region)
+            try {
+                psiphon.start(aetherPort, region, timeoutMs = if (region.isNotEmpty()) 65_000L else 210_000L)
+            } catch (firstError: Throwable) {
+                if (region.isNotEmpty()) {
+                    // Fallback to fastest available foreign country if the requested region timed out
+                    runCatching { psiphon.close() }
+                    psiphon.start(aetherPort, "", timeoutMs = 150_000L)
+                } else {
+                    throw firstError
+                }
+            }
         } catch (error: Throwable) {
             close()
             throw error

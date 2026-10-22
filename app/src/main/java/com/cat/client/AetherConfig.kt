@@ -60,7 +60,10 @@ data class AetherRuntimeConfig(
         .put("lanSharing", false)
         .put("listenPort", listenPort)
         .apply {
-            endpoint?.let { put("peer", it) }
+            endpoint?.let {
+                put("peer", it)
+                put("peerFallback", true)
+            }
             upstreamProxy?.let { put("upstreamProxy", it) }
         }
         .toString()

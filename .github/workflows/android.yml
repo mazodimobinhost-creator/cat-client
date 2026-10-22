@@ -129,6 +129,32 @@ jobs:
           path: aether-packaged.sha256
           retention-days: 14
 
+      - name: Stage verified Psiphon bootstrap server entries
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/assets
+          dest="app/src/main/assets/psiphon_server_entries.txt"
+          if curl -fsSL --retry 3 --max-time 60 "https://s3.amazonaws.com//psiphon/web/mjr4-p23r-puwl/server_list_compressed" -o /tmp/psiphon_list.bin; then
+            python3 - <<'PY'
+          import base64, hashlib, json, zlib
+          key = (
+              "MIICIDANBgkqhkiG9w0BAQEFAAOCAg0AMIICCAKCAgEAt7Ls+/39r+T6zNW7GiVpJfzq/xvL9SBH5rIFnk0RXYEYavax3WS6HOD35eTAqn8AniOwiH+DOkvgSKF2caqk/y1dfq47Pdymtwzp9ikpB1C5OfAysXzBiwVJlCdajBKvBZDerV1cMvRzCKvKwRmvDmHgphQQ7WfXIGbRbmmk6opMBh3roE42KcotLFtqp0RRwLtcBRNtCdsrVsjiI1Lqz/lH+T61sGjSjQ3CHMuZYSQJZo/KrvzgQXpkaCTdbObxHqb6/+i1qaVOfEsvjoiyzTxJADvSytVtcTjijhPEV6XskJVHE1Zgl+7rATr/pDQkw6DPCNBS1+Y6fy7GstZALQXwEDN/qhQI9kWkHijT8ns+i1vGg00Mk/6J75arLhqcodWsdeG/M/moWgqQAnlZAGVtJI1OgeF5fsPpXu4kctOfuZlGjVZXQNW34aOzm8r8S0eVZitPlbhcPiR4gT/aSMz/wd8lZlzZYsje/Jr8u/YtlwjjreZrGRmG8KMOzukV3lLmMppXFMvl4bxv6YFEmIuTsOhbLTwFgh7KYNjodLj/LsqRVfwz31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xalKxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM="
+          )
+          pkg = json.loads(zlib.decompress(open("/tmp/psiphon_list.bin", "rb").read()))
+          assert base64.b64decode(pkg["signingPublicKeyDigest"]) == hashlib.sha256(key.encode()).digest()
+          data = pkg["data"].strip()
+          lines = [l for l in data.split("\n") if l.strip()]
+          assert len(lines) >= 50
+          open("app/src/main/assets/psiphon_server_entries.txt", "w", encoding="utf-8").write(data + "\n")
+          print(f"Unpacked {len(lines)} signed Psiphon bootstrap server entries")
+          PY
+          fi
+          if [[ ! -s "$dest" ]]; then
+            curl -fsSL --retry 3 "https://raw.githubusercontent.com/mbm110/MSN-GUARD/a6379f5d060bc7ca48a4c4ee015648afc8c07a05/app/src/main/assets/server_entries.txt" -o "$dest"
+            echo "6d6d10c4ef8eaf656cb9614513568f40d5590477fc25215507517d51fc6a293e  $dest" | sha256sum -c -
+          fi
+          test -s "$dest"
+
       - name: Read app version
         id: app_version
         run: |
