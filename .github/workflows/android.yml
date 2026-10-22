@@ -73,6 +73,88 @@ jobs:
             app/src/main/cpp/includes
           key: ${{ runner.os }}-${{ runner.arch }}-flclash-${{ hashFiles('scripts/build-flclash-core.sh', 'scripts/patches/*.patch') }}
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache reviewed Aether core
+        id: aether-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libwhiteaesther_core.so
+            app/src/main/jniLibs/armeabi-v7a/libwhiteaesther_core.so
+            app/src/main/jniLibs/x86_64/libwhiteaesther_core.so
+          key: ${{ runner.os }}-aether-${{ hashFiles('aether/upstream.lock', 'scripts/build-aether-core.sh', 'scripts/verify-aether-upstream.sh') }}
+
+      - name: Build reviewed Aether core for APK
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        env:
+          AETHER_ABIS: armeabi-v7a,arm64-v8a,x86_64
+        run: |
+          set -euo pipefail
+          cargo install cargo-ndk --version 4.1.2 --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          scripts/build-aether-core.sh
+
+      - name: Verify packaged Aether ABIs
+        run: |
+          set -euo pipefail
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            test -s "app/src/main/jniLibs/$abi/libwhiteaesther_core.so"
+          done
+          sha256sum app/src/main/jniLibs/{armeabi-v7a,arm64-v8a,x86_64}/libwhiteaesther_core.so | tee aether-packaged.sha256
+          # Cat's CMake output already packages one libc++_shared.so per ABI.
+          # cargo-ndk stages another byte-identical runtime beside Aether; leaving
+          # both inputs makes mergeDebugNativeLibs fail with DuplicateRelativeFileException.
+          rm -f app/src/main/jniLibs/{armeabi-v7a,arm64-v8a,x86_64}/libc++_shared.so
+
+      # Persist the expensive native outputs immediately. A later Kotlin/test failure
+      # must not force all three Rust/NDK builds to run again on the next fix commit.
+      - name: Save reviewed Aether core immediately
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libwhiteaesther_core.so
+            app/src/main/jniLibs/armeabi-v7a/libwhiteaesther_core.so
+            app/src/main/jniLibs/x86_64/libwhiteaesther_core.so
+          key: ${{ runner.os }}-aether-${{ hashFiles('aether/upstream.lock', 'scripts/build-aether-core.sh', 'scripts/verify-aether-upstream.sh') }}
+
+      - name: Upload packaged Aether checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: aether-packaged-checksums-${{ github.run_id }}
+          path: aether-packaged.sha256
+          retention-days: 14
+
+      - name: Stage verified Psiphon bootstrap server entries
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/assets
+          dest="app/src/main/assets/psiphon_server_entries.txt"
+          if curl -fsSL --retry 3 --max-time 60 "https://s3.amazonaws.com//psiphon/web/mjr4-p23r-puwl/server_list_compressed" -o /tmp/psiphon_list.bin; then
+            python3 - <<'PY'
+          import base64, hashlib, json, zlib
+          key = (
+              "MIICIDANBgkqhkiG9w0BAQEFAAOCAg0AMIICCAKCAgEAt7Ls+/39r+T6zNW7GiVpJfzq/xvL9SBH5rIFnk0RXYEYavax3WS6HOD35eTAqn8AniOwiH+DOkvgSKF2caqk/y1dfq47Pdymtwzp9ikpB1C5OfAysXzBiwVJlCdajBKvBZDerV1cMvRzCKvKwRmvDmHgphQQ7WfXIGbRbmmk6opMBh3roE42KcotLFtqp0RRwLtcBRNtCdsrVsjiI1Lqz/lH+T61sGjSjQ3CHMuZYSQJZo/KrvzgQXpkaCTdbObxHqb6/+i1qaVOfEsvjoiyzTxJADvSytVtcTjijhPEV6XskJVHE1Zgl+7rATr/pDQkw6DPCNBS1+Y6fy7GstZALQXwEDN/qhQI9kWkHijT8ns+i1vGg00Mk/6J75arLhqcodWsdeG/M/moWgqQAnlZAGVtJI1OgeF5fsPpXu4kctOfuZlGjVZXQNW34aOzm8r8S0eVZitPlbhcPiR4gT/aSMz/wd8lZlzZYsje/Jr8u/YtlwjjreZrGRmG8KMOzukV3lLmMppXFMvl4bxv6YFEmIuTsOhbLTwFgh7KYNjodLj/LsqRVfwz31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xalKxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM="
+          )
+          pkg = json.loads(zlib.decompress(open("/tmp/psiphon_list.bin", "rb").read()))
+          assert base64.b64decode(pkg["signingPublicKeyDigest"]) == hashlib.sha256(key.encode()).digest()
+          data = pkg["data"].strip()
+          lines = [l for l in data.split("\n") if l.strip()]
+          assert len(lines) >= 50
+          open("app/src/main/assets/psiphon_server_entries.txt", "w", encoding="utf-8").write(data + "\n")
+          print(f"Unpacked {len(lines)} signed Psiphon bootstrap server entries")
+          PY
+          fi
+          if [[ ! -s "$dest" ]]; then
+            curl -fsSL --retry 3 "https://raw.githubusercontent.com/mbm110/MSN-GUARD/a6379f5d060bc7ca48a4c4ee015648afc8c07a05/app/src/main/assets/server_entries.txt" -o "$dest"
+            echo "6d6d10c4ef8eaf656cb9614513568f40d5590477fc25215507517d51fc6a293e  $dest" | sha256sum -c -
+          fi
+          test -s "$dest"
+
       - name: Read app version
         id: app_version
         run: |
@@ -130,20 +212,135 @@ jobs:
           node --version
           node scripts/panels/cat-panel.test.mjs
           node scripts/panels/tunnel-e2e.test.mjs
+          node scripts/panels/abuse-safe-mode.test.mjs
           node scripts/panels/wizard.test.mjs
+          node scripts/panels/link-shape.test.mjs
+          node scripts/panels/panel-integrity.test.mjs
+          node scripts/panels/kv-persistence.test.mjs
+          # Real DOM run: every button on every view is clicked; a single broken
+          # inline script leaves them all dead (the «options don't work» report).
+          npm install --no-save jsdom javascript-obfuscator@5 --silent
+          node scripts/panels/panel-dom.test.mjs
+          # The shipped (obfuscated) worker must stay identifiable by every consumer's regex —
+          # without it «Update panel» installed panel 5.23.13 over a live 6.x deployment.
+          node scripts/panels/panel-update-contract.test.mjs
+          node scripts/panels/panel-selfupdate.test.mjs
+          # Cloudflare answers 403 when SNI != Host: every TLS config (all formats) must carry SNI == Host
+          node scripts/panels/sni-host.test.mjs
+          # ProxyIPs added in the panel must reach every sub, including the config builder's ?limit= links
+          node scripts/panels/proxyip-sub.test.mjs
+          # …and the generated path really steers the worker (🎯 pins one relay; 🧦 exits through the owner's SOCKS5)
+          node scripts/panels/proxyip-dataplane.test.mjs
+          # The config builder's pin links (?addr= / ?port=) must never emit an undialable config
+          node scripts/panels/addr-port-query.test.mjs
+          # ProxyIP feed formats (daily validated pool + space-separated country files) keep their ports
+          node scripts/panels/proxyip-feeds.test.mjs
+          # beta88: the browser scan must probe raw IPs from the USER's network and prune the dead ones
+          node scripts/panels/browser-probe.test.mjs
+          # beta89: the real-connection test must open the tunnel's /ws from the browser (domains only)
+          node scripts/panels/ws-probe.test.mjs
+          # beta90: survival preset, per-user connection telemetry, health ordering and ?survive=1 link
+          node scripts/panels/survival.test.mjs
+          node scripts/panels/emergency-bridge.test.mjs
+          # beta110: the Tor/Orbot engine (loopback-only hop, idempotent injection, the switch
+          # is never believed without a probe) + the multi-path watchdog's anti-flap rules
+          node scripts/panels/orbot-engine.test.mjs
+
+      # Ship the obfuscated worker inside the APK (readable source never leaves
+      # the repo). The full panel suite then re-runs against the obfuscated
+      # artifact. The public deploy snapshot is the MINIFIED build instead — the
+      # "Cloudflare scans sources → Error 1101" story behind obfuscation is an
+      # unconfirmed community hypothesis (see scripts/panels/minify.mjs).
+      - name: Obfuscate panel worker (in-app updater) + minified deploy snapshot
+        run: |
+          {
+            set -e
+            npm install --no-save javascript-obfuscator@5 terser acorn --silent
+            # public snapshot for the README «Deploy to Cloudflare» button (wrangler.jsonc main)
+            node scripts/panels/minify.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.min.js --check
+            # The app's «copy code» button hands the clipboard the OFFICIAL paste
+            # artifact, so the 3-line file has to ride inside the APK — byte for byte
+            # (scripts/panels/paste-artifact.test.mjs fails the build if the two copies
+            # ever drift apart). It is copied from the freshly built dist-panel file,
+            # i.e. before the in-place obfuscation below touches the worker asset.
+            cp dist-panel/catpanel.min.js app/src/main/assets/panels/catpanel.min.js
+            node --input-type=module -e "import { readFileSync } from 'node:fs'; const a = readFileSync('dist-panel/catpanel.min.js'); const b = readFileSync('app/src/main/assets/panels/catpanel.min.js'); if (!a.equals(b)) { console.error('paste asset drift'); process.exit(1); } console.log('paste asset synced:', a.length, 'B');"
+            # Legacy obfuscated snapshot is retained only for comparison/archive; it is
+            # never selected by Wizard, app updater, Wrangler, or release assets.
+            node scripts/panels/obfuscate.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.obf.js --check
+            # STEALTH deploy artifact (wrangler.jsonc main): the owner asked for the
+            # worker on Cloudflare to carry no plaintext panel fingerprint at all —
+            # regexes, object keys, member properties and the version marker included.
+            node scripts/panels/stealth.mjs app/src/main/assets/panels/catclient.worker.js dist-panel/catpanel.stealth.js --check
+            # Ship and test the normal minified artifact. Do not put the large RC4 /
+            # control-flow-obfuscated runtime in the APK: that was the 1101 path.
+            cp dist-panel/catpanel.min.js app/src/main/assets/panels/catclient.worker.js
+            node --check app/src/main/assets/panels/catclient.worker.js
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/cat-panel.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ccq.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/ech.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
+            # exactly the file that goes into the APK and the release assets:
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-host.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-sub.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-dataplane.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/addr-port-query.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/survival.test.mjs
+            # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
+            # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-lab.test.mjs
+          } 2>&1 | tee step18.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Commit refreshed public obfuscated snapshot (button deploy)
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # committed preview/backup page for the release bundle + README raw links
+          node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
+          git add dist-panel/catpanel.obf.js dist-panel/catpanel.min.js dist-panel/catpanel.stealth.js cat-panel.html app/src/main/assets/panels/catpanel.min.js
+          if git diff --cached --quiet; then echo "snapshot unchanged"; else git commit -m "[skip ci] refresh public panel snapshots + panel page (deploy button)" && (git push || echo "::warning::snapshot push skipped (non-fatal)"); fi
+
+      - name: Guard - no Context access in Activity/Application constructors
+        run: |
+          set -euo pipefail
+          # beta70..beta77 shipped a property initializer in MainActivity that
+          # called getSharedPreferences — constructor phase, where the Activity
+          # context is still null (Class.newInstance() runs before
+          # attachBaseContext): every launch died with NullPointerException while
+          # the user saw only «opens, then closes». This guard fails the build if
+          # that shape ever returns anywhere in the app sources.
+          python3 scripts/android-startup-guard.py
+          node --test scripts/panels/android-guard.test.mjs
+
+      - name: Guard - every panel login carries a username
+        run: |
+          set -euo pipefail
+          # Six copies of the panel login sent the password alone. On a panel
+          # deployed with a username (PANEL_USER) the worker then rejects every
+          # request, so «send to panel» could never add clean IPs — it looked
+          # like the button was broken. The guard fails the build if any
+          # /api/login payload stops carrying a username.
+          python3 scripts/panel-login-guard.py
 
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew
           # Surface Kotlin errors in ~3 min instead of after the ~10 min native core build.
           set +e
-          ./gradlew :app:compileDebugKotlin --console=plain 2>&1 | tee kotlin-precheck.log
+          ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --console=plain 2>&1 | tee kotlin-precheck.log
           STATUS=${PIPESTATUS[0]}
           # A restored Gradle cache can contain a truncated/corrupted artifact
           # ("Archive is not a ZIP archive"); one refresh-dependencies retry clears it.
           if [[ "$STATUS" != "0" ]] && grep -qE "not a ZIP archive|Could not (resolve|download)" kotlin-precheck.log; then
             echo "=== corrupt cache artifact detected; retrying with --refresh-dependencies ==="
-            ./gradlew :app:compileDebugKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
+            ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin --refresh-dependencies --console=plain 2>&1 | tee -a kotlin-precheck.log
             STATUS=${PIPESTATUS[0]}
           fi
           set -e
@@ -177,14 +374,127 @@ jobs:
             ls "$ANDROID_HOME/platforms" 2>/dev/null || true
             ls "$ANDROID_HOME/ndk" 2>/dev/null || true
             tail -n 80 build-log.txt
+            # Surface the actual Gradle error through Checks annotations. Arena
+            # cannot always download GitHub's external log blob, but annotations
+            # remain available through api.github.com.
+            grep -E '(^e: |FAILURE:|What went wrong|Execution failed|Caused by:|More than one file|duplicate|error:)' build-log.txt |
+              tail -n 40 | while IFS= read -r line; do
+                safe=${line//'%'/'%25'}; safe=${safe//$'\r'/'%0D'}; safe=${safe//$'\n'/'%0A'}
+                echo "::error file=.github/workflows/android.yml,line=340::$safe"
+              done
           fi
           exit "$STATUS"
+
+      - name: Unit tests (JVM)
+        if: success()
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew :app:testDebugUnitTest --console=plain 2>&1 | tee unit-test.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== FAILED TESTS ==="
+            for f in $(find app/build/test-results -name "*.xml" 2>/dev/null); do
+              grep -q "<failure" "$f" || continue
+              cls=$(grep -oE 'classname="[^"]+"' "$f" | head -1 | cut -d'"' -f2)
+              grep -oE '<failure message="[^"]{0,140}' "$f" | head -5 | sed "s/<failure message=/::error::FAILED ${cls} :: /"
+            done
+            tail -n 60 unit-test.log
+          fi
+          exit "$STATUS"
+
+      - name: Report failed tests back to the branch
+        if: failure() && !contains(github.event.head_commit.message, 'CI test failure report')
+        run: |
+          git config user.name "ci-report-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git branch --show-current
+          {
+            echo "# Android failure report (${GITHUB_SHA::7})"
+            echo
+            grep -h "<failure" app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | sed -E 's/<failure message="/- /' | head -30
+            echo
+            echo '## files with compile errors'
+            cat kotlin-precheck.log build-log.txt unit-test.log 2>/dev/null |
+              grep -oE 'app/src/(main|test)/[^:]+\.kt' | sort | uniq -c | sort -rn | head -20
+            echo '## log tail'
+            for log in step18.log kotlin-precheck.log build-log.txt unit-test.log; do
+              if [[ -s "$log" ]]; then echo "### $log"; tail -n 120 "$log"; fi
+            done
+          } > FAILED-TESTS.md
+          cat FAILED-TESTS.md >> "$GITHUB_STEP_SUMMARY"
+          git add FAILED-TESTS.md
+          git commit -m "CI test failure report [skip ci]" || true
+          target_branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git push origin HEAD:"$target_branch" || true
 
       - name: Build release APK
         if: success()
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         run: chmod +x gradlew && ./gradlew assembleRelease
+
+      - name: Guard - WorkManager auto-init stays disabled in the merged manifest
+        if: success()
+        run: |
+          set -euo pipefail
+          # WorkManager's androidx.startup initializer runs BEFORE Application.onCreate
+          # and creates a Room database by reflection; a failure there kills the
+          # process with nothing able to catch it (the app «opens then closes»).
+          # The manifest therefore removes that initializer (tools:node="remove")
+          # and CatClientApplication initializes WorkManager itself, guarded. If a
+          # future manifest merge silently brings the initializer back, this step
+          # fails and the crash-on-open class cannot return unnoticed.
+          manifest=$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml 2>/dev/null | grep -i release | head -1 || true)
+          if [[ -z "$manifest" ]]; then
+            manifest=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml 2>/dev/null | head -1 || true)
+          fi
+          if [[ -z "$manifest" ]]; then
+            echo "::error::merged manifest not found — cannot verify WorkManager auto-init removal"
+            exit 1
+          fi
+          echo "merged manifest: $manifest"
+          echo "--- providers in merged manifest ---"
+          grep -oE '<provider[^>]*android:name="[^"]*"' "$manifest" | sed -E 's/.*name="([^"]*)".*/  \1/' || true
+          if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then
+            echo "::error::androidx.work.WorkManagerInitializer is present again in the merged manifest — its pre-Application.onCreate Room initialization can crash the app before any code of ours runs. Restore tools:node=\"remove\" in AndroidManifest.xml."
+            exit 1
+          fi
+          if ! grep -q 'EarlyCrashProvider' "$manifest"; then
+            echo "::error::EarlyCrashProvider missing from the merged manifest — pre-Application.onCreate crashes would go unreported again."
+            exit 1
+          fi
+          echo "manifest guard OK: WorkManager auto-init removed, EarlyCrashProvider present"
+
+      - name: Guard - R8 kept the Room/WorkManager database constructor
+        if: success()
+        run: |
+          set -euo pipefail
+          # beta75 root cause: R8 full mode (AGP 8 default) removed the no-arg
+          # <init> of WorkDatabase_Impl (Room keeps the class name but, in older
+          # Room, not the constructor). WorkManager builds that database by
+          # reflection at app startup — before any app code — so the minified
+          # release APK died at launch with:
+          #   RuntimeException: Unable to get provider androidx.startup.InitializationProvider
+          # Fix is the explicit -keep in app/proguard-rules.pro; this guard reads
+          # R8's own usage.txt (removed members) and fails the build if the
+          # constructor is stripped again.
+          usage=$(find app/build/outputs/mapping -name usage.txt 2>/dev/null | head -1)
+          if [[ -z "$usage" ]]; then
+            echo "::error::R8 usage.txt not found — cannot verify the WorkDatabase_Impl constructor (startup-crash guard)"
+            exit 1
+          fi
+          echo "usage report: $usage"
+          bad=$(awk '
+            /^androidx\.work\.impl\.WorkDatabase_Impl:$/ { inblk=1; next }
+            inblk && /^[^ \t]/ { inblk=0 }
+            inblk && /<init>/ { print; exit }
+          ' "$usage")
+          if [[ -n "$bad" ]]; then
+            echo "::error::R8 removed WorkDatabase_Impl.<init>() — a release APK with this dex crashes at launch (androidx.startup InitializationProvider / WorkManager Room DB). Restore the -keep rule in app/proguard-rules.pro."
+            exit 1
+          fi
+          echo "startup guard OK: Room/WorkManager database constructor intact in the minified release"
 
       - name: Validate and package release APKs
         if: success()
@@ -220,6 +530,35 @@ jobs:
             "$apksigner" verify --verbose --print-certs "$destination"
             "$zipalign" -c -p 4 "$destination"
             "$aapt2" dump badging "$destination" | grep -F "package: name='com.cat.client' versionCode='${APP_CODE}' versionName='${APP_VERSION}'"
+            # The panel bundled in the APK must carry its readable version line. The in-app
+            # updater compares versions by it: without it the APK read its own panel as 0.0.0
+            # and a stale source (5.23.13) won. (|| true: head closing the pipe is SIGPIPE.)
+            panel_head="$(unzip -p "$destination" assets/panels/catclient.worker.js 2>/dev/null | head -c 200 || true)"
+            grep -Eq "^/\* CAT_PANEL_VERSION = '[0-9]+(\.[0-9]+)+' \*/" <<<"$panel_head" || {
+              echo "::error::$base: the bundled panel has no readable version line (in-app panel update would misjudge versions)" >&2
+              exit 1
+            }
+            # …and the file the «copy code» button hands over must be inside the APK
+            # as well: the 3-line paste artifact, actually there and actually whole.
+            # (If this ever goes missing the button silently falls back to the ~1.2 MB
+            # bundle — the truncation risk this whole path exists to remove.)
+            paste_bytes="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | wc -c)"
+            [[ "$paste_bytes" -ge 300000 ]] || {
+              echo "::error::$base: assets/panels/catpanel.min.js is ${paste_bytes} bytes — the official paste artifact (~474 KB) is missing from the APK" >&2
+              exit 1
+            }
+            paste_head="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | head -c 64 || true)"
+            grep -Eq "^/\* CAT_PANEL_VERSION = '[0-9]+(\.[0-9]+)+' \*/" <<<"$paste_head" || {
+              echo "::error::$base: the bundled paste artifact has no readable version line" >&2
+              exit 1
+            }
+            canonical_sha="$(sha256sum dist-panel/catpanel.min.js | awk '{print $1}')"
+            apk_worker_sha="$(unzip -p "$destination" assets/panels/catclient.worker.js 2>/dev/null | sha256sum | awk '{print $1}')"
+            apk_paste_sha="$(unzip -p "$destination" assets/panels/catpanel.min.js 2>/dev/null | sha256sum | awk '{print $1}')"
+            if [[ "$apk_worker_sha" != "$canonical_sha" || "$apk_paste_sha" != "$canonical_sha" ]]; then
+              echo "::error::$base: canonical Worker SHA-256 mismatch (dist=$canonical_sha worker=$apk_worker_sha paste=$apk_paste_sha)" >&2
+              exit 1
+            fi
             found+=("$variant")
           done
           for variant in "${expected[@]}"; do
@@ -228,8 +567,149 @@ jobs:
               exit 1
             }
           done
-          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk > SHA256SUMS)
+          cp dist-panel/catpanel.min.js "$release_dir/catclient.worker.js"
+          (cd "$release_dir" && sha256sum CatClient-V${APP_VERSION}-*.apk catclient.worker.js > SHA256SUMS)
           echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
+
+      - name: Emulator capability check (KVM)
+        id: kvm
+        if: success() && github.event_name == 'push'
+        run: |
+          set -uo pipefail
+          {
+            echo "run: ${GITHUB_RUN_ID} commit: ${GITHUB_SHA:0:7}"
+            echo "/dev/kvm: $(ls -l /dev/kvm 2>&1 || echo absent)"
+            echo "cpu virt flags (vmx/svm): $(grep -cE 'vmx|svm' /proc/cpuinfo 2>/dev/null || echo 0)"
+            echo "kvm modules: $(lsmod 2>/dev/null | grep -ci kvm || echo 0)"
+            echo "nested: $(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null || cat /sys/module/kvm_amd/parameters/nested 2>/dev/null || echo unknown)"
+          } | tee emulator-capability.txt
+          if [[ -e /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]; then
+            echo "kvm_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "kvm_available=false" >> "$GITHUB_OUTPUT"
+            echo "KVM is NOT available to this runner — an x86_64 emulator cannot boot here, so the on-device launch check is skipped (never silently: see the CI-LOG comment)."
+          fi
+
+      - name: Smoke test - release APK launches on an emulator
+        # Push runs only: the PR run of the same commit is a duplicate, and two
+        # x86 emulator boots at once slow both runs down (and can starve the
+        # shared KVM capacity GitHub gives the runner).
+        #
+        # continue-on-error: while the startup crash under investigation is
+        # being hunted, the diagnostic builds MUST still ship — they carry the
+        # CrashWatch notification and the hardened startup that produce the
+        # evidence we need from real devices. The smoke result is still
+        # reported loudly (issue comment + artifact + annotation); once the
+        # crash is fixed, flip this back to a hard gate.
+        if: success() && github.event_name == 'push' && steps.kvm.outputs.kvm_available == 'true'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          emulator-boot-timeout: 480
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set -uo pipefail
+            REPORT=smoke-report.md
+            {
+              echo "## Emulator smoke test (${GITHUB_SHA:0:7})"
+              echo
+              echo "\`\`\`text"
+            } > "$REPORT"
+            exec > >(tee -a "$REPORT") 2>&1
+
+            echo "[stage] waiting for device"
+            adb wait-for-device
+            adb shell input keyevent 82 >/dev/null 2>&1 || true
+            adb devices -l
+            ls -l "$RELEASE_DIR" || true
+
+            rc=0
+            check_app() {
+              local label="$1" apk="$2"
+              local start_out pid1 pid2
+              if [ ! -f "$apk" ]; then
+                echo "[$label] APK NOT FOUND: $apk"
+                return 1
+              fi
+              echo "[$label] installing $(basename "$apk")"
+              adb uninstall com.cat.client >/dev/null 2>&1 || true
+              if ! adb install -r -t "$apk"; then
+                echo "[$label] adb install FAILED"
+                return 1
+              fi
+              adb logcat -c || true
+              echo "[$label] launching MainActivity"
+              start_out="$(adb shell am start -W -n com.cat.client/.MainActivity 2>&1 || true)"
+              echo "$start_out"
+              sleep 15
+              pid1="$(adb shell pidof com.cat.client 2>/dev/null | tr -d '\r' || true)"
+              sleep 8
+              pid2="$(adb shell pidof com.cat.client 2>/dev/null | tr -d '\r' || true)"
+              echo "[$label] pid after 15s='$pid1' after 23s='$pid2'"
+              adb logcat -d > "$label-logcat.txt" 2>&1 || true
+              if [ -z "$pid1" ] || [ -z "$pid2" ]; then
+                echo "[$label] RESULT: NOT ALIVE — startup crash"
+                echo "--- last FATAL/crash lines ---"
+                grep -aE "FATAL|AndroidRuntime|Process: com.cat.client|Caused by|ClassNotFound|NoSuchMethod|UnsatisfiedLink|SIGSEGV" "$label-logcat.txt" | tail -60 || true
+                echo "--- last 40 logcat lines ---"
+                tail -40 "$label-logcat.txt" || true
+                return 1
+              fi
+              echo "[$label] RESULT: alive (pid $pid2)"
+              adb shell am force-stop com.cat.client >/dev/null 2>&1 || true
+              return 0
+            }
+
+            debug_apk="$(ls app/build/outputs/apk/debug/*x86_64*.apk 2>/dev/null | head -1 || true)"
+            [ -n "$debug_apk" ] && { check_app debug "$debug_apk" || rc=1; } || echo "[debug] no debug x86_64 APK found; skipping"
+            rel_apk="$(ls "$RELEASE_DIR"/*x86_64*.apk 2>/dev/null | head -1 || true)"
+            check_app release "$rel_apk" || rc=1
+
+            echo "[done] rc=$rc"
+            { echo '```'; } >> "$REPORT"
+            exec 1>&- 2>&-  # stop tee
+            exit $rc
+
+      - name: Report emulator capability/outcome to CI-LOG issue
+        if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          BODY="ci-emulator-report.md"
+          {
+            echo "### Emulator launch check (${GITHUB_SHA:0:7})"
+            if [[ -f emulator-capability.txt ]]; then echo '```text'; cat emulator-capability.txt; echo '```'; else echo "_no capability file (step did not run)"; fi
+            if [[ -f smoke-report.md ]]; then cat smoke-report.md; else echo "_no smoke transcript (script did not run — the emulator did not boot)_"; fi
+          } > "$BODY"
+          ISSUE="$(gh issue list --state open --search "in:title CI-LOG" --json number --jq '.[0].number // empty' || true)"
+          if [[ -n "$ISSUE" ]]; then gh issue comment "$ISSUE" --body-file "$BODY" || true; fi
+
+      - name: Upload emulator smoke logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emulator-smoke-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            *-logcat.txt
+            smoke-report.md
+
+      # R8's mapping for THIS commit: a release-APK stack trace arrives obfuscated
+      # (`A0.ab.h`) and the only way to read it is this file. The beta98 OOM report
+      # could only be reasoned about from source because no mapping was kept.
+      - name: Upload R8 mapping (deobfuscates release-APK crash reports)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: r8-mapping-${{ github.sha }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Upload debug APKs
         if: success()
@@ -296,6 +776,7 @@ jobs:
         if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/arena/'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA113_DEVICE_SIGNOFF: ${{ vars.BETA113_DEVICE_SIGNOFF }}
         run: |
           set -euo pipefail
           APP_VERSION="${{ steps.app_version.outputs.version }}"
@@ -304,20 +785,54 @@ jobs:
           release_dir="$RUNNER_TEMP/catclient-release"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG" 2>/dev/null || true
-          git push origin "$TAG" || true
-          # Worker sources ride along so the wizard's releases/latest/download/... URLs resolve.
-          cp app/src/main/assets/panels/catclient.worker.js app/src/main/assets/panels/catclient.wizard.js .
+          git tag -f "$TAG" 2>/dev/null || true
+          git push -f origin "$TAG" || true
+          # The deploy asset is the normal minified ESM module. Never publish the heavy
+          # RC4/control-flow-obfuscated APK artifact as a Cloudflare runtime.
+          cp dist-panel/catpanel.min.js catclient.worker.js
+          cp app/src/main/assets/panels/catclient.wizard.js .
+          node --check catclient.worker.js
+          test "$(wc -c < catclient.worker.js)" -lt 800000
+          cp deploy-bot/worker.js cat-deploy-bot.worker.js
+          # Panel HTML snapshot generated from THIS commit's worker (6.44.0+):
+          # a ready cat-panel.html rides every release for preview/backup.
+          node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
           release_assets=(
             "$release_dir"/CatClient-V${APP_VERSION}-*.apk
             "$release_dir"/SHA256SUMS
             app/build/outputs/apk/debug/*.apk
             catclient.worker.js
             catclient.wizard.js
+            cat-deploy-bot.worker.js
+            cat-panel.html
           )
+          # Google-Doc bundle(s), if present in this branch's docs/
+          for d in docs/CatPanel-*-GoogleDoc.docx; do [[ -e "$d" ]] && release_assets+=("$d"); done
           notes="Cat Client **v${APP_VERSION}** (versionCode ${APP_CODE}) — every APK passes apksigner verify + zipalign before publish; SHA-256 in SHA256SUMS.\n\n**Install (most phones)**\n- CatClient-V${APP_VERSION}-arm64-v8a.apk (64-bit)\n- CatClient-V${APP_VERSION}-universal.apk if unsure (large file)\n- Wrong file for your device? Android shows 'app not installed' — take universal.\n- 'package conflicts'? Uninstall the old build from ALL profiles, then retry.\n- Corrupted download? Re-fetch via a mirror: prefix the download URL with https://ghproxy.net/\n\nBuilt from ${GITHUB_SHA}."
+          if [[ -f "$release_dir/SHA256SUMS" ]]; then
+            {
+              echo "### Release SHA256SUMS (${TAG} @ ${GITHUB_SHA:0:7})"
+              echo '```'
+              cat "$release_dir/SHA256SUMS"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${release_assets[@]}" --clobber
+            rel_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' || true)"
+            if [[ -n "$rel_id" ]]; then
+              if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+                pre_notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
+                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=true -f body="$(printf '%b' "$pre_notes")" >/dev/null || true
+              else
+                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -f body="$(printf '%b' "$notes")" >/dev/null || true
+              fi
+            fi
           else
-            gh release create "$TAG" "${release_assets[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
+            release_flags=()
+            if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
+              release_flags+=(--prerelease)
+              notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
+            fi
+            gh release create "$TAG" "${release_assets[@]}" "${release_flags[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"
           fi

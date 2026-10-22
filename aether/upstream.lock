@@ -1,0 +1,7 @@
+# Reviewed Android Aether implementation; update only through a review commit.
+repository=https://github.com/WhiteDNS/WhiteAestherMobile.git
+commit=cf3d9b80dabe87de725dbd53f92ba640ac0410db
+license=AGPL-3.0-only
+license_sha256=8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef
+android_bridge_lock_sha256=d0ea67ecd3a6f49595eb19333d36fd260ed6bc05f03e19de1facaff2ec4b832a
+aether_lock_sha256=208f3dcff6e7f3ca939063396a9377ec151d96fc4b01090a8d16b84cfa3106e7

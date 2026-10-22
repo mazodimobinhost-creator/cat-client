@@ -53,7 +53,7 @@ object FrontingIpPolicy {
             else -> endpoint to null
         }
 
-        require(isValidIpv4(ip) || isValidIpv6(ip)) { "IP Fronting باید یک آدرس معتبر IPv4 یا IPv6 باشد" }
+        require(isValidIpv4(ip) || isValidIpv6(ip) || IpScanner.isValidHostname(ip)) { "IP Fronting باید یک آدرس معتبر IPv4، IPv6 یا دامنه باشد" }
         val port = portText?.let {
             require(it.all(Char::isDigit)) { "پورت IP Fronting باید عددی بین 1 تا 65535 باشد" }
             it.toIntOrNull()?.also { parsed ->
@@ -116,7 +116,16 @@ class FrontingIpPreferenceStore(context: Context) {
         editor.apply()
     }
 
+    /** SNI override applied to every TLS proxy in the runtime config (empty = keep the config's own servername). */
+    fun readSniOverride(): String = prefs.getString(KEY_SNI, "").orEmpty().trim().lowercase()
+
+    fun saveSniOverride(value: String?) {
+        val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        prefs.edit().apply { if (normalized == null) remove(KEY_SNI) else putString(KEY_SNI, normalized) }.apply()
+    }
+
     private companion object {
         const val KEY_FRONTING_IP = "fronting_ip"
+        const val KEY_SNI = "sni_override"
     }
 }

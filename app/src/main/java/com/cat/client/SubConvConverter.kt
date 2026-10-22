@@ -17,7 +17,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal object SubConvConverter {
+object SubConvConverter {
     private val userAgents = listOf(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -81,14 +81,16 @@ internal object SubConvConverter {
             .put("udp", true)
 
         val security = query["security"].orEmpty().lowercase()
-        if (security.endsWith("tls") || security == "reality") {
+        val tlsEnabled = security.endsWith("tls") || security == "reality"
+        if (tlsEnabled) {
             proxy.put("tls", true)
                 .put("skip-cert-verify", false)
                 .put("client-fingerprint", query["fp"].orEmpty().ifBlank { "chrome" })
             query["alpn"]?.takeIf(String::isNotBlank)?.let { proxy.put("alpn", it.split(',')) }
             query["pcs"]?.takeIf(String::isNotBlank)?.let { proxy.put("fingerprint", it) }
         }
-        query["sni"]?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+        (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+        echOptions(query, tlsEnabled = security.endsWith("tls"))?.let { proxy.put("ech-opts", it) }
         query["pbk"]?.takeIf(String::isNotBlank)?.let { publicKey ->
             proxy.put(
                 "reality-opts",
@@ -218,15 +220,20 @@ internal object SubConvConverter {
                 // certificate validation off would hand anyone who can hand the user a link the
                 // ability to read the tunnelled traffic.
                 put("skip-cert-verify", false)
-                query["sni"]?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                val isPlain = query["security"].equals("none", ignoreCase = true)
+                if (isPlain) {
+                    put("tls", false)
+                }
+                (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                echOptions(query, tlsEnabled = !isPlain)?.let { put("ech-opts", it) }
                 query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", it.split(',')) }
                 val network = query["type"].orEmpty().lowercase()
                 if (network.isNotBlank()) put("network", network)
                 when (network) {
-                    "ws" -> put("ws-opts", JSONObject().apply {
-                        query["path"]?.takeIf(String::isNotBlank)?.let { put("path", it) }
-                        put("headers", JSONObject().put("User-Agent", userAgents.random()))
-                    })
+                    // Same options as the vless shape — including the Host
+                    // header, which this branch used to omit (the trojan half of
+                    // every panel subscription then never connected).
+                    "ws", "httpupgrade" -> put("ws-opts", vShareWsOptions(query, network))
                     "grpc" -> put(
                         "grpc-opts",
                         JSONObject().put("grpc-service-name", query["serviceName"].orEmpty()),
@@ -502,26 +509,95 @@ internal object SubConvConverter {
             query["host"]?.takeIf(String::isNotBlank)?.let { put("host", JSONArray().put(it)) }
         }
 
-    private fun vShareWsOptions(query: Map<String, String>, network: String): JSONObject = JSONObject()
-        .put("path", query["path"].orEmpty())
-        .put(
-            "headers",
-            JSONObject()
-                .put("User-Agent", userAgents.random())
-                .put("Host", query["host"].orEmpty()),
-        )
-        .apply {
-            query["ed"]?.takeIf(String::isNotBlank)?.let { raw ->
-                val earlyData = raw.toIntOrNull() ?: throw ParseError()
-                if (network == "ws") {
-                    put("max-early-data", earlyData)
-                    put("early-data-header-name", "Sec-WebSocket-Protocol")
-                } else {
-                    put("v2ray-http-upgrade-fast-open", true)
-                }
-            }
-            query["eh"]?.takeIf(String::isNotBlank)?.let { put("early-data-header-name", it) }
+    /**
+     * WebSocket / HTTPUpgrade options for a share link.
+     *
+     * The `Host` header carries the share link's `host` parameter — for a
+     * Cloudflare-fronted deployment that is the worker/panel hostname, and it is
+     * what routes the request to the right worker. Omitting it (as this used to
+     * for the trojan shape) means every request lands on the wrong place and
+     * the config simply never connects.
+     *
+     * Early data follows the Xray convention: the size can sit at the top level
+     * (`&ed=2048`, how v2rayN writes it) or inside the path
+     * (`&path=%2F%3Fed%3D2048`, which Cat Panel and BPB emit). Both shapes must
+     * enable Sec-WebSocket-Protocol early data. The `ed` parameter is stripped
+     * from the transmitted path (the bytes travel in the header instead) while
+     * every other path parameter — e.g. `proxyip` — is preserved verbatim.
+     * Garbled values are ignored rather than failing the whole link.
+     */
+    private fun vShareWsOptions(query: Map<String, String>, network: String): JSONObject {
+        val rawPath = query["path"].orEmpty()
+        // Paths handed out before the worker fix look like
+        // `/vl/<seed>?ed=2560?proxyip=host` — the second '?' is a query
+        // separator in disguise, so normalise it before parsing; otherwise the
+        // relay override would be swallowed by (and lost from) the ed value.
+        val pathParams = if ('?' in rawPath) {
+            parseQuery(rawPath.substringAfter('?').replace('?', '&'))
+        } else {
+            emptyMap()
         }
+        val sentPath = if (pathParams.containsKey("ed")) {
+            val remaining = pathParams.filterKeys { it != "ed" }
+                .entries.joinToString("&") { "${encodePathParam(it.key)}=${encodePathParam(it.value)}" }
+            rawPath.substringBefore('?') + if (remaining.isEmpty()) "" else "?$remaining"
+        } else {
+            rawPath
+        }
+        val earlyDataRaw = query["ed"]?.takeIf(String::isNotBlank) ?: pathParams["ed"]
+        return JSONObject()
+            .put("path", sentPath)
+            .put(
+                "headers",
+                JSONObject()
+                    .put("User-Agent", userAgents.random())
+                    .put("Host", query["host"].orEmpty()),
+            )
+            .apply {
+                earlyDataRaw?.takeIf(String::isNotBlank)?.let { raw ->
+                    val earlyData = raw.takeWhile { it.isDigit() }.toIntOrNull()
+                    if (earlyData != null && earlyData > 0) {
+                        if (network == "ws") {
+                            put("max-early-data", earlyData)
+                            put("early-data-header-name", "Sec-WebSocket-Protocol")
+                        } else {
+                            put("v2ray-http-upgrade-fast-open", true)
+                        }
+                    }
+                }
+                query["eh"]?.takeIf(String::isNotBlank)?.let { put("early-data-header-name", it) }
+            }
+    }
+
+    private fun encode(value: String): String =
+        URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+
+    private fun encodePathParam(value: String): String =
+        encode(value).replace("%3A", ":").replace("%5B", "[").replace("%5D", "]")
+
+    /**
+     * Parses `ech` from VLESS/Trojan share links (e.g. `ech=cloudflare-ech.com+udp://1.1.1.1`),
+     * while enforcing mutual exclusion with Advanced Optimization (`fm` fragment JSON,
+     * `cs` custom cipher suites, or a `TLS Mask` where `sni` is spoofed away from `host`).
+     * Enabling ECH and Fragment/TLS-Mask simultaneously breaks TLS 1.3 Inner ClientHello.
+     */
+    private fun echOptions(query: Map<String, String>, tlsEnabled: Boolean): JSONObject? {
+        if (!tlsEnabled) return null
+        val rawEch = query["ech"]?.trim()?.takeIf { it.isNotEmpty() && !it.equals("false", ignoreCase = true) }
+            ?: return null
+        val hasAdvancedFragmentOrCipher = !query["fm"].isNullOrBlank() || !query["cs"].isNullOrBlank()
+        val host = query["host"]?.trim().orEmpty()
+        val sni = (query["sni"] ?: query["servername"])?.trim().orEmpty()
+        val hasTlsMaskSniMismatch = host.isNotEmpty() && sni.isNotEmpty() && !host.equals(sni, ignoreCase = true)
+        if (hasAdvancedFragmentOrCipher || hasTlsMaskSniMismatch) {
+            return null
+        }
+        val queryServerName = rawEch.substringBefore('+').substringBefore(' ').trim()
+            .takeIf { it.isNotEmpty() && !it.equals("true", ignoreCase = true) && '.' in it }
+        return JSONObject().put("enable", true).apply {
+            if (queryServerName != null) put("query-server-name", queryServerName)
+        }
+    }
 
     private fun vmessWsOptions(path: String?, host: String?, network: String): JSONObject {
         var outputPath = path.orEmpty().ifBlank { "/" }
@@ -678,7 +754,11 @@ internal object SubConvConverter {
         return output
     }
 
-    private fun name(uri: URI): String = decode(uri.rawFragment.orEmpty())
+    private fun name(uri: URI): String = decode(uri.rawFragment.orEmpty()).trim().ifBlank {
+        val scheme = uri.scheme?.lowercase().orEmpty().ifBlank { "proxy" }
+        val hostPort = uri.rawAuthority?.substringAfterLast('@')?.substringBefore('/').orEmpty()
+        if (hostPort.isNotBlank()) "$scheme-$hostPort" else scheme
+    }
 
     private fun decode(value: String): String =
         URLDecoder.decode(value, StandardCharsets.UTF_8.name())
@@ -688,7 +768,7 @@ internal object SubConvConverter {
         val query = parseQuery(path.substringAfter('?', ""))
             .filterKeys { it != key }
             .entries.joinToString("&") { (name, value) ->
-                "${URLEncoder.encode(name, StandardCharsets.UTF_8.name())}=${URLEncoder.encode(value, StandardCharsets.UTF_8.name())}"
+                "${encodePathParam(name)}=${encodePathParam(value)}"
             }
         return if (query.isBlank()) base else "$base?$query"
     }
@@ -716,7 +796,8 @@ internal object SubConvConverter {
     private class NameRegistry {
         private val names = mutableMapOf<String, Int>()
 
-        fun register(name: String): String {
+        fun register(rawName: String): String {
+            val name = rawName.trim().ifBlank { "proxy" }
             val index = names[name]
             if (index == null) {
                 names[name] = 0

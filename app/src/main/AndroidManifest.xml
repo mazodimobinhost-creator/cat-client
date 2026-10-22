@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -29,10 +30,12 @@
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        tools:replace="android:allowBackup,android:dataExtractionRules,android:fullBackupContent">
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -42,6 +45,42 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_file_paths" />
+        </provider>
+
+        <!-- Crash evidence BEFORE androidx.startup runs: providers initialize
+             before Application.onCreate, so this one must exist to catch (and
+             report) a crash in that phase. initOrder is the maximum: providers
+             are ordered by it, and this one must be first. -->
+        <provider
+            android:name=".EarlyCrashProvider"
+            android:authorities="${applicationId}.earlycrash"
+            android:exported="false"
+            android:initOrder="2147483647"
+            tools:node="merge" />
+
+        <!-- WorkManager's automatic startup initialization is DISABLED on
+             purpose (meta-data removal is the documented mechanism). Its
+             androidx.startup initializer creates a Room database by reflection
+             during process start — before any app code, where nothing can
+             catch a failure. CatClientApplication now initializes WorkManager
+             itself, inside a guarded call, so a WorkManager problem can never
+             again be a crash-on-open: worst case the panel monitor is off and
+             the rest of the app runs. -->
+        <service
+            android:name=".PsiphonCarrierService"
+            android:exported="false"
+            android:process=":psiphon"
+            android:stopWithTask="true" />
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
         </provider>
 
         <activity
@@ -78,6 +117,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="catclient" android:host="scan" />
+            </intent-filter>
+            <!-- Direct Aether URI import: aether://?protocol=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="aether" />
             </intent-filter>
         </activity>
 

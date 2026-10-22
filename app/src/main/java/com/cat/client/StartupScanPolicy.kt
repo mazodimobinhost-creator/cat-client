@@ -71,6 +71,40 @@ object StartupScanPolicy {
         return excludeEndpoint(candidates, excludedEndpoint)
     }
 
+    /** Cached scanner evidence used by the one-tap automatic flow.
+     * Unlike the legacy retry list, this path is deliberately fail-closed: stale,
+     * failed, or synthetic entries cannot silently become an "automatic" profile. */
+    fun automaticCandidates(
+        subscriptionPorts: List<Int>,
+        lastEndpoint: CleanIpResult?,
+        cachedResults: List<CleanIpResult>,
+        detectedCarrier: MobileCarrier,
+        nowMs: Long,
+        excludedEndpoint: CleanIpResult? = null,
+    ): List<CleanIpResult> {
+        val ordered = cachedCandidates(subscriptionPorts, lastEndpoint, cachedResults, excludedEndpoint)
+        val byEndpoint = ordered.associateBy { it.endpointKey() }
+        val evidence = ordered.map { result ->
+            AutoConnectionCandidate(
+                id = result.endpointKey(),
+                endpoint = result.endpointKey(),
+                source = "device-clean-ip-scan",
+                carrier = MobileCarrier.UNKNOWN,
+                latencyMs = result.latencyMs,
+                verifiedAtMs = result.checkedAt,
+                succeeded = result.lossRate in 0.0..0.99,
+            )
+        }.toMutableList()
+        val selected = mutableListOf<CleanIpResult>()
+        while (evidence.isNotEmpty()) {
+            val decision = AutoConnectionPlanner.decide(evidence, detectedCarrier, nowMs, networkAvailable = true)
+            val ready = decision as? AutoConnectionDecision.Ready ?: break
+            byEndpoint[ready.candidate.id]?.let(selected::add)
+            evidence.removeAll { it.id == ready.candidate.id }
+        }
+        return selected
+    }
+
     fun excludeEndpoint(
         candidates: List<CleanIpResult>,
         excludedEndpoint: CleanIpResult?,

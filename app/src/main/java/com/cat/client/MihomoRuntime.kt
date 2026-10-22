@@ -60,6 +60,19 @@ object MihomoRuntimeDefaults {
         "www.gstatic.com",
         "connectivitycheck.gstatic.com",
     )
+    /** AI/service domains that must ALWAYS ride the tunnel — a subscription
+     * rule set routing them DIRECT leaks the Iranian egress (Gemini/OpenAI
+     * refuse it). DOMAIN-SUFFIX rules, injected first like the measurement
+     * domains so nothing shadows them. */
+    val SERVICE_DOMAINS = listOf(
+        "gemini.google.com",
+        "aistudio.google.com",
+        "generativelanguage.googleapis.com",
+        "chatgpt.com",
+        "openai.com",
+        "oaistatic.com",
+        "oaiusercontent.com",
+    )
     const val SPEED_TEST_BYTES = 1_000_000L
     const val SPEED_TEST_URL_PREFIX = "https://speed.cloudflare.com/__down?bytes="
 }
@@ -306,8 +319,16 @@ class RoutingModePreferenceStore(context: Context) {
         prefs.edit().putString(KEY_MODE, mode.wireName).apply()
     }
 
+    /** Ad networks (GEOSITE category-ads-all) → REJECT, independent of the routing mode. */
+    fun isAdBlockEnabled(): Boolean = prefs.getBoolean(KEY_AD_BLOCK, false)
+
+    fun saveAdBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AD_BLOCK, enabled).apply()
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
+        const val KEY_AD_BLOCK = "ad_block"
     }
 }
 
@@ -315,6 +336,16 @@ enum class DnsPrivacyMode(val wireName: String, val labelRes: Int) {
     Automatic("automatic", R.string.dns_mode_automatic),
     DoH("doh", R.string.dns_mode_doh),
     DoT("dot", R.string.dns_mode_dot),
+    // 🔒 QUIC-based resolvers (6.67.6 / beta110). WHY THEY MATTER IN IRAN: ECH (Encrypted
+    // ClientHello) is only as private as the lookup that fetches its key — the ECHConfig
+    // travels in the zone's HTTPS/SVCB record, so a censored *plaintext* DNS lookup either
+    // never returns it or can be answered with a forged key. Iran has repeatedly blocked
+    // external DoH/DoT resolvers (the corpus notes record a one-to-two-week replacement
+    // cycle), but its middleboxes do not parse QUIC, so DoQ and DoH-over-HTTP/3 keep
+    // working where the TCP-based resolvers stop. Both schemes are understood by the
+    // bundled mihomo core (`quic://…` and `h3://…`).
+    DoQ("doq", R.string.dns_mode_doq),
+    DoH3("doh3", R.string.dns_mode_doh3),
     ;
 
     companion object {
@@ -328,6 +359,75 @@ object DnsPrivacyPolicy {
     /** Shecan's IP-based DoH endpoint: resolvable and reachable from inside Iran. */
     const val DEFAULT_DOH_URL = "https://178.22.122.100/dns-query"
     const val DEFAULT_DOT_ENDPOINT = "tls://178.22.122.100:853"
+
+    /** Cloudflare's DoQ endpoint and its DoH-over-HTTP/3 URL. Both are QUIC-based, which
+     *  matters because Iran's DPI does not parse QUIC — see the note on [DnsPrivacyMode.DoQ].
+     *  An IP is used on purpose: a hostname would need a plaintext lookup first, which is
+     *  exactly what the censor poisons. */
+    const val DEFAULT_DOQ_ENDPOINT = "quic://1.1.1.1:853"
+    const val DEFAULT_DOH3_URL = "h3://1.1.1.1/dns-query"
+    const val DEFAULT_DOQ_PORT = 853
+
+    /**
+     * `quic://host[:port]` — DNS-over-QUIC (RFC 9250). Port defaults to 853, the DoQ port.
+     *
+     * The host[:port] half is parsed by [FrontingIpPolicy.parseEndpoint], the app's one
+     * implementation of that grammar — it already knows that a bare IPv6 literal is a host
+     * and `[v6]:port` is a host plus port, so a v6 resolver cannot be silently misread as
+     * `host:port` the way a naive `java.net.URI` split would (URI needs the brackets and
+     * would happily turn `2606:4700:4700::1111` into ip `…::` + port `1111`).
+     */
+    fun normalizeDoqEndpoint(value: String): String {
+        val raw = value.trim()
+        val authority = when {
+            raw.startsWith("quic://", ignoreCase = true) -> raw.substring("quic://".length)
+            raw.contains("://") -> throw IllegalArgumentException("پروتکل DoQ باید quic:// باشد")
+            else -> raw
+        }
+        require(authority.isNotEmpty() && authority.none(Char::isWhitespace)) {
+            "DoQ باید یک host[:port] معتبر باشد"
+        }
+        require(authority.none { it == '/' || it == '?' || it == '#' || it == '@' }) {
+            "DoQ فقط می‌تواند نام میزبان و پورت اختیاری داشته باشد"
+        }
+        val endpoint = runCatching { FrontingIpPolicy.parseEndpoint(authority) }.getOrElse {
+            throw IllegalArgumentException("DoQ باید یک host[:port] معتبر باشد")
+        }
+        val port = endpoint.port ?: DEFAULT_DOQ_PORT
+        val host = if (endpoint.ip.contains(':')) "[${endpoint.ip}]" else endpoint.ip
+        return "quic://$host:$port"
+    }
+
+    /**
+     * `h3://host[:port][/path]` — DoH carried over HTTP/3 (QUIC). mihomo also accepts
+     * `https://host/dns-query#h3=true`; everything is stored as the `h3://` form so one
+     * string means one thing in the generated YAML — and since the owner picked the *mode*,
+     * a pasted `https://…` DoH URL is converted rather than quietly left on TCP.
+     */
+    fun normalizeDoh3Url(value: String): String {
+        val raw = value.trim()
+        val withoutScheme = when {
+            raw.startsWith("h3://", ignoreCase = true) -> raw.substring("h3://".length)
+            raw.startsWith("https://", ignoreCase = true) -> raw.substring("https://".length)
+            raw.contains("://") -> throw IllegalArgumentException("پروتکل DoH3 باید h3:// یا https:// باشد")
+            else -> raw
+        }
+        require(withoutScheme.isNotEmpty() && withoutScheme.none(Char::isWhitespace)) {
+            "DoH3 باید یک URL معتبر باشد"
+        }
+        require(withoutScheme.none { it == '?' || it == '#' || it == '@' }) {
+            "URL مربوط به DoH3 نباید اطلاعات ورود، query یا fragment داشته باشد"
+        }
+        val authority = withoutScheme.substringBefore('/')
+        val parsedPath = withoutScheme.removePrefix(authority)
+        val endpoint = runCatching { FrontingIpPolicy.parseEndpoint(authority) }.getOrElse {
+            throw IllegalArgumentException("DoH3 باید یک URL معتبر باشد")
+        }
+        val portSuffix = endpoint.port?.let { ":$it" }.orEmpty()
+        val host = if (endpoint.ip.contains(':')) "[${endpoint.ip}]" else endpoint.ip
+        val path = parsedPath.trim('/').takeIf(String::isNotEmpty) ?: "dns-query"
+        return "h3://$host$portSuffix/$path"
+    }
 
     fun normalizeDohUrl(value: String): String {
         val input = value.trim()
@@ -391,6 +491,22 @@ class DnsPrivacyPreferenceStore(context: Context) {
         }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT)
     }
 
+    fun readDoqEndpoint(): String {
+        return runCatching {
+            DnsPrivacyPolicy.normalizeDoqEndpoint(
+                prefs.getString(KEY_DOQ_ENDPOINT, null) ?: DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+            )
+        }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT)
+    }
+
+    fun readDoh3Url(): String {
+        return runCatching {
+            DnsPrivacyPolicy.normalizeDoh3Url(
+                prefs.getString(KEY_DOH3_URL, null) ?: DnsPrivacyPolicy.DEFAULT_DOH3_URL,
+            )
+        }.getOrDefault(DnsPrivacyPolicy.DEFAULT_DOH3_URL)
+    }
+
     fun saveMode(mode: DnsPrivacyMode) {
         prefs.edit().putString(KEY_MODE, mode.wireName).apply()
     }
@@ -403,10 +519,20 @@ class DnsPrivacyPreferenceStore(context: Context) {
         prefs.edit().putString(KEY_DOT_ENDPOINT, DnsPrivacyPolicy.normalizeDotEndpoint(value)).apply()
     }
 
+    fun saveDoqEndpoint(value: String) {
+        prefs.edit().putString(KEY_DOQ_ENDPOINT, DnsPrivacyPolicy.normalizeDoqEndpoint(value)).apply()
+    }
+
+    fun saveDoh3Url(value: String) {
+        prefs.edit().putString(KEY_DOH3_URL, DnsPrivacyPolicy.normalizeDoh3Url(value)).apply()
+    }
+
     private companion object {
         const val KEY_MODE = "mode"
         const val KEY_DOH_URL = "doh_url"
         const val KEY_DOT_ENDPOINT = "dot_endpoint"
+        const val KEY_DOQ_ENDPOINT = "doq_endpoint"
+        const val KEY_DOH3_URL = "doh3_url"
     }
 }
 
@@ -517,6 +643,8 @@ internal data class MihomoRuntimeDocument(
     val routingMode: RoutingMode,
     val dns: DnsRuntimeSettings,
     val selectedMap: Map<String, String>,
+    /** Non-null while the Orbot engine is on and its loopback port answered. */
+    val orbot: OrbotProxySettings? = null,
 )
 
 internal fun SessionPlan.toMihomoRuntimeDocument(): MihomoRuntimeDocument = MihomoRuntimeDocument(
@@ -526,6 +654,7 @@ internal fun SessionPlan.toMihomoRuntimeDocument(): MihomoRuntimeDocument = Miho
     routingMode = routingMode,
     dns = dns,
     selectedMap = selectedMap,
+    orbot = orbot,
 )
 
 internal class MihomoRuntimeConfigBuilder(private val context: Context) {
@@ -534,6 +663,23 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
         secret: String = MihomoControllerSecret.generate(),
     ): MihomoRuntimePaths = write(
         document = plan.toMihomoRuntimeDocument(),
+        secret = secret,
+    )
+
+    fun writeCarrier(
+        rawYaml: String,
+        splitTunnelPlan: SplitTunnelRuntimePlan,
+        dns: DnsRuntimeSettings,
+        secret: String = MihomoControllerSecret.generate(),
+    ): MihomoRuntimePaths = write(
+        document = MihomoRuntimeDocument(
+            rawYaml = rawYaml,
+            splitTunnelPlan = splitTunnelPlan,
+            lanSharing = LanSharingSettings(),
+            routingMode = RoutingMode.GlobalProxy,
+            dns = dns,
+            selectedMap = emptyMap(),
+        ),
         secret = secret,
     )
 
@@ -583,6 +729,10 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 dnsPrivacyMode = document.dns.mode,
                 dohUrl = document.dns.dohUrl,
                 dotEndpoint = document.dns.dotEndpoint,
+                doqEndpoint = document.dns.doqEndpoint,
+                doh3Url = document.dns.doh3Url,
+                adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
+                orbot = document.orbot,
             ),
         )
         patchFinal.writeText(
@@ -736,22 +886,42 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             dnsPrivacyMode: DnsPrivacyMode = DnsPrivacyMode.Automatic,
             dohUrl: String = DnsPrivacyPolicy.DEFAULT_DOH_URL,
             dotEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOT_ENDPOINT,
+            doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+            doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
+            adBlock: Boolean = false,
+            orbot: OrbotProxySettings? = null,
         ): String {
+            val orbotTarget = orbot?.let { settings ->
+                OrbotEnginePolicy.normalizePort(settings.port)
+                OrbotEnginePolicy.normalizeHost(settings.host)
+                OrbotEnginePolicy.PROXY_NAME
+            }
+            // Orbot is an *outbound*, not a hint: while it is on, every rule that could send
+            // traffic around it is dropped and the runtime keeps the global-proxy shape with
+            // the Orbot proxy as the only target. Anything softer would let a subscription
+            // rule quietly route DIRECT and the owner would believe they were on Tor.
+            val effectiveMode = if (orbotTarget != null) RoutingMode.GlobalProxy else routingMode
             val routingTarget = routingTarget(rawYaml)
-            val requiredRoutingTarget = if (routingMode == RoutingMode.Subscription) {
-                null
-            } else {
-                requireNotNull(routingTarget) {
+            val requiredRoutingTarget = when {
+                orbotTarget != null -> orbotTarget
+                effectiveMode == RoutingMode.Subscription -> null
+                else -> requireNotNull(routingTarget) {
                     "Routing mode '${routingMode.wireName}' requires a usable proxy or proxy group"
                 }
             }
-            val keysToReplace = if (routingMode == RoutingMode.Subscription) {
+            val keysToReplace = if (effectiveMode == RoutingMode.Subscription) {
                 FLCLASH_OVERRIDE_KEYS
             } else {
                 FLCLASH_OVERRIDE_KEYS + ROUTING_OVERRIDE_KEYS
             }
-            val subscriptionYaml = stripTopLevelKeys(rawYaml, keysToReplace)
-            val dnsProxyGroup = if (routingMode == RoutingMode.Subscription) {
+            val subscriptionYaml = stripTopLevelKeys(rawYaml, keysToReplace).let { base ->
+                if (orbot == null) {
+                    base
+                } else {
+                    OrbotEnginePolicy.injectProxy(base, host = orbot.host, port = orbot.port)
+                }
+            }
+            val dnsProxyGroup = if (effectiveMode == RoutingMode.Subscription) {
                 routingTarget
             } else {
                 requiredRoutingTarget
@@ -761,6 +931,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 DnsPrivacyMode.Automatic -> DOH_SERVERS + DOT_SERVERS
                 DnsPrivacyMode.DoH -> listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl))
                 DnsPrivacyMode.DoT -> listOf(DnsPrivacyPolicy.normalizeDotEndpoint(dotEndpoint))
+                DnsPrivacyMode.DoQ -> listOf(DnsPrivacyPolicy.normalizeDoqEndpoint(doqEndpoint))
+                DnsPrivacyMode.DoH3 -> listOf(DnsPrivacyPolicy.normalizeDoh3Url(doh3Url))
             }
             // Bootstrap (default-nameserver) must answer without any dependency on
             // a working tunnel, so plain-IP DNS is used instead of DoH URLs.
@@ -770,7 +942,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     append(subscriptionYaml.trimEnd())
                     append("\n\n")
                 }
-                when (routingMode) {
+                when (effectiveMode) {
                     RoutingMode.Subscription -> Unit
                     RoutingMode.IranBypass -> {
                         append("rule-providers:\n")
@@ -797,14 +969,24 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 // arbitrary domains DIRECT, which would make the dashboard's
                 // exit-IP probe and the ping button measure the wrong path.
                 // Injected at the TOP of the rules list so nothing shadows them.
-                val measureTarget = when (routingMode) {
+                val measureTarget = when (effectiveMode) {
                     RoutingMode.Subscription -> routingTarget(subscriptionYaml)
                     else -> requiredRoutingTarget
                 }
-                if (measureTarget != null) {
-                    val measurementRules = MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
-                        "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
-                    }
+                // Ad blocking rides on the bundled GEOSITE.dat (category-ads-all);
+                // injected right after the measurement rules so it wins over any
+                // subscription rule but never hides the app's own probes.
+                val adBlockRules = if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else ""
+                if (measureTarget != null || adBlock) {
+                    val measurementRules = if (measureTarget != null) {
+                        MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
+                        } + MihomoRuntimeDefaults.SERVICE_DOMAINS.joinToString("") { domain ->
+                            "  - ${yamlSingleQuoted("DOMAIN-SUFFIX,$domain,$measureTarget")}\n"
+                        }
+                    } else {
+                        ""
+                    } + adBlockRules
                     val rulesHeader = "rules:\n"
                     val at = indexOf(rulesHeader)
                     if (at >= 0) {
@@ -1396,8 +1578,11 @@ object MihomoFrontingPatcher {
         rawYaml: String,
         serverOverrideIp: String?,
         serverOverridePort: Int? = null,
+        sniOverride: String? = null,
     ): String {
-        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() } ?: return rawYaml
+        val sni = sniOverride?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val override = serverOverrideIp?.trim()?.takeIf { it.isNotBlank() }
+            ?: return if (sni == null) rawYaml else patchSniOnly(rawYaml, sni)
         val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
         val output = mutableListOf<String>()
         var inProxies = false
@@ -1405,7 +1590,7 @@ object MihomoFrontingPatcher {
 
         fun flushProxy() {
             if (currentProxy.isEmpty()) return
-            output += patchProxyBlock(currentProxy, override, serverOverridePort)
+            output += patchSni(patchProxyBlock(currentProxy, override, serverOverridePort), sni)
             currentProxy = mutableListOf()
         }
 
@@ -1440,6 +1625,78 @@ object MihomoFrontingPatcher {
         if (inProxies) flushProxy()
 
         return output.joinToString("\n")
+    }
+
+    /** SNI-only pass (no server override): same block walk, only servername/sni fields change. */
+    private fun patchSniOnly(rawYaml: String, sni: String): String {
+        val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
+        val output = mutableListOf<String>()
+        var inProxies = false
+        var currentProxy = mutableListOf<String>()
+        fun flushProxy() {
+            if (currentProxy.isEmpty()) return
+            output += patchSni(currentProxy, sni)
+            currentProxy = mutableListOf()
+        }
+        normalized.split('\n').forEach { line ->
+            val topLevelKey = topLevelKey(line)
+            if (topLevelKey != null) {
+                if (inProxies) flushProxy()
+                inProxies = topLevelKey == "proxies"
+                output += line
+                return@forEach
+            }
+            if (!inProxies) { output += line; return@forEach }
+            val content = line.trimStart()
+            if (indentation(line) == 2 && content.startsWith("- ")) { flushProxy(); currentProxy += line; return@forEach }
+            if (currentProxy.isNotEmpty()) currentProxy += line else output += line
+        }
+        if (inProxies) flushProxy()
+        return output.joinToString("\n")
+    }
+
+    internal fun hasEchEnabled(lines: List<String>): Boolean {
+        val joined = lines.joinToString("\n")
+        if ("ech-opts" !in joined) return false
+        return Regex("""ech-opts\s*:\s*\{[^}]*['"]?enable['"]?\s*:\s*true\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(joined) ||
+            Regex("""ech-opts\s*:\s*(?:#.*)?\n(?:\s{6,}.*\n)*?\s{6,}enable\s*:\s*['"]?true['"]?\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(joined)
+    }
+
+    /**
+     * Apply the SNI override to one proxy block: rewrite `servername:` / `sni:` when present,
+     * otherwise add `servername:` to TLS-capable proxies. Only the TLS handshake name changes —
+     * HTTP Host / ws headers still carry the panel domain so the Worker keeps routing.
+     * Proxies with ECH enabled are never masked with a custom SNI, because ECH requires the
+     * Inner ClientHello SNI to match the real Worker hostname.
+     */
+    private fun patchSni(lines: List<String>, sni: String?): List<String> {
+        if (sni == null || hasEchEnabled(lines)) return lines
+        val joined = lines.joinToString("\n")
+        val tlsCapable = Regex("type:\\s*(vless|vmess|trojan|anytls|hysteria2|hysteria|tuic)").containsMatchIn(joined) ||
+            Regex("tls:\\s*true").containsMatchIn(joined)
+        if (!tlsCapable) return lines
+        var replaced = false
+        val out = lines.map { line ->
+            when {
+                isProxyField(line, "servername") -> { replaced = true; replaceYamlValue(line, "servername", sni) }
+                isProxyField(line, "sni") -> { replaced = true; replaceYamlValue(line, "sni", sni) }
+                line.trimStart().startsWith("- {") -> {
+                    var l = line
+                    if (Regex("servername:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("servername:\\s*[^,}]+"), "servername: $sni"); replaced = true }
+                    if (Regex("[,{\\s]sni:\\s*[^,}]+").containsMatchIn(l)) { l = l.replace(Regex("sni:\\s*[^,}]+"), "sni: $sni"); replaced = true }
+                    if (!replaced && l.contains("server:")) { l = l.replace(Regex("server:\\s*([^,}]+)"), "server: $1, servername: $sni"); replaced = true }
+                    l
+                }
+                else -> line
+            }
+        }.toMutableList()
+        if (!replaced) {
+            val serverIndex = out.indexOfFirst { isProxyField(it, "server") }
+            if (serverIndex >= 0) out.add(serverIndex + 1, "    servername: $sni")
+        }
+        return out
     }
 
     private fun patchProxyBlock(lines: List<String>, override: String, portOverride: Int?): List<String> {
@@ -1700,6 +1957,8 @@ object MihomoDpiBypassPatcher {
             if (proxyName(currentProxy) == DpiBypassDefaults.PROXY_NAME) {
                 sawDpiProxy = true
                 output += dpiProxyBlock(proxyPort)
+            } else if (MihomoFrontingPatcher.hasEchEnabled(currentProxy)) {
+                output += currentProxy
             } else {
                 output += withDialerProxy(currentProxy)
             }
@@ -2345,10 +2604,12 @@ object MihomoRuntimeHealth {
         return httpStatus(url, proxy, timeoutMs)
     }
 
-    fun egressCountryCodeThroughMixedProxy(
+    internal data class EgressMetadata(val ip: String?, val countryCode: String?)
+
+    internal fun egressMetadataThroughMixedProxy(
         url: String = MihomoRuntimeDefaults.EGRESS_TRACE_URL,
-        timeoutMs: Int = 2_000,
-    ): String? {
+        timeoutMs: Int = 3_000,
+    ): EgressMetadata? {
         val proxy = Proxy(
             Proxy.Type.HTTP,
             InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
@@ -2359,9 +2620,14 @@ object MihomoRuntimeHealth {
         connection.instanceFollowRedirects = false
         return connection.use {
             if (responseCode !in 200..299) return@use null
-            countryCodeFromTrace(inputStream.bufferedReader().use { it.readText() })
+            egressMetadataFromTrace(inputStream.bufferedReader().use { it.readText() })
         }
     }
+
+    fun egressCountryCodeThroughMixedProxy(
+        url: String = MihomoRuntimeDefaults.EGRESS_TRACE_URL,
+        timeoutMs: Int = 2_000,
+    ): String? = egressMetadataThroughMixedProxy(url, timeoutMs)?.countryCode
 
     suspend fun downloadSpeedKbpsThroughMixedProxy(
         downloadBytes: Long = MihomoRuntimeDefaults.SPEED_TEST_BYTES,
@@ -2427,12 +2693,21 @@ object MihomoRuntimeHealth {
         }
     }
 
-    fun countryCodeFromTrace(trace: String): String? {
-        return trace.lineSequence()
-            .firstOrNull { it.startsWith("loc=") }
-            ?.substringAfter("=")
-            ?.let(ConnectionLocationPolicy::normalizeCountryCode)
+    internal fun egressMetadataFromTrace(trace: String): EgressMetadata {
+        val fields = trace.lineSequence().mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) null else line.substring(0, separator) to line.substring(separator + 1).trim()
+        }.toMap()
+        val ip = fields["ip"]?.takeIf { value ->
+            value.isNotBlank() && runCatching { java.net.InetAddress.getByName(value).hostAddress != null }.getOrDefault(false)
+        }
+        return EgressMetadata(
+            ip = ip,
+            countryCode = fields["loc"]?.let(ConnectionLocationPolicy::normalizeCountryCode),
+        )
     }
+
+    fun countryCodeFromTrace(trace: String): String? = egressMetadataFromTrace(trace).countryCode
 
     private fun httpStatus(url: String, proxy: Proxy, timeoutMs: Int): Int {
         val connection = URL(url).openConnection(proxy) as HttpURLConnection

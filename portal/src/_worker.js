@@ -1,0 +1,257 @@
+const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
+const enc = new TextEncoder();
+const hex = bytes => [...new Uint8Array(bytes)].map(x => x.toString(16).padStart(2, '0')).join('');
+const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+const token = n => btoa(String.fromCharCode(...bytes(n))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+const digest = async value => hex(await crypto.subtle.digest('SHA-256', enc.encode(value)));
+const hmac = async (key, value, raw = false) => {
+  const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? enc.encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const out = await crypto.subtle.sign('HMAC', k, enc.encode(value));
+  return raw ? new Uint8Array(out) : hex(out);
+};
+const safeEqual = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let x = 0; for (let i = 0; i < a.length; i++) x |= a.charCodeAt(i) ^ b.charCodeAt(i); return x === 0;
+};
+const body = async request => {
+  if (Number(request.headers.get('content-length') || 0) > 32_768) throw new Error('body_too_large');
+  return request.json().catch(() => { throw new Error('invalid_json'); });
+};
+const normalizeEmail = value => String(value || '').trim().toLowerCase();
+const subscriptionLinks = values => [...new Set((Array.isArray(values) ? values : []).map(x => String(x || '').trim()).filter(x => /^(vless|vmess|trojan|ss|hysteria2|tuic|wireguard):\/\//i.test(x) && x.length <= 8192))].slice(0, 100);
+const subscriptionSignature = (env, id) => hmac(env.SUBSCRIPTION_SIGNING_SECRET || '', `cat-sub:${id}`);
+const publicHttpsOrigin = value => {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || url.pathname !== '/' || url.search || url.hash) return null;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host === '0.0.0.0' || host === '::1') return null;
+    if (/^10\.|^127\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+    return url.origin;
+  } catch { return null; }
+};
+const passwordHash = async (password, salt = hex(bytes(16))) => {
+  if (typeof password !== 'string' || password.length < 10 || password.length > 200) throw new Error('weak_password');
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const out = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: 210_000, hash: 'SHA-256' }, base, 256);
+  return `pbkdf2-sha256$210000$${salt}$${hex(out)}`;
+};
+const verifyPassword = async (password, stored) => {
+  const [kind, iterations, salt, expected] = String(stored || '').split('$');
+  if (kind !== 'pbkdf2-sha256' || iterations !== '210000' || !salt || !expected) return false;
+  const actual = (await passwordHash(password, salt)).split('$')[3];
+  return safeEqual(actual, expected);
+};
+const cookie = (value, maxAge = 604800) => `cat_portal=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+async function issueSession(env, userId, request) {
+  const plain = token(32), now = Date.now(), expires = now + 7 * 86400_000;
+  await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,created_at,expires_at,user_agent) VALUES(?,?,?,?,?)')
+    .bind(await digest(plain), userId, now, expires, String(request.headers.get('user-agent') || '').slice(0, 240)).run();
+  return { plain, expires };
+}
+async function actor(env, request) {
+  const plain = (request.headers.get('cookie') || '').match(/(?:^|;\s*)cat_portal=([^;]+)/)?.[1];
+  if (!plain) return null;
+  return env.DB.prepare(`SELECT u.id,u.email,u.display_name,u.telegram_id,u.created_at
+    FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1`)
+    .bind(await digest(plain), Date.now()).first();
+}
+async function verifyTelegramInit(initData, botToken, maxAge = 600) {
+  if (!botToken || typeof initData !== 'string' || initData.length > 8192) return null;
+  const params = new URLSearchParams(initData), supplied = params.get('hash') || '';
+  params.delete('hash'); params.delete('signature');
+  const check = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
+  const secret = await hmac('WebAppData', botToken, true);
+  if (!safeEqual(await hmac(secret, check), supplied)) return null;
+  const authDate = Number(params.get('auth_date'));
+  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > maxAge) return null;
+  try { const user = JSON.parse(params.get('user') || 'null'); return user?.id ? user : null; } catch { return null; }
+}
+async function telegramCall(env, method, payload) {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error('telegram_not_configured');
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal });
+    if (!response.ok) throw new Error('telegram_api_error');
+  } finally { clearTimeout(timer); }
+}
+async function telegramUser(env, tg, displayName) {
+  const existing = await env.DB.prepare('SELECT id FROM users WHERE telegram_id=?').bind(String(tg.id)).first();
+  if (existing) return existing.id;
+  const id = crypto.randomUUID(), now = Date.now();
+  await env.DB.prepare('INSERT INTO users(id,email,password_hash,display_name,telegram_id,enabled,created_at) VALUES(?,?,?,?,?,1,?)')
+    .bind(id, null, null, String(displayName || tg.username || tg.first_name || `tg-${tg.id}`).slice(0, 80), String(tg.id), now).run();
+  await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), id, 'account.telegram_created', now).run();
+  return id;
+}
+async function api(request, env, ctx, url) {
+  if (request.method === 'GET' && url.pathname === '/api/health') return json({ ok: true, service: 'cat-portal', version: '0.2.0', time: new Date().toISOString() });
+  const publicSub = url.pathname.match(/^\/sub\/([0-9a-f-]{36})\/([0-9a-f]{64})$/i);
+  if (request.method === 'GET' && publicSub) {
+    if (!env.SUBSCRIPTION_SIGNING_SECRET || !safeEqual(await subscriptionSignature(env, publicSub[1]), publicSub[2].toLowerCase())) return new Response('not found', { status: 404 });
+    const row = await env.DB.prepare('SELECT name,links_json,expires_at FROM subscriptions WHERE id=? AND enabled=1').bind(publicSub[1]).first();
+    if (!row || (row.expires_at && Number(row.expires_at) <= Date.now())) return new Response('subscription unavailable', { status: 404 });
+    const links = subscriptionLinks(JSON.parse(row.links_json || '[]'));
+    return new Response(links.join('\n'), { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'subscription-userinfo': 'upload=0; download=0; total=0; expire=' + (row.expires_at ? Math.floor(Number(row.expires_at) / 1000) : 0), 'content-disposition': `inline; filename="cat-${row.name.replace(/[^a-z0-9_-]/gi, '-').slice(0, 40) || 'subscription'}.txt"` } });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/register') {
+    const input = await body(request), email = normalizeEmail(input.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json({ error: 'invalid_email' }, 400);
+    try {
+      const id = crypto.randomUUID(), now = Date.now();
+      await env.DB.prepare('INSERT INTO users(id,email,password_hash,display_name,telegram_id,enabled,created_at) VALUES(?,?,?,?,NULL,1,?)')
+        .bind(id, email, await passwordHash(input.password), String(input.displayName || email.split('@')[0]).slice(0, 80), now).run();
+      const session = await issueSession(env, id, request);
+      return json({ ok: true }, 201, { 'set-cookie': cookie(session.plain) });
+    } catch (error) { return json({ error: String(error).includes('UNIQUE') ? 'account_exists' : error.message }, 400); }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/login') {
+    const input = await body(request), email = normalizeEmail(input.email);
+    const user = await env.DB.prepare('SELECT id,password_hash FROM users WHERE email=? AND enabled=1').bind(email).first();
+    if (!user || !await verifyPassword(input.password, user.password_hash)) return json({ error: 'invalid_credentials' }, 401);
+    const session = await issueSession(env, user.id, request);
+    return json({ ok: true }, 200, { 'set-cookie': cookie(session.plain) });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/telegram/miniapp') {
+    const input = await body(request), tg = await verifyTelegramInit(input.initData, env.TELEGRAM_BOT_TOKEN);
+    if (!tg) return json({ error: 'invalid_telegram_init_data' }, 401);
+    const userId = await telegramUser(env, tg);
+    const session = await issueSession(env, userId, request);
+    return json({ ok: true }, 200, { 'set-cookie': cookie(session.plain) });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/telegram/webhook') {
+    if (!env.TELEGRAM_WEBHOOK_SECRET || !safeEqual(request.headers.get('x-telegram-bot-api-secret-token') || '', env.TELEGRAM_WEBHOOK_SECRET)) return json({ error: 'unauthorized' }, 401);
+    const update = await body(request), message = update.message;
+    if (!message?.from?.id || !message?.chat?.id) return json({ ok: true });
+    const userId = await telegramUser(env, message.from);
+    const command = String(message.text || '').trim().split(/\s+/)[0].split('@')[0].toLowerCase();
+    const openButton = { inline_keyboard: [[{ text: 'باز کردن Cat Portal', web_app: { url: env.PORTAL_URL } }]] };
+    let text = '';
+    let replyMarkup = openButton;
+    if (command === '/start' || command === '/account' || command === '/miniapp') {
+      text = command === '/start'
+        ? 'حساب Cat شما آماده است. برای ورود امن، مینی‌اپ را باز کنید.'
+        : 'حساب و اشتراک‌های شما فقط پس از اعتبارسنجی امن Mini App نمایش داده می‌شوند.';
+    } else if (command === '/status') {
+      const stats = await env.DB.prepare(`SELECT status,COUNT(*) count FROM deployments WHERE user_id=? GROUP BY status`).bind(userId).all();
+      const values = Object.fromEntries((stats.results || []).map(row => [row.status, Number(row.count)]));
+      const total = Object.values(values).reduce((sum, count) => sum + count, 0);
+      text = total ? `وضعیت deploymentها\n✅ سالم: ${values.HEALTHY || 0}\n❌ ناموفق: ${values.FAILED || 0}\n⚪ نامشخص: ${(values.UNKNOWN || 0) + (values.INCONCLUSIVE || 0)}\n⛔ مسدود: ${values.BLOCKED || 0}` : 'هنوز deployment ثبت نشده است.';
+    } else if (command === '/help') {
+      text = '/account — حساب من\n/miniapp — بازکردن پنل\n/status — وضعیت deploymentها\n/help — راهنما';
+    } else {
+      text = 'دستور شناخته نشد. از /help استفاده کنید.';
+      replyMarkup = undefined;
+    }
+    ctx.waitUntil(telegramCall(env, 'sendMessage', { chat_id: message.chat.id, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => {}));
+    return json({ ok: true });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/logout') {
+    const plain = (request.headers.get('cookie') || '').match(/(?:^|;\s*)cat_portal=([^;]+)/)?.[1];
+    if (plain) await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await digest(plain)).run();
+    return json({ ok: true }, 200, { 'set-cookie': cookie('', 0) });
+  }
+  const user = await actor(env, request);
+  if (request.method === 'GET' && url.pathname === '/api/me') return user ? json({ ok: true, user }) : json({ error: 'unauthorized' }, 401);
+  if (request.method === 'POST' && url.pathname === '/api/account/credentials') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), email = normalizeEmail(input.email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json({ error: 'invalid_email' }, 400);
+    try {
+      await env.DB.prepare('UPDATE users SET email=?,password_hash=?,display_name=? WHERE id=?')
+        .bind(email, await passwordHash(input.password), String(input.displayName || user.display_name || email.split('@')[0]).slice(0, 80), user.id).run();
+      await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'account.credentials_updated', Date.now()).run();
+      return json({ ok: true });
+    } catch (error) { return json({ error: String(error).includes('UNIQUE') ? 'account_exists' : error.message }, 400); }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/sessions/revoke-others') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const current = (request.headers.get('cookie') || '').match(/(?:^|;\s*)cat_portal=([^;]+)/)?.[1];
+    if (!current) return json({ error: 'unauthorized' }, 401);
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').bind(user.id, await digest(current)).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'sessions.others_revoked', Date.now()).run();
+    return json({ ok: true });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/subscriptions') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    if (!env.SUBSCRIPTION_SIGNING_SECRET) return json({ error: 'subscription_not_configured' }, 503);
+    const rows = await env.DB.prepare('SELECT id,name,links_json,enabled,expires_at,created_at,updated_at FROM subscriptions WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all();
+    const origin = new URL(request.url).origin;
+    const subscriptions = await Promise.all((rows.results || []).map(async row => ({ ...row, linkCount: subscriptionLinks(JSON.parse(row.links_json || '[]')).length, links_json: undefined, url: `${origin}/sub/${row.id}/${await subscriptionSignature(env, row.id)}` })));
+    return json({ ok: true, subscriptions });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/subscriptions') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    if (!env.SUBSCRIPTION_SIGNING_SECRET) return json({ error: 'subscription_not_configured' }, 503);
+    const input = await body(request), name = String(input.name || '').trim().slice(0, 80), links = subscriptionLinks(input.links), now = Date.now();
+    if (!name || !links.length) return json({ error: 'invalid_subscription' }, 400);
+    const expiresAt = input.expiresAt == null ? null : Number(input.expiresAt);
+    if (expiresAt != null && (!Number.isFinite(expiresAt) || expiresAt <= now)) return json({ error: 'invalid_expiry' }, 400);
+    const id = crypto.randomUUID();
+    await env.DB.prepare('INSERT INTO subscriptions(id,user_id,name,links_json,enabled,expires_at,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?)').bind(id, user.id, name, JSON.stringify(links), expiresAt, now, now).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'subscription.created', now).run();
+    return json({ ok: true, subscription: { id, name, linkCount: links.length, url: `${new URL(request.url).origin}/sub/${id}/${await subscriptionSignature(env, id)}` } }, 201);
+  }
+  const subMatch = url.pathname.match(/^\/api\/subscriptions\/([0-9a-f-]{36})$/i);
+  if (request.method === 'PUT' && subMatch) {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), name = String(input.name || '').trim().slice(0, 80), links = subscriptionLinks(input.links), now = Date.now();
+    if (!name || !links.length) return json({ error: 'invalid_subscription' }, 400);
+    const found = await env.DB.prepare('SELECT id FROM subscriptions WHERE id=? AND user_id=?').bind(subMatch[1], user.id).first();
+    if (!found) return json({ error: 'not_found' }, 404);
+    await env.DB.prepare('UPDATE subscriptions SET name=?,links_json=?,updated_at=? WHERE id=? AND user_id=?').bind(name, JSON.stringify(links), now, found.id, user.id).run();
+    return json({ ok: true });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/deployments') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const input = await body(request), origin = publicHttpsOrigin(input.url), target = String(input.target || '');
+    if (!origin || !['worker', 'pages', 'railway'].includes(target)) return json({ error: 'invalid_deployment' }, 400);
+    const id = crypto.randomUUID(), now = Date.now(), name = String(input.name || new URL(origin).hostname).trim().slice(0, 80);
+    if (!name) return json({ error: 'invalid_name' }, 400);
+    await env.DB.prepare('INSERT INTO deployments(id,user_id,name,target,url,status,last_probe_at,created_at) VALUES(?,?,?,?,?,\'UNKNOWN\',NULL,?)')
+      .bind(id, user.id, name, target, origin, now).run();
+    await env.DB.prepare('INSERT INTO audit_events(id,user_id,action,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(), user.id, 'deployment.registered', now).run();
+    return json({ ok: true, deployment: { id, name, target, url: origin, status: 'UNKNOWN', last_probe_at: null, created_at: now } }, 201);
+  }
+  const probeMatch = url.pathname.match(/^\/api\/deployments\/([0-9a-f-]{36})\/probe$/i);
+  if (request.method === 'POST' && probeMatch) {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const row = await env.DB.prepare('SELECT id,url,target FROM deployments WHERE id=? AND user_id=?').bind(probeMatch[1], user.id).first();
+    if (!row) return json({ error: 'not_found' }, 404);
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 6000), checkedAt = Date.now();
+    let status = 'FAILED', httpStatus = null, reason = 'network_error';
+    try {
+      const response = await fetch(`${row.url}/health?cat_probe=${crypto.randomUUID()}`, { headers: { accept: 'application/json', 'cache-control': 'no-store' }, redirect: 'error', signal: controller.signal });
+      httpStatus = response.status;
+      if (response.ok) { status = 'HEALTHY'; reason = 'http_2xx'; }
+      else { status = 'FAILED'; reason = `http_${response.status}`; }
+      await response.body?.cancel();
+    } catch (error) { status = error?.name === 'AbortError' ? 'INCONCLUSIVE' : 'FAILED'; reason = error?.name === 'AbortError' ? 'timeout' : 'network_error'; }
+    finally { clearTimeout(timer); }
+    await env.DB.prepare('UPDATE deployments SET status=?,last_probe_at=? WHERE id=? AND user_id=?').bind(status, checkedAt, row.id, user.id).run();
+    return json({ ok: status === 'HEALTHY', status, httpStatus, reason, checkedAt }, status === 'HEALTHY' ? 200 : 502);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/deployments') {
+    if (!user) return json({ error: 'unauthorized' }, 401);
+    const rows = await env.DB.prepare('SELECT id,name,target,url,status,last_probe_at,created_at FROM deployments WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all();
+    return json({ ok: true, deployments: rows.results || [] });
+  }
+  return json({ error: 'not_found' }, 404);
+}
+export { verifyTelegramInit };
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    try {
+      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/sub/')) return await api(request, env, ctx, url);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      console.error('portal_request_failed', { path: url.pathname, type: error?.name || 'Error' });
+      const status = error?.message === 'body_too_large' ? 413 : 500;
+      return json({ error: status === 500 ? 'internal_error' : error.message, requestId: crypto.randomUUID() }, status);
+    }
+  },
+  async scheduled(_event, env) {
+    await env.DB.prepare('DELETE FROM sessions WHERE expires_at<=?').bind(Date.now()).run();
+  },
+};

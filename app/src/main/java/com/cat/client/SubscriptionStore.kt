@@ -22,12 +22,19 @@ data class ConnectionDelayRecord(
     val status: ConnectionDelayStatus,
     val testedAt: Long,
     val speedKbps: Int? = null,
+    val networkKey: String = "",
 )
 
 object ConnectionDelayRecordPolicy {
     fun latest(records: List<ConnectionDelayRecord>): List<ConnectionDelayRecord> =
         records
             .groupBy { it.subscriptionId to it.fingerprint }
+            .mapNotNull { (_, matches) -> matches.maxByOrNull(ConnectionDelayRecord::testedAt) }
+
+    /** Storage keeps one result per route and network; the old reader may still request overall latest. */
+    fun latestPerNetwork(records: List<ConnectionDelayRecord>): List<ConnectionDelayRecord> =
+        records
+            .groupBy { Triple(it.subscriptionId, it.fingerprint, it.networkKey) }
             .mapNotNull { (_, matches) -> matches.maxByOrNull(ConnectionDelayRecord::testedAt) }
 }
 
@@ -204,6 +211,24 @@ class SubscriptionStore(private val context: Context) {
             )
     }
 
+    fun readConnectionDelayRecordsForNetwork(
+        subscriptionId: String,
+        profiles: List<ConnectionProfile>,
+        networkKey: String,
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = ProfileDelayCacheDefaults.DELAY_CACHE_TTL_MS,
+    ): List<ConnectionDelayRecord> = synchronized(DELAY_RECORDS_LOCK) {
+        val fingerprints = profiles.mapTo(mutableSetOf(), ConnectionProfile::fingerprint)
+        ConnectionDelayRecordPolicy.latest(
+            readDelayRecords().filter { record ->
+                (record.subscriptionId == subscriptionId || record.subscriptionId.isBlank()) &&
+                    record.fingerprint in fingerprints &&
+                    record.networkKey == networkKey &&
+                    nowMs - record.testedAt in 0..ttlMs
+            },
+        )
+    }
+
     fun saveConnectionDelayRecord(record: ConnectionDelayRecord) =
         saveConnectionDelayRecords(listOf(record))
 
@@ -218,7 +243,7 @@ class SubscriptionStore(private val context: Context) {
                 record.subscriptionId.isBlank() && record.fingerprint in updatedFingerprints
             }
             writeDelayRecords(
-                ConnectionDelayRecordPolicy.latest(normalizedUpdates + existing),
+                ConnectionDelayRecordPolicy.latestPerNetwork(normalizedUpdates + existing),
             )
         }
     }
@@ -250,7 +275,7 @@ class SubscriptionStore(private val context: Context) {
                 record.copy(subscriptionId = subscriptionId)
             }
         }
-        val normalized = ConnectionDelayRecordPolicy.latest(kept)
+        val normalized = ConnectionDelayRecordPolicy.latestPerNetwork(kept)
         if (removed > 0 || normalized != existing) {
             writeDelayRecords(normalized)
         }
@@ -306,6 +331,7 @@ class SubscriptionStore(private val context: Context) {
                             status = status,
                             testedAt = testedAt,
                             speedKbps = item.optInt("speedKbps", -1).takeIf { it > 0 },
+                            networkKey = item.optString("networkKey"),
                         ),
                     )
                 }
@@ -341,6 +367,7 @@ class SubscriptionStore(private val context: Context) {
                     .put("delayMs", record.delayMs ?: JSONObject.NULL)
                     .put("speedKbps", record.speedKbps ?: JSONObject.NULL)
                     .put("status", record.status.wireName)
+                    .put("networkKey", record.networkKey)
                     .put("testedAt", record.testedAt),
             )
         }
