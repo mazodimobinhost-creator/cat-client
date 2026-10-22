@@ -1,8 +1,8 @@
-# Android failure report (da5804d)
+# Android failure report (1148e3f)
 
 
 ## files with compile errors
-      2 app/src/main/java/com/cat/client/CatClientVpnService.kt
+      7 app/src/main/java/com/cat/client/MainActivity.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -37,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3526) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3855) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -55,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3541) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3870) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -65,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3561) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3889) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -98,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3573) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3901) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -169,8 +169,13 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:processDebugManifestForPackage
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/CatClientVpnService.kt:4065:25 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/CatClientVpnService.kt:4065:66 Unresolved reference 'read'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3985:26 Unresolved reference 'PreferenceRowView'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3985:50 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3985:56 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3986:13 Unresolved reference 'setRow'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3987:13 Unresolved reference 'contentDescription'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3988:13 Unresolved reference 'setOnRowClickListener'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3993:13 Unresolved reference 'isEnabled'.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -187,5 +192,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 45s
+BUILD FAILED in 1m 53s
 16 actionable tasks: 16 executed
