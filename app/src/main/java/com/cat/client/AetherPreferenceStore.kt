@@ -51,6 +51,58 @@ data class AetherSelection(
         else -> "iran"
     }
 
+    /**
+     * Builds a shareable/copyable `aether://?...#Name` URI representing this Aether configuration,
+     * compatible with both Cat Client and PattNG.
+     */
+    fun toAetherUri(): String {
+        val effExit = effectiveExitLocation()
+        val finalMode = simplifyModeForChain(mode, chainTarget)
+        val proto = when {
+            chainTarget in setOf("psiphon", "tor") ->
+                if (finalMode == AetherMode.MasqueHttp2) "masque" else "wg"
+            finalMode == AetherMode.WireGuard && effExit == "foreign" -> "gool"
+            finalMode == AetherMode.WireGuard -> "wg"
+            finalMode == AetherMode.WireGuardOverMasque || (finalMode == AetherMode.MasqueHttp2 && effExit == "foreign") ->
+                "wg-over-masque"
+            else -> "masque"
+        }
+        val params = mutableListOf("protocol=$proto")
+        if (proto == "masque" || proto == "wg-over-masque") {
+            params += "transport=h2"
+            params += "fingerprint=semi-python"
+            params += "fragment=1"
+            params += "fragment_size=8-16"
+            params += "fragment_delay=5-10"
+        }
+        params += "ip=${ipScan.takeIf { it in setOf("both", "v4", "v6") } ?: "both"}"
+        params += "scan=balanced"
+        endpoint?.takeIf { it.isNotBlank() }?.let { peer ->
+            params += "endpoint=${java.net.URLEncoder.encode(peer, "UTF-8")}"
+        }
+        if (chainTarget == "psiphon" || mode == AetherMode.MasquePsiphon) {
+            params += "cfil=psiphon"
+            params += "chain=psiphon"
+            if (psiphonRegion.matches(Regex("[A-Z]{2}"))) {
+                params += "region=$psiphonRegion"
+            }
+        } else if (chainTarget == "tor") {
+            params += "cfil=tor"
+            params += "chain=tor"
+        }
+        params += "exit_loc=${if (effExit == "iran") "IR" else "!IR"}"
+        val labelBase = profileName.trim().ifEmpty {
+            when (proto) {
+                "gool" -> "Aether-Gool"
+                "wg-over-masque" -> "Aether-WG-MASQUE"
+                "wg" -> "Aether-WARP"
+                else -> "Aether-MASQUE-H2"
+            }
+        }
+        val hash = java.net.URLEncoder.encode(labelBase, "UTF-8").replace("+", "%20")
+        return "aether://?${params.joinToString("&")}#$hash"
+    }
+
     companion object {
         const val ENDPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000L
         val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "tor")
@@ -62,6 +114,57 @@ data class AetherSelection(
                 AetherMode.WireGuard, AetherMode.MasqueHttp2 -> mode
                 else -> AetherMode.WireGuard
             }
+        }
+
+        fun fromAetherUri(raw: String, nowMs: Long = System.currentTimeMillis()): AetherSelection? {
+            val trimmed = raw.trim()
+            if (!trimmed.startsWith("aether://", ignoreCase = true)) return null
+            val withoutScheme = trimmed.substring("aether://".length)
+            val hashIdx = withoutScheme.indexOf('#')
+            val beforeHash = if (hashIdx >= 0) withoutScheme.substring(0, hashIdx) else withoutScheme
+            val rawFragment = if (hashIdx >= 0) withoutScheme.substring(hashIdx + 1) else ""
+            val qIdx = beforeHash.indexOf('?')
+            val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else beforeHash.trimStart('/')
+            val map = mutableMapOf<String, String>()
+            query.split('&').forEach { pair ->
+                val eq = pair.indexOf('=')
+                if (eq > 0) {
+                    val k = runCatching { java.net.URLDecoder.decode(pair.substring(0, eq), "UTF-8") }.getOrDefault("")
+                    val v = runCatching { java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8") }.getOrDefault("")
+                    if (k.isNotBlank()) map[k.lowercase()] = v.trim()
+                }
+            }
+            val proto = map["protocol"].orEmpty().lowercase()
+            val chainRaw = (map["chain"] ?: map["cfil"]).orEmpty().lowercase()
+            val chainTarget = if (chainRaw in setOf("psiphon", "tor")) chainRaw else "none"
+            val exitLocRaw = map["exit_loc"].orEmpty().uppercase()
+            val exitLocation = when {
+                chainTarget != "none" -> "foreign"
+                exitLocRaw == "IR" -> "iran"
+                exitLocRaw == "!IR" || proto in setOf("gool", "wiw", "wg-over-masque", "wom") -> "foreign"
+                else -> "iran"
+            }
+            val baseMode = when (proto) {
+                "wg", "wireguard", "gool", "wiw" -> AetherMode.WireGuard
+                "wg-over-masque", "wom" ->
+                    if (chainTarget != "none") AetherMode.MasqueHttp2 else AetherMode.WireGuardOverMasque
+                else -> AetherMode.MasqueHttp2
+            }
+            val ipScan = map["ip"].orEmpty().lowercase().takeIf { it in setOf("both", "v4", "v6") } ?: "both"
+            val peer = (map["endpoint"] ?: map["peer"])?.takeIf(AetherOperations::isSafePublicPeer)
+            val region = map["region"].orEmpty().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+            val name = runCatching { java.net.URLDecoder.decode(rawFragment, "UTF-8") }.getOrDefault(rawFragment).trim()
+            return AetherSelection(
+                enabled = true,
+                mode = simplifyModeForChain(baseMode, chainTarget),
+                endpoint = peer,
+                endpointScannedAt = if (peer != null) nowMs else 0L,
+                psiphonRegion = region,
+                ipScan = ipScan,
+                profileName = name.ifEmpty { "Aether" },
+                chainTarget = chainTarget,
+                exitLocation = exitLocation,
+            )
         }
     }
 }

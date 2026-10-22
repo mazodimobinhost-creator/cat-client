@@ -504,6 +504,11 @@ class MainActivity : Activity() {
      */
     private fun handleCatClientDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
+        if (data.scheme.equals("aether", ignoreCase = true)) {
+            val parsed = AetherSelection.fromAetherUri(data.toString()) ?: return
+            mainHandler.post { importAndConnectAetherSelection(parsed) }
+            return
+        }
         if (data.scheme != "catclient") return
         when (data.host) {
             "add-sub" -> {
@@ -1529,6 +1534,10 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
+                AetherSelection.fromAetherUri(link)?.let { parsed ->
+                    importAndConnectAetherSelection(parsed)
+                    return@setPositiveButton
+                }
                 normalizedSubscriptionSource(link)?.let { source ->
                     addSingleConfig(source, scannedSubscriptionName(source) ?: "Cat Single")
                 } ?: Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
@@ -2032,16 +2041,62 @@ class MainActivity : Activity() {
     }
 
     private fun addSubscriptionFromClipboard() {
-        val source = getSystemService(ClipboardManager::class.java).primaryClip
+        val rawClip = getSystemService(ClipboardManager::class.java).primaryClip
             ?.takeIf { it.itemCount > 0 }
             ?.getItemAt(0)
             ?.coerceToText(this)
             ?.toString()
-            .let(::normalizedSubscriptionSource)
+            ?.trim()
+            .orEmpty()
+        AetherSelection.fromAetherUri(rawClip)?.let { parsed ->
+            importAndConnectAetherSelection(parsed)
+            return
+        }
+        val source = normalizedSubscriptionSource(rawClip)
         if (source == null) {
             Toast.makeText(this, R.string.subscription_clipboard_empty, Toast.LENGTH_SHORT).show()
         } else {
             showAddSubscriptionDialog(source, scannedSubscriptionName(source).orEmpty())
+        }
+    }
+
+    private fun importAndConnectAetherSelection(selection: AetherSelection) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val now = System.currentTimeMillis()
+        val peer = selection.endpoint ?: when {
+            selection.ipScan == "v6" && selection.mode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+            selection.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+            selection.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
+            else -> "162.159.198.1:443"
+        }
+        val ready = selection.copy(
+            enabled = true,
+            endpoint = peer,
+            endpointScannedAt = now,
+        )
+        aetherPreferenceStore.save(ready)
+        aetherPreferenceStore.saveNamedProfile(
+            AetherSavedProfile(
+                name = ready.profileName.ifBlank { "Aether" },
+                mode = ready.mode,
+                ipScan = ready.ipScan,
+                endpoint = peer,
+                scannedAt = now,
+                chainTarget = ready.chainTarget,
+                exitLocation = ready.exitLocation,
+            ),
+        )
+        Toast.makeText(
+            this,
+            if (isFarsi) "🚀 کانفیگ Aether «${ready.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
+            else "🚀 Aether '${ready.profileName}' enabled — connecting directly in Cat Client…",
+            Toast.LENGTH_LONG,
+        ).show()
+        openScreen(SCREEN_HOME)
+        if (currentVpnServiceState == VpnState.Started) {
+            reconnectForConnectionOptionChange()
+        } else {
+            beginConnectFlow(Actions.CONNECT)
         }
     }
 
@@ -10452,6 +10507,80 @@ class MainActivity : Activity() {
         }
         card.addView(exitLocControlRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Row 5: Direct 1-Tap Connect to Aether inside Cat Client + Copy aether:// URI + Switch to Normal Sub
+        val aetherDirectRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🚀 اتصال مستقیم Aether" else "🚀 Connect Aether Now",
+                    accent = true,
+                ) {
+                    val cur = aetherPreferenceStore.read()
+                    val peer = cur.endpoint ?: when {
+                        cur.ipScan == "v6" && cur.mode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+                        cur.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+                        cur.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
+                        else -> "162.159.198.1:443"
+                    }
+                    aetherPreferenceStore.save(
+                        cur.copy(
+                            enabled = true,
+                            endpoint = peer,
+                            endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        ),
+                    )
+                    refreshEngineSummary()
+                    renderAdvancedControls()
+                    openScreen(SCREEN_HOME)
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    } else {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1.15f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "📋 کپی لینک aether://" else "📋 Copy aether://",
+                    accent = false,
+                ) {
+                    val uri = aetherPreferenceStore.read().toAetherUri()
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+                LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginStart = dp(6) },
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🔄 ساب عادی" else "🔄 Normal Sub",
+                    accent = false,
+                ) {
+                    val cur = aetherPreferenceStore.read()
+                    aetherPreferenceStore.save(cur.copy(enabled = false))
+                    refreshEngineSummary()
+                    renderAdvancedControls()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "🔄 حالت مستقیم Aether خاموش شد — دکمه اتصال اکنون به کانفیگ‌های ساب/پنل شما وصل می‌شود"
+                        else "🔄 Direct Aether disabled — main Connect button now uses your Subscription configs",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 0.9f).apply { marginStart = dp(6) },
+            )
+        }
+        card.addView(aetherDirectRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         return card
     }
 
@@ -10689,6 +10818,44 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
 
+        val uriPreviewBox = TextView(this).apply {
+            textSize = 11f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setTextIsSelectable(true)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(withAlpha(SURFACE, 210))
+                setStroke(dp(1), withAlpha(OUTLINE, 180))
+            }
+        }
+
+        fun currentDraftSelection(): AetherSelection {
+            val finalMode = AetherSelection.simplifyModeForChain(chosenMode, chosenChain)
+            val profName = nameInput.text?.toString()?.trim().orEmpty().ifBlank {
+                if (finalMode == AetherMode.WireGuard) "WARP-${chosenIpScan.uppercase(Locale.US)}" else "MASQUE-H2"
+            }
+            val finalPeer = scannedEndpoint ?: when {
+                chosenIpScan == "v6" && finalMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+                chosenIpScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+                finalMode == AetherMode.WireGuard -> "162.159.192.1:2408"
+                else -> "162.159.198.1:443"
+            }
+            return current.copy(
+                enabled = true,
+                mode = finalMode,
+                endpoint = finalPeer,
+                endpointScannedAt = System.currentTimeMillis(),
+                ipScan = chosenIpScan,
+                profileName = profName,
+                chainTarget = chosenChain,
+                exitLocation = chosenExitLocation,
+            )
+        }
+
         fun updateStateLabel() {
             val modeName = when (chosenMode) {
                 AetherMode.WireGuard -> "WireGuard (WARP)"
@@ -10715,13 +10882,23 @@ class MainActivity : Activity() {
                 }
                 else -> if (isFarsi) "🇮🇷 آی‌پی ایران (تک‌لایه · سریع‌ترین)" else "🇮🇷 Iran IP (Single-Hop · Fastest)"
             }
-            val epName = scannedEndpoint ?: if (isFarsi) "هنوز اسکن نشده" else "Not scanned yet"
+            val epName = scannedEndpoint ?: if (isFarsi) "هنوز اسکن نشده (پیش‌فرض کلودفلر)" else "Not scanned yet (Cloudflare default)"
             stateLabel.text = if (isFarsi) {
-                "مکان آی‌پی خروجی: $exitLocLabel\nپروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName"
+                "مکان آی‌پی خروجی: $exitLocLabel\nپروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName\n💡 موتور Aether داخل همین برنامه است (بدون نیاز به پنل)؛ با دکمه «🚀 ذخیره و اتصال فوری» مستقیماً وصل شوید یا لینک aether:// زیر را کپی کنید:"
             } else {
-                "Exit IP Location: $exitLocLabel\nProtocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName"
+                "Exit IP Location: $exitLocLabel\nProtocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName\n💡 Aether runs built-in inside Cat Client (no panel needed); tap '🚀 Save & Connect Now' or copy the aether:// URI below:"
             }
+            uriPreviewBox.text = currentDraftSelection().toAetherUri()
         }
+        nameInput.addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    uriPreviewBox.text = currentDraftSelection().toAetherUri()
+                }
+            },
+        )
         updateStateLabel()
         root.addView(stateLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
@@ -10989,6 +11166,33 @@ class MainActivity : Activity() {
         }
         root.addView(scanBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         root.addView(nameInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        root.addView(uriPreviewBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val copyAndQrRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                chipBtn(if (isFarsi) "📋 کپی لینک کانفیگ aether://" else "📋 Copy aether:// Link", accent = true) {
+                    val uri = currentDraftSelection().toAetherUri()
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                chipBtn(if (isFarsi) "▦ بارکد QR کانفیگ" else "▦ Show QR Code") {
+                    val draft = currentDraftSelection()
+                    showConfigQrCodes(listOf(draft.toAetherUri()), draft.profileName)
+                },
+                LinearLayout.LayoutParams(0, -2, 0.7f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(copyAndQrRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val savedProfiles = aetherPreferenceStore.readSavedProfiles()
         if (savedProfiles.isNotEmpty()) {
@@ -11018,53 +11222,58 @@ class MainActivity : Activity() {
             }
         }
 
+        fun persistDraftSelection(copyLinkToClipboard: Boolean): AetherSelection {
+            val draft = currentDraftSelection()
+            val now = System.currentTimeMillis()
+            aetherPreferenceStore.save(draft.copy(endpointScannedAt = now))
+            aetherPreferenceStore.saveNamedProfile(
+                AetherSavedProfile(
+                    name = draft.profileName,
+                    mode = draft.mode,
+                    ipScan = draft.ipScan,
+                    endpoint = draft.endpoint.orEmpty(),
+                    scannedAt = now,
+                    chainTarget = draft.chainTarget,
+                    exitLocation = draft.exitLocation,
+                ),
+            )
+            if (copyLinkToClipboard) {
+                val uri = draft.toAetherUri()
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
+            }
+            onSaved?.invoke()
+            return draft
+        }
+
         val scroll = ScrollView(this).apply { addView(root) }
         MaterialAlertDialogBuilder(this)
             .setTitle(if (isFarsi) "➕ افزودن Aether (WARP / MASQUE-HTTP/2)" else "➕ Add Aether (WARP / MASQUE-HTTP/2)")
             .setView(scroll)
             .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(if (isFarsi) "💾 ۴) ذخیره و فعال‌سازی" else "💾 4) Save & Enable") { _, _ ->
-                val finalMode = AetherSelection.simplifyModeForChain(chosenMode, chosenChain)
-                val profName = nameInput.text?.toString()?.trim().orEmpty().ifBlank {
-                    if (finalMode == AetherMode.WireGuard) "WARP-${chosenIpScan.uppercase(Locale.US)}" else "MASQUE-H2"
-                }
-                val finalPeer = scannedEndpoint ?: when {
-                    chosenIpScan == "v6" && finalMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
-                    chosenIpScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
-                    finalMode == AetherMode.WireGuard -> "162.159.192.1:2408"
-                    else -> "162.159.198.1:443"
-                }
-                val now = System.currentTimeMillis()
-                aetherPreferenceStore.save(
-                    aetherPreferenceStore.read().copy(
-                        enabled = true,
-                        mode = finalMode,
-                        endpoint = finalPeer,
-                        endpointScannedAt = now,
-                        ipScan = chosenIpScan,
-                        profileName = profName,
-                        chainTarget = chosenChain,
-                        exitLocation = chosenExitLocation,
-                    ),
-                )
-                aetherPreferenceStore.saveNamedProfile(
-                    AetherSavedProfile(
-                        name = profName,
-                        mode = finalMode,
-                        ipScan = chosenIpScan,
-                        endpoint = finalPeer,
-                        scannedAt = now,
-                        chainTarget = chosenChain,
-                        exitLocation = chosenExitLocation,
-                    ),
-                )
+            .setNeutralButton(if (isFarsi) "📋 ذخیره + کپی لینک" else "📋 Save & Copy Link") { _, _ ->
+                val saved = persistDraftSelection(copyLinkToClipboard = true)
                 Toast.makeText(
                     this,
-                    if (isFarsi) "✅ پروفایل Aether «$profName» ($finalPeer) ذخیره و فعال شد"
-                    else "✅ Aether profile '$profName' ($finalPeer) saved & enabled",
+                    if (isFarsi) "✅ پروفایل «${saved.profileName}» ذخیره شد و لینک aether:// در کلیپ‌بورد کپی شد"
+                    else "✅ Saved '${saved.profileName}' & copied aether:// link to clipboard",
                     Toast.LENGTH_LONG,
                 ).show()
-                onSaved?.invoke()
+            }
+            .setPositiveButton(if (isFarsi) "🚀 ۴) ذخیره و اتصال فوری" else "🚀 4) Save & Connect Now") { _, _ ->
+                val saved = persistDraftSelection(copyLinkToClipboard = false)
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "🚀 پروفایل Aether «${saved.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
+                    else "🚀 Aether '${saved.profileName}' enabled — connecting directly in Cat Client…",
+                    Toast.LENGTH_LONG,
+                ).show()
+                openScreen(SCREEN_HOME)
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
             }
             .create()
             .showCatClientDialog()

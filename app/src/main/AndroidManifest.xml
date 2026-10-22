@@ -118,6 +118,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="catclient" android:host="scan" />
             </intent-filter>
+            <!-- Direct Aether URI import: aether://?protocol=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="aether" />
+            </intent-filter>
         </activity>
 
         <receiver
