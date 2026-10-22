@@ -12,4 +12,14 @@ class PsiphonTunPlanTest {
         assertTrue(yaml.contains("MATCH,CAT-AETHER-PSIPHON"))
         assertThrows(IllegalArgumentException::class.java) { PsiphonTunPlan.yaml(80) }
     }
+
+    @Test fun torChainYamlRoutesTorThroughSimpleWarpCarrier() {
+        val yaml = PsiphonTunPlan.torChainYaml(aetherSocksPort = 1819, torSocksPort = 9050, torReachable = true)
+        assertTrue(yaml.contains("name: 'CAT-WARP-CARRIER'"))
+        assertTrue(yaml.contains("port: 1819"))
+        assertTrue(yaml.contains("name: 'CAT-TOR-EXIT'"))
+        assertTrue(yaml.contains("port: 9050"))
+        assertTrue(yaml.contains("dialer-proxy: 'CAT-WARP-CARRIER'"))
+        assertTrue(yaml.contains("MATCH,CAT-AETHER-TOR"))
+    }
 }

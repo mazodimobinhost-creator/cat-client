@@ -14,9 +14,11 @@ internal class AetherPsiphonChain(
     protectSocket: (Int) -> Boolean,
     endpoint: String? = null,
     private val aetherPort: Int = 1819,
+    carrierMode: AetherMode = AetherMode.MasqueHttp2,
+    ipScan: String = "both",
 ) : Closeable {
     private val active = AtomicBoolean(false)
-    private val aether = AetherProxyCarrier(scope, identityFile, protectSocket, endpoint, aetherPort)
+    private val aether = AetherProxyCarrier(scope, identityFile, protectSocket, endpoint, aetherPort, carrierMode, ipScan)
     private val psiphon = PsiphonCarrierClient(context)
 
     suspend fun start(region: String = ""): PsiphonCarrierState {

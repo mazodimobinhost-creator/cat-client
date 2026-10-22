@@ -10166,19 +10166,25 @@ class MainActivity : Activity() {
         fun refreshEngineSummary() {
             val aetherSel = aetherPreferenceStore.read()
             val hasKey = java.io.File(filesDir, "aether.toml").exists() && java.io.File(filesDir, "aether.toml").length() > 0L
-            val psiphonActive = aetherSel.enabled && aetherSel.mode == AetherMode.MasquePsiphon
+            val psiphonActive = aetherSel.enabled && (aetherSel.mode == AetherMode.MasquePsiphon || aetherSel.chainTarget == "psiphon")
+            val torChainActive = aetherSel.enabled && aetherSel.chainTarget == "tor"
             val psiphonRegion = aetherSel.psiphonRegion.ifBlank { if (isFarsi) "اتوماتیک (سریع‌ترین)" else "Auto" }
-            val orbotEnabled = orbotEnginePreferenceStore.isEnabled()
+            val orbotEnabled = orbotEnginePreferenceStore.isEnabled() || torChainActive
             val namePrefix = aetherSel.profileName.takeIf { it.isNotBlank() }?.let { "[$it] " }.orEmpty()
-            val endpointLabel = aetherSel.endpoint?.let { "$namePrefix$it (${aetherSel.ipScan.uppercase(Locale.US)})" }
-                ?: if (isFarsi) "خودکار (${aetherSel.ipScan.uppercase(Locale.US)})" else "Auto (${aetherSel.ipScan.uppercase(Locale.US)})"
+            val chainSuffix = when (aetherSel.chainTarget) {
+                "psiphon" -> " → Psiphon"
+                "tor" -> " → Tor"
+                else -> ""
+            }
+            val endpointLabel = aetherSel.endpoint?.let { "$namePrefix$it (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)" }
+                ?: if (isFarsi) "خودکار (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)" else "Auto (${aetherSel.ipScan.uppercase(Locale.US)}$chainSuffix)"
             statusSummaryText.text = if (isFarsi) {
                 buildString {
                     append("🌀 سایفون: ")
-                    append(if (psiphonActive) "فعال ✅" else "آماده (حالت فعلی: ${modeLabelOf(aetherSel.mode)})")
+                    append(if (psiphonActive) "فعال (WARP → Psiphon) ✅" else "آماده (حالت فعلی: ${modeLabelOf(aetherSel.mode)})")
                     append(" · کشور: $psiphonRegion\n")
                     append("🧅 تور (Orbot): ")
-                    append(if (orbotEnabled) "روشن روی 127.0.0.1:9050 ✅" else "خاموش")
+                    append(if (torChainActive) "چین فعال (WARP → Tor) ✅" else if (orbotEnabled) "روشن روی 127.0.0.1:9050 ✅" else "خاموش")
                     append(" · پل اضطراری dnstt: ۳ پل رسمی آماده\n")
                     append("⚡ وارپ/MASQUE: ")
                     append(if (hasKey) "کلید آماده ✅" else "نیاز به دریافت کلید")
@@ -10187,10 +10193,10 @@ class MainActivity : Activity() {
             } else {
                 buildString {
                     append("🌀 Psiphon: ")
-                    append(if (psiphonActive) "Active ✅" else "Ready (Current: ${modeLabelOf(aetherSel.mode)})")
+                    append(if (psiphonActive) "Active (WARP → Psiphon) ✅" else "Ready (Current: ${modeLabelOf(aetherSel.mode)})")
                     append(" · Region: $psiphonRegion\n")
                     append("🧅 Tor (Orbot): ")
-                    append(if (orbotEnabled) "Enabled on 127.0.0.1:9050 ✅" else "Off")
+                    append(if (torChainActive) "Chained (WARP → Tor) ✅" else if (orbotEnabled) "Enabled on 127.0.0.1:9050 ✅" else "Off")
                     append(" · Emergency dnstt: 3 official bridges ready\n")
                     append("⚡ WARP/MASQUE: ")
                     append(if (hasKey) "Key provisioned ✅" else "No key yet")
@@ -10230,12 +10236,13 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "🌀 فعال‌سازی سایفون" else "🌀 Enable Psiphon",
+                    label = if (isFarsi) "🌀 چین WARP → سایفون" else "🌀 Chain WARP → Psiphon",
                     accent = true,
                 ) {
-                    updateEngineProgress(25, if (isFarsi) "در حال آماده‌سازی سایفون و کلید Masque…" else "Provisioning Psiphon + Masque…")
+                    updateEngineProgress(25, if (isFarsi) "در حال آماده‌سازی چین WARP → سایفون (با پروتکل ساده)…" else "Provisioning WARP → Psiphon chain (simple carrier)…")
                     val cur = aetherPreferenceStore.read()
-                    aetherPreferenceStore.save(cur.copy(enabled = true, mode = AetherMode.MasquePsiphon))
+                    val simpleCarrier = AetherSelection.simplifyModeForChain(cur.mode, "psiphon")
+                    aetherPreferenceStore.save(cur.copy(enabled = true, mode = simpleCarrier, chainTarget = "psiphon"))
                     activityScope.launch {
                         val tomlFile = java.io.File(filesDir, "aether.toml")
                         if (!tomlFile.exists() || tomlFile.length() == 0L) {
@@ -10244,10 +10251,10 @@ class MainActivity : Activity() {
                                 "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
                             } else null
                             withContext(Dispatchers.IO) {
-                                runCatching { AetherOperations.provision(AetherMode.MasquePsiphon, tomlFile, proxy, cur.ipScan) }
+                                runCatching { AetherOperations.provision(simpleCarrier, tomlFile, proxy, cur.ipScan) }
                             }
                         }
-                        updateEngineProgress(100, if (isFarsi) "✅ سایفون فعال شد" else "✅ Psiphon enabled")
+                        updateEngineProgress(100, if (isFarsi) "✅ چین WARP → سایفون (${simpleCarrier.wireName}) فعال شد" else "✅ WARP → Psiphon (${simpleCarrier.wireName}) enabled")
                         refreshEngineSummary()
                         renderAdvancedControls()
                     }
@@ -10380,6 +10387,7 @@ class MainActivity : Activity() {
         val current = aetherPreferenceStore.read()
         var chosenMode = if (current.mode == AetherMode.MasquePsiphon) AetherMode.WireGuard else current.mode
         var chosenIpScan = current.ipScan
+        var chosenChain = current.chainTarget
         var scannedEndpoint: String? = current.endpoint
 
         val root = LinearLayout(this).apply {
@@ -10406,10 +10414,15 @@ class MainActivity : Activity() {
                     "📌 فایروال ایرانسل:\n" +
                     "• روش WARP: پروتکل = WireGuard · نوع آی‌پی = هر نوع (IPv4/IPv6) ← اسکن ← ذخیره\n" +
                     "• روش MASQUE/H2: دقیقاً مشابه فایروال همراه اول\n" +
+                    "🔓 رفع تحریم (سایفون / تور):\n" +
+                    "• در صورت عدم رفع تحریم‌ها حتی با پروتکل wireguard-over-masque-HTTP/2، می‌توانید با چین کردن سایفون/تور (warp -> psiphon/tor) تحریم‌ها را دور بزنید.\n" +
+                    "• وقتی سایفون/تور را چین می‌کنید، بهتر است از پروتکل‌های ساده wireguard یا masque-h2 استفاده کنید (هنگام انتخاب چین، به‌صورت خودکار روی پروتکل ساده تنظیم می‌شود).\n" +
+                    "• دقت کنید tor/psiphon سرعت متوسطی دارند و بهتر است فقط در صورت نیاز به رفع تحریم از آن‌ها استفاده کنید.\n" +
                     "⚠️ در برخی مناطق سیم‌کارت همراه اول دارای فایروال ایرانسل است و بالعکس."
             } else {
                 "📌 MCI Firewall: (1) WARP + IPv6 (WireGuard + IPv6 → Scan → Name & Save) · (2) MASQUE-HTTP/2 → Scan → Name & Save.\n" +
                     "📌 Irancell Firewall: (1) WARP (WireGuard + Any IP → Scan → Save) · (2) MASQUE-HTTP/2.\n" +
+                    "🔓 Sanction Bypass (warp -> psiphon/tor): If geo-sanctions persist even with wireguard-over-masque-HTTP/2, chain Psiphon or Tor. When chaining Psiphon/Tor, use simple wireguard or masque-h2 protocols (note: tor/psiphon have medium speed; use only when sanction bypass is needed).\n" +
                     "⚠️ Note: Your active regional firewall may differ from your SIM brand."
             }
         }
@@ -10442,7 +10455,7 @@ class MainActivity : Activity() {
             val modeName = when (chosenMode) {
                 AetherMode.WireGuard -> "WireGuard (WARP)"
                 AetherMode.MasqueHttp2 -> "MASQUE-HTTP/2"
-                AetherMode.WireGuardOverMasque -> "WireGuard-over-MASQUE (Gool)"
+                AetherMode.WireGuardOverMasque -> "wireguard-over-masque-HTTP/2"
                 AetherMode.MasquePsiphon -> "Psiphon"
             }
             val ipName = when (chosenIpScan) {
@@ -10450,11 +10463,16 @@ class MainActivity : Activity() {
                 "v4" -> "IPv4"
                 else -> if (isFarsi) "هر دو (IPv4 + IPv6)" else "Both (IPv4 + IPv6)"
             }
+            val chainName = when (chosenChain) {
+                "psiphon" -> if (isFarsi) "WARP → Psiphon (رفع تحریم · سرعت متوسط)" else "WARP → Psiphon (Sanction Bypass · Medium Speed)"
+                "tor" -> if (isFarsi) "WARP → Tor (رفع تحریم · سرعت متوسط)" else "WARP → Tor (Sanction Bypass · Medium Speed)"
+                else -> if (isFarsi) "بدون چین (مستقیم · سرعت کامل)" else "Direct (No Chain · Full Speed)"
+            }
             val epName = scannedEndpoint ?: if (isFarsi) "هنوز اسکن نشده" else "Not scanned yet"
             stateLabel.text = if (isFarsi) {
-                "پروتکل: $modeName · نوع آی‌پی: $ipName\nآی‌پی منتخب: $epName"
+                "پروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName"
             } else {
-                "Protocol: $modeName · IP Type: $ipName\nSelected IP: $epName"
+                "Protocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName"
             }
         }
         updateStateLabel()
@@ -10527,13 +10545,24 @@ class MainActivity : Activity() {
                     val modes = listOf(AetherMode.WireGuard, AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque)
                     val modeTitles = arrayOf(
                         "WireGuard (WARP)",
-                        "MASQUE-HTTP/2",
-                        "WireGuard-over-MASQUE (Gool)",
+                        "MASQUE-HTTP/2 (masque-h2)",
+                        "wireguard-over-masque-HTTP/2 (Gool)",
                     )
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(if (isFarsi) "انتخاب پروتکل Aether" else "Select Aether Protocol")
                         .setItems(modeTitles) { _, idx ->
-                            chosenMode = modes[idx]
+                            val picked = modes[idx]
+                            if (picked == AetherMode.WireGuardOverMasque && chosenChain != "none") {
+                                chosenMode = AetherMode.WireGuard
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "ℹ️ هنگام چین کردن سایفون/تور بهتر است از پروتکل ساده (wireguard یا masque-h2) استفاده شود"
+                                    else "ℹ️ When chaining Psiphon/Tor, simple wireguard/masque-h2 is used",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else {
+                                chosenMode = picked
+                            }
                             updateStateLabel()
                         }
                         .show()
@@ -10568,6 +10597,48 @@ class MainActivity : Activity() {
             )
         }
         root.addView(selectorRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        // Step 2.5 selector: Sanction Bypass Chain (warp -> psiphon / tor)
+        val chainBtn = chipBtn(
+            if (isFarsi) "🔓 چین رفع تحریم (WARP → Psiphon / Tor) ▾" else "🔓 Sanction Bypass Chain (WARP → Psiphon / Tor) ▾",
+        ) {
+            val chains = listOf("none", "psiphon", "tor")
+            val chainTitles = if (isFarsi) {
+                arrayOf(
+                    "بدون چین (مستقیم — سرعت کامل، بدون محدودیت سرعت tor/psiphon)",
+                    "WARP → Psiphon (چین سایفون برای رفع تحریم — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
+                    "WARP → Tor / Orbot (چین تور برای رفع تحریم — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
+                )
+            } else {
+                arrayOf(
+                    "Direct (No chain — full speed)",
+                    "WARP → Psiphon (Sanction bypass — forces simple wireguard/masque-h2, medium speed)",
+                    "WARP → Tor / Orbot (Sanction bypass — forces simple wireguard/masque-h2, medium speed)",
+                )
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(if (isFarsi) "چین کردن سایفون / تور (warp -> psiphon/tor)" else "Chain Psiphon / Tor (warp -> psiphon/tor)")
+                .setItems(chainTitles) { _, idx ->
+                    chosenChain = chains[idx]
+                    if (chosenChain != "none" && chosenMode == AetherMode.WireGuardOverMasque) {
+                        chosenMode = AetherMode.WireGuard
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "💡 برای چین کردن سایفون/تور، پروتکل روی حالت ساده WireGuard قرار گرفت (می‌توانید MASQUE-H2 هم انتخاب کنید)"
+                            else "💡 Switched to simple WireGuard for Psiphon/Tor chain (MASQUE-H2 also supported)",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    if (chosenChain == "psiphon" && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
+                        nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Psiphon")
+                    } else if (chosenChain == "tor" && !nameInput.text.toString().contains("Tor", ignoreCase = true)) {
+                        nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Tor")
+                    }
+                    updateStateLabel()
+                }
+                .show()
+        }
+        root.addView(chainBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val scanProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -10655,10 +10726,12 @@ class MainActivity : Activity() {
             }
             root.addView(savedTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             savedProfiles.take(3).forEach { prof ->
+                val chainBadge = if (prof.chainTarget != "none") " → ${prof.chainTarget}" else ""
                 root.addView(
-                    chipBtn("⚡ ${prof.name} · ${prof.mode.wireName} (${prof.ipScan.uppercase(Locale.US)}) · ${prof.endpoint}") {
+                    chipBtn("⚡ ${prof.name} · ${prof.mode.wireName}$chainBadge (${prof.ipScan.uppercase(Locale.US)}) · ${prof.endpoint}") {
                         chosenMode = prof.mode
                         chosenIpScan = prof.ipScan
+                        chosenChain = prof.chainTarget
                         scannedEndpoint = prof.endpoint
                         nameInput.setText(prof.name)
                         updateStateLabel()
@@ -10674,33 +10747,36 @@ class MainActivity : Activity() {
             .setView(scroll)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(if (isFarsi) "💾 ۴) ذخیره و فعال‌سازی" else "💾 4) Save & Enable") { _, _ ->
+                val finalMode = AetherSelection.simplifyModeForChain(chosenMode, chosenChain)
                 val profName = nameInput.text?.toString()?.trim().orEmpty().ifBlank {
-                    if (chosenMode == AetherMode.WireGuard) "WARP-${chosenIpScan.uppercase(Locale.US)}" else "MASQUE-H2"
+                    if (finalMode == AetherMode.WireGuard) "WARP-${chosenIpScan.uppercase(Locale.US)}" else "MASQUE-H2"
                 }
                 val finalPeer = scannedEndpoint ?: when {
-                    chosenIpScan == "v6" && chosenMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+                    chosenIpScan == "v6" && finalMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
                     chosenIpScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
-                    chosenMode == AetherMode.WireGuard -> "162.159.192.1:2408"
+                    finalMode == AetherMode.WireGuard -> "162.159.192.1:2408"
                     else -> "162.159.198.1:443"
                 }
                 val now = System.currentTimeMillis()
                 aetherPreferenceStore.save(
                     aetherPreferenceStore.read().copy(
                         enabled = true,
-                        mode = chosenMode,
+                        mode = finalMode,
                         endpoint = finalPeer,
                         endpointScannedAt = now,
                         ipScan = chosenIpScan,
                         profileName = profName,
+                        chainTarget = chosenChain,
                     ),
                 )
                 aetherPreferenceStore.saveNamedProfile(
                     AetherSavedProfile(
                         name = profName,
-                        mode = chosenMode,
+                        mode = finalMode,
                         ipScan = chosenIpScan,
                         endpoint = finalPeer,
                         scannedAt = now,
+                        chainTarget = chosenChain,
                     ),
                 )
                 Toast.makeText(
@@ -10736,6 +10812,11 @@ class MainActivity : Activity() {
                 "• (سایر روش‌ها روی فایروال ایرانسل با محدودیت سرعت آپلود مواجه هستند.)\n\n" +
                 "۲) WARP: همان مراحل همراه اول، با هر نوع IP (IPv4/IPv6).\n" +
                 "۳) MASQUE/H2: دقیقاً همان مراحل همراه اول.\n\n" +
+                "───────────────\n" +
+                "🔓 ۳) رفع تحریم‌ها با چین کردن سایفون / تور (warp -> psiphon/tor):\n" +
+                "• در صورت عدم رفع تحریم‌ها حتی با پروتکل wireguard-over-masque-HTTP/2، می‌توانید با چین کردن سایفون/تور (warp -> psiphon/tor) تحریم‌ها را دور بزنید.\n" +
+                "• وقتی سایفون/تور را چین می‌کنید، بهتر است از پروتکل‌های ساده wireguard یا masque-h2 استفاده کنید.\n" +
+                "• دقت کنید tor/psiphon سرعت متوسطی دارند و بهتر است فقط در صورتی که نیاز به رفع تحریم هم دارید از آن‌ها استفاده کنید.\n\n" +
                 "⚠️ توجه مهم: در برخی مناطق سیم‌کارت همراه اول دارای فایروال ایرانسل است و بالعکس! سایر نت‌ها هم معمولاً از یکی از این دو فایروال استفاده می‌کنند."
         } else {
             "🟦 MCI Firewall Methods:\n" +
@@ -10746,6 +10827,10 @@ class MainActivity : Activity() {
                 "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP).\n" +
                 "2) WARP: Add Aether → WireGuard → Any IP → Scan → Save.\n" +
                 "3) MASQUE/H2: Same as MCI.\n\n" +
+                "🔓 3) Sanction Bypass (warp -> psiphon/tor):\n" +
+                "• If geo-sanctions persist even with wireguard-over-masque-HTTP/2, chain Psiphon or Tor (warp -> psiphon/tor).\n" +
+                "• When chaining Psiphon/Tor, use simple wireguard or masque-h2 protocols.\n" +
+                "• Note: tor/psiphon have medium speed; use them only when you also need sanction bypass.\n\n" +
                 "⚠️ Regional firewall may differ from SIM brand; other ISPs use one of these two firewalls."
         }
         MaterialAlertDialogBuilder(this)

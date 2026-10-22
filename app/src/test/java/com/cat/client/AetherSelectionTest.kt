@@ -20,4 +20,23 @@ class AetherSelectionTest {
             endpointScannedAt = now + 1,
         ).freshEndpoint(now))
     }
+
+    @Test fun psiphonAndTorChainsEnforceSimpleCarrierProtocols() {
+        assertEquals(
+            AetherMode.WireGuard,
+            AetherSelection.simplifyModeForChain(AetherMode.WireGuardOverMasque, "psiphon"),
+        )
+        assertEquals(
+            AetherMode.WireGuard,
+            AetherSelection.simplifyModeForChain(AetherMode.WireGuardOverMasque, "tor"),
+        )
+        assertEquals(
+            AetherMode.MasqueHttp2,
+            AetherSelection.simplifyModeForChain(AetherMode.MasqueHttp2, "psiphon"),
+        )
+        assertEquals(
+            AetherMode.WireGuardOverMasque,
+            AetherSelection.simplifyModeForChain(AetherMode.WireGuardOverMasque, "none"),
+        )
+    }
 }

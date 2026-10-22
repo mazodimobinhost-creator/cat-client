@@ -74,6 +74,14 @@ check('stats rendered', document.querySelector('#stUsers').textContent==='0');
   check('MASQUE/H2 link uses the same parser-supported TLS options', masque.get('protocol') === 'masque' && masque.get('transport') === 'h2' && masque.get('fingerprint') === 'semi-python' && masque.get('fragment') === '1' && !masque.has('fm'));
   document.querySelector('#aePick [data-v="warp"]').click();
   check('single-hop WARP link uses PattNG protocol identifier wg', parseAether(document.querySelector('#aeLink').value).get('protocol') === 'wg');
+  document.querySelector('#aePick [data-v="wg-over-masque"]').click();
+  document.querySelector('#aeChain [data-v="psiphon"]').click();
+  const psiphonChain = parseAether(document.querySelector('#aeLink').value);
+  check('chaining Psiphon switches from wg-over-masque to simple wg protocol', psiphonChain.get('protocol') === 'wg' && psiphonChain.get('chain') === 'psiphon');
+  document.querySelector('#aeChain [data-v="tor"]').click();
+  const torChain = parseAether(document.querySelector('#aeLink').value);
+  check('chaining Tor uses simple wg/masque protocol and sets chain=tor', torChain.get('protocol') === 'wg' && torChain.get('chain') === 'tor');
+  document.querySelector('#aeChain [data-v="none"]').click();
   document.querySelector('#aePick [data-v="gool-classic"]').click();
 }
 
