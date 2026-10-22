@@ -11598,7 +11598,7 @@ class MainActivity : Activity() {
                     val bestNative = nativeScan?.let { hits ->
                         hits.take(3).firstOrNull { hit ->
                             runCatching {
-                                AetherOperations.confirmEndpoint(AetherMode.MasqueHttp2, tomlFile, hit.peer, null, "both", exitLocation).isSuccess
+                                AetherOperations.confirmEndpoint(AetherMode.MasqueHttp2, tomlFile, hit.peer, "both", hit.rttMillis, exitLocation).isSuccess
                             }.getOrDefault(false)
                         } ?: hits.firstOrNull()
                     }
@@ -11645,7 +11645,7 @@ class MainActivity : Activity() {
                     val bestNative = nativeScan?.let { hits ->
                         hits.take(3).firstOrNull { hit ->
                             runCatching {
-                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, null, "v6", exitLocation).isSuccess
+                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, "v6", hit.rttMillis, exitLocation).isSuccess
                             }.getOrDefault(false)
                         } ?: hits.firstOrNull()
                     }
@@ -11692,7 +11692,7 @@ class MainActivity : Activity() {
                     val bestNative = nativeScan?.let { hits ->
                         hits.take(3).firstOrNull { hit ->
                             runCatching {
-                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, null, "v4", exitLocation).isSuccess
+                                AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, "v4", hit.rttMillis, exitLocation).isSuccess
                             }.getOrDefault(false)
                         } ?: hits.firstOrNull()
                     }
