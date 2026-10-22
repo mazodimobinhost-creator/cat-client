@@ -106,4 +106,18 @@ class AetherSelectionTest {
         assertEquals("iran", parsedIran.exitLocation)
         assertEquals(AetherMode.MasqueHttp2, parsedIran.mode)
     }
+
+    @Test fun smartRecommendationsProvideActionableCombosForEachTopic() {
+        val mciHint = AetherSelection(mode = AetherMode.WireGuard, ipScan = "v6").smartRecommendation("mci")
+        assertEquals("psiphon", mciHint.recommendedChain)
+        assertEquals("foreign", mciHint.recommendedExitLocation)
+
+        val iranHint = AetherSelection(mode = AetherMode.WireGuard, exitLocation = "iran").smartRecommendation("iran")
+        assertEquals("iran", iranHint.recommendedExitLocation)
+        assertEquals("none", iranHint.recommendedChain)
+
+        val psiphonHint = AetherSelection(mode = AetherMode.WireGuard, chainTarget = "psiphon", psiphonRegion = "NL").smartRecommendation("psiphon")
+        assertEquals("NL", psiphonHint.recommendedPsiphonRegion)
+        assertEquals(AetherMode.WireGuard, psiphonHint.recommendedMode)
+    }
 }

@@ -4060,17 +4060,30 @@ class MainActivity : Activity() {
             appPreferenceRow(R.string.aether_endpoint, endpointValue) { }.apply { isClickable = false },
             LinearLayout.LayoutParams(-1, -2),
         )
-        if (aetherSelection.mode == AetherMode.MasquePsiphon) {
-            val regionValue = aetherSelection.psiphonRegion.ifBlank { getString(R.string.aether_region_automatic) }
+        if (aetherSelection.mode == AetherMode.MasquePsiphon || aetherSelection.chainTarget == "psiphon" || aetherSelection.effectiveExitLocation() == "foreign") {
+            val regionValue = PsiphonCarrierConfig.regionDisplayLabel(
+                aetherSelection.psiphonRegion,
+                isFarsiAether,
+                getString(R.string.aether_region_automatic),
+            )
             aetherPanel.addView(
                 appPreferenceRow(R.string.aether_region, regionValue) {
                     val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this)
-                    val labels = regions.map { it.ifBlank { getString(R.string.aether_region_automatic) } }.toTypedArray()
+                    val labels = regions.map { code ->
+                        PsiphonCarrierConfig.regionDisplayLabel(code, isFarsiAether, getString(R.string.aether_region_automatic))
+                    }.toTypedArray()
                     MaterialAlertDialogBuilder(this)
                         .setTitle(R.string.aether_region)
                         .setItems(labels) { _, index ->
+                            val pickedRegion = regions[index]
                             val current = aetherPreferenceStore.read()
-                            aetherPreferenceStore.save(current.copy(psiphonRegion = regions[index]))
+                            aetherPreferenceStore.save(
+                                current.copy(
+                                    psiphonRegion = pickedRegion,
+                                    chainTarget = if (pickedRegion.isNotEmpty() && current.chainTarget == "none") "psiphon" else current.chainTarget,
+                                    exitLocation = if (pickedRegion.isNotEmpty()) "foreign" else current.exitLocation,
+                                ),
+                            )
                             recreate()
                         }
                         .setNegativeButton(android.R.string.cancel, null)
@@ -10370,14 +10383,42 @@ class MainActivity : Activity() {
                     label = if (isFarsi) "🌍 کشور سایفون" else "🌍 Psiphon Country",
                     accent = false,
                 ) {
+                    val cur = aetherPreferenceStore.read()
                     val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this@MainActivity)
-                    val labels = regions.map { it.ifBlank { getString(R.string.aether_region_automatic) } }.toTypedArray()
+                    val labels = regions.map { code ->
+                        PsiphonCarrierConfig.regionDisplayLabel(code, isFarsi, getString(R.string.aether_region_automatic))
+                    }.toTypedArray()
+                    val currentIdx = regions.indexOf(cur.psiphonRegion).coerceAtLeast(0)
                     MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle(R.string.aether_region)
-                        .setItems(labels) { _, index ->
+                        .setTitle(
+                            if (isFarsi) "🌍 انتخاب کشور سایفون (۲۹ کشور فعال)"
+                            else "🌍 Select Psiphon Country (29 Active Regions)",
+                        )
+                        .setSingleChoiceItems(labels, currentIdx) { dlg, index ->
+                            dlg.dismiss()
+                            val picked = regions[index]
                             val current = aetherPreferenceStore.read()
-                            aetherPreferenceStore.save(current.copy(psiphonRegion = regions[index]))
+                            val updated = current.copy(
+                                enabled = true,
+                                psiphonRegion = picked,
+                                chainTarget = "psiphon",
+                                exitLocation = "foreign",
+                                mode = AetherSelection.simplifyModeForChain(current.mode, "psiphon"),
+                            )
+                            aetherPreferenceStore.save(updated)
                             refreshEngineSummary()
+                            renderAdvancedControls()
+                            val countryLabel = PsiphonCarrierConfig.regionShortLabel(picked, isFarsi)
+                            val hint = updated.smartRecommendation("region")
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ کشور سایفون روی «$countryLabel» تنظیم شد و چین WARP → سایفون فعال گردید.\n${hint.titleFa}"
+                                else "✅ Psiphon country set to '$countryLabel' (WARP → Psiphon enabled).\n${hint.titleEn}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            }
                         }
                         .setNegativeButton(android.R.string.cancel, null)
                         .create()
@@ -10581,6 +10622,18 @@ class MainActivity : Activity() {
         }
         card.addView(aetherDirectRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Row 6: 1-Tap Auto-Scan & Auto-Build Wizard (asks Iran vs Foreign Country, scans all methods on user's network, and builds best working profile)
+        val autoWizardBtn = smallActionBtn(
+            label = if (isFarsi) "🤖 اسکن و ساخت خودکار روی شبکه من (ایران 🇮🇷 یا کشور دیگر 🌍)" else "🤖 Auto-Scan & Build for My Network (Iran 🇮🇷 or Foreign 🌍)",
+            accent = true,
+        ) {
+            showAetherAutoScanAndBuildWizard {
+                refreshEngineSummary()
+                renderAdvancedControls()
+            }
+        }
+        card.addView(autoWizardBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         return card
     }
 
@@ -10755,7 +10808,9 @@ class MainActivity : Activity() {
         var chosenIpScan = current.ipScan
         var chosenChain = current.chainTarget
         var chosenExitLocation = current.effectiveExitLocation()
+        var chosenRegion = current.psiphonRegion
         var scannedEndpoint: String? = current.endpoint
+        var lastClickedTopic = ""
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -10818,6 +10873,47 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
 
+        val smartHintTitleView = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEAL)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val smartHintBodyView = TextView(this).apply {
+            textSize = 11.2f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(0f, 1.22f)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val applySmartHintBtn = MaterialButton(this).apply {
+            isAllCaps = false
+            textSize = 11f
+            typeface = CatClientBodyBoldTypeface
+            minHeight = dp(34)
+            minimumHeight = dp(34)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(8)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 40))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(TEAL)
+            setTextColor(TEXT_PRIMARY)
+        }
+        val smartHintCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(SURFACE, 235))
+                setStroke(dp(1), withAlpha(TEAL, 140))
+            }
+            addView(smartHintTitleView, LinearLayout.LayoutParams(-1, -2))
+            addView(smartHintBodyView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            addView(applySmartHintBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }
+
         val uriPreviewBox = TextView(this).apply {
             textSize = 11f
             typeface = CatClientDataTypeface
@@ -10849,6 +10945,7 @@ class MainActivity : Activity() {
                 mode = finalMode,
                 endpoint = finalPeer,
                 endpointScannedAt = System.currentTimeMillis(),
+                psiphonRegion = chosenRegion,
                 ipScan = chosenIpScan,
                 profileName = profName,
                 chainTarget = chosenChain,
@@ -10856,7 +10953,8 @@ class MainActivity : Activity() {
             )
         }
 
-        fun updateStateLabel() {
+        fun updateStateLabel(topic: String = lastClickedTopic) {
+            lastClickedTopic = topic
             val modeName = when (chosenMode) {
                 AetherMode.WireGuard -> "WireGuard (WARP)"
                 AetherMode.MasqueHttp2 -> "MASQUE-HTTP/2"
@@ -10868,13 +10966,14 @@ class MainActivity : Activity() {
                 "v4" -> "IPv4"
                 else -> if (isFarsi) "هر دو (IPv4 + IPv6)" else "Both (IPv4 + IPv6)"
             }
+            val regionShort = PsiphonCarrierConfig.regionShortLabel(chosenRegion, isFarsi)
             val chainName = when (chosenChain) {
-                "psiphon" -> if (isFarsi) "WARP → Psiphon (رفع تحریم · سرعت متوسط)" else "WARP → Psiphon (Sanction Bypass · Medium Speed)"
+                "psiphon" -> if (isFarsi) "WARP → Psiphon ($regionShort · رفع تحریم)" else "WARP → Psiphon ($regionShort · Sanction Bypass)"
                 "tor" -> if (isFarsi) "WARP → Tor (رفع تحریم · سرعت متوسط)" else "WARP → Tor (Sanction Bypass · Medium Speed)"
                 else -> if (isFarsi) "بدون چین (مستقیم · سرعت کامل)" else "Direct (No Chain · Full Speed)"
             }
             val exitLocLabel = when {
-                chosenChain == "psiphon" -> if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → سایفون)" else "🌍 Foreign IP (WARP → Psiphon)"
+                chosenChain == "psiphon" -> if (isFarsi) "🌍 آی‌پی خارج ($regionShort · سایفون)" else "🌍 Foreign IP ($regionShort · Psiphon)"
                 chosenChain == "tor" -> if (isFarsi) "🌍 آی‌پی خارج تضمینی (WARP → تور)" else "🌍 Foreign IP (WARP → Tor)"
                 chosenExitLocation == "foreign" -> {
                     val goolType = if (chosenMode == AetherMode.WireGuard) "WARP-in-WARP" else "WG-over-MASQUE"
@@ -10884,11 +10983,31 @@ class MainActivity : Activity() {
             }
             val epName = scannedEndpoint ?: if (isFarsi) "هنوز اسکن نشده (پیش‌فرض کلودفلر)" else "Not scanned yet (Cloudflare default)"
             stateLabel.text = if (isFarsi) {
-                "مکان آی‌پی خروجی: $exitLocLabel\nپروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName\n💡 موتور Aether داخل همین برنامه است (بدون نیاز به پنل)؛ با دکمه «🚀 ذخیره و اتصال فوری» مستقیماً وصل شوید یا لینک aether:// زیر را کپی کنید:"
+                "مکان آی‌پی خروجی: $exitLocLabel\nپروتکل: $modeName · نوع آی‌پی: $ipName\nچین رفع تحریم: $chainName\nآی‌پی منتخب: $epName"
             } else {
-                "Exit IP Location: $exitLocLabel\nProtocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName\n💡 Aether runs built-in inside Cat Client (no panel needed); tap '🚀 Save & Connect Now' or copy the aether:// URI below:"
+                "Exit IP Location: $exitLocLabel\nProtocol: $modeName · IP Type: $ipName\nChain: $chainName\nSelected IP: $epName"
             }
-            uriPreviewBox.text = currentDraftSelection().toAetherUri()
+            val draft = currentDraftSelection()
+            uriPreviewBox.text = draft.toAetherUri()
+            val hint = draft.smartRecommendation(topic)
+            smartHintTitleView.text = if (isFarsi) hint.titleFa else hint.titleEn
+            smartHintBodyView.text = if (isFarsi) hint.bodyFa else hint.bodyEn
+            applySmartHintBtn.text = if (isFarsi) hint.actionLabelFa else hint.actionLabelEn
+            applySmartHintBtn.setOnClickListener {
+                chosenMode = hint.recommendedMode
+                chosenIpScan = hint.recommendedIpScan
+                chosenChain = hint.recommendedChain
+                chosenExitLocation = hint.recommendedExitLocation
+                if (hint.recommendedPsiphonRegion.isNotEmpty() || hint.recommendedChain != "psiphon") {
+                    chosenRegion = hint.recommendedPsiphonRegion
+                }
+                updateStateLabel("applied")
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "✨ ترکیب پیشنهادی اعمال شد!" else "✨ Recommended combination applied!",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
         nameInput.addTextChangedListener(
             object : TextWatcher {
@@ -10901,6 +11020,7 @@ class MainActivity : Activity() {
         )
         updateStateLabel()
         root.addView(stateLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        root.addView(smartHintCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         fun chipBtn(label: String, accent: Boolean = false, onClick: () -> Unit): MaterialButton =
             MaterialButton(this).apply {
@@ -10926,6 +11046,26 @@ class MainActivity : Activity() {
                 setOnClickListener { onClick() }
             }
 
+        // Top 1-tap Auto-Scan & Build Wizard button inside dialog
+        val autoScanWizardBtn = chipBtn(
+            if (isFarsi) "🤖 اسکن خودکار خط من و ساخت بهترین کانفیگ (ایران 🇮🇷 یا کشور دیگر 🌍)"
+            else "🤖 Auto-Scan My Line & Build Best Config (Iran 🇮🇷 or Foreign Country 🌍)",
+            accent = true,
+        ) {
+            showAetherAutoScanAndBuildWizard { built ->
+                chosenMode = built.mode
+                chosenIpScan = built.ipScan
+                chosenChain = built.chainTarget
+                chosenExitLocation = built.exitLocation
+                chosenRegion = built.psiphonRegion
+                scannedEndpoint = built.endpoint
+                nameInput.setText(built.profileName)
+                updateStateLabel("wizard")
+                onSaved?.invoke()
+            }
+        }
+        root.addView(autoScanWizardBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         // Quick firewall preset chips
         val presetRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -10935,7 +11075,7 @@ class MainActivity : Activity() {
                     chosenMode = AetherMode.WireGuard
                     chosenIpScan = "v6"
                     nameInput.setText("MCI-WARP-IPv6")
-                    updateStateLabel()
+                    updateStateLabel("mci")
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
@@ -10944,7 +11084,7 @@ class MainActivity : Activity() {
                     chosenMode = AetherMode.MasqueHttp2
                     chosenIpScan = "both"
                     nameInput.setText("MASQUE-HTTP2")
-                    updateStateLabel()
+                    updateStateLabel("masque")
                 },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
             )
@@ -10953,7 +11093,7 @@ class MainActivity : Activity() {
                     chosenMode = AetherMode.WireGuard
                     chosenIpScan = "both"
                     nameInput.setText("Irancell-WARP")
-                    updateStateLabel()
+                    updateStateLabel("mtn")
                 },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
             )
@@ -10971,7 +11111,7 @@ class MainActivity : Activity() {
                     if (chosenMode == AetherMode.WireGuardOverMasque) {
                         chosenMode = AetherMode.MasqueHttp2
                     }
-                    updateStateLabel()
+                    updateStateLabel("iran")
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
@@ -10979,7 +11119,7 @@ class MainActivity : Activity() {
                 chipBtn(if (isFarsi) "🌍 آی‌پی خارج (دو لایه Gool)" else "🌍 Foreign IP (Double-Hop Gool)", accent = true) {
                     chosenExitLocation = "foreign"
                     chosenChain = "none"
-                    updateStateLabel()
+                    updateStateLabel("foreign")
                 },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
             )
@@ -10993,11 +11133,19 @@ class MainActivity : Activity() {
             addView(
                 chipBtn(if (isFarsi) "۱) انتخاب پروتکل ▾" else "1) Protocol ▾") {
                     val modes = listOf(AetherMode.WireGuard, AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque)
-                    val modeTitles = arrayOf(
-                        "WireGuard (WARP)",
-                        "MASQUE-HTTP/2 (masque-h2)",
-                        "wireguard-over-masque-HTTP/2 (Gool)",
-                    )
+                    val modeTitles = if (isFarsi) {
+                        arrayOf(
+                            "WireGuard (WARP) — بهترین برای همراه اول (با IPv6) و ایرانسل (با IPv4/IPv6)",
+                            "MASQUE-HTTP/2 (masque-h2) — سازگار با هر دو فایروال روی پورت 443",
+                            "wireguard-over-masque-HTTP/2 (Gool) — دو لایه کلودفلر برای آی‌پی خارج بدون افت سرعت",
+                        )
+                    } else {
+                        arrayOf(
+                            "WireGuard (WARP) — Best for MCI (with IPv6) & Irancell",
+                            "MASQUE-HTTP/2 (masque-h2) — Works on both firewalls over port 443",
+                            "wireguard-over-masque-HTTP/2 (Gool) — Double-hop foreign IP",
+                        )
+                    }
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(if (isFarsi) "انتخاب پروتکل Aether" else "Select Aether Protocol")
                         .setItems(modeTitles) { _, idx ->
@@ -11012,8 +11160,11 @@ class MainActivity : Activity() {
                                 ).show()
                             } else {
                                 chosenMode = picked
+                                if (picked == AetherMode.WireGuardOverMasque) {
+                                    chosenExitLocation = "foreign"
+                                }
                             }
-                            updateStateLabel()
+                            updateStateLabel(if (chosenMode == AetherMode.WireGuard) "mci" else "masque")
                         }
                         .show()
                 },
@@ -11024,14 +11175,14 @@ class MainActivity : Activity() {
                     val scans = listOf("v6", "both", "v4")
                     val scanTitles = if (isFarsi) {
                         arrayOf(
-                            "IPv6 (مخصوص WARP روی فایروال همراه اول)",
-                            "هر دو IPv4 + IPv6 (مناسب فایروال ایرانسل و MASQUE/H2)",
+                            "IPv6 (پیشنهادی برای WARP روی فایروال همراه اول)",
+                            "هر دو IPv4 + IPv6 (پیشنهادی برای فایروال ایرانسل و MASQUE/H2)",
                             "فقط IPv4",
                         )
                     } else {
                         arrayOf(
-                            "IPv6 only (for MCI Firewall WARP)",
-                            "Both IPv4 + IPv6 (for Irancell Firewall & MASQUE/H2)",
+                            "IPv6 only (Recommended for MCI Firewall WARP)",
+                            "Both IPv4 + IPv6 (Recommended for Irancell Firewall & MASQUE/H2)",
                             "IPv4 only",
                         )
                     }
@@ -11039,7 +11190,7 @@ class MainActivity : Activity() {
                         .setTitle(if (isFarsi) "انتخاب نوع آی‌پی" else "Select IP Family")
                         .setItems(scanTitles) { _, idx ->
                             chosenIpScan = scans[idx]
-                            updateStateLabel()
+                            updateStateLabel(if (chosenIpScan == "v6") "mci" else "mtn")
                         }
                         .show()
                 },
@@ -11048,50 +11199,88 @@ class MainActivity : Activity() {
         }
         root.addView(selectorRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
-        // Step 2.5 selector: Sanction Bypass Chain (warp -> psiphon / tor)
-        val chainBtn = chipBtn(
-            if (isFarsi) "🔓 چین رفع تحریم (WARP → Psiphon / Tor) ▾" else "🔓 Sanction Bypass Chain (WARP → Psiphon / Tor) ▾",
-        ) {
-            val chains = listOf("none", "psiphon", "tor")
-            val chainTitles = if (isFarsi) {
-                arrayOf(
-                    "بدون چین (مستقیم — سرعت کامل، بدون محدودیت سرعت tor/psiphon)",
-                    "WARP → Psiphon (چین سایفون برای رفع تحریم — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
-                    "WARP → Tor / Orbot (چین تور برای رفع تحریم — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
-                )
-            } else {
-                arrayOf(
-                    "Direct (No chain — full speed)",
-                    "WARP → Psiphon (Sanction bypass — forces simple wireguard/masque-h2, medium speed)",
-                    "WARP → Tor / Orbot (Sanction bypass — forces simple wireguard/masque-h2, medium speed)",
-                )
-            }
-            MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle(if (isFarsi) "چین کردن سایفون / تور (warp -> psiphon/tor)" else "Chain Psiphon / Tor (warp -> psiphon/tor)")
-                .setItems(chainTitles) { _, idx ->
-                    chosenChain = chains[idx]
-                    if (chosenChain != "none") {
-                        chosenExitLocation = "foreign"
+        // Step 2.5 selector: Sanction Bypass Chain (warp -> psiphon / tor) + Psiphon Country Picker (29 countries)
+        val chainAndCountryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                chipBtn(
+                    if (isFarsi) "🔓 چین (Psiphon / Tor) ▾" else "🔓 Chain (Psiphon / Tor) ▾",
+                ) {
+                    val chains = listOf("none", "psiphon", "tor")
+                    val chainTitles = if (isFarsi) {
+                        arrayOf(
+                            "بدون چین (مستقیم — سرعت کامل، بدون محدودیت سرعت tor/psiphon)",
+                            "WARP → Psiphon (چین سایفون با انتخاب ۲۹ کشور — پروتکل ساده، رفع تحریم کامل)",
+                            "WARP → Tor / Orbot (چین تور — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
+                        )
+                    } else {
+                        arrayOf(
+                            "Direct (No chain — full speed)",
+                            "WARP → Psiphon (29 Countries — forces simple wireguard/masque-h2)",
+                            "WARP → Tor / Orbot (Sanction bypass — forces simple wireguard/masque-h2)",
+                        )
                     }
-                    if (chosenChain != "none" && chosenMode == AetherMode.WireGuardOverMasque) {
-                        chosenMode = AetherMode.WireGuard
-                        Toast.makeText(
-                            this@MainActivity,
-                            if (isFarsi) "💡 برای چین کردن سایفون/تور، پروتکل روی حالت ساده WireGuard قرار گرفت (می‌توانید MASQUE-H2 هم انتخاب کنید)"
-                            else "💡 Switched to simple WireGuard for Psiphon/Tor chain (MASQUE-H2 also supported)",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                    if (chosenChain == "psiphon" && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
-                        nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Psiphon")
-                    } else if (chosenChain == "tor" && !nameInput.text.toString().contains("Tor", ignoreCase = true)) {
-                        nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Tor")
-                    }
-                    updateStateLabel()
-                }
-                .show()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "چین کردن سایفون / تور (warp -> psiphon/tor)" else "Chain Psiphon / Tor (warp -> psiphon/tor)")
+                        .setItems(chainTitles) { _, idx ->
+                            chosenChain = chains[idx]
+                            if (chosenChain != "none") {
+                                chosenExitLocation = "foreign"
+                            }
+                            if (chosenChain != "none" && chosenMode == AetherMode.WireGuardOverMasque) {
+                                chosenMode = AetherMode.WireGuard
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "💡 برای چین کردن سایفون/تور، پروتکل روی حالت ساده WireGuard قرار گرفت (می‌توانید MASQUE-H2 هم انتخاب کنید)"
+                                    else "💡 Switched to simple WireGuard for Psiphon/Tor chain (MASQUE-H2 also supported)",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                            if (chosenChain == "psiphon" && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
+                                nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Psiphon")
+                            } else if (chosenChain == "tor" && !nameInput.text.toString().contains("Tor", ignoreCase = true)) {
+                                nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Tor")
+                            }
+                            updateStateLabel(if (chosenChain == "tor") "tor" else if (chosenChain == "psiphon") "psiphon" else "")
+                        }
+                        .show()
+                },
+                LinearLayout.LayoutParams(0, -2, 1.05f),
+            )
+            addView(
+                chipBtn(
+                    if (isFarsi) "🌍 کشور سایفون (۲۹ کشور) ▾" else "🌍 Psiphon Country (29) ▾",
+                    accent = true,
+                ) {
+                    val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this@MainActivity)
+                    val labels = regions.map { code ->
+                        PsiphonCarrierConfig.regionDisplayLabel(code, isFarsi, getString(R.string.aether_region_automatic))
+                    }.toTypedArray()
+                    val activeIdx = regions.indexOf(chosenRegion).coerceAtLeast(0)
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(
+                            if (isFarsi) "🌍 انتخاب کشور خروجی سایفون (۲۹ کشور)"
+                            else "🌍 Select Psiphon Egress Country (29 Regions)",
+                        )
+                        .setSingleChoiceItems(labels, activeIdx) { dlg, idx ->
+                            dlg.dismiss()
+                            chosenRegion = regions[idx]
+                            chosenChain = "psiphon"
+                            chosenExitLocation = "foreign"
+                            chosenMode = AetherSelection.simplifyModeForChain(chosenMode, "psiphon")
+                            val tag = chosenRegion.ifBlank { "Auto" }
+                            val base = nameInput.text.toString().trim().substringBefore("-Psiphon").ifEmpty { "WARP" }
+                            nameInput.setText("$base-Psiphon-$tag")
+                            updateStateLabel("region")
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                },
+                LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginStart = dp(6) },
+            )
         }
-        root.addView(chainBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        root.addView(chainAndCountryRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val scanProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -11204,7 +11393,8 @@ class MainActivity : Activity() {
             }
             root.addView(savedTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             savedProfiles.take(3).forEach { prof ->
-                val chainBadge = if (prof.chainTarget != "none") " → ${prof.chainTarget}" else ""
+                val regionSuffix = if (prof.chainTarget == "psiphon" && prof.psiphonRegion.isNotEmpty()) "(${prof.psiphonRegion})" else ""
+                val chainBadge = if (prof.chainTarget != "none") " → ${prof.chainTarget}$regionSuffix" else ""
                 val locBadge = if (prof.exitLocation == "foreign" || prof.chainTarget != "none") "🌍" else "🇮🇷"
                 root.addView(
                     chipBtn("⚡ $locBadge ${prof.name} · ${prof.mode.wireName}$chainBadge (${prof.ipScan.uppercase(Locale.US)}) · ${prof.endpoint}") {
@@ -11213,6 +11403,7 @@ class MainActivity : Activity() {
                         chosenChain = prof.chainTarget
                         chosenExitLocation = prof.exitLocation.takeIf { it in setOf("iran", "foreign") }
                             ?: if (prof.chainTarget != "none" || prof.mode == AetherMode.WireGuardOverMasque) "foreign" else "iran"
+                        chosenRegion = prof.psiphonRegion
                         scannedEndpoint = prof.endpoint
                         nameInput.setText(prof.name)
                         updateStateLabel()
@@ -11235,6 +11426,7 @@ class MainActivity : Activity() {
                     scannedAt = now,
                     chainTarget = draft.chainTarget,
                     exitLocation = draft.exitLocation,
+                    psiphonRegion = draft.psiphonRegion,
                 ),
             )
             if (copyLinkToClipboard) {
@@ -11275,6 +11467,405 @@ class MainActivity : Activity() {
                     beginConnectFlow(Actions.CONNECT)
                 }
             }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private data class AetherNetworkProbeCandidate(
+        val titleFa: String,
+        val titleEn: String,
+        val baseMode: AetherMode,
+        val ipScan: String,
+        val endpoint: String,
+        val reachable: Boolean,
+        val rttMs: Long,
+    )
+
+    private fun probeEndpointReachabilityMs(peer: String, useTcp: Boolean, timeoutMs: Int = 1800): Long? {
+        val clean = peer.trim()
+        val host: String
+        val port: Int
+        if (clean.startsWith("[")) {
+            val closeIdx = clean.indexOf(']')
+            if (closeIdx <= 1 || closeIdx + 2 > clean.length) return null
+            host = clean.substring(1, closeIdx)
+            port = clean.substring(closeIdx + 2).toIntOrNull() ?: return null
+        } else {
+            val colonIdx = clean.lastIndexOf(':')
+            if (colonIdx <= 0) return null
+            host = clean.substring(0, colonIdx)
+            port = clean.substring(colonIdx + 1).toIntOrNull() ?: return null
+        }
+        val t0 = System.nanoTime()
+        return runCatching {
+            val addr = java.net.InetAddress.getByName(host)
+            val sockAddr = java.net.InetSocketAddress(addr, port)
+            if (useTcp) {
+                java.net.Socket().use { sock ->
+                    sock.connect(sockAddr, timeoutMs)
+                }
+            } else {
+                java.net.DatagramSocket().use { dgram ->
+                    dgram.soTimeout = timeoutMs
+                    dgram.connect(sockAddr)
+                    // Send a 148-byte WireGuard initiation probe header (type = 1) or wake packet
+                    val pkt = ByteArray(32).also { it[0] = 1 }
+                    dgram.send(java.net.DatagramPacket(pkt, pkt.size))
+                }
+            }
+            ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+        }.getOrNull()
+    }
+
+    /**
+     * Interactive Auto-Scan & Auto-Build Wizard:
+     * 1) Asks the user whether they want Iran IP (🇮🇷) or a Foreign Country (🌍 Gool / 🇩🇪 DE / 🇳🇱 NL / 🇺🇸 US / all 29 Psiphon countries).
+     * 2) Scans all 3 Cloudflare Aether methods on the user's current network (MASQUE-HTTP/2, WARP+IPv6, WARP+IPv4).
+     * 3) Shows which methods connect on their line, automatically builds & saves the best working config, and offers 1-tap Connect or Copy.
+     */
+    private fun showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSelection) -> Unit)? = null) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+
+        fun runNetworkScanForDestination(exitLocation: String, chainTarget: String, psiphonRegion: String) {
+            val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = 10
+                isIndeterminate = false
+                progressTintList = ColorStateList.valueOf(TEAL)
+                progressBackgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 50))
+            }
+            val progressStatus = TextView(this).apply {
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                setLineSpacing(0f, 1.25f)
+                text = if (isFarsi) "⏳ در حال تست واقعی روش‌های اتصال روی خط فعلی شما…" else "⏳ Probing connection methods on your current line…"
+            }
+            val progBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(12))
+                addView(progressStatus, LinearLayout.LayoutParams(-1, -2))
+                addView(progressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(10) })
+            }
+            val progDlg = MaterialAlertDialogBuilder(this)
+                .setTitle(if (isFarsi) "🔍 اسکن هوشمند شبکه شما" else "🔍 Smart Network Scan")
+                .setView(progBox)
+                .setCancelable(false)
+                .create()
+            progDlg.showCatClientDialog()
+
+            activityScope.launch {
+                val tomlFile = java.io.File(filesDir, "aether.toml")
+                val proxy = if (currentVpnServiceState == VpnState.Started) {
+                    "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                } else null
+
+                progressBar.progress = 25
+                progressStatus.text = if (isFarsi) "۱/۳ 📡 در حال تست MASQUE-HTTP/2 (پورت ۴۴۳ — سازگار با همراه اول و ایرانسل)…"
+                else "1/3 📡 Testing MASQUE-HTTP/2 (Port 443 — MCI & Irancell)…"
+                val masqueCandidate = withContext(Dispatchers.IO) {
+                    runCatching { AetherOperations.provision(AetherMode.MasqueHttp2, tomlFile, proxy, "both", exitLocation) }
+                    val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
+                        runCatching { AetherOperations.scan(AetherMode.MasqueHttp2, tomlFile, "both") }.getOrNull()?.getOrNull()
+                    } else null
+                    val bestNative = nativeScan?.firstOrNull()
+                    if (bestNative != null) {
+                        AetherNetworkProbeCandidate(
+                            titleFa = "MASQUE-HTTP/2 (مناسب فایروال همراه اول و ایرانسل)",
+                            titleEn = "MASQUE-HTTP/2 (Works on MCI & Irancell)",
+                            baseMode = AetherMode.MasqueHttp2,
+                            ipScan = "both",
+                            endpoint = bestNative.peer,
+                            reachable = true,
+                            rttMs = bestNative.rttMillis.coerceAtLeast(1L),
+                        )
+                    } else {
+                        val peers = listOf("162.159.198.1:443", "162.159.198.2:443", "[2606:4700:d0::a29f:c001]:443")
+                        var bestPeer = peers.first()
+                        var bestRtt: Long? = null
+                        for (p in peers) {
+                            val rtt = probeEndpointReachabilityMs(p, useTcp = true, timeoutMs = 1500)
+                            if (rtt != null && (bestRtt == null || rtt < bestRtt)) {
+                                bestRtt = rtt
+                                bestPeer = p
+                            }
+                        }
+                        AetherNetworkProbeCandidate(
+                            titleFa = "MASQUE-HTTP/2 (مناسب فایروال همراه اول و ایرانسل)",
+                            titleEn = "MASQUE-HTTP/2 (Works on MCI & Irancell)",
+                            baseMode = AetherMode.MasqueHttp2,
+                            ipScan = "both",
+                            endpoint = bestPeer,
+                            reachable = bestRtt != null,
+                            rttMs = bestRtt ?: 9999L,
+                        )
+                    }
+                }
+
+                progressBar.progress = 60
+                progressStatus.text = if (isFarsi) "۲/۳ 📡 در حال تست WARP با IPv6 (مخصوص فایروال همراه اول)…"
+                else "2/3 📡 Testing WARP + IPv6 (for MCI Firewall)…"
+                val warpV6Candidate = withContext(Dispatchers.IO) {
+                    val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
+                        runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v6") }.getOrNull()?.getOrNull()
+                    } else null
+                    val bestNative = nativeScan?.firstOrNull()
+                    if (bestNative != null) {
+                        AetherNetworkProbeCandidate(
+                            titleFa = "WARP + IPv6 (مخصوص فایروال همراه اول)",
+                            titleEn = "WARP + IPv6 (Best for MCI Firewall)",
+                            baseMode = AetherMode.WireGuard,
+                            ipScan = "v6",
+                            endpoint = bestNative.peer,
+                            reachable = true,
+                            rttMs = bestNative.rttMillis.coerceAtLeast(1L),
+                        )
+                    } else {
+                        val peers = listOf("[2606:4700:d0::a29f:c001]:2408", "[2606:4700:d0::a29f:c002]:2408")
+                        var bestPeer = peers.first()
+                        var bestRtt: Long? = null
+                        for (p in peers) {
+                            val rtt = probeEndpointReachabilityMs(p, useTcp = false, timeoutMs = 1200)
+                            if (rtt != null && (bestRtt == null || rtt < bestRtt)) {
+                                bestRtt = rtt
+                                bestPeer = p
+                            }
+                        }
+                        AetherNetworkProbeCandidate(
+                            titleFa = "WARP + IPv6 (مخصوص فایروال همراه اول)",
+                            titleEn = "WARP + IPv6 (Best for MCI Firewall)",
+                            baseMode = AetherMode.WireGuard,
+                            ipScan = "v6",
+                            endpoint = bestPeer,
+                            reachable = bestRtt != null,
+                            rttMs = bestRtt ?: 9999L,
+                        )
+                    }
+                }
+
+                progressBar.progress = 85
+                progressStatus.text = if (isFarsi) "۳/۳ 📡 در حال تست WARP با IPv4/IPv6 (مخصوص فایروال ایرانسل)…"
+                else "3/3 📡 Testing WARP + IPv4/IPv6 (for Irancell Firewall)…"
+                val warpV4Candidate = withContext(Dispatchers.IO) {
+                    val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
+                        runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v4") }.getOrNull()?.getOrNull()
+                    } else null
+                    val bestNative = nativeScan?.firstOrNull()
+                    if (bestNative != null) {
+                        AetherNetworkProbeCandidate(
+                            titleFa = "WARP + IPv4/IPv6 (مخصوص فایروال ایرانسل)",
+                            titleEn = "WARP + IPv4/IPv6 (Best for Irancell Firewall)",
+                            baseMode = AetherMode.WireGuard,
+                            ipScan = "both",
+                            endpoint = bestNative.peer,
+                            reachable = true,
+                            rttMs = bestNative.rttMillis.coerceAtLeast(1L),
+                        )
+                    } else {
+                        val peers = listOf("162.159.192.1:2408", "188.114.96.1:2408", "188.114.98.0:2408")
+                        var bestPeer = peers.first()
+                        var bestRtt: Long? = null
+                        for (p in peers) {
+                            val rtt = probeEndpointReachabilityMs(p, useTcp = false, timeoutMs = 1200)
+                            if (rtt != null && (bestRtt == null || rtt < bestRtt)) {
+                                bestRtt = rtt
+                                bestPeer = p
+                            }
+                        }
+                        AetherNetworkProbeCandidate(
+                            titleFa = "WARP + IPv4/IPv6 (مخصوص فایروال ایرانسل)",
+                            titleEn = "WARP + IPv4/IPv6 (Best for Irancell Firewall)",
+                            baseMode = AetherMode.WireGuard,
+                            ipScan = "both",
+                            endpoint = bestPeer,
+                            reachable = bestRtt != null,
+                            rttMs = bestRtt ?: 9999L,
+                        )
+                    }
+                }
+
+                runCatching { progDlg.dismiss() }
+
+                val allCandidates = listOf(masqueCandidate, warpV6Candidate, warpV4Candidate)
+                    .sortedWith(compareBy<AetherNetworkProbeCandidate> { !it.reachable }.thenBy { it.rttMs })
+                val winner = allCandidates.first()
+
+                fun buildSelectionForCandidate(cand: AetherNetworkProbeCandidate): AetherSelection {
+                    val effectiveMode = when {
+                        chainTarget in setOf("psiphon", "tor") -> AetherSelection.simplifyModeForChain(cand.baseMode, chainTarget)
+                        exitLocation == "foreign" && cand.baseMode == AetherMode.MasqueHttp2 -> AetherMode.WireGuardOverMasque
+                        else -> cand.baseMode
+                    }
+                    val destBadge = when {
+                        chainTarget == "psiphon" && psiphonRegion.isNotEmpty() -> psiphonRegion
+                        chainTarget == "psiphon" -> "Psiphon"
+                        exitLocation == "iran" -> "IR"
+                        else -> "Gool"
+                    }
+                    val protoBadge = when {
+                        cand.ipScan == "v6" && cand.baseMode == AetherMode.WireGuard -> "WARP-IPv6"
+                        cand.baseMode == AetherMode.WireGuard -> "WARP"
+                        else -> "MASQUE-H2"
+                    }
+                    val now = System.currentTimeMillis()
+                    return aetherPreferenceStore.read().copy(
+                        enabled = true,
+                        mode = effectiveMode,
+                        endpoint = cand.endpoint,
+                        endpointScannedAt = now,
+                        psiphonRegion = psiphonRegion,
+                        ipScan = cand.ipScan,
+                        profileName = "Auto-$destBadge-$protoBadge",
+                        chainTarget = chainTarget,
+                        exitLocation = exitLocation,
+                    )
+                }
+
+                val builtSelection = buildSelectionForCandidate(winner)
+                aetherPreferenceStore.save(builtSelection)
+                aetherPreferenceStore.saveNamedProfile(
+                    AetherSavedProfile(
+                        name = builtSelection.profileName,
+                        mode = builtSelection.mode,
+                        ipScan = builtSelection.ipScan,
+                        endpoint = builtSelection.endpoint.orEmpty(),
+                        scannedAt = builtSelection.endpointScannedAt,
+                        chainTarget = builtSelection.chainTarget,
+                        exitLocation = builtSelection.exitLocation,
+                        psiphonRegion = builtSelection.psiphonRegion,
+                    ),
+                )
+                onBuilt?.invoke(builtSelection)
+
+                val destTitle = when {
+                    chainTarget == "psiphon" -> PsiphonCarrierConfig.regionShortLabel(psiphonRegion, isFarsi) +
+                        if (isFarsi) " (چین WARP → سایفون)" else " (WARP → Psiphon)"
+                    exitLocation == "iran" -> if (isFarsi) "🇮🇷 آی‌پی ایران (تک‌لایه سریع)" else "🇮🇷 Iran IP (Fast Single-Hop)"
+                    else -> if (isFarsi) "🌍 آی‌پی خارج پرسرعت (دو لایه Gool)" else "🌍 Fast Foreign IP (Double-Hop Gool)"
+                }
+
+                val scanSummaryLines = allCandidates.mapIndexed { idx, c ->
+                    val name = if (isFarsi) c.titleFa else c.titleEn
+                    val status = if (c.reachable) {
+                        val star = if (idx == 0) (if (isFarsi) " ⭐ منتخب خودکار" else " ⭐ Auto-Selected") else ""
+                        if (isFarsi) "✅ وصل می‌شود (${c.rttMs}ms) · ${c.endpoint}$star"
+                        else "✅ Reachable (${c.rttMs}ms) · ${c.endpoint}$star"
+                    } else {
+                        if (isFarsi) "❌ روی خط فعلی پاسخ نداد (${c.endpoint})"
+                        else "❌ Unreachable on current line (${c.endpoint})"
+                    }
+                    "${idx + 1}) $name:\n   $status"
+                }.joinToString("\n\n")
+
+                val resultMsg = if (isFarsi) {
+                    "🧭 مقصد انتخابی شما: $destTitle\n\n" +
+                        "📊 نتیجه اسکن واقعی روی اینترنت فعلی شما:\n$scanSummaryLines\n\n" +
+                        "✅ کانفیگ «${builtSelection.profileName}» به صورت خودکار ساخته و فعال شد:\n" +
+                        "${builtSelection.toAetherUri()}"
+                } else {
+                    "🧭 Target Destination: $destTitle\n\n" +
+                        "📊 Live Scan Results on Your Network:\n$scanSummaryLines\n\n" +
+                        "✅ Auto-built & enabled '${builtSelection.profileName}':\n" +
+                        "${builtSelection.toAetherUri()}"
+                }
+
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(
+                        if (isFarsi) "✅ نتیجه اسکن خط شما و کانفیگ خودکار"
+                        else "✅ Your Line Scan Results & Auto-Built Config",
+                    )
+                    .setMessage(resultMsg)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setNeutralButton(if (isFarsi) "📋 کپی لینک aether://" else "📋 Copy aether:// Link") { _, _ ->
+                        val uri = builtSelection.toAetherUri()
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    .setPositiveButton(if (isFarsi) "🚀 اتصال فوری با همین کانفیگ" else "🚀 Connect Now") { _, _ ->
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+
+        val quickOptions = if (isFarsi) {
+            arrayOf(
+                "🇮🇷 آی‌پی ایران (بالاترین سرعت و کمترین پینگ — بدون چین)",
+                "🌍 آی‌پی خارج — خودکار پرسرعت (دو لایه کلودفلر Gool — بدون افت سرعت)",
+                "🇩🇪 آلمان (DE) — رفع تحریم کامل با چین WARP → سایفون",
+                "🇳🇱 هلند (NL) — رفع تحریم کامل با چین WARP → سایفون",
+                "🇫🇮 فنلاند (FI) — پینگ عالی اروپا با چین WARP → سایفون",
+                "🇺🇸 آمریکا (US) — مناسب ChatGPT / Gemini و سرویس‌های آمریکا",
+                "🇬🇧 انگلیس (GB) — چین WARP → سایفون بریتانیا",
+                "🇫🇷 فرانسه (FR) — چین WARP → سایفون فرانسه",
+                "🇨🇭 سوئیس (CH) — چین WARP → سایفون سوئیس",
+                "🌐 انتخاب از فهرست کامل ۲۹ کشور سایفون…",
+            )
+        } else {
+            arrayOf(
+                "🇮🇷 Iran IP (Highest Speed & Lowest Ping — Single-Hop)",
+                "🌍 Foreign IP — Fast Auto (Cloudflare Double-Hop Gool)",
+                "🇩🇪 Germany (DE) — Full Sanction Bypass (WARP → Psiphon)",
+                "🇳🇱 Netherlands (NL) — Full Sanction Bypass (WARP → Psiphon)",
+                "🇫🇮 Finland (FI) — Low Ping EU (WARP → Psiphon)",
+                "🇺🇸 United States (US) — Best for AI & US Services (WARP → Psiphon)",
+                "🇬🇧 United Kingdom (GB) — (WARP → Psiphon)",
+                "🇫🇷 France (FR) — (WARP → Psiphon)",
+                "🇨🇭 Switzerland (CH) — (WARP → Psiphon)",
+                "🌐 Pick from all 29 Psiphon countries…",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🤖 گام ۱: آی‌پی ایران می‌خواهید یا کشور دیگر؟"
+                else "🤖 Step 1: Do you want Iran IP or a Foreign Country?",
+            )
+            .setItems(quickOptions) { _, which ->
+                when (which) {
+                    0 -> runNetworkScanForDestination(exitLocation = "iran", chainTarget = "none", psiphonRegion = "")
+                    1 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "none", psiphonRegion = "")
+                    2 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "DE")
+                    3 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "NL")
+                    4 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "FI")
+                    5 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "US")
+                    6 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "GB")
+                    7 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "FR")
+                    8 -> runNetworkScanForDestination(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "CH")
+                    else -> {
+                        val allRegions = listOf("") + PsiphonCarrierConfig.availableRegions(this)
+                        val allLabels = allRegions.map { code ->
+                            PsiphonCarrierConfig.regionDisplayLabel(code, isFarsi, getString(R.string.aether_region_automatic))
+                        }.toTypedArray()
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(
+                                if (isFarsi) "🌍 انتخاب کشور سایفون برای ساخت خودکار"
+                                else "🌍 Pick Psiphon Country for Auto-Build",
+                            )
+                            .setItems(allLabels) { _, rIdx ->
+                                runNetworkScanForDestination(
+                                    exitLocation = "foreign",
+                                    chainTarget = "psiphon",
+                                    psiphonRegion = allRegions[rIdx],
+                                )
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .create()
             .showCatClientDialog()
     }

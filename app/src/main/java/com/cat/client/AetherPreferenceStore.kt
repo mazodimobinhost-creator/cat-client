@@ -10,6 +10,21 @@ data class AetherSavedProfile(
     val scannedAt: Long,
     val chainTarget: String = "none",
     val exitLocation: String = "auto",
+    val psiphonRegion: String = "",
+)
+
+data class AetherSmartHint(
+    val titleFa: String,
+    val bodyFa: String,
+    val actionLabelFa: String,
+    val titleEn: String,
+    val bodyEn: String,
+    val actionLabelEn: String,
+    val recommendedMode: AetherMode,
+    val recommendedIpScan: String,
+    val recommendedChain: String,
+    val recommendedExitLocation: String,
+    val recommendedPsiphonRegion: String,
 )
 
 data class AetherSelection(
@@ -49,6 +64,139 @@ data class AetherSelection(
         exitLocation in setOf("iran", "foreign") -> exitLocation
         mode == AetherMode.WireGuardOverMasque -> "foreign"
         else -> "iran"
+    }
+
+    /**
+     * Contextual recommendation engine: explains which companion buttons/settings
+     * work best with the user's current selection or last clicked button.
+     */
+    fun smartRecommendation(lastClicked: String = ""): AetherSmartHint {
+        val effExit = effectiveExitLocation()
+        val curRegion = psiphonRegion.ifBlank { "DE" }
+        return when {
+            lastClicked == "mci" || (ipScan == "v6" && mode == AetherMode.WireGuard && lastClicked.isEmpty()) -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای فایروال همراه اول (WARP + IPv6)",
+                bodyFa = "• با «WireGuard + IPv6» بهترین مکمل:\n" +
+                    "  ۱) برای بیشترین سرعت: «🇮🇷 آی‌پی ایران» یا «🌍 آی‌پی خارج (دو لایه Gool)» بدون چین.\n" +
+                    "  ۲) برای رفع کامل تحریم: «🔓 چین WARP → Psiphon» با کشور «🇩🇪 آلمان (DE)» یا «🇳🇱 هلند (NL)».\n" +
+                    "  ۳) اگر خط شما IPv6 نداشت، دکمه «🟪 MASQUE-HTTP/2» را بزنید (روی IPv4 هم وصل می‌شود).",
+                actionLabelFa = "✨ پیشنهاد مکمل: آی‌پی خارج + سایفون آلمان (DE)",
+                titleEn = "💡 Smart Tip for MCI Firewall (WARP + IPv6)",
+                bodyEn = "• Best companions with WireGuard + IPv6:\n" +
+                    "  1) Max speed: '🇮🇷 Iran IP' or '🌍 Foreign IP (Double-Hop Gool)' without chain.\n" +
+                    "  2) Full sanction bypass: 'WARP → Psiphon' + '🇩🇪 Germany (DE)'.\n" +
+                    "  3) If your line lacks IPv6, switch to '🟪 MASQUE-HTTP/2'.",
+                actionLabelEn = "✨ Apply Combo: Foreign IP + Psiphon DE",
+                recommendedMode = AetherMode.WireGuard,
+                recommendedIpScan = "v6",
+                recommendedChain = "psiphon",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = curRegion,
+            )
+            lastClicked == "mtn" -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای فایروال ایرانسل (WARP + IPv4/IPv6)",
+                bodyFa = "• روی فایروال ایرانسل:\n" +
+                    "  ۱) پروتکل «WireGuard (WARP)» با «هر دو IPv4 + IPv6» بدون محدودیت پورت کار می‌کند.\n" +
+                    "  ۲) اگر آی‌پی خارج بدون افت سرعت می‌خواهید: دکمه «🌍 آی‌پی خارج (دو لایه Gool)» با همین گزینه عالی کار می‌کند.\n" +
+                    "  ۳) اگر رفع تحریم خاص (مثل هوش مصنوعی) می‌خواهید: «WARP → Psiphon» با کشور «🇩🇪 آلمان» یا «🇺🇸 آمریکا» را بزنید.",
+                actionLabelFa = "✨ پیشنهاد مکمل: آی‌پی خارج پرسرعت (Gool)",
+                titleEn = "💡 Smart Tip for Irancell Firewall (WARP Any IP)",
+                bodyEn = "• Best companions on Irancell firewall:\n" +
+                    "  1) WireGuard + Both IPv4/IPv6 works cleanly.\n" +
+                    "  2) For fast foreign IP: pair with '🌍 Foreign IP (Double-Hop Gool)'.\n" +
+                    "  3) For strict sanction bypass: pair with 'WARP → Psiphon (DE/US)'.",
+                actionLabelEn = "✨ Apply Combo: Fast Foreign IP (Gool)",
+                recommendedMode = AetherMode.WireGuard,
+                recommendedIpScan = "both",
+                recommendedChain = "none",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = "",
+            )
+            lastClicked == "masque" || mode == AetherMode.MasqueHttp2 || mode == AetherMode.WireGuardOverMasque -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای پروتکل MASQUE-HTTP/2",
+                bodyFa = "• پروتکل MASQUE-HTTP/2 روی هر دو فایروال همراه اول و ایرانسل (حتی بدون IPv6) کار می‌کند:\n" +
+                    "  ۱) بهترین نوع آی‌پی برای آن: «هر دو IPv4 + IPv6» (پورت 443).\n" +
+                    "  ۲) برای آی‌پی خارج پرسرعت: با «🌍 آی‌پی خارج (WG-over-MASQUE)» ترکیب شود.\n" +
+                    "  ۳) اگر سایفون/تور چین می‌کنید: روی MASQUE-HTTP/2 ساده (تک‌لایه) بماند تا افت سرعت نداشته باشد.",
+                actionLabelFa = "✨ پیشنهاد مکمل: MASQUE-H2 + آی‌پی خارج (Gool)",
+                titleEn = "💡 Smart Tip for MASQUE-HTTP/2",
+                bodyEn = "• MASQUE-HTTP/2 works on both MCI & Irancell firewalls over TLS 443:\n" +
+                    "  1) Best IP family: 'Both IPv4 + IPv6'.\n" +
+                    "  2) For fast foreign IP: pair with '🌍 Foreign IP (WG-over-MASQUE)'.",
+                actionLabelEn = "✨ Apply Combo: MASQUE-H2 + Foreign IP",
+                recommendedMode = AetherMode.WireGuardOverMasque,
+                recommendedIpScan = "both",
+                recommendedChain = "none",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = "",
+            )
+            chainTarget == "psiphon" || lastClicked == "psiphon" || lastClicked == "region" -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای چین WARP → سایفون (${if (psiphonRegion.isEmpty()) "خودکار" else psiphonRegion})",
+                bodyFa = "• وقتی سایفون را چین می‌کنید:\n" +
+                    "  ۱) بهترین پروتکل پایه: «WireGuard ساده» یا «MASQUE-HTTP/2 ساده» (پروتکل دولایه خاموش شود تا سرعت نیفتد).\n" +
+                    "  ۲) بهترین کشور سایفون برای پینگ پایین از ایران: «🇩🇪 آلمان (DE)»، «🇳🇱 هلند (NL)» یا «🇫🇮 فنلاند (FI)».\n" +
+                    "  ۳) برای ChatGPT / سرویس‌های آمریکایی: کشور سایفون را روی «🇺🇸 آمریکا (US)» بگذارید.",
+                actionLabelFa = "✨ تنظیم بهینه: WireGuard ساده + کشور آلمان 🇩🇪",
+                titleEn = "💡 Smart Tip for WARP → Psiphon Chain",
+                bodyEn = "• Best companions with Psiphon chain:\n" +
+                    "  1) Simple WireGuard or MASQUE-HTTP/2 carrier (avoid double-hop).\n" +
+                    "  2) Fastest countries for Iran: 🇩🇪 Germany (DE), 🇳🇱 Netherlands (NL), 🇫🇮 Finland (FI).\n" +
+                    "  3) For US AI services: select 🇺🇸 United States (US).",
+                actionLabelEn = "✨ Apply Optimal: Simple WireGuard + 🇩🇪 DE",
+                recommendedMode = AetherMode.WireGuard,
+                recommendedIpScan = ipScan,
+                recommendedChain = "psiphon",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = curRegion,
+            )
+            chainTarget == "tor" || lastClicked == "tor" -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای چین WARP → تور (Orbot)",
+                bodyFa = "• با چین تور (Orbot):\n" +
+                    "  ۱) پروتکل پایه حتماً ساده («WireGuard» یا «MASQUE-HTTP/2») باشد.\n" +
+                    "  ۲) چون تور سرعت متوسطی دارد، اگر فقط آی‌پی خارج پرسرعت با کشور مشخص می‌خواهید، «WARP → سایفون (آلمان DE)» بسیار سریع‌تر و بدون نیاز به برنامه جانبی کار می‌کند.",
+                actionLabelFa = "✨ تغییر به جایگزین سریع‌تر: WARP → سایفون (آلمان 🇩🇪)",
+                titleEn = "💡 Smart Tip for WARP → Tor Chain",
+                bodyEn = "• Tor has medium speed. For faster foreign IP with country selection built-in, switch to WARP → Psiphon (🇩🇪 DE).",
+                actionLabelEn = "✨ Switch to Faster: WARP → Psiphon (🇩🇪 DE)",
+                recommendedMode = AetherMode.WireGuard,
+                recommendedIpScan = ipScan,
+                recommendedChain = "psiphon",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = "DE",
+            )
+            effExit == "iran" || lastClicked == "iran" -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای 🇮🇷 آی‌پی ایران (تک‌لایه سریع)",
+                bodyFa = "• وقتی «🇮🇷 آی‌پی ایران» را انتخاب کردید:\n" +
+                    "  ۱) چین سایفون/تور باید «بدون چین (مستقیم)» باشد تا آی‌پی شما در ایران (loc=IR) بماند و بالاترین سرعت را بگیرید.\n" +
+                    "  ۲) روی همراه اول «WireGuard + IPv6» و روی ایرانسل «WireGuard + هر دو IPv4/IPv6» یا «MASQUE-HTTP/2» بهترین مکمل است.",
+                actionLabelFa = "✨ پیشنهاد مکمل: MASQUE-HTTP/2 + هر دو IPv4/IPv6",
+                titleEn = "💡 Smart Tip for 🇮🇷 Iran Exit IP",
+                bodyEn = "• Keep Chain set to 'Direct (No Chain)' so your exit IP stays in Iran (loc=IR) at full speed.\n" +
+                    "• Best companion on MCI: WireGuard + IPv6; on Irancell/All: MASQUE-HTTP/2.",
+                actionLabelEn = "✨ Apply Combo: MASQUE-H2 + Both IPv4/IPv6",
+                recommendedMode = AetherMode.MasqueHttp2,
+                recommendedIpScan = "both",
+                recommendedChain = "none",
+                recommendedExitLocation = "iran",
+                recommendedPsiphonRegion = "",
+            )
+            else -> AetherSmartHint(
+                titleFa = "💡 پیشنهاد هوشمند برای 🌍 آی‌پی خارج (دو لایه Gool)",
+                bodyFa = "• شما «🌍 آی‌پی خارج (دو لایه Gool)» را انتخاب کرده‌اید:\n" +
+                    "  ۱) این حالت بدون نیاز به سایفون/تور و بدون افت سرعت، با دو لایه کلودفلر آی‌پی شما را خارج از ایران (loc!=IR) می‌کند.\n" +
+                    "  ۲) اگر کشور خاصی (مثل آلمان 🇩🇪، هلند 🇳🇱 یا آمریکا 🇺🇸) می‌خواهید، دکمه «🔓 چین WARP → Psiphon» و سپس «🌍 کشور سایفون» را بزنید.",
+                actionLabelFa = "✨ انتخاب کشور مشخص خارج با سایفون (🇩🇪 آلمان)",
+                titleEn = "💡 Smart Tip for 🌍 Foreign Exit IP (Double-Hop Gool)",
+                bodyEn = "• Double-Hop Gool gives a non-Iran IP at full speed.\n" +
+                    "• Want a specific country (🇩🇪 DE, 🇳🇱 NL, 🇺🇸 US)? Enable 'WARP → Psiphon' + pick country.",
+                actionLabelEn = "✨ Pick Specific Country via Psiphon (🇩🇪 DE)",
+                recommendedMode = AetherMode.WireGuard,
+                recommendedIpScan = ipScan,
+                recommendedChain = "psiphon",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = "DE",
+            )
+        }
     }
 
     /**
@@ -246,7 +394,9 @@ class AetherPreferenceStore(context: Context) {
                         .takeIf { it in AetherSelection.VALID_CHAIN_TARGETS } ?: "none"
                     val exitLoc = obj.optString("exitLocation", "auto")
                         .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
-                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc))
+                    val region = obj.optString("psiphonRegion", "").trim().uppercase()
+                        .takeIf { it.isEmpty() || it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc, region))
                 }
             }
         }.getOrDefault(emptyList())
@@ -265,7 +415,8 @@ class AetherPreferenceStore(context: Context) {
                     .put("endpoint", item.endpoint)
                     .put("scannedAt", item.scannedAt)
                     .put("chainTarget", item.chainTarget)
-                    .put("exitLocation", item.exitLocation),
+                    .put("exitLocation", item.exitLocation)
+                    .put("psiphonRegion", item.psiphonRegion),
             )
         }
         prefs.edit().putString("savedProfilesJson", arr.toString()).apply()

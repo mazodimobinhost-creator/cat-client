@@ -18,13 +18,103 @@ internal object PsiphonCarrierConfig {
 
     private fun regionsFile(context: Context) = File(context.noBackupFilesDir, "psiphon/regions.txt")
 
-    fun availableRegions(context: Context): List<String> = runCatching {
-        regionsFile(context).readLines()
-            .map { it.trim().uppercase(Locale.US) }
-            .filter { it.matches(Regex("[A-Z]{2}")) }
-            .distinct()
-            .sorted()
-    }.getOrDefault(emptyList())
+    val DEFAULT_REGIONS: List<String> = listOf(
+        "DE", "NL", "FI", "FR", "GB", "CH", "SE", "AT", "US", "CA",
+        "BE", "DK", "NO", "IT", "ES", "PL", "CZ", "IE", "EE", "LV",
+        "RO", "BG", "HU", "SK", "SG", "JP", "AU", "IN", "BR",
+    )
+
+    private val REGION_NAMES_FA: Map<String, String> = mapOf(
+        "DE" to "🇩🇪 آلمان (DE) — پیشنهادی · پرسرعت و پینگ پایین",
+        "NL" to "🇳🇱 هلند (NL) — پیشنهادی · پایدار و پرسرعت",
+        "FI" to "🇫🇮 فنلاند (FI) — پینگ عالی",
+        "FR" to "🇫🇷 فرانسه (FR) — پرسرعت اروپا",
+        "GB" to "🇬🇧 انگلیس (GB) — مناسب سایت‌های بریتانیا",
+        "CH" to "🇨🇭 سوئیس (CH) — حریم خصوصی بالا",
+        "SE" to "🇸🇪 سوئد (SE) — پایدار اروپا",
+        "AT" to "🇦🇹 اتریش (AT) — پینگ مناسب",
+        "US" to "🇺🇸 آمریکا (US) — مناسب ChatGPT / Gemini / سرویس‌های آمریکا",
+        "CA" to "🇨🇦 کانادا (CA)",
+        "BE" to "🇧🇪 بلژیک (BE)",
+        "DK" to "🇩🇰 دانمارک (DK)",
+        "NO" to "🇳🇴 نروژ (NO)",
+        "IT" to "🇮🇹 ایتالیا (IT)",
+        "ES" to "🇪🇸 اسپانیا (ES)",
+        "PL" to "🇵🇱 لهستان (PL)",
+        "CZ" to "🇨🇿 جمهوری چک (CZ)",
+        "IE" to "🇮🇪 ایرلند (IE)",
+        "EE" to "🇪🇪 استونی (EE)",
+        "LV" to "🇱🇻 لتونی (LV)",
+        "RO" to "🇷🇴 رومانی (RO)",
+        "BG" to "🇧🇬 بلغارستان (BG)",
+        "HU" to "🇭🇺 مجارستان (HU)",
+        "SK" to "🇸🇰 اسلواکی (SK)",
+        "SG" to "🇸🇬 سنگاپور (SG)",
+        "JP" to "🇯🇵 ژاپن (JP)",
+        "AU" to "🇦🇺 استرالیا (AU)",
+        "IN" to "🇮🇳 هند (IN)",
+        "BR" to "🇧🇷 برزیل (BR)",
+    )
+
+    private val REGION_NAMES_EN: Map<String, String> = mapOf(
+        "DE" to "🇩🇪 Germany (DE) — Recommended · Fast & Low Ping",
+        "NL" to "🇳🇱 Netherlands (NL) — Recommended · Stable & Fast",
+        "FI" to "🇫🇮 Finland (FI) — Low Latency",
+        "FR" to "🇫🇷 France (FR) — Fast EU",
+        "GB" to "🇬🇧 United Kingdom (GB)",
+        "CH" to "🇨🇭 Switzerland (CH)",
+        "SE" to "🇸🇪 Sweden (SE)",
+        "AT" to "🇦🇹 Austria (AT)",
+        "US" to "🇺🇸 United States (US) — Best for AI & US Services",
+        "CA" to "🇨🇦 Canada (CA)",
+        "BE" to "🇧🇪 Belgium (BE)",
+        "DK" to "🇩🇰 Denmark (DK)",
+        "NO" to "🇳🇴 Norway (NO)",
+        "IT" to "🇮🇹 Italy (IT)",
+        "ES" to "🇪🇸 Spain (ES)",
+        "PL" to "🇵🇱 Poland (PL)",
+        "CZ" to "🇨🇿 Czechia (CZ)",
+        "IE" to "🇮🇪 Ireland (IE)",
+        "EE" to "🇪🇪 Estonia (EE)",
+        "LV" to "🇱🇻 Latvia (LV)",
+        "RO" to "🇷🇴 Romania (RO)",
+        "BG" to "🇧🇬 Bulgaria (BG)",
+        "HU" to "🇭🇺 Hungary (HU)",
+        "SK" to "🇸🇰 Slovakia (SK)",
+        "SG" to "🇸🇬 Singapore (SG)",
+        "JP" to "🇯🇵 Japan (JP)",
+        "AU" to "🇦🇺 Australia (AU)",
+        "IN" to "🇮🇳 India (IN)",
+        "BR" to "🇧🇷 Brazil (BR)",
+    )
+
+    fun regionDisplayLabel(code: String, isFarsi: Boolean, automaticLabel: String? = null): String {
+        val clean = code.trim().uppercase(Locale.US)
+        if (clean.isEmpty()) {
+            return automaticLabel ?: if (isFarsi) "⚡ خودکار (سریع‌ترین کشور سایفون)" else "⚡ Automatic (Fastest Psiphon Country)"
+        }
+        return if (isFarsi) {
+            REGION_NAMES_FA[clean] ?: "🌍 کشور $clean"
+        } else {
+            REGION_NAMES_EN[clean] ?: "🌍 Region $clean"
+        }
+    }
+
+    fun regionShortLabel(code: String, isFarsi: Boolean): String {
+        val clean = code.trim().uppercase(Locale.US)
+        if (clean.isEmpty()) return if (isFarsi) "⚡ خودکار" else "⚡ Auto"
+        val full = regionDisplayLabel(clean, isFarsi)
+        return full.substringBefore(" —").trim()
+    }
+
+    fun availableRegions(context: Context): List<String> {
+        val dynamic = runCatching {
+            regionsFile(context).readLines()
+                .map { it.trim().uppercase(Locale.US) }
+                .filter { it.matches(Regex("[A-Z]{2}")) }
+        }.getOrDefault(emptyList())
+        return (DEFAULT_REGIONS + dynamic).distinct()
+    }
 
     fun rememberRegions(context: Context, regions: List<String>) {
         val clean = regions.map { it.uppercase(Locale.US) }

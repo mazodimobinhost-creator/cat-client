@@ -28,4 +28,12 @@ class PsiphonCarrierConfigTest {
             PsiphonCarrierConfig.render(File("/tmp/p"), 1, 1819, "Germany")
         }
     }
+
+    @Test fun defaultRegionsListAndLabelsCover29Countries() {
+        assertEquals(29, PsiphonCarrierConfig.DEFAULT_REGIONS.size)
+        org.junit.Assert.assertTrue(PsiphonCarrierConfig.DEFAULT_REGIONS.containsAll(listOf("DE", "NL", "FI", "US", "GB", "FR", "CH")))
+        org.junit.Assert.assertTrue(PsiphonCarrierConfig.regionDisplayLabel("DE", true).contains("آلمان"))
+        org.junit.Assert.assertTrue(PsiphonCarrierConfig.regionDisplayLabel("DE", false).contains("Germany"))
+        assertEquals("🇩🇪 آلمان (DE)", PsiphonCarrierConfig.regionShortLabel("DE", true))
+    }
 }
