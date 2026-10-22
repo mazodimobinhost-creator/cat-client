@@ -3982,7 +3982,7 @@ class MainActivity : Activity() {
                 if (isFarsiAether) "🇮🇷 آی‌پی ایران (تک‌لایه مستقیم · سریع‌ترین)" else "🇮🇷 Iran IP (Single-Hop · Fastest)"
         }
         val exitLocTitle = if (isFarsiAether) "مکان آی‌پی خروجی (ایران / خارج)" else "Exit IP Location (Iran / Foreign)"
-        val exitLocRow = PreferenceRowView(this).apply {
+        val exitLocRow = DashboardDataRowView(this).apply {
             setRow(exitLocTitle, exitLocValue)
             contentDescription = getString(R.string.settings_value_content_description, exitLocTitle, exitLocValue)
             setOnRowClickListener {
