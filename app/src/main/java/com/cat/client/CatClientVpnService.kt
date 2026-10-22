@@ -4062,7 +4062,7 @@ class CatClientVpnService : VpnService() {
         ).also { aetherTorCarrier = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName}")
         carrier.start()
-        val orbotPort = runCatching { orbotEnginePreferenceStore.read().port }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
+        val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
         val torReachable = withContext(Dispatchers.IO) {
             runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
         }
