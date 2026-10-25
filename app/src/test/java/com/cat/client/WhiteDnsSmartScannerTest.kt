@@ -391,11 +391,12 @@ class WhiteDnsSmartScannerTest {
         assertEquals("NS✓ TXT✓ RND✓ DPI✓ EDNS✓(1232) NXD✓", scoreCard.badgeText)
         assertEquals("UDP+TCP", scoreCard.transportBadge)
 
-        val mihomoYaml = SubConvConverter.convertToMihomo(
+        val mihomoProxies = SubConvConverter.convert(
             listOf(dnstHuman, dnstB64, slipNetUri).joinToString("\n"),
         )
-        assertTrue(mihomoYaml.contains("type: socks5"))
-        assertTrue(mihomoYaml.contains("server: 127.0.0.1"))
+        assertEquals(3, mihomoProxies.size)
+        assertEquals("socks5", mihomoProxies.first().optString("type"))
+        assertEquals("127.0.0.1", mihomoProxies.first().optString("server"))
     }
 
     @Test fun localSniSpoofProxyNonCfWhitelistFiveCfSpoofsAndHybridTunnelsAreValid() {
