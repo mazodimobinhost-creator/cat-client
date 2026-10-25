@@ -12072,6 +12072,7 @@ class MainActivity : Activity() {
                 "✨ ۱۵) تست یک‌کلیکی باز بودن Gemini، AI Studio، ChatGPT و یوتیوب بدون تحریم",
                 "🚨 ۱۶) تشخیص هوشمند «اینترنت ملی (قطع بین‌الملل)» در برابر «خرابی کانفیگ»",
                 "🛡️ ۱۷) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
+                "🍎 ۱۸) مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS / هات‌اسپات)",
             )
         } else {
             arrayOf(
@@ -12092,6 +12093,7 @@ class MainActivity : Activity() {
                 "✨ 15) 1-Click Gemini, AI Studio, ChatGPT & YouTube Unblock Tester",
                 "🚨 16) Smart Net Melli (International Shutdown) vs. Dead Config Detector",
                 "🛡️ 17) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
+                "🍎 18) iPhone & iPad (iOS) Connection Hub (CoreForge / Streisand / .mobileconfig / Hotspot)",
             )
         }
 
@@ -12119,6 +12121,7 @@ class MainActivity : Activity() {
                     14 -> runAiAndGeminiUnblockTesterDialog()
                     15 -> runNetMelliDetectorDialog()
                     16 -> showNineAntiFilterPresetsDialog()
+                    17 -> showIphoneIosConnectionHubDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -12502,6 +12505,315 @@ class MainActivity : Activity() {
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("cat-antifilter-preset", summary))
                 Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun detectLocalLanIpv4Address(): String {
+        return runCatching {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return@runCatching "192.168.43.1"
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val addrs = nif.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                        val host = addr.hostAddress ?: continue
+                        if (host.startsWith("192.168.") || host.startsWith("172.") || host.startsWith("10.")) {
+                            return@runCatching host
+                        }
+                    }
+                }
+            }
+            "192.168.43.1"
+        }.getOrDefault("192.168.43.1")
+    }
+
+    private fun showIphoneIosConnectionHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val dep = PanelDeploymentStore(this).deployments().firstOrNull()
+        val workerHost = dep?.workerUrl
+            ?.removePrefix("https://")
+            ?.removePrefix("http://")
+            ?.substringBefore("/")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "panel.example.workers.dev"
+        val userUuid = dep?.adminUuid?.takeIf { it.isNotBlank() } ?: "00000000-0000-4000-8000-000000000001"
+        val bundle = WhiteDnsSmartScanner.buildIosConnectionBundle(
+            workerHost = workerHost,
+            uuid = userUuid,
+            cleanIp = "188.114.98.0",
+            port = 443,
+            path = "/$userUuid",
+            remark = "CatClient-iOS",
+        )
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+        val options = if (isFarsi) {
+            arrayOf(
+                "📱 ۱) دریافت کلاینت رسمی آیفون CoreForge (ForgeCore) از whitedns.online (TestFlight)",
+                "⚡ ۲) کپی کانفیگ VLESS + Fragment مخصوص آیفون (CoreForge / Streisand / V2Box / Shadowrocket)",
+                "🔗 ۳) کپی لینک‌های ایمپورت یک‌کلیکی آیفون (Streisand / V2Box / Sing-box / Karing / Shadowrocket)",
+                "🛡️ ۴) ساخت کانفیگ استاندارد WireGuard (.conf) برای اپ رسمی WireGuard در آیفون (MTU 1280)",
+                "📲 ۵) ساخت پروفایل بومی iOS (.mobileconfig) — نصب در Safari آیفون بدون نیاز به اپ!",
+                "📡 ۶) اشتراک‌گذاری اینترنت تانل‌شده این گوشی به آیفون از طریق هات‌اسپات / وای‌فای (پروکسی LAN + PAC)",
+            )
+        } else {
+            arrayOf(
+                "📱 1) Get Official iOS Client CoreForge (ForgeCore) from whitedns.online (TestFlight)",
+                "⚡ 2) Copy iOS-Tuned VLESS + Fragment URI (CoreForge / Streisand / V2Box / Shadowrocket)",
+                "🔗 3) Copy 1-Click iOS Deep-Links (Streisand / V2Box / Sing-box / Karing / Shadowrocket)",
+                "🛡️ 4) Generate Standard WireGuard (.conf) for Official iOS WireGuard App (MTU 1280)",
+                "📲 5) Generate Native Apple iOS Profile (.mobileconfig) — Safari Install Without Any App!",
+                "📡 6) Share Tunnel from This Android to iPhone via Hotspot / Wi-Fi (LAN Proxy + PAC)",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🍎 مرکز جامع اتصال آیفون و iPad (اکوسیستم WhiteDNS و iOS)"
+                else "🍎 iPhone & iPad (iOS) Connection Hub (WhiteDNS & iOS Suite)",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        val info = if (isFarsi) {
+                            "🍎 کلاینت رسمی iOS در اکوسیستم whitedns.online اپلیکیشن «CoreForge (ForgeCore)» است که برای آیفون و آیپد طراحی شده و از طریق Apple TestFlight نصب می‌شود:\n\n" +
+                                "۱) ابتدا اپ رسمی TestFlight را از App Store نصب کنید:\nhttps://apps.apple.com/app/testflight/id899247664\n\n" +
+                                "۲) سپس لینک دعوت مستقیم CoreForge را باز کنید:\n${bundle.coreForgeTestFlightUrl}\n(لینک جایگزین: ${bundle.coreForgeBackupTestFlightUrl})\n\n" +
+                                "۳) راهنمای رسمی و دریافت کانفیگ از ربات‌ها:\n• صفحه ابزار: ${bundle.coreForgeGuideUrl}\n• ربات زنجیره خروج: https://t.me/WhiteDnsChainbot\n• ربات اضطراری MasterDNS: https://t.me/MasterDnsManager_bot\n\n" +
+                                "✅ پس از نصب CoreForge، کانفیگ گزینه (۲) یا لینک اشتراک پنل خود را با یک کلیک در آن ایمپورت کنید."
+                        } else {
+                            "🍎 The official iOS client in the whitedns.online ecosystem is CoreForge (ForgeCore) for iPhone & iPad via Apple TestFlight:\n\n" +
+                                "1) Install Apple TestFlight from App Store:\nhttps://apps.apple.com/app/testflight/id899247664\n\n" +
+                                "2) Open the CoreForge TestFlight invitation link:\n${bundle.coreForgeTestFlightUrl}\n(Backup invite: ${bundle.coreForgeBackupTestFlightUrl})\n\n" +
+                                "3) Official guide & Telegram bots:\n• Tool page: ${bundle.coreForgeGuideUrl}\n• Exit Chain Bot: https://t.me/WhiteDnsChainbot\n• MasterDNS Emergency Bot: https://t.me/MasterDnsManager_bot"
+                        }
+                        cm.setPrimaryClip(ClipData.newPlainText("coreforge-ios-testflight", bundle.coreForgeTestFlightUrl))
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "📱 نصب CoreForge روی آیفون و آیپد" else "📱 Install CoreForge on iPhone & iPad")
+                            .setMessage(info)
+                            .setPositiveButton(if (isFarsi) "باز کردن TestFlight" else "Open TestFlight") { _, _ ->
+                                runCatching {
+                                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(bundle.coreForgeTestFlightUrl)))
+                                }
+                            }
+                            .setNeutralButton(if (isFarsi) "اشتراک‌گذاری برای آیفون" else "Share to iPhone") { _, _ ->
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, "$info\n\nVLESS Config:\n${bundle.vlessFragmentUri}")
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "CoreForge iOS"))
+                            }
+                            .setNegativeButton(android.R.string.ok, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    1 -> {
+                        cm.setPrimaryClip(ClipData.newPlainText("ios-vless-fragment", bundle.vlessFragmentUri))
+                        val msg = if (isFarsi) {
+                            "✅ کانفیگ VLESS + Fragment مخصوص آیفون در کلیپ‌بورد کپی شد!\n\n" +
+                                "این کانفیگ با تنظیمات فرگمنت (10-30 بایت، تأخیر 15ms و Fingerprint=chrome) برای عبور از فایروال همراه اول و ایرانسل در کلاینت‌های آیفون (CoreForge، Streisand، V2Box، Sing-box و Shadowrocket) بهینه شده است:\n\n" +
+                                bundle.vlessFragmentUri
+                        } else {
+                            "✅ iOS-tuned VLESS + Fragment URI copied to clipboard!\n\n${bundle.vlessFragmentUri}"
+                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "⚡ کانفیگ آیفون کپی شد" else "⚡ iOS Config Copied")
+                            .setMessage(msg)
+                            .setPositiveButton(if (isFarsi) "ارسال به آیفون (Share)" else "Share to iPhone") { _, _ ->
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, bundle.vlessFragmentUri)
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "iOS VLESS Config"))
+                            }
+                            .setNegativeButton(android.R.string.ok, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    2 -> {
+                        val allLinks = buildString {
+                            appendLine("=== CoreForge (Official WhiteDNS iOS) ===")
+                            appendLine(bundle.coreForgeTestFlightUrl)
+                            appendLine()
+                            appendLine("=== Streisand (1-Click Import) ===")
+                            appendLine(bundle.streisandDeepLink)
+                            appendLine()
+                            appendLine("=== V2Box (1-Click Import) ===")
+                            appendLine(bundle.v2boxDeepLink)
+                            appendLine()
+                            appendLine("=== Sing-box iOS (1-Click Import) ===")
+                            appendLine(bundle.singBoxIosDeepLink)
+                            appendLine()
+                            appendLine("=== Karing iOS (1-Click Import) ===")
+                            appendLine(bundle.karingDeepLink)
+                            appendLine()
+                            appendLine("=== Shadowrocket (1-Click Import) ===")
+                            appendLine(bundle.shadowrocketDeepLink)
+                            appendLine()
+                            appendLine("=== Portal Web URL (Open in iPhone Safari) ===")
+                            appendLine(bundle.portalUrl)
+                        }
+                        cm.setPrimaryClip(ClipData.newPlainText("ios-deeplinks", allLinks))
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "✅ تمام دیپ‌لینک‌های یک‌کلیکی اپ‌های آیفون در کلیپ‌بورد کپی شد!"
+                            else "✅ All 1-click iOS app deep-links copied to clipboard!",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    3 -> {
+                        cm.setPrimaryClip(ClipData.newPlainText("ios-wireguard-conf", bundle.wireguardIosConf))
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "🛡️ کانفیگ WireGuard (.conf) مخصوص آیفون" else "🛡️ iOS WireGuard (.conf)")
+                            .setMessage(
+                                (if (isFarsi) {
+                                    "✅ متن فایل `.conf` استاندارد WireGuard (با MTU=1280 مخصوص عبور پایدار در iOS) در کلیپ‌بورد کپی شد.\n" +
+                                        "در اپ رسمی WireGuard روی آیفون گزینه «Create from clipboard» یا «Create from file or archive» را بزنید:\n\n"
+                                } else {
+                                    "✅ Standard WireGuard `.conf` (with iOS-tuned MTU=1280) copied to clipboard.\n" +
+                                        "In the official WireGuard iOS app, tap '+' -> 'Create from clipboard':\n\n"
+                                }) + bundle.wireguardIosConf,
+                            )
+                            .setPositiveButton(if (isFarsi) "ارسال به آیفون" else "Share to iPhone") { _, _ ->
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, bundle.wireguardIosConf)
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "CatClient-iOS-WireGuard.conf"))
+                            }
+                            .setNegativeButton(android.R.string.ok, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    4 -> {
+                        val profileModes = if (isFarsi) {
+                            arrayOf(
+                                "🛡️ ۱) پروفایل DoH ضد فیلتر و ضد مسمومیت DNS (Cloudflare 1.1.1.1)",
+                                "🇮🇷 ۲) پروفایل DoH ضد تحریم شکن (Shecan — باز کردن تحریم‌ها بدون VPN در آیفون)",
+                                "🎮 ۳) پروفایل DoH بازی و ضد تحریم الکترو (Electro — پینگ پایین و رفع تحریم)",
+                            )
+                        } else {
+                            arrayOf(
+                                "🛡️ 1) Anti-Poisoning Clean DoH Profile (Cloudflare 1.1.1.1)",
+                                "🇮🇷 2) Shecan Anti-Sanction DoH Profile (Bypass Sanctions Without VPN on iOS)",
+                                "🎮 3) Electro Gaming & Anti-Sanction DoH Profile",
+                            )
+                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(
+                                if (isFarsi) "📲 انتخاب پروفایل بومی iOS (.mobileconfig)"
+                                else "📲 Select Native iOS Profile (.mobileconfig)",
+                            )
+                            .setItems(profileModes) { _, modeIdx ->
+                                val xml = when (modeIdx) {
+                                    1 -> WhiteDnsSmartScanner.buildAppleIosMobileConfigProfile(
+                                        profileName = "CatClient & WhiteDNS iOS (Shecan Anti-Sanction)",
+                                        dohUrl = "https://free.shecan.ir/dns-query",
+                                        bootstrapIps = listOf("178.22.122.100", "185.51.200.2"),
+                                    )
+                                    2 -> WhiteDnsSmartScanner.buildAppleIosMobileConfigProfile(
+                                        profileName = "CatClient & WhiteDNS iOS (Electro Gaming)",
+                                        dohUrl = "https://dns.electrotm.org/dns-query",
+                                        bootstrapIps = listOf("78.157.42.100", "78.157.42.101"),
+                                    )
+                                    else -> bundle.mobileConfigXml
+                                }
+                                cm.setPrimaryClip(ClipData.newPlainText("catclient-ios.mobileconfig", xml))
+                                val portalMobileConfigUrl = "https://$workerHost/ios/dns.mobileconfig?mode=" +
+                                    when (modeIdx) {
+                                        1 -> "shecan"
+                                        2 -> "electro"
+                                        else -> "clean"
+                                    }
+                                val guide = if (isFarsi) {
+                                    "✅ پروفایل `.mobileconfig` اپل آماده و کپی شد!\n\n" +
+                                        "روش ۱ (مستقیم از پنل در Safari آیفون):\n" +
+                                        "لینک زیر را در مرورگر **Safari** آیفون باز کنید تا پنجره نصب پروفایل در Settings ظاهر شود:\n" +
+                                        "$portalMobileConfigUrl\n\n" +
+                                        "روش ۲ (ارسال فایل):\n" +
+                                        "دکمه «اشتراک‌گذاری» را بزنید و آن را از طریق تلگرام یا AirDrop/فایل به آیفون بفرستید، سپس در آیفون به:\n" +
+                                        "Settings -> Profile Downloaded -> Install\n" +
+                                        "بروید تا DNS رمزنگاری‌شده در سطح کل سیستم‌عامل iOS فعال شود!"
+                                } else {
+                                    "✅ Apple `.mobileconfig` profile generated & copied!\n\n" +
+                                        "Method 1 (Direct in iPhone Safari):\nOpen this link in **Safari** on iPhone:\n$portalMobileConfigUrl\n\n" +
+                                        "Method 2: Share the profile XML to your iPhone and install via Settings -> Profile Downloaded -> Install."
+                                }
+                                MaterialAlertDialogBuilder(this)
+                                    .setTitle(if (isFarsi) "📲 نصب پروفایل در آیفون" else "📲 Install Profile on iPhone")
+                                    .setMessage(guide)
+                                    .setPositiveButton(if (isFarsi) "اشتراک‌گذاری پروفایل" else "Share Profile") { _, _ ->
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, "CatClient-iOS-DNS.mobileconfig")
+                                            putExtra(Intent.EXTRA_TEXT, xml)
+                                        }
+                                        startActivity(Intent.createChooser(shareIntent, "CatClient-iOS-DNS.mobileconfig"))
+                                    }
+                                    .setNeutralButton(if (isFarsi) "کپی لینک مستقیم Safari" else "Copy Safari Link") { _, _ ->
+                                        cm.setPrimaryClip(ClipData.newPlainText("ios-safari-mobileconfig", portalMobileConfigUrl))
+                                        Toast.makeText(this, portalMobileConfigUrl, Toast.LENGTH_SHORT).show()
+                                    }
+                                    .setNegativeButton(android.R.string.ok, null)
+                                    .create()
+                                    .showCatClientDialog()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    5 -> {
+                        val lanIp = detectLocalLanIpv4Address()
+                        val bridgePort = runCatching {
+                            WhiteDnsSmartScanner.startLocalAntiDpiSocksBridge(
+                                listenPort = 0,
+                                useDoubleFragment = true,
+                            )
+                        }.getOrDefault(10808)
+                        val pacScript = WhiteDnsSmartScanner.buildLanPacScriptForIos(
+                            androidLanIp = lanIp,
+                            httpProxyPort = bridgePort,
+                            socksProxyPort = bridgePort,
+                        )
+                        val hotspotGuide = if (isFarsi) {
+                            "📡 **اشتراک‌گذاری اینترنت تانل‌شده به آیفون (بدون نیاز به نصب اپ روی آیفون):**\n\n" +
+                                "۱) هات‌اسپات این گوشی اندرویدی را روشن کنید (یا هر دو گوشی به یک مودم وای‌فای وصل باشند).\n" +
+                                "۲) در آیفون به `Settings -> Wi-Fi` بروید و کنار نام وای‌فای روی علامت ⓘ بزنید.\n" +
+                                "۳) در پایین صفحه وارد `Configure Proxy` شوید:\n" +
+                                "   • در اپ‌های پشتیبان SOCKS5/Shadowrocket/Streisand:\n" +
+                                "     Server: `$lanIp`  |  Port: `$bridgePort`\n" +
+                                "   • یا از طریق لینک PAC پنل در حالت Automatic:\n" +
+                                "     `https://$workerHost/ios/pac?ip=$lanIp&port=$bridgePort`\n\n" +
+                                "✅ بریج محلی ضد فیلتر روی پورت `$bridgePort` فعال است و اسکریپت PAC در کلیپ‌بورد کپی شد."
+                        } else {
+                            "📡 **Share Tunnel to iPhone via Hotspot / Wi-Fi (Zero App Required on iPhone):**\n\n" +
+                                "1) Turn on Wi-Fi Hotspot on this Android phone (or connect both to the same Wi-Fi).\n" +
+                                "2) On iPhone, open `Settings -> Wi-Fi`, tap ⓘ next to the network.\n" +
+                                "3) Scroll down to `Configure Proxy`:\n" +
+                                "   • Server: `$lanIp`  |  Port: `$bridgePort`\n" +
+                                "   • Or Automatic PAC URL:\n" +
+                                "     `https://$workerHost/ios/pac?ip=$lanIp&port=$bridgePort`\n\n" +
+                                "✅ Local Anti-DPI bridge is active on port `$bridgePort` and PAC script was copied to clipboard."
+                        }
+                        cm.setPrimaryClip(ClipData.newPlainText("ios-lan-pac", pacScript))
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "📡 هات‌اسپات امن اندروید به آیفون" else "📡 Android-to-iPhone Hotspot Bridge")
+                            .setMessage(hotspotGuide)
+                            .setPositiveButton(if (isFarsi) "کپی آدرس و پورت ($lanIp:$bridgePort)" else "Copy $lanIp:$bridgePort") { _, _ ->
+                                cm.setPrimaryClip(ClipData.newPlainText("ios-lan-endpoint", "$lanIp:$bridgePort"))
+                                Toast.makeText(this, "$lanIp:$bridgePort", Toast.LENGTH_SHORT).show()
+                            }
+                            .setNegativeButton(android.R.string.ok, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()

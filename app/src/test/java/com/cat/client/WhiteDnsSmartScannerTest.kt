@@ -273,4 +273,40 @@ class WhiteDnsSmartScannerTest {
         assertTrue(!WhiteDnsSmartScanner.shouldBypassTunnelForUnspoofedDomain("youtube.com", listOf("10.10.34.35")))
         assertTrue(!WhiteDnsSmartScanner.shouldBypassTunnelForUnspoofedDomain("gemini.google.com", listOf("142.250.185.78")))
     }
+
+    @Test fun iosConnectionBundleMobileConfigPacAndCottenMaxBudgetAreValid() {
+        val bundle = WhiteDnsSmartScanner.buildIosConnectionBundle(
+            workerHost = "my-panel.workers.dev",
+            uuid = "11111111-2222-4333-8444-555555555555",
+            cleanIp = "188.114.98.0",
+            port = 443,
+            path = "/vless-ws",
+            remark = "CatClient-iOS",
+        )
+        assertEquals("https://testflight.apple.com/join/DRkT6zny", bundle.coreForgeTestFlightUrl)
+        assertTrue(bundle.vlessFragmentUri.startsWith("vless://11111111-2222-4333-8444-555555555555@188.114.98.0:443?"))
+        assertTrue(bundle.vlessFragmentUri.contains("fragment=10-30,10-20,tlshello"))
+        assertTrue(bundle.streisandDeepLink.startsWith("streisand://import/"))
+        assertTrue(bundle.v2boxDeepLink.startsWith("v2box://install-sub?url="))
+        assertTrue(bundle.singBoxIosDeepLink.startsWith("sing-box://import-remote-profile?url="))
+        assertTrue(bundle.shadowrocketDeepLink.startsWith("sub://"))
+        assertTrue(bundle.karingDeepLink.startsWith("karing://install-config?url="))
+        assertTrue(bundle.wireguardIosConf.contains("MTU = 1280"))
+        assertTrue(bundle.mobileConfigXml.contains("com.apple.dnsSettings.managed"))
+        assertTrue(bundle.mobileConfigXml.contains("https://cloudflare-dns.com/dns-query"))
+
+        val pac = WhiteDnsSmartScanner.buildLanPacScriptForIos("192.168.43.1", 10809, 10808)
+        assertTrue(pac.contains("SOCKS5 192.168.43.1:10808"))
+        assertTrue(pac.contains("shExpMatch(host, \"*.ir\")"))
+
+        val shortBudget = WhiteDnsSmartScanner.calculateCottenMaxQnameBudget(listOf("t.abc.ir"))
+        val longBudget = WhiteDnsSmartScanner.calculateCottenMaxQnameBudget(
+            listOf("very-long-panel-generated-tunnel-subdomain.example-domain.co.uk"),
+            shortenedLabels = true,
+            labelCountJitter = 1,
+        )
+        assertTrue(shortBudget > longBudget)
+        assertTrue(longBudget >= 32)
+    }
 }
+

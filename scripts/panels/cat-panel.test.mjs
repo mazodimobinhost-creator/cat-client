@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.29', T.CAT_PANEL_VERSION === '6.69.29');
+  check('panel version is 6.69.30', T.CAT_PANEL_VERSION === '6.69.30');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
@@ -1383,7 +1383,15 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
 
   const portalRes = await req3('/sub/' + env3.UUID + '?portal=1');
   const portalHtml = await portalRes.text();
-  check('?portal=1 renders browser subscription portal with ISP presets', portalRes.status === 200 && portalHtml.includes('fw=mci-ipv6') && portalHtml.includes('fw=irancell-ff'));
+  check('?portal=1 renders browser subscription portal with ISP presets and iOS CoreForge', portalRes.status === 200 && portalHtml.includes('fw=mci-ipv6') && portalHtml.includes('fw=irancell-ff') && portalHtml.includes('testflight.apple.com/join/DRkT6zny'));
+
+  const iosCfgRes = await req3('/ios/dns.mobileconfig?mode=shecan');
+  const iosCfgXml = await iosCfgRes.text();
+  check('/ios/dns.mobileconfig serves Apple DNS profile', iosCfgRes.status === 200 && iosCfgXml.includes('com.apple.dnsSettings.managed') && iosCfgXml.includes('https://free.shecan.ir/dns-query'));
+
+  const iosPacRes = await req3('/ios/pac?ip=192.168.43.1&port=10808');
+  const iosPacTxt = await iosPacRes.text();
+  check('/ios/pac serves iOS LAN PAC script', iosPacRes.status === 200 && iosPacTxt.includes('192.168.43.1:10808'));
 }
 console.log(failures ? ('\n' + failures + ' FAILED\n- ' + failed.join('\n- ')) : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

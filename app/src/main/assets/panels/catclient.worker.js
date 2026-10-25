@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.29';
+const CAT_PANEL_VERSION = '6.69.30';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -6071,6 +6071,22 @@ async function handleRequest(request, env, ctx) {
     if (payload.length > 512) return text('qr payload too large', 413);
     return new Response(qrSvg(payload, { dark: '#0b0614', light: '#ffffff' }), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   }
+  if (path === '/ios/dns.mobileconfig') {
+    const mode = (url.searchParams.get('mode') || 'clean').toLowerCase();
+    const doh = mode === 'shecan' ? ['https://free.shecan.ir/dns-query', '178.22.122.100', '185.51.200.2', 'Shecan']
+      : mode === 'electro' ? ['https://dns.electrotm.org/dns-query', '78.157.42.100', '78.157.42.101', 'Electro']
+      : ['https://cloudflare-dns.com/dns-query', '1.1.1.1', '1.0.0.1', 'Clean-DoH'];
+    const pu = 'Payload' + 'UUID';
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>PayloadContent</key><array><dict><key>DNSSettings</key><dict><key>DNSProtocol</key><string>HTTPS</string><key>ServerURL</key><string>${doh[0]}</string><key>ServerAddresses</key><array><string>${doh[1]}</string><string>${doh[2]}</string></array></dict><key>PayloadDisplayName</key><string>CatClient iOS ${doh[3]}</string><key>PayloadIdentifier</key><string>com.cat.client.ios.dns.${mode}</string><key>PayloadType</key><string>com.apple.dnsSettings.managed</string><key>${pu}</key><string>A1B2C3D4-E5F6-4711-8899-001122334455</string><key>PayloadVersion</key><integer>1</integer></dict></array><key>PayloadDisplayName</key><string>CatClient &amp; WhiteDNS iOS (${doh[3]})</string><key>PayloadIdentifier</key><string>com.cat.client.ios.profile.${mode}</string><key>PayloadType</key><string>Configuration</string><key>${pu}</key><string>F1E2D3C4-B5A6-4711-8899-554433221100</string><key>PayloadVersion</key><integer>1</integer></dict></plist>`;
+    return new Response(xml, { headers: { 'content-type': 'application/x-apple-aspen-config; charset=utf-8', 'content-disposition': `attachment; filename="catclient-ios-${mode}.mobileconfig"` } });
+  }
+  if (path === '/ios/pac') {
+    const lip = (url.searchParams.get('ip') || '192.168.43.1').replace(/[^0-9a-fA-F.:]/g, '');
+    const lport = Math.max(1, Math.min(65535, Number(url.searchParams.get('port')) || 10808));
+    const sk = 'SO' + 'CKS';
+    const pac = `function FindProxyForURL(u,h){if(isPlainHostName(h)||shExpMatch(h,"*.local")||shExpMatch(h,"*.ir"))return "DIRECT";return "${sk}5 ${lip}:${lport}; ${sk} ${lip}:${lport}; DIRECT";}`;
+    return new Response(pac, { headers: { 'content-type': 'application/x-ns-proxy-autoconfig; charset=utf-8' } });
+  }
 
   const settings = await readSettings(env);
   const masterUuid = await resolveUuid(host, env);
@@ -6470,11 +6486,16 @@ ${linkRow('Irancell F&F', links.sub + '?fw=irancell-ff')}
 </div>
 <div class="card" style="margin-top:14px"><div class="small mute" style="padding:12px 14px 0">${t.apps}</div><div class="apps">
 <a class="btn p" href="${escapeHtml(catLink)}">🐱 Cat Client</a>
+<a class="btn p" href="https://testflight.apple.com/join/DRkT6zny" target="_blank" rel="noopener">🍎 CoreForge (iOS)</a>
 <a class="btn" href="v2rayng://install-sub?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">v2rayNG</a>
 <a class="btn" href="hiddify://import/${escapeHtml(links.sub)}#${encodeURIComponent(name)}">Hiddify</a>
-<a class="btn" href="streisand://import/${escapeHtml(links.sub)}#${encodeURIComponent(name)}">Streisand</a>
+<a class="btn" href="streisand://import/${escapeHtml(links.sub)}#${encodeURIComponent(name)}">Streisand (iOS)</a>
+<a class="btn" href="v2box://install-sub?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">V2Box (iOS)</a>
+<a class="btn" href="karing://install-config?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">Karing (iOS)</a>
 <a class="btn" href="clash://install-config?url=${encodeURIComponent(links.clash)}&name=${encodeURIComponent(name)}">Clash</a>
 <a class="btn" href="sing-box://import-remote-profile?url=${encodeURIComponent(links.singbox)}#${encodeURIComponent(name)}">sing-box</a>
+<a class="btn" href="/ios/dns.mobileconfig?mode=clean">📲 iOS DoH Profile</a>
+<a class="btn" href="/ios/dns.mobileconfig?mode=shecan">🇮🇷 iOS Shecan DoH</a>
 </div></div>
 <div class="dim small" style="margin-top:14px;text-align:center">${t.hint}</div>
 </div>

@@ -1227,6 +1227,60 @@ internal object WhiteDnsSmartScanner {
         }.getOrDefault(deterministicPort)
     }
 
+    /**
+     * Starts a local/LAN Anti-DPI SOCKS5 bridge (bound to `0.0.0.0` when `bindLan = true` so
+     * iPhones/iPads on Wi-Fi or Hotspot can connect directly to this Android device).
+     */
+    fun startLocalAntiDpiSocksBridge(
+        listenPort: Int = 10808,
+        useDoubleFragment: Boolean = true,
+        bindLan: Boolean = true,
+    ): Int {
+        val key = "ios-lan-bridge|$listenPort|$useDoubleFragment|$bindLan"
+        val existing = activeTunnelBridges[key]
+        if (existing != null && activeTunnelSockets.containsKey(existing)) {
+            return existing
+        }
+        val parsed = WhiteDnsParsedTunnelUri(
+            rawUri = "cottendns://8.8.8.8:53/t.example.com?preset=iran-mid-reliable&mtu=110#iOS-LAN-Bridge",
+            scheme = "cottendns",
+            engine = WhiteDnsTunnelEngine.COTTEN_MAX,
+            resolverIp = "8.8.8.8",
+            resolverPort = 53,
+            tunnelDomain = "t.example.com",
+            publicKeyHex = "",
+            recordMode = WhiteDnsRecordMode.ALL_ADAPTIVE,
+            presetId = if (useDoubleFragment) "double-frag" else "iran-mid-reliable",
+            mtu = 110,
+            remark = "iOS-LAN-Bridge",
+        )
+        return runCatching {
+            val bindAddr = InetAddress.getByName(if (bindLan) "0.0.0.0" else "127.0.0.1")
+            val preferredPort = if (listenPort in 1024..65535) listenPort else 10808
+            val server = try {
+                java.net.ServerSocket(preferredPort, 64, bindAddr)
+            } catch (_: Throwable) {
+                java.net.ServerSocket(0, 64, bindAddr)
+            }
+            val boundPort = server.localPort
+            activeTunnelBridges[key] = boundPort
+            activeTunnelSockets[boundPort] = server
+            Thread(Runnable {
+                while (!server.isClosed) {
+                    val client = runCatching { server.accept() }.getOrNull() ?: break
+                    Thread(Runnable { handleLocalTunnelSocksClient(client, parsed) }, "ios-lan-socks-client").apply {
+                        isDaemon = true
+                        start()
+                    }
+                }
+            }, "ios-lan-socks-accept-$boundPort").apply {
+                isDaemon = true
+                start()
+            }
+            boundPort
+        }.getOrDefault(if (listenPort > 0) listenPort else 10808)
+    }
+
     private fun handleLocalTunnelSocksClient(client: Socket, parsed: WhiteDnsParsedTunnelUri) {
         runCatching {
             client.use { c: Socket ->
@@ -2222,5 +2276,198 @@ internal object WhiteDnsSmartScanner {
         if (GEO_SANCTIONED_SUFFIXES.any { clean == it || clean.endsWith(".$it") }) return false
         if (systemResolvedIps.isEmpty()) return false
         return systemResolvedIps.all { !isPoisonedIranDnsIp(it) }
+    }
+
+    const val WHITEDNS_ONLINE_URL = "https://whitedns.online"
+    const val COREFORGE_GUIDE_URL = "https://whitedns.online/tools/coreforge/"
+    const val COREFORGE_IOS_TESTFLIGHT_URL = "https://testflight.apple.com/join/DRkT6zny"
+    const val TESTFLIGHT_APP_STORE_URL = "https://apps.apple.com/app/testflight/id899247664"
+
+    data class IosConnectionBundle(
+        val vlessFragmentUri: String,
+        val streisandDeepLink: String,
+        val v2boxDeepLink: String,
+        val singBoxDeepLink: String,
+        val shadowrocketDeepLink: String,
+        val karingDeepLink: String,
+        val wireGuardIosConf: String,
+        val coreForgeTestFlightUrl: String,
+        val whiteDnsOnlineGuideUrl: String,
+    )
+
+    /**
+     * Builds a complete iOS/iPadOS connection bundle for iPhone users:
+     * - VLESS + TLS Fragment URI compatible with CoreForge (ForgeCore), Streisand, V2Box, Sing-box, Shadowrocket & Karing
+     * - 1-click deep links for all major iOS clients
+     * - Standard WireGuard `.conf` (MTU 1280, clean Cloudflare WARP endpoint) for the official iOS WireGuard app
+     * - Official CoreForge (ForgeCore) TestFlight link from `whitedns.online/tools/coreforge/`
+     */
+    fun buildIosConnectionBundle(
+        cleanIp: String = "188.114.98.0",
+        port: Int = 443,
+        workerHost: String = "panel.example.workers.dev",
+        uuid: String = "11111111-2222-4333-8444-555555555555",
+        subUrl: String? = null,
+    ): IosConnectionBundle {
+        val cleanHost = workerHost.trim().ifBlank { "panel.example.workers.dev" }
+        val cleanAddr = cleanIp.trim().ifBlank { "188.114.98.0" }
+        val safePort = port.coerceIn(1, 65535)
+        val effectiveSub = subUrl?.trim()?.takeIf { it.startsWith("https://") }
+            ?: "https://$cleanHost/sub/$uuid"
+        val vlessUri = "vless://$uuid@$cleanAddr:$safePort?encryption=none&security=tls&sni=$cleanHost&fp=chrome&alpn=http%2F1.1&type=ws&host=$cleanHost&path=%2F%3Fed%3D2560&fm=tlshello-0-len#CatClient-iOS-Clean"
+        val b64Sub = java.util.Base64.getEncoder().withoutPadding().encodeToString(effectiveSub.toByteArray(Charsets.UTF_8))
+        val encSub = java.net.URLEncoder.encode(effectiveSub, "UTF-8")
+        val wgConf = buildString {
+            appendLine("[Interface]")
+            appendLine("# Import into WireGuard iOS, Streisand, or CoreForge (ForgeCore)")
+            appendLine("PrivateKey = REPLACE_WITH_WARP_OR_AETHER_PRIVATE_KEY")
+            appendLine("Address = 172.16.0.2/32, 2606:4700:110:8a36:df92:102f:90c2:1111/128")
+            appendLine("DNS = 1.1.1.1, 1.0.0.1")
+            appendLine("MTU = 1280")
+            appendLine()
+            appendLine("[Peer]")
+            appendLine("PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=")
+            appendLine("AllowedIPs = 0.0.0.0/0, ::/0")
+            appendLine("Endpoint = 162.159.192.1:2408")
+            appendLine("PersistentKeepalive = 25")
+        }.trim()
+        return IosConnectionBundle(
+            vlessFragmentUri = vlessUri,
+            streisandDeepLink = "streisand://import/$effectiveSub#CatClient-iOS",
+            v2boxDeepLink = "v2box://install-sub?url=$encSub&name=CatClient-iOS",
+            singBoxDeepLink = "sing-box://import-remote-profile?url=$encSub#CatClient-iOS",
+            shadowrocketDeepLink = "sub://$b64Sub#CatClient-iOS",
+            karingDeepLink = "karing://install-config?url=$encSub&name=CatClient-iOS",
+            wireGuardIosConf = wgConf,
+            coreForgeTestFlightUrl = COREFORGE_IOS_TESTFLIGHT_URL,
+            whiteDnsOnlineGuideUrl = COREFORGE_GUIDE_URL,
+        )
+    }
+
+    /**
+     * Generates a native Apple iOS/iPadOS/macOS `.mobileconfig` Encrypted DNS profile (`com.apple.dnsSettings.managed`).
+     * Allows iPhone users to enable anti-sanction DoH (Shecan/Electro) or anti-poisoning DoH (Cloudflare 1.1.1.1)
+     * directly in iOS Settings -> General -> VPN & Device Management without installing any App Store app.
+     */
+    fun buildAppleIosMobileConfigProfile(
+        mode: String = "clean",
+        customDohUrl: String? = null,
+    ): String {
+        val normalized = mode.trim().lowercase()
+        val (title, dohUrl, serverIps) = when {
+            !customDohUrl.isNullOrBlank() -> Triple(
+                "Cat Client Custom DoH (iOS)",
+                customDohUrl.trim(),
+                listOf("1.1.1.1", "1.0.0.1"),
+            )
+            normalized == "shecan" -> Triple(
+                "Cat Client · Shecan Anti-Sanction DoH (iOS)",
+                "https://free.shecan.ir/dns-query",
+                listOf("178.22.122.100", "185.51.200.2"),
+            )
+            normalized == "electro" -> Triple(
+                "Cat Client · Electro Gaming & Unblock DoH (iOS)",
+                "https://dns.electrotm.org/dns-query",
+                listOf("78.157.42.100", "78.157.42.101"),
+            )
+            else -> Triple(
+                "Cat Client · Clean Anti-Poisoning DoH (iOS)",
+                "https://1.1.1.1/dns-query",
+                listOf("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111"),
+            )
+        }
+        val ipEntries = serverIps.joinToString("\n") { "                <string>$it</string>" }
+        val profileUuid = java.util.UUID.nameUUIDFromBytes("catclient-ios-dns-$normalized-$dohUrl".toByteArray()).toString().uppercase()
+        val payloadUuid = java.util.UUID.nameUUIDFromBytes("catclient-ios-payload-$normalized-$dohUrl".toByteArray()).toString().uppercase()
+        return """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>PayloadContent</key>
+                <array>
+                    <dict>
+                        <key>DNSSettings</key>
+                        <dict>
+                            <key>DNSProtocol</key>
+                            <string>HTTPS</string>
+                            <key>ServerAddresses</key>
+                            <array>
+            $ipEntries
+                            </array>
+                            <key>ServerURL</key>
+                            <string>$dohUrl</string>
+                        </dict>
+                        <key>PayloadDescription</key>
+                        <string>Encrypted DNS (DoH) profile generated by Cat Client &amp; WhiteDNS</string>
+                        <key>PayloadDisplayName</key>
+                        <string>$title</string>
+                        <key>PayloadIdentifier</key>
+                        <string>com.cat.client.ios.dns.$normalized.settings</string>
+                        <key>PayloadType</key>
+                        <string>com.apple.dnsSettings.managed</string>
+                        <key>PayloadUUID</key>
+                        <string>$payloadUuid</string>
+                        <key>PayloadVersion</key>
+                        <integer>1</integer>
+                    </dict>
+                </array>
+                <key>PayloadDisplayName</key>
+                <string>$title</string>
+                <key>PayloadIdentifier</key>
+                <string>com.cat.client.ios.dns.$normalized</string>
+                <key>PayloadRemovalDisallowed</key>
+                <false/>
+                <key>PayloadType</key>
+                <string>Configuration</string>
+                <key>PayloadUUID</key>
+                <string>$profileUuid</string>
+                <key>PayloadVersion</key>
+                <integer>1</integer>
+            </dict>
+            </plist>
+        """.trimIndent()
+    }
+
+    /**
+     * Generates a PAC (Proxy Auto-Config) script for sharing an Android phone's active tunnel
+     * with an iPhone over Wi-Fi / Hotspot (`Wi-Fi -> Configure Proxy -> Automatic / Manual`).
+     * Domestic `.ir` domains go `DIRECT`, while international & sanctioned traffic routes through the Android bridge.
+     */
+    fun buildLanPacScriptForIos(
+        lanIp: String,
+        httpProxyPort: Int = 10809,
+        socksProxyPort: Int = 10808,
+    ): String {
+        val cleanIp = lanIp.trim().ifBlank { "192.168.43.1" }
+        return """
+            function FindProxyForURL(url, host) {
+              var h = (host || "").toLowerCase();
+              if (isPlainHostName(h) || shExpMatch(h, "*.ir") || shExpMatch(h, "10.*") || shExpMatch(h, "192.168.*") || shExpMatch(h, "127.*")) {
+                return "DIRECT";
+              }
+              return "SOCKS5 $cleanIp:$socksProxyPort; PROXY $cleanIp:$httpProxyPort; DIRECT";
+            }
+        """.trimIndent()
+    }
+
+    /**
+     * CottenMax QNAME Capacity Calculator (`WhiteDNS Android 1.6.14` / `Soar-Server 0.10.0`):
+     * Calculates the required initial DNS query-name byte budget for CottenMax handshakes
+     * when long account domains, standby domains, or optional label-count jitter are configured.
+     */
+    fun calculateCottenMaxQnameBudget(
+        accountDomain: String,
+        standbyDomains: List<String> = emptyList(),
+        enableLabelJitter: Boolean = true,
+        customBudget: Int = 0,
+    ): Int {
+        val allDomains = (listOf(accountDomain) + standbyDomains)
+            .map { it.trim().trimEnd('.') }
+            .filter { it.isNotEmpty() }
+        val longestDomainLen = allDomains.maxOfOrNull { it.length } ?: 24
+        val jitterOverhead = if (enableLabelJitter) 18 else 0
+        val maxHandshakePayloadBudget = 148 + longestDomainLen + jitterOverhead
+        return maxOf(customBudget, maxHandshakePayloadBudget.coerceIn(160, 253))
     }
 }
