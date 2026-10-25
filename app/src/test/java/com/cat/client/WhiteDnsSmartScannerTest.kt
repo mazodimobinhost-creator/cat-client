@@ -223,13 +223,13 @@ class WhiteDnsSmartScannerTest {
         val now = 1_760_000_000_000L
         WhiteDnsSmartScanner.quarantineInterceptedEndpoint("net-mci", "104.18.2.161:443", now)
         assertTrue(WhiteDnsSmartScanner.isEndpointQuarantined("net-mci", "104.18.2.161:443", now + 60_000L))
-        assertTrue(!WhiteDnsSmartScanner.isEndpointQuarantined("net-mci", "104.18.2.161:443", now + 25 * 3600_000L))
         val filtered = WhiteDnsSmartScanner.filterOutQuarantinedEndpoints(
             "net-mci",
             listOf("104.18.2.161:443", "188.114.98.0:443"),
             now + 10_000L,
         )
         assertEquals(listOf("188.114.98.0:443"), filtered)
+        assertTrue(!WhiteDnsSmartScanner.isEndpointQuarantined("net-mci", "104.18.2.161:443", now + 25 * 3600_000L))
     }
 
     @Test fun masqueAndWireGuardAutoSchemesParseAndRealityFragmentNormalizes() {
