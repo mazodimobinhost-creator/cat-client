@@ -694,12 +694,26 @@ internal object LocalSniSpoofProxy {
 
     // Active local SNI spoof SOCKS5 listeners keyed by strategy id
     private val activeSpoofServers = ConcurrentHashMap<String, ServerSocket>()
+    const val DEFAULT_LISTEN_PORT = 10819
+
     @Volatile
     var currentActiveStrategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI
         private set
     @Volatile
     var currentDecoySni: String = "ebanksepah.ir"
         private set
+
+    fun isRunning(): Boolean = activeSpoofServers.values.any { !it.isClosed }
+
+    fun activeListenPort(): Int =
+        activeSpoofServers.values.firstOrNull { !it.isClosed }?.localPort ?: DEFAULT_LISTEN_PORT
+
+    fun updateDecoySni(sni: String) {
+        val clean = sni.trim()
+        if (clean.isNotEmpty()) {
+            currentDecoySni = clean
+        }
+    }
 
     fun startSpoofSocksProxy(
         strategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,

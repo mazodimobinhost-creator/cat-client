@@ -326,7 +326,7 @@ class WhiteDnsSmartScannerTest {
         assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.VAY_DNS, parsedHuman?.engine)
         assertEquals("v.example.com", parsedHuman?.tunnelDomain)
         assertEquals("178.22.122.100", parsedHuman?.resolverIp)
-        assertEquals(WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_CNAME, parsedHuman?.recordMode)
+        assertEquals(WhiteDnsRecordMode.TXT_CNAME, parsedHuman?.recordMode)
 
         val dnstB64 = WhiteDnsSmartScanner.buildDnstStandardUri(
             domain = "v.example.com",
@@ -345,7 +345,7 @@ class WhiteDnsSmartScannerTest {
         assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.VAY_DNS, parsedB64?.engine)
         assertEquals("v.example.com", parsedB64?.tunnelDomain)
         assertEquals("185.51.200.2", parsedB64?.resolverIp)
-        assertEquals(WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_AAAA, parsedB64?.recordMode)
+        assertEquals(WhiteDnsRecordMode.TXT_AAAA, parsedB64?.recordMode)
 
         val slipNetUri = WhiteDnsSmartScanner.buildSlipNetUri(
             domain = "n.example.com",
@@ -402,11 +402,11 @@ class WhiteDnsSmartScannerTest {
         val fakeHello = LocalSniSpoofProxy.buildFakeClientHelloRecord("ebanksepah.ir")
         assertEquals(0x16.toByte(), fakeHello[0])
         assertEquals(0x03.toByte(), fakeHello[1])
-        assertEquals(0x03.toByte(), fakeHello[2])
+        assertEquals(0x01.toByte(), fakeHello[2])
 
         val sniOffset = LocalSniSpoofProxy.findSniHostnameOffset(fakeHello)
-        assertTrue(sniOffset != null && sniOffset > 40)
-        val asciiHost = String(fakeHello, sniOffset!!, "ebanksepah.ir".length, Charsets.US_ASCII)
+        assertTrue(sniOffset > 40)
+        val asciiHost = String(fakeHello, sniOffset, "ebanksepah.ir".length, Charsets.US_ASCII)
         assertEquals("ebanksepah.ir", asciiHost)
 
         val splitPair = LocalSniSpoofProxy.splitClientHelloAtSni(fakeHello)
@@ -422,11 +422,12 @@ class WhiteDnsSmartScannerTest {
         assertTrue(LocalSniSpoofProxy.NON_CF_WHITELIST_TARGETS.size >= 10)
         assertEquals(5, LocalSniSpoofProxy.CF_SPOOF_5_METHODS.size)
 
-        val hybrids = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
-        assertEquals(4, hybrids.size)
-        hybrids.forEach { h ->
-            val parsed = WhiteDnsSmartScanner.parseTunnelUri(h.uri)
-            assertTrue("Expected hybrid URI ${h.uri} to parse", parsed != null)
+        val hybridsRaw = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
+        val hybridUris = hybridsRaw.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        assertEquals(4, hybridUris.size)
+        hybridUris.forEach { uri ->
+            val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri)
+            assertTrue("Expected hybrid URI $uri to parse", parsed != null)
         }
 
         val aetherWithMasqueSni = AetherSelection(

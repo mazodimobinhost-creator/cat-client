@@ -13516,7 +13516,7 @@ class MainActivity : Activity() {
                     val bundle = WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
                         resolverIp = best.resolverIp,
                         transport = if (best.udpAlive) "udp" else "tcp",
-                        recordMode = if (best.txtOk) WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_CNAME else WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_AAAA,
+                        recordMode = if (best.txtOk) WhiteDnsRecordMode.TXT_CNAME else WhiteDnsRecordMode.TXT_AAAA,
                         preset = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.first(),
                     )
                     connectWhiteDnsTunnelDirectly(bundle)
@@ -13539,13 +13539,13 @@ class MainActivity : Activity() {
             setText("v.example.com")
             hint = if (isFarsi) "دامنه NS تانل (مثلاً v.example.com)" else "Tunnel NS domain (e.g. v.example.com)"
             setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_MUTED)
+            setHintTextColor(TEXT_SECONDARY)
             textSize = 12.5f
         }
         val preview = TextView(this).apply {
             setTextColor(TEXT_PRIMARY)
             textSize = 11f
-            typeface = CatClientMonoTypeface
+            typeface = CatClientDataTypeface
             setPadding(dp(10), dp(8), dp(10), dp(8))
             background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
@@ -13673,21 +13673,25 @@ class MainActivity : Activity() {
                     .filter { it.isNotEmpty() && !it.startsWith("#") }
                     .joinToString("\n")
                 val title = "🧬 MasterDNS + SlipNet + dnst://"
-                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
-                val saved = if (existing != null) {
-                    userSubscriptionManager.update(existing.id, title, rawLines)
-                } else {
-                    userSubscriptionManager.add(title, rawLines)
+                activityScope.launch {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                    val saved = withContext(Dispatchers.IO) {
+                        if (existing != null) {
+                            userSubscriptionManager.update(existing.id, title, rawLines)
+                        } else {
+                            userSubscriptionManager.add(title, rawLines)
+                        }
+                    }
+                    userSubscriptionManager.select(saved.id)
+                    renderSubscriptions()
+                    onSubscriptionSelected()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ کانفیگ‌های MasterDNS، dnst:// و SlipNet به اشتراک شما اضافه و انتخاب شد"
+                        else "✅ Added MasterDNS, dnst:// & SlipNet configs to your subscriptions",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
-                userSubscriptionManager.select(saved.id)
-                renderSubscriptions()
-                onSubscriptionSelected()
-                Toast.makeText(
-                    this,
-                    if (isFarsi) "✅ کانفیگ‌های MasterDNS، dnst:// و SlipNet به اشتراک شما اضافه و انتخاب شد"
-                    else "✅ Added MasterDNS, dnst:// & SlipNet configs to your subscriptions",
-                    Toast.LENGTH_LONG,
-                ).show()
             }
             .create()
             .showCatClientDialog()
@@ -13697,7 +13701,7 @@ class MainActivity : Activity() {
      * Comprehensive 2026 Net Melli Bypass Lab combining:
      * 1) Non-Cloudflare & Domestic Whitelist CDN Scanner (`Akamai`, `Fastly`, `Google`, `Azure`, `Arvan`, `Derak`) preserving exact `IP:port`
      * 2) `Fact-A DNS Non-Hijack SNI Oracle` (probing non-DNS IP `1.2.3.4:53` to detect DPI-unblocked SNIs)
-     * 3) In-App `LocalSniSpoofProxy` (`127.0.0.1:18443` with `Low-TTL=3 Fake ClientHello + TLS Record Split @ SNI`)
+     * 3) In-App `LocalSniSpoofProxy` (`127.0.0.1:10819` with `Low-TTL=3 Fake ClientHello + TLS Record Split @ SNI`)
      * 4) The 5 Cloudflare Spoofing Methods alongside Non-CF methods (`echOutbound + fromMitm`, `pinnedPeerCertSha256`, `Aether --masque-sni`, `Fake ClientHello`, `FinalMask`)
      * 5) 2026 Hybrid Net Melli Tunnels (`QS-Tunnel`, `QQ-Tunnel`, `Spoof-Tunnel`, `S3 Bypass / Fedarisha`)
      */
@@ -13705,8 +13709,8 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val proxyRunning = LocalSniSpoofProxy.isRunning()
         val proxyStatus = if (proxyRunning) {
-            if (isFarsi) "🟢 روشن (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentSpoofSni})"
-            else "🟢 Running (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentSpoofSni})"
+            if (isFarsi) "🟢 روشن (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentDecoySni})"
+            else "🟢 Running (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentDecoySni})"
         } else {
             if (isFarsi) "⚪ آماده به‌کار (پورت محلی ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
             else "⚪ Ready (Local port ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
@@ -13715,7 +13719,7 @@ class MainActivity : Activity() {
         val options = if (isFarsi) {
             arrayOf(
                 "🛰️ ۱) اسکن زنده آی‌پی و دامنه‌های وایت‌لیست غیرکلادفلر و داخلی (Akamai · Fastly · Google · Azure · Arvan · Derak با حفظ دقیق IP:port)",
-                "🔎 ۲) اوراکل هوشمند Fact-A DNS (کشف دامنه‌ها و SNIهای مسدودنشده در DPI با کوئری تله به 1.2.3.4:53)",
+                "🔎 ۲) اوراکل هوشمند Fact-A DNS (کشف دامنه‌ها و SNIهای مسدودنشده در DPI)",
                 "🛡️ ۳) پروکسی محلی تزریق Fake ClientHello + برش SNI ($proxyStatus)",
                 "☁️ ۴) ۵ روش اسپوفینگ کلادفلر در کنار روش‌های غیرکلادفلر (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
                 "🚀 ۵) ساخت و افزودن ۴ تانل هیبریدی نت ملی ۲۰۲۶ (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
@@ -13723,7 +13727,7 @@ class MainActivity : Activity() {
         } else {
             arrayOf(
                 "🛰️ 1) Live Non-Cloudflare & Domestic Whitelist CDN Scanner (Akamai · Fastly · Google · Azure · Arvan · Derak preserving exact IP:port)",
-                "🔎 2) Fact-A DNS Non-Hijack SNI Oracle (Find DPI-unblocked SNIs via 1.2.3.4:53 trap probe)",
+                "🔎 2) Fact-A DNS Non-Hijack SNI Oracle (Find DPI-unblocked SNIs)",
                 "🛡️ 3) Local Fake ClientHello + SNI Split Proxy ($proxyStatus)",
                 "☁️ 4) The 5 Cloudflare Spoofing Methods alongside Non-CF (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
                 "🚀 5) Generate & Add 2026 Hybrid Net Melli Tunnels (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
@@ -13761,7 +13765,6 @@ class MainActivity : Activity() {
             val results = withContext(Dispatchers.IO) {
                 LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(timeoutMs = 1100)
             }
-            val openList = results.filter { it.tcpOpen }
             val report = buildString {
                 if (isFarsi) {
                     appendLine("🛰️ نتیجه تست واقعی بانک وایت‌لیست غیرکلادفلر و داخلی (با حفظ دقیق IP:port):")
@@ -13770,52 +13773,59 @@ class MainActivity : Activity() {
                     appendLine("🛰️ Live Non-Cloudflare & Domestic Whitelist Scan (preserving exact IP:port):")
                     appendLine("────────────────────────")
                 }
-                results.forEachIndexed { idx, r ->
-                    val t = r.target
-                    val status = when {
-                        r.tlsOk -> "🟢 TCP+TLS OK (${r.rttMs} ms)"
-                        r.tcpOpen -> "🟡 TCP OPEN (${r.rttMs} ms)"
-                        else -> "🔴 BLOCKED / TIMEOUT"
+                if (results.isEmpty()) {
+                    appendLine(if (isFarsi) "⚠️ هیچ هدفی در این لحظه پاسخ نداد." else "⚠️ No target responded right now.")
+                } else {
+                    results.forEachIndexed { idx, r ->
+                        val t = r.target
+                        val status = if (r.tlsVerified) {
+                            "🟢 TCP+TLS OK (${r.effectiveRttMs} ms)"
+                        } else {
+                            "🟡 TCP OPEN (${r.tcpRttMs} ms)"
+                        }
+                        val title = if (isFarsi) t.provider.titleFa else t.provider.titleEn
+                        appendLine("${idx + 1}. $title")
+                        appendLine("   • IP:port = ${t.exactEndpoint} · SNI = ${t.sni}")
+                        appendLine("   • Status: $status")
+                        appendLine()
                     }
-                    val title = if (isFarsi) t.titleFa else t.titleEn
-                    appendLine("${idx + 1}. $title")
-                    appendLine("   • IP:port = ${t.ip}:${t.port} · SNI = ${t.whitelistSni}")
-                    appendLine("   • Status: $status")
-                    appendLine()
                 }
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
-                    if (isFarsi) "🛰️ اسکن وایت‌لیست غیرکلادفلر (${openList.size}/${results.size} باز)"
-                    else "🛰️ Non-Cloudflare Whitelist Scan (${openList.size}/${results.size} Open)",
+                    if (isFarsi) "🛰️ اسکن وایت‌لیست غیرکلادفلر (${results.size} باز)"
+                    else "🛰️ Non-Cloudflare Whitelist Scan (${results.size} Open)",
                 )
                 .setMessage(report.trim())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(
                     if (isFarsi) "➕ ساخت کانفیگ با IP:portهای باز" else "➕ Build Configs from Open IP:ports",
                 ) { _, _ ->
-                    val chosen = openList.ifEmpty { results.take(3) }
-                    val sampleUuid = "11111111-2222-4333-8444-555555555555"
-                    val lines = chosen.map { r ->
-                        val t = r.target
-                        "vless://$sampleUuid@${t.ip}:${t.port}?encryption=none&security=tls&sni=${t.whitelistSni}&host=${t.defaultHost}&type=ws&path=%2F&fp=chrome#Whitelist-${t.provider}-${t.ip}:${t.port}"
-                    }.joinToString("\n")
-                    val subTitle = "🛰️ وایت‌لیست نت ملی (Non-CF)"
-                    val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                    val saved = if (existing != null) {
-                        userSubscriptionManager.update(existing.id, subTitle, lines)
-                    } else {
-                        userSubscriptionManager.add(subTitle, lines)
+                    val lines = LocalSniSpoofProxy.buildSpoofedVlessLinks(
+                        uuid = "11111111-2222-4333-8444-555555555555",
+                        workerHost = "sub.workers.dev",
+                        verifiedNonCfHits = results,
+                    ).joinToString("\n")
+                    val subTitle = "🛰️ وایت‌لیست نت ملی (Non-CF + 5 CF)"
+                    activityScope.launch {
+                        val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                        val saved = withContext(Dispatchers.IO) {
+                            if (existing != null) {
+                                userSubscriptionManager.update(existing.id, subTitle, lines)
+                            } else {
+                                userSubscriptionManager.add(subTitle, lines)
+                            }
+                        }
+                        userSubscriptionManager.select(saved.id)
+                        renderSubscriptions()
+                        onSubscriptionSelected()
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "✅ کانفیگ‌های وایت‌لیست دقیقاً با همان IP:port اسکن‌شده به اشتراک اضافه شد"
+                            else "✅ Added whitelist configs with exact scanned IP:ports",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
-                    userSubscriptionManager.select(saved.id)
-                    renderSubscriptions()
-                    onSubscriptionSelected()
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (isFarsi) "✅ ${chosen.size} کانفیگ دقیقاً با همان IP:port اسکن‌شده به اشتراک اضافه شد"
-                        else "✅ Added ${chosen.size} configs with exact scanned IP:ports",
-                        Toast.LENGTH_LONG,
-                    ).show()
                 }
                 .create()
                 .showCatClientDialog()
@@ -13826,26 +13836,30 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         Toast.makeText(
             this,
-            if (isFarsi) "⏳ در حال اجرای اوراکل Fact-A DNS (ارسال کوئری به آی‌پی تله 1.2.3.4:53 برای کشف SNIهای غیراسبوف)…"
-            else "⏳ Running Fact-A DNS Oracle (sending queries to non-DNS IP 1.2.3.4:53 to find unhijacked SNIs)…",
+            if (isFarsi) "⏳ در حال اجرای اوراکل Fact-A DNS برای کشف SNIهای غیراسبوف و باز در DPI…"
+            else "⏳ Running Fact-A DNS Oracle to find unhijacked & open SNIs…",
             Toast.LENGTH_SHORT,
         ).show()
         activityScope.launch {
             val results = withContext(Dispatchers.IO) {
-                LocalSniSpoofProxy.scanCandidateSnisWithFactAOracle(timeoutMs = 700)
+                LocalSniSpoofProxy.probeFactADnsOracle(timeoutMs = 850)
             }
-            val cleanSnis = results.filter { !it.hijackedByDpi }
+            val cleanSnis = results.filter { !it.poisoned }
             val text = buildString {
                 if (isFarsi) {
                     appendLine("🔎 نتیجه اوراکل Fact-A DNS Non-Hijack SNI Finder:")
-                    appendLine("ایده: آی‌پی 1.2.3.4 سرور DNS نیست؛ اگر پاسخی برگردد یعنی فایروال DPI این دامنه را جعل کرده است. اگر Timeout شود یعنی دامنه در DPI باز و سفید است!")
                     appendLine("────────────────────────")
                 } else {
                     appendLine("🔎 Fact-A DNS Non-Hijack SNI Finder Results:")
                     appendLine("────────────────────────")
                 }
                 results.forEach { r ->
-                    appendLine("• ${r.domain} -> ${if (isFarsi) r.detailFa else r.detailEn}")
+                    val badge = when {
+                        r.poisoned -> "🔴 مسموم در DNS (${r.resolvedIp})"
+                        r.tlsPort443Open -> "🟢 سفید و باز (IP: ${r.resolvedIp} · TLS: ${r.tlsRttMs}ms)"
+                        else -> "🟡 بدون جعل DNS (IP: ${r.resolvedIp} · DNS: ${r.dnsRttMs}ms)"
+                    }
+                    appendLine("• ${r.domain} -> $badge")
                 }
             }
             val bestSni = cleanSnis.firstOrNull()?.domain ?: "ebanksepah.ir"
@@ -13860,7 +13874,7 @@ class MainActivity : Activity() {
                     if (isFarsi) "✅ تنظیم «$bestSni» روی پروکسی اسپوف و Aether"
                     else "✅ Apply '$bestSni' to Spoof Proxy & Aether",
                 ) { _, _ ->
-                    LocalSniSpoofProxy.currentSpoofSni = bestSni
+                    LocalSniSpoofProxy.updateDecoySni(bestSni)
                     val cur = aetherPreferenceStore.read()
                     aetherPreferenceStore.save(cur.copy(masqueSni = bestSni))
                     Toast.makeText(
@@ -13880,7 +13894,7 @@ class MainActivity : Activity() {
         val strategies = LocalSniSpoofProxy.SpoofStrategy.entries
         val labels = strategies.map { s ->
             val t = if (isFarsi) s.titleFa else s.titleEn
-            val d = if (isFarsi) s.descFa else s.descEn
+            val d = if (isFarsi) s.descriptionFa else s.descriptionEn
             "$t\n$d"
         }.toTypedArray()
 
@@ -13891,17 +13905,19 @@ class MainActivity : Activity() {
             )
             .setItems(labels) { _, idx ->
                 val chosen = strategies[idx]
-                LocalSniSpoofProxy.currentStrategy = chosen
-                val port = LocalSniSpoofProxy.startOrGetPort()
+                val port = LocalSniSpoofProxy.startSpoofSocksProxy(
+                    strategy = chosen,
+                    decoySni = LocalSniSpoofProxy.currentDecoySni,
+                )
                 Toast.makeText(
                     this,
-                    if (isFarsi) "🟢 پروکسی محلی ضد-DPI روی 127.0.0.1:$port با استراتژی «${chosen.titleFa}» و SNI «${LocalSniSpoofProxy.currentSpoofSni}» فعال شد!"
-                    else "🟢 Local Anti-DPI Proxy active on 127.0.0.1:$port with '${chosen.titleEn}' & SNI '${LocalSniSpoofProxy.currentSpoofSni}'!",
+                    if (isFarsi) "🟢 پروکسی محلی ضد-DPI روی 127.0.0.1:$port با استراتژی «${chosen.titleFa}» و SNI «${LocalSniSpoofProxy.currentDecoySni}» فعال شد!"
+                    else "🟢 Local Anti-DPI Proxy active on 127.0.0.1:$port with '${chosen.titleEn}' & SNI '${LocalSniSpoofProxy.currentDecoySni}'!",
                     Toast.LENGTH_LONG,
                 ).show()
             }
             .setNeutralButton(if (isFarsi) "⏹ توقف پروکسی محلی" else "⏹ Stop Local Proxy") { _, _ ->
-                LocalSniSpoofProxy.stop()
+                LocalSniSpoofProxy.stopAllSpoofProxies()
                 Toast.makeText(
                     this,
                     if (isFarsi) "⏹ پروکسی محلی Fake ClientHello متوقف شد" else "⏹ Stopped Local Fake ClientHello Proxy",
@@ -13927,13 +13943,7 @@ class MainActivity : Activity() {
             )
             .setItems(items) { _, idx ->
                 val m = methods[idx]
-                val snippet = LocalSniSpoofProxy.buildCloudflareSpoofConfigSnippet(
-                    method = m,
-                    cleanIp = "188.114.98.0",
-                    port = 443,
-                    spoofSni = LocalSniSpoofProxy.currentSpoofSni,
-                    realWorkerHost = "sub.workers.dev",
-                )
+                val snippet = "vless://11111111-2222-4333-8444-555555555555@${m.sampleEndpoint}?encryption=none&type=ws&host=sub.workers.dev&path=%2Fws&${m.queryParams}#CF-Spoof-${m.index}-${m.id}"
                 MaterialAlertDialogBuilder(this)
                     .setTitle(if (isFarsi) m.titleFa else m.titleEn)
                     .setMessage(
@@ -13957,17 +13967,16 @@ class MainActivity : Activity() {
                             cur.copy(
                                 enabled = true,
                                 mode = AetherMode.MasqueHttp2,
-                                masqueSni = LocalSniSpoofProxy.currentSpoofSni,
-                                echEnabled = m.id == "cf_ech_from_mitm",
+                                masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                                echEnabled = m.index == 1,
                             ),
                         )
-                        LocalSniSpoofProxy.startOrGetPort()
-                        refreshEngineSummary()
+                        LocalSniSpoofProxy.startSpoofSocksProxy()
                         renderAdvancedControls()
                         Toast.makeText(
                             this,
-                            if (isFarsi) "✅ متد «${m.titleFa}» با SNI سفید «${LocalSniSpoofProxy.currentSpoofSni}» فعال شد"
-                            else "✅ Activated '${m.titleEn}' with whitelist SNI '${LocalSniSpoofProxy.currentSpoofSni}'",
+                            if (isFarsi) "✅ متد «${m.titleFa}» با SNI سفید «${m.sampleSni}» فعال شد"
+                            else "✅ Activated '${m.titleEn}' with whitelist SNI '${m.sampleSni}'",
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -13981,31 +13990,17 @@ class MainActivity : Activity() {
 
     private fun generateAndAddHybridNetMelliTunnelsDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        val configs = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
-        val msg = buildString {
-            if (isFarsi) {
-                appendLine("🚀 ۴ تانل هیبریدی مخصوص اینترنت ملی ۲۰۲۶ (بدون نیاز به کلادفلر):")
-                appendLine("────────────────────────")
-            } else {
-                appendLine("🚀 4 Hybrid Net Melli 2026 Tunnels (Zero Cloudflare Dependency):")
-                appendLine("────────────────────────")
-            }
-            configs.forEachIndexed { idx, c ->
-                appendLine("${idx + 1}. ${if (isFarsi) c.titleFa else c.titleEn}")
-                appendLine("   • ${if (isFarsi) c.summaryFa else c.summaryEn}")
-                appendLine("   • URI: ${c.uri}")
-                appendLine()
-            }
-        }
+        val rawBundle = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
+        val uriLines = rawBundle.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 تانل‌های هیبریدی نت ملی (S3 Bypass · QS · QQ · Spoof)"
                 else "🚀 Hybrid Net Melli Tunnels (S3 Bypass · QS · QQ · Spoof)",
             )
-            .setMessage(msg.trim())
+            .setMessage(rawBundle.trim())
             .setNegativeButton(android.R.string.cancel, null)
             .setNeutralButton(if (isFarsi) "📋 کپی همه لینک‌ها" else "📋 Copy All Links") { _, _ ->
-                val raw = configs.joinToString("\n") { it.uri }
+                val raw = uriLines.joinToString("\n")
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("hybrid-netmelli-tunnels", raw))
                 Toast.makeText(
@@ -14015,23 +14010,27 @@ class MainActivity : Activity() {
                 ).show()
             }
             .setPositiveButton(if (isFarsi) "➕ افزودن به اشتراک و اتصال" else "➕ Add to Sub & Connect") { _, _ ->
-                val raw = configs.joinToString("\n") { it.uri }
+                val raw = uriLines.joinToString("\n")
                 val title = "🚀 تانل‌های هیبرید نت ملی (S3/QS/QQ/Spoof)"
-                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
-                val saved = if (existing != null) {
-                    userSubscriptionManager.update(existing.id, title, raw)
-                } else {
-                    userSubscriptionManager.add(title, raw)
+                activityScope.launch {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                    val saved = withContext(Dispatchers.IO) {
+                        if (existing != null) {
+                            userSubscriptionManager.update(existing.id, title, raw)
+                        } else {
+                            userSubscriptionManager.add(title, raw)
+                        }
+                    }
+                    userSubscriptionManager.select(saved.id)
+                    renderSubscriptions()
+                    onSubscriptionSelected()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ ۴ تانل هیبریدی نت ملی (S3 Bypass / QS / QQ / Spoof) به اشتراک شما اضافه شد"
+                        else "✅ Added 4 Hybrid Net Melli tunnels to your subscriptions",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
-                userSubscriptionManager.select(saved.id)
-                renderSubscriptions()
-                onSubscriptionSelected()
-                Toast.makeText(
-                    this,
-                    if (isFarsi) "✅ ۴ تانل هیبریدی نت ملی (S3 Bypass / QS / QQ / Spoof) به اشتراک شما اضافه شد"
-                    else "✅ Added 4 Hybrid Net Melli tunnels to your subscriptions",
-                    Toast.LENGTH_LONG,
-                ).show()
             }
             .create()
             .showCatClientDialog()
