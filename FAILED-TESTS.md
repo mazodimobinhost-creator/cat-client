@@ -192,3 +192,32 @@ Execution failed for task ':app:compileDebugKotlin'.
 
 BUILD FAILED in 1m 31s
 16 actionable tasks: 16 executed
+PASS cat-panel
+PASS ccq
+PASS ech
+PASS panel-dom
+PASS wizard
+PASS multipart-upload
+PASS chain-protocols
+PASS android-guard
+PASS link-shape
+PASS panel-integrity
+PASS kv-persistence
+PASS panel-update-contract
+PASS panel-selfupdate
+PASS sni-host
+PASS proxyip-sub
+PASS proxyip-dataplane
+PASS addr-port-query
+PASS proxyip-feeds
+PASS browser-probe
+PASS ws-probe
+PASS survival
+PASS hostile-env
+PASS content-type
+PASS paste-artifact
+PASS secrets-tokens
+PASS quicklink-version
+PASS chain-tunnel
+PASS sni-lab
+PASS builder-link-repro
