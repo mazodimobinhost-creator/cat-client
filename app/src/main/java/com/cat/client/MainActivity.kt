@@ -10882,6 +10882,33 @@ class MainActivity : Activity() {
         }
         card.addView(toggleQuickControlsBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         card.addView(quickControlsHost, LinearLayout.LayoutParams(-1, -2))
+
+        // Direct 2026 Anti-Censorship Labs Row: Non-CF Net Melli + 5 CF Spoofs & Multi-Engine DNS Tunnels
+        val lab2026Row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🧪 نت ملی ۲۰۲۶ (وایت‌لیست + ۵ اسپوف CF)"
+                    else "🧪 Net Melli 2026 (Whitelist + 5 CF Spoofs)",
+                    accent = true,
+                ) {
+                    showNetMelli2026BypassLabDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "📡 تانل DNS (WhiteDNS · MasterDNS · SlipNet)"
+                    else "📡 DNS Tunnels (WhiteDNS · MasterDNS · SlipNet)",
+                    accent = false,
+                ) {
+                    showWhiteDnsResolverMethodsDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(lab2026Row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         refreshAetherEngineSummary = { refreshEngineSummary() }
 
         return card
@@ -12246,6 +12273,8 @@ class MainActivity : Activity() {
                 "🚨 ۱۶) تشخیص هوشمند «اینترنت ملی (قطع بین‌الملل)» در برابر «خرابی کانفیگ»",
                 "🛡️ ۱۷) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
                 "🍎 ۱۸) مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS / هات‌اسپات)",
+                "🧪 ۱۹) آزمایشگاه نت ملی ۲۰۲۶ (وایت‌لیست غیرکلادفلر + ۵ روش اسپوف کلادفلر + پروکسی Fake ClientHello + Fact-A + S3 Bypass)",
+                "🎯 ۲۰) اسکن ۶ امتیازی SlipNet (0..6 Score + Prism) و جنریتور MasterDnsVPN / VayDNS / NoizDNS / dnst://",
             )
         } else {
             arrayOf(
@@ -12267,6 +12296,8 @@ class MainActivity : Activity() {
                 "🚨 16) Smart Net Melli (International Shutdown) vs. Dead Config Detector",
                 "🛡️ 17) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
                 "🍎 18) iPhone & iPad (iOS) Connection Hub (CoreForge / Streisand / .mobileconfig / Hotspot)",
+                "🧪 19) Net Melli 2026 Bypass Lab (Non-CF Whitelist + 5 CF Spoof Methods + Local Fake ClientHello Proxy + Fact-A Oracle + S3 Bypass)",
+                "🎯 20) SlipNet 6-Point Score Scanner (0..6 + Prism) & MasterDnsVPN / VayDNS / NoizDNS / dnst:// Generator",
             )
         }
 
@@ -12295,6 +12326,8 @@ class MainActivity : Activity() {
                     15 -> runNetMelliDetectorDialog()
                     16 -> showNineAntiFilterPresetsDialog()
                     17 -> showIphoneIosConnectionHubDialog()
+                    18 -> showNetMelli2026BypassLabDialog()
+                    19 -> runSlipNetSixPointScoreDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -13067,16 +13100,35 @@ class MainActivity : Activity() {
                     "💡 $recordHint"
             }
             previewBox.text = buildString {
-                appendLine("# 1) CottenMax (Reed-Solomon FEC 4:1 + Loss Guard)")
+                appendLine("# 1) CottenMax (Reed-Solomon FEC 4:1 + Loss Guard + Timing Mask)")
                 appendLine(bundle.cottenMaxUri)
                 appendLine()
-                appendLine("# 2) StormDNS / MasterDNS")
+                appendLine("# 2) MasterDnsVPN (5B Header + Balancer 6 + Duplication + ZSTD)")
+                appendLine(bundle.masterDnsUri)
+                appendLine()
+                appendLine("# 3) StormDNS / Multi-Resolver ARQ")
                 appendLine(bundle.stormDnsUri)
                 appendLine()
-                appendLine("# 3) Lantern Soar (IR Profile)")
+                appendLine("# 4) Lantern Soar (IR Profile · Packets-not-Segments)")
                 appendLine(bundle.soarUri)
                 appendLine()
-                appendLine("# 4) dnstt Bridge (${selectedTransport.uppercase(Locale.US)})")
+                appendLine("# 5) SlipNet VayDNS (2B ClientID + 9 Carrier Records)")
+                appendLine(bundle.vayDnsUri)
+                appendLine()
+                appendLine("# 6) SlipNet NoizDNS (Anti-DPI Base36 + Query Padding)")
+                appendLine(bundle.noizDnsUri)
+                appendLine()
+                appendLine("# 7) Slipstream (QUIC-over-DNS · BBR)")
+                appendLine(bundle.slipstreamUri)
+                appendLine()
+                appendLine("# 8) Universal dnst:// Standard (Human-Readable & Base64-JSON)")
+                appendLine(bundle.dnstHumanUri)
+                appendLine(bundle.dnstBase64Uri)
+                appendLine()
+                appendLine("# 9) SlipNet Profile (slipnet:// + SSH Chain)")
+                appendLine(bundle.slipNetUri)
+                appendLine()
+                appendLine("# 10) dnstt Bridge (${selectedTransport.uppercase(Locale.US)})")
                 val dnsttLine = when (selectedTransport) {
                     "dot" -> bundle.dnsttDotBridges.first()
                     "doh" -> bundle.dnsttDohBridges.first()
@@ -13255,11 +13307,30 @@ class MainActivity : Activity() {
         }
         root.addView(row2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
-        // Button: Direct In-App Tunnel Connect (CottenMax / StormDNS / Soar via local SOCKS5 bridge + Mihomo)
+        // Row 3: SlipNet 6-Point Score Scanner (0..6 + Prism) & MasterDNS TOML / dnst:// Generator
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                actionBtn(if (isFarsi) "🎯 اسکن ۶ امتیازی SlipNet (0..6)" else "🎯 SlipNet 0..6 Score Scan") {
+                    runSlipNetSixPointScoreDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                actionBtn(if (isFarsi) "⚙️ جنریتور MasterDNS / dnst://" else "⚙️ MasterDNS / dnst:// Gen") {
+                    showMasterDnsAndDnstGeneratorDialog(selectedResolver.primaryIp)
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(row3, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        // Button: Direct In-App Tunnel Connect (CottenMax / MasterDNS / StormDNS / Soar / VayDNS / NoizDNS / Slipstream / dnst://)
         root.addView(
             actionBtn(
-                if (isFarsi) "🚀 اتصال مستقیم تانل DNS در همین اپ (In-App Tunnel Connect)"
-                else "🚀 Connect DNS Tunnel Directly in App",
+                if (isFarsi) "🚀 اتصال مستقیم تانل DNS در همین اپ (۹ موتور ۲۰۲۶)"
+                else "🚀 Connect DNS Tunnel Directly in App (9 Engines)",
                 accent = true,
             ) {
                 connectWhiteDnsTunnelDirectly(currentBundle())
@@ -13330,7 +13401,17 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         activityScope.launch {
             runCatching {
-                val uris = listOf(bundle.cottenMaxUri, bundle.stormDnsUri, bundle.soarUri)
+                val uris = listOf(
+                    bundle.cottenMaxUri,
+                    bundle.masterDnsUri,
+                    bundle.stormDnsUri,
+                    bundle.soarUri,
+                    bundle.vayDnsUri,
+                    bundle.noizDnsUri,
+                    bundle.slipstreamUri,
+                    bundle.dnstHumanUri,
+                    bundle.slipNetUri,
+                ).filter { it.isNotBlank() }
                 uris.forEach { uri ->
                     WhiteDnsSmartScanner.parseTunnelUri(uri)?.let { parsed ->
                         withContext(Dispatchers.IO) {
@@ -13359,8 +13440,8 @@ class MainActivity : Activity() {
                 renderAdvancedControls()
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "🚀 تانل WhiteDNS (CottenMax / StormDNS / Soar) داخل اپ فعال شد — در حال اتصال…"
-                    else "🚀 WhiteDNS Tunnel (CottenMax / StormDNS / Soar) activated in app — connecting…",
+                    if (isFarsi) "🚀 ۹ موتور تانل DNS (CottenMax / MasterDNS / StormDNS / Soar / VayDNS / NoizDNS / Slipstream / dnst) فعال شد — در حال اتصال…"
+                    else "🚀 9 DNS Tunnel Engines activated in app — connecting…",
                     Toast.LENGTH_LONG,
                 ).show()
                 openScreen(SCREEN_HOME)
@@ -13377,6 +13458,583 @@ class MainActivity : Activity() {
                 ).show()
             }
         }
+    }
+
+    /**
+     * SlipNet 6-Point Compatibility Scanner (`NS✓ TXT✓ RND✓ DPI✓ EDNS✓(1232) NXD✓`) +
+     * Dual UDP/TCP transport & 8s TCP Pre-flight check.
+     */
+    private fun runSlipNetSixPointScoreDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال اجرای اسکن ۶ امتیازی SlipNet (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…"
+            else "⏳ Running SlipNet 6-point resolver compatibility scan (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val cards = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 6, timeoutMs = 800)
+            }
+            if (cards.isEmpty()) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ هیچ ریزولوری در این لحظه پاسخ نداد؛ حالت TCP:53 یا رله داخلی را امتحان کنید."
+                    else "⚠️ No resolvers responded; try TCP:53 or a domestic relay.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val msg = buildString {
+                if (isFarsi) {
+                    appendLine("🎯 گزارش ۶ شاخص سازگاری تانل SlipNet / MasterDNS / WhiteDNS:")
+                    appendLine("────────────────────────")
+                } else {
+                    appendLine("🎯 SlipNet / MasterDNS 6-Point Resolver Compatibility Report:")
+                    appendLine("────────────────────────")
+                }
+                cards.forEachIndexed { i, c ->
+                    val name = if (isFarsi) c.providerNameFa else c.providerNameEn
+                    appendLine("${i + 1}. $name (${c.resolverIp}) — ${c.statusLabel}")
+                    appendLine("   • ${c.badgeText}")
+                    appendLine("   • Transport: ${c.transportBadge} · RTT: ${c.rttMs} ms · MTU: ↑${c.upMtu}B / ↓${c.downMtu}B")
+                    appendLine()
+                }
+            }
+            val best = cards.first()
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🎯 نتیجه اسکن ۶ امتیازی SlipNet (بهترین: ${best.resolverIp} — ${best.score}/6)"
+                    else "🎯 SlipNet 6-Point Scan (Best: ${best.resolverIp} — ${best.score}/6)",
+                )
+                .setMessage(msg.trim())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "⚙️ جنریتور MasterDNS / dnst://" else "⚙️ MasterDNS / dnst:// Gen") { _, _ ->
+                    showMasterDnsAndDnstGeneratorDialog(best.resolverIp)
+                }
+                .setPositiveButton(if (isFarsi) "🚀 ساخت و اتصال با بهترین ریزولور" else "🚀 Build & Connect Best") { _, _ ->
+                    val bundle = WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
+                        resolverIp = best.resolverIp,
+                        transport = if (best.udpAlive) "udp" else "tcp",
+                        recordMode = if (best.txtOk) WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_CNAME else WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_AAAA,
+                        preset = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.first(),
+                    )
+                    connectWhiteDnsTunnelDirectly(bundle)
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    /**
+     * Generator dialog for MasterDnsVPN (`0..8` balancing strategies, `1..8` packet duplication,
+     * `client_config.toml` export) + `VayDNS` (9 carrier records) + `dnst://` (Human & Base64-JSON) + `slipnet://`.
+     */
+    private fun showMasterDnsAndDnstGeneratorDialog(defaultResolverIp: String = "178.22.122.100") {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        var selectedBalancer = WhiteDnsSmartScanner.MasterDnsBalancingStrategy.TIERED_SHORTLIST_RR_6
+        var selectedVayRecord = WhiteDnsSmartScanner.VayDnsRecordType.CNAME
+        var duplication = 2
+        val domainInput = EditText(this).apply {
+            setText("v.example.com")
+            hint = if (isFarsi) "دامنه NS تانل (مثلاً v.example.com)" else "Tunnel NS domain (e.g. v.example.com)"
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_MUTED)
+            textSize = 12.5f
+        }
+        val preview = TextView(this).apply {
+            setTextColor(TEXT_PRIMARY)
+            textSize = 11f
+            typeface = CatClientMonoTypeface
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(SURFACE, 235))
+                setStroke(dp(1), withAlpha(OUTLINE, 180))
+            }
+            setTextIsSelectable(true)
+        }
+        fun refreshGen() {
+            val dom = domainInput.text?.toString()?.trim().orEmpty().ifBlank { "v.example.com" }
+            val dnstHuman = WhiteDnsSmartScanner.buildDnstStandardUri(
+                domain = dom,
+                transport = "vaydns",
+                backend = "socks",
+                recordType = selectedVayRecord.wireName,
+                resolverIp = defaultResolverIp,
+                tag = "VayDNS-${selectedVayRecord.wireName.uppercase()}",
+                asBase64Json = false,
+            )
+            val dnstB64 = WhiteDnsSmartScanner.buildDnstStandardUri(
+                domain = dom,
+                transport = "vaydns",
+                backend = "socks",
+                recordType = selectedVayRecord.wireName,
+                resolverIp = defaultResolverIp,
+                tag = "VayDNS-${selectedVayRecord.wireName.uppercase()}",
+                asBase64Json = true,
+            )
+            val slipNetUri = WhiteDnsSmartScanner.buildSlipNetUri(
+                domain = dom,
+                resolverIp = defaultResolverIp,
+                tunnelType = "noizdns",
+                recordType = selectedVayRecord.wireName,
+                remark = "SlipNet-NoizDNS-SSH",
+            )
+            val masterUri = "masterdns://$defaultResolverIp:53/?domain=$dom&balancer=${selectedBalancer.code}&dup=$duplication&encryption=5&comp=1#MasterDNS-B${selectedBalancer.code}-Dup$duplication"
+            preview.text = buildString {
+                appendLine("# MasterDnsVPN URI (${if (isFarsi) selectedBalancer.titleFa else selectedBalancer.titleEn}):")
+                appendLine(masterUri)
+                appendLine()
+                appendLine("# dnst:// Human-Readable (VayDNS · ${selectedVayRecord.wireName.uppercase()}):")
+                appendLine(dnstHuman)
+                appendLine()
+                appendLine("# dnst:// Base64-JSON:")
+                appendLine(dnstB64)
+                appendLine()
+                appendLine("# slipnet:// Profile (NoizDNS + Padding + SSH):")
+                append(slipNetUri)
+            }
+        }
+        refreshGen()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(6))
+            addView(domainInput, LinearLayout.LayoutParams(-1, -2))
+        }
+        val btnBalancer = MaterialButton(this).apply {
+            text = if (isFarsi) "⚖️ استراتژی بالانسر MasterDNS (0..8) ▾" else "⚖️ MasterDNS Balancer (0..8) ▾"
+            isAllCaps = false
+            textSize = 11.5f
+            setOnClickListener {
+                val all = WhiteDnsSmartScanner.MasterDnsBalancingStrategy.entries
+                val labels = all.map { if (isFarsi) it.titleFa else it.titleEn }.toTypedArray()
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(if (isFarsi) "انتخاب استراتژی بالانسر ریزولور (0..8)" else "Select Balancer Strategy (0..8)")
+                    .setItems(labels) { _, idx ->
+                        selectedBalancer = all[idx]
+                        duplication = if (selectedBalancer.code >= 6) 2 else 3
+                        refreshGen()
+                    }
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+        val btnVayRec = MaterialButton(this).apply {
+            text = if (isFarsi) "📦 رکورد حامل VayDNS (۹ رکورد) ▾" else "📦 VayDNS Carrier Record (9 Types) ▾"
+            isAllCaps = false
+            textSize = 11.5f
+            setOnClickListener {
+                val all = WhiteDnsSmartScanner.VayDnsRecordType.entries
+                val labels = all.map { if (isFarsi) it.titleFa else it.titleEn }.toTypedArray()
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(if (isFarsi) "انتخاب رکورد حامل VayDNS" else "Select VayDNS Record Type")
+                    .setItems(labels) { _, idx ->
+                        selectedVayRecord = all[idx]
+                        refreshGen()
+                    }
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+        container.addView(btnBalancer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        container.addView(btnVayRec, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        container.addView(preview, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val scroll = ScrollView(this).apply { addView(container) }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "⚙️ جنریتور MasterDnsVPN، VayDNS، NoizDNS و dnst://"
+                else "⚙️ MasterDnsVPN, VayDNS, NoizDNS & dnst:// Generator",
+            )
+            .setView(scroll)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "📄 کپی client_config.toml" else "📄 Copy client_config.toml") { _, _ ->
+                val dom = domainInput.text?.toString()?.trim().orEmpty().ifBlank { "v.example.com" }
+                val toml = WhiteDnsSmartScanner.buildMasterDnsClientToml(
+                    domains = listOf(dom),
+                    balancingStrategy = selectedBalancer,
+                    packetDuplication = duplication,
+                )
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("masterdns-toml", toml))
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ فایل کامل client_config.toml پروژه MasterDnsVPN کپی شد"
+                    else "✅ Copied full MasterDnsVPN client_config.toml",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setPositiveButton(if (isFarsi) "➕ افزودن لینک‌ها به اشتراک اپ" else "➕ Add Links to App Sub") { _, _ ->
+                refreshGen()
+                val rawLines = preview.text.toString().lines()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("#") }
+                    .joinToString("\n")
+                val title = "🧬 MasterDNS + SlipNet + dnst://"
+                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                val saved = if (existing != null) {
+                    userSubscriptionManager.update(existing.id, title, rawLines)
+                } else {
+                    userSubscriptionManager.add(title, rawLines)
+                }
+                userSubscriptionManager.select(saved.id)
+                renderSubscriptions()
+                onSubscriptionSelected()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ کانفیگ‌های MasterDNS، dnst:// و SlipNet به اشتراک شما اضافه و انتخاب شد"
+                    else "✅ Added MasterDNS, dnst:// & SlipNet configs to your subscriptions",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Comprehensive 2026 Net Melli Bypass Lab combining:
+     * 1) Non-Cloudflare & Domestic Whitelist CDN Scanner (`Akamai`, `Fastly`, `Google`, `Azure`, `Arvan`, `Derak`) preserving exact `IP:port`
+     * 2) `Fact-A DNS Non-Hijack SNI Oracle` (probing non-DNS IP `1.2.3.4:53` to detect DPI-unblocked SNIs)
+     * 3) In-App `LocalSniSpoofProxy` (`127.0.0.1:18443` with `Low-TTL=3 Fake ClientHello + TLS Record Split @ SNI`)
+     * 4) The 5 Cloudflare Spoofing Methods alongside Non-CF methods (`echOutbound + fromMitm`, `pinnedPeerCertSha256`, `Aether --masque-sni`, `Fake ClientHello`, `FinalMask`)
+     * 5) 2026 Hybrid Net Melli Tunnels (`QS-Tunnel`, `QQ-Tunnel`, `Spoof-Tunnel`, `S3 Bypass / Fedarisha`)
+     */
+    private fun showNetMelli2026BypassLabDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val proxyRunning = LocalSniSpoofProxy.isRunning()
+        val proxyStatus = if (proxyRunning) {
+            if (isFarsi) "🟢 روشن (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentSpoofSni})"
+            else "🟢 Running (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentSpoofSni})"
+        } else {
+            if (isFarsi) "⚪ آماده به‌کار (پورت محلی ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
+            else "⚪ Ready (Local port ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
+        }
+
+        val options = if (isFarsi) {
+            arrayOf(
+                "🛰️ ۱) اسکن زنده آی‌پی و دامنه‌های وایت‌لیست غیرکلادفلر و داخلی (Akamai · Fastly · Google · Azure · Arvan · Derak با حفظ دقیق IP:port)",
+                "🔎 ۲) اوراکل هوشمند Fact-A DNS (کشف دامنه‌ها و SNIهای مسدودنشده در DPI با کوئری تله به 1.2.3.4:53)",
+                "🛡️ ۳) پروکسی محلی تزریق Fake ClientHello + برش SNI ($proxyStatus)",
+                "☁️ ۴) ۵ روش اسپوفینگ کلادفلر در کنار روش‌های غیرکلادفلر (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
+                "🚀 ۵) ساخت و افزودن ۴ تانل هیبریدی نت ملی ۲۰۲۶ (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
+            )
+        } else {
+            arrayOf(
+                "🛰️ 1) Live Non-Cloudflare & Domestic Whitelist CDN Scanner (Akamai · Fastly · Google · Azure · Arvan · Derak preserving exact IP:port)",
+                "🔎 2) Fact-A DNS Non-Hijack SNI Oracle (Find DPI-unblocked SNIs via 1.2.3.4:53 trap probe)",
+                "🛡️ 3) Local Fake ClientHello + SNI Split Proxy ($proxyStatus)",
+                "☁️ 4) The 5 Cloudflare Spoofing Methods alongside Non-CF (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
+                "🚀 5) Generate & Add 2026 Hybrid Net Melli Tunnels (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🧪 آزمایشگاه نت ملی ۲۰۲۶ (بدون کلادفلر + ۵ روش اسپوف کلادفلر)"
+                else "🧪 Net Melli 2026 Lab (Non-Cloudflare + 5 CF Spoof Methods)",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> runNonCloudflareWhitelistScannerDialog()
+                    1 -> runFactADnsSniOracleDialog()
+                    2 -> showLocalFakeClientHelloProxyDialog()
+                    3 -> showCloudflareFiveSpoofMethodsDialog()
+                    4 -> generateAndAddHybridNetMelliTunnelsDialog()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun runNonCloudflareWhitelistScannerDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست واقعی TCP+TLS روی CDNهای غیرکلادفلر و داخلی (Akamai, Fastly, Google, Azure, Arvan, Derak)…"
+            else "⏳ Probing Non-Cloudflare & domestic whitelist CDNs over TCP+TLS…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val results = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(timeoutMs = 1100)
+            }
+            val openList = results.filter { it.tcpOpen }
+            val report = buildString {
+                if (isFarsi) {
+                    appendLine("🛰️ نتیجه تست واقعی بانک وایت‌لیست غیرکلادفلر و داخلی (با حفظ دقیق IP:port):")
+                    appendLine("────────────────────────")
+                } else {
+                    appendLine("🛰️ Live Non-Cloudflare & Domestic Whitelist Scan (preserving exact IP:port):")
+                    appendLine("────────────────────────")
+                }
+                results.forEachIndexed { idx, r ->
+                    val t = r.target
+                    val status = when {
+                        r.tlsOk -> "🟢 TCP+TLS OK (${r.rttMs} ms)"
+                        r.tcpOpen -> "🟡 TCP OPEN (${r.rttMs} ms)"
+                        else -> "🔴 BLOCKED / TIMEOUT"
+                    }
+                    val title = if (isFarsi) t.titleFa else t.titleEn
+                    appendLine("${idx + 1}. $title")
+                    appendLine("   • IP:port = ${t.ip}:${t.port} · SNI = ${t.whitelistSni}")
+                    appendLine("   • Status: $status")
+                    appendLine()
+                }
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🛰️ اسکن وایت‌لیست غیرکلادفلر (${openList.size}/${results.size} باز)"
+                    else "🛰️ Non-Cloudflare Whitelist Scan (${openList.size}/${results.size} Open)",
+                )
+                .setMessage(report.trim())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "➕ ساخت کانفیگ با IP:portهای باز" else "➕ Build Configs from Open IP:ports",
+                ) { _, _ ->
+                    val chosen = openList.ifEmpty { results.take(3) }
+                    val sampleUuid = "11111111-2222-4333-8444-555555555555"
+                    val lines = chosen.map { r ->
+                        val t = r.target
+                        "vless://$sampleUuid@${t.ip}:${t.port}?encryption=none&security=tls&sni=${t.whitelistSni}&host=${t.defaultHost}&type=ws&path=%2F&fp=chrome#Whitelist-${t.provider}-${t.ip}:${t.port}"
+                    }.joinToString("\n")
+                    val subTitle = "🛰️ وایت‌لیست نت ملی (Non-CF)"
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                    val saved = if (existing != null) {
+                        userSubscriptionManager.update(existing.id, subTitle, lines)
+                    } else {
+                        userSubscriptionManager.add(subTitle, lines)
+                    }
+                    userSubscriptionManager.select(saved.id)
+                    renderSubscriptions()
+                    onSubscriptionSelected()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ ${chosen.size} کانفیگ دقیقاً با همان IP:port اسکن‌شده به اشتراک اضافه شد"
+                        else "✅ Added ${chosen.size} configs with exact scanned IP:ports",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runFactADnsSniOracleDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال اجرای اوراکل Fact-A DNS (ارسال کوئری به آی‌پی تله 1.2.3.4:53 برای کشف SNIهای غیراسبوف)…"
+            else "⏳ Running Fact-A DNS Oracle (sending queries to non-DNS IP 1.2.3.4:53 to find unhijacked SNIs)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val results = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.scanCandidateSnisWithFactAOracle(timeoutMs = 700)
+            }
+            val cleanSnis = results.filter { !it.hijackedByDpi }
+            val text = buildString {
+                if (isFarsi) {
+                    appendLine("🔎 نتیجه اوراکل Fact-A DNS Non-Hijack SNI Finder:")
+                    appendLine("ایده: آی‌پی 1.2.3.4 سرور DNS نیست؛ اگر پاسخی برگردد یعنی فایروال DPI این دامنه را جعل کرده است. اگر Timeout شود یعنی دامنه در DPI باز و سفید است!")
+                    appendLine("────────────────────────")
+                } else {
+                    appendLine("🔎 Fact-A DNS Non-Hijack SNI Finder Results:")
+                    appendLine("────────────────────────")
+                }
+                results.forEach { r ->
+                    appendLine("• ${r.domain} -> ${if (isFarsi) r.detailFa else r.detailEn}")
+                }
+            }
+            val bestSni = cleanSnis.firstOrNull()?.domain ?: "ebanksepah.ir"
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🔎 اوراکل Fact-A (${cleanSnis.size} دامنه سفید تایید شد)"
+                    else "🔎 Fact-A Oracle (${cleanSnis.size} Clean SNIs Verified)",
+                )
+                .setMessage(text.trim())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "✅ تنظیم «$bestSni» روی پروکسی اسپوف و Aether"
+                    else "✅ Apply '$bestSni' to Spoof Proxy & Aether",
+                ) { _, _ ->
+                    LocalSniSpoofProxy.currentSpoofSni = bestSni
+                    val cur = aetherPreferenceStore.read()
+                    aetherPreferenceStore.save(cur.copy(masqueSni = bestSni))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ دامنه سفید «$bestSni» روی پروکسی محلی Fake ClientHello و --masque-sni تنظیم شد"
+                        else "✅ Set clean SNI '$bestSni' on Local Fake ClientHello Proxy & Aether --masque-sni",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun showLocalFakeClientHelloProxyDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val strategies = LocalSniSpoofProxy.SpoofStrategy.entries
+        val labels = strategies.map { s ->
+            val t = if (isFarsi) s.titleFa else s.titleEn
+            val d = if (isFarsi) s.descFa else s.descEn
+            "$t\n$d"
+        }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🛡️ پروکسی محلی تزریق Fake ClientHello + برش SNI"
+                else "🛡️ Local Fake ClientHello + SNI Split Proxy",
+            )
+            .setItems(labels) { _, idx ->
+                val chosen = strategies[idx]
+                LocalSniSpoofProxy.currentStrategy = chosen
+                val port = LocalSniSpoofProxy.startOrGetPort()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "🟢 پروکسی محلی ضد-DPI روی 127.0.0.1:$port با استراتژی «${chosen.titleFa}» و SNI «${LocalSniSpoofProxy.currentSpoofSni}» فعال شد!"
+                    else "🟢 Local Anti-DPI Proxy active on 127.0.0.1:$port with '${chosen.titleEn}' & SNI '${LocalSniSpoofProxy.currentSpoofSni}'!",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setNeutralButton(if (isFarsi) "⏹ توقف پروکسی محلی" else "⏹ Stop Local Proxy") { _, _ ->
+                LocalSniSpoofProxy.stop()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "⏹ پروکسی محلی Fake ClientHello متوقف شد" else "⏹ Stopped Local Fake ClientHello Proxy",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showCloudflareFiveSpoofMethodsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val methods = LocalSniSpoofProxy.CF_SPOOF_5_METHODS
+        val items = methods.map { m ->
+            if (isFarsi) "${m.titleFa}\n   ${m.summaryFa}" else "${m.titleEn}\n   ${m.summaryEn}"
+        }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "☁️ ۵ روش اسپوفینگ کلادفلر (در کنار روش‌های نت ملی)"
+                else "☁️ The 5 Cloudflare Spoofing Methods",
+            )
+            .setItems(items) { _, idx ->
+                val m = methods[idx]
+                val snippet = LocalSniSpoofProxy.buildCloudflareSpoofConfigSnippet(
+                    method = m,
+                    cleanIp = "188.114.98.0",
+                    port = 443,
+                    spoofSni = LocalSniSpoofProxy.currentSpoofSni,
+                    realWorkerHost = "sub.workers.dev",
+                )
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(if (isFarsi) m.titleFa else m.titleEn)
+                    .setMessage(
+                        (if (isFarsi) "${m.summaryFa}\n\n" else "${m.summaryEn}\n\n") + snippet,
+                    )
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setNeutralButton(if (isFarsi) "📋 کپی کانفیگ" else "📋 Copy Snippet") { _, _ ->
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("cf-spoof-${m.id}", snippet))
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "✅ کانفیگ «${m.titleFa}» کپی شد" else "✅ Copied '${m.titleEn}' snippet",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    .setPositiveButton(
+                        if (isFarsi) "⚡ اعمال روی موتور Aether / اپ" else "⚡ Apply to Aether / App",
+                    ) { _, _ ->
+                        val cur = aetherPreferenceStore.read()
+                        aetherPreferenceStore.save(
+                            cur.copy(
+                                enabled = true,
+                                mode = AetherMode.MasqueHttp2,
+                                masqueSni = LocalSniSpoofProxy.currentSpoofSni,
+                                echEnabled = m.id == "cf_ech_from_mitm",
+                            ),
+                        )
+                        LocalSniSpoofProxy.startOrGetPort()
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "✅ متد «${m.titleFa}» با SNI سفید «${LocalSniSpoofProxy.currentSpoofSni}» فعال شد"
+                            else "✅ Activated '${m.titleEn}' with whitelist SNI '${LocalSniSpoofProxy.currentSpoofSni}'",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    .create()
+                    .showCatClientDialog()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun generateAndAddHybridNetMelliTunnelsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val configs = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
+        val msg = buildString {
+            if (isFarsi) {
+                appendLine("🚀 ۴ تانل هیبریدی مخصوص اینترنت ملی ۲۰۲۶ (بدون نیاز به کلادفلر):")
+                appendLine("────────────────────────")
+            } else {
+                appendLine("🚀 4 Hybrid Net Melli 2026 Tunnels (Zero Cloudflare Dependency):")
+                appendLine("────────────────────────")
+            }
+            configs.forEachIndexed { idx, c ->
+                appendLine("${idx + 1}. ${if (isFarsi) c.titleFa else c.titleEn}")
+                appendLine("   • ${if (isFarsi) c.summaryFa else c.summaryEn}")
+                appendLine("   • URI: ${c.uri}")
+                appendLine()
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🚀 تانل‌های هیبریدی نت ملی (S3 Bypass · QS · QQ · Spoof)"
+                else "🚀 Hybrid Net Melli Tunnels (S3 Bypass · QS · QQ · Spoof)",
+            )
+            .setMessage(msg.trim())
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "📋 کپی همه لینک‌ها" else "📋 Copy All Links") { _, _ ->
+                val raw = configs.joinToString("\n") { it.uri }
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("hybrid-netmelli-tunnels", raw))
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ هر ۴ لینک تانل هیبریدی نت ملی کپی شد" else "✅ Copied all 4 Hybrid Net Melli tunnel URIs",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setPositiveButton(if (isFarsi) "➕ افزودن به اشتراک و اتصال" else "➕ Add to Sub & Connect") { _, _ ->
+                val raw = configs.joinToString("\n") { it.uri }
+                val title = "🚀 تانل‌های هیبرید نت ملی (S3/QS/QQ/Spoof)"
+                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                val saved = if (existing != null) {
+                    userSubscriptionManager.update(existing.id, title, raw)
+                } else {
+                    userSubscriptionManager.add(title, raw)
+                }
+                userSubscriptionManager.select(saved.id)
+                renderSubscriptions()
+                onSubscriptionSelected()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ ۴ تانل هیبریدی نت ملی (S3 Bypass / QS / QQ / Spoof) به اشتراک شما اضافه شد"
+                    else "✅ Added 4 Hybrid Net Melli tunnels to your subscriptions",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .create()
+            .showCatClientDialog()
     }
 
     private fun runRegionalFirewallFingerprinterDialog() {

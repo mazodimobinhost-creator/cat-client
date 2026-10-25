@@ -62,7 +62,32 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.31';
+const CAT_PANEL_VERSION = '6.69.32';
+
+const NON_CF_WHITELIST_TARGETS = Object.freeze([
+  { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
+  { id: 'akamai-edge-2', provider: 'Akamai', ip: '104.86.110.22', port: 443, sni: 'a248.e.akamai.net' },
+  { id: 'fastly-edge-1', provider: 'Fastly', ip: '151.101.1.140', port: 443, sni: 'github.githubassets.com' },
+  { id: 'fastly-edge-2', provider: 'Fastly', ip: '151.101.65.140', port: 443, sni: 'pypi.org' },
+  { id: 'gcloud-edge-1', provider: 'Google', ip: '142.250.185.78', port: 443, sni: 'dl.google.com' },
+  { id: 'azure-frontdoor-1', provider: 'Azure', ip: '13.107.42.14', port: 443, sni: 'go.microsoft.com' },
+  { id: 'cloudfront-edge-1', provider: 'CloudFront', ip: '18.165.83.50', port: 443, sni: 'd1.awsstatic.com' },
+  { id: 'gcore-edge-1', provider: 'Gcore', ip: '92.223.84.84', port: 443, sni: 'gcore.com' },
+  { id: 'arvan-ir-1', provider: 'ArvanCloud', ip: '185.143.233.5', port: 443, sni: 'www.digikala.com' },
+  { id: 'arvan-s3-1', provider: 'ArvanS3', ip: '185.143.234.120', port: 443, sni: 's3.ir-thr-at1.arvanstorage.ir' },
+  { id: 'derak-ir-1', provider: 'DerakCloud', ip: '185.229.236.10', port: 443, sni: 'derak.cloud' },
+]);
+
+const CF_SPOOF_5_METHODS = Object.freeze([
+  { id: 'cf_ech_from_mitm', name: 'ECH + verifyPeerCertByName: fromMitm (Xray #5969)' },
+  { id: 'cf_pinned_peer_cert_sha256', name: 'PinnedPeerCertSha256 + Whitelist Outer SNI (Xray #5964)' },
+  { id: 'cf_aether_masque_sni', name: 'Aether MASQUE-H2 --masque-sni Override (Aether #147)' },
+  { id: 'cf_fake_clienthello_ttl_split', name: 'Local Fake ClientHello (TTL=3) + Real CF Host Split' },
+  { id: 'cf_finalmask_udp_xdns', name: 'FinalMask (tlshello-0-len / header-custom / xdns / salamander)' },
+]);
+
+const MASTERDNS_BALANCERS_0_8 = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+const VAYDNS_RECORD_TYPES = Object.freeze(['txt', 'cname', 'a', 'aaaa', 'mx', 'ns', 'srv', 'null', 'caa']);
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -9003,12 +9028,18 @@ function wdnsBuild(){var out=$('#wdnsOut');if(!out)return '';
  var ip=WD.res,tr=WD.tr,rec=WD.rec,pr=WD.pr;
  var dom='t.ruhnama.net',pk='241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f';
  var cmax='cottendns://'+ip+':53/?mode=cottenmax&domain='+dom+'&pubkey='+pk+'&transport='+tr+'&delivery='+rec+'&preset='+pr+'&safe_qname=101&max_answer=1232&fec=4:1&timing_mask=light#WhiteDNS-CottenMax-'+pr;
+ var mdns='masterdns://'+ip+':53/?domain='+dom+'&mkey='+pk.slice(0,32)+'&encryption=5&balancer=6&dup=2&comp=1&mtu_up=38&mtu_down=100#MasterDNS-Balancer6-'+pr;
  var storm='stormdns://'+ip+':53/?domain='+dom+'&pubkey='+pk+'&transport='+tr+'&delivery='+rec+'&preset='+pr+'#WhiteDNS-Storm-'+pr;
  var soar='soar://'+ip+':53/?profile=IR&transport='+tr+'&delivery='+rec+'&preset='+pr+'#WhiteDNS-Soar-IR';
+ var vay='vaydns://'+ip+':53/?domain='+dom+'&pubkey='+pk+'&record-type=cname&clientid-size=2&max-qname-len=101#SlipNet-VayDNS-CNAME';
+ var noiz='noizdns://'+ip+':53/?domain='+dom+'&pubkey='+pk+'&encoding=base36&max-query-size=60&query-padding=20&stealth=1#SlipNet-NoizDNS-Stealth';
+ var sstr='slipstream://'+ip+':53/?domain='+dom+'&cc=bbr&mtu=900&alpn=h3#SlipNet-Slipstream-QUIC';
+ var dnst='dnst://'+dom+'/vaydns/socks?pubkey='+pk+'&record-type=cname&clientid-size=2&resolver='+ip+'#DNST-VayDNS-'+pr;
+ var s3b='s3bypass://s3.ir-thr-at1.arvanstorage.ir:443/?bucket=fedarisha-relay&sni=s3.ir-thr-at1.arvanstorage.ir#NetMelli-S3-Bypass-Fedarisha';
  var dspec=tr==='dot'?('dot='+ip+':853'):(tr==='doh'?('doh=https://'+ip+'/dns-query'):('udp='+ip+':53'));
  var dnstt='dnstt 192.0.2.4:1 A998F319ADB60EE344540EC4B21524CC484F96BE '+dspec+' pubkey='+pk+' domain='+dom;
  var rline='Resolver Endpoints: DoQ=quic://'+ip+':853 | DoH3=h3://'+ip+'/dns-query | DoT=tls://'+ip+':853 | DoH=https://'+ip+'/dns-query';
- var txt=[cmax,storm,soar,dnstt,rline].join('\\n');
+ var txt=[cmax,mdns,storm,soar,vay,noiz,sstr,dnst,s3b,dnstt,rline].join('\\n');
  out.textContent=txt;return txt}
 $$('#wdnsResPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsResPick',b);WD.res=b.getAttribute('data-wdres')||'178.22.122.100';wdnsBuild()})});
 $$('#wdnsTrPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsTrPick',b);WD.tr=b.getAttribute('data-wdtr')||'auto';wdnsBuild()})});
@@ -9311,6 +9342,7 @@ export default {
 
 export const _testing = {
   CAT_PANEL_VERSION,
+  NON_CF_WHITELIST_TARGETS, CF_SPOOF_5_METHODS, MASTERDNS_BALANCERS_0_8, VAYDNS_RECORD_TYPES,
   crashReport, crashReportMinimal, diagAllowed, diagFlag, safeText, safeStack, crashLocation,
   splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, mapBounded, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,
   deriveUuid, resolveUuid,

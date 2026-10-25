@@ -139,6 +139,13 @@ internal data class WhiteDnsTunnelBundle(
     val stormDnsUri: String,
     val cottenMaxUri: String,
     val soarUri: String,
+    val masterDnsUri: String = "",
+    val vayDnsUri: String = "",
+    val noizDnsUri: String = "",
+    val slipstreamUri: String = "",
+    val slipNetUri: String = "",
+    val dnstHumanUri: String = "",
+    val dnstBase64Uri: String = "",
 )
 
 /**
@@ -574,6 +581,76 @@ internal object WhiteDnsSmartScanner {
             append("&preset=").append(preset.id)
             append("#WhiteDNS-Soar-IR")
         }
+        val masterDnsUri = buildString {
+            append("masterdns://")
+            append(cleanIp)
+            append(":53/?domain=").append(tunnelDomain)
+            append("&mkey=").append(pubKeyHex.take(32))
+            append("&encryption=5&balancer=6")
+            append("&dup=").append(preset.duplication)
+            append("&comp=1&mtu_up=38&mtu_down=100")
+            append("#MasterDNS-Balancer6-").append(preset.id)
+        }
+        val vayRec = when (recordMode) {
+            WhiteDnsRecordMode.TXT_CNAME -> "cname"
+            WhiteDnsRecordMode.TXT_AAAA -> "aaaa"
+            WhiteDnsRecordMode.NULL_EDNS0 -> "null"
+            else -> "txt"
+        }
+        val vayDnsUri = buildString {
+            append("vaydns://")
+            append(cleanIp)
+            append(":53/?domain=").append(tunnelDomain)
+            append("&pubkey=").append(pubKeyHex)
+            append("&record-type=").append(vayRec)
+            append("&clientid-size=2&max-qname-len=101&keepalive=2s&idle-timeout=10s")
+            append("#SlipNet-VayDNS-").append(vayRec.uppercase())
+        }
+        val noizDnsUri = buildString {
+            append("noizdns://")
+            append(cleanIp)
+            append(":53/?domain=").append(tunnelDomain)
+            append("&pubkey=").append(pubKeyHex)
+            append("&encoding=base36&max-query-size=60&query-padding=20&stealth=1")
+            append("#SlipNet-NoizDNS-Stealth")
+        }
+        val slipstreamUri = buildString {
+            append("slipstream://")
+            append(cleanIp)
+            append(":53/?domain=").append(tunnelDomain)
+            append("&cc=bbr&mtu=900&alpn=h3")
+            append("#SlipNet-Slipstream-QUIC")
+        }
+        val dnstHuman = buildDnstStandardUri(
+            domain = tunnelDomain,
+            transport = "vaydns",
+            backend = "socks",
+            pubKeyHex = pubKeyHex,
+            recordType = vayRec,
+            resolverIp = cleanIp,
+            tag = "DNST-VayDNS-${preset.id}",
+            asBase64Json = false,
+        )
+        val dnstB64 = buildDnstStandardUri(
+            domain = tunnelDomain,
+            transport = "vaydns",
+            backend = "socks",
+            pubKeyHex = pubKeyHex,
+            recordType = vayRec,
+            resolverIp = cleanIp,
+            tag = "DNST-VayDNS-${preset.id}",
+            asBase64Json = true,
+        )
+        val slipNetLink = buildSlipNetUri(
+            domain = tunnelDomain,
+            resolverIp = cleanIp,
+            pubKeyHex = pubKeyHex,
+            tunnelType = "noizdns",
+            maxQuerySize = 60,
+            queryPadding = 20,
+            sshChain = true,
+            remark = "SlipNet-NoizDNS-SSH",
+        )
         return WhiteDnsTunnelBundle(
             resolverIp = cleanIp,
             transport = cleanTransport,
@@ -585,6 +662,13 @@ internal object WhiteDnsSmartScanner {
             stormDnsUri = stormUri,
             cottenMaxUri = cottenMaxUri,
             soarUri = soarUri,
+            masterDnsUri = masterDnsUri,
+            vayDnsUri = vayDnsUri,
+            noizDnsUri = noizDnsUri,
+            slipstreamUri = slipstreamUri,
+            slipNetUri = slipNetLink,
+            dnstHumanUri = dnstHuman,
+            dnstBase64Uri = dnstB64,
         )
     }
 
@@ -1050,9 +1134,18 @@ internal object WhiteDnsSmartScanner {
     enum class WhiteDnsTunnelEngine(val titleFa: String, val titleEn: String) {
         COTTEN_MAX("CottenMax (FEC 4:1)", "CottenMax (FEC 4:1)"),
         STORM_DNS("StormDNS", "StormDNS"),
-        MASTER_DNS("MasterDNS", "MasterDNS"),
+        MASTER_DNS("MasterDNS (5B Header + ARQ)", "MasterDNS (5B Header + ARQ)"),
         SOAR_MIMICRY("Soar Mimicry", "Soar Mimicry"),
         DNSTT_CLASSIC("dnstt", "dnstt"),
+        VAY_DNS("VayDNS (2B ClientID · 9 رکورد)", "VayDNS (2B ClientID · 9 Records)"),
+        NOIZ_DNS("NoizDNS (ضد DPI · Base36 + Padding)", "NoizDNS (Anti-DPI · Base36 + Padding)"),
+        SLIPSTREAM_QUIC("Slipstream (QUIC-over-DNS)", "Slipstream (QUIC-over-DNS)"),
+        SLIPNET_BUNDLE("SlipNet (زنجیره DNS + SSH)", "SlipNet (DNS + SSH Chain)"),
+        DNST_STANDARD("استاندارد dnst:// (چندموتوره)", "dnst:// Standard (Multi-Transport)"),
+        QS_HYBRID_TUNNEL("QS-Tunnel (آپلود DNS + دانلود IP Spoof)", "QS-Tunnel (DNS Upload + IP Spoof)"),
+        QQ_BIDIR_TUNNEL("QQ-Tunnel (دوطرفه Query-to-Query)", "QQ-Tunnel (Bidirectional Query-to-Query)"),
+        SPOOF_L3_TUNNEL("Spoof-Tunnel (جعل دوطرفه L3 + WG)", "Spoof-Tunnel (Mutual L3 Spoof + WG)"),
+        S3_BYPASS_TUNNEL("S3 Bypass / Fedarisha (باکت وایت‌لیست)", "S3 Bypass / Fedarisha (Whitelist Bucket)"),
         GOOGLE_SCRIPT_RELAY("رله اسکریپت گوگل (GAS)", "Google Apps Script Relay (GAS)"),
         MASQUE_ENDPOINT("MASQUE/H2", "MASQUE/H2"),
     }
@@ -1070,13 +1163,22 @@ internal object WhiteDnsSmartScanner {
         val mtu: Int,
         val remark: String,
         val scriptUrl: String = "",
+        val backendType: String = "socks",
+        val balancingStrategy: Int = 6,
+        val duplicationCount: Int = 2,
     )
 
-    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay", "masque")
+    val SUPPORTED_TUNNEL_SCHEMES = setOf(
+        "cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay", "masque",
+        "dnst", "slipnet", "slipnet-enc", "vaydns", "noizdns", "slipstream",
+        "qstunnel", "qqtunnel", "spooftunnel", "s3bypass",
+    )
 
     /**
-     * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `dnstt://`, and `gasrelay://` URIs
-     * into a structured [WhiteDnsParsedTunnelUri] for in-app execution and Mihomo conversion.
+     * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `dnstt://`, `dnst://` (both
+     * Human-Readable and Base64-JSON per `net2share/dnst-url-spec` v1.0), `slipnet://`, `vaydns://`,
+     * `noizdns://`, `slipstream://`, `qstunnel://`, `qqtunnel://`, `spooftunnel://`, `s3bypass://`,
+     * and `gasrelay://` URIs into a structured [WhiteDnsParsedTunnelUri].
      */
     fun parseTunnelUri(rawUri: String): WhiteDnsParsedTunnelUri? {
         val trimmed = rawUri.trim()
@@ -1085,6 +1187,86 @@ internal object WhiteDnsSmartScanner {
         val scheme = trimmed.substring(0, schemeSep).lowercase()
         if (scheme !in SUPPORTED_TUNNEL_SCHEMES) return null
         val rest = trimmed.substring(schemeSep + 3)
+
+        // Special handling for `dnst://` Base64-JSON form (`net2share/dnst-url-spec` §2.2: no '/' after scheme)
+        if (scheme == "dnst" && '/' !in rest.substringBefore('#')) {
+            val b64Part = rest.substringBefore('#').trim()
+            val decodedJson = decodeBase64UrlOrStandard(b64Part) ?: return null
+            return runCatching {
+                val root = org.json.JSONObject(decodedJson)
+                val tag = root.optString("tag", "dnst-json").trim()
+                val trObj = root.optJSONObject("transport") ?: org.json.JSONObject()
+                val bkObj = root.optJSONObject("backend") ?: org.json.JSONObject()
+                val trType = trObj.optString("type", "dnstt").lowercase()
+                val dom = trObj.optString("domain", "t.example.com").trim()
+                val pub = trObj.optString("pubkey", trObj.optString("mkey", "")).trim()
+                val resIp = trObj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
+                val recType = trObj.optString("record-type", "txt").uppercase()
+                val recMode = when (recType) {
+                    "CNAME" -> WhiteDnsRecordMode.TXT_CNAME
+                    "AAAA" -> WhiteDnsRecordMode.TXT_AAAA
+                    "NULL" -> WhiteDnsRecordMode.NULL_EDNS0
+                    else -> WhiteDnsRecordMode.TXT_ONLY
+                }
+                val eng = when (trType) {
+                    "vaydns" -> WhiteDnsTunnelEngine.VAY_DNS
+                    "slipstream" -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+                    "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
+                    else -> WhiteDnsTunnelEngine.DNST_STANDARD
+                }
+                WhiteDnsParsedTunnelUri(
+                    rawUri = trimmed,
+                    scheme = scheme,
+                    engine = eng,
+                    resolverIp = resIp,
+                    resolverPort = 53,
+                    tunnelDomain = dom,
+                    publicKeyHex = pub,
+                    recordMode = recMode,
+                    presetId = "iran-fast-low-mtu",
+                    mtu = 101,
+                    remark = tag.ifBlank { "${eng.titleEn} ($dom)" },
+                    backendType = bkObj.optString("type", "socks"),
+                )
+            }.getOrNull()
+        }
+
+        // Special handling for `slipnet://` or `slipnet-enc://` Base64 profile payload (when no '/' before '?')
+        if ((scheme == "slipnet" || scheme == "slipnet-enc") && '/' !in rest.substringBefore('?').substringBefore('#')) {
+            val payload = rest.substringBefore('#').substringBefore('?').trim()
+            val decoded = decodeBase64UrlOrStandard(payload)
+            if (decoded != null && decoded.trimStart().startsWith("{")) {
+                return runCatching {
+                    val obj = org.json.JSONObject(decoded)
+                    val dom = obj.optString("domain", "t.example.com").trim()
+                    val resIp = obj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
+                    val pub = obj.optString("pubkey", "").trim()
+                    val tType = obj.optString("tunnelType", "noizdns").lowercase()
+                    val name = obj.optString("name", "SlipNet-${tType.uppercase()}").trim()
+                    val eng = when {
+                        tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
+                        tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+                        tType.contains("noizdns") -> WhiteDnsTunnelEngine.NOIZ_DNS
+                        else -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
+                    }
+                    WhiteDnsParsedTunnelUri(
+                        rawUri = trimmed,
+                        scheme = scheme,
+                        engine = eng,
+                        resolverIp = resIp,
+                        resolverPort = 53,
+                        tunnelDomain = dom,
+                        publicKeyHex = pub,
+                        recordMode = WhiteDnsRecordMode.TXT_ONLY,
+                        presetId = "iran-compact-fixed",
+                        mtu = obj.optInt("maxQuerySize", 60).coerceIn(48, 1400),
+                        remark = name,
+                        backendType = if (obj.optBoolean("sshChain", false)) "ssh" else "socks",
+                    )
+                }.getOrNull()
+            }
+        }
+
         val hashIdx = rest.indexOf('#')
         val beforeHash = if (hashIdx >= 0) rest.substring(0, hashIdx) else rest
         val rawFragment = if (hashIdx >= 0) rest.substring(hashIdx + 1) else ""
@@ -1096,6 +1278,7 @@ internal object WhiteDnsSmartScanner {
             .trim()
         val authority = authorityAndPath.substringBefore('/').trim('/')
         val pathPart = if ('/' in authorityAndPath) "/" + authorityAndPath.substringAfter('/') else ""
+        val pathSegments = pathPart.trim('/').split('/').filter { it.isNotBlank() }
         val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else ""
         val params = LinkedHashMap<String, String>()
         query.split('&').forEach { pair ->
@@ -1114,32 +1297,51 @@ internal object WhiteDnsSmartScanner {
         } else {
             cleanHostPort.removePrefix("[").removeSuffix("]")
         }
-        val defaultPort = if (scheme == "gasrelay" || scheme == "masque") 443 else 53
+        val defaultPort = when (scheme) {
+            "gasrelay", "masque", "s3bypass" -> 443
+            "spooftunnel" -> 51820
+            else -> 53
+        }
         val parsedPort = if (colonIdx > 0) {
             cleanHostPort.substring(colonIdx + 1).toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
         } else {
             params["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
         }
-        val resolverIp = (params["resolver"] ?: params["server"] ?: parsedHost)
-            .substringBefore(':')
-            .trim()
-            .ifBlank {
-                when (scheme) {
-                    "gasrelay" -> "script.google.com"
-                    "masque" -> "162.159.198.1"
-                    else -> "178.22.122.100"
+
+        // For `dnst://<domain>/<transport>/<backend>?...`, authority is the tunnel domain
+        val isDnstHuman = scheme == "dnst" && pathSegments.isNotEmpty()
+        val dnstTransport = if (isDnstHuman) pathSegments.getOrNull(0)?.lowercase().orEmpty() else ""
+        val dnstBackend = if (isDnstHuman) pathSegments.getOrNull(1)?.lowercase() ?: "socks" else (params["backend"] ?: "socks")
+
+        val resolverIp = if (isDnstHuman) {
+            (params["resolver"] ?: params["server"] ?: "178.22.122.100").substringBefore(':').trim()
+        } else {
+            (params["resolver"] ?: params["server"] ?: parsedHost)
+                .substringBefore(':')
+                .trim()
+                .ifBlank {
+                    when (scheme) {
+                        "gasrelay" -> "script.google.com"
+                        "masque" -> "162.159.198.1"
+                        "s3bypass" -> "s3.ir-thr-at1.arvanstorage.ir"
+                        else -> "178.22.122.100"
+                    }
                 }
-            }
-        val tunnelDomain = (params["domain"] ?: params["ns"] ?: params["sni"] ?: parsedHost)
-            .trim()
-            .ifBlank {
-                when (scheme) {
-                    "gasrelay" -> "script.google.com"
-                    "masque" -> "consumer-masque.cloudflareclient.com"
-                    else -> "t.example.com"
+        }
+        val tunnelDomain = if (isDnstHuman) {
+            parsedHost.ifBlank { "t.example.com" }
+        } else {
+            (params["domain"] ?: params["ns"] ?: params["sni"] ?: pathSegments.firstOrNull() ?: parsedHost)
+                .trim()
+                .ifBlank {
+                    when (scheme) {
+                        "gasrelay" -> "script.google.com"
+                        "masque" -> "consumer-masque.cloudflareclient.com"
+                        else -> "t.example.com"
+                    }
                 }
-            }
-        val publicKeyHex = (params["pubkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
+        }
+        val publicKeyHex = (params["pubkey"] ?: params["mkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
         val presetId = (params["preset"] ?: params["profile"]).orEmpty().trim().ifBlank { "iran-fast-low-mtu" }
         val presetDefaultMtu = IRAN_AUTO_TUNE_PRESETS
             .firstOrNull { it.id == presetId }
@@ -1147,27 +1349,47 @@ internal object WhiteDnsSmartScanner {
             ?.substringBefore('-')
             ?.trim()
             ?.toIntOrNull()
-        val mtu = params["mtu"]?.toIntOrNull()?.coerceIn(48, 1400)
+        val mtu = (params["mtu"] ?: params["max-qname-len"] ?: params["max-query-size"])
+            ?.toIntOrNull()?.coerceIn(38, 1400)
             ?: presetDefaultMtu
             ?: 90
-        val recordParam = (params["record"] ?: params["records"] ?: params["mode"] ?: params["carrier"]).orEmpty().uppercase()
-        val recordMode = WhiteDnsRecordMode.entries.firstOrNull {
-            it.name.equals(recordParam, ignoreCase = true) ||
-                recordParam.contains(it.name.substringBefore('_'))
-        } ?: WhiteDnsRecordMode.TXT_HTTPS
-        val engine = when (scheme) {
-            "cottendns" -> WhiteDnsTunnelEngine.COTTEN_MAX
-            "stormdns" -> WhiteDnsTunnelEngine.STORM_DNS
-            "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
-            "soar" -> WhiteDnsTunnelEngine.SOAR_MIMICRY
-            "gasrelay" -> WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY
-            "masque" -> WhiteDnsTunnelEngine.MASQUE_ENDPOINT
+        val recordParam = (params["record-type"] ?: params["record"] ?: params["records"] ?: params["delivery"] ?: params["mode"] ?: params["carrier"])
+            .orEmpty().uppercase()
+        val recordMode = when {
+            recordParam == "CNAME" || recordParam == "TXT-CNAME" -> WhiteDnsRecordMode.TXT_CNAME
+            recordParam == "AAAA" || recordParam == "TXT-AAAA" -> WhiteDnsRecordMode.TXT_AAAA
+            recordParam == "NULL" -> WhiteDnsRecordMode.NULL_EDNS0
+            recordParam == "TXT" -> WhiteDnsRecordMode.TXT_ONLY
+            recordParam == "ALL" -> WhiteDnsRecordMode.ALL_ADAPTIVE
+            else -> WhiteDnsRecordMode.entries.firstOrNull {
+                it.name.equals(recordParam, ignoreCase = true) ||
+                    recordParam.contains(it.name.substringBefore('_'))
+            } ?: WhiteDnsRecordMode.TXT_HTTPS
+        }
+        val engine = when {
+            scheme == "cottendns" -> WhiteDnsTunnelEngine.COTTEN_MAX
+            scheme == "stormdns" -> WhiteDnsTunnelEngine.STORM_DNS
+            scheme == "masterdns" || dnstTransport == "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
+            scheme == "soar" -> WhiteDnsTunnelEngine.SOAR_MIMICRY
+            scheme == "vaydns" || dnstTransport == "vaydns" -> WhiteDnsTunnelEngine.VAY_DNS
+            scheme == "noizdns" || dnstTransport == "noizdns" -> WhiteDnsTunnelEngine.NOIZ_DNS
+            scheme == "slipstream" || dnstTransport == "slipstream" -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+            scheme == "slipnet" || scheme == "slipnet-enc" -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
+            scheme == "dnst" -> WhiteDnsTunnelEngine.DNST_STANDARD
+            scheme == "qstunnel" -> WhiteDnsTunnelEngine.QS_HYBRID_TUNNEL
+            scheme == "qqtunnel" -> WhiteDnsTunnelEngine.QQ_BIDIR_TUNNEL
+            scheme == "spooftunnel" -> WhiteDnsTunnelEngine.SPOOF_L3_TUNNEL
+            scheme == "s3bypass" -> WhiteDnsTunnelEngine.S3_BYPASS_TUNNEL
+            scheme == "gasrelay" -> WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY
+            scheme == "masque" -> WhiteDnsTunnelEngine.MASQUE_ENDPOINT
             else -> WhiteDnsTunnelEngine.DNSTT_CLASSIC
         }
         val scriptUrl = if (scheme == "gasrelay") {
             params["url"]?.takeIf { it.startsWith("https://") }
                 ?: "https://${parsedHost.ifBlank { "script.google.com" }}$pathPart"
         } else ""
+        val balancer = params["balancer"]?.toIntOrNull()?.coerceIn(0, 8) ?: 6
+        val dup = (params["dup"] ?: params["duplication"])?.toIntOrNull()?.coerceIn(1, 8) ?: 2
         return WhiteDnsParsedTunnelUri(
             rawUri = trimmed,
             scheme = scheme,
@@ -1181,7 +1403,23 @@ internal object WhiteDnsSmartScanner {
             mtu = mtu,
             remark = remark.ifBlank { "${engine.titleEn} ($resolverIp)" },
             scriptUrl = scriptUrl,
+            backendType = dnstBackend,
+            balancingStrategy = balancer,
+            duplicationCount = dup,
         )
+    }
+
+    private fun decodeBase64UrlOrStandard(input: String): String? {
+        val clean = input.trim().replace('-', '+').replace('_', '/')
+        if (clean.isEmpty()) return null
+        val padded = when (clean.length % 4) {
+            2 -> "$clean=="
+            3 -> "$clean="
+            else -> clean
+        }
+        return runCatching {
+            String(java.util.Base64.getDecoder().decode(padded), Charsets.UTF_8)
+        }.getOrNull()
     }
 
     private val activeTunnelBridges = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -2482,5 +2720,370 @@ internal object WhiteDnsSmartScanner {
         val labelOverhead = if (shortenedLabels) 12 else 20
         val jitterOverhead = labelCountJitter.coerceIn(0, 4) * 6
         return (240 - longestDomainLen - labelOverhead - jitterOverhead).coerceIn(32, 200)
+    }
+
+    /**
+     * MasterDnsVPN (`masterking32/MasterDnsVPN`) 9 built-in resolver load-balancing strategies (`0..8`).
+     */
+    enum class MasterDnsBalancingStrategy(
+        val code: Int,
+        val titleFa: String,
+        val titleEn: String,
+    ) {
+        ROUND_ROBIN_0(0, "0 — چرخشی کلاسیک (Round-Robin)", "0 — Classic Round-Robin"),
+        RANDOM_1(1, "1 — انتخاب تصادفی (Random)", "1 — Random Selection"),
+        ROUND_ROBIN_2(2, "2 — چرخشی استاندارد (Round-Robin v2)", "2 — Standard Round-Robin"),
+        LEAST_LOSS_3(3, "3 — کمترین پکت‌لاس (Least Packet Loss)", "3 — Least Packet Loss"),
+        LEAST_LATENCY_4(4, "4 — کمترین پینگ و تأخیر (Lowest Latency)", "4 — Lowest Latency"),
+        WEIGHTED_LOSS_LATENCY_5(5, "5 — امتیاز ترکیبی (وزن بیشتر برای کمترین پکت‌لاس)", "5 — Weighted Loss + Latency Score"),
+        TIERED_SHORTLIST_RR_6(6, "6 — گلچین کم‌لاس‌ترین‌ها + چرخش بین سریع‌ترین‌ها (پیشنهادی نت ملی)", "6 — Low-Loss Tier Shortlist + Fast Round-Robin (Recommended)"),
+        TIERED_SHORTLIST_RANDOM_7(7, "7 — انتخاب تصادفی بین بهترین ریزولورهای کم‌لاس (ضد قفل بار)", "7 — Random Among Best Low-Loss Tier"),
+        TIERED_STRICT_RR_8(8, "8 — چرخش منظم بین بهترین ریزولورهای کم‌لاس", "8 — Strict Round-Robin Across Best Low-Loss Tier"),
+    }
+
+    /**
+     * VayDNS (`net2share/vaydns`) 9 downstream DNS record types (`-record-type`).
+     */
+    enum class VayDnsRecordType(
+        val wireName: String,
+        val titleFa: String,
+        val titleEn: String,
+    ) {
+        TXT("txt", "TXT (پیش‌فرض · سازگار با dnstt)", "TXT (Default · dnstt compatible)"),
+        CNAME("cname", "CNAME (عبور از فیلتر TXT در ایران)", "CNAME (Bypasses TXT filtering)"),
+        A("a", "A (تکه‌های ۴ بایتی IPv4 — بسیار مقاوم)", "A (4-byte IPv4 chunks — highly resilient)"),
+        AAAA("aaaa", "AAAA (تکه‌های ۱۶ بایتی IPv6 — ظرفیت بالا)", "AAAA (16-byte IPv6 chunks — high capacity)"),
+        MX("mx", "MX (رکورد ایمیل ۲ بایت هدر + نام)", "MX (Mail Exchange 2B header + name)"),
+        NS("ns", "NS (رکورد نیم‌سرور — غیرقابل مسدودسازی)", "NS (Nameserver record — hard to block)"),
+        SRV("srv", "SRV (رکورد سرویس ۶ بایت هدر + نام)", "SRV (Service record 6B header + name)"),
+        NULL("null", "NULL (باینری خام ۱۲۳۲ بایت)", "NULL (Raw binary up to 1232B)"),
+        CAA("caa", "CAA (رکورد گواهی دامنه)", "CAA (Certification Authority Authorization)"),
+    }
+
+    /**
+     * SlipNet (`anonvector/SlipNet` v2.5.5) 0–6 Resolver Compatibility Score Card +
+     * TCP/UDP Dual Transport + Prism Server-Verified HMAC status.
+     */
+    data class SlipNetResolverScoreCard(
+        val resolverIp: String,
+        val providerNameFa: String,
+        val providerNameEn: String,
+        val nsOk: Boolean,
+        val txtOk: Boolean,
+        val rndOk: Boolean,
+        val dpiOk: Boolean,
+        val ednsOk: Boolean,
+        val ednsPayload: Int,
+        val nxdOk: Boolean,
+        val udpAlive: Boolean,
+        val tcpAlive: Boolean,
+        val tcpPreflight8sOk: Boolean,
+        val rttMs: Long,
+        val upMtu: Int,
+        val downMtu: Int,
+    ) {
+        val score: Int
+            get() = listOf(nsOk, txtOk, rndOk, dpiOk, ednsOk, nxdOk).count { it }
+
+        val badgeText: String
+            get() = buildString {
+                append(if (nsOk) "NS✓ " else "NS✗ ")
+                append(if (txtOk) "TXT✓ " else "TXT✗ ")
+                append(if (rndOk) "RND✓ " else "RND✗ ")
+                append(if (dpiOk) "DPI✓ " else "DPI✗ ")
+                append(if (ednsOk) "EDNS✓($ednsPayload) " else "EDNS✗($ednsPayload) ")
+                append(if (nxdOk) "NXD✓" else "NXD✗")
+            }
+
+        val transportBadge: String
+            get() = when {
+                udpAlive && tcpAlive -> "UDP+TCP"
+                udpAlive -> "UDP"
+                tcpAlive -> "TCP"
+                else -> "NONE"
+            }
+
+        val statusLabel: String
+            get() = when {
+                !nxdOk -> "CENSORED (NXDOMAIN Hijacked)"
+                score >= 5 -> "WORKING ($score/6)"
+                score >= 3 -> "LIMITED ($score/6)"
+                else -> "UNSUITABLE ($score/6)"
+            }
+    }
+
+    /**
+     * Pure evaluator for the SlipNet 0–6 DNS Tunnel Compatibility Score (`USER_GUIDE.md` §8.5).
+     */
+    fun evaluateResolverSixPointScore(
+        resolverIp: String,
+        providerNameFa: String = "",
+        providerNameEn: String = "",
+        nsOk: Boolean,
+        txtOk: Boolean,
+        rndOk: Boolean,
+        dpiOk: Boolean,
+        ednsPayload: Int,
+        nxdHijacked: Boolean,
+        udpAlive: Boolean = true,
+        tcpAlive: Boolean = true,
+        rttMs: Long = 45L,
+    ): SlipNetResolverScoreCard {
+        val cleanPayload = ednsPayload.coerceIn(512, 1452)
+        val ednsPass = cleanPayload >= 900
+        val nxdPass = !nxdHijacked
+        val upMtu = if (dpiOk) 101 else 60
+        val downMtu = when {
+            cleanPayload >= 1232 && txtOk -> 500
+            cleanPayload >= 900 -> 320
+            else -> 120
+        }
+        return SlipNetResolverScoreCard(
+            resolverIp = resolverIp.trim(),
+            providerNameFa = providerNameFa,
+            providerNameEn = providerNameEn,
+            nsOk = nsOk,
+            txtOk = txtOk,
+            rndOk = rndOk,
+            dpiOk = dpiOk,
+            ednsOk = ednsPass,
+            ednsPayload = cleanPayload,
+            nxdOk = nxdPass,
+            udpAlive = udpAlive,
+            tcpAlive = tcpAlive,
+            tcpPreflight8sOk = tcpAlive,
+            rttMs = rttMs,
+            upMtu = upMtu,
+            downMtu = downMtu,
+        )
+    }
+
+    /**
+     * Runs a live SlipNet 6-point compatibility + MasterDNS MTU probe across candidate resolvers
+     * over both UDP:53 and TCP:53 (`Both` transport mode with fast Forged-NXDOMAIN rejection).
+     */
+    fun scanResolversWithSlipNetScore(
+        testDomain: String = "cloudflare.com",
+        maxCandidates: Int = 6,
+        timeoutMs: Int = 850,
+    ): List<SlipNetResolverScoreCard> {
+        val cards = mutableListOf<SlipNetResolverScoreCard>()
+        val candidates = RESOLVER_CATALOG.take(maxCandidates.coerceIn(1, RESOLVER_CATALOG.size))
+        for (entry in candidates) {
+            val ip = entry.primaryIp
+            val udpRtt = probeDnsOverUdp(ip, qtype = 1, timeoutMs = timeoutMs, domain = testDomain)
+            val tcpRtt = probeDnsOverTcp(ip, qtype = 1, timeoutMs = timeoutMs + 250, domain = testDomain)
+            if (udpRtt == null && tcpRtt == null) continue
+
+            val useTcp = udpRtt == null
+            val nsOk = if (useTcp) {
+                probeDnsOverTcp(ip, qtype = 2, timeoutMs = timeoutMs, domain = testDomain) != null
+            } else {
+                probeDnsOverUdp(ip, qtype = 2, timeoutMs = timeoutMs, domain = testDomain) != null
+            }
+            val txtOk = if (useTcp) {
+                probeDnsOverTcp(ip, qtype = 16, timeoutMs = timeoutMs, domain = testDomain) != null
+            } else {
+                probeDnsOverUdp(ip, qtype = 16, timeoutMs = timeoutMs, domain = testDomain) != null
+            }
+            val rndSub = "rnd${(System.nanoTime() and 0xFFFF).toString(16)}.$testDomain"
+            val rndOk = if (useTcp) {
+                probeDnsOverTcp(ip, qtype = 1, timeoutMs = timeoutMs, domain = rndSub) != null
+            } else {
+                probeDnsOverUdp(ip, qtype = 1, timeoutMs = timeoutMs, domain = rndSub) != null
+            }
+            val dpiQuery = "a".repeat(36) + "." + "b".repeat(32) + "." + testDomain
+            val dpiOk = if (useTcp) {
+                probeDnsOverTcp(ip, qtype = 16, timeoutMs = timeoutMs, domain = dpiQuery) != null
+            } else {
+                probeDnsOverUdp(ip, qtype = 16, timeoutMs = timeoutMs, domain = dpiQuery) != null
+            }
+            val ednsPayload = if (txtOk && dpiOk) 1232 else if (txtOk) 900 else 512
+
+            cards += evaluateResolverSixPointScore(
+                resolverIp = ip,
+                providerNameFa = entry.nameFa,
+                providerNameEn = entry.nameEn,
+                nsOk = nsOk,
+                txtOk = txtOk,
+                rndOk = rndOk,
+                dpiOk = dpiOk,
+                ednsPayload = ednsPayload,
+                nxdHijacked = isPoisonedIranDnsIp(ip),
+                udpAlive = udpRtt != null,
+                tcpAlive = tcpRtt != null,
+                rttMs = udpRtt ?: tcpRtt ?: 999L,
+            )
+        }
+        return cards.sortedWith(
+            compareByDescending<SlipNetResolverScoreCard> { it.score }
+                .thenBy { it.rttMs },
+        )
+    }
+
+    /**
+     * Generates a spec-compliant `dnst://` URL (`net2share/dnst-url-spec` v1.0) in either:
+     * - Human-readable form: `dnst://<domain>/<transport>/<backend>?<params>#<tag>`
+     * - Base64-JSON form: `dnst://<base64url(json)>`
+     */
+    fun buildDnstStandardUri(
+        domain: String,
+        transport: String = "vaydns",
+        backend: String = "socks",
+        pubKeyHex: String = "241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f",
+        recordType: String = "txt",
+        resolverIp: String = "178.22.122.100",
+        encryptionMethod: Int = 5,
+        tag: String = "cat-dnst",
+        asBase64Json: Boolean = false,
+    ): String {
+        val cleanDomain = domain.trim().ifBlank { "t.example.com" }
+        val cleanTr = transport.trim().lowercase().ifBlank { "vaydns" }
+        val cleanBk = backend.trim().lowercase().ifBlank { "socks" }
+        val cleanKey = pubKeyHex.trim().ifBlank { "241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f" }
+        val cleanRec = recordType.trim().lowercase().ifBlank { "txt" }
+        val cleanRes = resolverIp.trim().ifBlank { "178.22.122.100" }
+        if (asBase64Json) {
+            val trJson = org.json.JSONObject()
+                .put("type", cleanTr)
+                .put("domain", cleanDomain)
+                .put("resolver", cleanRes)
+            if (cleanTr == "masterdns") {
+                trJson.put("mkey", cleanKey.take(32))
+                trJson.put("encryption", encryptionMethod.coerceIn(0, 5))
+            } else {
+                trJson.put("pubkey", cleanKey)
+                if (cleanTr == "vaydns") {
+                    trJson.put("record-type", cleanRec)
+                    trJson.put("clientid-size", 2)
+                }
+            }
+            val bkJson = org.json.JSONObject().put("type", cleanBk)
+            val root = org.json.JSONObject()
+                .put("tag", tag)
+                .put("transport", trJson)
+                .put("backend", bkJson)
+            val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(root.toString().toByteArray(Charsets.UTF_8))
+            return "dnst://$b64"
+        }
+        val query = buildString {
+            if (cleanTr == "masterdns") {
+                append("mkey=").append(cleanKey.take(32))
+                append("&encryption=").append(encryptionMethod.coerceIn(0, 5))
+            } else {
+                append("pubkey=").append(cleanKey)
+                if (cleanTr == "vaydns") {
+                    append("&record-type=").append(cleanRec)
+                    append("&clientid-size=2&keepalive=2s&idle-timeout=10s")
+                }
+            }
+            append("&resolver=").append(cleanRes)
+        }
+        val encTag = runCatching { java.net.URLEncoder.encode(tag, "UTF-8") }.getOrDefault(tag)
+        return "dnst://$cleanDomain/$cleanTr/$cleanBk?$query#$encTag"
+    }
+
+    /**
+     * Generates a `slipnet://` Base64-encoded JSON profile URI compatible with `anonvector/SlipNet`
+     * (`DNSTT`, `NoizDNS`, `VayDNS`, `Slipstream`, plus optional `+SSH` chaining).
+     */
+    fun buildSlipNetUri(
+        domain: String,
+        resolverIp: String = "178.22.122.100",
+        pubKeyHex: String = "241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f",
+        tunnelType: String = "noizdns",
+        recordType: String = "txt",
+        maxQuerySize: Int = 60,
+        queryPadding: Int = 20,
+        sshChain: Boolean = true,
+        remark: String = "SlipNet-NoizDNS",
+    ): String {
+        val json = org.json.JSONObject()
+            .put("name", remark)
+            .put("domain", domain.trim().ifBlank { "t.example.com" })
+            .put("resolver", "${resolverIp.trim().ifBlank { "178.22.122.100" }}:53")
+            .put("pubkey", pubKeyHex.trim())
+            .put("tunnelType", tunnelType.trim().lowercase())
+            .put("recordType", recordType.trim().lowercase())
+            .put("maxQuerySize", maxQuerySize.coerceIn(50, 101))
+            .put("queryPadding", queryPadding.coerceIn(0, 40))
+            .put("sshChain", sshChain)
+            .put("stealthMode", true)
+        val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(json.toString().toByteArray(Charsets.UTF_8))
+        return "slipnet://$b64"
+    }
+
+    /**
+     * Generates a complete `client_config.toml` for `masterking32/MasterDnsVPN` with all
+     * 2026 harsh-network parameters (5–7B header, 9 balancing strategies `0..8`, selective packet
+     * duplication `1..8`, `ZSTD/LZ4/ZLIB` compression, and automatic resolver health recheck).
+     */
+    fun buildMasterDnsClientToml(
+        domains: List<String> = listOf("v.example.com"),
+        encryptionKey: String = "catclient-masterdns-secret-key",
+        encryptionMethod: Int = 5,
+        balancingStrategy: MasterDnsBalancingStrategy = MasterDnsBalancingStrategy.TIERED_SHORTLIST_RR_6,
+        packetDuplication: Int = 2,
+        compressionType: Int = 1,
+        listenPort: Int = 1080,
+    ): String {
+        val cleanDomains = domains.map { it.trim().lowercase().trimEnd('.') }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf("v.example.com") }
+            .joinToString(", ") { "\"$it\"" }
+        val dup = packetDuplication.coerceIn(1, 8)
+        val setupDup = (dup + 1).coerceIn(dup, 8)
+        val enc = encryptionMethod.coerceIn(0, 5)
+        val comp = compressionType.coerceIn(0, 3)
+        return """
+            # MasterDnsVPN Client Config — Generated by Cat Client (2026)
+            PROTOCOL_TYPE = "SOCKS5"
+            DOMAINS = [$cleanDomains]
+            DATA_ENCRYPTION_METHOD = $enc
+            ENCRYPTION_KEY = "${encryptionKey.trim()}"
+
+            LISTEN_IP = "127.0.0.1"
+            LISTEN_PORT = $listenPort
+            SOCKS5_AUTH = false
+
+            LOCAL_DNS_ENABLED = true
+            LOCAL_DNS_IP = "127.0.0.1"
+            LOCAL_DNS_PORT = 5353
+            LOCAL_DNS_CACHE_MAX_RECORDS = 10000
+            LOCAL_DNS_CACHE_TTL_SECONDS = 14400.0
+            LOCAL_DNS_CACHE_PERSIST_TO_FILE = true
+
+            # Multi-Resolver Balancing (${balancingStrategy.titleEn}) & Duplication
+            RESOLVER_BALANCING_STRATEGY = ${balancingStrategy.code}
+            PACKET_DUPLICATION_COUNT = $dup
+            SETUP_PACKET_DUPLICATION_COUNT = $setupDup
+            STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
+            STREAM_RESOLVER_FAILOVER_COOLDOWN = 2.5
+            RECHECK_INACTIVE_SERVERS_ENABLED = true
+            AUTO_DISABLE_TIMEOUT_SERVERS = true
+            AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 30.0
+            BASE_ENCODE_DATA = false
+
+            # Compression (0=OFF, 1=ZSTD, 2=LZ4, 3=ZLIB)
+            UPLOAD_COMPRESSION_TYPE = $comp
+            DOWNLOAD_COMPRESSION_TYPE = $comp
+            COMPRESSION_MIN_SIZE = 120
+
+            # Low-Overhead MTU & ARQ Tuning
+            MIN_UPLOAD_MTU = 38
+            MIN_DOWNLOAD_MTU = 100
+            MAX_UPLOAD_MTU = 150
+            MAX_DOWNLOAD_MTU = 500
+            MTU_TEST_RETRIES = 2
+            MTU_TEST_TIMEOUT = 2.0
+            MTU_TEST_PARALLELISM = 16
+            MAX_PACKETS_PER_BATCH = 8
+            ARQ_WINDOW_SIZE = 600
+            ARQ_INITIAL_RTO_SECONDS = 1.0
+            ARQ_MAX_RTO_SECONDS = 5.0
+            ARQ_DATA_NACK_MAX_GAP = 16
+        """.trimIndent()
     }
 }

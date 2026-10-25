@@ -308,5 +308,140 @@ class WhiteDnsSmartScannerTest {
         assertTrue(shortBudget > longBudget)
         assertTrue(longBudget >= 32)
     }
+
+    @Test fun dnstSpecSlipNetMasterDnsVayDnsAndSixPointScoreWorkEndToEnd() {
+        val dnstHuman = WhiteDnsSmartScanner.buildDnstStandardUri(
+            domain = "v.example.com",
+            transport = "vaydns",
+            backend = "socks",
+            pubKeyHex = "241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f",
+            recordType = "cname",
+            resolverIp = "178.22.122.100",
+            tag = "VayDNS-CNAME",
+            asBase64Json = false,
+        )
+        assertTrue(dnstHuman.startsWith("dnst://v.example.com/vaydns/socks?"))
+        val parsedHuman = WhiteDnsSmartScanner.parseTunnelUri(dnstHuman)
+        assertTrue(parsedHuman != null)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.VAY_DNS, parsedHuman?.engine)
+        assertEquals("v.example.com", parsedHuman?.tunnelDomain)
+        assertEquals("178.22.122.100", parsedHuman?.resolverIp)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_CNAME, parsedHuman?.recordMode)
+
+        val dnstB64 = WhiteDnsSmartScanner.buildDnstStandardUri(
+            domain = "v.example.com",
+            transport = "vaydns",
+            backend = "socks",
+            pubKeyHex = "241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f",
+            recordType = "aaaa",
+            resolverIp = "185.51.200.2",
+            tag = "VayDNS-B64",
+            asBase64Json = true,
+        )
+        assertTrue(dnstB64.startsWith("dnst://"))
+        assertTrue('/' !in dnstB64.removePrefix("dnst://"))
+        val parsedB64 = WhiteDnsSmartScanner.parseTunnelUri(dnstB64)
+        assertTrue(parsedB64 != null)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.VAY_DNS, parsedB64?.engine)
+        assertEquals("v.example.com", parsedB64?.tunnelDomain)
+        assertEquals("185.51.200.2", parsedB64?.resolverIp)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsRecordMode.TXT_AAAA, parsedB64?.recordMode)
+
+        val slipNetUri = WhiteDnsSmartScanner.buildSlipNetUri(
+            domain = "n.example.com",
+            resolverIp = "178.22.122.100",
+            tunnelType = "noizdns",
+            maxQuerySize = 60,
+            queryPadding = 20,
+            sshChain = true,
+            remark = "SlipNet-NoizDNS-SSH",
+        )
+        val parsedSlipNet = WhiteDnsSmartScanner.parseTunnelUri(slipNetUri)
+        assertTrue(parsedSlipNet != null)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.NOIZ_DNS, parsedSlipNet?.engine)
+        assertEquals("n.example.com", parsedSlipNet?.tunnelDomain)
+        assertEquals("ssh", parsedSlipNet?.backendType)
+
+        assertEquals(9, WhiteDnsSmartScanner.MasterDnsBalancingStrategy.entries.size)
+        assertEquals(9, WhiteDnsSmartScanner.VayDnsRecordType.entries.size)
+        val toml = WhiteDnsSmartScanner.buildMasterDnsClientToml(
+            domains = listOf("v.example.com"),
+            balancingStrategy = WhiteDnsSmartScanner.MasterDnsBalancingStrategy.TIERED_SHORTLIST_RR_6,
+            packetDuplication = 2,
+        )
+        assertTrue(toml.contains("RESOLVER_BALANCING_STRATEGY = 6"))
+        assertTrue(toml.contains("PACKET_DUPLICATION_COUNT = 2"))
+        assertTrue(toml.contains("MIN_UPLOAD_MTU = 38"))
+
+        val scoreCard = WhiteDnsSmartScanner.evaluateResolverSixPointScore(
+            resolverIp = "178.22.122.100",
+            providerNameFa = "شکن",
+            providerNameEn = "Shecan",
+            nsOk = true,
+            txtOk = true,
+            rndOk = true,
+            dpiOk = true,
+            ednsPayload = 1232,
+            nxdHijacked = false,
+            udpAlive = true,
+            tcpAlive = true,
+            rttMs = 31L,
+        )
+        assertEquals(6, scoreCard.score)
+        assertEquals("NS✓ TXT✓ RND✓ DPI✓ EDNS✓(1232) NXD✓", scoreCard.badgeText)
+        assertEquals("UDP+TCP", scoreCard.transportBadge)
+
+        val mihomoYaml = SubConvConverter.convertToMihomo(
+            listOf(dnstHuman, dnstB64, slipNetUri).joinToString("\n"),
+        )
+        assertTrue(mihomoYaml.contains("type: socks5"))
+        assertTrue(mihomoYaml.contains("server: 127.0.0.1"))
+    }
+
+    @Test fun localSniSpoofProxyNonCfWhitelistFiveCfSpoofsAndHybridTunnelsAreValid() {
+        val fakeHello = LocalSniSpoofProxy.buildFakeClientHelloRecord("ebanksepah.ir")
+        assertEquals(0x16.toByte(), fakeHello[0])
+        assertEquals(0x03.toByte(), fakeHello[1])
+        assertEquals(0x03.toByte(), fakeHello[2])
+
+        val sniOffset = LocalSniSpoofProxy.findSniHostnameOffset(fakeHello)
+        assertTrue(sniOffset != null && sniOffset > 40)
+        val asciiHost = String(fakeHello, sniOffset!!, "ebanksepah.ir".length, Charsets.US_ASCII)
+        assertEquals("ebanksepah.ir", asciiHost)
+
+        val splitPair = LocalSniSpoofProxy.splitClientHelloAtSni(fakeHello)
+        assertTrue(splitPair != null)
+        val (rec1, rec2) = splitPair!!
+        assertEquals(0x16.toByte(), rec1[0])
+        assertEquals(0x16.toByte(), rec2[0])
+        val len1 = ((rec1[3].toInt() and 0xFF) shl 8) or (rec1[4].toInt() and 0xFF)
+        val len2 = ((rec2[3].toInt() and 0xFF) shl 8) or (rec2[4].toInt() and 0xFF)
+        val origLen = ((fakeHello[3].toInt() and 0xFF) shl 8) or (fakeHello[4].toInt() and 0xFF)
+        assertEquals(origLen, len1 + len2)
+
+        assertTrue(LocalSniSpoofProxy.NON_CF_WHITELIST_TARGETS.size >= 10)
+        assertEquals(5, LocalSniSpoofProxy.CF_SPOOF_5_METHODS.size)
+
+        val hybrids = LocalSniSpoofProxy.buildHybridNetMelliTunnelConfigs()
+        assertEquals(4, hybrids.size)
+        hybrids.forEach { h ->
+            val parsed = WhiteDnsSmartScanner.parseTunnelUri(h.uri)
+            assertTrue("Expected hybrid URI ${h.uri} to parse", parsed != null)
+        }
+
+        val aetherWithMasqueSni = AetherSelection(
+            enabled = true,
+            mode = AetherMode.MasqueHttp2,
+            endpoint = "162.159.198.1:443",
+            masqueSni = "ebanksepah.ir",
+            echEnabled = true,
+        )
+        val uri = aetherWithMasqueSni.toAetherUri()
+        assertTrue(uri.contains("masque_sni=ebanksepah.ir"))
+        assertTrue(uri.contains("ech=1"))
+        val roundTrip = AetherSelection.fromAetherUri(uri)
+        assertEquals("ebanksepah.ir", roundTrip?.masqueSni)
+        assertEquals(true, roundTrip?.echEnabled)
+    }
 }
 

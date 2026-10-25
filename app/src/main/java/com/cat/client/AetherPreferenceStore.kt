@@ -37,6 +37,8 @@ data class AetherSelection(
     val profileName: String = "",
     val chainTarget: String = "none",
     val exitLocation: String = "auto",
+    val masqueSni: String = "",
+    val echEnabled: Boolean = false,
 ) {
     fun freshEndpoint(now: Long = System.currentTimeMillis()): String? = endpoint?.takeIf {
         endpointScannedAt > 0L && now >= endpointScannedAt && now - endpointScannedAt <= ENDPOINT_MAX_AGE_MS
@@ -240,6 +242,13 @@ data class AetherSelection(
             params += "fragment_size=16-32"
             params += "fragment_delay=2-10"
             params += "fingerprint=semi-python"
+            val cleanMasqueSni = masqueSni.trim()
+            if (cleanMasqueSni.isNotEmpty()) {
+                params += "masque_sni=${java.net.URLEncoder.encode(cleanMasqueSni, "UTF-8")}"
+            }
+            if (echEnabled) {
+                params += "ech=1"
+            }
         }
         if (twoHops && cleanPeer != null) {
             params += "outer=${java.net.URLEncoder.encode(cleanPeer, "UTF-8")}"
@@ -345,6 +354,8 @@ data class AetherSelection(
             val peer = (map["endpoint"] ?: map["outer"] ?: map["peer"] ?: authority.takeIf { it.isNotEmpty() })
                 ?.takeIf(AetherOperations::isSafePublicPeer)
             val region = map["region"].orEmpty().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+            val masqueSniParam = (map["masque_sni"] ?: map["sni"]).orEmpty().trim()
+            val echParam = map["ech"].orEmpty().lowercase() in setOf("1", "true", "yes", "on")
             val name = runCatching { java.net.URLDecoder.decode(rawFragment, "UTF-8") }.getOrDefault(rawFragment).trim()
             return AetherSelection(
                 enabled = true,
@@ -356,6 +367,8 @@ data class AetherSelection(
                 profileName = name.ifEmpty { "Aether" },
                 chainTarget = chainTarget,
                 exitLocation = exitLocation,
+                masqueSni = masqueSniParam,
+                echEnabled = echParam,
             )
         }
     }
@@ -382,6 +395,8 @@ class AetherPreferenceStore(context: Context) {
         }
         val exitLocation = prefs.getString("exitLocation", "auto").orEmpty()
             .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
+        val masqueSni = prefs.getString("masqueSni", "").orEmpty().trim()
+        val echEnabled = prefs.getBoolean("echEnabled", false)
         return AetherSelection(
             enabled = enabled,
             mode = mode,
@@ -392,6 +407,8 @@ class AetherPreferenceStore(context: Context) {
             profileName = profileName,
             chainTarget = chainTarget,
             exitLocation = exitLocation,
+            masqueSni = masqueSni,
+            echEnabled = echEnabled,
         )
     }
 
@@ -418,6 +435,8 @@ class AetherPreferenceStore(context: Context) {
             .putString("profileName", selection.profileName.trim())
             .putString("chainTarget", validChain)
             .putString("exitLocation", validExitLoc)
+            .putString("masqueSni", selection.masqueSni.trim())
+            .putBoolean("echEnabled", selection.echEnabled)
             .apply()
     }
 

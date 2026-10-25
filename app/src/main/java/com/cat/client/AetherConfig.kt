@@ -15,6 +15,8 @@ data class AetherRuntimeConfig(
     val listenPort: Int = 1819,
     val ipScan: String = "both",
     val exitLocation: String = "auto",
+    val masqueSni: String = "",
+    val echEnabled: Boolean = false,
 ) {
     init {
         require(identityFile.isAbsolute) { "Aether identity path must be absolute" }
@@ -65,6 +67,10 @@ data class AetherRuntimeConfig(
                 put("peerFallback", true)
             }
             upstreamProxy?.let { put("upstreamProxy", it) }
+            masqueSni.trim().takeIf { it.isNotEmpty() }?.let { put("masqueSni", it) }
+            if (echEnabled) {
+                put("ech", true)
+            }
         }
         .toString()
 }
