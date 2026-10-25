@@ -3593,6 +3593,71 @@ class MainActivity : Activity() {
             addView(heroPingAction, LinearLayout.LayoutParams(dp(54), dp(54)).apply { topMargin = dp(10) })
             refreshActionButton.visibility = View.GONE
         }
+        val heroModeStore = HeroVisualModePreferenceStore(this)
+        val heroModeChipViews = mutableMapOf<HeroVisualMode, TextView>()
+        fun applyHeroVisualMode(mode: HeroVisualMode) {
+            heroModeStore.save(mode)
+            when (mode) {
+                HeroVisualMode.Blob -> {
+                    connectionBlob.visibility = View.VISIBLE
+                    connectionBlob.setShieldMode(false)
+                    connectionBlob.setSubText("")
+                    connectionGlobe.visibility = View.GONE
+                }
+                HeroVisualMode.Globe -> {
+                    connectionBlob.visibility = View.GONE
+                    connectionGlobe.visibility = View.VISIBLE
+                }
+                HeroVisualMode.Shield -> {
+                    connectionBlob.visibility = View.VISIBLE
+                    connectionBlob.setShieldMode(true)
+                    val aetherSel = aetherPreferenceStore.read()
+                    val subLabel = when {
+                        aetherSel.chainTarget == "psiphon" -> "WARP → PSIPHON"
+                        aetherSel.chainTarget == "tor" -> "WARP → TOR"
+                        aetherSel.enabled -> aetherSel.mode.name.uppercase(Locale.US)
+                        else -> "AETHER SHIELD"
+                    }
+                    connectionBlob.setSubText(subLabel)
+                    connectionGlobe.visibility = View.GONE
+                }
+            }
+            heroModeChipViews.forEach { (chipMode, view) ->
+                val active = chipMode == mode
+                view.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+                view.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(16).toFloat()
+                    if (active) {
+                        orientation = GradientDrawable.Orientation.TL_BR
+                        colors = intArrayOf(palette.tealGradientStart, palette.secondary)
+                    } else {
+                        setColor(Color.TRANSPARENT)
+                    }
+                }
+            }
+        }
+        val heroModeSwitcher = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = glassSurfaceDrawable(radiusDp = 20)
+            HeroVisualMode.entries.forEach { mode ->
+                val chip = TextView(this@MainActivity).apply {
+                    setText(mode.labelRes)
+                    textSize = 11.5f
+                    typeface = CatClientBodyBoldTypeface
+                    gravity = Gravity.CENTER
+                    setPadding(dp(12), dp(6), dp(12), dp(6))
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { applyHeroVisualMode(mode) }
+                }
+                heroModeChipViews[mode] = chip
+                addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(2); marginEnd = dp(2) })
+            }
+        }
         val heroFrame = FrameLayout(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
@@ -3600,6 +3665,11 @@ class MainActivity : Activity() {
             addView(
                 connectionBlob,
                 FrameLayout.LayoutParams(dp(250), dp(250)).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(6) },
+            )
+            (connectionGlobe.parent as? ViewGroup)?.removeView(connectionGlobe)
+            addView(
+                connectionGlobe,
+                FrameLayout.LayoutParams(dp(290), dp(246)).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(8) },
             )
             addView(
                 heroStateText,
@@ -3612,11 +3682,13 @@ class MainActivity : Activity() {
             }
             addView(heroCluster, heroClusterParams)
         }
+        applyHeroVisualMode(heroModeStore.read())
         val signalSection = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
             clipToPadding = false
+            addView(heroModeSwitcher, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(6) })
             addView(heroFrame, LinearLayout.LayoutParams(-1, dp(350)))
             addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -3635,11 +3707,7 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(22).toFloat()
-                setColor(withAlpha(palette.surfaceElevated1, 235))
-            }
+            background = glassSurfaceDrawable(radiusDp = 22)
             isClickable = true
             isFocusable = true
             setOnClickListener { refreshDashboardIp() }
@@ -3665,13 +3733,27 @@ class MainActivity : Activity() {
             addView(pingValueText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             addView(
                 TextView(this@MainActivity).apply {
+                    text = "🗺"
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(withAlpha(TEAL, 36))
+                    }
+                    setOnClickListener { showMapPage() }
+                },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+            )
+            addView(
+                TextView(this@MainActivity).apply {
                     text = "›"
                     textSize = 22f
                     typeface = CatClientBodyBoldTypeface
                     setTextColor(TEXT_SECONDARY)
                     includeFontPadding = false
                 },
-                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
             )
         }
 
@@ -4266,6 +4348,50 @@ class MainActivity : Activity() {
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }
         }
+        val surfaceStyleStore = AppSurfaceStylePreferenceStore(this)
+        val surfaceStyleSelectorRow = appPreferenceRow(
+            R.string.surface_style_title,
+            getString(surfaceStyleStore.read().labelRes),
+        ) {
+            val styles = AppSurfaceStyle.entries
+            val labels = styles.map { getString(it.labelRes) }.toTypedArray()
+            val currentIdx = styles.indexOf(surfaceStyleStore.read()).coerceAtLeast(0)
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.surface_style_title)
+                .setSingleChoiceItems(labels, currentIdx) { dialog, which ->
+                    dialog.dismiss()
+                    val picked = styles[which]
+                    if (picked != surfaceStyleStore.read()) {
+                        surfaceStyleStore.save(picked)
+                        recreate()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+                .showCatClientDialog()
+        }
+        val heroVisualStore = HeroVisualModePreferenceStore(this)
+        val heroVisualSelectorRow = appPreferenceRow(
+            R.string.hero_visual_title,
+            getString(heroVisualStore.read().labelRes),
+        ) {
+            val modes = HeroVisualMode.entries
+            val labels = modes.map { getString(it.labelRes) }.toTypedArray()
+            val currentIdx = modes.indexOf(heroVisualStore.read()).coerceAtLeast(0)
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.hero_visual_title)
+                .setSingleChoiceItems(labels, currentIdx) { dialog, which ->
+                    dialog.dismiss()
+                    val picked = modes[which]
+                    if (picked != heroVisualStore.read()) {
+                        heroVisualStore.save(picked)
+                        recreate()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+                .showCatClientDialog()
+        }
         val hapticSwitch = MaterialSwitch(this).apply {
             isChecked = connectHapticEnabled()
             setOnCheckedChangeListener { _, checked ->
@@ -4274,7 +4400,15 @@ class MainActivity : Activity() {
             }
         }
         val hapticRow = advancedToggleRow(getString(R.string.haptic_connect_title), getString(R.string.haptic_connect_detail), hapticSwitch)
-        listOf<View>(themeSelectorRow, accentSelectorRow, swatchStrip, languageSelectorRow, hapticRow).forEachIndexed { index, row ->
+        listOf<View>(
+            themeSelectorRow,
+            surfaceStyleSelectorRow,
+            heroVisualSelectorRow,
+            accentSelectorRow,
+            swatchStrip,
+            languageSelectorRow,
+            hapticRow,
+        ).forEachIndexed { index, row ->
             if (index > 0 && row !== swatchStrip) {
                 appearancePanel.addView(
                     View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
@@ -21413,12 +21547,43 @@ class MainActivity : Activity() {
     }
 
     private fun glassSurfaceDrawable(radiusDp: Int, highlighted: Boolean = false): GradientDrawable {
+        val surfaceStyle = AppSurfaceStylePreferenceStore(this).read()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
-            // ZedSecure tonal cards: surface container, no outline; highlighted = one step brighter + accent edge.
-            setColor(if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1)
-            if (highlighted) setStroke(dp(1), withAlpha(TEAL, 170))
+            when (surfaceStyle) {
+                AppSurfaceStyle.Amoled -> {
+                    val baseFill = if (palette.isDark) {
+                        if (highlighted) 0xFF101018.toInt() else 0xFF07070C.toInt()
+                    } else {
+                        if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1
+                    }
+                    setColor(baseFill)
+                    setStroke(dp(1), withAlpha(if (highlighted) TEAL else OUTLINE, if (highlighted) 195 else 155))
+                }
+                AppSurfaceStyle.Neon -> {
+                    orientation = GradientDrawable.Orientation.TL_BR
+                    val startFill = androidx.core.graphics.ColorUtils.blendARGB(
+                        if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1,
+                        TEAL,
+                        if (palette.isDark) 0.14f else 0.10f,
+                    )
+                    val endFill = androidx.core.graphics.ColorUtils.blendARGB(
+                        palette.surface,
+                        palette.secondary,
+                        if (palette.isDark) 0.12f else 0.08f,
+                    )
+                    colors = intArrayOf(startFill, endFill)
+                    setStroke(dp(if (highlighted) 2 else 1), withAlpha(TEAL, if (highlighted) 225 else 170))
+                }
+                AppSurfaceStyle.Glass -> {
+                    orientation = GradientDrawable.Orientation.TL_BR
+                    val topColor = if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1
+                    val bottomColor = if (highlighted) palette.surfaceElevated1 else palette.surface
+                    colors = intArrayOf(topColor, bottomColor)
+                    setStroke(dp(1), withAlpha(if (highlighted) TEAL else OUTLINE, if (highlighted) 175 else 120))
+                }
+            }
         }
     }
 

@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta153] — 2026-10-25 (Panel 6.69.31)
+
+### Added
+- **ZedSecure UI, Skins & Hero Visual Upgrade (App `v1.10.0-beta153` + Panel `6.69.31`):**
+  - Expanded Android `AppAccent` presets from 8 to **16 themes** (`Violet`, `Turquoise`, `Cyberpunk`, `RoyalGold`, `AmoledNeon`, `ArcticNord`, `CrimsonRuby`, `EmeraldMatrix`, `DraculaPro`, `Teal`, `Ocean`, `Emerald`, `Amber`, `Rose`, `Monochrome`, `Amoled`) with dedicated Light (`res/values/themes_presets.xml`) and Dark (`res/values-night/themes_presets.xml`) Material 3 overlays.
+  - Added 3 selectable **Surface Skins (`AppSurfaceStyle`)**: `Frosted Glass` (Zed multi-layer glass), `True AMOLED` (`#000000` pitch-black OLED), and `Cyber Neon` (glowing accent border).
+  - Added a 1-tap **3-Mode Home Hero Visual Switcher (`HeroVisualMode`)** on the Home screen and in Appearance settings (`🫧 Zed Wave Blob` with orbiting particles, `🌍 Live World Map Radar`, and `🛡️ Aether Quantum Shield` with hexagonal anti-DPI rings + quick mini-radar route button).
+  - Upgraded **Cat Panel (`v6.69.31`)** from 6 to **12 skins** (`aurora`, `nebula`, `ocean`, `ember`, `forest`, `steel`, `turquoise`, `cyberpunk`, `gold`, `amoled`, `nord`, `daylight`) and added a floating mobile bottom navigation dock (`.mbdock`).
+
 ## [1.10.0-beta152] — 2026-10-25 (Panel 6.69.30)
 
 ### Fixed

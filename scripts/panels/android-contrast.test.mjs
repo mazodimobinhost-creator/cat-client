@@ -30,7 +30,7 @@ const presets = [...accent.matchAll(/^\s{4}(\w+)\("(\w+)", R\.string\.\w+, ((?:0
   const c = [...m[3].matchAll(/0xFF([0-9A-Fa-f]{6})/g)].map((x) => hex(x[1]));
   return { name: m[1], dark: c[0], onDark: c[1], light: c[2], onLight: c[3], secDark: c[4], secLight: c[5], tintDark: c[6], tintLight: c[7], k: Number(m[4]) };
 });
-check('parsed Light + Dark palettes and 8 presets', presets.length === 8 && block('Light').textTertiary && block('Dark').textTertiary, 'presets=' + presets.length);
+check('parsed Light + Dark palettes and 16 presets', presets.length === 16 && block('Light').textTertiary && block('Dark').textTertiary, 'presets=' + presets.length);
 
 function themed(base, p, night) {
   const tint = night ? p.tintDark : p.tintLight; const k = p.k; const mix = (c, a = k) => blend(c, tint, a);

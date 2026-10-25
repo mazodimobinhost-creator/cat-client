@@ -161,27 +161,44 @@ object CatClientDesignTokens {
             systemUiMode,
         )
         val night = nightMode == Configuration.UI_MODE_NIGHT_YES
-        return themed(palette(night), AppAccentPreferenceStore(context).read(), night)
+        val surfaceStyle = AppSurfaceStylePreferenceStore(context).read()
+        return themed(palette(night), AppAccentPreferenceStore(context).read(), night, surfaceStyle)
     }
 
     /**
      * Zed "Theme presets": one preset re-colours the whole scheme — primary, secondary, the tonal
      * surfaces (tinted toward the preset's surface hue), outlines, containers and gradients.
      */
-    fun themed(base: CatClientPalette, preset: AppAccent, night: Boolean): CatClientPalette {
+    fun themed(
+        base: CatClientPalette,
+        preset: AppAccent,
+        night: Boolean,
+        surfaceStyle: AppSurfaceStyle = AppSurfaceStyle.Glass,
+    ): CatClientPalette {
         val tone = if (night) preset.dark else preset.light
         val onTone = if (night) preset.onDark else preset.onLight
         val secondary = if (night) preset.secondaryDark else preset.secondaryLight
         val tint = if (night) preset.surfaceTintDark else preset.surfaceTintLight
         val k = preset.tintStrength
         fun mix(c: Int, amount: Float = k) = androidx.core.graphics.ColorUtils.blendARGB(c, tint, amount)
+        val isAmoled = night && (surfaceStyle == AppSurfaceStyle.Amoled || preset == AppAccent.AmoledNeon)
+        val isNeon = surfaceStyle == AppSurfaceStyle.Neon
+        val bgColor = if (isAmoled) 0xFF000000.toInt() else mix(base.background)
+        val surfColor = if (isAmoled) mix(0xFF07070B.toInt(), 0.14f) else mix(base.surface)
+        val elev1Color = if (isAmoled) mix(0xFF0E0E15.toInt(), 0.18f) else mix(base.surfaceElevated1)
+        val elev2Color = if (isAmoled) mix(0xFF161621.toInt(), 0.22f) else mix(base.surfaceElevated2)
+        val outlineColor = when {
+            isNeon -> androidx.core.graphics.ColorUtils.blendARGB(mix(base.outline, k * 0.8f), tone, if (night) 0.52f else 0.42f)
+            isAmoled -> androidx.core.graphics.ColorUtils.blendARGB(0xFF1F1F2E.toInt(), tone, 0.28f)
+            else -> mix(base.outline, k * 0.8f)
+        }
         return base.copy(
-            background = mix(base.background),
-            surface = mix(base.surface),
-            surfaceElevated1 = mix(base.surfaceElevated1),
-            surfaceElevated2 = mix(base.surfaceElevated2),
-            surfaceVariant = mix(base.surfaceVariant),
-            outline = mix(base.outline, k * 0.8f),
+            background = bgColor,
+            surface = surfColor,
+            surfaceElevated1 = elev1Color,
+            surfaceElevated2 = elev2Color,
+            surfaceVariant = if (isAmoled) elev2Color else mix(base.surfaceVariant),
+            outline = outlineColor,
             idleRing = mix(base.idleRing),
             majorTick = mix(base.majorTick),
             textSecondary = mix(base.textSecondary, k * 0.5f),
@@ -191,7 +208,7 @@ object CatClientDesignTokens {
             onAccent = onTone,
             onProminent = onTone,
             brandPillOutline = tone,
-            brandPillBackground = androidx.core.graphics.ColorUtils.blendARGB(mix(base.surfaceElevated2), tone, if (night) 0.35f else 0.45f),
+            brandPillBackground = androidx.core.graphics.ColorUtils.blendARGB(elev2Color, tone, if (night) 0.35f else 0.45f),
             tealGradientStart = tone,
             tealGradientEnd = secondary,
             secondary = secondary,
