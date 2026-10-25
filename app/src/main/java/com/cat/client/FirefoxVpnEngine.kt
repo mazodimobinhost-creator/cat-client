@@ -2271,7 +2271,7 @@ internal object FirefoxVpnEngine {
             if (cleanFastlyIp.isNotBlank()) add("edge_ip=$cleanFastlyIp")
             add("frag=${if (tlsFragment) 1 else 0}")
         }.joinToString("&")
-        return "fenix://127.0.0.1:$localPort?$params#$encRemark"
+        return "fenix://127.0.0.1:$localPort/?$params#$encRemark"
     }
 
     fun formatQuotaSummaryFa(account: FirefoxVpnAccount?): String {
