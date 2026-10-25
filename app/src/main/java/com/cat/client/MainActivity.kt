@@ -12472,7 +12472,6 @@ class MainActivity : Activity() {
                         },
                     )
                     aetherPreferenceStore.save(updated)
-                    refreshEngineSummary()
                     renderAdvancedControls()
                     Toast.makeText(
                         this@MainActivity,

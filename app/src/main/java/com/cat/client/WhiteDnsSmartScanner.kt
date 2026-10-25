@@ -793,6 +793,12 @@ internal object WhiteDnsSmartScanner {
         val summaryEn: String,
     )
 
+    fun resolverById(id: String): WhiteDnsResolverEntry? =
+        RESOLVER_CATALOG.firstOrNull { it.id == id }
+
+    fun presetById(id: String): WhiteDnsAutoTunePreset? =
+        IRAN_AUTO_TUNE_PRESETS.firstOrNull { it.id == id }
+
     /**
      * Active Auto-MTU & Carrier Record Finder:
      * Probes top Iranian & global resolvers over UDP/53, TCP/53, and DoT/853, tests carrier record
@@ -803,14 +809,14 @@ internal object WhiteDnsSmartScanner {
         domain: String = "cloudflare.com",
         timeoutMs: Int = 1_500,
     ): WhiteDnsAutoDetectResult {
-        val candidates = listOf(
-            resolverById("shecan")!!,
-            resolverById("403online")!!,
-            resolverById("electro")!!,
-            resolverById("radar")!!,
-            resolverById("tci")!!,
-            resolverById("cloudflare")!!,
-        )
+        val candidates = listOfNotNull(
+            resolverById("shecan"),
+            resolverById("403online"),
+            resolverById("electro"),
+            resolverById("radar"),
+            resolverById("tci"),
+            resolverById("cloudflare"),
+        ).ifEmpty { RESOLVER_CATALOG.take(6) }
         var bestResolver = candidates.first()
         var bestTransport = "udp"
         var bestRtt = Long.MAX_VALUE
