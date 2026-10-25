@@ -12237,10 +12237,10 @@ class MainActivity : Activity() {
                     val detected = withContext(Dispatchers.IO) {
                         WhiteDnsSmartScanner.autoDetectBestWhiteDnsProfile()
                     }
-                    selectedResolver = detected.resolverEntry
-                    selectedTransport = detected.bestTransport
-                    selectedRecordMode = detected.recommendedRecordMode
-                    selectedPreset = detected.recommendedPreset
+                    selectedResolver = detected.resolver
+                    selectedTransport = detected.transport
+                    selectedRecordMode = detected.recordMode
+                    selectedPreset = detected.preset
                     refreshView()
                     Toast.makeText(
                         this@MainActivity,
@@ -12421,8 +12421,19 @@ class MainActivity : Activity() {
             val verdict = withContext(Dispatchers.IO) {
                 WhiteDnsSmartScanner.detectRegionalFirewallProfile()
             }
-            val title = if (isFarsi) verdict.titleFa else verdict.titleEn
+            val title = if (isFarsi) verdict.type.titleFa else verdict.type.titleEn
             val detail = if (isFarsi) verdict.detailFa else verdict.detailEn
+            val recEndpoint = when (verdict.type) {
+                WhiteDnsSmartScanner.RegionalFirewallType.MCI_IPV6 -> "[2606:4700:d0::a29f:c001]:2408"
+                WhiteDnsSmartScanner.RegionalFirewallType.IRANCELL_FF -> "162.159.198.1:443"
+                WhiteDnsSmartScanner.RegionalFirewallType.FIXED_MULTI_PORT -> "162.159.198.1:443"
+            }
+            val recMode = if (verdict.type == WhiteDnsSmartScanner.RegionalFirewallType.MCI_IPV6) {
+                AetherMode.WireGuard
+            } else {
+                AetherMode.MasqueHttp2
+            }
+            val recIpScan = if (verdict.type == WhiteDnsSmartScanner.RegionalFirewallType.MCI_IPV6) "v6" else "both"
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(title)
                 .setMessage(detail)
@@ -12448,14 +12459,13 @@ class MainActivity : Activity() {
                     if (isFarsi) "🚀 اعمال تنظیم بهینه روی Aether" else "🚀 Apply Optimal Aether Config",
                 ) { _, _ ->
                     val cur = aetherPreferenceStore.read()
-                    val recMode = if (verdict.recommendedAetherMode == "wireguard") AetherMode.WireGuard else AetherMode.MasqueHttp2
                     val updated = cur.copy(
                         enabled = true,
                         mode = recMode,
-                        ipScan = verdict.recommendedIpScan,
-                        endpoint = verdict.recommendedEndpoint,
+                        ipScan = recIpScan,
+                        endpoint = recEndpoint,
                         endpointScannedAt = System.currentTimeMillis(),
-                        profileName = when (verdict.detectedType) {
+                        profileName = when (verdict.type) {
                             WhiteDnsSmartScanner.RegionalFirewallType.MCI_IPV6 -> "MCI-IPv6-Auto"
                             WhiteDnsSmartScanner.RegionalFirewallType.IRANCELL_FF -> "Irancell-FF-Auto"
                             WhiteDnsSmartScanner.RegionalFirewallType.FIXED_MULTI_PORT -> "Fixed-ISP-Auto"
@@ -12466,8 +12476,8 @@ class MainActivity : Activity() {
                     renderAdvancedControls()
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ تنظیم بهینه «${updated.profileName}» (${verdict.recommendedEndpoint}) ذخیره و فعال شد"
-                        else "✅ Applied optimal profile '${updated.profileName}' (${verdict.recommendedEndpoint})",
+                        if (isFarsi) "✅ تنظیم بهینه «${updated.profileName}» ($recEndpoint) ذخیره و فعال شد"
+                        else "✅ Applied optimal profile '${updated.profileName}' ($recEndpoint)",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -12488,14 +12498,20 @@ class MainActivity : Activity() {
             val res = withContext(Dispatchers.IO) {
                 WhiteDnsSmartScanner.autoDetectBestWhiteDnsProfile()
             }
+            val bundle = WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
+                resolverIp = res.resolver.primaryIp,
+                transport = res.transport,
+                recordMode = res.recordMode,
+                preset = res.preset,
+            )
             val msg = if (isFarsi) {
                 "${res.summaryFa}\n\n" +
-                    "🔗 لینک CottenMax پیشنهادی:\n${res.bundle.cottenMaxUri}\n\n" +
-                    "🔗 لینک StormDNS پیشنهادی:\n${res.bundle.stormDnsUri}"
+                    "🔗 لینک CottenMax پیشنهادی:\n${bundle.cottenMaxUri}\n\n" +
+                    "🔗 لینک StormDNS پیشنهادی:\n${bundle.stormDnsUri}"
             } else {
                 "${res.summaryEn}\n\n" +
-                    "🔗 Recommended CottenMax URI:\n${res.bundle.cottenMaxUri}\n\n" +
-                    "🔗 Recommended StormDNS URI:\n${res.bundle.stormDnsUri}"
+                    "🔗 Recommended CottenMax URI:\n${bundle.cottenMaxUri}\n\n" +
+                    "🔗 Recommended StormDNS URI:\n${bundle.stormDnsUri}"
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
@@ -12506,10 +12522,10 @@ class MainActivity : Activity() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(if (isFarsi) "📋 کپی بسته تانل" else "📋 Copy Tunnel Bundle") { _, _ ->
                     val text = buildString {
-                        appendLine(res.bundle.cottenMaxUri)
-                        appendLine(res.bundle.stormDnsUri)
-                        appendLine(res.bundle.soarUri)
-                        append(res.bundle.dnsttUdpBridges.first())
+                        appendLine(bundle.cottenMaxUri)
+                        appendLine(bundle.stormDnsUri)
+                        appendLine(bundle.soarUri)
+                        append(bundle.dnsttUdpBridges.first())
                     }
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("whitedns-autotune", text))
@@ -12520,7 +12536,7 @@ class MainActivity : Activity() {
                     ).show()
                 }
                 .setPositiveButton(if (isFarsi) "✅ اعمال ریزولور روی DNS اپ" else "✅ Apply Resolver to App DNS") { _, _ ->
-                    val r = res.resolverEntry
+                    val r = res.resolver
                     if (r.dotEndpoint.isNotEmpty()) {
                         runCatching { dnsPrivacyPreferenceStore.saveDotEndpoint(r.dotEndpoint) }
                         dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoT)
