@@ -2388,8 +2388,9 @@ function renderSocks(){
     var hp=el.replace(SOCKS_RE,'').split('@').pop();
     var ci=hp.lastIndexOf(':');var addr=ci>0?hp.slice(0,ci):hp;var portNum=ci>0?parseInt(hp.slice(ci+1),10):1080;if(!(portNum>0))portNum=1080;
     var out=$('#skOut');if(out){out.style.display='block';out.textContent=t('sk_testing');}
-    api('/api/ip-test',{method:'POST',body:{tests:[{addr:addr,port:portNum,kind:'proxyip'}]}}).then(function(j){
-      if(out)out.textContent=JSON.stringify((j&&j.results)||j);}).catch(function(e){if(out)out.textContent=String(e);});});});
+    api('/api/ip-test',{method:'POST',body:{tests:[{addr:el,port:portNum,kind:'socks',key:el}]}}).then(function(j){
+      var r=j&&j.results&&(j.results[el]||j.results[addr]);
+      if(out)out.textContent=r?(r.ok?('✅ سالم · '+r.ms+'ms · '+maskCreds(el)):('✗ خطا: '+(r.error||'unreachable'))):JSON.stringify((j&&j.results)||j);}).catch(function(e){if(out)out.textContent=String(e);});});});
 }
 var SOCKS_FULL=new RegExp('^socks5://[A-Za-z0-9._@:-]+(:\d{1,5})?$','i');
 function addSock(){
@@ -2406,15 +2407,15 @@ function addSock(){
 [].forEach.call(document.querySelectorAll('.addrtabs button'),function(b){b.addEventListener('click',function(){setAddrTab(b.getAttribute('data-atab-go'));});});
 if($('#skAdd'))$('#skAdd').addEventListener('click',addSock);
 if($('#skLiveFetch'))$('#skLiveFetch').addEventListener('click',function(){
-  var out=$('#skOut');if(out){out.style.display='block';out.textContent='⏳ در حال واکشی و تست زنده پراکسی‌های ساکس۵…';}
+  var out=$('#skOut');if(out){out.style.display='block';out.textContent='⏳ در حال واکشی و تست هندشیک RFC 1928 ساکس۵…';}
   var seeds=['104.219.236.127:1080','110.235.247.248:1080','124.248.191.117:1080','174.138.61.184:1080','185.194.217.97:1080','194.163.182.6:1080','202.62.49.65:1080','31.211.142.115:8192','85.143.254.38:1080','212.33.248.45:1080','77.50.61.182:1080','195.98.82.63:1080'];
   fetch('https://cdn.jsdelivr.net/gh/vakhov/fresh-proxy-list@master/socks5.txt').then(function(r){return r.ok?r.text():'';}).catch(function(){return '';}).then(function(txt){
     var raw=(txt?txt.split(/\s+/):[]).concat(seeds).filter(function(x){return /^\d+\.\d+\.\d+\.\d+:\d{1,5}$/.test(x);}).slice(0,12);
-    var tests=raw.map(function(hp){var p=hp.split(':');return {addr:p[0],port:parseInt(p[1],10),kind:'proxyip'};});
+    var tests=raw.map(function(hp){var p=hp.split(':');var u='socks5://'+hp;return {addr:u,port:parseInt(p[1],10),kind:'socks',key:u};});
     return api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){
-      var res=(j&&j.results)||[];
-      var okList=res.filter(function(r){return r&&r.ok&&r.addr&&r.port;}).map(function(r){return 'socks5://'+r.addr+':'+r.port;});
-      if(out)out.textContent=okList.length?('✅ ساکس۵های سالم:\n'+okList.join('\n')):'⚠️ در این نوبت ساکس۵ باز یافت نشد؛ از بخش اختصاصی ساکس۵ در اپ اندروید استفاده کنید.';
+      var res=(j&&j.results)||{};
+      var okList=Object.keys(res).filter(function(k){return res[k]&&res[k].ok;}).map(function(k){return SOCKS_RE.test(k)?k:'socks5://'+k;});
+      if(out)out.textContent=okList.length?('✅ ساکس۵های سالم (RFC 1928):\n'+okList.join('\n')):'⚠️ در این نوبت ساکس۵ باز یافت نشد؛ از بخش اختصاصی ساکس۵ در اپ اندروید استفاده کنید.';
       if(okList.length){saveSocks(socksOf().concat(okList));}
     });
   }).catch(function(e){if(out)out.textContent=String(e);});
