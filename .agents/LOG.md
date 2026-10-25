@@ -8,4 +8,4 @@
   - Diagnosed `Screenshot_20261022_142725_PattNG (F-Droid).jpg` (`WireGuard tunnel ended: other: the exit location could not be read, so the policy cannot be honoured; reconnecting`): `--exit-loc !IR` runs `exitloc::settle` on the raw WARP tunnel before SOCKS5 / Psiphon. Updated `AetherSelection.toAetherUri()` and `fromAetherUri()` to match `patterniha/PattNG` (`AetherFmt.kt`) without emitting `exit_loc`.
   - Added `peerFallback = true` in `AetherRuntimeConfig.toNativeJson()`, automatic fallback from `ip=v6`/pinned peer to `ip=both` auto-discovery in `AetherSession` & `AetherProxyCarrier`, and verified Psiphon bootstrap server list staging (`app/src/main/assets/psiphon_server_entries.txt`).
 - **Scribe**:
-  - Imported all 13 `.SKILL.md` files from Google Drive folder `1Ib_oKMGA8a9M2Z5rg8c6-O6HyE8ml5rQ` into `.agents/skills/`.
+  - Imported all 14 `.SKILL.md` files (including `14-html-viewer-app-testing.SKILL.md`) from Google Drive folder `1Ib_oKMGA8a9M2Z5rg8c6-O6HyE8ml5rQ` into `.agents/skills/`.
