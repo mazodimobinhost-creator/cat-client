@@ -1,13 +1,11 @@
-# Android failure report (4fb330b)
+# Android failure report (6a808a8)
 
 
 ## files with compile errors
-     23 app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt
-      8 app/src/main/java/com/cat/client/MainActivity.kt
-      3 app/src/main/java/com/cat/client/AppAccent.kt
-      1 app/src/main/java/com/cat/client/SmartRouteScout.kt
-      1 app/src/main/java/com/cat/client/IpGeolocation.kt
-      1 app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt
+     24 app/src/main/java/com/cat/client/ZedMotion.kt
+      6 app/src/main/java/com/cat/client/MainActivity.kt
+      2 app/src/main/java/com/cat/client/ZedBlobView.kt
+      2 app/src/main/java/com/cat/client/SpeedTestPage.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -42,7 +40,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3495) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3723) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -60,7 +58,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3510) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3738) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -70,7 +68,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3529) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3757) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -103,7 +101,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3541) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3769) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -131,8 +129,6 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
-Downloading https://services.gradle.org/distributions/gradle-8.9-bin.zip
-............10%.............20%.............30%.............40%.............50%.............60%.............70%.............80%.............90%.............100%
 
 Welcome to Gradle 8.9!
 
@@ -176,65 +172,47 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:12:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
-- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
-- To keep applying to the value parameter only, use the '@param:' annotation target.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3555:64 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3555:70 Unresolved reference 'setThemeColors'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:15073:38 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17784:74 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:18388:69 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:20655:102 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SpeedTestPage.kt:176:39 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SpeedTestPage.kt:178:41 Unresolved reference 'ZED_CYAN'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedBlobView.kt:16:23 Unresolved reference 'core'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedBlobView.kt:49:20 Unresolved reference 'CatClientHeadlineTypeface'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:38:25 Unresolved reference 'ZedDecorDrawable'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:36 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:60 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:86 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:36 Unresolved reference 'ZED_DEEP_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:65 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:89 Unresolved reference 'ZED_CYAN'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:36 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:62 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:86 Unresolved reference 'ZED_CYAN'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:36 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:60 Unresolved reference 'ZED_CYAN'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:82 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:36 Unresolved reference 'ZED_DEEP_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:65 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:91 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:171:39 Unresolved reference 'ZED_DEEP_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:49 Unresolved reference 'ZED_DEEP_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:78 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:102 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:44 Unresolved reference 'ZED_VIOLET'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:68 Unresolved reference 'ZED_HOT_PINK'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:94 Unresolved reference 'ZED_LIME'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:116 Unresolved reference 'ZED_CYAN'.
 
-See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:80:50 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
-- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
-- To keep applying to the value parameter only, use the '@param:' annotation target.
-
-See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:108:49 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
-- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
-- To keep applying to the value parameter only, use the '@param:' annotation target.
-
-See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt:145:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/IpGeolocation.kt:156:51 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:608:13 'fun setSelectedTabIndicatorHeight(p0: Int): Unit' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2044:9 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2046:46 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3098:58 'static field TRIM_MEMORY_RUNNING_LOW: Int' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3107:26 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3107:43 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:20750:12 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
-w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SmartRouteScout.kt:61:35 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
-
-> Task :app:compileDebugJavaWithJavac
-> Task :app:bundleDebugClassesToCompileJar
-
-> Task :app:compileDebugUnitTestKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:59 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:59 Not enough information to infer type argument for 'R'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:68 Unresolved reference 'rawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:32:44 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:32:64 Unresolved reference 'rawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:34:52 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:35:52 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:41:61 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:42:62 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:43:60 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:44:61 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:45:61 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:51:58 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:52:59 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:53:60 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:54:58 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:55:58 Unresolved reference 'fromRawValue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:60:54 No parameter with name 'darkTheme' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:60:54 No value passed for parameter 'isNight'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:61:55 No parameter with name 'darkTheme' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:61:55 No value passed for parameter 'isNight'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:73:53 Unresolved reference 'backgroundTop'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:74:53 Unresolved reference 'backgroundBottom'.
+> Task :app:compileDebugKotlin FAILED
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugUnitTestKotlin'.
+Execution failed for task ':app:compileDebugKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -244,5 +222,5 @@ Execution failed for task ':app:compileDebugUnitTestKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 33s
-19 actionable tasks: 19 executed
+BUILD FAILED in 1m 47s
+16 actionable tasks: 16 executed
