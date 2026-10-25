@@ -13807,7 +13807,531 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "🌐 مرکز همهٔ VPNهای ۲۰۲۶ (Outline · آمنزیا/پروتون · سپر بانک · IPv6)"
+                } else {
+                    "🌐 All-in-One 2026 VPN Hub (Outline · Amnezia/Proton · Bank Shield · IPv6)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(PURPLE, if (palette.isDark) 44 else 28))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(PURPLE)
+                setTextColor(PURPLE)
+                setOnClickListener { showAllVpns2026ComparisonAndMlmHubDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         return card
+    }
+
+    /**
+     * Interactive 2026 Multi-VPN Hub & Comparison Dialog:
+     * Explains what every major VPN (`MLM v1.2.40–v1.2.42`, `Firefox FENIX`, `Outline`,
+     * `AmneziaWG 2.0 / Proton`, `SlipNet / MasterDNS`, `WhiteDNS`, `Defyx / Oblivion`,
+     * and `3-Layer Smart Iran Banking Shield`) does in plain language and launches each engine directly.
+     */
+    private fun showAllVpns2026ComparisonAndMlmHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val catalog = MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG
+        val items = catalog.map { entry ->
+            if (isFarsi) {
+                "${entry.titleFa}\n   💡 ${entry.howItWorksFa}\n   ${entry.statusInIranFa}"
+            } else {
+                "${entry.titleEn}\n   💡 ${entry.howItWorksEn}\n   ${entry.statusInIranEn}"
+            }
+        }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🌐 مرکز جامع VPNهای ۲۰۲۶ و قابلیت‌های جدید MLM (هر کدوم رو بزنی همون اجرا میشه)"
+                else "🌐 2026 Multi-VPN Hub & MLM Capabilities (Tap Any Engine to Launch)",
+            )
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showFirefoxVpnFenixHubDialog()
+                    1 -> showOutlineFreeHubDialog()
+                    2 -> showAmneziaAndProtonWgHubDialog()
+                    3 -> runCloudflareZeroByteAndIpv6HealerDialog()
+                    4 -> {
+                        showAetherExitLocationPickerDialog {
+                            refreshEngineSummary()
+                            renderAdvancedControls()
+                            runQuickNetworkScanAndAutoBuildDialog()
+                        }
+                    }
+                    5 -> runSlipNetSixPointScoreDialog()
+                    6 -> runSmartIranBankingShieldDialog()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "🏦 سپر همراه بانک‌ها" else "🏦 Iran Bank Shield") { _, _ ->
+                runSmartIranBankingShieldDialog()
+            }
+            .setPositiveButton(if (isFarsi) "🔑 سرورهای رایگان Outline" else "🔑 Free Outline Hub") { _, _ ->
+                showOutlineFreeHubDialog()
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Outline & Free Shadowsocks Hub (`MLM v1.2.41+` equivalent):
+     * - Fetches live `ss://` & `ssconf://` keys from 6 public repositories (with `jsDelivr` mirror),
+     * - Probes TCP/handshake latency on the user's current ISP line,
+     * - Supports pasting custom `ss://` or dynamic `ssconf://` Outline keys,
+     * - Connects in 1 tap to the fastest verified server.
+     */
+    private fun showOutlineFreeHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val options = if (isFarsi) {
+            arrayOf(
+                "🚀 دریافت خودکار سرورهای رایگان Outline از ۶ مخزن + تست و اتصال به سریع‌ترین",
+                "🔑 چسباندن کلید شخصی Outline (`ss://` یا کلید پویای `ssconf://`) و اتصال فوری",
+                "⚡ اتصال فوری با ۴ سرور آمادهٔ داخلی Outline (بدون نیاز به دانلود فهرست)",
+            )
+        } else {
+            arrayOf(
+                "🚀 Fetch Free Outline Servers from 6 Live Feeds + Scan & Connect Fastest",
+                "🔑 Paste Personal Outline Key (`ss://` or Dynamic `ssconf://`) & Connect",
+                "⚡ Instant Connect with Built-in Emergency Outline Servers",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🔑 مرکز کلیدهای رایگان Outline و Shadowsocks (۶ مخزن زنده + آینه jsDelivr)"
+                else "🔑 Outline & Shadowsocks Free Hub (6 Live Feeds + jsDelivr Mirror)",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "🔍 در حال دریافت کلیدهای رایگان Outline از ۶ مخزن (با آینه jsDelivr) و تست روی خط شما…"
+                            else "🔍 Fetching Outline keys from 6 feeds & testing on your line…",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        activityScope.launch {
+                            val verified = withContext(Dispatchers.IO) {
+                                MlmAndNextGenVpnHub.fetchAndScanOutlineKeys(maxCandidates = 42, timeoutMs = 1000)
+                            }
+                            val uris = if (verified.isNotEmpty()) {
+                                verified.take(15).map { it.uri }
+                            } else {
+                                MlmAndNextGenVpnHub.BUILTIN_OUTLINE_SS_KEYS
+                            }
+                            val subTitle = "🔑 سرورهای رایگان Outline (تست‌شده روی خط شما)"
+                            val raw = uris.joinToString("\n")
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                            val saved = withContext(Dispatchers.IO) {
+                                if (existing != null) {
+                                    userSubscriptionManager.update(existing.id, subTitle, raw)
+                                } else {
+                                    userSubscriptionManager.add(subTitle, raw)
+                                }
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            val curAether = aetherPreferenceStore.read()
+                            if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                            orbotEnginePreferenceStore.setEnabled(false)
+                            renderSubscriptions()
+                            onSubscriptionSelected()
+                            renderAdvancedControls()
+                            val fastestNote = verified.firstOrNull()?.let { "${it.host}:${it.port} (${it.rttMs} ms)" } ?: "Built-in"
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ ${uris.size} سرور سالم Outline آماده شد (سریع‌ترین: $fastestNote) — در حال اتصال…"
+                                else "✅ ${uris.size} healthy Outline servers ready (fastest: $fastestNote) — connecting…",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            openScreen(SCREEN_HOME)
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            } else {
+                                beginConnectFlow(Actions.CONNECT)
+                            }
+                        }
+                    }
+                    1 -> {
+                        val input = EditText(this).apply {
+                            hint = "ss://... or ssconf://..."
+                            textSize = 13f
+                            minLines = 3
+                        }
+                        val box = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(20), dp(12), dp(20), dp(4))
+                            addView(input)
+                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "🔑 ورود کلید `ss://` یا `ssconf://` اوتلاین" else "🔑 Import Outline `ss://` or `ssconf://` Key")
+                            .setView(box)
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(if (isFarsi) "🚀 افزودن و اتصال فوری" else "🚀 Add & Connect Now") { _, _ ->
+                                val rawKey = input.text?.toString()?.trim().orEmpty()
+                                if (rawKey.isEmpty()) return@setPositiveButton
+                                activityScope.launch {
+                                    val resolved = withContext(Dispatchers.IO) {
+                                        MlmAndNextGenVpnHub.resolveSsconfOrSsKey(rawKey)
+                                    }
+                                    if (resolved == null) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            if (isFarsi) "فرمت کلید Outline معتبر نبود (`ss://` یا `ssconf://`)"
+                                            else "Invalid Outline key (`ss://` or `ssconf://`)",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                        return@launch
+                                    }
+                                    val subTitle = "🔑 کلید شخصی Outline VPN"
+                                    val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                    val saved = withContext(Dispatchers.IO) {
+                                        if (existing != null) {
+                                            userSubscriptionManager.update(existing.id, subTitle, resolved)
+                                        } else {
+                                            userSubscriptionManager.add(subTitle, resolved)
+                                        }
+                                    }
+                                    userSubscriptionManager.select(saved.id)
+                                    val curAether = aetherPreferenceStore.read()
+                                    if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                                    orbotEnginePreferenceStore.setEnabled(false)
+                                    renderSubscriptions()
+                                    onSubscriptionSelected()
+                                    renderAdvancedControls()
+                                    openScreen(SCREEN_HOME)
+                                    if (currentVpnServiceState == VpnState.Started) {
+                                        reconnectForConnectionOptionChange()
+                                    } else {
+                                        beginConnectFlow(Actions.CONNECT)
+                                    }
+                                }
+                            }
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    2 -> {
+                        activityScope.launch {
+                            val raw = MlmAndNextGenVpnHub.BUILTIN_OUTLINE_SS_KEYS.joinToString("\n")
+                            val subTitle = "🔑 سرورهای آمادهٔ Outline VPN"
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                            val saved = withContext(Dispatchers.IO) {
+                                if (existing != null) {
+                                    userSubscriptionManager.update(existing.id, subTitle, raw)
+                                } else {
+                                    userSubscriptionManager.add(subTitle, raw)
+                                }
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            val curAether = aetherPreferenceStore.read()
+                            if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                            orbotEnginePreferenceStore.setEnabled(false)
+                            renderSubscriptions()
+                            onSubscriptionSelected()
+                            renderAdvancedControls()
+                            openScreen(SCREEN_HOME)
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            } else {
+                                beginConnectFlow(Actions.CONNECT)
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * AmneziaWG 2.0, Proton VPN WireGuard & Hysteria2 Hub (`MLM v1.2.39–v1.2.41` equivalent):
+     * - Connects with anti-DPI AmneziaWG 2.0 (`Jc=5, Jmin=50, Jmax=1000, S1, S2` + UDP noise) & Hysteria2,
+     * - Converts any standard Proton VPN / WireGuard `.conf` file into an anti-DPI `awg://` profile.
+     */
+    private fun showAmneziaAndProtonWgHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val options = if (isFarsi) {
+            arrayOf(
+                "🚀 اسکن و اتصال فوری به سرورهای رایگان AmneziaWG 2.0 و Hysteria2",
+                "📄 تبدیل فایل `.conf` پروتون (Proton VPN) یا وایرگارد به AmneziaWG ضد فیلتر و اتصال",
+                "🌐 باز کردن سایت رسمی Proton VPN برای دریافت کانفیگ رایگان WireGuard",
+            )
+        } else {
+            arrayOf(
+                "🚀 Scan & Connect Free AmneziaWG 2.0 & Hysteria2 Servers",
+                "📄 Convert Proton VPN / WireGuard `.conf` into Anti-DPI AmneziaWG & Connect",
+                "🌐 Open Official Proton VPN Account Page (Free WireGuard Configs)",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🛡️ مرکز AmneziaWG 2.0، پروتون رایگان و Hysteria2"
+                else "🛡️ AmneziaWG 2.0, Free Proton WireGuard & Hysteria2 Hub",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "🛡️ در حال دریافت و تست سرورهای AmneziaWG 2.0 و Hysteria2…"
+                            else "🛡️ Fetching & probing AmneziaWG 2.0 and Hysteria2 servers…",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        activityScope.launch {
+                            val nodes = withContext(Dispatchers.IO) {
+                                MlmAndNextGenVpnHub.fetchAndScanAmneziaAndProtonConfigs()
+                            }
+                            val uris = if (nodes.isNotEmpty()) {
+                                nodes.map { it.uri }
+                            } else {
+                                MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS
+                            }
+                            val subTitle = "🛡️ سرورهای AmneziaWG 2.0 و Hysteria2"
+                            val raw = uris.joinToString("\n")
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                            val saved = withContext(Dispatchers.IO) {
+                                if (existing != null) {
+                                    userSubscriptionManager.update(existing.id, subTitle, raw)
+                                } else {
+                                    userSubscriptionManager.add(subTitle, raw)
+                                }
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            val curAether = aetherPreferenceStore.read()
+                            if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                            orbotEnginePreferenceStore.setEnabled(false)
+                            renderSubscriptions()
+                            onSubscriptionSelected()
+                            renderAdvancedControls()
+                            openScreen(SCREEN_HOME)
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            } else {
+                                beginConnectFlow(Actions.CONNECT)
+                            }
+                        }
+                    }
+                    1 -> {
+                        val confInput = EditText(this).apply {
+                            hint = "[Interface]\nPrivateKey = ...\nAddress = 10.2.0.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = ..."
+                            textSize = 12f
+                            minLines = 6
+                        }
+                        val box = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(20), dp(12), dp(20), dp(4))
+                            addView(confInput)
+                        }
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(
+                                if (isFarsi) "📄 چسباندن محتوای فایل `.conf` پروتون یا وایرگارد"
+                                else "📄 Paste Proton VPN / WireGuard `.conf` Content",
+                            )
+                            .setView(box)
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(
+                                if (isFarsi) "🛡️ تبدیل به AmneziaWG ضد فیلتر و اتصال"
+                                else "🛡️ Convert to Anti-DPI AmneziaWG & Connect",
+                            ) { _, _ ->
+                                val text = confInput.text?.toString().orEmpty()
+                                val awgUri = MlmAndNextGenVpnHub.convertWgConfToAwgUri(text, "Proton-AWG")
+                                if (awgUri == null) {
+                                    Toast.makeText(
+                                        this,
+                                        if (isFarsi) "فایل `.conf` ناقص است (PrivateKey، PublicKey و Endpoint لازم است)"
+                                        else "Incomplete `.conf` (PrivateKey, PublicKey & Endpoint required)",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                    return@setPositiveButton
+                                }
+                                activityScope.launch {
+                                    val subTitle = "🛡️ پروتون / وایرگارد ضد فیلتر (AmneziaWG 2.0)"
+                                    val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                    val saved = withContext(Dispatchers.IO) {
+                                        if (existing != null) {
+                                            userSubscriptionManager.update(existing.id, subTitle, awgUri)
+                                        } else {
+                                            userSubscriptionManager.add(subTitle, awgUri)
+                                        }
+                                    }
+                                    userSubscriptionManager.select(saved.id)
+                                    val curAether = aetherPreferenceStore.read()
+                                    if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                                    orbotEnginePreferenceStore.setEnabled(false)
+                                    renderSubscriptions()
+                                    onSubscriptionSelected()
+                                    renderAdvancedControls()
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        if (isFarsi) "✅ کانفیگ پروتون/وایرگارد با هدر ضد فیلتر AmneziaWG 2.0 آماده شد — در حال اتصال…"
+                                        else "✅ Converted to Anti-DPI AmneziaWG 2.0 — connecting…",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                    openScreen(SCREEN_HOME)
+                                    if (currentVpnServiceState == VpnState.Started) {
+                                        reconnectForConnectionOptionChange()
+                                    } else {
+                                        beginConnectFlow(Actions.CONNECT)
+                                    }
+                                }
+                            }
+                            .create()
+                            .showCatClientDialog()
+                    }
+                    2 -> openExternalUrl("https://account.protonvpn.com/downloads#wireguard-configuration")
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Diagnoses the Oct 2026 Cloudflare IPv4 Zero-Byte filter, scans Cloudflare IPv6 edges & 5 MASQUE ports,
+     * and self-heals the user's real config (or switches Aether onto the open MASQUE port).
+     */
+    private fun runCloudflareZeroByteAndIpv6HealerDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🩺 در حال تست فیلترینگ صفر بایت IPv4 کلودفلر، ۱۱ لبهٔ IPv6 و ۵ پورت MASQUE…"
+            else "🩺 Probing Cloudflare IPv4 0-byte filter, 11 IPv6 edges & 5 MASQUE ports…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val diagnosis = withContext(Dispatchers.IO) {
+                MlmAndNextGenVpnHub.diagnoseCloudflareIpv4ZeroByteAndMasquePorts(timeoutMs = 1100)
+            }
+            val realTemplate = resolveUserRealConfigTemplate()
+            val body = buildString {
+                appendLine(if (isFarsi) diagnosis.summaryFa else diagnosis.summaryEn)
+                appendLine()
+                if (realTemplate != null) {
+                    appendLine(
+                        if (isFarsi) "🎯 کانفیگ واقعی شما (`${realTemplate.hostHeader}:${realTemplate.remotePort}`) شناسایی شد و آمادهٔ خودترمیمی با IPv6 کلودفلر + روش F&F + برش SNI محلی است."
+                        else "🎯 Your real config (`${realTemplate.hostHeader}:${realTemplate.remotePort}`) was found and is ready for IPv6 + F&F + Local SNI Split healing.",
+                    )
+                } else {
+                    appendLine(
+                        if (isFarsi) "💡 اشتراک شخصی یافت نشد؛ با زدن دکمهٔ زیر، موتور Aether روی بهترین پورت باز MASQUE (`${diagnosis.bestMasqueEndpoint}`) متصل می‌شود."
+                        else "💡 No personal subscription found; tapping Connect will attach Aether to the best open MASQUE port (`${diagnosis.bestMasqueEndpoint}`).",
+                    )
+                }
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🔄 خودترمیمی کلودفلر IPv4 به IPv6 + روش F&F و ۵ پورت MASQUE"
+                    else "🔄 Cloudflare IPv4->IPv6 Self-Healer + F&F & 5-Port MASQUE",
+                )
+                .setMessage(body.trim())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "🚀 اعمال خودترمیمی و اتصال فوری"
+                    else "🚀 Apply Self-Heal & Connect Now",
+                ) { _, _ ->
+                    if (realTemplate != null) {
+                        activityScope.launch {
+                            val healedLinks = withContext(Dispatchers.IO) {
+                                MlmAndNextGenVpnHub.buildIpv6AndFnFHealedConfigs(realTemplate, diagnosis)
+                            }
+                            val subTitle = "🔄 خودترمیم IPv6 + F&F (${realTemplate.remark.take(18)})"
+                            val raw = healedLinks.joinToString("\n")
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                            val saved = withContext(Dispatchers.IO) {
+                                if (existing != null) {
+                                    userSubscriptionManager.update(existing.id, subTitle, raw)
+                                } else {
+                                    userSubscriptionManager.add(subTitle, raw)
+                                }
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            val curAether = aetherPreferenceStore.read()
+                            if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                            orbotEnginePreferenceStore.setEnabled(false)
+                            renderSubscriptions()
+                            onSubscriptionSelected()
+                            renderAdvancedControls()
+                            openScreen(SCREEN_HOME)
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            } else {
+                                beginConnectFlow(Actions.CONNECT)
+                            }
+                        }
+                    } else {
+                        val cur = aetherPreferenceStore.read()
+                        aetherPreferenceStore.save(
+                            cur.copy(
+                                enabled = true,
+                                mode = AetherMode.MasqueHttp2,
+                                endpoint = diagnosis.bestMasqueEndpoint,
+                                echEnabled = true,
+                                endpointScannedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                        renderAdvancedControls()
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    /**
+     * 1-Tap 3-Layer Smart Iran Banking & Domestic App Shield (`MLM v1.2.41` equivalent):
+     * Detects all installed Iranian banking, payment, taxi, messenger, and `.ir` apps and sets
+     * `SplitTunnelMode.BypassSelected` so Iranian banks never complain that a VPN is active.
+     */
+    private fun runSmartIranBankingShieldDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            val (totalCount, detectedApps) = withContext(Dispatchers.IO) {
+                MlmAndNextGenVpnHub.enableSmartIranBankingAppShield(this@MainActivity)
+            }
+            val appNamesPreview = detectedApps.take(12).joinToString("، ") { it.label }
+                .ifBlank { if (isFarsi) "بانک‌ها، اسنپ، تپسی، دیوار، بله، روبیکا، بازار، مایکت" else "Iranian banking & domestic apps" }
+            val msg = if (isFarsi) {
+                "✅ سپر هوشمند برنامه‌های بانکی و ایرانی فعال شد!\n\n" +
+                    "• تعداد کل بسته‌های مستثناشده از تونل VPN: $totalCount برنامه\n" +
+                    "• برنامه‌های شناسایی‌شده روی گوشی شما: $appNamesPreview\n\n" +
+                    "از این لحظه وقتی VPN روشن است، همراه بانک‌ها، اسنپ، دیوار، بله، روبیکا، بازار و مایکت کاملاً مستقیم و با اینترنت ایران کار می‌کنند و هرگز خطای «فیلترشکن خود را خاموش کنید» نمی‌دهند."
+            } else {
+                "✅ 3-Layer Smart Iran Banking & Domestic App Shield enabled!\n\n" +
+                    "• Total excluded packages: $totalCount apps\n" +
+                    "• Detected on your device: $appNamesPreview\n\n" +
+                    "Your Iranian banking, payment, and domestic apps now bypass the VPN tunnel completely."
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🏦 سپر هوشمند همراه بانک‌ها و برنامه‌های ایرانی"
+                    else "🏦 Smart Iran Banking & Domestic App Shield",
+                )
+                .setMessage(msg)
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+                .showCatClientDialog()
+            if (currentVpnServiceState == VpnState.Started) {
+                reconnectForConnectionOptionChange()
+            }
+        }
     }
 
     /**

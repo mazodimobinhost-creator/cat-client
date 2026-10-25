@@ -43,7 +43,7 @@ object SubConvConverter {
                     "hysteria2", "hy2" -> parseHysteria2(line, names)
                     "socks", "socks5" -> parseSocks(line, names)
                     "ss" -> parseShadowsocks(line, names)
-                    "wireguard" -> parseWireGuard(line, names)
+                    "wireguard", "wg", "awg", "amneziawg" -> parseWireGuard(line, names)
                     "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
                     else -> null
@@ -451,15 +451,25 @@ object SubConvConverter {
                     ?.toIntOrNull()?.takeIf { it > 0 }?.let { put("persistent-keepalive", it) }
                 (query["presharedkey"] ?: query["pre-shared-key"])
                     ?.takeIf(String::isNotBlank)?.let { put("pre-shared-key", it) }
-                wireGuardAmneziaOptions(query)?.let { put("amnezia-wg-option", it) }
-                wireGuardDpiOptions(query)?.let { put("wireguard-dpi-option", it) }
+                val isAmneziaScheme = line.startsWith("awg://", ignoreCase = true) ||
+                    line.startsWith("amneziawg://", ignoreCase = true)
+                wireGuardAmneziaOptions(query, isAmneziaScheme)?.let { put("amnezia-wg-option", it) }
+                wireGuardDpiOptions(query, isAmneziaScheme)?.let { put("wireguard-dpi-option", it) }
                 wireGuardIpStackOptions(query)?.let { put("ip-stack", it) }
             }
     }
 
-    private fun wireGuardAmneziaOptions(query: Map<String, String>): JSONObject? = JSONObject().apply {
-        listOf("version", "jc", "jmin", "jmax").forEach { key ->
+    private fun wireGuardAmneziaOptions(
+        query: Map<String, String>,
+        defaultAmnezia: Boolean = false,
+    ): JSONObject? = JSONObject().apply {
+        listOf("version", "jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4").forEach { key ->
             query[key]?.toIntOrNull()?.let { put(key, it) }
+        }
+        if (defaultAmnezia && !has("jc")) {
+            put("jc", 5)
+            put("jmin", 50)
+            put("jmax", 1000)
         }
         listOf(
             "header-protection-key",
@@ -469,6 +479,11 @@ object SubConvConverter {
             "reject-after-time",
             "keepalive-timeout",
             "max-handshake-attempts",
+            "i1",
+            "i2",
+            "i3",
+            "i4",
+            "i5",
         ).forEach { key ->
             query[key]?.takeIf(String::isNotBlank)?.let { put(key, it) }
         }
@@ -479,17 +494,23 @@ object SubConvConverter {
         }
     }.takeIf { it.length() > 0 }
 
-    private fun wireGuardDpiOptions(query: Map<String, String>): JSONObject? {
+    private fun wireGuardDpiOptions(
+        query: Map<String, String>,
+        defaultAmnezia: Boolean = false,
+    ): JSONObject? {
         val legacyNoiseEnabled = !query["wnoise"].equals("none", ignoreCase = true) &&
-            ("wnoisecount" in query || "wpayloadsize" in query)
+            ("wnoisecount" in query || "wpayloadsize" in query || defaultAmnezia)
         val payloadRange = query["wpayloadsize"]?.let(::integerRange)
         val explicitCount = query["fake-count"]?.toIntOrNull()?.takeIf { it in 1..20 }
         val count = explicitCount
             ?: query["wnoisecount"]?.let(::integerRange)?.first?.coerceAtMost(20)?.takeIf { it > 0 }
+            ?: 4.takeIf { defaultAmnezia }
         val minSize = query["fake-min-size"]?.toIntOrNull()?.takeIf { it in 1..1280 }
             ?: payloadRange?.first?.takeIf { legacyNoiseEnabled && it in 1..1280 }
+            ?: 40.takeIf { defaultAmnezia }
         val maxSize = query["fake-max-size"]?.toIntOrNull()?.takeIf { it in 1..1280 }
             ?: payloadRange?.second?.takeIf { legacyNoiseEnabled && it in 1..1280 }
+            ?: 120.takeIf { defaultAmnezia }
         val ttl = query["fake-ttl"]?.toIntOrNull()?.takeIf { it in 0..255 }
             ?: 3.takeIf { legacyNoiseEnabled }
         // ponytail: Mihomo has no noise header/delay fields; preserve its supported count/size/TTL subset.
