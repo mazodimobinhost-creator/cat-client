@@ -310,6 +310,7 @@ class MainActivity : Activity() {
     private lateinit var subscriptionsTabContent: View
     private lateinit var advancedTabContent: View
     private lateinit var cloudTabContent: View
+    private lateinit var aetherTabContent: View
     private var cloudDeploymentHistoryHost: LinearLayout? = null
 
     /* IP scanner tab (clean Cloudflare IPs with SNI + fronting) */
@@ -570,12 +571,14 @@ class MainActivity : Activity() {
         advancedTabContent = buildAdvancedScreen().apply { visibility = View.GONE }
         cloudTabContent = buildCloudScreen().apply { visibility = View.GONE }
         scannerTabContent = buildScannerScreen().apply { visibility = View.GONE }
+        aetherTabContent = buildAetherScreen().apply { visibility = View.GONE }
         val content = FrameLayout(this).apply {
             addView(vpnTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(subscriptionsTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(advancedTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(cloudTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(scannerTabContent, FrameLayout.LayoutParams(-1, -1))
+            addView(aetherTabContent, FrameLayout.LayoutParams(-1, -1))
         }
         shell.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -598,12 +601,13 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // ZedSecure-style floating capsule: four cells, the active one expands into a
+            // ZedSecure-style floating capsule: five cells, the active one expands into a
             // lime pill with icon + label, inactive cells show the icon only.
-            // Visual order: Home, Servers, Cloud (panel + IP scanner), Settings.
+            // Visual order: Home, Servers, Aether (Anti-Censorship), Cloud (panel + IP scanner), Settings.
             layoutDirection = View.LAYOUT_DIRECTION_LTR // Zed keeps the dock order fixed in RTL too
             addDockTab(R.string.dock_home, R.drawable.ic_vpn_tab, selected = true)
             addDockTab(R.string.dock_servers, R.drawable.ic_subscriptions_tab, selected = false)
+            addDockTab(R.string.tab_aether, R.drawable.ic_aether_tab, selected = false)
             addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
             addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
             post { renderDockSelection(DOCK_HOME) }
@@ -613,6 +617,7 @@ class MainActivity : Activity() {
                         when (tab.position) {
                             DOCK_HOME -> SCREEN_HOME
                             DOCK_SERVERS -> SCREEN_SERVERS
+                            DOCK_AETHER -> SCREEN_AETHER
                             DOCK_CLOUD -> if (cloudDockShowsScanner) SCREEN_SCANNER else SCREEN_CLOUD
                             DOCK_SETTINGS -> SCREEN_SETTINGS
                             else -> SCREEN_HOME
@@ -748,7 +753,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             background = dockPillBackground(selected)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
             addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
@@ -828,7 +833,7 @@ class MainActivity : Activity() {
                 tab.label.visibility = View.GONE
             }
             val vPad = if (dockExpanded) 10 else 7
-            tab.pill.setPadding(dp(12), dp(vPad), dp(12), dp(vPad))
+            tab.pill.setPadding(dp(10), dp(vPad), dp(10), dp(vPad))
         }
     }
 
@@ -841,6 +846,7 @@ class MainActivity : Activity() {
         val dockIndex = when (screen) {
             SCREEN_HOME -> DOCK_HOME
             SCREEN_SERVERS -> DOCK_SERVERS
+            SCREEN_AETHER -> DOCK_AETHER
             SCREEN_SETTINGS -> DOCK_SETTINGS
             else -> DOCK_CLOUD
         }
@@ -892,6 +898,7 @@ class MainActivity : Activity() {
         advancedTabContent.visibility = if (position == 2) View.VISIBLE else View.GONE
         cloudTabContent.visibility = if (position == 3) View.VISIBLE else View.GONE
         scannerTabContent.visibility = if (position == 4) View.VISIBLE else View.GONE
+        aetherTabContent.visibility = if (position == 5) View.VISIBLE else View.GONE
         if (position == 0) renderSubscriptions()
         if (position == 1) {
             renderConnectionSelection()
@@ -5841,10 +5848,6 @@ class MainActivity : Activity() {
             badge = updateSettingsBadge,
         )
         indexBody.addView(
-            buildAntiCensorshipEnginesCard(),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) },
-        )
-        indexBody.addView(
             categoriesPanel,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
         )
@@ -9997,9 +10000,6 @@ class MainActivity : Activity() {
         )
         body.addView(scannerLinkCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
-        // ---- 3 Anti-Censorship & Emergency Engines (Psiphon · Tor/Orbot/dnstt · WARP/Gool) ----
-        body.addView(buildAntiCensorshipEnginesCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-
         // ---- Collapsible Advanced Cloud Tools & Catalog ----
         val advancedCloudToolsHost = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -10186,6 +10186,124 @@ class MainActivity : Activity() {
         }
         body.addView(advancedCloudToggleBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
         body.addView(advancedCloudToolsHost, LinearLayout.LayoutParams(-1, -2))
+
+        scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
+        return scroll
+    }
+
+    private fun buildAetherScreen(): View {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setBackgroundColor(withAlpha(BACKGROUND, 0))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            val topInset = insets.getInsets(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
+            ).top
+            view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
+            insets
+        }
+        val body = MaxWidthLinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            maxWidthPx = dp(520)
+            setPadding(dp(24), dp(24), dp(24), dp(104))
+        }
+
+        body.addView(
+            TextView(this).apply {
+                text = if (isFarsi) "ضدسانسور و Aether" else "Aether & Anti-Censorship"
+                textSize = 28f
+                typeface = CatClientDisplayTypeface
+                setTextColor(TEXT_PRIMARY)
+                includeFontPadding = false
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        body.addView(
+            advancedSectionDetail(
+                if (isFarsi) {
+                    "بخش اختصاصی اتصال اضطراری و ضدسانسور بدون نیاز به سرور شخصی — وارپ/گول، سایفون ۲۹ کشور، تور/dnstt، متدهای WhiteDNS، مرکز ساکس۵ و ابزارهای آیفون."
+                } else {
+                    "Dedicated server-less & emergency connection hub — WARP/Gool, 29-country Psiphon, Tor/dnstt, WhiteDNS methods, SOCKS5 Live Hub & iOS tools."
+                },
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(14)
+            },
+        )
+
+        body.addView(buildAntiCensorshipEnginesCard(), LinearLayout.LayoutParams(-1, -2))
+
+        val quickHubsCard = advancedSettingsPanel().apply {
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = if (isFarsi) "🚀 دسترسی مستقیم به مراکز تخصصی" else "🚀 Direct Specialized Hubs"
+                    textSize = 15f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+            fun hubBtn(label: String, accent: Boolean, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
+                text = label
+                isAllCaps = false
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(46)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                if (accent) {
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(palette.onAccent)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 220))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 140))
+                    setTextColor(TEXT_PRIMARY)
+                }
+                setOnClickListener { onClick() }
+            }
+            addView(
+                hubBtn(
+                    if (isFarsi) "🍎 مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS)"
+                    else "🍎 iPhone & iPad (iOS) Connection Hub (CoreForge / .mobileconfig / Hotspot)",
+                    accent = true,
+                ) { showIphoneIosConnectionHubDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            )
+            addView(
+                hubBtn(
+                    if (isFarsi) "✨ تست باز بودن Gemini، AI Studio، ChatGPT و یوتیوب"
+                    else "✨ 1-Click Gemini, AI Studio, ChatGPT & YouTube Unblock Tester",
+                    accent = false,
+                ) { runAiAndGeminiUnblockTesterDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+            addView(
+                hubBtn(
+                    if (isFarsi) "🚨 تشخیص هوشمند اینترنت ملی در برابر خرابی کانفیگ"
+                    else "🚨 Smart Net Melli vs. Dead Config Detector",
+                    accent = false,
+                ) { runNetMelliDetectorDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+            addView(
+                hubBtn(
+                    if (isFarsi) "🛡️ ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink)"
+                    else "🛡️ 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink)",
+                    accent = false,
+                ) { showNineAntiFilterPresetsDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+        }
+        body.addView(quickHubsCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
         scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
         return scroll
@@ -21342,13 +21460,15 @@ class MainActivity : Activity() {
         // Dock cell indices (visual order) and content screen indices (fixed, used all over).
         const val DOCK_HOME = 0
         const val DOCK_SERVERS = 1
-        const val DOCK_CLOUD = 2
-        const val DOCK_SETTINGS = 3
+        const val DOCK_AETHER = 2
+        const val DOCK_CLOUD = 3
+        const val DOCK_SETTINGS = 4
         const val SCREEN_SERVERS = 0
         const val SCREEN_HOME = 1
         const val SCREEN_SETTINGS = 2
         const val SCREEN_CLOUD = 3
         const val SCREEN_SCANNER = 4
+        const val SCREEN_AETHER = 5
         const val REQUEST_VPN_PERMISSION = 10
         const val REQUEST_NOTIFICATION_PERMISSION = 11
         const val TIMER_TICK_MS = 1_000L

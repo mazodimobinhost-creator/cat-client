@@ -1260,4 +1260,5 @@
     <string name="subscription_action_optimize">Optimize with verified IPs / ProxyIPs</string>
     <string name="subscription_optimize_title">Optimize subscription: %1$s</string>
     <string name="subscription_optimize_apply">Apply &amp; save backup</string>
+    <string name="tab_aether">Aether</string>
 </resources>

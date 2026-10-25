@@ -1259,4 +1259,5 @@
     <string name="subscription_action_optimize">بهینه‌سازی با IP و ProxyIPهای تأییدشده</string>
     <string name="subscription_optimize_title">بهینه‌سازی سابسکریپشن: %1$s</string>
     <string name="subscription_optimize_apply">اعمال و ذخیره نسخه پشتیبان</string>
+    <string name="tab_aether">ضدسانسور</string>
 </resources>
