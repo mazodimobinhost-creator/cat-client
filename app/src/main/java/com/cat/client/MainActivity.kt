@@ -12542,7 +12542,7 @@ class MainActivity : Activity() {
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: "panel.example.workers.dev"
-        val userUuid = dep?.adminUuid?.takeIf { it.isNotBlank() } ?: "00000000-0000-4000-8000-000000000001"
+        val userUuid = dep?.uuid?.takeIf { it.isNotBlank() } ?: "00000000-0000-4000-8000-000000000001"
         val bundle = WhiteDnsSmartScanner.buildIosConnectionBundle(
             workerHost = workerHost,
             uuid = userUuid,
