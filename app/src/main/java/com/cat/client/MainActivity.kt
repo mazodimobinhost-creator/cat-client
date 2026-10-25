@@ -13821,10 +13821,10 @@ class MainActivity : Activity() {
                 insetTop = 0
                 insetBottom = 0
                 cornerRadius = dp(12)
-                backgroundTintList = ColorStateList.valueOf(withAlpha(PURPLE, if (palette.isDark) 44 else 28))
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 44 else 28))
                 strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(PURPLE)
-                setTextColor(PURPLE)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
                 setOnClickListener { showAllVpns2026ComparisonAndMlmHubDialog() }
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
@@ -13861,10 +13861,8 @@ class MainActivity : Activity() {
                     2 -> showAmneziaAndProtonWgHubDialog()
                     3 -> runCloudflareZeroByteAndIpv6HealerDialog()
                     4 -> {
-                        showAetherExitLocationPickerDialog {
-                            refreshEngineSummary()
+                        showAetherAutoScanAndBuildWizard {
                             renderAdvancedControls()
-                            runQuickNetworkScanAndAutoBuildDialog()
                         }
                     }
                     5 -> runSlipNetSixPointScoreDialog()

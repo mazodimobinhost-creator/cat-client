@@ -41,7 +41,7 @@ import org.json.JSONObject
  *      `Outline`, `Proton VPN / AmneziaWG`, `SlipNet / VayDNS / NoizDNS`, `MasterDnsVPN`,
  *      `WhiteDNS`, `DefyxVPN`, `Oblivion`, `MahsaNG / NikaNG`, `Hiddify`) with direct launch actions.
  */
-object MlmAndNextGenVpnHub {
+internal object MlmAndNextGenVpnHub {
 
     // =========================================================================
     // 1. 2026 VPN Ecosystem Comparison Catalog
@@ -516,12 +516,12 @@ object MlmAndNextGenVpnHub {
 
         // 1. Local TCP Anti-DPI SNI Record Splitter forwarding to user's real endpoint
         val localPort = LocalSniSpoofProxy.startDirectTcpSpoofForwarder(
-            remoteHost = diagnosis?.bestIpv4Edge ?: template.connectHost,
+            remoteHost = diagnosis?.bestIpv4Edge ?: template.remoteHost,
             remotePort = template.remotePort,
             strategy = LocalSniSpoofProxy.SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
         )
         val tagLocal = URLEncoder.encode("🪄 کانفیگ واقعی شما (تعمیر برش SNI محلی)", "UTF-8")
-        results += "${template.scheme}://${template.uuidOrPass}@127.0.0.1:$localPort?encryption=none&security=tls&type=${template.transportType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=chrome#$tagLocal"
+        results += "${template.scheme}://${template.uuidOrPass}@127.0.0.1:$localPort?encryption=none&security=tls&type=${template.networkType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=chrome#$tagLocal"
 
         // 2. Cloudflare IPv6 Self-Healed nodes (bypasses IPv4 0-byte filter on MCI/Irancell)
         val v6List = buildList {
@@ -530,14 +530,14 @@ object MlmAndNextGenVpnHub {
         }.take(4)
         v6List.forEachIndexed { idx, v6 ->
             val tagV6 = URLEncoder.encode("🌐 خودترمیم IPv6 کلودفلر #${idx + 1} (${template.remark})", "UTF-8")
-            results += "${template.scheme}://${template.uuidOrPass}@[$v6]:${template.remotePort}?encryption=none&security=tls&type=${template.transportType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=chrome&alpn=http%2F1.1#$tagV6"
+            results += "${template.scheme}://${template.uuidOrPass}@[$v6]:${template.remotePort}?encryption=none&security=tls&type=${template.networkType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=chrome&alpn=http%2F1.1#$tagV6"
         }
 
         // 3. Patterniha / MLM v1.2.40 "Fragment + Fingerprint (F&F)" method (`unsafe` + `semi-python` + `tlshello-0-len`)
         val fnfIps = listOfNotNull(diagnosis?.bestIpv4Edge, "188.114.98.0", "188.114.97.6", "162.159.192.1").distinct().take(3)
         fnfIps.forEachIndexed { idx, ip ->
             val tagFnf = URLEncoder.encode("🔥 ضد فیلتر F&F ایرانسل/همراه اول #${idx + 1} ($ip)", "UTF-8")
-            results += "${template.scheme}://${template.uuidOrPass}@$ip:${template.remotePort}?encryption=none&security=tls&type=${template.transportType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=unsafe&cs=semi-python&fm=tlshello-0-len&alpn=http%2F1.1#$tagFnf"
+            results += "${template.scheme}://${template.uuidOrPass}@$ip:${template.remotePort}?encryption=none&security=tls&type=${template.networkType}&host=$realHost&path=$pathEnc&sni=$realHost&fp=unsafe&cs=semi-python&fm=tlshello-0-len&alpn=http%2F1.1#$tagFnf"
         }
 
         return results
@@ -667,7 +667,7 @@ object MlmAndNextGenVpnHub {
      */
     fun enableSmartIranBankingAppShield(context: Context): Pair<Int, List<SplitTunnelInstalledApp>> {
         val store = SplitTunnelPreferenceStore(context)
-        val allInstalled = store.loadLaunchableApps()
+        val allInstalled = InstalledAppRepository(context).loadLaunchableApps()
         val detectedIranApps = detectInstalledIranianAndBankingApps(allInstalled)
         val current = store.readSettings()
         val mergedPackages = buildSet {

@@ -563,12 +563,12 @@ class WhiteDnsSmartScannerTest {
         val realTemplate = LocalSniSpoofProxy.RealConfigTemplate(
             scheme = "vless",
             uuidOrPass = "9f8e7d6c-5b4a-4321-8765-abcdef123456",
-            connectHost = "104.16.132.229",
+            remoteHost = "104.16.132.229",
             remotePort = 443,
             hostHeader = "my-panel.workers.dev",
             sni = "my-panel.workers.dev",
             path = "/ws",
-            transportType = "ws",
+            networkType = "ws",
             remark = "MyWorker",
         )
         val healed = MlmAndNextGenVpnHub.buildIpv6AndFnFHealedConfigs(realTemplate)
