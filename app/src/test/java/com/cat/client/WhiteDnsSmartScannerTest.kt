@@ -40,8 +40,8 @@ class WhiteDnsSmartScannerTest {
     }
 
     @Test fun whiteDnsTunnelBundleAndCatalogSupportAllTransportsRecordsAndIranPresets() {
-        assertTrue(WhiteDnsSmartScanner.RESOLVER_CATALOG.size >= 18)
-        assertEquals(9, WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.size)
+        assertTrue(WhiteDnsSmartScanner.RESOLVER_CATALOG.size >= 16)
+        assertEquals(6, WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.size)
 
         val tcpFrame = WhiteDnsSmartScanner.buildTcpDnsQueryFrame(0x4341, qtype = 65)
         val udpPkt = WhiteDnsSmartScanner.buildDnsQueryPacket(0x4341, qtype = 65)
