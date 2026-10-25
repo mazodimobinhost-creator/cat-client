@@ -13,6 +13,14 @@ updates:
         patterns: ["org.jetbrains.kotlin*", "com.android.tools.build:*"]
     labels: [dependencies, android]
 
+  - package-ecosystem: cargo
+    directory: /aether
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencies, rust, aether]
+
   - package-ecosystem: npm
     directory: /
     schedule:

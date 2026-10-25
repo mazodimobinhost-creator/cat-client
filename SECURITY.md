@@ -1,31 +1,43 @@
-# Security Policy
+# Security Policy / سیاست امنیتی و گزارش آسیب‌پذیری
 
-## Supported versions
+## Supported Versions / نسخه‌های پشتیبانی‌شده
 
-| Version | Supported |
-|---------|-----------|
-| latest release / pre-release (`1.10.x`) | ✅ |
-| older releases | ❌ |
+| Component | Supported Version | Status |
+|-----------|-------------------|--------|
+| **Cat Client Android App** | `1.10.0-beta152` (`1.10.x`) | ✅ Supported |
+| **Cat Panel Cloudflare Worker** | `6.69.30` (`6.69.x`) | ✅ Supported |
+| **Cat Deploy & Healer Bot** | Latest release asset (`cat-deploy-bot.worker.js`) | ✅ Supported |
+| Older releases (`< 1.10.0`) | — | ❌ Unsupported |
 
-Panel (`app/src/main/assets/panels/catclient.worker.js`): only the version bundled with the latest app release (currently **6.4.x**) receives fixes. Re-deploy from the in-app wizard to upgrade.
+Re-deploy the Cloudflare Worker panel from the in-app wizard or update channel to stay on the latest `6.69.x` security baseline.
 
-## Reporting a vulnerability
+---
 
-**Please do not open a public issue for security problems.**
+## Reporting a Vulnerability / نحوه گزارش آسیب‌پذیری
 
-- Use GitHub's private reporting: **Security → Report a vulnerability** on this repository, or
-- Open an issue with only the title `[security] contact request` (no details) and a maintainer will reach out privately.
+**Please do not open a public GitHub issue for security vulnerabilities.**
+**لطفاً برای مشکلات امنیتی ایشوی عمومی باز نکنید.**
 
-Include: affected component (app / panel Worker / Telegram bot / scanner), version, steps to reproduce, and impact. You should get a first response within **7 days**; fixes for confirmed high-impact issues are targeted within **30 days** and shipped as a new release with credit (if you want it).
+1. Use GitHub's private vulnerability reporting: **Security → Report a vulnerability** ([Security Advisories](https://github.com/mazodimobinhost-creator/cat-client/security/advisories/new)), or
+2. Open a minimal issue titled only `[security] contact request` (without exploit details) so a maintainer can establish a private channel.
 
-## Scope
+Please include:
+- Affected component (`app/`, `aether/`, `catclient.worker.js`, `deploy-bot/`, or CI workflow)
+- Exact version (`versionName` / `CAT_PANEL_VERSION`)
+- Reproduction steps or proof-of-concept
+- Potential impact (e.g., credential leak, SSRF, auth bypass, DNS/IP leak)
 
-- Android app (`app/`) — VPN service, config import, scanner, Cloudflare deployment flow.
-- Cloudflare Worker panel and setup wizard (`app/src/main/assets/panels/`).
-- Release/CI workflows (`.github/workflows/`).
+**Response timeline:**
+- Initial acknowledgment within **7 days**.
+- Confirmed high/critical fixes targeted within **14–30 days** and published in a new signed release with credit (if desired).
 
-Out of scope: issues in upstream Mihomo/Clash Meta core, Cloudflare platform behaviour, or third-party proxy lists.
+---
 
-## Secrets
+## Scope & Secret Hygiene / محدوده و حفاظت از کلیدها
 
-Never commit keystores, Cloudflare API tokens, Telegram bot tokens or panel passwords. `keystore.properties` / `secrets.properties` are git-ignored; use the `*.example` templates. If you believe a secret leaked, report it as above so it can be rotated.
+- **In scope:**
+  - Android client (`app/`), Rust Aether JNI bridge (`aether/`), subscription parsers, scanner engines, and Cloudflare API deployment flow.
+  - Bundled Cloudflare Worker panel (`app/src/main/assets/panels/catclient.worker.js`) and setup wizard.
+  - Standalone Telegram Deploy Bot (`deploy-bot/`).
+- **Never commit secrets:**
+  - `keystore.properties`, `secrets.properties`, Cloudflare API tokens, Telegram bot tokens, KV IDs, and private UUIDs must never be committed to Git. Use `keystore.properties.example` and `secrets.properties.example` as templates.

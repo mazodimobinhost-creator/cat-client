@@ -1,58 +1,73 @@
-# Contributing to Cat Client
+# Contributing to Cat Client / راهنمای مشارکت در Cat Client
 
-Thanks for helping! Cat Client is an Android VPN client built on the Mihomo (Clash Meta) core, plus a Cloudflare Worker panel. Contributions in **English or Persian** are welcome.
+Thanks for helping! **Cat Client** is an Android VPN & anti-censorship client built on the **Mihomo (Clash Meta)** core and the **Aether (WARP / MASQUE-HTTP/2 / Psiphon / WireGuard-over-MASQUE / Orbot-Tor / dnstt)** engine, paired with the **Cat Panel** Cloudflare Worker (`v6.69.30`). Contributions in **Persian (فارسی)** or **English** are welcome.
 
-## Quick start
+ممنون از مشارکت شما! پروژه **Cat Client** شامل اپلیکیشن اندروید (مبتنی بر هسته Mihomo و موتور ضدسانسور Aether) و پنل کلودفلر ورکر (**Cat Panel**) است. مشارکت‌ها به هر دو زبان **فارسی** و **انگلیسی** پذیرفته می‌شوند.
+
+---
+
+## Quick Start / شروع سریع
 
 ```bash
 git clone https://github.com/mazodimobinhost-creator/cat-client
 cd cat-client
-./gradlew :app:assembleDebug        # Android app (JDK 21, Android SDK 35, Go for the core)
-npm install && npm test             # Panel / wizard unit tests (Node 22)
+python3 scripts/android-startup-guard.py   # Verify no constructor-time Context access
+npm install && npm test                    # Panel / wizard / guard unit tests (Node 22+)
+./gradlew :app:assembleDebug               # Android app (JDK 21, Android SDK 36, Go & Rust for cores)
 ```
 
-See [BUILDING.md](BUILDING.md) for toolchain details and [docs/](docs/) for design notes and release notes.
+See [BUILDING.md](BUILDING.md) for toolchain details and [docs/](docs/) for design notes and Persian/English walkthroughs.
 
-## Project layout
+---
 
-| Path | What |
-|------|------|
-| `app/src/main/java/com/cat/client/` | Android app (Kotlin, classic Views — no Compose) |
-| `app/src/main/assets/panels/catclient.worker.js` | Cloudflare Worker panel (single file, deployed by the app) |
-| `app/src/main/assets/panels/catclient.wizard.js` | In-app setup wizard page |
-| `scripts/panels/*.test.mjs` | Node tests for the panel/wizard |
-| `scripts/build-flclash-core.sh` | Builds the Mihomo core |
-| `docs/` | ADRs, specs, release notes |
+## Project Layout / ساختار پروژه
 
-## Workflow
+| Path | Description |
+|------|-------------|
+| `app/src/main/java/com/cat/client/` | Android app (Kotlin, programmatic classic `View`s — no Compose) |
+| `aether/` | Rust JNI anti-censorship core (WARP, MASQUE-HTTP/2, Psiphon, Gool) |
+| `app/src/main/assets/panels/catclient.worker.js` | Cloudflare Worker panel (`v6.69.30`, single self-contained file) |
+| `app/src/main/assets/panels/catpanel.min.js` | 3-line minified Worker paste artifact for Cloudflare dashboard |
+| `app/src/main/assets/panels/catclient.wizard.js` | In-app setup wizard script |
+| `deploy-bot/` | Standalone Cloudflare Worker Telegram Deploy & 1101 Healer Bot |
+| `scripts/panels/*.test.mjs` | Node.js & workerd integration and static-guard test suites |
+| `docs/` | Architecture notes, circumvention research, and release notes |
 
-1. Fork → branch from `main` (`feat/…`, `fix/…`, `panel/…`).
-2. Keep PRs focused; one feature or fix per PR.
-3. Make sure CI is green: **Cat Client Android Build** and **Panel tests**.
-4. Describe *what* and *why* in the PR; add screenshots for UI changes (light + dark, LTR + RTL/Persian).
-5. Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
+---
 
-## Code style
+## Workflow / روند ارسال تغییرات
 
-- Kotlin: official style, 4-space indent, no wildcard imports; prefer explicit `View` code over XML layouts (matches the codebase).
-- JavaScript (panel): ES2022, 2-space indent, no build step — the Worker must stay a single self-contained file.
-- Strings: every user-facing string goes in `res/values/strings.xml` **and** `res/values-fa/strings.xml`. Check for duplicate names before committing.
-- Formatting rules live in [.editorconfig](.editorconfig).
+1. Create a focused branch for your feature or bugfix (`feat/…`, `fix/…`, `panel/…`).
+2. Keep pull requests focused: one logical feature or fix per PR.
+3. Run the verification suite before pushing:
+   - `python3 scripts/android-startup-guard.py`
+   - `npm test`
+   - `./gradlew testDebugUnitTest`
+4. Describe *what* changed and *why* in the PR description; include screenshots for UI changes (Light + Dark mode, RTL Persian + LTR English).
+5. Add an entry under **`[Unreleased]`** in [CHANGELOG.md](CHANGELOG.md).
 
-## Commit messages
+---
 
-`area: short imperative summary` — e.g. `panel: cache subscription responses`, `scanner: add SOCKS4 probe`, `ui: fix RTL dock labels`.
+## Code Style & Guardrails / قواعد کدنویسی
 
-## Panel changes
+- **Kotlin (Android):**
+  - 4-space indentation, no wildcard imports, explicit programmatic `View` hierarchy (matching `MainActivity.kt` and `DashboardViews.kt`).
+  - **Startup Guard:** Never call `Context` methods (`getSharedPreferences`, `resources`, `View(this)`, etc.) inside `Activity` or `Application` property initializers; use `by lazy`, `lateinit`, or initialize inside `onCreate()`.
+  - **Theme & Palette:** Always read colors from `CatClientDesignTokens.forContext(context)` (`palette`) so Light, Dark, System, and all 8 `AppAccent` presets work seamlessly.
+- **JavaScript (Cat Panel Worker):**
+  - ES2022, 2-space indentation.
+  - Bump `CAT_PANEL_VERSION` across `catclient.worker.js`, `deploy-bot/worker.js`, `tools/cat-fixer.html`, `cat-panel.html`, and version tests whenever changing panel behavior, then regenerate `dist-panel/` and `app/src/main/assets/panels/catpanel.min.js` via `node scripts/panels/minify.mjs`.
+- **Localization:**
+  - Every user-facing string resource must exist in both `app/src/main/res/values/strings.xml` (English) and `app/src/main/res/values-fa/strings.xml` (Persian) with identical format placeholders.
+- **Formatting:** See [.editorconfig](.editorconfig).
 
-- Bump `CAT_PANEL_VERSION` in `catclient.worker.js` for any user-visible change.
-- Never add per-request KV writes (free-tier limits) — see `docs/panel-v6-why-no-ban.md`.
-- Run `npm test`; add a case to `scripts/panels/cat-panel.test.mjs` for new endpoints.
+---
 
-## Reporting bugs
+## Reporting Bugs & Security / گزارش باگ و امنیت
 
-Open an issue with: app version (Settings → About), Android version, device, steps, and logs if possible (Settings → Logs). For security issues see [SECURITY.md](SECURITY.md).
+- **Bug reports:** Open a GitHub Issue with your app version, Android version, device model, carrier/firewall type, steps to reproduce, and diagnostic logs.
+- **Security vulnerabilities:** Please do **not** open a public issue. Follow the instructions in [SECURITY.md](SECURITY.md).
 
-## License
+## License / مجوز
 
-By contributing you agree your work is licensed under the repository [LICENSE](LICENSE). Keep third-party attributions in [NOTICE](NOTICE) up to date.
+By contributing to Cat Client, you agree that your contributions will be licensed under the repository's [GPL-3.0 LICENSE](LICENSE). Keep third-party attributions in [NOTICE](NOTICE) up to date.
