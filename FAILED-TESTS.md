@@ -1,9 +1,8 @@
-# Android failure report (910ea60)
+# Android failure report (bb4dfbf)
 
 
 ## files with compile errors
-      6 app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt
-      5 app/src/main/java/com/cat/client/MainActivity.kt
+      1 app/src/main/java/com/cat/client/SubConvConverter.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -38,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3487) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3563) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -56,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3502) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3578) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -66,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3521) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3597) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -99,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3533) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3609) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -154,9 +153,9 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
+> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
-> Task :app:mergeDebugResources
 > Task :app:parseDebugLocalResources
 
 > Task :app:processDebugMainManifest
@@ -170,17 +169,7 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13824:71 Unresolved reference 'PURPLE'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13826:54 Unresolved reference 'PURPLE'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13827:30 Unresolved reference 'PURPLE'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13865:29 Unresolved reference 'refreshEngineSummary'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13867:29 Unresolved reference 'runQuickNetworkScanAndAutoBuildDialog'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:510:9 'public' function exposes its 'internal' parameter type containing declaration 'LocalSniSpoofProxy'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:519:62 Unresolved reference 'connectHost'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:524:131 Unresolved reference 'transportType'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:533:143 Unresolved reference 'transportType'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:540:141 Unresolved reference 'transportType'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:670:34 Unresolved reference 'loadLaunchableApps'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SubConvConverter.kt:339:78 Unresolved reference 'activeProxyPort'.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -197,5 +186,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 51s
+BUILD FAILED in 2m 3s
 16 actionable tasks: 16 executed
