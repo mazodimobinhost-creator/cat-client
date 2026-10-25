@@ -1,8 +1,13 @@
-# Android failure report (84e151e)
+# Android failure report (4fb330b)
 
 
 ## files with compile errors
-      1 app/src/main/java/com/cat/client/MainActivity.kt
+     23 app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt
+      8 app/src/main/java/com/cat/client/MainActivity.kt
+      3 app/src/main/java/com/cat/client/AppAccent.kt
+      1 app/src/main/java/com/cat/client/SmartRouteScout.kt
+      1 app/src/main/java/com/cat/client/IpGeolocation.kt
+      1 app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -37,7 +42,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3271) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3495) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -55,7 +60,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3286) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3510) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -65,7 +70,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3305) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3529) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -98,7 +103,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3317) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3541) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -126,6 +131,8 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
+Downloading https://services.gradle.org/distributions/gradle-8.9-bin.zip
+............10%.............20%.............30%.............40%.............50%.............60%.............70%.............80%.............90%.............100%
 
 Welcome to Gradle 8.9!
 
@@ -153,10 +160,10 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
-> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
+> Task :app:mergeDebugResources
 
 > Task :app:processDebugMainManifest
 /home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-172:19 Warning:
@@ -165,17 +172,69 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
 
 > Task :app:processDebugManifest
-> Task :app:javaPreCompileDebug
 > Task :app:processDebugManifestForPackage
+> Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:12:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
 
-> Task :app:compileDebugKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:399:50 Unresolved reference 'Configuration'.
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:80:50 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:108:49 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt:145:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/IpGeolocation.kt:156:51 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:608:13 'fun setSelectedTabIndicatorHeight(p0: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2044:9 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2046:46 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3098:58 'static field TRIM_MEMORY_RUNNING_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3107:26 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3107:43 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:20750:12 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SmartRouteScout.kt:61:35 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:bundleDebugClassesToCompileJar
+
+> Task :app:compileDebugUnitTestKotlin FAILED
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:59 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:59 Not enough information to infer type argument for 'R'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:30:68 Unresolved reference 'rawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:32:44 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:32:64 Unresolved reference 'rawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:34:52 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:35:52 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:41:61 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:42:62 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:43:60 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:44:61 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:45:61 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:51:58 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:52:59 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:53:60 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:54:58 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:55:58 Unresolved reference 'fromRawValue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:60:54 No parameter with name 'darkTheme' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:60:54 No value passed for parameter 'isNight'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:61:55 No parameter with name 'darkTheme' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:61:55 No value passed for parameter 'isNight'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:73:53 Unresolved reference 'backgroundTop'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/AppAccentAndSurfaceStyleTest.kt:74:53 Unresolved reference 'backgroundBottom'.
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugKotlin'.
+Execution failed for task ':app:compileDebugUnitTestKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -185,5 +244,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 21s
-16 actionable tasks: 16 executed
+BUILD FAILED in 1m 33s
+19 actionable tasks: 19 executed
