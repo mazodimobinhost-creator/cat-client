@@ -396,7 +396,7 @@ class MainActivity : Activity() {
     override fun attachBaseContext(newBase: Context) {
         val wrapped = AppLocale.wrap(AppTheme.wrap(newBase))
         super.attachBaseContext(wrapped)
-        runCatching { applyOverrideConfiguration(Configuration(wrapped.resources.configuration)) }
+        runCatching { applyOverrideConfiguration(android.content.res.Configuration(wrapped.resources.configuration)) }
     }
 
     private val stateReceiver = object : BroadcastReceiver() {
