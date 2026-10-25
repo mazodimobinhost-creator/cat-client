@@ -77,6 +77,7 @@ const ALL_SENSITIVE_WORDS = [
   'sing-geosite', 'dialerProxy', 'dmxlc3M',
 ];
 const ALL_SENSITIVE_GLOBAL_RE = new RegExp(ALL_SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+const ALL_SENSITIVE_TEST_RE = new RegExp(ALL_SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
 
 function cipherStr(s) {
   let out = '';
@@ -132,7 +133,7 @@ function scrubAstSignatures(code) {
     }
     if (node.type === 'Literal' && typeof node.value === 'string') {
       if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ImportExpression' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
-      if (!ALL_SENSITIVE_GLOBAL_RE.test(node.value)) return;
+      if (!ALL_SENSITIVE_TEST_RE.test(node.value)) return;
       bump(node.value);
       return;
     }
@@ -144,12 +145,12 @@ function scrubAstSignatures(code) {
       }
       return;
     }
-    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && ALL_SENSITIVE_GLOBAL_RE.test(node.property.name)) {
+    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && ALL_SENSITIVE_TEST_RE.test(node.property.name)) {
       countWalk(node.object, node, 'object');
       bump(node.property.name);
       return;
     }
-    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && ALL_SENSITIVE_GLOBAL_RE.test(node.key.name)) {
+    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && ALL_SENSITIVE_TEST_RE.test(node.key.name)) {
       bump(node.key.name);
       countWalk(node.value, node, 'value');
       return;
@@ -196,7 +197,7 @@ function scrubAstSignatures(code) {
     }
     if (node.type === 'Literal' && typeof node.value === 'string') {
       if (parent && (parent.type === 'ImportDeclaration' || parent.type === 'ImportExpression' || parent.type === 'ExportNamedDeclaration' || parent.type === 'ExportAllDeclaration') && prop === 'source') return;
-      if (!ALL_SENSITIVE_GLOBAL_RE.test(node.value)) return;
+      if (!ALL_SENSITIVE_TEST_RE.test(node.value)) return;
       const idx = getIdx(node.value);
       const isKey = parent && parent.type === 'Property' && prop === 'key' && !parent.computed;
       const prevChar = node.start > 0 ? code[node.start - 1] : '';
@@ -228,7 +229,7 @@ function scrubAstSignatures(code) {
       });
       return;
     }
-    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && ALL_SENSITIVE_GLOBAL_RE.test(node.property.name)) {
+    if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier' && !JS_BUILTINS.has(node.property.name) && ALL_SENSITIVE_TEST_RE.test(node.property.name)) {
       collectEdits(node.object, node, 'object', outEdits);
       const dotIdx = code.lastIndexOf('.', node.property.start);
       const optIdx = dotIdx > 0 && code[dotIdx - 1] === '?' ? dotIdx - 1 : dotIdx;
@@ -240,7 +241,7 @@ function scrubAstSignatures(code) {
       });
       return;
     }
-    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && ALL_SENSITIVE_GLOBAL_RE.test(node.key.name)) {
+    if (node.type === 'Property' && !node.computed && node.key && node.key.type === 'Identifier' && !JS_BUILTINS.has(node.key.name) && ALL_SENSITIVE_TEST_RE.test(node.key.name)) {
       const keyExpr = '[_z(' + getIdx(node.key.name) + ')]';
       if (node.shorthand) {
         collectEdits(node.value, node, 'value', outEdits);
