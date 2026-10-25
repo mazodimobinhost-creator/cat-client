@@ -3993,6 +3993,7 @@ class CatClientVpnService : VpnService() {
         check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Aether native core is not packaged" }
         check(coreLifecycle.isIdle()) { "Mihomo must stop before Aether starts" }
         val networkKey = AetherPreferenceStore.underlyingNetworkKey(this)
+        VpnRuntimeStateStore.saveLiveConnectStep(this, "۱/۴: شناسایی شبکه ($networkKey) و انتخاب سریع‌ترین Endpoint")
         val effectiveEndpoint = selection.freshEndpoint()
             ?: aetherPreferenceStore.recallEndpointForNetwork(networkKey, selection.mode, selection.ipScan)
         if (effectiveEndpoint != null) {
@@ -4002,24 +4003,29 @@ class CatClientVpnService : VpnService() {
             selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
         } else selection
         if (effectiveSelection.chainTarget == "auto-psiphon") {
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۲/۴: بررسی وضعیت تحریم مستقیم برای زنجیره هوشمند")
             val sanctioned = withContext(Dispatchers.IO) {
                 WhiteDnsSmartScanner.isDirectExitSanctionedOrBlocked(2_200)
             }
             if (sanctioned) {
                 DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=psiphon reason=sanctioned")
+                VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره ضدتحریم (WARP -> Psiphon)")
                 runAetherPsiphonStartup(eventPrefix, effectiveSelection.copy(chainTarget = "psiphon"))
                 return
             }
             DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=none reason=directOpen")
         }
         if (effectiveSelection.mode == AetherMode.MasquePsiphon || effectiveSelection.chainTarget == "psiphon") {
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره سایفون (${effectiveSelection.psiphonRegion})")
             runAetherPsiphonStartup(eventPrefix, effectiveSelection)
             return
         }
         if (effectiveSelection.chainTarget == "tor") {
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره تور (Orbot/Tor)")
             runAetherTorStartup(eventPrefix, effectiveSelection)
             return
         }
+        VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: هندشیک مستقیم ${effectiveSelection.mode.wireName} (${effectiveEndpoint ?: "auto"})")
         val session = createAetherSession(resolveSplitTunnelRuntimePlan())
         val config = AetherRuntimeConfig(
             mode = effectiveSelection.mode,

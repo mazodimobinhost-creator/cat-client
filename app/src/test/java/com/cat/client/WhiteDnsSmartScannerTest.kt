@@ -119,6 +119,60 @@ class WhiteDnsSmartScannerTest {
         assertEquals("/sub/abc", urls[1].rawPath)
     }
 
+    @Test fun midStreamFreezeEvaluatorDetectsHealthyAndStalledTransfers() {
+        val healthy = WhiteDnsSmartScanner.evaluateMidStreamTransfer(
+            ttfbMs = 180L,
+            bytesRead = 32_768,
+            targetBytes = 32_768,
+            elapsedMs = 450L,
+        )
+        assertTrue(healthy.ok)
+        assertTrue(!healthy.stalledMidStream)
+        assertTrue(healthy.throughputKbps > 0)
+
+        val stalled = WhiteDnsSmartScanner.evaluateMidStreamTransfer(
+            ttfbMs = 210L,
+            bytesRead = 1024,
+            targetBytes = 32_768,
+            elapsedMs = 3500L,
+        )
+        assertTrue(!stalled.ok)
+        assertTrue(stalled.stalledMidStream)
+        assertTrue(stalled.summaryFa.contains("نیمه‌کاره"))
+    }
+
+    @Test fun poisonedIranDnsFilterAndGasRelayAndLiteWorkerBuilders() {
+        assertTrue(WhiteDnsSmartScanner.isPoisonedIranDnsIp("10.10.34.35"))
+        assertTrue(WhiteDnsSmartScanner.isPoisonedIranDnsIp("127.0.0.1"))
+        assertTrue(!WhiteDnsSmartScanner.isPoisonedIranDnsIp("188.114.98.0"))
+
+        val gasUri = WhiteDnsSmartScanner.buildGasRelayUri(
+            "https://script.google.com/macros/s/AKfycb123/exec",
+            "MyGAS",
+        )
+        val parsedGas = WhiteDnsSmartScanner.parseTunnelUri(gasUri)
+        assertNotNull(parsedGas)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY, parsedGas!!.engine)
+        assertTrue(parsedGas.scriptUrl.startsWith("https://script.google.com/macros/s/AKfycb123/exec"))
+        val convertedGas = SubConvConverter.convert(gasUri)
+        assertEquals(1, convertedGas.size)
+        assertEquals("socks5", convertedGas[0].optString("type"))
+
+        val gasCode = WhiteDnsSmartScanner.buildGoogleAppsScriptRelaySource()
+        assertTrue(gasCode.contains("UrlFetchApp.fetch"))
+        assertTrue(gasCode.contains("DAILY_LIMIT = 20000"))
+
+        val liteWorker = WhiteDnsSmartScanner.buildLiteWorkerScript(
+            uuid = "11111111-2222-4333-8444-555555555555",
+            proxyIp = "103.237.102.191:11111",
+            fallbackHost = "backup.example.com",
+        )
+        assertTrue(liteWorker.contains("103.237.102.191:11111"))
+        assertTrue(liteWorker.contains("tlshello-0-len"))
+        assertTrue(liteWorker.contains("semi-python"))
+        assertTrue(liteWorker.contains("2a06:98c1:3101::6812:202f"))
+    }
+
     @Test fun moatBridgesJsonParserExtractsBridgeStrings() {
         val sampleJson = """
             {"settings":[

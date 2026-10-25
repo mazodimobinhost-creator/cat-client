@@ -44,7 +44,7 @@ object SubConvConverter {
                     "socks", "socks5" -> parseSocks(line, names)
                     "ss" -> parseShadowsocks(line, names)
                     "wireguard" -> parseWireGuard(line, names)
-                    "cottendns", "stormdns", "masterdns", "soar", "dnstt" -> parseWhiteDnsTunnel(line, names)
+                    "cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay" -> parseWhiteDnsTunnel(line, names)
                     else -> null
                 }
             } catch (_: ParseError) {

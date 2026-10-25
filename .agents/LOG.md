@@ -9,5 +9,12 @@
   - Native in-app parsing & local SOCKS5 bridge execution for `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, and `dnstt://` (`WhiteDnsSmartScanner.kt`, `SubConvConverter.kt`, `MihomoShareLink.kt`, `MainActivity.kt`).
   - Irancell `F&F` (`finalMask=tlshello-0-len`, `cipherSuites=semi-python`) preservation in `SubConvConverter.kt`, `UserSubscriptions.kt`, `MihomoShareLink.kt` and TLS ClientHello record splitter (`splitTlsClientHelloRecord`).
   - Server-side `RFC 1928` SOCKS5 handshake testing (`kind: 'socks'`) in `/api/ip-test`, `data-sk-test`, and `#skLiveFetch` in `catclient.worker.js`.
-  - Aether Smart Conditional Chain (`auto-psiphon`: direct WARP/MASQUE first, escalating to `WARP -> Psiphon` only when geo-sanctioned/blocked) and Top-10 Per-Carrier Clean Endpoint Pool with automatic failover (`AetherPreferenceStore.kt`, `CatClientVpnService.kt`, `MainActivity.kt`).
+  - Aether Smart Conditional Chain (`auto-psiphon`) and Top-10 Per-Carrier Clean Endpoint Pool with automatic failover (`AetherPreferenceStore.kt`, `CatClientVpnService.kt`, `MainActivity.kt`).
   - Fallback Worker Domain (`fallbackHost` in `catclient.worker.js` and `SubscriptionSourceLoader.candidateHttpsUrls` in `SubscriptionSnapshot.kt`).
+- **2026-10-25 (6 Dr.Net-Inspired Capabilities — `v1.10.0-beta148` / `6.69.28`):**
+  - Mid-Stream Freeze & Throttling Detector (`evaluateMidStreamTransfer`, `probeMidStreamFreezeAndThroughput`, `runMidStreamFreezeDetectorDialog`).
+  - Domain Fronting & Unpoisoned Real IP Finder (`isPoisonedIranDnsIp`, `resolveUnpoisonedRealIp`, `showDomainFrontingAndUnpoisonResolverDialog`).
+  - Google Apps Script (`GAS`) Relay (`gasrelay://` URI scheme, `buildGoogleAppsScriptRelaySource`, `buildGasRelayUri`, daily 20k quota tracker in `VpnRuntimeStateStore`, and `showGoogleAppsScriptRelayDialog`).
+  - Cat Client Lite Worker Generator (`buildLiteWorkerScript` with zero-KV quota, Irancell F&F, MCI IPv6, and explicit-port ProxyIP).
+  - Independent Auto-Reconnect on Drop, Auto-Connect on Boot/Update (both default off), and Universal Kill Switch (`VpnRuntimeStateStore`, `showConnectionResilienceAndKillSwitchDialog`).
+  - Step-by-Step Live Connection Progress (`VpnRuntimeStateStore.saveLiveConnectStep` in `CatClientVpnService.kt`).

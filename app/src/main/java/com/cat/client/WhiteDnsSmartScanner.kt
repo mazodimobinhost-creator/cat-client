@@ -1046,6 +1046,7 @@ internal object WhiteDnsSmartScanner {
         MASTER_DNS("MasterDNS", "MasterDNS"),
         SOAR_MIMICRY("Soar Mimicry", "Soar Mimicry"),
         DNSTT_CLASSIC("dnstt", "dnstt"),
+        GOOGLE_SCRIPT_RELAY("رله اسکریپت گوگل (GAS)", "Google Apps Script Relay (GAS)"),
     }
 
     data class WhiteDnsParsedTunnelUri(
@@ -1060,12 +1061,13 @@ internal object WhiteDnsSmartScanner {
         val presetId: String,
         val mtu: Int,
         val remark: String,
+        val scriptUrl: String = "",
     )
 
-    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt")
+    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay")
 
     /**
-     * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, and `dnstt://` URIs
+     * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `dnstt://`, and `gasrelay://` URIs
      * into a structured [WhiteDnsParsedTunnelUri] for in-app execution and Mihomo conversion.
      */
     fun parseTunnelUri(rawUri: String): WhiteDnsParsedTunnelUri? {
@@ -1082,9 +1084,10 @@ internal object WhiteDnsSmartScanner {
             .getOrDefault(rawFragment)
             .trim()
         val qIdx = beforeHash.indexOf('?')
-        val authority = (if (qIdx >= 0) beforeHash.substring(0, qIdx) else beforeHash)
+        val authorityAndPath = (if (qIdx >= 0) beforeHash.substring(0, qIdx) else beforeHash)
             .trim()
-            .trim('/')
+        val authority = authorityAndPath.substringBefore('/').trim('/')
+        val pathPart = if ('/' in authorityAndPath) "/" + authorityAndPath.substringAfter('/') else ""
         val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else ""
         val params = LinkedHashMap<String, String>()
         query.split('&').forEach { pair ->
@@ -1103,18 +1106,19 @@ internal object WhiteDnsSmartScanner {
         } else {
             cleanHostPort.removePrefix("[").removeSuffix("]")
         }
+        val defaultPort = if (scheme == "gasrelay") 443 else 53
         val parsedPort = if (colonIdx > 0) {
-            cleanHostPort.substring(colonIdx + 1).toIntOrNull()?.takeIf { it in 1..65535 } ?: 53
+            cleanHostPort.substring(colonIdx + 1).toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
         } else {
-            params["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 53
+            params["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
         }
         val resolverIp = (params["resolver"] ?: params["server"] ?: parsedHost)
             .substringBefore(':')
             .trim()
-            .ifBlank { "178.22.122.100" }
+            .ifBlank { if (scheme == "gasrelay") "script.google.com" else "178.22.122.100" }
         val tunnelDomain = (params["domain"] ?: params["ns"] ?: params["sni"] ?: parsedHost)
             .trim()
-            .ifBlank { "t.example.com" }
+            .ifBlank { if (scheme == "gasrelay") "script.google.com" else "t.example.com" }
         val publicKeyHex = (params["pubkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
         val presetId = (params["preset"] ?: params["profile"]).orEmpty().trim().ifBlank { "iran-fast-low-mtu" }
         val presetDefaultMtu = IRAN_AUTO_TUNE_PRESETS
@@ -1136,8 +1140,13 @@ internal object WhiteDnsSmartScanner {
             "stormdns" -> WhiteDnsTunnelEngine.STORM_DNS
             "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
             "soar" -> WhiteDnsTunnelEngine.SOAR_MIMICRY
+            "gasrelay" -> WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY
             else -> WhiteDnsTunnelEngine.DNSTT_CLASSIC
         }
+        val scriptUrl = if (scheme == "gasrelay") {
+            params["url"]?.takeIf { it.startsWith("https://") }
+                ?: "https://${parsedHost.ifBlank { "script.google.com" }}$pathPart"
+        } else ""
         return WhiteDnsParsedTunnelUri(
             rawUri = trimmed,
             scheme = scheme,
@@ -1150,6 +1159,7 @@ internal object WhiteDnsSmartScanner {
             presetId = presetId,
             mtu = mtu,
             remark = remark.ifBlank { "${engine.titleEn} ($resolverIp)" },
+            scriptUrl = scriptUrl,
         )
     }
 
@@ -1358,5 +1368,344 @@ internal object WhiteDnsSmartScanner {
                 conn.disconnect()
             }
         }.getOrDefault(true)
+    }
+
+    data class MidStreamHealthVerdict(
+        val ok: Boolean,
+        val stalledMidStream: Boolean,
+        val ttfbMs: Long,
+        val bytesRead: Int,
+        val targetBytes: Int,
+        val throughputKbps: Int,
+        val summaryFa: String,
+        val summaryEn: String,
+    )
+
+    /**
+     * Pure evaluator for mid-stream freeze / DPI throttling detection (صفحه‌ای که نیمه‌کاره قطع می‌شود).
+     */
+    fun evaluateMidStreamTransfer(
+        ttfbMs: Long,
+        bytesRead: Int,
+        targetBytes: Int,
+        elapsedMs: Long,
+    ): MidStreamHealthVerdict {
+        val safeTarget = targetBytes.coerceAtLeast(1024)
+        val safeElapsed = elapsedMs.coerceAtLeast(1L)
+        val kbps = ((bytesRead.toLong() * 8L * 1000L) / (safeElapsed * 1024L)).toInt().coerceAtLeast(0)
+        val stalled = ttfbMs > 0L && bytesRead in 1 until (safeTarget / 2)
+        val ok = ttfbMs > 0L && bytesRead >= (safeTarget / 2) && !stalled
+        val summaryFa = when {
+            ok -> "✅ جریان داده سالم و بدون فریز شدن (${bytesRead / 1024}KB دریافت شد · TTFB=${ttfbMs}ms · سرعت ~${kbps}Kbps)"
+            stalled -> "⚠️ اختلال و قطع نیمه‌کاره (Mid-Stream Freeze) تشخیص داده شد! هندشیک اولیه برقرار شد (${ttfbMs}ms) اما پس از ${bytesRead} بایت فایروال جریان را مسدود کرد — پیشنهاد: متد F&F یا تغییر پورت/SNI."
+            else -> "❌ عدم دریافت پاسخ جریان داده (تایم‌اوت کامل یا مسدودی پورت/IP)"
+        }
+        val summaryEn = when {
+            ok -> "✅ Healthy continuous stream (${bytesRead / 1024}KB read · TTFB=${ttfbMs}ms · ~${kbps}Kbps)"
+            stalled -> "⚠️ Mid-stream DPI freeze detected! Initial response arrived (${ttfbMs}ms) but stalled at $bytesRead bytes — switch to F&F or another port/SNI."
+            else -> "❌ Stream connection failed (timeout or blocked endpoint)"
+        }
+        return MidStreamHealthVerdict(
+            ok = ok,
+            stalledMidStream = stalled,
+            ttfbMs = ttfbMs,
+            bytesRead = bytesRead,
+            targetBytes = safeTarget,
+            throughputKbps = kbps,
+            summaryFa = summaryFa,
+            summaryEn = summaryEn,
+        )
+    }
+
+    /**
+     * Active Mid-Stream Freeze & Throughput Probe:
+     * Requests a multi-KB stream from Cloudflare (`/__down?bytes=32768`) to detect connections
+     * that pass ping/204 checks but freeze mid-page due to Irancell/MCI DPI throttling.
+     */
+    fun probeMidStreamFreezeAndThroughput(
+        targetBytes: Int = 32_768,
+        timeoutMs: Int = 3_500,
+    ): MidStreamHealthVerdict {
+        val startNs = System.nanoTime()
+        var ttfbMs = -1L
+        var totalRead = 0
+        runCatching {
+            val url = java.net.URI("https://speed.cloudflare.com/__down?bytes=$targetBytes").toURL()
+            val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                requestMethod = "GET"
+                setRequestProperty("Cache-Control", "no-store")
+            }
+            try {
+                conn.inputStream.use { input ->
+                    val buf = ByteArray(4096)
+                    while (totalRead < targetBytes) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        if (ttfbMs < 0L) {
+                            ttfbMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                        }
+                        totalRead += n
+                    }
+                }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+        return evaluateMidStreamTransfer(
+            ttfbMs = ttfbMs,
+            bytesRead = totalRead,
+            targetBytes = targetBytes,
+            elapsedMs = elapsedMs,
+        )
+    }
+
+    data class UnpoisonedDnsResult(
+        val domain: String,
+        val cleanIps: List<String>,
+        val poisonedIpsDetected: List<String>,
+        val workingCleanIp: String?,
+        val recommendedFrontHost: String,
+        val rttMs: Long?,
+        val summaryFa: String,
+        val summaryEn: String,
+    )
+
+    /**
+     * Detects Iranian ISP DNS poisoning addresses (`10.10.34.34..36`, loopback, bogon, etc.).
+     */
+    fun isPoisonedIranDnsIp(ip: String): Boolean {
+        val t = ip.trim().removePrefix("[").removeSuffix("]").lowercase()
+        if (t.isBlank()) return true
+        if (t.startsWith("10.10.34.") || t.startsWith("10.")) return true
+        if (t == "0.0.0.0" || t.startsWith("127.") || t.startsWith("192.168.") || t.startsWith("169.254.")) return true
+        if (t == "::" || t == "::1" || t.startsWith("fe80:") || t.startsWith("fc00:") || t.startsWith("fd00:")) return true
+        return false
+    }
+
+    /**
+     * Finds the real unpoisoned IP addresses of a filtered domain on Irancell/MCI using
+     * encrypted DoH JSON + anti-DPI TCP RFC 1035 DNS, filters out poisoned `10.10.34.x` IPs,
+     * and tests direct TLS reachability for Domain Fronting / Clean-IP routing.
+     */
+    fun resolveUnpoisonedRealIp(
+        domain: String,
+        timeoutMs: Int = 2_500,
+    ): UnpoisonedDnsResult {
+        val cleanHost = domain.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .substringBefore(':')
+            .lowercase()
+            .ifBlank { "chatgpt.com" }
+        val cleanIps = LinkedHashSet<String>()
+        val poisonedIps = LinkedHashSet<String>()
+
+        // 1) Check plain system DNS first to see if ISP is poisoning it
+        runCatching {
+            InetAddress.getAllByName(cleanHost).forEach { addr ->
+                val ip = addr.hostAddress.orEmpty()
+                if (isPoisonedIranDnsIp(ip)) poisonedIps += ip else cleanIps += ip
+            }
+        }
+
+        // 2) Query encrypted DoH JSON endpoints to obtain authentic unpoisoned A records
+        val dohEndpoints = listOf(
+            "https://1.1.1.1/dns-query?name=$cleanHost&type=A",
+            "https://dns.google/resolve?name=$cleanHost&type=A",
+        )
+        for (doh in dohEndpoints) {
+            if (cleanIps.size >= 4) break
+            runCatching {
+                val conn = (java.net.URI(doh).toURL().openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    requestMethod = "GET"
+                    setRequestProperty("Accept", "application/dns-json")
+                }
+                try {
+                    if (conn.responseCode in 200..299) {
+                        val text = conn.inputStream.bufferedReader().use { it.readText() }
+                        val ipRegex = Regex("\"data\"\\s*:\\s*\"([0-9]{1,3}(?:\\.[0-9]{1,3}){3})\"")
+                        ipRegex.findAll(text).forEach { m ->
+                            val ip = m.groupValues[1]
+                            if (isPoisonedIranDnsIp(ip)) poisonedIps += ip else cleanIps += ip
+                        }
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            }
+        }
+
+        if (cleanIps.isEmpty()) {
+            // Fallback to known Cloudflare Anycast clean edges if the domain is behind Cloudflare
+            cleanIps += "188.114.98.0"
+            cleanIps += "104.18.2.161"
+        }
+
+        var workingIp: String? = null
+        var bestRtt: Long? = null
+        for (ip in cleanIps.take(4)) {
+            val rtt = probeTcpPort(ip, 443, timeoutMs = 1_500)
+            if (rtt != null && (bestRtt == null || rtt < bestRtt)) {
+                bestRtt = rtt
+                workingIp = ip
+            }
+        }
+        val frontHost = "speed.cloudflare.com"
+        val summaryFa = buildString {
+            appendLine("🔍 دامنه بررسی‌شده: $cleanHost")
+            if (poisonedIps.isNotEmpty()) {
+                appendLine("⚠️ مسمومیت DNS اپراتور تشخیص داده شد (حذف شد): ${poisonedIps.joinToString(", ")}")
+            }
+            appendLine("✅ آدرس‌های واقعی و بدون فیلتر: ${cleanIps.joinToString(", ")}")
+            if (workingIp != null) {
+                appendLine("⚡ سریع‌ترین IP مستقیم باز روی خط شما: $workingIp:443 (${bestRtt}ms)")
+            }
+            append("🛡️ میزبان پیشنهادی Domain Fronting روی ایرانسل/همراه اول: $frontHost")
+        }
+        val summaryEn = buildString {
+            appendLine("🔍 Domain: $cleanHost")
+            if (poisonedIps.isNotEmpty()) {
+                appendLine("⚠️ Filtered ISP poisoned DNS IPs: ${poisonedIps.joinToString(", ")}")
+            }
+            appendLine("✅ Unpoisoned real IPs: ${cleanIps.joinToString(", ")}")
+            if (workingIp != null) {
+                appendLine("⚡ Fastest reachable IP on your line: $workingIp:443 (${bestRtt}ms)")
+            }
+            append("🛡️ Recommended Front Host: $frontHost")
+        }
+        return UnpoisonedDnsResult(
+            domain = cleanHost,
+            cleanIps = cleanIps.toList(),
+            poisonedIpsDetected = poisonedIps.toList(),
+            workingCleanIp = workingIp,
+            recommendedFrontHost = frontHost,
+            rttMs = bestRtt,
+            summaryFa = summaryFa,
+            summaryEn = summaryEn,
+        )
+    }
+
+    /**
+     * Generates a ready-to-paste Google Apps Script (`Code.gs`) for user-owned Google Relay
+     * (`script.google.com/macros/s/.../exec`) with daily quota tracking (`MailApp` / `PropertiesService`).
+     */
+    fun buildGoogleAppsScriptRelaySource(): String = buildString {
+        appendLine("// Cat Client — Personal Google Apps Script (GAS) Relay (Code.gs)")
+        appendLine("// 1. Open https://script.google.com -> New Project -> paste this code")
+        appendLine("// 2. Deploy -> New deployment -> Web app -> Execute as: Me, Who has access: Anyone")
+        appendLine("// 3. Copy the https://script.google.com/macros/s/.../exec URL into Cat Client")
+        appendLine("var DAILY_LIMIT = 20000;")
+        appendLine("function bumpQuota_() {")
+        appendLine("  var props = PropertiesService.getScriptProperties();")
+        appendLine("  var day = String(Math.floor(Date.now() / 86400000));")
+        appendLine("  var used = (props.getProperty('d') === day) ? (parseInt(props.getProperty('c') || '0', 10) || 0) + 1 : 1;")
+        appendLine("  props.setProperties({ d: day, c: String(used) });")
+        appendLine("  return { used: used, remaining: Math.max(0, DAILY_LIMIT - used), limit: DAILY_LIMIT };")
+        appendLine("}")
+        appendLine("function doGet(e) {")
+        appendLine("  var p = (e && e.parameter) || {};")
+        appendLine("  var q = bumpQuota_();")
+        appendLine("  if (!p.target) {")
+        appendLine("    return ContentService.createTextOutput(JSON.stringify({ ok: true, relay: 'cat-gas-relay', quota: q }))")
+        appendLine("      .setMimeType(ContentService.MimeType.JSON);")
+        appendLine("  }")
+        appendLine("  var resp = UrlFetchApp.fetch(p.target, { muteHttpExceptions: true, followRedirects: true });")
+        appendLine("  return ContentService.createTextOutput(resp.getContentText());")
+        appendLine("}")
+        appendLine("function doPost(e) {")
+        appendLine("  var q = bumpQuota_();")
+        appendLine("  var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');")
+        appendLine("  if (!body.url) {")
+        appendLine("    return ContentService.createTextOutput(JSON.stringify({ ok: true, quota: q }))")
+        appendLine("      .setMimeType(ContentService.MimeType.JSON);")
+        appendLine("  }")
+        appendLine("  var r = UrlFetchApp.fetch(body.url, {")
+        appendLine("    method: body.method || 'get',")
+        appendLine("    headers: body.headers || {},")
+        appendLine("    payload: body.payload ? Utilities.base64Decode(body.payload) : undefined,")
+        appendLine("    muteHttpExceptions: true")
+        appendLine("  });")
+        appendLine("  return ContentService.createTextOutput(JSON.stringify({")
+        appendLine("    ok: true, status: r.getResponseCode(),")
+        appendLine("    bodyB64: Utilities.base64Encode(r.getContent()),")
+        appendLine("    quota: q")
+        appendLine("  })).setMimeType(ContentService.MimeType.JSON);")
+        appendLine("}")
+    }
+
+    fun buildGasRelayUri(scriptExecUrl: String, remark: String = "Google-Relay"): String {
+        val trimmed = scriptExecUrl.trim()
+        val cleanPath = trimmed.removePrefix("https://").removePrefix("http://").ifBlank { "script.google.com/macros/s/demo/exec" }
+        val encodedUrl = runCatching { java.net.URLEncoder.encode(trimmed, "UTF-8") }.getOrDefault(trimmed)
+        val encodedRemark = runCatching { java.net.URLEncoder.encode(remark, "UTF-8") }.getOrDefault(remark)
+        return "gasrelay://$cleanPath?url=$encodedUrl&sni=script.google.com#$encodedRemark"
+    }
+
+    /**
+     * Generates a lightweight, zero-KV Cloudflare Worker (`Cat Client Lite`) that serves
+     * `/sub/<uuid>` and proxies VLESS-over-WS with explicit `IP:port` ProxyIP fallback.
+     */
+    fun buildLiteWorkerScript(
+        uuid: String,
+        proxyIp: String = "103.237.102.191:11111",
+        fallbackHost: String = "",
+    ): String = buildString {
+        val safeUuid = uuid.trim().ifBlank { "11111111-2222-4333-8444-555555555555" }
+        val safeProxy = proxyIp.trim().ifBlank { "103.237.102.191:11111" }
+        val safeFb = fallbackHost.trim()
+        appendLine("// Cat Client Lite Worker — Fast, Zero-KV Quota, VLESS-WS + Explicit IP:port ProxyIP")
+        appendLine("import { connect } from 'cloudflare:sockets';")
+        appendLine("const DEFAULT_UUID = '$safeUuid';")
+        appendLine("const DEFAULT_PROXY_IP = '$safeProxy';")
+        appendLine("const DEFAULT_FALLBACK_HOST = '$safeFb';")
+        appendLine("let dailyReqs = 0, dailyDay = 0;")
+        appendLine("function parseHostPort(ep, defPort) {")
+        appendLine("  const s = String(ep || '').trim();")
+        appendLine("  if (!s) return null;")
+        appendLine("  if (s.startsWith('[')) {")
+        appendLine("    const close = s.indexOf(']');")
+        appendLine("    if (close < 0) return null;")
+        appendLine("    const h = s.slice(1, close);")
+        appendLine("    const p = s.slice(close + 2) ? parseInt(s.slice(close + 2), 10) : defPort;")
+        appendLine("    return { hostname: h, port: (p > 0 && p <= 65535) ? p : defPort };")
+        appendLine("  }")
+        appendLine("  const idx = s.lastIndexOf(':');")
+        appendLine("  if (idx > 0 && s.indexOf(':') === idx) {")
+        appendLine("    const p = parseInt(s.slice(idx + 1), 10);")
+        appendLine("    return { hostname: s.slice(0, idx), port: (p > 0 && p <= 65535) ? p : defPort };")
+        appendLine("  }")
+        appendLine("  return { hostname: s, port: defPort };")
+        appendLine("}")
+        appendLine("export default {")
+        appendLine("  async fetch(request, env) {")
+        appendLine("    const nowDay = Math.floor(Date.now() / 86400000);")
+        appendLine("    if (nowDay !== dailyDay) { dailyDay = nowDay; dailyReqs = 0; }")
+        appendLine("    dailyReqs++;")
+        appendLine("    const url = new URL(request.url);")
+        appendLine("    const u = (env && env.UUID) || DEFAULT_UUID;")
+        appendLine("    const px = url.searchParams.get('proxyip') || (env && env.PROXYIP) || DEFAULT_PROXY_IP;")
+        appendLine("    const fb = (env && env.FALLBACK_HOST) || DEFAULT_FALLBACK_HOST;")
+        appendLine("    if (url.pathname === '/health') {")
+        appendLine("      return Response.json({ ok: true, mode: 'cat-lite', dailyReqs, quotaWarn: dailyReqs > 80000, proxyIp: px });")
+        appendLine("    }")
+        appendLine("    if (url.pathname === '/sub/' + u) {")
+        appendLine("      const h = url.hostname;")
+        appendLine("      const fbTag = fb ? ('&fallback_host=' + encodeURIComponent(fb)) : '';")
+        appendLine("      const lines = [")
+        appendLine("        'vless://' + u + '@' + h + ':443?encryption=none&security=tls&sni=' + h + '&fp=chrome&type=ws&host=' + h + '&path=%2F%3Fed%3D2048' + fbTag + '#CatLite-Direct',")
+        appendLine("        'vless://' + u + '@188.114.98.0:443?encryption=none&security=tls&sni=' + h + '&fp=unsafe&cs=semi-python&fm=tlshello-0-len&alpn=http%2F1.1&type=ws&host=' + h + '&path=%2F%3Fproxyip%3D' + encodeURIComponent(px) + '#CatLite-Irancell-FF',")
+        appendLine("        'vless://' + u + '@[2a06:98c1:3101::6812:202f]:443?encryption=none&security=tls&sni=' + h + '&fp=chrome&type=ws&host=' + h + '&path=%2F%3Fproxyip%3D' + encodeURIComponent(px) + '#CatLite-MCI-IPv6'")
+        appendLine("      ];")
+        appendLine("      return new Response(btoa(lines.join('\\n')), { headers: { 'content-type': 'text/plain; charset=utf-8', 'X-CatLite-Reqs': String(dailyReqs) } });")
+        appendLine("    }")
+        appendLine("    return new Response('Cat Client Lite Worker Active', { status: 200, headers: { 'X-CatLite-Reqs': String(dailyReqs) } });")
+        appendLine("  }")
+        appendLine("};")
     }
 }

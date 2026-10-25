@@ -12057,25 +12057,35 @@ class MainActivity : Activity() {
             arrayOf(
                 "🧦 ۱) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
                 "🧭 ۲) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
-                "⚡ ۳) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
-                "📡 ۴) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۹ پریست ایران + ۴ موتور)",
-                "🌐 ۵) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
-                "🔍 ۶) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
-                "🧅 ۷) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
-                "💾 ۸) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
-                "📥 ۹) بازیابی کلید کلودفلر از کلیپ‌بورد",
+                "🩺 ۳) تشخیص اختلال و قطع نیمه‌کاره صفحه (Mid-Stream Freeze Detector)",
+                "🛡️ ۴) دامین فرانتینگ + پیدا کردن آدرس واقعی سایت‌های فیلترشده روی ایرانسل/همراه اول",
+                "🌐 ۵) رله گوگل (Google Apps Script) — اتصال از اسکریپت گوگل خودتان + نمایش سهمیه روزانه",
+                "🪶 ۶) ساخت ورکر سبک کلودفلر (Cat Client Lite Worker — سریع و بدون مصرف KV)",
+                "🔌 ۷) تنظیمات پایداری: وصل دوباره در قطعی، وصل بعد از ری‌استارت و قطع‌کن اضطراری (Kill Switch)",
+                "⚡ ۸) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
+                "📡 ۹) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۶ پریست ایران + ۴ موتور)",
+                "🌐 ۱۰) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
+                "🔍 ۱۱) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
+                "🧅 ۱۲) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
+                "💾 ۱۳) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
+                "📥 ۱۴) بازیابی کلید کلودفلر از کلیپ‌بورد",
             )
         } else {
             arrayOf(
                 "🧦 1) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
                 "🧭 2) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
-                "⚡ 3) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
-                "📡 4) WhiteDNS & Resolver Connection Lab (52 Servers + 9 Iran Presets + 4 Engines)",
-                "🌐 5) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
-                "🔍 6) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
-                "🧅 7) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
-                "💾 8) Backup Cloudflare Identity Key to Clipboard",
-                "📥 9) Restore Cloudflare Identity Key from Clipboard",
+                "🩺 3) Mid-Stream Freeze & Throttling Detector (Half-Loaded Page Diagnosis)",
+                "🛡️ 4) Domain Fronting + Unpoisoned Real IP Finder on Irancell/MCI",
+                "🌐 5) Google Apps Script (GAS) Relay — Personal Script + Quota Tracker",
+                "🪶 6) Cat Client Lite Worker Generator (Fast, Zero-KV Quota Cloudflare Worker)",
+                "🔌 7) Resilience & Kill Switch Settings (Reconnect on Drop / Boot Connect / Kill Switch)",
+                "⚡ 8) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
+                "📡 9) WhiteDNS & Resolver Connection Lab (52 Servers + 6 Iran Presets + 4 Engines)",
+                "🌐 10) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
+                "🔍 11) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
+                "🧅 12) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
+                "💾 13) Backup Cloudflare Identity Key to Clipboard",
+                "📥 14) Restore Cloudflare Identity Key from Clipboard",
             )
         }
 
@@ -12088,16 +12098,280 @@ class MainActivity : Activity() {
                 when (which) {
                     0 -> showSocks5HubPage()
                     1 -> runRegionalFirewallFingerprinterDialog()
-                    2 -> runWhiteDnsAutoMtuAndCarrierDialog()
-                    3 -> showWhiteDnsResolverMethodsDialog()
-                    4 -> runCloudflareSixPortsAndSniScanDialog()
-                    5 -> runIranDnsAndDnsttScanDialog()
-                    6 -> runFetchMoatTorBridgesDialog()
-                    7 -> exportAetherIdentityToClipboard()
-                    8 -> importAetherIdentityFromClipboard()
+                    2 -> runMidStreamFreezeDetectorDialog()
+                    3 -> showDomainFrontingAndUnpoisonResolverDialog()
+                    4 -> showGoogleAppsScriptRelayDialog()
+                    5 -> showLiteWorkerGeneratorDialog()
+                    6 -> showConnectionResilienceAndKillSwitchDialog()
+                    7 -> runWhiteDnsAutoMtuAndCarrierDialog()
+                    8 -> showWhiteDnsResolverMethodsDialog()
+                    9 -> runCloudflareSixPortsAndSniScanDialog()
+                    10 -> runIranDnsAndDnsttScanDialog()
+                    11 -> runFetchMoatTorBridgesDialog()
+                    12 -> exportAetherIdentityToClipboard()
+                    13 -> importAetherIdentityFromClipboard()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun runMidStreamFreezeDetectorDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ مرحله ۱/۲: در حال تست جریان داده پیوسته (32KB) برای تشخیص قطع نیمه‌کاره صفحه…"
+            else "⏳ Step 1/2: Probing continuous 32KB stream for mid-stream DPI freeze…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val verdict = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.probeMidStreamFreezeAndThroughput(targetBytes = 32_768, timeoutMs = 3_500)
+            }
+            val msg = if (isFarsi) verdict.summaryFa else verdict.summaryEn
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🩺 نتیجه تشخیص اختلال و قطع نیمه‌کاره (Mid-Stream Check)"
+                    else "🩺 Mid-Stream Freeze & Throttling Diagnosis",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.ok, null)
+                .setPositiveButton(
+                    if (isFarsi) "🧭 تشخیص و اعمال پروفایل ضد فایروال منطقه"
+                    else "🧭 Auto-Apply Regional Anti-Freeze Profile",
+                ) { _, _ ->
+                    runRegionalFirewallFingerprinterDialog()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun showDomainFrontingAndUnpoisonResolverDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val input = EditText(this).apply {
+            hint = "youtube.com / instagram.com / chatgpt.com / telegram.org"
+            setText("youtube.com")
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🛡️ دامین فرانتینگ + پیدا کردن آدرس واقعی سایت فیلترشده"
+                else "🛡️ Domain Fronting & Unpoisoned Real IP Finder",
+            )
+            .setMessage(
+                if (isFarsi) "نام دامنه فیلترشده را وارد کنید تا مسمومیت DNS اپراتور (10.10.34.x) دور زده شود، آی‌پی واقعی و سالم پیدا شود و تنظیم Domain Fronting روی خط شما اعمال گردد:"
+                else "Enter a filtered domain to bypass ISP DNS poisoning (10.10.34.x), discover its real reachable IP, and apply Domain Fronting:",
+            )
+            .setView(wrap)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "🔍 کشف آی‌پی واقعی و تست" else "🔍 Find Real IP & Test") { _, _ ->
+                val targetDomain = input.text?.toString()?.trim().orEmpty().ifBlank { "youtube.com" }
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "⏳ در حال رمزگشایی DNS بدون فیلتر و تست مسیر فرانتینگ برای $targetDomain…"
+                    else "⏳ Resolving unpoisoned IPs and testing fronting path for $targetDomain…",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                activityScope.launch {
+                    val res = withContext(Dispatchers.IO) {
+                        WhiteDnsSmartScanner.resolveUnpoisonedRealIp(targetDomain)
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "✅ نتیجه کشف آدرس واقعی و فرانتینگ" else "✅ Unpoisoned IP & Fronting Result")
+                        .setMessage(if (isFarsi) res.summaryFa else res.summaryEn)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setNeutralButton(if (isFarsi) "📋 کپی آی‌پی‌های واقعی" else "📋 Copy Real IPs") { _, _ ->
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("unpoison-ips", res.cleanIps.joinToString("\n")))
+                            Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                        }
+                        .setPositiveButton(if (isFarsi) "⚡ اعمال آی‌پی و SNI فرانتینگ" else "⚡ Apply Clean IP & Front SNI") { _, _ ->
+                            val bestIp = res.workingCleanIp ?: res.cleanIps.firstOrNull() ?: "188.114.98.0"
+                            val endpoint = "$bestIp:443"
+                            val prev = frontingIpPreferenceStore.readFrontingIp()
+                            frontingIps = runCatching {
+                                FrontingIpPolicy.normalizeIps((listOf(endpoint) + frontingIps).joinToString(","))
+                            }.getOrDefault(listOf(endpoint))
+                            renderFrontingIpChips()
+                            saveFrontingIps(reconnectIfChanged = true, previousValue = prev)
+                            applySniOverride(res.recommendedFrontHost)
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ آدرس $endpoint با فرانت ${res.recommendedFrontHost} اعمال شد"
+                                else "✅ Applied $endpoint with front host ${res.recommendedFrontHost}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showGoogleAppsScriptRelayDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val (usedToday, dailyLimit) = VpnRuntimeStateStore.readGasDailyUsage(this)
+        val pct = ((usedToday * 100) / dailyLimit.coerceAtLeast(1)).coerceIn(0, 100)
+        val warnText = if (pct >= 80) {
+            if (isFarsi) "⚠️ هشدار: نزدیک به سقف سهمیه روزانه گوگل ($pct%)" else "⚠️ Warning: Approaching daily GAS quota ($pct%)"
+        } else {
+            if (isFarsi) "✅ سهمیه روزانه سالم ($usedToday از $dailyLimit درخواست · $pct%)" else "✅ Daily quota healthy ($usedToday / $dailyLimit · $pct%)"
+        }
+        val input = EditText(this).apply {
+            hint = "https://script.google.com/macros/s/AKfycb.../exec"
+            setText(VpnRuntimeStateStore.readGasRelayUrl(this@MainActivity))
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🌐 رله گوگل (Google Apps Script Relay)"
+                else "🌐 Google Apps Script (GAS) Relay",
+            )
+            .setMessage(
+                if (isFarsi) "اتصال از راه اسکریپت گوگل شخصی شما روی دامنه باز script.google.com:\n$warnText\n\n۱) با دکمه «📋 کپی کد اسکریپت»، کد آماده را در script.google.com قرار دهید و Deploy کنید.\n۲) لینک Web App (.../exec) را در کادر زیر بگذارید و «🚀 ذخیره و اتصال» را بزنید:"
+                else "Connect via your personal Google Apps Script on script.google.com:\n$warnText\n\n1) Copy the ready Code.gs template and deploy as Web App in script.google.com.\n2) Paste your .../exec URL below and tap Save & Connect:",
+            )
+            .setView(wrap)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "📋 کپی کد اسکریپت گوگل (Code.gs)" else "📋 Copy Code.gs Script") { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("cat-gas-relay", WhiteDnsSmartScanner.buildGoogleAppsScriptRelaySource()))
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ کد کامل اسکریپت گوگل (Code.gs) کپی شد" else "✅ Copied Google Apps Script (Code.gs)",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setPositiveButton(if (isFarsi) "🚀 ذخیره و اتصال با رله گوگل" else "🚀 Save & Connect via GAS Relay") { _, _ ->
+                val url = input.text?.toString()?.trim().orEmpty()
+                VpnRuntimeStateStore.saveGasRelayUrl(this, url)
+                VpnRuntimeStateStore.incrementGasDailyUsage(this, 1)
+                val gasUri = WhiteDnsSmartScanner.buildGasRelayUri(url, "Google-Apps-Script-Relay")
+                activityScope.launch {
+                    runCatching {
+                        WhiteDnsSmartScanner.parseTunnelUri(gasUri)?.let { parsed ->
+                            withContext(Dispatchers.IO) {
+                                WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                            }
+                        }
+                        val title = "🌐 رله اسکریپت گوگل (GAS Relay)"
+                        val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                        val saved = withContext(Dispatchers.IO) {
+                            if (existing != null) {
+                                userSubscriptionManager.update(existing.id, title, gasUri)
+                            } else {
+                                userSubscriptionManager.add(title, gasUri)
+                            }
+                        }
+                        userSubscriptionManager.select(saved.id)
+                        renderSubscriptions()
+                        onSubscriptionSelected()
+                        renderAdvancedControls()
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showLiteWorkerGeneratorDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val liteScript = WhiteDnsSmartScanner.buildLiteWorkerScript(
+            uuid = java.util.UUID.randomUUID().toString(),
+            proxyIp = "103.237.102.191:11111",
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🪶 ورکر سبک کلودفلر (Cat Client Lite Worker)"
+                else "🪶 Cat Client Lite Worker (Zero-KV Fast Worker)",
+            )
+            .setMessage(
+                if (isFarsi) "ورکر فوق‌سبک (~3KB) بدون مصرف سهمیه KV کلودفلر، مجهز به:\n" +
+                    "• کانفیگ آماده متد F&F ایرانسل (188.114.98.0 + tlshello-0-len + semi-python)\n" +
+                    "• کانفیگ آماده IPv6 همراه اول (2a06:98c1:3101::6812:202f)\n" +
+                    "• رله ProxyIP با پورت صریح (103.237.102.191:11111)\n" +
+                    "• شمارشگر و هشدار سهمیه روزانه ۱۰۰ هزار درخواست رایگان (/health)"
+                else "Ultra-lightweight (~3KB) zero-KV Cloudflare Worker with built-in Irancell F&F, MCI IPv6, explicit-port ProxyIP, and daily 100k request quota warning (/health).",
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "📋 کپی کد ورکر لایت" else "📋 Copy Lite Worker Script") { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("catclient-lite-worker", liteScript))
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ کد ورکر لایت کلودفلر در کلیپ‌بورد کپی شد"
+                    else "✅ Copied Cat Client Lite Worker script to clipboard",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showConnectionResilienceAndKillSwitchDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val checked = booleanArrayOf(
+            VpnRuntimeStateStore.isAutoReconnectOnDropEnabled(this),
+            VpnRuntimeStateStore.isAutoConnectOnBootOrUpdateEnabled(this),
+            VpnRuntimeStateStore.isKillSwitchEnabled(this),
+        )
+        val labels = if (isFarsi) {
+            arrayOf(
+                "🔄 وصل دوباره اگر اتصال قطع شد (پیش‌فرض: خاموش)",
+                "🚀 وصل خودکار بعد از ری‌استارت گوشی یا آپدیت برنامه (پیش‌فرض: خاموش)",
+                "🛑 قطع‌کن اضطراری (Kill Switch) برای همه‌ی متودها و کانفیگ‌ها (جلوگیری از لو رفتن IP ایران)",
+            )
+        } else {
+            arrayOf(
+                "🔄 Reconnect automatically if dropped (default: off)",
+                "🚀 Connect after device reboot or app update (default: off)",
+                "🛑 Universal Emergency Kill Switch across all methods & configs",
+            )
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🔌 تنظیمات وصل خودکار و قطع‌کن اضطراری (Kill Switch)"
+                else "🔌 Auto-Reconnect, Boot Connect & Kill Switch",
+            )
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "💾 ذخیره تنظیمات" else "💾 Save") { _, _ ->
+                VpnRuntimeStateStore.setAutoReconnectOnDropEnabled(this, checked[0])
+                VpnRuntimeStateStore.setAutoConnectOnBootOrUpdateEnabled(this, checked[1])
+                VpnRuntimeStateStore.setKillSwitchEnabled(this, checked[2])
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ تنظیمات پایداری و قطع‌کن اضطراری ذخیره شد"
+                    else "✅ Saved resilience & Kill Switch settings",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
             .create()
             .showCatClientDialog()
     }
