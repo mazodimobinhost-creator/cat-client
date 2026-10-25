@@ -1844,6 +1844,8 @@ internal object FirefoxVpnEngine {
 
     fun currentLocalProxyPort(): Int = activeLocalPort.get()
 
+    fun activeProxyPort(): Int = activeLocalPort.get()
+
     /**
      * Starts or updates the local Firefox VPN (`FENIX`) bridge on `127.0.0.1:10829`.
      * Accepts both `SOCKS5` and `HTTP CONNECT` from Mihomo and tunnels traffic over
