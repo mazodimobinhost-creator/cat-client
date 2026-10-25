@@ -8,144 +8,301 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
-import android.os.SystemClock
 import android.view.View
-import android.view.animation.DecelerateInterpolator
-import androidx.core.graphics.ColorUtils
-import com.cat.client.core.VpnState
-import kotlin.math.PI
+import android.view.animation.LinearInterpolator
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Direct port of ZedSecure's `AnimatedBlobButton` (HomeScreen.kt):
- * 4 concentric harmonic-summed wave layers (`r + a1*sin(k1*θ+φ) + a2*cos(k2*θ-φ*0.7) + a3*sin(k3*θ+φ*1.3)`)
- * closed with quadratic Beziers at 4° steps, plus a soft ambient halo and a gradient core disk with a bold
- * centre glyph ("C" idle, 2-letter ISO country code when connected).
+ * ZedSecure-style "hero" core: a scalloped cookie shape that morphs into a soft burst while
+ * the tunnel is up, filled with a diagonal violet → pink → lime gradient (or theme-synced gradient),
+ * gently breathing. The caller supplies the centre text (elapsed time when connected, brand glyph otherwise);
+ * while connecting/disconnecting a small arc spinner is drawn instead.
  */
 class ZedBlobView(context: Context) : View(context) {
+    private val palette = CatClientDesignTokens.forContext(context)
 
-    private var vpnState: VpnState = VpnState.Stopped
-    private var centerText: String = "C"
-    private var stateProgress: Float = 0f // 0 = disconnected, 1 = connected
-    private val progressAnim = ValueAnimator().apply {
-        duration = 600L
-        interpolator = DecelerateInterpolator()
-        addUpdateListener { stateProgress = it.animatedValue as Float; invalidate() }
-    }
-    private val startRealtime = SystemClock.uptimeMillis()
-
-    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val coreBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = resources.displayMetrics.density * 2.5f
+        strokeWidth = dp(1.5f)
+    }
+    private val spinnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(5f)
+        strokeCap = Paint.Cap.ROUND
+        color = Color.WHITE
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = CatClientDisplayTypeface
         textAlign = Paint.Align.CENTER
-        typeface = CatClientHeadlineTypeface
+        isFakeBoldText = true
+        color = Color.WHITE
     }
     private val path = Path()
+    private val arcBounds = RectF()
 
-    fun setVpnState(state: VpnState) {
-        if (vpnState == state) return
-        vpnState = state
-        val target = if (state == VpnState.Started) 1f else 0f
-        progressAnim.cancel()
-        progressAnim.setFloatValues(stateProgress, target)
-        progressAnim.start()
+    private var state: VpnState = VpnState.Stopped
+    private var morph = 0f          // 0 = cookie (idle), 1 = soft burst (connected)
+    private var breathe = 1f
+    private var breathePhase = 0f
+    private var spin = 0f
+    private var centerText: String = "C"
+    private var shaderColors: IntArray = idleColors()
+    private var sessionSeed = 0
+
+    private var morphAnimator: ValueAnimator? = null
+    private val ticker = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 2_800L
+        repeatCount = ValueAnimator.INFINITE
+        repeatMode = ValueAnimator.REVERSE
+        interpolator = LinearInterpolator()
+        addUpdateListener {
+            breathePhase = it.animatedValue as Float
+            breathe = if (state == VpnState.Started) 0.97f + 0.07f * breathePhase else 1f
+            spin = (spin + 0.012f) % 1f
+            invalidate()
+        }
+    }
+
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
+    fun setVpnState(newState: VpnState) {
+        if (state == newState) return
+        if (newState == VpnState.Started && state != VpnState.Started) sessionSeed++
+        state = newState
+        shaderColors = when (newState) {
+            VpnState.Started -> connectedColors(sessionSeed)
+            VpnState.Starting, VpnState.Stopping -> intArrayOf(themePrimary ?: ZED_VIOLET, themeSecondary ?: ZED_CYAN, ZED_LIME)
+            is VpnState.Error, VpnState.DailyLimitReached -> intArrayOf(0xFF93000A.toInt(), 0xFFFF5FA2.toInt(), ZED_VIOLET)
+            VpnState.Stopped -> idleColors()
+        }
+        fillPaint.shader = null
+        val target = if (newState == VpnState.Started) 1f else 0f
+        morphAnimator?.cancel()
+        morphAnimator = ValueAnimator.ofFloat(morph, target).apply {
+            duration = 650L
+            addUpdateListener { morph = it.animatedValue as Float; invalidate() }
+            start()
+        }
         invalidate()
     }
 
     fun setCenterText(text: String) {
-        val clean = text.trim().ifEmpty { "C" }.take(3).uppercase()
-        if (centerText != clean) { centerText = clean; invalidate() }
+        if (centerText == text) return
+        centerText = text
+        invalidate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!ticker.isStarted) ticker.start()
+    }
+
+    override fun onDetachedFromWindow() {
+        ticker.cancel()
+        morphAnimator?.cancel()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        fillPaint.shader = null
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        val size = when {
+            MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY -> h
+            MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY -> w
+            else -> dp(260f).toInt()
+        }
+        setMeasuredDimension(size, size)
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val p = CatClientDesignTokens.forContext(context)
-        val cx = width * 0.5f
-        val cy = height * 0.5f
-        val maxR = min(width, height) * 0.44f
-        if (maxR <= 0f) return
+        val cx = width / 2f
+        val cy = height / 2f
+        val outer = min(width, height) / 2f
+        val r = outer * 0.84f
 
-        val connecting = vpnState == VpnState.Starting || vpnState == VpnState.Stopping
-        val speedMul = if (connecting) 2.5f else 1f
-        val ampMul = if (connecting) 1.5f else 1f
-        val t = (SystemClock.uptimeMillis() - startRealtime) / 1000f * speedMul
+        if (fillPaint.shader == null) {
+            fillPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), shaderColors, null, Shader.TileMode.CLAMP)
+        }
 
-        val primaryColor = ColorUtils.blendARGB(p.teal, p.secondary, stateProgress)
-        val secondaryColor = ColorUtils.blendARGB(p.secondary, p.teal, stateProgress)
-
-        val haloR = maxR * 1.14f
-        haloPaint.shader = RadialGradient(
+        val primaryTone = themePrimary ?: ZED_VIOLET
+        val secondaryTone = themeSecondary ?: ZED_HOT_PINK
+        glowPaint.shader = RadialGradient(
             cx,
             cy,
-            haloR,
+            outer * 0.99f,
             intArrayOf(
-                ColorUtils.setAlphaComponent(primaryColor, if (p.isDark) 68 else 44),
-                ColorUtils.setAlphaComponent(secondaryColor, if (p.isDark) 28 else 16),
+                withAlpha(primaryTone, if (state == VpnState.Started) 72 else 36),
+                withAlpha(secondaryTone, if (state == VpnState.Started) 34 else 14),
                 Color.TRANSPARENT,
             ),
-            floatArrayOf(0f, 0.65f, 1f),
+            floatArrayOf(0f, 0.72f, 1f),
             Shader.TileMode.CLAMP,
         )
-        canvas.drawCircle(cx, cy, haloR, haloPaint)
+        canvas.drawCircle(cx, cy, outer * 0.99f, glowPaint)
 
-        // 4 layers from outer to inner (matches ZedSecure blob1..blob4)
-        drawBlob(canvas, cx, cy, maxR * 1.00f, 0.08f * ampMul,  t * (2f * PI.toFloat() / 4.0f), 1, primaryColor, 0.15f)
-        drawBlob(canvas, cx, cy, maxR * 0.90f, 0.10f * ampMul, -t * (2f * PI.toFloat() / 3.5f), 2, secondaryColor, 0.25f)
-        drawBlob(canvas, cx, cy, maxR * 0.80f, 0.12f * ampMul,  t * (2f * PI.toFloat() / 3.0f), 3, primaryColor, 0.40f)
-        drawBlob(canvas, cx, cy, maxR * 0.70f, 0.06f * ampMul, -t * (2f * PI.toFloat() / 2.5f), 4, secondaryColor, 0.60f)
+        // Thin halo ring behind the core, like the faint circle around Zed's blob.
+        ringPaint.color = withAlpha(Color.WHITE, if (state == VpnState.Started) 56 else 28)
+        canvas.drawCircle(cx, cy, outer * 0.97f, ringPaint)
 
-        val coreR = maxR * 0.60f
-        val g0 = ColorUtils.blendARGB(p.teal, p.tealGradientStart, stateProgress)
-        val g1 = ColorUtils.blendARGB(p.secondary, p.tealGradientEnd, stateProgress)
-        corePaint.shader = LinearGradient(cx - coreR, cy - coreR, cx + coreR, cy + coreR, g0, g1, Shader.TileMode.CLAMP)
-        canvas.drawCircle(cx, cy, coreR, corePaint)
+        canvas.save()
+        val pressScale = if (isPressed) 0.96f else 1f
+        canvas.scale(breathe * pressScale, breathe * pressScale, cx, cy)
+        buildPath(cx, cy, r)
+        canvas.drawPath(path, fillPaint)
+        canvas.restore()
 
-        coreBorderPaint.color = ColorUtils.setAlphaComponent(Color.WHITE, (0.3f * 255).toInt())
-        canvas.drawCircle(cx, cy, coreR, coreBorderPaint)
-
-        textPaint.color = ColorUtils.blendARGB(p.onAccent, Color.WHITE, stateProgress * 0.6f)
-        textPaint.textSize = coreR * (if (centerText.length > 1) 0.56f else 0.72f)
-        val fm = textPaint.fontMetrics
-        canvas.drawText(centerText, cx, cy - (fm.ascent + fm.descent) * 0.5f, textPaint)
-
-        if (isShown) postInvalidateOnAnimation()
+        val transitional = state == VpnState.Starting || state == VpnState.Stopping
+        if (transitional) {
+            val sr = r * 0.30f
+            arcBounds.set(cx - sr, cy - sr, cx + sr, cy + sr)
+            canvas.drawArc(arcBounds, spin * 360f, 270f, false, spinnerPaint)
+        } else {
+            textPaint.textSize = if (state == VpnState.Started) r * 0.42f else r * 0.72f
+            val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2f
+            canvas.drawText(centerText, cx, baseline, textPaint)
+        }
     }
 
-    private fun drawBlob(
-        canvas: Canvas, cx: Float, cy: Float, baseR: Float,
-        amp: Float, phase: Float, seed: Int, color: Int, alpha: Float,
-    ) {
+    /**
+     * Cookie9Sided (gentle 9-lobe scallop) morphing into SoftBurst (sharper 10-lobe star).
+     * Lobe count blends by cross-fading two radial waves; amplitude grows with [morph].
+     */
+    private fun buildPath(cx: Float, cy: Float, r: Float) {
         path.reset()
-        val step = 4
-        var prevX = 0f
-        var prevY = 0f
-        var angle = 0
-        while (angle <= 360) {
-            val rad = angle * (PI.toFloat() / 180f)
-            val w1 = sin(rad * (3 + seed % 2) + phase) * amp
-            val w2 = cos(rad * (4 + seed % 3) - phase * 0.7f) * (amp * 0.6f)
-            val w3 = sin(rad * (2 + seed) + phase * 1.3f) * (amp * 0.4f)
-            val r = baseR * (1f + w1 + w2 + w3)
-            val x = cx + r * cos(rad)
-            val y = cy + r * sin(rad)
-            if (angle == 0) {
-                path.moveTo(x, y)
-            } else {
-                path.quadTo(prevX, prevY, (prevX + x) * 0.5f, (prevY + y) * 0.5f)
-            }
-            prevX = x; prevY = y
-            angle += step
+        val segments = 240
+        val cookieAmp = 0.055f
+        val burstAmp = 0.13f
+        val rot = breathePhase * 0.15f
+        for (i in 0..segments) {
+            val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
+            val cookie = cos(9f * a + rot) * cookieAmp
+            val c = cos(10f * a - rot)
+            val soft = Math.signum(c) * Math.pow(abs(c).toDouble(), 0.72).toFloat()
+            val burst = soft * burstAmp
+            val wave = cookie * (1f - morph) + burst * morph
+            val rr = r * (1f + wave) * (1f + 0.04f * morph)
+            val x = cx + rr * cos(a)
+            val y = cy + rr * sin(a)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        layerPaint.color = ColorUtils.setAlphaComponent(color, (alpha * 255).toInt().coerceIn(0, 255))
-        canvas.drawPath(path, layerPaint)
     }
+
+    override fun setPressed(pressed: Boolean) {
+        super.setPressed(pressed)
+        invalidate()
+    }
+
+    private var themePrimary: Int? = null
+    private var themeSecondary: Int? = null
+
+    /** Theme preset colours: the idle/connecting blob follows the preset instead of Zed's violet. */
+    fun setThemeColors(primary: Int, secondary: Int, isDefault: Boolean) {
+        themePrimary = if (isDefault) null else primary
+        themeSecondary = if (isDefault) null else secondary
+        if (state != VpnState.Started) { shaderColors = if (state == VpnState.Stopped) idleColors() else shaderColors; fillPaint.shader = null; invalidate() }
+    }
+
+    private fun idleColors(): IntArray {
+        val p = themePrimary ?: return intArrayOf(ZED_DEEP_VIOLET, ZED_VIOLET, withAlpha(ZED_HOT_PINK, 180))
+        val sec = themeSecondary ?: ZED_HOT_PINK
+        return intArrayOf(androidx.core.graphics.ColorUtils.blendARGB(p, 0xFF000000.toInt(), 0.55f), p, withAlpha(sec, 190))
+    }
+
+    private fun connectedColors(seed: Int): IntArray {
+        val p = themePrimary
+        val sec = themeSecondary
+        if (p != null && sec != null) {
+            return intArrayOf(p, sec, ZED_LIME)
+        }
+        val sets = arrayOf(
+            intArrayOf(0xFF5B8CFF.toInt(), ZED_CYAN, ZED_LIME),
+            intArrayOf(ZED_VIOLET, ZED_HOT_PINK, ZED_LIME),
+            intArrayOf(ZED_DEEP_VIOLET, ZED_VIOLET, ZED_CYAN),
+            intArrayOf(ZED_HOT_PINK, ZED_VIOLET, ZED_CYAN),
+            intArrayOf(ZED_VIOLET, ZED_CYAN, ZED_LIME),
+            intArrayOf(ZED_DEEP_VIOLET, ZED_HOT_PINK, ZED_VIOLET),
+        )
+        return sets[((seed % sets.size) + sets.size) % sets.size]
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        Color.argb(max(0, min(255, alpha)), Color.red(color), Color.green(color), Color.blue(color))
+
+    private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
+    companion object {
+        const val ZED_LIME = 0xFFC7F24E.toInt()
+        const val ZED_HOT_PINK = 0xFFFF5FA2.toInt()
+        const val ZED_VIOLET = 0xFF7A5CFF.toInt()
+        const val ZED_DEEP_VIOLET = 0xFF2A1361.toInt()
+        const val ZED_CYAN = 0xFF37E0D8.toInt()
+    }
+}
+
+/**
+ * ZedSecure DecorativeBackdrop: one big soft gradient blob bleeding in from the top-right corner.
+ * Drawn as a plain Drawable so it can sit behind any scrolling content.
+ */
+class ZedDecorDrawable(private var alpha: Float = 1f) : android.graphics.drawable.Drawable() {
+    fun setFraction(fraction: Float) { alpha = fraction.coerceIn(0f, 1f) }
+    private var colors: IntArray? = null
+    fun setThemeColors(primary: Int, secondary: Int, isDefault: Boolean) {
+        colors = if (isDefault) null else intArrayOf(
+            androidx.core.graphics.ColorUtils.blendARGB(primary, 0xFF000000.toInt(), 0.5f), primary, (secondary and 0x00FFFFFF) or (0xB3 shl 24),
+        )
+        paint.shader = null
+        invalidateSelf()
+    }
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        if (b.isEmpty) return
+        val w = b.width().toFloat()
+        val cx = b.right + w * 0.02f
+        val cy = b.top - w * 0.10f
+        val r = w * 0.52f
+        if (paint.shader == null) {
+            paint.shader = LinearGradient(
+                cx - r, cy - r, cx + r * 0.2f, cy + r,
+                colors ?: intArrayOf(ZedBlobView.ZED_DEEP_VIOLET, ZedBlobView.ZED_VIOLET, (ZedBlobView.ZED_HOT_PINK and 0x00FFFFFF) or (0xB3 shl 24)),
+                null, Shader.TileMode.CLAMP,
+            )
+        }
+        paint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+        path.reset()
+        val segments = 140
+        for (i in 0..segments) {
+            val a = i.toFloat() / segments * 2f * Math.PI.toFloat()
+            val wave = 1f + 0.075f * cos(7f * a)
+            val x = cx + r * wave * cos(a)
+            val y = cy + r * wave * sin(a)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        canvas.drawPath(path, paint)
+    }
+
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
 }
