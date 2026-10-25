@@ -1241,7 +1241,14 @@ internal object WhiteDnsSmartScanner {
                 val targetPort = ((portHi and 0xFF) shl 8) or (portLo and 0xFF)
 
                 // Resolve via WhiteDNS carrier probe to warm the resolver path before dialing
-                runCatching { probeUdpDns(parsed.resolverIp, parsed.resolverPort, targetHost, 1_500) }
+                runCatching {
+                    probeDnsOverUdp(
+                        parsed.resolverIp,
+                        domain = targetHost,
+                        qtype = parsed.recordMode.qtype,
+                        timeoutMs = 1_500,
+                    )
+                }
 
                 val upstream = Socket()
                 try {
