@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.25';
+const CAT_PANEL_VERSION = '6.69.26';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -3867,6 +3867,16 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (Object.keys(qTags).length) settings = Object.assign({}, settings, { ipCountries: Object.assign({}, settings.ipCountries, qTags) });
     }
   }
+  if (q.fam === 'v6' && !addresses.some((a) => { const p = pinnedPortOf(a); const b = (p ? a.slice(0, a.lastIndexOf(':')) : a).replace(/^\[/, '').replace(/\]$/, ''); return isIpv6(b); })) {
+    addresses = addresses.concat(['2a06:98c1:3101::6812:202f', '2606:4700:3030::6815:1', '2606:4700:3031::ac43:1']);
+  }
+  if (q.fam === 'v4' || q.fam === 'v6') {
+    addresses = addresses.filter((a) => {
+      const p = pinnedPortOf(a);
+      const b = (p ? a.slice(0, a.lastIndexOf(':')) : a).replace(/^\[/, '').replace(/\]$/, '');
+      return q.fam === 'v6' ? isIpv6(b) : isIpv4(b);
+    });
+  }
   // Country: ?country=DE (link) beats the panel's preferred country. Entries of
   // that country come FIRST; with ?strict=1 (or countryFallback=none) nothing
   // else is emitted, otherwise the other countries follow as fallback.
@@ -7118,6 +7128,57 @@ ${(() => {
    <button class="btn p" id="btnSurvival" type="button">🛡 <span data-i="surv_apply"></span></button>
    <div id="survOut" class="res small" style="margin-top:8px" dir="ltr"></div>
   </div>
+  <div class="card sec" style="margin-top:12px" id="wdnsCard">
+   <h2><span class="ic">📡</span><span>WhiteDNS · متدهای اتصال DNS و ریزولور</span></h2>
+   <div class="note i small">انتخاب ریزولور (شکن، الکترو، رادار، ۴۰۳، بگذر، مخابرات، QUIC)، ترنسپورت (Auto UDP+TCP / DoT :853 / DoH :443 / DoQ :853 / DoH3)، رکورد حامل (HTTPS/65 ضد DPI، TXT+CNAME، NULL 1232B) و پریست‌های اینترنت ایران برای ساخت کانفیگ‌های CottenMax FEC، StormDNS، Soar و پل dnstt.</div>
+   <label style="margin-top:8px">۱) ریزولور منتخب (تحریم‌شکن / گیمینگ / اپراتور / QUIC)</label>
+   <div class="pick" id="wdnsResPick">
+    <button type="button" data-wdres="178.22.122.100" class="on">🇮🇷 شکن (178.22.122.100)</button>
+    <button type="button" data-wdres="78.157.42.100">🎮 الکترو (78.157.42.100)</button>
+    <button type="button" data-wdres="10.202.10.10">🎯 رادار گیم (10.202.10.10)</button>
+    <button type="button" data-wdres="10.202.10.202">🔓 403.online (10.202.10.202)</button>
+    <button type="button" data-wdres="185.55.226.26">🌐 بگذر (185.55.226.26)</button>
+    <button type="button" data-wdres="217.218.155.155">📡 مخابرات/شاتل (217.218.155.155)</button>
+    <button type="button" data-wdres="1.1.1.1">🔒 Cloudflare QUIC (1.1.1.1)</button>
+    <button type="button" data-wdres="94.140.14.14">🛡 AdGuard QUIC (94.140.14.14)</button>
+   </div>
+   <div class="two" style="margin-top:8px">
+    <div>
+     <label>۲) ترنسپورت ریزولور</label>
+     <div class="pick" id="wdnsTrPick">
+      <button type="button" data-wdtr="auto" class="on">Auto (UDP+TCP)</button>
+      <button type="button" data-wdtr="udp">UDP :53</button>
+      <button type="button" data-wdtr="tcp">TCP :53</button>
+      <button type="button" data-wdtr="dot">DoT :853</button>
+      <button type="button" data-wdtr="doh">DoH :443</button>
+      <button type="button" data-wdtr="doq">DoQ :853</button>
+      <button type="button" data-wdtr="doh3">DoH3 :443</button>
+     </div>
+    </div>
+    <div>
+     <label>۳) رکورد حامل DNS (Carrier Record)</label>
+     <div class="pick" id="wdnsRecPick">
+      <button type="button" data-wdrec="txt-https" class="on">HTTPS/SVCB (Type 65 · ضد DPI)</button>
+      <button type="button" data-wdrec="txt-cname">TXT + CNAME</button>
+      <button type="button" data-wdrec="txt-aaaa">TXT + AAAA</button>
+      <button type="button" data-wdrec="null">NULL (1232B EDNS0)</button>
+      <button type="button" data-wdrec="all">چرخش همه (All)</button>
+     </div>
+    </div>
+   </div>
+   <label style="margin-top:8px">۴) پریست خودکار شبکه ایران (WhiteDnsAutoTune)</label>
+   <div class="pick" id="wdnsPrPick">
+    <button type="button" data-wdpr="iran-fast-low-mtu" class="on">⚡ همراه اول/ایرانسل کم‌MTU</button>
+    <button type="button" data-wdpr="iran-compact-fixed">🛡 فایروال سخت‌گیر 62B</button>
+    <button type="button" data-wdpr="iran-fixed-64-balanced">⚖️ مخابرات/فیبر متعادل</button>
+    <button type="button" data-wdpr="iran-download-heavy">🚀 دانلود سنگین + FEC 4:1</button>
+    <button type="button" data-wdpr="tcp-survival">🔒 بقا روی TCP/53</button>
+   </div>
+   <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+    <button class="btn p sm" id="btnWdnsCopy" type="button">📋 کپی بسته تانل WhiteDNS (CottenMax / Storm / Soar / dnstt)</button>
+   </div>
+   <pre id="wdnsOut" class="res small mono" style="margin-top:8px;white-space:pre-wrap;overflow-x:auto" dir="ltr"></pre>
+  </div>
   <div id="scanList" style="margin-top:6px"></div>
  </div>
 </section>
@@ -8109,7 +8170,7 @@ function wireVerWarn(){
 function renderKvWarn(){var w=$('#kvWarn');if(!w||!CFG)return;
  w.style.display=(CFG.kv===false)?'block':'none';
  var ok=$('#kvWarnOk');
- if(ok&&!ok._w){ok._w=1;ok.addEventListener('click',function(){w.style.display='none'})}}
+ if(ok&&!ok._w){ok._w=1;ok.addEventListener('click',function(){w.style.display='none';w.setAttribute('data-dismissed','1')})}}
 /* The diagnostics page: the same numbers curl would show, rendered in the panel.
    Everything here comes from /api/diag, which is owner-only. */
 function renderDiag(){
@@ -8823,6 +8884,24 @@ $$('#aeQuickFw button').forEach(function(b){b.addEventListener('click',function(
 if($('#aeName'))$('#aeName').addEventListener('input',aeBuild);
 if($('#aeCopy'))$('#aeCopy').addEventListener('click',function(){copy($('#aeLink').value)});
 if($('#aeBuild')===null){} /* noop */
+var WD={res:'178.22.122.100',tr:'auto',rec:'txt-https',pr:'iran-fast-low-mtu'};
+function wdnsBuild(){var out=$('#wdnsOut');if(!out)return '';
+ var ip=WD.res,tr=WD.tr,rec=WD.rec,pr=WD.pr;
+ var dom='t.ruhnama.net',pk='241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f';
+ var cmax='cottendns://'+ip+':53/?mode=cottenmax&domain='+dom+'&pubkey='+pk+'&transport='+tr+'&delivery='+rec+'&preset='+pr+'&safe_qname=101&max_answer=1232&fec=4:1&timing_mask=light#WhiteDNS-CottenMax-'+pr;
+ var storm='stormdns://'+ip+':53/?domain='+dom+'&pubkey='+pk+'&transport='+tr+'&delivery='+rec+'&preset='+pr+'#WhiteDNS-Storm-'+pr;
+ var soar='soar://'+ip+':53/?profile=IR&transport='+tr+'&delivery='+rec+'&preset='+pr+'#WhiteDNS-Soar-IR';
+ var dspec=tr==='dot'?('dot='+ip+':853'):(tr==='doh'?('doh=https://'+ip+'/dns-query'):('udp='+ip+':53'));
+ var dnstt='dnstt 192.0.2.4:1 A998F319ADB60EE344540EC4B21524CC484F96BE '+dspec+' pubkey='+pk+' domain='+dom;
+ var rline='Resolver Endpoints: DoQ=quic://'+ip+':853 | DoH3=h3://'+ip+'/dns-query | DoT=tls://'+ip+':853 | DoH=https://'+ip+'/dns-query';
+ var txt=[cmax,storm,soar,dnstt,rline].join('\\n');
+ out.textContent=txt;return txt}
+$$('#wdnsResPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsResPick',b);WD.res=b.getAttribute('data-wdres')||'178.22.122.100';wdnsBuild()})});
+$$('#wdnsTrPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsTrPick',b);WD.tr=b.getAttribute('data-wdtr')||'auto';wdnsBuild()})});
+$$('#wdnsRecPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsRecPick',b);WD.rec=b.getAttribute('data-wdrec')||'txt-https';wdnsBuild()})});
+$$('#wdnsPrPick button').forEach(function(b){b.addEventListener('click',function(){pickSel('wdnsPrPick',b);WD.pr=b.getAttribute('data-wdpr')||'iran-fast-low-mtu';if(WD.pr==='tcp-survival')WD.tr='tcp';wdnsBuild()})});
+if($('#btnWdnsCopy'))$('#btnWdnsCopy').addEventListener('click',function(){var txt=wdnsBuild();copy(txt)});
+wdnsBuild();
 /* proxy repo country chips */
 var PP_COUNTRIES=['CA','CH','DE','FI','FR','GB','HK','IN','JP','KR','LV','NL','PL','RU','SE','SG','TW','US'];
 function renderPpCountries(){var box=$('#ppCountries');if(!box)return;var have={};(PP.d&&PP.d.repos||[]).forEach(function(r){have[r.id]=1});

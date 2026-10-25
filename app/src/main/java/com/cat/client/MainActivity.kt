@@ -10327,19 +10327,19 @@ class MainActivity : Activity() {
             MaterialButton(this).apply {
                 text = label
                 isAllCaps = false
-                textSize = 11.5f
+                textSize = 12f
                 typeface = CatClientBodyBoldTypeface
-                minHeight = dp(40)
-                minimumHeight = dp(40)
+                minHeight = dp(44)
+                minimumHeight = dp(44)
                 insetTop = 0
                 insetBottom = 0
-                cornerRadius = dp(10)
-                setPadding(dp(10), 0, dp(10), 0)
+                cornerRadius = dp(12)
+                setPadding(dp(12), 0, dp(12), 0)
                 if (accent) {
                     backgroundTintList = ColorStateList.valueOf(TEAL)
                     setTextColor(BACKGROUND)
                 } else {
-                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 210))
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 215))
                     strokeWidth = dp(1)
                     strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 200))
                     setTextColor(TEXT_PRIMARY)
@@ -10347,14 +10347,126 @@ class MainActivity : Activity() {
                 setOnClickListener { onClick() }
             }
 
-        // Row 1: Psiphon controls
+        // Primary Row (Focal CTA): 1-Tap Direct Connect + Auto-Scan & Build Wizard
+        val primaryCtaRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🚀 اتصال مستقیم Aether" else "🚀 Connect Aether Now",
+                    accent = true,
+                ) {
+                    val cur = aetherPreferenceStore.read()
+                    val peer = cur.endpoint ?: when {
+                        cur.ipScan == "v6" && cur.mode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+                        cur.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+                        cur.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
+                        else -> "162.159.198.1:443"
+                    }
+                    aetherPreferenceStore.save(
+                        cur.copy(
+                            enabled = true,
+                            endpoint = peer,
+                            endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        ),
+                    )
+                    refreshEngineSummary()
+                    renderAdvancedControls()
+                    openScreen(SCREEN_HOME)
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    } else {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🤖 اسکن و ساخت خودکار" else "🤖 Auto-Scan & Build",
+                    accent = true,
+                ) {
+                    showAetherAutoScanAndBuildWizard {
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(primaryCtaRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        // Row 2: Aether Builder (WARP / MASQUE / Chain) + Exit IP Location (Iran 🇮🇷 vs Foreign 🌍)
+        val coreConfigRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "➕ افزودن و تنظیم Aether" else "➕ Build & Configure Aether",
+                    accent = false,
+                ) {
+                    showAddAetherDialog {
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🇮🇷/🌍 آی‌پی: ایران یا خارج" else "🇮🇷/🌍 Exit IP: Iran / Foreign",
+                    accent = false,
+                ) {
+                    showAetherExitLocationPickerDialog {
+                        refreshEngineSummary()
+                        renderAdvancedControls()
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(coreConfigRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Row 3: WhiteDNS & Resolver Connection Methods + Smart Tools Menu
+        val dnsAndToolsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "📡 متدهای DNS و ریزولور" else "📡 DNS & Resolver Methods",
+                    accent = true,
+                ) {
+                    showWhiteDnsResolverMethodsDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🧰 ابزارهای کمکی ▾" else "🧰 Smart Tools ▾",
+                    accent = false,
+                ) {
+                    showWhiteDnsAndAetherToolsDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(dnsAndToolsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Collapsible secondary controls container (Progressive Disclosure: keeps main view clean)
+        val quickControlsHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            visibility = View.GONE
+        }
+
+        // Quick Row A: Psiphon controls (Chain WARP -> Psiphon + 29 Countries)
         val psiphonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
                 smallActionBtn(
                     label = if (isFarsi) "🌀 چین WARP → سایفون" else "🌀 Chain WARP → Psiphon",
-                    accent = true,
+                    accent = false,
                 ) {
                     updateEngineProgress(25, if (isFarsi) "در حال آماده‌سازی چین WARP → سایفون (با پروتکل ساده)…" else "Provisioning WARP → Psiphon chain (simple carrier)…")
                     val cur = aetherPreferenceStore.read()
@@ -10380,7 +10492,7 @@ class MainActivity : Activity() {
             )
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "🌍 کشور سایفون" else "🌍 Psiphon Country",
+                    label = if (isFarsi) "🌍 کشور سایفون (۲۹ کشور)" else "🌍 Psiphon Country (29)",
                     accent = false,
                 ) {
                     val cur = aetherPreferenceStore.read()
@@ -10427,9 +10539,9 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
             )
         }
-        card.addView(psiphonRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        quickControlsHost.addView(psiphonRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // Row 2: Tor / Orbot / dnstt emergency bridges
+        // Quick Row B: Tor / Orbot / dnstt emergency bridges
         val torRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -10487,49 +10599,18 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
             )
         }
-        card.addView(torRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        quickControlsHost.addView(torRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // Row 3: Add Aether (WARP IPv6 / MASQUE-HTTP/2) + Firewall Connection Guide
-        val warpRow = LinearLayout(this).apply {
+        // Quick Row C: Firewall Guide + Live Exit IP Probe
+        val fwAndProbeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                smallActionBtn(
-                    label = if (isFarsi) "➕ افزودن Aether (WARP / MASQUE)" else "➕ Add Aether (WARP / MASQUE)",
-                    accent = true,
-                ) {
-                    showAddAetherDialog {
-                        refreshEngineSummary()
-                        renderAdvancedControls()
-                    }
-                },
-                LinearLayout.LayoutParams(0, -2, 1f),
-            )
             addView(
                 smallActionBtn(
                     label = if (isFarsi) "🛡 فایروال همراه اول / ایرانسل" else "🛡 MCI & Irancell Firewall",
                     accent = false,
                 ) {
                     showFirewallConnectionGuideDialog()
-                },
-                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
-            )
-        }
-        card.addView(warpRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
-        // Row 4: Exit IP Location (Iran 🇮🇷 vs Foreign 🌍) + Live Exit IP Probe
-        val exitLocControlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                smallActionBtn(
-                    label = if (isFarsi) "🇮🇷/🌍 آی‌پی: ایران یا خارج" else "🇮🇷/🌍 Exit IP: Iran / Foreign",
-                    accent = true,
-                ) {
-                    showAetherExitLocationPickerDialog {
-                        refreshEngineSummary()
-                        renderAdvancedControls()
-                    }
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
@@ -10546,42 +10627,12 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
             )
         }
-        card.addView(exitLocControlRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        quickControlsHost.addView(fwAndProbeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // Row 5: Direct 1-Tap Connect to Aether inside Cat Client + Copy aether:// URI + Switch to Normal Sub
-        val aetherDirectRow = LinearLayout(this).apply {
+        // Quick Row D: Copy aether:// URI + Switch to Normal Subscription (clean 2-button layout)
+        val uriAndModeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                smallActionBtn(
-                    label = if (isFarsi) "🚀 اتصال مستقیم Aether" else "🚀 Connect Aether Now",
-                    accent = true,
-                ) {
-                    val cur = aetherPreferenceStore.read()
-                    val peer = cur.endpoint ?: when {
-                        cur.ipScan == "v6" && cur.mode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
-                        cur.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
-                        cur.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
-                        else -> "162.159.198.1:443"
-                    }
-                    aetherPreferenceStore.save(
-                        cur.copy(
-                            enabled = true,
-                            endpoint = peer,
-                            endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
-                        ),
-                    )
-                    refreshEngineSummary()
-                    renderAdvancedControls()
-                    openScreen(SCREEN_HOME)
-                    if (currentVpnServiceState == VpnState.Started) {
-                        reconnectForConnectionOptionChange()
-                    } else {
-                        beginConnectFlow(Actions.CONNECT)
-                    }
-                },
-                LinearLayout.LayoutParams(0, -2, 1.15f),
-            )
             addView(
                 smallActionBtn(
                     label = if (isFarsi) "📋 کپی لینک aether://" else "📋 Copy aether://",
@@ -10596,11 +10647,11 @@ class MainActivity : Activity() {
                         Toast.LENGTH_LONG,
                     ).show()
                 },
-                LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginStart = dp(6) },
+                LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "🔄 ساب عادی" else "🔄 Normal Sub",
+                    label = if (isFarsi) "🔄 بازگشت به ساب عادی" else "🔄 Normal Subscription",
                     accent = false,
                 ) {
                     val cur = aetherPreferenceStore.read()
@@ -10617,32 +10668,21 @@ class MainActivity : Activity() {
                         reconnectForConnectionOptionChange()
                     }
                 },
-                LinearLayout.LayoutParams(0, -2, 0.9f).apply { marginStart = dp(6) },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
             )
         }
-        card.addView(aetherDirectRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        quickControlsHost.addView(uriAndModeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        // Row 6: 1-Tap Auto-Scan & Auto-Build Wizard (asks Iran vs Foreign Country, scans all methods on user's network, and builds best working profile)
-        val autoWizardBtn = smallActionBtn(
-            label = if (isFarsi) "🤖 اسکن و ساخت خودکار روی شبکه من (ایران 🇮🇷 یا کشور دیگر 🌍)" else "🤖 Auto-Scan & Build for My Network (Iran 🇮🇷 or Foreign 🌍)",
-            accent = true,
-        ) {
-            showAetherAutoScanAndBuildWizard {
-                refreshEngineSummary()
-                renderAdvancedControls()
-            }
-        }
-        card.addView(autoWizardBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
-        // Row 7: Conceptual All-in-One Helper Menu (6-Port Cloudflare + SNI Scanner, Iran DNS + dnstt Scanner, Identity Backup/Restore, Moat Tor Bridges)
-        val helperMenuBtn = smallActionBtn(
-            label = if (isFarsi) "🧰 ابزارهای کمکی (اسکن ۶ پورت / DNS ایران / پشتیبان کلید / پل تور) ▾"
-            else "🧰 Smart Tools (6-Port Scan / Iran DNS / Key Backup / Tor Moat) ▾",
+        val toggleQuickControlsBtn = smallActionBtn(
+            label = if (isFarsi) "⚡ گزینه‌های سریع (کشور سایفون · تور · تست آی‌پی · کپی لینک) ▾"
+            else "⚡ Quick Options (Psiphon Country · Tor · IP Check · Copy URI) ▾",
             accent = false,
         ) {
-            showWhiteDnsAndAetherToolsDialog()
+            val nextVisible = quickControlsHost.visibility != View.VISIBLE
+            quickControlsHost.visibility = if (nextVisible) View.VISIBLE else View.GONE
         }
-        card.addView(helperMenuBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        card.addView(toggleQuickControlsBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        card.addView(quickControlsHost, LinearLayout.LayoutParams(-1, -2))
 
         return card
     }
@@ -10857,8 +10897,29 @@ class MainActivity : Activity() {
                     "🔓 Sanction Bypass (warp -> psiphon/tor): If geo-sanctions persist even with wireguard-over-masque-HTTP/2, chain Psiphon or Tor. When chaining Psiphon/Tor, use simple wireguard or masque-h2 protocols (note: tor/psiphon have medium speed; use only when sanction bypass is needed).\n" +
                     "⚠️ Note: Your active regional firewall may differ from your SIM brand."
             }
+            visibility = View.GONE
         }
-        root.addView(guideBanner, LinearLayout.LayoutParams(-1, -2))
+        val guideToggleBtn = MaterialButton(this).apply {
+            text = if (isFarsi) "📖 راهنمای اتصال روی فایروال همراه اول و ایرانسل ▾" else "📖 MCI & Irancell Firewall Connection Guide ▾"
+            isAllCaps = false
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            minHeight = dp(38)
+            minimumHeight = dp(38)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 26 else 18))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 110))
+            setTextColor(TEXT_PRIMARY)
+            setOnClickListener {
+                val show = guideBanner.visibility != View.VISIBLE
+                guideBanner.visibility = if (show) View.VISIBLE else View.GONE
+            }
+        }
+        root.addView(guideToggleBtn, LinearLayout.LayoutParams(-1, -2))
+        root.addView(guideBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val nameInput = EditText(this).apply {
             setSingleLine(true)
@@ -11176,7 +11237,8 @@ class MainActivity : Activity() {
                             }
                             updateStateLabel(if (chosenMode == AetherMode.WireGuard) "mci" else "masque")
                         }
-                        .show()
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
@@ -11202,7 +11264,8 @@ class MainActivity : Activity() {
                             chosenIpScan = scans[idx]
                             updateStateLabel(if (chosenIpScan == "v6") "mci" else "mtn")
                         }
-                        .show()
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
             )
@@ -11254,7 +11317,8 @@ class MainActivity : Activity() {
                             }
                             updateStateLabel(if (chosenChain == "tor") "tor" else if (chosenChain == "psiphon") "psiphon" else "")
                         }
-                        .show()
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1.05f),
             )
@@ -11285,7 +11349,8 @@ class MainActivity : Activity() {
                             updateStateLabel("region")
                         }
                         .setNegativeButton(android.R.string.cancel, null)
-                        .show()
+                        .create()
+                        .showCatClientDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 0.95f).apply { marginStart = dp(6) },
             )
@@ -11910,7 +11975,8 @@ class MainActivity : Activity() {
                                 )
                             }
                             .setNegativeButton(android.R.string.cancel, null)
-                            .show()
+                            .create()
+                            .showCatClientDialog()
                     }
                 }
             }
@@ -11920,26 +11986,28 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Conceptual 5-in-1 menu exposing all WhiteDNS & WhiteAestherMobile power tools
+     * Conceptual 6-in-1 menu exposing all WhiteDNS & WhiteAestherMobile power tools
      * without cluttering the main UI.
      */
     private fun showWhiteDnsAndAetherToolsDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val items = if (isFarsi) {
             arrayOf(
-                "🌐 ۱) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
-                "📡 ۲) پیدا کردن سریع‌ترین DNS ایران + ساخت پل اضطراری dnstt (از ۵۰۰ سرور WhiteDNS)",
-                "🧅 ۳) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
-                "💾 ۴) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
-                "📥 ۵) بازیابی کلید کلودفلر از کلیپ‌بورد",
+                "📡 ۱) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (UDP/TCP/DoT/DoH/DoQ + رکوردها و پریست‌های ایران)",
+                "🌐 ۲) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
+                "🔍 ۳) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
+                "🧅 ۴) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
+                "💾 ۵) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
+                "📥 ۶) بازیابی کلید کلودفلر از کلیپ‌بورد",
             )
         } else {
             arrayOf(
-                "🌐 1) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
-                "📡 2) Find Fastest Iran DNS + Build Emergency dnstt Bridges (WhiteDNS Pool)",
-                "🧅 3) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
-                "💾 4) Backup Cloudflare Identity Key to Clipboard",
-                "📥 5) Restore Cloudflare Identity Key from Clipboard",
+                "📡 1) WhiteDNS & Resolver Connection Lab (UDP/TCP/DoT/DoH/DoQ + Carrier Records & Iran Presets)",
+                "🌐 2) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
+                "🔍 3) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
+                "🧅 4) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
+                "💾 5) Backup Cloudflare Identity Key to Clipboard",
+                "📥 6) Restore Cloudflare Identity Key from Clipboard",
             )
         }
 
@@ -11950,14 +12018,304 @@ class MainActivity : Activity() {
             )
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> runCloudflareSixPortsAndSniScanDialog()
-                    1 -> runIranDnsAndDnsttScanDialog()
-                    2 -> runFetchMoatTorBridgesDialog()
-                    3 -> exportAetherIdentityToClipboard()
-                    4 -> importAetherIdentityFromClipboard()
+                    0 -> showWhiteDnsResolverMethodsDialog()
+                    1 -> runCloudflareSixPortsAndSniScanDialog()
+                    2 -> runIranDnsAndDnsttScanDialog()
+                    3 -> runFetchMoatTorBridgesDialog()
+                    4 -> exportAetherIdentityToClipboard()
+                    5 -> importAetherIdentityFromClipboard()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Full WhiteDNS & Resolver Connection Suite:
+     * - Multi-transport DNS scanning (UDP :53, TCP :53 RFC 1035, DoT :853) + Carrier Record verification (HTTPS/65, TXT, CNAME, AAAA)
+     * - 18-Server Categorized Resolver Catalog (Shecan, Electro, Radar, 403, Begzar, DynX, TCI, Shatel, Cloudflare DoQ/DoH3, AdGuard DoQ)
+     * - Iran Auto-Tune Presets (`iran-fast-low-mtu`, `iran-compact-fixed`, `iran-fixed-64-balanced`, `iran-mid-reliable`, `iran-download-heavy`, `tcp-survival`)
+     * - Multi-Engine Tunnel Builder (`dnstt`, `stormdns://`, `cottendns://` CottenMax FEC, `soar://`)
+     */
+    private fun showWhiteDnsResolverMethodsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        var selectedResolver = WhiteDnsSmartScanner.RESOLVER_CATALOG.first()
+        var selectedTransport = "auto"
+        var selectedRecordMode = WhiteDnsRecordMode.TXT_HTTPS
+        var selectedPreset = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.first()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(18), dp(12), dp(18), dp(8))
+        }
+
+        val summaryBox = TextView(this).apply {
+            textSize = 11.8f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEAL)
+            setLineSpacing(0f, 1.25f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(withAlpha(TEAL, if (palette.isDark) 24 else 14))
+                setStroke(dp(1), withAlpha(TEAL, 110))
+            }
+        }
+
+        val previewBox = TextView(this).apply {
+            textSize = 10.8f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setTextIsSelectable(true)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(SURFACE, 220))
+                setStroke(dp(1), withAlpha(OUTLINE, 180))
+            }
+        }
+
+        fun currentBundle(): WhiteDnsTunnelBundle =
+            WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
+                resolverIp = selectedResolver.primaryIp,
+                transport = selectedTransport,
+                recordMode = selectedRecordMode,
+                preset = selectedPreset,
+            )
+
+        fun refreshView() {
+            val bundle = currentBundle()
+            val resolverTitle = if (isFarsi) selectedResolver.nameFa else selectedResolver.nameEn
+            val recordTitle = if (isFarsi) selectedRecordMode.titleFa else selectedRecordMode.titleEn
+            val presetTitle = if (isFarsi) selectedPreset.titleFa else selectedPreset.titleEn
+            val recordHint = if (isFarsi) selectedRecordMode.hintFa else selectedRecordMode.hintEn
+            summaryBox.text = if (isFarsi) {
+                "📡 ریزولور انتخابی: $resolverTitle (${selectedResolver.primaryIp})\n" +
+                    "🔌 ترنسپورت: ${selectedTransport.uppercase(Locale.US)} · 📦 رکورد حامل: $recordTitle\n" +
+                    "⚡ پریست شبکه ایران: $presetTitle\n" +
+                    "💡 $recordHint"
+            } else {
+                "📡 Resolver: $resolverTitle (${selectedResolver.primaryIp})\n" +
+                    "🔌 Transport: ${selectedTransport.uppercase(Locale.US)} · 📦 Carrier Record: $recordTitle\n" +
+                    "⚡ Iran Preset: $presetTitle\n" +
+                    "💡 $recordHint"
+            }
+            previewBox.text = buildString {
+                appendLine("# 1) CottenMax (Reed-Solomon FEC 4:1 + Loss Guard)")
+                appendLine(bundle.cottenMaxUri)
+                appendLine()
+                appendLine("# 2) StormDNS / MasterDNS")
+                appendLine(bundle.stormDnsUri)
+                appendLine()
+                appendLine("# 3) Lantern Soar (IR Profile)")
+                appendLine(bundle.soarUri)
+                appendLine()
+                appendLine("# 4) dnstt Bridge (${selectedTransport.uppercase(Locale.US)})")
+                val dnsttLine = when (selectedTransport) {
+                    "dot" -> bundle.dnsttDotBridges.first()
+                    "doh" -> bundle.dnsttDohBridges.first()
+                    else -> bundle.dnsttUdpBridges.first()
+                }
+                append(dnsttLine)
+            }
+        }
+
+        fun actionBtn(label: String, accent: Boolean = false, onClick: () -> Unit): MaterialButton =
+            MaterialButton(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 11.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(42)
+                minimumHeight = dp(42)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(10)
+                setPadding(dp(10), 0, dp(10), 0)
+                if (accent) {
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(BACKGROUND)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 220))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 190))
+                    setTextColor(TEXT_PRIMARY)
+                }
+                setOnClickListener { onClick() }
+            }
+
+        refreshView()
+        root.addView(summaryBox, LinearLayout.LayoutParams(-1, -2))
+
+        // Button 1: Live Scan on user's network (UDP:53 + TCP:53 + DoT:853 + Carrier Records)
+        root.addView(
+            actionBtn(
+                if (isFarsi) "🔍 اسکن زنده همه متدهای DNS و رکوردهای باز روی خط من"
+                else "🔍 Live Scan DNS Transports & Open Carrier Records on My Line",
+                accent = true,
+            ) {
+                runIranDnsAndDnsttScanDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Row: Select Resolver from 18-Server Catalog + Select Transport (Auto / UDP / TCP / DoT / DoH / DoQ / DoH3)
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                actionBtn(if (isFarsi) "۱) کاتالوگ ۱۸ سرور DNS ▾" else "1) 18 DNS Resolvers ▾") {
+                    val catalog = WhiteDnsSmartScanner.RESOLVER_CATALOG
+                    val titles = catalog.map { r ->
+                        val label = if (isFarsi) r.nameFa else r.nameEn
+                        "$label (${r.primaryIp})"
+                    }.toTypedArray()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب ریزولور (تحریم‌شکن / گیمینگ / اپراتور / QUIC)" else "Select DNS Resolver")
+                        .setItems(titles) { _, idx ->
+                            selectedResolver = catalog[idx]
+                            refreshView()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1.1f),
+            )
+            addView(
+                actionBtn(if (isFarsi) "۲) پروتکل ریزولور ▾" else "2) Transport ▾") {
+                    val transports = listOf("auto", "udp", "tcp", "dot", "doh", "doq", "doh3")
+                    val labels = if (isFarsi) {
+                        arrayOf(
+                            "Auto (UDP + TCP همزمان — پیشنهادی WhiteDNS)",
+                            "UDP :53 (کمترین پینگ — استاندارد)",
+                            "TCP :53 (RFC 1035 — مخصوص زمان مسدودی UDP)",
+                            "DoT :853 (DNS-over-TLS رمزنگاری‌شده)",
+                            "DoH :443 (DNS-over-HTTPS)",
+                            "DoQ :853 (DNS-over-QUIC — ضد DPI برای ECH)",
+                            "DoH3 :443 (HTTP/3 QUIC — ضد مسدودی TCP)",
+                        )
+                    } else {
+                        arrayOf(
+                            "Auto (Dual UDP + TCP — Recommended)",
+                            "UDP :53 (Lowest Latency)",
+                            "TCP :53 (RFC 1035 — When UDP is blocked)",
+                            "DoT :853 (DNS-over-TLS)",
+                            "DoH :443 (DNS-over-HTTPS)",
+                            "DoQ :853 (DNS-over-QUIC — ECH Anti-DPI)",
+                            "DoH3 :443 (HTTP/3 QUIC)",
+                        )
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب ترنسپورت ریزولور" else "Select Resolver Transport")
+                        .setItems(labels) { _, idx ->
+                            selectedTransport = transports[idx]
+                            refreshView()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 0.9f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(row1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Row: Select Carrier Record Mode (HTTPS/65, TXT+CNAME, TXT+AAAA, NULL 1232B, All) + Select Iran Auto-Tune Preset
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                actionBtn(if (isFarsi) "۳) رکورد حامل DNS ▾" else "3) Carrier Record ▾") {
+                    val modes = WhiteDnsRecordMode.values()
+                    val labels = modes.map { if (isFarsi) it.titleFa else it.titleEn }.toTypedArray()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب رکورد حامل تانل DNS" else "Select DNS Carrier Record")
+                        .setItems(labels) { _, idx ->
+                            selectedRecordMode = modes[idx]
+                            refreshView()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                actionBtn(if (isFarsi) "۴) پریست شبکه ایران ▾" else "4) Iran Network Preset ▾") {
+                    val presets = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS
+                    val labels = presets.map { if (isFarsi) it.titleFa else it.titleEn }.toTypedArray()
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب پریست خودکار WhiteDNS برای ایران" else "Select WhiteDNS Iran Auto-Tune Preset")
+                        .setItems(labels) { _, idx ->
+                            selectedPreset = presets[idx]
+                            selectedTransport = selectedPreset.transport
+                            refreshView()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(row2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        root.addView(previewBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val scroll = ScrollView(this).apply { addView(root) }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "📡 متدهای اتصال بر پایه DNS و ریزولور (WhiteDNS)"
+                else "📡 WhiteDNS & Resolver Connection Methods",
+            )
+            .setView(scroll)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "📋 کپی بسته لینک‌های تانل" else "📋 Copy Tunnel Links") { _, _ ->
+                val text = previewBox.text.toString()
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("whitedns-bundle", text))
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ لینک‌های CottenMax، StormDNS، Soar و dnstt کپی شد"
+                    else "✅ Copied CottenMax, StormDNS, Soar & dnstt links",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            .setPositiveButton(if (isFarsi) "✅ اعمال ریزولور روی DNS اپ" else "✅ Apply Resolver to App DNS") { _, _ ->
+                val r = selectedResolver
+                when {
+                    (selectedTransport == "doq" || r.doqEndpoint.isNotEmpty()) && selectedTransport !in setOf("doh", "dot") -> {
+                        val ep = r.doqEndpoint.ifEmpty { "quic://${r.primaryIp}:853" }
+                        runCatching { dnsPrivacyPreferenceStore.saveDoqEndpoint(ep) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoQ)
+                    }
+                    selectedTransport == "doh3" && r.doh3Url.isNotEmpty() -> {
+                        runCatching { dnsPrivacyPreferenceStore.saveDoh3Url(r.doh3Url) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH3)
+                    }
+                    selectedTransport == "dot" || r.dotEndpoint.isNotEmpty() -> {
+                        val ep = r.dotEndpoint.ifEmpty { "tls://${r.primaryIp}:853" }
+                        runCatching { dnsPrivacyPreferenceStore.saveDotEndpoint(ep) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoT)
+                    }
+                    else -> {
+                        val url = r.dohUrl.ifEmpty { "https://178.22.122.100/dns-query" }
+                        runCatching { dnsPrivacyPreferenceStore.saveDohUrl(url) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
+                    }
+                }
+                renderPrivacyControls()
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                }
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ ریزولور «${r.nameFa}» روی موتور DNS برنامه فعال شد"
+                    else "✅ Enabled '${r.nameEn}' on the app DNS engine",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
             .create()
             .showCatClientDialog()
     }
@@ -12035,41 +12393,69 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         Toast.makeText(
             this,
-            if (isFarsi) "⏳ در حال تست سرورهای DNS ایران (WhiteDNS UDP/TCP) روی خط شما…"
-            else "⏳ Probing Iranian DNS resolvers (WhiteDNS UDP/TCP) on your line…",
+            if (isFarsi) "⏳ در حال تست سرورهای DNS ایران (UDP:53 / TCP:53 / DoT:853 و رکوردهای حامل) روی خط شما…"
+            else "⏳ Probing Iranian DNS resolvers (UDP:53 / TCP:53 / DoT:853 & carrier records) on your line…",
             Toast.LENGTH_SHORT,
         ).show()
         activityScope.launch {
             val hits = withContext(Dispatchers.IO) {
                 WhiteDnsSmartScanner.scanIranDnsResolvers()
             }
-            val bestIp = hits.firstOrNull()?.ip ?: "185.51.200.2"
-            val bridges = WhiteDnsSmartScanner.buildDnsttBridgesForResolver(bestIp).joinToString("\n")
+            val bestHit = hits.firstOrNull()
+            val bestIp = bestHit?.ip ?: "178.22.122.100"
+            val bestTransport = when {
+                bestHit?.transport?.startsWith("DoT") == true -> "dot"
+                bestHit?.transport?.startsWith("TCP") == true -> "tcp"
+                else -> "udp"
+            }
+            val openRecords = bestHit?.supportedRecords?.joinToString(", ").orEmpty().ifEmpty { "A, HTTPS(65), TXT" }
+            val recommendedRecordMode = when {
+                bestHit?.supportedRecords?.contains("HTTPS(65)") == true -> WhiteDnsRecordMode.TXT_HTTPS
+                bestHit?.supportedRecords?.contains("CNAME") == true -> WhiteDnsRecordMode.TXT_CNAME
+                else -> WhiteDnsRecordMode.TXT_ONLY
+            }
+            val recommendedPreset = if (bestTransport == "tcp") {
+                WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.last()
+            } else {
+                WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.first()
+            }
+            val bundle = WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
+                resolverIp = bestIp,
+                transport = bestTransport,
+                recordMode = recommendedRecordMode,
+                preset = recommendedPreset,
+            )
+            val bridges = WhiteDnsSmartScanner.buildDnsttBridgesForResolver(bestIp, bestTransport).joinToString("\n")
             val listText = if (hits.isNotEmpty()) {
                 hits.take(6).mapIndexed { idx, h ->
-                    "${idx + 1}) ${h.ip} (${h.transport} · ${h.rttMs}ms)" + if (idx == 0) " ⭐ سریع‌ترین" else ""
+                    val prov = (if (isFarsi) h.providerNameFa else h.providerNameEn).takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
+                    "${idx + 1}) ${h.ip} (${h.transport} · ${h.rttMs}ms$prov)" + if (idx == 0) " ⭐ سریع‌ترین" else ""
                 }.joinToString("\n")
             } else {
-                if (isFarsi) "ℹ️ پاسخ مستقیم دریافت نشد؛ از پیش‌فرض شکن/رادار ($bestIp) استفاده شد."
+                if (isFarsi) "ℹ️ پاسخ مستقیم دریافت نشد؛ از پیش‌فرض شکن ($bestIp) استفاده شد."
                 else "ℹ️ Using fallback resolver ($bestIp)."
             }
             val msg = if (isFarsi) {
-                "📡 سریع‌ترین DNSهای فعال ایران روی خط شما:\n$listText\n\n" +
-                    "🧅 خطوط پل اضطراری dnstt ساخته‌شده با سریع‌ترین DNS خط شما ($bestIp):\n$bridges"
+                "📡 سریع‌ترین DNSهای فعال روی خط شما:\n$listText\n\n" +
+                    "📦 رکوردهای حامل باز روی این خط: $openRecords\n" +
+                    "⚡ لینک CottenMax FEC و StormDNS پیشنهادی:\n${bundle.cottenMaxUri}\n${bundle.stormDnsUri}\n\n" +
+                    "🧅 خطوط پل اضطراری dnstt ($bestIp):\n$bridges"
             } else {
-                "📡 Fastest active Iranian DNS resolvers on your line:\n$listText\n\n" +
-                    "🧅 Emergency dnstt bridge lines built with your fastest DNS ($bestIp):\n$bridges"
+                "📡 Fastest active DNS resolvers on your line:\n$listText\n\n" +
+                    "📦 Open carrier records: $openRecords\n" +
+                    "⚡ Recommended CottenMax FEC & StormDNS:\n${bundle.cottenMaxUri}\n${bundle.stormDnsUri}\n\n" +
+                    "🧅 Emergency dnstt bridges ($bestIp):\n$bridges"
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
-                    if (isFarsi) "📡 نتیجه اسکن DNS ایران و پل اضطراری dnstt"
-                    else "📡 Iran DNS Scan & dnstt Emergency Bridges",
+                    if (isFarsi) "📡 نتیجه اسکن DNS ایران، رکوردها و تانل WhiteDNS"
+                    else "📡 Iran DNS, Carrier Records & WhiteDNS Tunnel Results",
                 )
                 .setMessage(msg)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setNeutralButton(if (isFarsi) "📋 فقط کپی آی‌پی DNS ($bestIp)" else "📋 Copy DNS IP ($bestIp)") { _, _ ->
+                .setNeutralButton(if (isFarsi) "📋 کپی بسته تانل (CottenMax/Storm)" else "📋 Copy Tunnel Bundle") { _, _ ->
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("iran-dns", bestIp))
+                    cm.setPrimaryClip(ClipData.newPlainText("whitedns-bundle", "${bundle.cottenMaxUri}\n${bundle.stormDnsUri}\n${bundle.soarUri}\n$bridges"))
                     Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
                 }
                 .setPositiveButton(if (isFarsi) "📋 کپی پل‌های dnstt برای Orbot" else "📋 Copy dnstt Bridges") { _, _ ->
@@ -19726,11 +20112,12 @@ class MainActivity : Activity() {
         positiveColor: Int = TEAL,
         onShow: AlertDialog.() -> Unit = {},
     ) {
+        if (isFinishing || isDestroyed) return
         setOnShowListener {
             styleCatClientDialog(positiveColor)
             onShow(this)
         }
-        show()
+        runCatching { show() }
     }
 
     private fun AlertDialog.styleCatClientDialog(positiveColor: Int) {

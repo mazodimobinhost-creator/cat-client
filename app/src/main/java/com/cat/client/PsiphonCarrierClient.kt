@@ -43,35 +43,72 @@ internal class PsiphonCarrierClient(private val context: Context) : Closeable {
             }
         }
     })
+    @Volatile
+    private var pendingUpstreamPort: Int = 0
+    @Volatile
+    private var pendingRegion: String = ""
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            remote = Messenger(binder)
+            val messenger = Messenger(binder)
+            remote = messenger
             runCatching {
-                remote?.send(Message.obtain(null, PsiphonCarrierService.MSG_REGISTER).apply { replyTo = incoming })
+                messenger.send(Message.obtain(null, PsiphonCarrierService.MSG_REGISTER).apply { replyTo = incoming })
+                val port = pendingUpstreamPort
+                if (port in 1024..65535) {
+                    messenger.send(
+                        Message.obtain(null, PsiphonCarrierService.MSG_START, port, 0).apply {
+                            replyTo = incoming
+                            data.putString(PsiphonCarrierService.EXTRA_REGION, pendingRegion)
+                        },
+                    )
+                }
             }
         }
-        override fun onServiceDisconnected(name: ComponentName?) { remote = null }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            remote = null
+            if (!connected.isCompleted) {
+                connected.completeExceptionally(IOException("Psiphon carrier process disconnected unexpectedly"))
+            }
+        }
     }
 
     suspend fun start(upstreamPort: Int, region: String, timeoutMs: Long = 330_000): PsiphonCarrierState {
         require(upstreamPort in 1024..65535)
         require(region.isEmpty() || region.matches(Regex("[A-Z]{2}")))
+        pendingUpstreamPort = upstreamPort
+        pendingRegion = region
         connected = CompletableDeferred()
         val serviceIntent = Intent(context, PsiphonCarrierService::class.java)
-        bound = context.bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+        bound = context.bindService(
+            serviceIntent,
+            connection,
+            Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT,
+        )
         check(bound) { "Could not bind isolated Psiphon carrier" }
-        context.startService(serviceIntent.setAction(PsiphonCarrierService.ACTION_START)
-            .putExtra(PsiphonCarrierService.EXTRA_UPSTREAM_PORT, upstreamPort)
-            .putExtra(PsiphonCarrierService.EXTRA_REGION, region))
+        runCatching {
+            context.startService(
+                serviceIntent.setAction(PsiphonCarrierService.ACTION_START)
+                    .putExtra(PsiphonCarrierService.EXTRA_UPSTREAM_PORT, upstreamPort)
+                    .putExtra(PsiphonCarrierService.EXTRA_REGION, region),
+            )
+        }
         return withTimeout(timeoutMs) { connected.await() }
     }
 
     override fun close() {
-        context.startService(Intent(context, PsiphonCarrierService::class.java)
-            .setAction(PsiphonCarrierService.ACTION_STOP))
-        remote?.let { runCatching {
-            it.send(Message.obtain(null, PsiphonCarrierService.MSG_UNREGISTER).apply { replyTo = incoming })
-        } }
+        pendingUpstreamPort = 0
+        remote?.let {
+            runCatching {
+                it.send(Message.obtain(null, PsiphonCarrierService.MSG_STOP).apply { replyTo = incoming })
+            }
+        }
+        runCatching {
+            context.startService(
+                Intent(context, PsiphonCarrierService::class.java)
+                    .setAction(PsiphonCarrierService.ACTION_STOP),
+            )
+        }
         if (bound) runCatching { context.unbindService(connection) }
         bound = false
         remote = null

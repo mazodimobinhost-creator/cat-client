@@ -25,6 +25,18 @@ class PsiphonCarrierService : Service() {
             when (message.what) {
                 MSG_REGISTER -> message.replyTo?.let { clients += it; send(it) }
                 MSG_UNREGISTER -> message.replyTo?.let(clients::remove)
+                MSG_START -> {
+                    message.replyTo?.let { clients += it }
+                    startCarrier(
+                        upstreamPort = message.arg1,
+                        region = message.data?.getString(EXTRA_REGION).orEmpty(),
+                    )
+                }
+                MSG_STOP -> {
+                    message.replyTo?.let(clients::remove)
+                    stopCarrier()
+                    stopSelf()
+                }
                 else -> super.handleMessage(message)
             }
         }
@@ -130,5 +142,7 @@ class PsiphonCarrierService : Service() {
         const val MSG_REGISTER = 1
         const val MSG_UNREGISTER = 2
         const val MSG_STATE = 3
+        const val MSG_START = 4
+        const val MSG_STOP = 5
     }
 }

@@ -129,7 +129,7 @@ for (const view of VIEWS) {
     // External navigation cannot happen inside jsdom — reported separately, not as dead.
     if (tag === 'a') {
       const href = fresh.getAttribute('href') || '';
-      if (/^(https?:|mailto:|catclient:|v2rayng:|clash:|sing-box:|aether:)/i.test(href)) {
+      if (/^(https?:|mailto:|catclient:|v2rayng:|hiddify:|clash:|sing-box:|aether:)/i.test(href) || fresh.id === 'bHid') {
         results.push({ view, el: labelOf(fresh) + ' → ' + href.slice(0, 60), kind: 'link', threw: null, reacted: true, note: 'external/deep link (not testable in jsdom)' });
         continue;
       }

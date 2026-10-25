@@ -4022,17 +4022,23 @@ class CatClientVpnService : VpnService() {
             "$eventPrefix.aether.start",
             "mode=${effectiveSelection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${effectiveSelection.effectiveExitLocation()} net=$networkKey",
         )
-        val result = withContext(Dispatchers.IO) { session.run(config) }
+        val result = try {
+            withContext(Dispatchers.IO) { session.run(config) }
+        } finally {
+            runCatching { session.close() }
+            if (aetherSession === session) aetherSession = null
+        }
         AetherOperations.drainEngineLogs().takeLast(8).forEach { line ->
             DiagnosticLogger.info(this, "aether.engine.log", line)
         }
-        if (aetherSession === session) aetherSession = null
         if (state != VpnState.Stopping && state != VpnState.Stopped) {
             throw IOException(result.error ?: "Aether tunnel closed")
         }
     }
 
     private suspend fun runAetherPsiphonStartup(eventPrefix: String, selection: AetherSelection) {
+        runCatching { aetherPsiphonChain?.close() }
+        aetherPsiphonChain = null
         val splitPlan = resolveSplitTunnelRuntimePlan()
         val carrierMode = selection.effectiveCarrierMode()
         val chain = AetherPsiphonChain(
@@ -4045,27 +4051,35 @@ class CatClientVpnService : VpnService() {
             ipScan = selection.ipScan,
         ).also { aetherPsiphonChain = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.start", "carrier=${carrierMode.wireName}")
-        val carrier = chain.start(selection.psiphonRegion)
-        val dns = DnsRuntimeSettings(
-            mode = dnsPrivacyPreferenceStore.readMode(),
-            dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
-            dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
-            doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
-            doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
-        )
-        val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
-            rawYaml = PsiphonTunPlan.yaml(carrier.socksPort),
-            splitTunnelPlan = splitPlan,
-            dns = dns,
-        )
-        setupCoreRuntime(paths)
-        startCoreTun(paths, splitPlan)
-        activeRuntimePaths = paths
-        DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.ready", "region=automatic")
-        publishState(VpnState.Started)
+        try {
+            val carrier = chain.start(selection.psiphonRegion)
+            val dns = DnsRuntimeSettings(
+                mode = dnsPrivacyPreferenceStore.readMode(),
+                dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
+                dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
+                doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
+                doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
+            )
+            val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
+                rawYaml = PsiphonTunPlan.yaml(carrier.socksPort),
+                splitTunnelPlan = splitPlan,
+                dns = dns,
+            )
+            setupCoreRuntime(paths)
+            startCoreTun(paths, splitPlan)
+            activeRuntimePaths = paths
+            DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.ready", "region=automatic")
+            publishState(VpnState.Started)
+        } catch (error: Throwable) {
+            runCatching { chain.close() }
+            if (aetherPsiphonChain === chain) aetherPsiphonChain = null
+            throw error
+        }
     }
 
     private suspend fun runAetherTorStartup(eventPrefix: String, selection: AetherSelection) {
+        runCatching { aetherTorCarrier?.close() }
+        aetherTorCarrier = null
         val splitPlan = resolveSplitTunnelRuntimePlan()
         val carrierMode = selection.effectiveCarrierMode()
         val carrier = AetherProxyCarrier(
@@ -4078,37 +4092,46 @@ class CatClientVpnService : VpnService() {
             ipScan = selection.ipScan,
         ).also { aetherTorCarrier = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName}")
-        carrier.start()
-        val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
-        val torReachable = withContext(Dispatchers.IO) {
-            runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
+        try {
+            carrier.start()
+            val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
+            val torReachable = withContext(Dispatchers.IO) {
+                runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
+            }
+            val dns = DnsRuntimeSettings(
+                mode = dnsPrivacyPreferenceStore.readMode(),
+                dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
+                dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
+                doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
+                doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
+            )
+            val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
+                rawYaml = PsiphonTunPlan.torChainYaml(
+                    aetherSocksPort = carrier.port,
+                    torSocksPort = orbotPort,
+                    torReachable = torReachable,
+                ),
+                splitTunnelPlan = splitPlan,
+                dns = dns,
+            )
+            setupCoreRuntime(paths)
+            startCoreTun(paths, splitPlan)
+            activeRuntimePaths = paths
+            DiagnosticLogger.info(this, "$eventPrefix.aetherTor.ready", "torReachable=$torReachable")
+            publishState(VpnState.Started)
+        } catch (error: Throwable) {
+            runCatching { carrier.close() }
+            if (aetherTorCarrier === carrier) aetherTorCarrier = null
+            throw error
         }
-        val dns = DnsRuntimeSettings(
-            mode = dnsPrivacyPreferenceStore.readMode(),
-            dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
-            dotEndpoint = dnsPrivacyPreferenceStore.readDotEndpoint(),
-            doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
-            doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
-        )
-        val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
-            rawYaml = PsiphonTunPlan.torChainYaml(
-                aetherSocksPort = carrier.port,
-                torSocksPort = orbotPort,
-                torReachable = torReachable,
-            ),
-            splitTunnelPlan = splitPlan,
-            dns = dns,
-        )
-        setupCoreRuntime(paths)
-        startCoreTun(paths, splitPlan)
-        activeRuntimePaths = paths
-        DiagnosticLogger.info(this, "$eventPrefix.aetherTor.ready", "torReachable=$torReachable")
-        publishState(VpnState.Started)
     }
 
     /** Creates the service-bound native session after mode selection has stopped Mihomo. */
     private fun createAetherSession(splitTunnelPlan: SplitTunnelRuntimePlan): AetherSession {
-        check(aetherSession == null) { "Aether session is already installed" }
+        aetherSession?.let { stale ->
+            runCatching { stale.close() }
+            aetherSession = null
+        }
         return AetherSession(
             protectSocket = { fd -> protect(fd) },
             establishTun = { ipv4, ipv6 -> establishAetherTun(ipv4, ipv6, splitTunnelPlan) },
@@ -4509,6 +4532,12 @@ class CatClientVpnService : VpnService() {
         awaitingPreservedRuntimeHealth = false
         subscriptionRefreshJob?.cancel()
         cancelPostConnectHealthWatchdog()
+        runCatching { aetherSession?.close() }
+        aetherSession = null
+        runCatching { aetherPsiphonChain?.close() }
+        aetherPsiphonChain = null
+        runCatching { aetherTorCarrier?.close() }
+        aetherTorCarrier = null
         stopCoreService()
         sessionStartedAtElapsedMs = 0L
         activeProfile = null

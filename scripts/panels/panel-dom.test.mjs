@@ -285,6 +285,15 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   check('Builder clears profile-only state when reset to default', !defaultBuilderLink.searchParams.has('fw') && document.querySelector('#bXrayWrap').style.display === 'none' && document.querySelector('#bCat').style.display !== 'none' && document.querySelector('#bHid').style.display !== 'none');
   check('Builder firewall selection never persists into settings', builderSettingsBeforeFw.fingerprint === builderSettingsAfterFw.fingerprint && builderSettingsBeforeFw.echList === builderSettingsAfterFw.echList && builderSettingsBeforeFw.cipherSuites === builderSettingsAfterFw.cipherSuites);
 }
+{
+  check('WhiteDNS Resolver & DNS Tunnel Lab card is present in scan view', !!document.querySelector('#wdnsCard') && !!document.querySelector('#wdnsOut'));
+  document.querySelector('#wdnsResPick [data-wdres="10.202.10.202"]').click();
+  document.querySelector('#wdnsTrPick [data-wdtr="doq"]').click();
+  document.querySelector('#wdnsRecPick [data-wdrec="null"]').click();
+  document.querySelector('#wdnsPrPick [data-wdpr="iran-download-heavy"]').click();
+  const wdnsText = document.querySelector('#wdnsOut').textContent || '';
+  check('WhiteDNS Lab generates CottenMax, StormDNS, Soar, DNSTT and DoQ/DoH3 lines', wdnsText.includes('cottendns://10.202.10.202:53/') && wdnsText.includes('transport=doq') && wdnsText.includes('delivery=null') && wdnsText.includes('preset=iran-download-heavy') && wdnsText.includes('stormdns://') && wdnsText.includes('soar://') && wdnsText.includes('DoQ=quic://10.202.10.202:853'));
+}
 
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
 check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));

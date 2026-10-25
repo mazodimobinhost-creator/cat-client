@@ -208,6 +208,20 @@ internal object PsiphonCarrierConfig {
     fun render(context: Context, upstreamPort: Int, region: String = ""): String =
         render(File(context.noBackupFilesDir, "psiphon"), BuildConfig.VERSION_CODE, upstreamPort, region)
 
+    internal val CHAINED_TCP_TUNNEL_PROTOCOLS: List<String> = listOf(
+        "SSH",
+        "OSSH",
+        "TLS-OSSH",
+        "UNFRONTED-MEEK-OSSH",
+        "UNFRONTED-MEEK-HTTPS-OSSH",
+        "UNFRONTED-MEEK-SESSION-TICKET-OSSH",
+        "SHADOWSOCKS-OSSH",
+        "FRONTED-MEEK-OSSH",
+        "FRONTED-MEEK-CDN-OSSH",
+        "FRONTED-MEEK-HTTP-OSSH",
+        "FRONTED-MEEK-CDN-HTTP-OSSH",
+    )
+
     internal fun render(dataRoot: File, clientVersion: Int, upstreamPort: Int, region: String): String {
         require(dataRoot.isAbsolute)
         require(upstreamPort in 1024..65535)
@@ -222,6 +236,11 @@ internal object PsiphonCarrierConfig {
             .put("RemoteServerListUrl", REMOTE_SERVER_LIST_URL)
             .put("EgressRegion", region)
             .put("UpstreamProxyUrl", "socks5://127.0.0.1:$upstreamPort")
+            .put("DisableTactics", true)
+            .put("LimitTunnelProtocols", org.json.JSONArray(CHAINED_TCP_TUNNEL_PROTOCOLS))
+            .put("InproxyTunnelProtocolPreferProbability", 0.0)
+            .put("InproxyTunnelProtocolSelectionProbability", 0.0)
+            .put("FrontedMeekCDNScanUseBuiltInSpec", true)
             .put("EstablishTunnelTimeoutSeconds", 300)
             .put("ConnectionWorkerPoolSize", 12)
             .put("LocalSocksProxyPort", 0)

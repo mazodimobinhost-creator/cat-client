@@ -1,11 +1,12 @@
-# Architectural & Technical Decisions (`DECISIONS.md`)
+# Architectural & Design Decisions
 
-1. **Concrete `@Keep` JNI Callback Wrappers + ProGuard Keep Rules (`2026-10-25`)**:
-   - *Context*: `libwhiteaesther_core.so` invokes `protectSocket(I)Z` and `onNativeReady()V` via JNI `GetMethodID`. Kotlin `fun interface` lambdas are compiled to synthetic classes (e.g. `LA0/l;`) whose methods are renamed/stripped by R8 full mode unless explicitly kept.
-   - *Decision*: Use both concrete `@Keep` wrapper classes inside `com.whitedns.whiteaesther.core` (`JniSocketProtectorBridge`, `JniEngineListenerBridge`) and explicit `-keep class * implements ...` rules in `app/proguard-rules.pro`, enforced by a JVM unit test.
-2. **Structural Iran vs. Foreign Exit in `aether://` URIs (`2026-10-25`)**:
-   - *Context*: Upstream Aether CLI / `PattNG` runs `exitloc::settle` on the raw WARP tunnel before exposing SOCKS5 or chaining Psiphon. Passing `exit_loc=!IR` on single-hop `wg` tears down validated tunnels.
-   - *Decision*: Omit `exit_loc` from generated `aether://` URIs; represent Iran exit via single-hop `wg`/`masque` and Foreign exit via two-hop `gool`/`wg-over-masque` (`outer=host:port`) or `psiphon=chain&psiphon_mode=auto&region=XX`.
-3. **Bundled + Runtime-Verified Psiphon Bootstrap Server List (`2026-10-25`)**:
-   - *Context*: `PsiphonTunnel.startTunneling("")` has no candidate servers on a fresh install until a remote server list download succeeds, causing region-specific connections to time out.
-   - *Decision*: Stage the RSA-SHA256 verified Psiphon server entries into `app/src/main/assets/psiphon_server_entries.txt` during CI build and support runtime verification/caching via the local Aether SOCKS5 proxy in `PsiphonCarrierConfig.loadOrFetchBootstrapEntries`.
+1. **Secondary `:psiphon` Process Isolation (`CatClientApplication.kt`):**
+   - `PsiphonCarrierService` runs in `android:process=":psiphon"`. Running `WorkManager` and background workers in both the main process and `:psiphon` causes SQLite/SharedPreferences contention. `:psiphon` now initializes only `CrashWatch` and returns immediately.
+2. **Messenger-First Start for `PsiphonCarrierService`:**
+   - Android 12+ throws `BackgroundServiceStartNotAllowedException` if `startService()` is called while the app transitions states. `PsiphonCarrierClient` now binds with `BIND_AUTO_CREATE or BIND_IMPORTANT` and sends `MSG_START` over the bound `Messenger` channel.
+3. **`DisableTactics: true` & TCP-Only Protocols for Chained Psiphon (`PsiphonCarrierConfig.kt`):**
+   - Upstream `patterniha/Aether` `v2.4.0` (`aether/src/psiphon.rs`) discovered that Psiphon tactics attach a BPF program to TCP dials, failing with `operation not permitted` on unrooted Android when dialing through a local SOCKS5 upstream (`UpstreamProxyURL`). Setting `"DisableTactics": true` and restricting `LimitTunnelProtocols` to the 11 TCP-based protocols fixes chained `WARP -> Psiphon` reliability.
+4. **Collapsible Secondary Controls in Android App (`MainActivity.kt`):**
+   - Keeps the 3 primary actions (`⚡ اتصال فوری`, `🧭 اسکن و ساخت خودکار`, `🧬 ابزارهای WhiteDNS`) at the top with 44dp touch height while placing secondary selectors inside an expandable section.
+5. **Selective String-Table Encoding in `minify.mjs`:**
+   - Only string literals, member properties, and object keys matching `ALL_SENSITIVE_GLOBAL_RE` (plus regex literals and template literals) are placed in the ROT13 table `_t`, keeping `catpanel.min.js` at ~587 KB raw and <168 KB gzipped with 0 leaked signatures.

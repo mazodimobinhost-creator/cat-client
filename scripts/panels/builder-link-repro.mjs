@@ -122,7 +122,7 @@ for (const target of ['clash', 'singbox', 'xray', 'base64', 'sub']) {
 }
 
 console.log('=== per-user links (/u/<id>…) as the Users tab hands them out ===');
-const created = await req('/api/users', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cat-key': UUID }, body: JSON.stringify({ name: 'repro-user' }) });
+const created = await req('/api/users', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cat-key': 'admin', 'origin': 'https://' + HOST }, body: JSON.stringify({ name: 'repro-user' }) });
 const createdJson = await created.json().catch(() => ({}));
 const userId = (createdJson.user && createdJson.user.id) || (createdJson.users && createdJson.users.slice(-1)[0] && createdJson.users.slice(-1)[0].id);
 if (!userId) { console.log('FAIL | could not create a user:', JSON.stringify(createdJson).slice(0, 160)); bad++; }
@@ -141,12 +141,12 @@ else {
 // own link into a 404.
 console.log('=== after a subscription-token rotation (the reported error) ===');
 {
-  const owner = { 'x-cat-key': UUID, 'content-type': 'application/json' };
+  const owner = { 'x-cat-key': 'admin', 'content-type': 'application/json', 'origin': 'https://' + HOST };
   const rot = await req('/api/sub-token', { method: 'POST', headers: owner, body: JSON.stringify({ action: 'rotate' }) });
   const rotJson = await rot.json().catch(() => ({}));
   const token = rotJson.token || '';
   T.kvCacheClear();
-  const settings = await (await req('/api/settings', { headers: { 'x-cat-key': UUID } })).json();
+  const settings = await (await req('/api/settings', { headers: { 'x-cat-key': 'admin' } })).json();
   const handed = String(((settings.links || {}).sub) || '');
   const handedPath = handed ? new URL(handed).pathname : '';
   const fresh = handed ? await req(handedPath + '?limit=4') : null;

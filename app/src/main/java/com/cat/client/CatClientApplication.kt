@@ -23,6 +23,10 @@ class CatClientApplication : Application() {
         // First thing: never die silently — record any uncaught exception and
         // surface it as a notification (see CrashWatch for why).
         CrashWatch.install(this)
+        if (isSecondaryCarrierProcess()) {
+            DiagnosticLogger.info(this, "psiphon.process.ready")
+            return
+        }
         initializeWorkManager()
         initializeCatClientTypefaces(this)
         File(filesDir, "mihomo").mkdirs()
@@ -39,6 +43,17 @@ class CatClientApplication : Application() {
                 },
             )
         }.onFailure { DiagnosticLogger.warn(this, "widget.settingsObserver.failed", error = it) }
+    }
+
+    private fun isSecondaryCarrierProcess(): Boolean {
+        val processName = runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                getProcessName()
+            } else {
+                null
+            }
+        }.getOrNull() ?: return false
+        return processName.endsWith(":psiphon")
     }
 
     /**

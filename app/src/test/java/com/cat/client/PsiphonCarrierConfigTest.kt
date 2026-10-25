@@ -14,6 +14,9 @@ class PsiphonCarrierConfigTest {
         assertEquals("DE", json.getString("EgressRegion"))
         assertEquals(0, json.getInt("LocalSocksProxyPort"))
         assertEquals(true, json.getBoolean("DisableLocalHTTPProxy"))
+        assertEquals(true, json.getBoolean("DisableTactics"))
+        assertEquals(true, json.getBoolean("FrontedMeekCDNScanUseBuiltInSpec"))
+        assertEquals(11, json.getJSONArray("LimitTunnelProtocols").length())
         assertFalse(json.has("VpnMode"))
     }
 

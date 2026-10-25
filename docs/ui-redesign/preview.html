@@ -184,17 +184,32 @@ details .body{padding:2px 0 10px;color:var(--muted);font-size:13px}
       <div class="card">
         <h2>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
-          وضعیت پنل
+          وضعیت پنل و موتورهای ضدتحریم (اپ + پنل v6.69.26)
         </h2>
-        <p class="sub">نسخه‌ی ۶.۶۶.۲ · آخرین بروزرسانی ۳ دقیقه پیش</p>
-        <div class="row"><span class="k">وضعیت</span><span class="v"><span class="badge ok"><span class="dot"></span>آنلاین</span></span></div>
-        <div class="row"><span class="k">ذخیره‌سازی (KV)</span><span class="v"><span class="badge ok">وصل است</span></span></div>
-        <div class="row"><span class="k">پروتکل‌ها</span><span class="v">VLESS · Trojan</span></div>
-        <div class="row"><span class="k">تعداد آدرس‌ها</span><span class="v">۲۴ آی‌پی تمیز · ۶ رله</span></div>
-        <p style="margin:12px 0 0"><button class="btn btn-primary" data-demo="وضعیت بروزرسانی شد" style="width:100%">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
-          بروزرسانی وضعیت
-        </button></p>
+        <p class="sub">نسخه‌ی ۶.۶۹.۲۶ (اپ v1.10.0-beta145) · بازطراحی کارت‌های فشرده و ضدکرش</p>
+        <div class="row"><span class="k">وضعیت ورکر و KV</span><span class="v"><span class="badge ok"><span class="dot"></span>آنلاین · KV متصل</span></span></div>
+        <div class="row"><span class="k">موتور Aether (v2.4.0)</span><span class="v"><span class="badge ok">Gool H2 · WARP · Psiphon TCP-Only</span></span></div>
+        <div class="row"><span class="k">آزمایشگاه WhiteDNS</span><span class="v"><span class="badge ok">DoQ · DoH3 · DoT · CottenMax · Soar</span></span></div>
+        <div class="row"><span class="k">تعداد آدرس‌ها و DNS</span><span class="v">۲۴ آی‌پی تمیز · ۶ رله · ۵۲ سرور DNS</span></div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" data-demo="⚡ اتصال فوری Aether با موفقیت شبیه‌سازی شد" style="flex:2">⚡ اتصال فوری Aether</button>
+          <button class="btn" data-demo="🧭 ویزارد اسکن شبکه و ساخت خودکار باز شد" style="flex:1">🧭 اسکن هوشمند</button>
+          <button class="btn" data-demo="🧬 آزمایشگاه WhiteDNS و متدهای Resolver باز شد" style="flex:1">🧬 WhiteDNS</button>
+        </div>
+        <details style="margin-top:10px">
+          <summary>⚙️ تنظیمات سریع خروجی، زنجیره، کشور و پروفایل فایروال
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="body">
+            در بازطراحی جدید اپ اندروید (<code>MainActivity.kt</code>)، دکمه‌های پرتکرار با ارتفاع استاندارد 44dp در بالای کارت قرار گرفته‌اند و انتخابگرهای فرعی (مکان خروجی 🇮🇷/🌍، زنجیره سایفون/تور، ۲۹ کشور سایفون و پروفایل فایروال همراه اول/ایرانسل) در بخش جمع‌شونده قرار دارند تا صفحه شلوغ نشود.
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" data-demo="🟦 پروفایل فایروال همراه اول (IPv6 / WARP v6) انتخاب شد">🟦 همراه اول (IPv6)</button>
+              <button class="btn btn-sm" data-demo="🟧 پروفایل فایروال ایرانسل (F&F / tlshello-0-len) انتخاب شد">🟧 ایرانسل (F&F)</button>
+              <button class="btn btn-sm" data-demo="🌍 خروجی آی‌پی خارج (!IR) فعال شد">🌍 آی‌پی خارج (!IR)</button>
+              <button class="btn btn-sm" data-demo="🇮🇷 خروجی آی‌پی ایران (IR) فعال شد">🇮🇷 آی‌پی ایران (IR)</button>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="card">
@@ -290,30 +305,48 @@ details .body{padding:2px 0 10px;color:var(--muted);font-size:13px}
       <div class="card"><div class="empty"><div class="ic">👤</div><div class="t">هنوز کاربری نساختی</div><div class="d">نمای خالی با دکمه‌ی «ساخت اولین کاربر»</div></div></div>
     </section>
 
-    <!-- ============ 3. ADDRESSES (placeholder) ============ -->
+    <!-- ============ 3. ADDRESSES & WHITEDNS ============ -->
     <section class="view" id="v-addr">
       <div class="card">
-        <h2>🌐 آدرس‌ها</h2>
-        <p class="sub">در مرحله‌ی ۳ ساخته می‌شود — سه تب</p>
-        <div style="display:flex;gap:8px;margin-bottom:6px">
-          <button class="btn btn-sm" data-tab="tab-ip" style="flex:1">IP تمیز</button>
-          <button class="btn btn-sm btn-ghost" data-tab="tab-px" style="flex:1">ProxyIP</button>
-          <button class="btn btn-sm btn-ghost" data-tab="tab-sk" style="flex:1">SOCKS5</button>
+        <h2>🌐 آدرس‌ها، اسکنر ۶ پورت و آزمایشگاه WhiteDNS</h2>
+        <p class="sub">IP تمیز · ProxyIP با پورت صریح · متدهای Resolver و تانل DNS</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="btn btn-sm" data-tab="tab-ip" style="flex:1">IP تمیز (۶ پورت)</button>
+          <button class="btn btn-sm btn-ghost" data-tab="tab-px" style="flex:1">ProxyIP:Port</button>
+          <button class="btn btn-sm btn-ghost" data-tab="tab-sk" style="flex:1">🧬 WhiteDNS Lab</button>
         </div>
-        <div id="tab-ip" class="body" style="color:var(--muted);font-size:13px">لیست، تست سلامت، حذف، پین، ورود دستی با اعتبارسنجی، اسکنر با دسته‌ها</div>
-        <div id="tab-px" class="body" style="display:none;color:var(--muted);font-size:13px">لیست با کشور و پرچم، تستِ هر کشور (تعداد سرور، تست همزمان، جستجو، فیلتر منطقه)</div>
-        <div id="tab-sk" class="body" style="display:none;color:var(--muted);font-size:13px">فقط <code style="direction:ltr">socks5://</code>، تست با handshake واقعی</div>
+        <div id="tab-ip" class="body" style="color:var(--muted);font-size:13px">
+          اسکن واقعی ۶ پورت TLS کلودفلر (<code>443, 2053, 2083, 2087, 2096, 8443</code>) و ثبت دقیق زوج <code>IP:port</code> در سابسکریپشن بدون ساخت پورت حدسی.
+          <div style="margin-top:8px"><button class="btn btn-sm" data-demo="اسکن ۶ پورت TLS کلودفلر اجرا شد">📡 اجرای اسکن ۶ پورت TLS</button></div>
+        </div>
+        <div id="tab-px" class="body" style="display:none;color:var(--muted);font-size:13px">
+          حفظ پورت صریح ProxyIP (مانند <code>103.237.102.191:11111</code> و <code>184.75.221.82:3118</code>) در تمام مسیرهای ربات، اپ و پنل و تست واقعی سلامت از مسیر تانل.
+          <div style="margin-top:8px"><button class="btn btn-sm" data-demo="تست سلامت ProxyIP با پورت صریح انجام شد">🩺 تست ProxyIP با پورت صریح</button></div>
+        </div>
+        <div id="tab-sk" class="body" style="display:none;color:var(--muted);font-size:13px">
+          <b>متدهای جدید WhiteDNS (v1.6.14 + CottenMax + Soar):</b>
+          <ul style="margin:6px 0;padding-inline-start:18px">
+            <li><b>۷ ترنسپورت Resolver:</b> <code>Auto (UDP+TCP)</code>، <code>UDP :53</code>، <code>TCP :53</code>، <code>DoT :853</code>، <code>DoH :443</code>، <code>DoQ :853</code>، <code>DoH3 :443</code></li>
+            <li><b>۵ حالت رکورد حامل ضد DPI:</b> <code>HTTPS/SVCB (Type 65)</code>، <code>TXT+CNAME</code>، <code>TXT+AAAA</code>، <code>NULL (1232B EDNS0)</code>، <code>All</code></li>
+            <li><b>۹ پریست Auto-Tune ایران:</b> <code>iran-fast-low-mtu</code>، <code>iran-compact-fixed (62B)</code>، <code>iran-fixed-64-balanced</code>، <code>iran-download-heavy (FEC 4:1)</code>، <code>tcp-survival</code></li>
+          </ul>
+          <div class="scroll"><code>cottendns://178.22.122.100:53/?mode=cottenmax&amp;transport=auto&amp;delivery=txt-https&amp;preset=iran-fast-low-mtu&amp;safe_qname=101&amp;max_answer=1232&amp;fec=4:1&amp;timing_mask=light#WhiteDNS-CottenMax</code></div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" data-demo="بسته تانل CottenMax + StormDNS + Soar + DNSTT کپی شد">📋 کپی بسته تانل WhiteDNS</button>
+            <button class="btn btn-sm" data-demo="پروب موازی UDP/53 + TCP/53 + DoT/853 + رکوردهای حامل انجام شد">🧪 پروب زنده ۵۲ سرور DNS</button>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- ============ 4. LOCATION (placeholder) ============ -->
+    <!-- ============ 4. LOCATION & AETHER ============ -->
     <section class="view" id="v-loc">
       <div class="card">
-        <h2>📍 لوکیشن و خروجی</h2>
-        <p class="sub">در مرحله‌ی ۴ ساخته می‌شود</p>
-        <details open><summary>مولتی‌لوکیشن<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">انتخاب کشور · رفتارِ سقوط (خودکار / هرگز خارج نشود) · لینکِ تک‌کشور</div></details>
-        <details><summary>آی‌پی ثابت و کیفیت هر کشور<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">پین · کیفیتِ هر کشور از <code style="direction:ltr">/api/cc-quality</code></div></details>
-        <details><summary>اثباتِ سرویس‌ها<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">وضعیتِ باز/بسته بودنِ هر سرویس از خروجی فعلی</div></details>
+        <h2>📍 لوکیشن، Aether v2.4.0 و زنجیره رفع تحریم</h2>
+        <p class="sub">انتخاب آی‌پی ایران 🇮🇷 / خارج 🌍 · ۲۹ کشور سایفون · فیکس ضدکرش سایفون زنجیره‌ای</p>
+        <details open><summary>۱) انتخابگر آی‌پی ایران (🇮🇷 IR) یا خارج (🌍 !IR)<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">برای سایت‌های بانکی/داخلی گزینه <code>🇮🇷 IR</code> (تک‌لایه سریع) و برای تلگرام/یوتیوب/هوش مصنوعی گزینه <code>🌍 !IR</code> (دو لایه Gool یا زنجیره سایفون/تور) به‌صورت خودکار تنظیم می‌شود.</div></details>
+        <details open><summary>۲) فیکس کلیدی سایفون زنجیره‌ای (Aether v2.4.0)<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">در حالت <code>WARP -> Psiphon</code>، تنظیمات <code>DisableTactics: true</code> (حذف خطای BPF <code>operation not permitted</code> روی اندروید بدون روت) و محدودسازی به ۱۱ پروتکل TCP سایفون (<code>CHAINED_TCP_TUNNEL_PROTOCOLS</code>) به همراه فیکس IPC سرویس <code>:psiphon</code> اعمال شده است.</div></details>
+        <details><summary>۳) فایروال همراه اول و ایرانسل<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">همراه اول: <code>IPv6 (2a06:98c1:3101::6812:202f)</code> با فالبک خودکار <code>v6 -> both</code> · ایرانسل: متد <code>F&amp;F (finalMask=tlshello-0-len, cipherSuites=semi-python, fingerprint=unsafe)</code> جهت رفع کامل محدودیت آپلود.</div></details>
       </div>
     </section>
 
