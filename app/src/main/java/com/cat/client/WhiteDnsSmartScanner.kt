@@ -780,4 +780,227 @@ internal object WhiteDnsSmartScanner {
         val bestRecords = probeSupportedCarrierRecords(best.ip, useTcp = best.transport.startsWith("TCP"))
         return listOf(best.copy(supportedRecords = bestRecords)) + sorted.drop(1)
     }
+
+    data class WhiteDnsAutoDetectResult(
+        val resolver: WhiteDnsResolverEntry,
+        val transport: String,
+        val recordMode: WhiteDnsRecordMode,
+        val preset: WhiteDnsAutoTunePreset,
+        val rttMs: Long,
+        val supportedRecords: List<String>,
+        val maxSafeQNameBytes: Int,
+        val summaryFa: String,
+        val summaryEn: String,
+    )
+
+    /**
+     * Active Auto-MTU & Carrier Record Finder:
+     * Probes top Iranian & global resolvers over UDP/53, TCP/53, and DoT/853, tests carrier record
+     * survival (HTTPS/SVCB Type 65, NULL 1232B, TXT, CNAME, AAAA), and probes QName lengths (62B, 101B, 160B)
+     * to select the optimal WhiteDNS CottenMax / StormDNS / Soar profile for the active network.
+     */
+    fun autoDetectBestWhiteDnsProfile(
+        domain: String = "cloudflare.com",
+        timeoutMs: Int = 1_500,
+    ): WhiteDnsAutoDetectResult {
+        val candidates = listOf(
+            resolverById("shecan")!!,
+            resolverById("403online")!!,
+            resolverById("electro")!!,
+            resolverById("radar")!!,
+            resolverById("tci")!!,
+            resolverById("cloudflare")!!,
+        )
+        var bestResolver = candidates.first()
+        var bestTransport = "udp"
+        var bestRtt = Long.MAX_VALUE
+        for (entry in candidates) {
+            val udpRtt = probeDnsOverUdp(entry.primaryIp, domain = domain, qtype = 1, timeoutMs = timeoutMs)
+            if (udpRtt != null && udpRtt < bestRtt) {
+                bestRtt = udpRtt
+                bestResolver = entry
+                bestTransport = "udp"
+            } else if (udpRtt == null) {
+                val tcpRtt = probeDnsOverTcp(entry.primaryIp, domain = domain, qtype = 1, timeoutMs = timeoutMs)
+                if (tcpRtt != null && tcpRtt < bestRtt) {
+                    bestRtt = tcpRtt
+                    bestResolver = entry
+                    bestTransport = "tcp"
+                }
+            }
+        }
+        if (bestRtt == Long.MAX_VALUE) {
+            for (entry in candidates.filter { it.dotEndpoint.isNotEmpty() }) {
+                val dotRtt = probeDnsOverTls(entry.primaryIp, 853, domain = domain, qtype = 1, timeoutMs = timeoutMs + 200)
+                if (dotRtt != null && dotRtt < bestRtt) {
+                    bestRtt = dotRtt
+                    bestResolver = entry
+                    bestTransport = "dot"
+                }
+            }
+        }
+        val useTcp = bestTransport == "tcp"
+        val supported = if (bestRtt != Long.MAX_VALUE) {
+            probeSupportedCarrierRecords(bestResolver.primaryIp, useTcp = useTcp, timeoutMs = timeoutMs)
+        } else {
+            listOf("HTTPS/SVCB", "TXT", "CNAME")
+        }
+        val probeLongQname = "a".repeat(48) + "." + "b".repeat(48) + "." + domain
+        val longQnameOk = if (bestRtt != Long.MAX_VALUE && !useTcp) {
+            probeDnsOverUdp(bestResolver.primaryIp, domain = probeLongQname, qtype = 1, timeoutMs = timeoutMs) != null
+        } else false
+        val midQnameOk = if (bestRtt != Long.MAX_VALUE && !useTcp) {
+            val midDomain = "a".repeat(32) + "." + domain
+            probeDnsOverUdp(bestResolver.primaryIp, domain = midDomain, qtype = 1, timeoutMs = timeoutMs) != null
+        } else false
+
+        val maxSafeQName = when {
+            longQnameOk -> 160
+            midQnameOk -> 101
+            else -> 62
+        }
+        val recordMode = when {
+            "HTTPS/SVCB" in supported -> WhiteDnsRecordMode.TXT_HTTPS
+            "NULL" in supported && maxSafeQName >= 101 -> WhiteDnsRecordMode.NULL_RAW
+            "CNAME" in supported -> WhiteDnsRecordMode.TXT_CNAME
+            "AAAA" in supported -> WhiteDnsRecordMode.TXT_AAAA
+            else -> WhiteDnsRecordMode.ALL
+        }
+        val presetId = when {
+            useTcp -> "tcp-survival"
+            maxSafeQName <= 62 -> "iran-compact-fixed"
+            "NULL" in supported && maxSafeQName >= 160 -> "iran-download-heavy"
+            maxSafeQName >= 101 && bestRtt < 120L -> "iran-fast-low-mtu"
+            else -> "iran-fixed-64-balanced"
+        }
+        val preset = presetById(presetId) ?: IRAN_AUTO_TUNE_PRESETS.first()
+        val effectiveRtt = if (bestRtt == Long.MAX_VALUE) 0L else bestRtt
+        return WhiteDnsAutoDetectResult(
+            resolver = bestResolver,
+            transport = if (bestTransport == "udp" && midQnameOk) "auto" else bestTransport,
+            recordMode = recordMode,
+            preset = preset,
+            rttMs = effectiveRtt,
+            supportedRecords = supported.ifEmpty { listOf("HTTPS/SVCB", "TXT") },
+            maxSafeQNameBytes = maxSafeQName,
+            summaryFa = "بهترین ریزولور: ${bestResolver.nameFa} (${bestResolver.primaryIp}) · ترنسپورت: ${bestTransport.uppercase()} · رکورد حامل: ${recordMode.titleFa} · سقف QName امن: ${maxSafeQName}B · پریست پیشنهادی: ${preset.titleFa}",
+            summaryEn = "Best resolver: ${bestResolver.nameEn} (${bestResolver.primaryIp}) · Transport: ${bestTransport.uppercase()} · Carrier: ${recordMode.titleEn} · Safe QName: ${maxSafeQName}B · Preset: ${preset.titleEn}",
+        )
+    }
+
+    enum class RegionalFirewallType(
+        val id: String,
+        val titleFa: String,
+        val titleEn: String,
+        val workerPresetId: String,
+        val aetherExitLoc: String,
+        val recommendedIp: String,
+    ) {
+        MCI_IPV6(
+            id = "mci-ipv6",
+            titleFa = "🟦 فایروال نوع همراه اول (IPv6 باز)",
+            titleEn = "🟦 MCI-Type Firewall (IPv6 Reachable)",
+            workerPresetId = "mci-ipv6",
+            aetherExitLoc = "auto",
+            recommendedIp = "2a06:98c1:3101::6812:202f",
+        ),
+        IRANCELL_FF(
+            id = "irancell-ff",
+            titleFa = "🟧 فایروال نوع ایرانسل (نیازمند متد F&F / WARP)",
+            titleEn = "🟧 Irancell-Type Firewall (Requires F&F / WARP)",
+            workerPresetId = "irancell-ff",
+            aetherExitLoc = "auto",
+            recommendedIp = "188.114.98.0",
+        ),
+        FIXED_MULTI_PORT(
+            id = "fixed-multiport",
+            titleFa = "🟩 فایروال اینترنت ثابت/مخابرات (پورت‌های جایگزین کلودفلر باز)",
+            titleEn = "🟩 Fixed/TCI Firewall (Multi-Port CF TLS Open)",
+            workerPresetId = "mci-ech",
+            aetherExitLoc = "auto",
+            recommendedIp = "104.16.132.229",
+        ),
+    }
+
+    data class RegionalFirewallVerdict(
+        val type: RegionalFirewallType,
+        val ipv6Reachable: Boolean,
+        val ipv6RttMs: Long?,
+        val ffIpv4Reachable: Boolean,
+        val ffIpv4RttMs: Long?,
+        val openTlsPorts: List<Int>,
+        val detailFa: String,
+        val detailEn: String,
+    )
+
+    /**
+     * Regional Firewall Fingerprinter:
+     * Tests Cloudflare IPv6 edge reachability (`2a06:98c1:3101::6812:202f:443`) alongside
+     * Irancell F&F IPv4 (`188.114.98.0:443`) and alternative CF TLS ports (`2053, 8443`)
+     * to detect whether the user's region uses an MCI-type or Irancell-type firewall.
+     */
+    fun detectRegionalFirewallProfile(timeoutMs: Int = 1_600): RegionalFirewallVerdict {
+        val v6Candidates = listOf("2a06:98c1:3101::6812:202f", "2606:4700:3030::6815:1")
+        var v6Rtt: Long? = null
+        for (v6 in v6Candidates) {
+            val rtt = probeTcpPort(v6, 443, timeoutMs)
+            if (rtt != null) {
+                v6Rtt = rtt
+                break
+            }
+        }
+        val ffRtt = probeTcpPort("188.114.98.0", 443, timeoutMs)
+            ?: probeTcpPort("188.114.97.6", 443, timeoutMs)
+        val openPorts = mutableListOf<Int>()
+        for (p in listOf(443, 2053, 8443)) {
+            if (probeTcpPort("104.16.132.229", p, timeoutMs / 2) != null) {
+                openPorts += p
+            }
+        }
+        val type = when {
+            v6Rtt != null -> RegionalFirewallType.MCI_IPV6
+            openPorts.size >= 2 && ffRtt != null && openPorts.contains(2053) -> RegionalFirewallType.FIXED_MULTI_PORT
+            else -> RegionalFirewallType.IRANCELL_FF
+        }
+        val detailFa = buildString {
+            appendLine(type.titleFa)
+            appendLine("• وضعیت IPv6 کلودفلر: ${if (v6Rtt != null) "باز ✓ (${v6Rtt} ms)" else "بسته/ندارد ✗"}")
+            appendLine("• وضعیت لبه F&F (188.114.98.0:443): ${if (ffRtt != null) "باز ✓ (${ffRtt} ms)" else "مسدود ✗"}")
+            appendLine("• پورت‌های TLS باز روی کلودفلر: ${if (openPorts.isEmpty()) "فقط با متد F&F / تانل" else openPorts.joinToString(", ")}")
+            when (type) {
+                RegionalFirewallType.MCI_IPV6 ->
+                    append("پیشنهاد: ۱) ورکر با IPv6 (2a06:98c1:3101::6812:202f و fingerprint=chrome) ۲) در Aether: WARP با IPv6 یا MASQUE-HTTP/2.")
+                RegionalFirewallType.IRANCELL_FF ->
+                    append("پیشنهاد: ۱) ورکر با متد F&F (188.114.98.0، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe) جهت رفع محدودیت آپلود ۲) در Aether: WARP (هر نوع IP) یا MASQUE-HTTP/2.")
+                RegionalFirewallType.FIXED_MULTI_PORT ->
+                    append("پیشنهاد: ۱) اسکن ۶ پورت TLS کلودفلر (443, 2053, 8443) ۲) در Aether: Gool H2 (WireGuard-over-MASQUE) یا زنجیره WARP -> Psiphon.")
+            }
+        }
+        val detailEn = buildString {
+            appendLine(type.titleEn)
+            appendLine("• Cloudflare IPv6 edge: ${if (v6Rtt != null) "Open ✓ (${v6Rtt} ms)" else "Blocked/Unavailable ✗"}")
+            appendLine("• F&F edge (188.114.98.0:443): ${if (ffRtt != null) "Open ✓ (${ffRtt} ms)" else "Blocked ✗"}")
+            append("• Open CF TLS ports: ${if (openPorts.isEmpty()) "F&F / Tunnel only" else openPorts.joinToString(", ")}")
+        }
+        return RegionalFirewallVerdict(
+            type = type,
+            ipv6Reachable = v6Rtt != null,
+            ipv6RttMs = v6Rtt,
+            ffIpv4Reachable = ffRtt != null,
+            ffIpv4RttMs = ffRtt,
+            openTlsPorts = openPorts,
+            detailFa = detailFa,
+            detailEn = detailEn,
+        )
+    }
+
+    private fun probeTcpPort(host: String, port: Int, timeoutMs: Int): Long? {
+        return runCatching {
+            val start = System.nanoTime()
+            Socket().use { s ->
+                s.connect(InetSocketAddress(host, port), timeoutMs)
+            }
+            ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)
+        }.getOrNull()
+    }
 }

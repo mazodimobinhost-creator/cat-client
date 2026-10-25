@@ -40,8 +40,8 @@ class WhiteDnsSmartScannerTest {
     }
 
     @Test fun whiteDnsTunnelBundleAndCatalogSupportAllTransportsRecordsAndIranPresets() {
-        assertTrue(WhiteDnsSmartScanner.RESOLVER_CATALOG.size >= 16)
-        assertEquals(6, WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.size)
+        assertTrue(WhiteDnsSmartScanner.RESOLVER_CATALOG.size >= 18)
+        assertEquals(9, WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.size)
 
         val tcpFrame = WhiteDnsSmartScanner.buildTcpDnsQueryFrame(0x4341, qtype = 65)
         val udpPkt = WhiteDnsSmartScanner.buildDnsQueryPacket(0x4341, qtype = 65)
@@ -60,6 +60,16 @@ class WhiteDnsSmartScannerTest {
         assertTrue(bundle.cottenMaxUri.startsWith("cottendns://178.22.122.100:53/?mode=cottenmax"))
         assertTrue(bundle.cottenMaxUri.contains("fec=4:1"))
         assertTrue(bundle.soarUri.startsWith("soar://178.22.122.100:53/?profile=IR"))
+    }
+
+    @Test fun socks5HubBuiltInSeedsAndCountryParserPreserveExplicitPortsAndCountryCodes() {
+        assertTrue(ProxyScannerPage.BUILTIN_SOCKS5_SEEDS.size >= 50)
+        assertTrue(ProxyScannerPage.BUILTIN_SOCKS5_SEEDS.all { ':' in it })
+        assertEquals("US", ProxyScannerPage.countryCodeFromNameOrIso("United States"))
+        assertEquals("DE", ProxyScannerPage.countryCodeFromNameOrIso("Germany"))
+        assertEquals("NL", ProxyScannerPage.countryCodeFromNameOrIso("Netherlands"))
+        assertEquals("SG", ProxyScannerPage.countryCodeFromNameOrIso("Singapore"))
+        assertEquals("FR", ProxyScannerPage.countryCodeFromNameOrIso("fr"))
     }
 
     @Test fun moatBridgesJsonParserExtractsBridgeStrings() {

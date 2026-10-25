@@ -184,29 +184,29 @@ details .body{padding:2px 0 10px;color:var(--muted);font-size:13px}
       <div class="card">
         <h2>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
-          وضعیت پنل و موتورهای ضدتحریم (اپ + پنل v6.69.26)
+          وضعیت پنل و موتورهای ضدتحریم (اپ + پنل v6.69.27)
         </h2>
-        <p class="sub">نسخه‌ی ۶.۶۹.۲۶ (اپ v1.10.0-beta145) · بازطراحی کارت‌های فشرده و ضدکرش</p>
+        <p class="sub">نسخه‌ی ۶.۶۹.۲۷ (اپ v1.10.0-beta146) · شامل بخش اختصاصی ساکس۵ + تشخیص خودکار فایروال و MTU</p>
         <div class="row"><span class="k">وضعیت ورکر و KV</span><span class="v"><span class="badge ok"><span class="dot"></span>آنلاین · KV متصل</span></span></div>
         <div class="row"><span class="k">موتور Aether (v2.4.0)</span><span class="v"><span class="badge ok">Gool H2 · WARP · Psiphon TCP-Only</span></span></div>
-        <div class="row"><span class="k">آزمایشگاه WhiteDNS</span><span class="v"><span class="badge ok">DoQ · DoH3 · DoT · CottenMax · Soar</span></span></div>
-        <div class="row"><span class="k">تعداد آدرس‌ها و DNS</span><span class="v">۲۴ آی‌پی تمیز · ۶ رله · ۵۲ سرور DNS</span></div>
+        <div class="row"><span class="k">بخش اختصاصی ساکس۵</span><span class="v"><span class="badge ok">۷ مخزن زنده + استخر داخلی · اتصال یک‌کلیکی</span></span></div>
+        <div class="row"><span class="k">آزمایشگاه WhiteDNS</span><span class="v"><span class="badge ok">Auto-MTU · 52 DNS · CottenMax · Soar</span></span></div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <button class="btn btn-primary" data-demo="⚡ اتصال فوری Aether با موفقیت شبیه‌سازی شد" style="flex:2">⚡ اتصال فوری Aether</button>
-          <button class="btn" data-demo="🧭 ویزارد اسکن شبکه و ساخت خودکار باز شد" style="flex:1">🧭 اسکن هوشمند</button>
-          <button class="btn" data-demo="🧬 آزمایشگاه WhiteDNS و متدهای Resolver باز شد" style="flex:1">🧬 WhiteDNS</button>
+          <button class="btn" data-demo="🧦 بخش اختصاصی ساکس۵ (لیست زنده ۷ مخزن + اتصال یک‌کلیکی) باز شد" style="flex:1.4">🧦 بخش اختصاصی ساکس۵</button>
+          <button class="btn" data-demo="🧭 تشخیص خودکار نوع فایروال منطقه اجرا شد" style="flex:1.2">🧭 تشخیص فایروال</button>
         </div>
         <details style="margin-top:10px">
           <summary>⚙️ تنظیمات سریع خروجی، زنجیره، کشور و پروفایل فایروال
             <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
           </summary>
           <div class="body">
-            در بازطراحی جدید اپ اندروید (<code>MainActivity.kt</code>)، دکمه‌های پرتکرار با ارتفاع استاندارد 44dp در بالای کارت قرار گرفته‌اند و انتخابگرهای فرعی (مکان خروجی 🇮🇷/🌍، زنجیره سایفون/تور، ۲۹ کشور سایفون و پروفایل فایروال همراه اول/ایرانسل) در بخش جمع‌شونده قرار دارند تا صفحه شلوغ نشود.
+            در بازطراحی جدید اپ اندروید (<code>MainActivity.kt</code>)، دکمه‌های پرتکرار با ارتفاع استاندارد 44dp در بالای کارت قرار گرفته‌اند و انتخابگرهای فرعی (مکان خروجی 🇮🇷/🌍، همگام‌سازی خودکار DNS تحریم‌شکن با آی‌پی ایران 🇮🇷+🔓، زنجیره سایفون/تور، ۲۹ کشور سایفون و پروفایل فایروال همراه اول/ایرانسل) در بخش جمع‌شونده قرار دارند تا صفحه شلوغ نشود.
             <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
               <button class="btn btn-sm" data-demo="🟦 پروفایل فایروال همراه اول (IPv6 / WARP v6) انتخاب شد">🟦 همراه اول (IPv6)</button>
               <button class="btn btn-sm" data-demo="🟧 پروفایل فایروال ایرانسل (F&F / tlshello-0-len) انتخاب شد">🟧 ایرانسل (F&F)</button>
-              <button class="btn btn-sm" data-demo="🌍 خروجی آی‌پی خارج (!IR) فعال شد">🌍 آی‌پی خارج (!IR)</button>
-              <button class="btn btn-sm" data-demo="🇮🇷 خروجی آی‌پی ایران (IR) فعال شد">🇮🇷 آی‌پی ایران (IR)</button>
+              <button class="btn btn-sm" data-demo="🇮🇷+🔓 آی‌پی ایران + DNS تحریم‌شکن خودکار (شکن/الکترو) فعال شد">🇮🇷+🔓 آی‌پی ایران + DNS تحریم‌شکن</button>
+              <button class="btn btn-sm" data-demo="⚡ تشخیص خودکار MTU و رکورد حامل WhiteDNS اجرا شد">⚡ Auto-MTU &amp; Carrier</button>
             </div>
           </div>
         </details>

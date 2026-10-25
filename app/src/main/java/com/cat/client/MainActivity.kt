@@ -10452,6 +10452,31 @@ class MainActivity : Activity() {
         }
         card.addView(dnsAndToolsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Dedicated SOCKS5 Hub & Regional Firewall Auto-Detect row
+        val socks5AndFwRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🧦 بخش اختصاصی ساکس۵" else "🧦 SOCKS5 Live Hub",
+                    accent = true,
+                ) {
+                    showSocks5HubPage()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                smallActionBtn(
+                    label = if (isFarsi) "🧭 تشخیص فایروال منطقه" else "🧭 Detect Firewall",
+                    accent = false,
+                ) {
+                    runRegionalFirewallFingerprinterDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(socks5AndFwRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         // Collapsible secondary controls container (Progressive Disclosure: keeps main view clean)
         val quickControlsHost = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -10693,6 +10718,7 @@ class MainActivity : Activity() {
         val options = if (isFarsi) {
             arrayOf(
                 "🇮🇷 آی‌پی ایران (WARP / MASQUE تک‌لایه — بالاترین سرعت و کمترین پینگ)",
+                "🇮🇷+🔓 آی‌پی ایران + DNS تحریم‌شکن خودکار (پینگ ایران + رفع تحریم گوگل‌پلی/توییتر/گیم)",
                 "🌍 آی‌پی خارج — دو لایه کلودفلر (Gool: WARP-in-WARP / WG-over-MASQUE — پرسرعت)",
                 "🌍 آی‌پی خارج تضمینی — چین WARP → سایفون (رفع کامل تحریم + انتخاب کشور)",
                 "🌍 آی‌پی خارج تضمینی — چین WARP → تور (Orbot)",
@@ -10700,15 +10726,16 @@ class MainActivity : Activity() {
         } else {
             arrayOf(
                 "🇮🇷 Iran IP (Single-Hop WARP / MASQUE — Highest Speed & Lowest Ping)",
+                "🇮🇷+🔓 Iran IP + Auto Sanction-Bypass DNS (Iran Ping + Unblock Sanctioned Apps/Games)",
                 "🌍 Foreign IP — Cloudflare Double-Hop (Gool: WARP-in-WARP / WG-over-MASQUE — Fast)",
                 "🌍 Guaranteed Foreign IP — WARP → Psiphon Chain (Sanction Bypass + Country Pick)",
                 "🌍 Guaranteed Foreign IP — WARP → Tor Chain (Orbot)",
             )
         }
         val activeIdx = when {
-            current.chainTarget == "psiphon" -> 2
-            current.chainTarget == "tor" -> 3
-            current.effectiveExitLocation() == "foreign" -> 1
+            current.chainTarget == "psiphon" -> 3
+            current.chainTarget == "tor" -> 4
+            current.effectiveExitLocation() == "foreign" -> 2
             else -> 0
         }
         MaterialAlertDialogBuilder(this)
@@ -10720,18 +10747,18 @@ class MainActivity : Activity() {
                 dialog.dismiss()
                 val cur = aetherPreferenceStore.read()
                 val updated = when (idx) {
-                    0 -> cur.copy(
+                    0, 1 -> cur.copy(
                         enabled = true,
                         exitLocation = "iran",
                         chainTarget = "none",
                         mode = if (cur.mode == AetherMode.WireGuardOverMasque) AetherMode.MasqueHttp2 else cur.mode,
                     )
-                    1 -> cur.copy(
+                    2 -> cur.copy(
                         enabled = true,
                         exitLocation = "foreign",
                         chainTarget = "none",
                     )
-                    2 -> cur.copy(
+                    3 -> cur.copy(
                         enabled = true,
                         exitLocation = "foreign",
                         chainTarget = "psiphon",
@@ -10750,7 +10777,23 @@ class MainActivity : Activity() {
                     val proxy = if (currentVpnServiceState == VpnState.Started) {
                         "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
                     } else null
+                    var pairedDnsLabel = ""
                     withContext(Dispatchers.IO) {
+                        if (idx == 1) {
+                            val bestDns = WhiteDnsSmartScanner.scanIranDnsResolvers(800).firstOrNull()
+                            val chosenEntry = WhiteDnsSmartScanner.RESOLVER_CATALOG.firstOrNull {
+                                it.primaryIp == bestDns?.ip || it.secondaryIp == bestDns?.ip
+                            } ?: WhiteDnsSmartScanner.RESOLVER_CATALOG.first()
+                            pairedDnsLabel = if (isFarsi) chosenEntry.nameFa else chosenEntry.nameEn
+                            if (chosenEntry.dotEndpoint.isNotEmpty()) {
+                                runCatching { dnsPrivacyPreferenceStore.saveDotEndpoint(chosenEntry.dotEndpoint) }
+                                dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoT)
+                            } else {
+                                val doh = chosenEntry.dohUrl.ifEmpty { "https://free.shecan.ir/dns-query" }
+                                runCatching { dnsPrivacyPreferenceStore.saveDohUrl(doh) }
+                                dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
+                            }
+                        }
                         runCatching {
                             AetherOperations.provision(
                                 updated.mode,
@@ -10761,12 +10804,17 @@ class MainActivity : Activity() {
                             )
                         }
                     }
+                    if (idx == 1) {
+                        renderDnsPrivacySelection()
+                    }
                     val toastMsg = when (idx) {
                         0 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🇮🇷 ایران (تک‌لایه سریع)» قرار گرفت"
                         else "✅ Aether exit IP set to 🇮🇷 Iran (Single-Hop Fast)"
-                        1 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج (دو لایه کلودفلر Gool)» قرار گرفت"
+                        1 -> if (isFarsi) "✅ آی‌پی ایران + DNS تحریم‌شکن ($pairedDnsLabel) همزمان فعال شدند"
+                        else "✅ Iran IP + Sanction-Bypass DNS ($pairedDnsLabel) enabled together"
+                        2 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج (دو لایه کلودفلر Gool)» قرار گرفت"
                         else "✅ Aether exit IP set to 🌍 Foreign (Cloudflare Double-Hop Gool)"
-                        2 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → سایفون)» قرار گرفت"
+                        3 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → سایفون)» قرار گرفت"
                         else "✅ Aether exit IP set to 🌍 Foreign (WARP → Psiphon)"
                         else -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → تور)» قرار گرفت"
                         else "✅ Aether exit IP set to 🌍 Foreign (WARP → Tor)"
@@ -11986,44 +12034,53 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Conceptual 6-in-1 menu exposing all WhiteDNS & WhiteAestherMobile power tools
+     * Conceptual menu exposing all WhiteDNS, SOCKS5 Hub & WhiteAestherMobile power tools
      * without cluttering the main UI.
      */
     private fun showWhiteDnsAndAetherToolsDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val items = if (isFarsi) {
             arrayOf(
-                "📡 ۱) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (UDP/TCP/DoT/DoH/DoQ + رکوردها و پریست‌های ایران)",
-                "🌐 ۲) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
-                "🔍 ۳) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
-                "🧅 ۴) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
-                "💾 ۵) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
-                "📥 ۶) بازیابی کلید کلودفلر از کلیپ‌بورد",
+                "🧦 ۱) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
+                "🧭 ۲) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
+                "⚡ ۳) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
+                "📡 ۴) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۹ پریست ایران + ۴ موتور)",
+                "🌐 ۵) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
+                "🔍 ۶) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
+                "🧅 ۷) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
+                "💾 ۸) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
+                "📥 ۹) بازیابی کلید کلودفلر از کلیپ‌بورد",
             )
         } else {
             arrayOf(
-                "📡 1) WhiteDNS & Resolver Connection Lab (UDP/TCP/DoT/DoH/DoQ + Carrier Records & Iran Presets)",
-                "🌐 2) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
-                "🔍 3) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
-                "🧅 4) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
-                "💾 5) Backup Cloudflare Identity Key to Clipboard",
-                "📥 6) Restore Cloudflare Identity Key from Clipboard",
+                "🧦 1) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
+                "🧭 2) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
+                "⚡ 3) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
+                "📡 4) WhiteDNS & Resolver Connection Lab (52 Servers + 9 Iran Presets + 4 Engines)",
+                "🌐 5) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
+                "🔍 6) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
+                "🧅 7) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
+                "💾 8) Backup Cloudflare Identity Key to Clipboard",
+                "📥 9) Restore Cloudflare Identity Key from Clipboard",
             )
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS و Aether"
-                else "🧰 WhiteDNS & Aether Smart Tools",
+                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS، ساکس۵ و Aether"
+                else "🧰 WhiteDNS, SOCKS5 & Aether Smart Tools",
             )
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> showWhiteDnsResolverMethodsDialog()
-                    1 -> runCloudflareSixPortsAndSniScanDialog()
-                    2 -> runIranDnsAndDnsttScanDialog()
-                    3 -> runFetchMoatTorBridgesDialog()
-                    4 -> exportAetherIdentityToClipboard()
-                    5 -> importAetherIdentityFromClipboard()
+                    0 -> showSocks5HubPage()
+                    1 -> runRegionalFirewallFingerprinterDialog()
+                    2 -> runWhiteDnsAutoMtuAndCarrierDialog()
+                    3 -> showWhiteDnsResolverMethodsDialog()
+                    4 -> runCloudflareSixPortsAndSniScanDialog()
+                    5 -> runIranDnsAndDnsttScanDialog()
+                    6 -> runFetchMoatTorBridgesDialog()
+                    7 -> exportAetherIdentityToClipboard()
+                    8 -> importAetherIdentityFromClipboard()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -12163,12 +12220,44 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
-        // Row: Select Resolver from 18-Server Catalog + Select Transport (Auto / UDP / TCP / DoT / DoH / DoQ / DoH3)
+        // Button 1b: Auto-MTU & Carrier Record Finder (auto-detects QName limit, carrier record & preset in-place)
+        root.addView(
+            actionBtn(
+                if (isFarsi) "⚡ تشخیص خودکار MTU، رکورد حامل و بهترین پریست (Auto-Tune)"
+                else "⚡ Auto-Detect MTU, Carrier Record & Best Preset",
+                accent = false,
+            ) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⏳ در حال تست طول QName، رکوردهای حامل (NULL/TXT/HTTPS) و بهترین ریزولور…"
+                    else "⏳ Probing QName MTU, carrier records & fastest resolver…",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                activityScope.launch {
+                    val detected = withContext(Dispatchers.IO) {
+                        WhiteDnsSmartScanner.autoDetectBestWhiteDnsProfile()
+                    }
+                    selectedResolver = detected.resolverEntry
+                    selectedTransport = detected.bestTransport
+                    selectedRecordMode = detected.recommendedRecordMode
+                    selectedPreset = detected.recommendedPreset
+                    refreshView()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) detected.summaryFa else detected.summaryEn,
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+
+        // Row: Select Resolver from 52-Server Catalog + Select Transport (Auto / UDP / TCP / DoT / DoH / DoQ / DoH3)
         val row1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
-                actionBtn(if (isFarsi) "۱) کاتالوگ ۱۸ سرور DNS ▾" else "1) 18 DNS Resolvers ▾") {
+                actionBtn(if (isFarsi) "۱) کاتالوگ ۵۲ سرور DNS ▾" else "1) 52 DNS Resolvers ▾") {
                     val catalog = WhiteDnsSmartScanner.RESOLVER_CATALOG
                     val titles = catalog.map { r ->
                         val label = if (isFarsi) r.nameFa else r.nameEn
@@ -12318,6 +12407,141 @@ class MainActivity : Activity() {
             }
             .create()
             .showCatClientDialog()
+    }
+
+    private fun runRegionalFirewallFingerprinterDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست نوع فایروال واقعی منطقه شما (IPv6 کلودفلر، 188.114.98.0، MASQUE و ۶ پورت TLS)…"
+            else "⏳ Fingerprinting your actual regional firewall (CF IPv6, 188.114.98.0, MASQUE & 6 TLS ports)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val verdict = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.detectRegionalFirewallProfile()
+            }
+            val title = if (isFarsi) verdict.titleFa else verdict.titleEn
+            val detail = if (isFarsi) verdict.detailFa else verdict.detailEn
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(title)
+                .setMessage(detail)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(
+                    if (isFarsi) "⚡ بهینه‌سازی ساب فعلی" else "⚡ Optimize Active Sub",
+                ) { _, _ ->
+                    val selectedId = userSubscriptionManager.selectedId()
+                    val activeSub = userSubscriptionManager.list().firstOrNull { it.id == selectedId }
+                        ?: userSubscriptionManager.list().firstOrNull()
+                    if (activeSub != null) {
+                        optimizeUserSubscription(activeSub)
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "ابتدا یک سابسکریپشن اضافه کنید یا از دکمه اعمال روی Aether استفاده کنید"
+                            else "Add a subscription first or tap Apply to Aether",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+                .setPositiveButton(
+                    if (isFarsi) "🚀 اعمال تنظیم بهینه روی Aether" else "🚀 Apply Optimal Aether Config",
+                ) { _, _ ->
+                    val cur = aetherPreferenceStore.read()
+                    val recMode = if (verdict.recommendedAetherMode == "wireguard") AetherMode.WireGuard else AetherMode.MasqueHttp2
+                    val updated = cur.copy(
+                        enabled = true,
+                        mode = recMode,
+                        ipScan = verdict.recommendedIpScan,
+                        endpoint = verdict.recommendedEndpoint,
+                        endpointScannedAt = System.currentTimeMillis(),
+                        profileName = when (verdict.detectedType) {
+                            WhiteDnsSmartScanner.RegionalFirewallType.MCI_IPV6 -> "MCI-IPv6-Auto"
+                            WhiteDnsSmartScanner.RegionalFirewallType.IRANCELL_FF -> "Irancell-FF-Auto"
+                            WhiteDnsSmartScanner.RegionalFirewallType.FIXED_MULTI_PORT -> "Fixed-ISP-Auto"
+                        },
+                    )
+                    aetherPreferenceStore.save(updated)
+                    refreshEngineSummary()
+                    renderAdvancedControls()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ تنظیم بهینه «${updated.profileName}» (${verdict.recommendedEndpoint}) ذخیره و فعال شد"
+                        else "✅ Applied optimal profile '${updated.profileName}' (${verdict.recommendedEndpoint})",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runWhiteDnsAutoMtuAndCarrierDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست طول QName، رکوردهای حامل (NULL 1232B / HTTPS 65 / TXT / CNAME) و ۵۲ سرور DNS…"
+            else "⏳ Probing QName MTU, carrier records (NULL 1232B / HTTPS 65 / TXT / CNAME) & 52 resolvers…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.autoDetectBestWhiteDnsProfile()
+            }
+            val msg = if (isFarsi) {
+                "${res.summaryFa}\n\n" +
+                    "🔗 لینک CottenMax پیشنهادی:\n${res.bundle.cottenMaxUri}\n\n" +
+                    "🔗 لینک StormDNS پیشنهادی:\n${res.bundle.stormDnsUri}"
+            } else {
+                "${res.summaryEn}\n\n" +
+                    "🔗 Recommended CottenMax URI:\n${res.bundle.cottenMaxUri}\n\n" +
+                    "🔗 Recommended StormDNS URI:\n${res.bundle.stormDnsUri}"
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "⚡ نتیجه تشخیص خودکار MTU و رکورد حامل WhiteDNS"
+                    else "⚡ WhiteDNS Auto-MTU & Carrier Detection Result",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "📋 کپی بسته تانل" else "📋 Copy Tunnel Bundle") { _, _ ->
+                    val text = buildString {
+                        appendLine(res.bundle.cottenMaxUri)
+                        appendLine(res.bundle.stormDnsUri)
+                        appendLine(res.bundle.soarUri)
+                        append(res.bundle.dnsttUdpBridges.first())
+                    }
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("whitedns-autotune", text))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ بسته تانل بهینه کپی شد" else "✅ Copied optimal tunnel bundle",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .setPositiveButton(if (isFarsi) "✅ اعمال ریزولور روی DNS اپ" else "✅ Apply Resolver to App DNS") { _, _ ->
+                    val r = res.resolverEntry
+                    if (r.dotEndpoint.isNotEmpty()) {
+                        runCatching { dnsPrivacyPreferenceStore.saveDotEndpoint(r.dotEndpoint) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoT)
+                    } else {
+                        val url = r.dohUrl.ifEmpty { "https://178.22.122.100/dns-query" }
+                        runCatching { dnsPrivacyPreferenceStore.saveDohUrl(url) }
+                        dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
+                    }
+                    renderDnsPrivacySelection()
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ ریزولور بهینه «${r.nameFa}» فعال شد" else "✅ Enabled optimal resolver '${r.nameEn}'",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
     }
 
     private fun runCloudflareSixPortsAndSniScanDialog() {
@@ -14540,7 +14764,135 @@ class MainActivity : Activity() {
             panelBaseUrl = panelBaseUrl(),
             pickPanel = { pickPanelBaseInteractive() },
             importLink = { link -> showAddSubscriptionDialog(link, "") },
+            connectDirect = { hit -> connectSocks5HitDirectly(hit) },
+            connectPool = { hits -> connectSocks5PoolDirectly(hits) },
+            startWithSocks5Only = false,
         ).show()
+    }
+
+    private fun showSocks5HubPage() {
+        ProxyScannerPage(
+            activity = this,
+            palette = palette,
+            scope = activityScope,
+            panelBaseUrl = panelBaseUrl(),
+            pickPanel = { pickPanelBaseInteractive() },
+            importLink = { link -> showAddSubscriptionDialog(link, "") },
+            connectDirect = { hit -> connectSocks5HitDirectly(hit) },
+            connectPool = { hits -> connectSocks5PoolDirectly(hits) },
+            startWithSocks5Only = true,
+        ).show()
+    }
+
+    private fun connectSocks5HitDirectly(hit: ProxyScannerPage.Hit) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val uri = ProxyScanImport.uri(hit, System.currentTimeMillis()) ?: return
+        val countryTag = hit.country.ifBlank { "SOCKS5" }
+        val shareLink = "$uri#$countryTag ${hit.authority} (${hit.latencyMs}ms)"
+        val subName = "🧦 SOCKS5 Direct ($countryTag ${hit.host}:${hit.port})"
+        activityScope.launch {
+            val saved = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("🧦 SOCKS5 Direct") }
+                    if (existing != null) {
+                        userSubscriptionManager.update(existing.id, subName, shareLink)
+                    } else {
+                        userSubscriptionManager.add(subName, shareLink)
+                    }
+                }
+            }.getOrNull()
+            if (saved == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ ساخت پروفایل اتصال SOCKS5 ناموفق بود" else "⚠️ Failed to create SOCKS5 profile",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val curAether = aetherPreferenceStore.read()
+            if (curAether.enabled) {
+                aetherPreferenceStore.save(curAether.copy(enabled = false))
+            }
+            orbotEnginePreferenceStore.setEnabled(false)
+            userSubscriptionManager.select(saved.id)
+            onSubscriptionSelected()
+            Toast.makeText(
+                this@MainActivity,
+                if (isFarsi) "⚡ در حال اتصال مستقیم به پراکسی ساکس۵ (${hit.authority} · ${hit.latencyMs}ms)…"
+                else "⚡ Connecting directly to SOCKS5 (${hit.authority} · ${hit.latencyMs}ms)…",
+                Toast.LENGTH_LONG,
+            ).show()
+            openScreen(SCREEN_HOME)
+            if (currentVpnServiceState == VpnState.Started) {
+                reconnectForConnectionOptionChange()
+            } else {
+                beginConnectFlow(Actions.CONNECT)
+            }
+        }
+    }
+
+    private fun connectSocks5PoolDirectly(hits: List<ProxyScannerPage.Hit>) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val nowMs = System.currentTimeMillis()
+        val links = hits
+            .filter { it.proto == ProxyScannerPage.Proto.SOCKS5 }
+            .sortedBy { it.latencyMs }
+            .distinctBy { "${it.host.lowercase(Locale.US)}:${it.port}" }
+            .take(40)
+            .mapIndexedNotNull { idx, h ->
+                val baseUri = ProxyScanImport.uri(h, nowMs) ?: return@mapIndexedNotNull null
+                val cc = h.country.ifBlank { "GL" }
+                "$baseUri#$cc-${idx + 1} ${h.host}:${h.port} (${h.latencyMs}ms)"
+            }
+        if (links.isEmpty()) {
+            Toast.makeText(
+                this,
+                if (isFarsi) "⚠️ ابتدا دکمه شروع اسکن را بزنید تا ساکس۵های سالم پیدا شوند"
+                else "⚠️ Start the scan first to find working SOCKS5 proxies",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        val subName = "🧦 SOCKS5 Auto-Pool (${links.size})"
+        activityScope.launch {
+            val saved = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("🧦 SOCKS5 Auto-Pool") }
+                    if (existing != null) {
+                        userSubscriptionManager.update(existing.id, subName, links.joinToString("\n"))
+                    } else {
+                        userSubscriptionManager.add(subName, links.joinToString("\n"))
+                    }
+                }
+            }.getOrNull()
+            if (saved == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ ساخت استخر خودکار SOCKS5 ناموفق بود" else "⚠️ Failed to build SOCKS5 pool",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val curAether = aetherPreferenceStore.read()
+            if (curAether.enabled) {
+                aetherPreferenceStore.save(curAether.copy(enabled = false))
+            }
+            orbotEnginePreferenceStore.setEnabled(false)
+            userSubscriptionManager.select(saved.id)
+            onSubscriptionSelected()
+            Toast.makeText(
+                this@MainActivity,
+                if (isFarsi) "🚀 استخر هوشمند ساکس۵ با ${links.size} پراکسی سالم ساخته شد — در حال اتصال خودکار…"
+                else "🚀 Smart SOCKS5 pool built with ${links.size} live proxies — connecting…",
+                Toast.LENGTH_LONG,
+            ).show()
+            openScreen(SCREEN_HOME)
+            if (currentVpnServiceState == VpnState.Started) {
+                reconnectForConnectionOptionChange()
+            } else {
+                beginConnectFlow(Actions.CONNECT)
+            }
+        }
     }
 
     /* ------------------------------------------------------------------ */

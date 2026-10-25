@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.26';
+const CAT_PANEL_VERSION = '6.69.27';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -6998,6 +6998,7 @@ ${(() => {
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
    <input id="skInput" type="text" inputmode="url" aria-label="socks5 address" style="flex:1;min-width:180px;min-height:44px;border-radius:11px;border:1px solid var(--line,#26313f);background:transparent;color:inherit;padding:0 12px;font:inherit" placeholder="socks5://user:pass@1.2.3.4:1080">
    <button class="btn44 primary" id="skAdd" type="button" data-i="sk_add"></button>
+   <button class="btn44" id="skLiveFetch" type="button">🧦 واکشی و تست زنده ساکس۵</button>
   </div>
   <table style="width:100%;border-collapse:collapse"><tbody class="skrow" id="skRows"></tbody></table>
   <p class="nsub" data-i="sk_warn" style="margin-top:10px"></p>
@@ -8768,6 +8769,20 @@ function addSock(){
   b.addEventListener('click',function(){goSec(b.getAttribute('data-sec'));});});
 [].forEach.call(document.querySelectorAll('.addrtabs button'),function(b){b.addEventListener('click',function(){setAddrTab(b.getAttribute('data-atab-go'));});});
 if($('#skAdd'))$('#skAdd').addEventListener('click',addSock);
+if($('#skLiveFetch'))$('#skLiveFetch').addEventListener('click',function(){
+  var out=$('#skOut');if(out){out.style.display='block';out.textContent='⏳ در حال واکشی و تست زنده پراکسی‌های ساکس۵…';}
+  var seeds=['104.219.236.127:1080','110.235.247.248:1080','124.248.191.117:1080','174.138.61.184:1080','185.194.217.97:1080','194.163.182.6:1080','202.62.49.65:1080','31.211.142.115:8192','85.143.254.38:1080','212.33.248.45:1080','77.50.61.182:1080','195.98.82.63:1080'];
+  fetch('https://cdn.jsdelivr.net/gh/vakhov/fresh-proxy-list@master/socks5.txt').then(function(r){return r.ok?r.text():'';}).catch(function(){return '';}).then(function(txt){
+    var raw=(txt?txt.split(/\\s+/):[]).concat(seeds).filter(function(x){return /^\\d+\\.\\d+\\.\\d+\\.\\d+:\\d{1,5}$/.test(x);}).slice(0,12);
+    var tests=raw.map(function(hp){var p=hp.split(':');return {addr:p[0],port:parseInt(p[1],10),kind:'proxyip'};});
+    return api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){
+      var res=(j&&j.results)||[];
+      var okList=res.filter(function(r){return r&&r.ok&&r.addr&&r.port;}).map(function(r){return 'socks5://'+r.addr+':'+r.port;});
+      if(out)out.textContent=okList.length?('✅ ساکس۵های سالم:\\n'+okList.join('\\n')):'⚠️ در این نوبت ساکس۵ باز یافت نشد؛ از بخش اختصاصی ساکس۵ در اپ اندروید استفاده کنید.';
+      if(okList.length){saveSocks(socksOf().concat(okList));}
+    });
+  }).catch(function(e){if(out)out.textContent=String(e);});
+});
 if($('#errRefresh'))$('#errRefresh').addEventListener('click',function(){loadErrors();});
 if($('#hmRefresh'))$('#hmRefresh').addEventListener('click',function(){load();toast(t('hm_copied'),false);});
 

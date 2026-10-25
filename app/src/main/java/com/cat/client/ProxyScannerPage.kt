@@ -55,9 +55,12 @@ class ProxyScannerPage(
     private val panelBaseUrl: String? = null,
     private val pickPanel: (suspend () -> String?)? = null,
     private val importLink: (String) -> Unit,
+    private val connectDirect: ((Hit) -> Unit)? = null,
+    private val connectPool: ((List<Hit>) -> Unit)? = null,
+    private val startWithSocks5Only: Boolean = false,
 ) {
     enum class Proto(val label: String) { SOCKS5("SOCKS5"), SOCKS4("SOCKS4"), HTTP("HTTP") }
-    data class Candidate(val host: String, val port: Int, val proto: Proto?)
+    data class Candidate(val host: String, val port: Int, val proto: Proto?, val countryHint: String = "")
     data class Hit(val host: String, val port: Int, val proto: Proto, val latencyMs: Long, var country: String = "") {
         val authority: String
             get() = if (host.contains(':')) "[${host.removePrefix("[").removeSuffix("]")}]:$port" else "$host:$port"
@@ -124,17 +127,25 @@ class ProxyScannerPage(
     private lateinit var portsInput: EditText
     private var threads = 100
     private var timeoutMs = 5_000
+    private var activeDialog: Dialog? = null
 
     fun show() {
+        if (startWithSocks5Only) filterProto = Proto.SOCKS5
         val persisted = VerifiedRelayStore(ctx).loadHits()
         if (persisted.isNotEmpty() && hits.isEmpty()) {
             synchronized(hits) { hits.addAll(persisted) }
         }
         val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        activeDialog = dialog
         dialog.setContentView(build())
         dialog.window?.setBackgroundDrawable(ColorDrawable(palette.background))
-        dialog.setOnDismissListener { job?.cancel() }
+        dialog.setOnDismissListener { job?.cancel(); activeDialog = null }
         dialog.show()
+        val autoRefresh = ctx.getSharedPreferences("cat_verified_relays", Context.MODE_PRIVATE)
+            .getBoolean("auto_refresh_on_open", true)
+        if ((startWithSocks5Only || hits.isEmpty()) && autoRefresh) {
+            start()
+        }
     }
 
     // ---------------------------------------------------------------- UI
@@ -201,11 +212,24 @@ class ProxyScannerPage(
     }
 
     private fun build(): View {
+        val isFarsi = ctx.resources.configuration.locales[0]?.language == "fa"
+        sourceToggles["vakhov · Fresh SOCKS5"] = "https://cdn.jsdelivr.net/gh/vakhov/fresh-proxy-list@master/socks5.txt" to Proto.SOCKS5
+        sourceToggles["roosterkid · SOCKS5"] = "https://cdn.jsdelivr.net/gh/roosterkid/openproxylist@main/SOCKS5_RAW.txt" to Proto.SOCKS5
         sourceToggles["monosans · SOCKS5"] = "https://cdn.jsdelivr.net/gh/monosans/proxy-list@main/proxies/socks5.txt" to Proto.SOCKS5
+        sourceToggles["hideip.me · SOCKS5 (Geo)"] = "https://cdn.jsdelivr.net/gh/zloi-user/hideip.me@main/socks5.txt" to Proto.SOCKS5
+        sourceToggles["TheSpeedX · SOCKS5"] = "https://cdn.jsdelivr.net/gh/TheSpeedX/PROXY-List@master/socks5.txt" to Proto.SOCKS5
+        sourceToggles["proxifly · SOCKS5"] = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/socks5/data.txt" to Proto.SOCKS5
+        sourceToggles["⚡ Built-in SOCKS5 Seeds"] = "builtin://socks5-seeds" to Proto.SOCKS5
         sourceToggles["monosans · SOCKS4"] = "https://cdn.jsdelivr.net/gh/monosans/proxy-list@main/proxies/socks4.txt" to Proto.SOCKS4
         sourceToggles["monosans · HTTP"] = "https://cdn.jsdelivr.net/gh/monosans/proxy-list@main/proxies/http.txt" to Proto.HTTP
         sourceToggles["proxifly · all"] = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt" to null
-        sourceSelected += "monosans · SOCKS5"
+        sourceSelected += listOf(
+            "vakhov · Fresh SOCKS5",
+            "roosterkid · SOCKS5",
+            "monosans · SOCKS5",
+            "hideip.me · SOCKS5 (Geo)",
+            "⚡ Built-in SOCKS5 Seeds",
+        )
 
         val sourcesRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
         fun renderSources() {
@@ -232,9 +256,28 @@ class ProxyScannerPage(
         }
         renderBudget()
 
+        val prefs = ctx.getSharedPreferences("cat_verified_relays", Context.MODE_PRIVATE)
+        var autoRefreshOnOpen = prefs.getBoolean("auto_refresh_on_open", true)
+        val autoRefreshHolder = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+        fun renderAutoRefreshChip() {
+            autoRefreshHolder.removeAllViews()
+            val lbl = if (isFarsi) {
+                if (autoRefreshOnOpen) "🔄 آپدیت خودکار لیست ساکس۵ در بدو ورود: روشن ✓" else "🔄 آپدیت خودکار لیست ساکس۵ در بدو ورود: خاموش"
+            } else {
+                if (autoRefreshOnOpen) "🔄 Auto-update SOCKS5 on open: ON ✓" else "🔄 Auto-update SOCKS5 on open: OFF"
+            }
+            autoRefreshHolder.addView(chip(lbl, autoRefreshOnOpen) {
+                autoRefreshOnOpen = !autoRefreshOnOpen
+                prefs.edit().putBoolean("auto_refresh_on_open", autoRefreshOnOpen).apply()
+                renderAutoRefreshChip()
+            })
+        }
+        renderAutoRefreshChip()
+
         val inputsCard = card().apply {
             addView(text(ctx.getString(R.string.pscan_sources), 15f, bold = true))
             addView(HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(sourcesRow) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            addView(autoRefreshHolder, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(text(ctx.getString(R.string.pscan_custom_title), 13f, bold = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
             addView(customInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(text(ctx.getString(R.string.pscan_ports_title), 13f, bold = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
@@ -244,6 +287,28 @@ class ProxyScannerPage(
         }
 
         startButton = button(ctx.getString(R.string.pscan_start), filled = true) { if (job?.isActive == true) stop() else start() }
+        val poolConnectButton = button(
+            if (isFarsi) "🚀 اتصال هوشمند VPN به همه ساکس۵های سالم (Auto-Failover)"
+            else "🚀 Connect VPN to Healthy SOCKS5 Pool (Auto-Failover)",
+            filled = true,
+        ) {
+            val socks5Hits = synchronized(hits) { hits.filter { it.proto == Proto.SOCKS5 }.sortedBy { it.latencyMs } }
+            if (socks5Hits.isEmpty()) {
+                Toast.makeText(
+                    ctx,
+                    if (isFarsi) "ابتدا اسکن/آپدیت ساکس۵ را بزنید تا ساکس‌های سالم پیدا شوند" else "Run SOCKS5 scan/update first to find healthy servers",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } else if (connectPool != null) {
+                activeDialog?.dismiss()
+                connectPool.invoke(socks5Hits)
+            } else {
+                ProxyScanImport.uri(socks5Hits.first(), System.currentTimeMillis())?.let { uri ->
+                    activeDialog?.dismiss()
+                    importLink("$uri#${socks5Hits.first().country.ifBlank { "SOCKS5" }} ${socks5Hits.first().host}")
+                }
+            }
+        }
         progressText = text(ctx.getString(R.string.pscan_idle), 12f, color = palette.textSecondary)
         // Names the public lists that answered nothing: on a filtered network the
         // default jsdelivr feeds simply cannot be fetched, and that is the whole
@@ -266,6 +331,7 @@ class ProxyScannerPage(
                 addView(startButton, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(button(ctx.getString(R.string.pscan_clear), filled = false) { clear() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             })
+            addView(poolConnectButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(progressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             addView(sourceStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(countryStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
@@ -440,6 +506,7 @@ class ProxyScannerPage(
         // thread and close the app (beta98's report ends exactly there — RippleDrawable/
         // LayerDrawable allocation while a row was being built). Halve the cap, log, retry.
         val built = runCatching {
+        val isFarsiRow = ctx.resources.configuration.locales[0]?.language == "fa"
         shown.take(rowCap).forEach { hit ->
             val probeBadge = probeDisplayByAuthority[hit.authority]?.let {
                 " · ${it.stage.name}" + if (it.healthy) " ✓" else ""
@@ -454,7 +521,13 @@ class ProxyScannerPage(
                     addView(text(hit.authority, 14f, bold = true).apply { typeface = CatClientDataTypeface; maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
                     addView(text("${hit.proto.label} · ${hit.latencyMs} ms$probeBadge", 12f, color = palette.textSecondary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(chip(ctx.getString(if (hit.proto == Proto.SOCKS5) R.string.pscan_add else R.string.pscan_copy), hit.proto == Proto.SOCKS5) {
+                if (hit.proto == Proto.SOCKS5 && connectDirect != null) {
+                    addView(chip(if (isFarsiRow) "⚡ اتصال" else "⚡ Connect", true) {
+                        activeDialog?.dismiss()
+                        connectDirect.invoke(hit)
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+                }
+                addView(chip(ctx.getString(if (hit.proto == Proto.SOCKS5) R.string.pscan_add else R.string.pscan_copy), hit.proto == Proto.SOCKS5 && connectDirect == null) {
                     if (hit.proto == Proto.SOCKS5) {
                         ProxyScanImport.uri(hit, System.currentTimeMillis())?.let { uri ->
                             importLink("$uri#${hit.country.ifBlank { "SOCKS5" }} ${hit.host}")
@@ -683,7 +756,12 @@ class ProxyScannerPage(
                 proto = when (m.groupValues[1].lowercase()) { "socks5", "socks" -> Proto.SOCKS5; "socks4" -> Proto.SOCKS4; else -> Proto.HTTP }
                 line = line.substring(m.value.length)
             }
-            line = line.substringBefore('#').substringBefore(' ').substringBefore('@').trim()
+            var countryHint = ""
+            if ('#' in line) {
+                countryHint = countryCodeFromNameOrIso(line.substringAfter('#').trim())
+                line = line.substringBefore('#')
+            }
+            line = line.substringBefore(' ').substringAfter('@').trim()
             val cidr = Regex("^(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)$").find(line)
             if (cidr != null) {
                 val bits = cidr.groupValues[2].toInt().coerceIn(16, 32)
@@ -694,39 +772,80 @@ class ProxyScannerPage(
                 while (i < count && out.size < 60_000) { ports.forEach { p -> out += Candidate(longToIp(base + i), p, null) }; i += step }
                 return
             }
-            val bracketV6Port = Regex("^\\[([^]]+)]:(\\d{1,5})$").find(line)
+            val bracketV6Port = Regex("^\\[([^]]+)]:(\\d{1,5})(?::(.+))?$").find(line)
             if (bracketV6Port != null) {
                 val p = bracketV6Port.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 }
-                if (p != null) out += Candidate(bracketV6Port.groupValues[1], p, proto)
+                val cc = countryHint.ifBlank { countryCodeFromNameOrIso(bracketV6Port.groupValues.getOrElse(3) { "" }) }
+                if (p != null) out += Candidate(bracketV6Port.groupValues[1], p, proto, cc)
                 return
             }
-            val hp = Regex("^([^:]+):(\\d{1,5})$").find(line)
-            if (hp != null) {
-                val p = hp.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 }
-                if (p != null) out += Candidate(hp.groupValues[1], p, proto)
+            val hpCountry = Regex("^(\\d+\\.\\d+\\.\\d+\\.\\d+|[A-Za-z0-9.-]+):(\\d{1,5})(?::(.+))?$").find(line)
+            if (hpCountry != null) {
+                val p = hpCountry.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 }
+                val cc = countryHint.ifBlank { countryCodeFromNameOrIso(hpCountry.groupValues.getOrElse(3) { "" }) }
+                if (p != null) out += Candidate(hpCountry.groupValues[1], p, proto, cc)
             } else {
                 val bareHost = line.removePrefix("[").removeSuffix("]")
                 if (Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$").matches(bareHost) || bareHost.contains(':') || bareHost.contains('.')) {
-                    ports.forEach { p -> out += Candidate(bareHost, p, proto) }
+                    ports.forEach { p -> out += Candidate(bareHost, p, proto, countryHint) }
                 }
             }
         }
         custom.lines().forEach { addLine(it, null) }
         val notes = ArrayList<String>()
         urls.forEach { (url, proto) ->
+            if (url == "builtin://socks5-seeds") {
+                BUILTIN_SOCKS5_SEEDS.forEach { addLine(it, Proto.SOCKS5) }
+                return@forEach
+            }
             val label = url.substringAfter("//").substringBefore('/')
-            val failure = runCatching {
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 10_000; conn.readTimeout = 20_000
-                val code = conn.responseCode
-                if (code >= 400) throw IllegalStateException("HTTP $code")
-                conn.inputStream.bufferedReader().useLines { lines -> lines.forEach { if (out.size < 60_000) addLine(it, proto) } }
-                conn.disconnect()
-            }.exceptionOrNull()
-            if (failure != null) notes += "$label ✗"
+            val fetchedLines = fetchFeedLinesWithMirrors(url)
+            if (fetchedLines != null && fetchedLines.isNotEmpty()) {
+                fetchedLines.forEach { if (out.size < 60_000) addLine(it, proto) }
+            } else {
+                notes += "$label ✗"
+            }
         }
         sourceNotes = notes.distinct().take(6)
         return out.toList()
+    }
+
+    private fun fetchFeedLinesWithMirrors(primaryUrl: String): List<String>? {
+        val candidates = ArrayList<Pair<String, Boolean>>()
+        candidates += primaryUrl to false
+        if (primaryUrl.contains("cdn.jsdelivr.net/gh/")) {
+            val ghPath = primaryUrl.substringAfter("cdn.jsdelivr.net/gh/")
+            candidates += "https://fastly.jsdelivr.net/gh/$ghPath" to false
+            val ownerRepoBranch = ghPath.substringBefore('/') + "/" + ghPath.substringAfter('/').substringBefore('/')
+            val repoPart = ownerRepoBranch.substringBefore('@')
+            val branchPart = ownerRepoBranch.substringAfter('@', "main")
+            val filePath = ghPath.substringAfter('/').substringAfter('/')
+            candidates += "https://raw.githubusercontent.com/$repoPart/$branchPart/$filePath" to false
+            candidates += "https://api.github.com/repos/$repoPart/contents/$filePath?ref=$branchPart" to true
+        }
+        for ((u, isGhApi) in candidates) {
+            val lines = runCatching {
+                val conn = URL(u).openConnection() as HttpURLConnection
+                conn.connectTimeout = 8_000; conn.readTimeout = 12_000
+                if (isGhApi) conn.setRequestProperty("Accept", "application/vnd.github+json")
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    conn.disconnect()
+                    throw IllegalStateException("HTTP $code")
+                }
+                val text = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+                if (isGhApi) {
+                    val b64 = JSONObject(text).optString("content").replace("\n", "").replace("\r", "")
+                    if (b64.isEmpty()) emptyList()
+                    else String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT)).lines()
+                } else {
+                    text.lines()
+                }
+            }.getOrNull()
+            if (!lines.isNullOrEmpty()) return lines
+        }
+        return null
     }
 
     private fun probe(c: Candidate): Hit? {
@@ -742,7 +861,10 @@ class ProxyScannerPage(
                     handshake(p, s.getInputStream(), s.getOutputStream())
                 }
             }.getOrDefault(false)
-            if (ok) { open.incrementAndGet(); return Hit(c.host, c.port, p, SystemClock.elapsedRealtime() - t0) }
+            if (ok) {
+                open.incrementAndGet()
+                return Hit(c.host, c.port, p, SystemClock.elapsedRealtime() - t0, c.countryHint)
+            }
             if (!anyOpen) return null // port closed: no point trying other protocols
         }
         open.incrementAndGet(); openNotProxy.incrementAndGet()
@@ -875,6 +997,122 @@ class ProxyScannerPage(
 
     private fun ipToLong(ip: String): Long = ip.split('.').fold(0L) { acc, s -> (acc shl 8) or (s.toLong() and 0xFF) }
     private fun longToIp(v: Long): String = "${(v shr 24) and 0xFF}.${(v shr 16) and 0xFF}.${(v shr 8) and 0xFF}.${v and 0xFF}"
+
+    companion object {
+        internal fun countryCodeFromNameOrIso(raw: String): String {
+            val clean = raw.trim()
+            if (clean.isEmpty()) return ""
+            if (clean.length == 2 && clean.all { it.isLetter() }) return clean.uppercase()
+            val token = clean.split(' ', ',', '-', '_').firstOrNull { it.length == 2 && it.all(Char::isLetter) }
+            val lower = clean.lowercase()
+            return when {
+                lower.contains("united states") || lower == "usa" -> "US"
+                lower.contains("germany") || lower.contains("deutschland") -> "DE"
+                lower.contains("netherlands") || lower.contains("holland") -> "NL"
+                lower.contains("united kingdom") || lower.contains("great britain") || lower == "uk" -> "GB"
+                lower.contains("france") -> "FR"
+                lower.contains("russia") || lower.contains("russian") -> "RU"
+                lower.contains("singapore") -> "SG"
+                lower.contains("japan") -> "JP"
+                lower.contains("canada") -> "CA"
+                lower.contains("finland") -> "FI"
+                lower.contains("sweden") -> "SE"
+                lower.contains("switzerland") -> "CH"
+                lower.contains("poland") -> "PL"
+                lower.contains("turkey") || lower.contains("türkiye") -> "TR"
+                lower.contains("emirates") || lower == "uae" -> "AE"
+                lower.contains("hong kong") -> "HK"
+                lower.contains("korea") -> "KR"
+                lower.contains("india") -> "IN"
+                lower.contains("italy") -> "IT"
+                lower.contains("spain") -> "ES"
+                lower.contains("austria") -> "AT"
+                lower.contains("romania") -> "RO"
+                lower.contains("bulgaria") -> "BG"
+                lower.contains("ukraine") -> "UA"
+                lower.contains("brazil") -> "BR"
+                lower.contains("australia") -> "AU"
+                lower.contains("taiwan") -> "TW"
+                lower.contains("vietnam") -> "VN"
+                lower.contains("indonesia") -> "ID"
+                lower.contains("thailand") -> "TH"
+                lower.contains("kazakhstan") -> "KZ"
+                token != null -> token.uppercase()
+                else -> ""
+            }
+        }
+
+        /**
+         * Fresh snapshot of explicit `IP:port` SOCKS5 candidates from open public feeds
+         * (`vakhov/fresh-proxy-list`, `roosterkid/openproxylist`, `monosans/proxy-list`, `zloi-user/hideip.me`)
+         * so the scanner has candidates to probe even when external CDNs are blocked on a restricted SIM.
+         * Every entry keeps its exact source port and is runtime-probed before any connection/import.
+         */
+        val BUILTIN_SOCKS5_SEEDS: List<String> = listOf(
+            "104.219.236.127:1080",
+            "107.219.228.250:7777",
+            "110.235.247.248:1080",
+            "110.235.248.81:1080",
+            "110.235.255.252:1080",
+            "121.169.46.116:1090",
+            "124.248.191.117:1080",
+            "174.138.61.184:1080",
+            "185.194.217.97:1080",
+            "194.163.182.6:1080",
+            "202.62.49.65:1080",
+            "202.62.50.222:1080",
+            "202.62.55.95:1080",
+            "203.25.208.163:1100",
+            "203.25.208.163:1145",
+            "34.124.190.108:8080",
+            "47.236.20.209:1145",
+            "5.255.113.177:1080",
+            "5.255.117.127:1080",
+            "5.255.117.250:1080",
+            "59.46.216.131:30001",
+            "31.211.142.115:8192",
+            "85.143.254.38:1080",
+            "212.33.248.45:1080",
+            "69.55.49.177:38172",
+            "113.176.118.150:1080",
+            "102.36.127.249:1080",
+            "94.102.89.133:1080",
+            "77.50.61.182:1080",
+            "195.98.82.63:1080",
+            "213.139.210.13:1088",
+            "194.28.162.12:1080",
+            "90.154.61.187:1080",
+            "31.58.144.15:1080",
+            "178.252.74.29:1081",
+            "213.27.29.153:51000",
+            "94.233.120.194:1080",
+            "35.198.71.112:40001",
+            "78.29.56.178:1080",
+            "77.239.96.194:1081",
+            "95.83.152.62:1080",
+            "217.71.230.103:1080",
+            "145.220.227.145:8080",
+            "31.129.147.102:1080",
+            "79.134.4.225:1080",
+            "46.146.220.247:1080",
+            "45.74.31.46:5628",
+            "85.174.84.22:1080",
+            "46.146.220.180:1080",
+            "66.151.41.133:1080",
+            "45.74.31.46:4941",
+            "45.74.31.46:5183",
+            "208.102.51.6:58208:United States",
+            "69.61.200.104:36181:United States",
+            "66.42.224.229:41679:United States",
+            "192.111.137.37:18762:United States",
+            "192.111.129.145:16894:United States",
+            "192.252.214.20:15864:United States",
+            "98.178.72.21:10919:United States",
+            "184.178.172.25:15291:United States",
+            "174.75.211.193:4145:United States",
+            "142.54.232.6:4145:United States",
+        )
+    }
 }
 
 /**
