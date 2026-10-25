@@ -153,7 +153,13 @@ object CatClientDesignTokens {
     fun palette(isNight: Boolean): CatClientPalette = if (isNight) Dark else Light
 
     fun forContext(context: Context): CatClientPalette {
-        val nightMode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        val systemUiMode = runCatching {
+            android.content.res.Resources.getSystem().configuration.uiMode
+        }.getOrElse { context.resources.configuration.uiMode }
+        val nightMode = AppTheme.resolveNightMode(
+            AppThemePreferenceStore(context).read(),
+            systemUiMode,
+        )
         val night = nightMode == Configuration.UI_MODE_NIGHT_YES
         return themed(palette(night), AppAccentPreferenceStore(context).read(), night)
     }

@@ -188,6 +188,10 @@ class MainActivity : Activity() {
     private var pendingConnectionChainAccessibilityAnnouncement: String? = null
     private var openConnectionChainSettingsPage: (() -> Unit)? = null
     private var advancedSettingsBackAction: (() -> Unit)? = null
+    private var currentActiveScreen: Int = SCREEN_HOME
+    private var activeSettingsCategoryTitleRes: Int = 0
+    private val settingsCategoryOpeners: MutableMap<Int, () -> Unit> = mutableMapOf()
+    private var refreshAetherEngineSummary: (() -> Unit)? = null
     private var sessionStartedAtElapsedMs: Long = 0L
     private var connectFlowPending: Boolean = false
     private var connectFlowAction: String = Actions.CONNECT
@@ -390,7 +394,9 @@ class MainActivity : Activity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(AppLocale.wrap(AppTheme.wrap(newBase)))
+        val wrapped = AppLocale.wrap(AppTheme.wrap(newBase))
+        super.attachBaseContext(wrapped)
+        runCatching { applyOverrideConfiguration(Configuration(wrapped.resources.configuration)) }
     }
 
     private val stateReceiver = object : BroadcastReceiver() {
@@ -464,6 +470,16 @@ class MainActivity : Activity() {
         runCatching { fetchPrivateSubscriptionOnLoad() }
             .onFailure { DiagnosticLogger.warn(this, "activity.subscriptionLoad.failed", error = it) }
         runCatching {
+        if (savedInstanceState != null) {
+            val restoredScreen = savedInstanceState.getInt(STATE_ACTIVE_SCREEN, SCREEN_HOME)
+            val restoredCategoryRes = savedInstanceState.getInt(STATE_SETTINGS_CATEGORY_RES, 0)
+            if (restoredScreen != SCREEN_HOME) {
+                openScreen(restoredScreen)
+            }
+            if (restoredScreen == SCREEN_SETTINGS && restoredCategoryRes != 0) {
+                settingsCategoryOpeners[restoredCategoryRes]?.invoke()
+            }
+        }
         if (savedInstanceState?.getBoolean(STATE_CONNECTION_TESTING_PAGE) == true) {
             val chainSlot = ConnectionChainSlot.fromWireName(
                 savedInstanceState.getString(STATE_CHAIN_PICKER_SLOT),
@@ -892,6 +908,7 @@ class MainActivity : Activity() {
     private lateinit var appTabsPending: TabLayout
 
     private fun showAppTab(position: Int) {
+        currentActiveScreen = position
         if (position != 2) advancedSettingsBackAction?.invoke()
         vpnTabContent.visibility = if (position == 1) View.VISIBLE else View.GONE
         subscriptionsTabContent.visibility = if (position == 0) View.VISIBLE else View.GONE
@@ -906,6 +923,7 @@ class MainActivity : Activity() {
         }
         syncShellBackdrop()
         if (position == 2) renderAdvancedControls()
+        if (position == 5) refreshAetherEngineSummary?.invoke()
     }
 
     private fun buildSubscriptionsScreen(): View {
@@ -1491,7 +1509,8 @@ class MainActivity : Activity() {
                 .setMessage(subscriptionName)
                 .setPositiveButton(R.string.free_quick_add_connect) { _, _ -> beginConnectFlow(Actions.CONNECT) }
                 .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .show()
+                .create()
+                .showCatClientDialog()
         }
     }
 
@@ -3033,6 +3052,8 @@ class MainActivity : Activity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt(STATE_ACTIVE_SCREEN, currentActiveScreen)
+        outState.putInt(STATE_SETTINGS_CATEGORY_RES, activeSettingsCategoryTitleRes)
         outState.putBoolean(STATE_CONNECTION_TESTING_PAGE, connectionTestingPageVisible)
         outState.putString(STATE_CHAIN_PICKER_SLOT, activeChainPickerSlot?.wireName)
         outState.putString(STATE_CHAIN_PICKER_SUBSCRIPTION, activeChainPickerSubscriptionId)
@@ -4096,7 +4117,8 @@ class MainActivity : Activity() {
                             recreate()
                         }
                         .setNegativeButton(android.R.string.cancel, null)
-                        .show()
+                        .create()
+                        .showCatClientDialog()
                 }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped },
                 LinearLayout.LayoutParams(-1, -2),
             )
@@ -5596,6 +5618,7 @@ class MainActivity : Activity() {
 
         fun closeCategory() {
             currentFocus?.clearFocus()
+            activeSettingsCategoryTitleRes = 0
             advancedSettingsBackAction = null
             scrollView.visibility = View.GONE
             indexScrollView.visibility = View.VISIBLE
@@ -5604,6 +5627,7 @@ class MainActivity : Activity() {
         }
 
         fun showCategory(@StringRes titleRes: Int, content: View) {
+            activeSettingsCategoryTitleRes = titleRes
             advancedBody.removeAllViews()
             (content.parent as? ViewGroup)?.removeView(content)
             val backButton = ImageButton(this).apply {
@@ -5659,6 +5683,10 @@ class MainActivity : Activity() {
             onOpen: (() -> Unit)? = null,
             badge: View? = null,
         ) {
+            settingsCategoryOpeners[titleRes] = {
+                showCategory(titleRes, content)
+                onOpen?.invoke()
+            }
             categoriesPanel.addView(
                 LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -7065,7 +7093,8 @@ class MainActivity : Activity() {
                 .setMessage(getString(R.string.scanner_build_no_panel, sni))
                 .setPositiveButton(R.string.scanner_build_apply_fronting) { _, _ -> applyScannerResult(results.firstOrNull()) }
                 .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .show()
+                .create()
+                .showCatClientDialog()
             return
         }
         val verified = results.filter { it.tlsOk }
@@ -10828,6 +10857,7 @@ class MainActivity : Activity() {
         }
         card.addView(toggleQuickControlsBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         card.addView(quickControlsHost, LinearLayout.LayoutParams(-1, -2))
+        refreshAetherEngineSummary = { refreshEngineSummary() }
 
         return card
     }
@@ -20417,6 +20447,7 @@ class MainActivity : Activity() {
         }
         renderDnsPrivacySelection()
         updateSplitTunnelControlsEnabled?.invoke(settingsEnabled)
+        refreshAetherEngineSummary?.invoke()
     }
 
     private fun beginConnectFlow(action: String = Actions.CONNECT) {
@@ -21216,7 +21247,8 @@ class MainActivity : Activity() {
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
-                .show()
+                .create()
+                .showCatClientDialog()
             return
         }
         runPanelProbe(deployed)
@@ -21404,18 +21436,32 @@ class MainActivity : Activity() {
 
     private fun AlertDialog.styleCatClientDialog(positiveColor: Int) {
         window?.setBackgroundDrawable(glassSurfaceDrawable(radiusDp = 24))
-        findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.setTextColor(TEXT_PRIMARY)
+        findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
+            setTextColor(TEXT_PRIMARY)
+            typeface = CatClientBodyBoldTypeface
+        }
+        findViewById<TextView>(android.R.id.message)?.apply {
+            setTextColor(TEXT_PRIMARY)
+            typeface = CatClientBodyTypeface
+        }
         val optionColors = ColorStateList(
             arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
             intArrayOf(TEAL, TEXT_PRIMARY),
         )
         listView?.let { options ->
-            repeat(options.childCount) { index ->
-                (options.getChildAt(index) as? TextView)?.apply {
+            fun styleItem(child: View?) {
+                (child as? TextView)?.apply {
                     setTextColor(optionColors)
                     typeface = CatClientBodyTypeface
                 }
             }
+            repeat(options.childCount) { index ->
+                styleItem(options.getChildAt(index))
+            }
+            options.setOnHierarchyChangeListener(object : ViewGroup.OnHierarchyChangeListener {
+                override fun onChildViewAdded(parent: View?, child: View?) = styleItem(child)
+                override fun onChildViewRemoved(parent: View?, child: View?) = Unit
+            })
         }
         getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
             isAllCaps = false
@@ -21474,6 +21520,8 @@ class MainActivity : Activity() {
         const val TIMER_TICK_MS = 1_000L
         const val KEYBOARD_SCROLL_DELAY_MS = 250L
         const val CONNECTION_TESTING_PAGE_ANIMATION_MS = 300L
+        const val STATE_ACTIVE_SCREEN = "active_screen"
+        const val STATE_SETTINGS_CATEGORY_RES = "settings_category_res"
         const val STATE_CONNECTION_TESTING_PAGE = "connection_testing_page"
         const val STATE_CHAIN_PICKER_SLOT = "chain_picker_slot"
         const val STATE_CHAIN_PICKER_SUBSCRIPTION = "chain_picker_subscription"
