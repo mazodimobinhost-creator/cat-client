@@ -385,6 +385,7 @@ object MihomoShareLink {
     }
 
     private fun socks(proxy: Map<String, Any?>, name: String, host: String, port: Int): String {
+        proxy.str("whitedns-uri")?.let { return it }
         val username = proxy.str("username")
         val password = proxy.str("password")
         val credentials = if (username != null) {
@@ -429,6 +430,9 @@ object MihomoShareLink {
             if (!hasCustomSniMask) {
                 params["ech"] = echOpts.str("query-server-name") ?: "cloudflare-ech.com"
             }
+        } else {
+            proxy.str("cipher-suites")?.let { params["cs"] = it }
+            proxy.str("final-mask")?.let { params["fm"] = it }
         }
         return params
     }

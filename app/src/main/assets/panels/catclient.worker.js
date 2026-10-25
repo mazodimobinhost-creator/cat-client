@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.27';
+const CAT_PANEL_VERSION = '6.69.28';
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
@@ -1036,6 +1036,7 @@ function defaultSettings() {
     entryLimit: 32,
     healthOrder: false, // scanner-reported latency order, opt-in
     includeHost: true,  // also emit the worker hostname itself as an address
+    fallbackHost: '',   // optional backup/mirror worker domain for ISP failover
     installedAt: 0,     // first-save timestamp → "panel uptime" on the Overview
     updatedAt: 0,
   };
@@ -1148,6 +1149,8 @@ function normalizeSettings(raw) {
   s.chainStrict = s.chainStrict === true;
   s.entryLimit = Math.min(96, Math.max(4, Number(s.entryLimit) || d.entryLimit));
   s.includeHost = s.includeHost !== false;
+  s.fallbackHost = String(s.fallbackHost || '').trim().toLowerCase().split('/')[0].slice(0, 253);
+  if (!sniHostnameOk(s.fallbackHost)) s.fallbackHost = '';
   s.installedAt = Number(s.installedAt) || 0;
   s.updatedAt = Number(s.updatedAt) || 0;
   return s;
@@ -3733,6 +3736,7 @@ function addressList(host, env, settings) {
   const defaults = settings.useDefaults ? DEFAULT_CLEAN_ADDRESSES : [];
   const list = uniq(own.concat(fromEnv, defaults));
   if (settings.includeHost && !list.some((a) => a.toLowerCase() === String(host).toLowerCase())) list.push(String(host));
+  if (settings.fallbackHost && !list.some((a) => a.toLowerCase() === String(settings.fallbackHost).toLowerCase())) list.push(String(settings.fallbackHost));
   // DNS-free configs: domain entries already resolved to verified CF edge IPs
   return settings.domMap ? list.map((a) => settings.domMap[a] || a) : list;
 }
@@ -5807,16 +5811,13 @@ async function handleApi(request, url, env, ctx) {
   }
 
   if (path === '/api/ip-test' && method === 'POST') {
-    // «سلامت و تست» — REAL template-aware probes (see healthProbe): clean 💦 =
-    // IP+port+TLS+Host exactly like the config; plain :80 = no TLS; proxyip 🎯 =
-    // the relay chain. Legacy {ips:[…]} bodies still work (kind inferred from
-    // the pinned port).
     const body = (await readJsonBody(request)) || {};
-    const KINDS = ['clean', 'plain', 'proxyip'];
+    const KINDS = ['clean', 'plain', 'proxyip', 'socks'];
     const norm = (t) => {
-      const addr = String((t && t.addr) || '').trim().replace(/^\[|\]$/g, '');
-      const port = Number(t && t.port) > 0 ? Number(t.port) : 443;
+      const rawAddr = String((t && t.addr) || '').trim();
       const kind = KINDS.includes(t && t.kind) ? t.kind : 'clean';
+      const port = Number(t && t.port) > 0 ? Number(t.port) : (kind === 'socks' ? 1080 : 443);
+      const addr = kind === 'socks' ? (rawAddr.indexOf('://') > 0 ? rawAddr : ('socks5://' + rawAddr + (rawAddr.indexOf(':') > 0 ? '' : ':' + port))) : rawAddr.replace(/^\[|\]$/g, '');
       const key = typeof (t && t.key) === 'string' && t.key.trim() ? t.key.trim() : '';
       return { addr, port, kind, key };
     };
@@ -5825,7 +5826,6 @@ async function handleApi(request, url, env, ctx) {
       const list = (Array.isArray(body.ips) ? body.ips : splitCsv(body.ips)).map((x) => String(x).trim()).filter(Boolean).slice(0, 24);
       tests = list.map((addr) => { const pin = pinnedPortOf(addr); const port = pin || 443; return { addr, port, kind: PLAIN_PORTS.includes(port) ? 'plain' : 'clean' }; });
       const pxs = (Array.isArray(body[PXIPS_KEY]) ? body[PXIPS_KEY] : splitCsv(body[PXIPS_KEY])).map((x) => String(x).trim()).filter(Boolean).slice(0, 8);
-      // each relay is probed on ITS OWN port (ip:port entries), keyed by the raw entry
       tests = tests.concat(pxs.map((addr) => { const hp = splitHostPort(addr, 443); return { addr: hp.hostname, port: hp.port || 443, kind: 'proxyip', key: addr }; }));
     }
     if (!tests.length) return json({ ok: true, results: {} });
@@ -8752,8 +8752,9 @@ function renderSocks(){
     var hp=el.replace(SOCKS_RE,'').split('@').pop();
     var ci=hp.lastIndexOf(':');var addr=ci>0?hp.slice(0,ci):hp;var portNum=ci>0?parseInt(hp.slice(ci+1),10):1080;if(!(portNum>0))portNum=1080;
     var out=$('#skOut');if(out){out.style.display='block';out.textContent=t('sk_testing');}
-    api('/api/ip-test',{method:'POST',body:{tests:[{addr:addr,port:portNum,kind:'proxyip'}]}}).then(function(j){
-      if(out)out.textContent=JSON.stringify((j&&j.results)||j);}).catch(function(e){if(out)out.textContent=String(e);});});});
+    api('/api/ip-test',{method:'POST',body:{tests:[{addr:el,port:portNum,kind:'socks',key:el}]}}).then(function(j){
+      var r=j&&j.results&&(j.results[el]||j.results[addr]);
+      if(out)out.textContent=r?(r.ok?('✅ سالم · '+r.ms+'ms · '+maskCreds(el)):('✗ خطا: '+(r.error||'unreachable'))):JSON.stringify((j&&j.results)||j);}).catch(function(e){if(out)out.textContent=String(e);});});});
 }
 var SOCKS_FULL=new RegExp('^socks5://[A-Za-z0-9._@:-]+(:\\d{1,5})?$','i');
 function addSock(){
@@ -8770,15 +8771,15 @@ function addSock(){
 [].forEach.call(document.querySelectorAll('.addrtabs button'),function(b){b.addEventListener('click',function(){setAddrTab(b.getAttribute('data-atab-go'));});});
 if($('#skAdd'))$('#skAdd').addEventListener('click',addSock);
 if($('#skLiveFetch'))$('#skLiveFetch').addEventListener('click',function(){
-  var out=$('#skOut');if(out){out.style.display='block';out.textContent='⏳ در حال واکشی و تست زنده پراکسی‌های ساکس۵…';}
+  var out=$('#skOut');if(out){out.style.display='block';out.textContent='⏳ در حال واکشی و تست هندشیک RFC 1928 ساکس۵…';}
   var seeds=['104.219.236.127:1080','110.235.247.248:1080','124.248.191.117:1080','174.138.61.184:1080','185.194.217.97:1080','194.163.182.6:1080','202.62.49.65:1080','31.211.142.115:8192','85.143.254.38:1080','212.33.248.45:1080','77.50.61.182:1080','195.98.82.63:1080'];
   fetch('https://cdn.jsdelivr.net/gh/vakhov/fresh-proxy-list@master/socks5.txt').then(function(r){return r.ok?r.text():'';}).catch(function(){return '';}).then(function(txt){
     var raw=(txt?txt.split(/\\s+/):[]).concat(seeds).filter(function(x){return /^\\d+\\.\\d+\\.\\d+\\.\\d+:\\d{1,5}$/.test(x);}).slice(0,12);
-    var tests=raw.map(function(hp){var p=hp.split(':');return {addr:p[0],port:parseInt(p[1],10),kind:'proxyip'};});
+    var tests=raw.map(function(hp){var p=hp.split(':');var u='socks5://'+hp;return {addr:u,port:parseInt(p[1],10),kind:'socks',key:u};});
     return api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){
-      var res=(j&&j.results)||[];
-      var okList=res.filter(function(r){return r&&r.ok&&r.addr&&r.port;}).map(function(r){return 'socks5://'+r.addr+':'+r.port;});
-      if(out)out.textContent=okList.length?('✅ ساکس۵های سالم:\\n'+okList.join('\\n')):'⚠️ در این نوبت ساکس۵ باز یافت نشد؛ از بخش اختصاصی ساکس۵ در اپ اندروید استفاده کنید.';
+      var res=(j&&j.results)||{};
+      var okList=Object.keys(res).filter(function(k){return res[k]&&res[k].ok;}).map(function(k){return SOCKS_RE.test(k)?k:'socks5://'+k;});
+      if(out)out.textContent=okList.length?('✅ ساکس۵های سالم (RFC 1928):\\n'+okList.join('\\n')):'⚠️ در این نوبت ساکس۵ باز یافت نشد؛ از بخش اختصاصی ساکس۵ در اپ اندروید استفاده کنید.';
       if(okList.length){saveSocks(socksOf().concat(okList));}
     });
   }).catch(function(e){if(out)out.textContent=String(e);});

@@ -4001,6 +4001,17 @@ class CatClientVpnService : VpnService() {
         val effectiveSelection = if (effectiveEndpoint != null && selection.endpoint == null) {
             selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
         } else selection
+        if (effectiveSelection.chainTarget == "auto-psiphon") {
+            val sanctioned = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.isDirectExitSanctionedOrBlocked(2_200)
+            }
+            if (sanctioned) {
+                DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=psiphon reason=sanctioned")
+                runAetherPsiphonStartup(eventPrefix, effectiveSelection.copy(chainTarget = "psiphon"))
+                return
+            }
+            DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=none reason=directOpen")
+        }
         if (effectiveSelection.mode == AetherMode.MasquePsiphon || effectiveSelection.chainTarget == "psiphon") {
             runAetherPsiphonStartup(eventPrefix, effectiveSelection)
             return
@@ -4022,11 +4033,30 @@ class CatClientVpnService : VpnService() {
             "$eventPrefix.aether.start",
             "mode=${effectiveSelection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${effectiveSelection.effectiveExitLocation()} net=$networkKey",
         )
-        val result = try {
+        var result = try {
             withContext(Dispatchers.IO) { session.run(config) }
         } finally {
             runCatching { session.close() }
             if (aetherSession === session) aetherSession = null
+        }
+        if (result.error != null && state != VpnState.Stopping && state != VpnState.Stopped) {
+            val failoverPeer = aetherPreferenceStore.nextFailoverEndpointForNetwork(
+                networkKey = networkKey,
+                mode = effectiveSelection.mode,
+                ipScan = effectiveSelection.ipScan,
+                failedPeer = effectiveEndpoint,
+            )
+            if (failoverPeer != null) {
+                DiagnosticLogger.info(this, "$eventPrefix.aether.failover", "peer=$failoverPeer net=$networkKey")
+                val retrySession = createAetherSession(resolveSplitTunnelRuntimePlan())
+                val retryConfig = config.copy(endpoint = failoverPeer)
+                result = try {
+                    withContext(Dispatchers.IO) { retrySession.run(retryConfig) }
+                } finally {
+                    runCatching { retrySession.close() }
+                    if (aetherSession === retrySession) aetherSession = null
+                }
+            }
         }
         AetherOperations.drainEngineLogs().takeLast(8).forEach { line ->
             DiagnosticLogger.info(this, "aether.engine.log", line)

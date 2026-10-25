@@ -141,6 +141,22 @@ class AetherSelectionTest {
         assertEquals("psiphon", legacy.chainTarget)
         assertEquals("US", legacy.psiphonRegion)
         assertEquals("foreign", legacy.exitLocation)
+
+        val autoChain = AetherSelection(
+            enabled = true,
+            mode = AetherMode.WireGuard,
+            endpoint = "162.159.192.1:2408",
+            ipScan = "both",
+            psiphonRegion = "DE",
+            profileName = "Auto-Conditional-Chain",
+            chainTarget = "auto-psiphon",
+            exitLocation = "foreign",
+        )
+        val autoUri = autoChain.toAetherUri()
+        org.junit.Assert.assertTrue(autoUri.contains("psiphon=auto"))
+        val parsedAuto = AetherSelection.fromAetherUri(autoUri, nowMs = 888L)!!
+        assertEquals("auto-psiphon", parsedAuto.chainTarget)
+        assertEquals("foreign", parsedAuto.effectiveExitLocation())
     }
 
     @Test fun smartRecommendationsProvideActionableCombosForEachTopic() {

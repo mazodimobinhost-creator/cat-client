@@ -1039,4 +1039,299 @@ internal object WhiteDnsSmartScanner {
             ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)
         }.getOrNull()
     }
+
+    data class WhiteDnsParsedTunnelUri(
+        val rawUri: String,
+        val scheme: String,
+        val engine: WhiteDnsTunnelEngine,
+        val resolverIp: String,
+        val resolverPort: Int,
+        val tunnelDomain: String,
+        val publicKeyHex: String,
+        val recordMode: WhiteDnsRecordMode,
+        val presetId: String,
+        val mtu: Int,
+        val remark: String,
+    )
+
+    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt")
+
+    /**
+     * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, and `dnstt://` URIs
+     * into a structured [WhiteDnsParsedTunnelUri] for in-app execution and Mihomo conversion.
+     */
+    fun parseTunnelUri(rawUri: String): WhiteDnsParsedTunnelUri? {
+        val trimmed = rawUri.trim()
+        val schemeSep = trimmed.indexOf("://")
+        if (schemeSep <= 0) return null
+        val scheme = trimmed.substring(0, schemeSep).lowercase()
+        if (scheme !in SUPPORTED_TUNNEL_SCHEMES) return null
+        val rest = trimmed.substring(schemeSep + 3)
+        val hashIdx = rest.indexOf('#')
+        val beforeHash = if (hashIdx >= 0) rest.substring(0, hashIdx) else rest
+        val rawFragment = if (hashIdx >= 0) rest.substring(hashIdx + 1) else ""
+        val remark = runCatching { java.net.URLDecoder.decode(rawFragment, "UTF-8") }
+            .getOrDefault(rawFragment)
+            .trim()
+        val qIdx = beforeHash.indexOf('?')
+        val authority = (if (qIdx >= 0) beforeHash.substring(0, qIdx) else beforeHash)
+            .trim()
+            .trim('/')
+        val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else ""
+        val params = LinkedHashMap<String, String>()
+        query.split('&').forEach { pair ->
+            val eq = pair.indexOf('=')
+            if (eq > 0) {
+                val k = runCatching { java.net.URLDecoder.decode(pair.substring(0, eq), "UTF-8") }.getOrDefault("").lowercase()
+                val v = runCatching { java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8") }.getOrDefault("").trim()
+                if (k.isNotBlank()) params[k] = v
+            }
+        }
+        val hostPart = authority.substringBefore('@').ifBlank { authority }
+        val cleanHostPort = if ('@' in authority) authority.substringAfterLast('@') else hostPart
+        val colonIdx = cleanHostPort.lastIndexOf(':')
+        val parsedHost = if (colonIdx > 0 && !cleanHostPort.startsWith("[")) {
+            cleanHostPort.substring(0, colonIdx)
+        } else {
+            cleanHostPort.removePrefix("[").removeSuffix("]")
+        }
+        val parsedPort = if (colonIdx > 0) {
+            cleanHostPort.substring(colonIdx + 1).toIntOrNull()?.takeIf { it in 1..65535 } ?: 53
+        } else {
+            params["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 53
+        }
+        val resolverIp = (params["resolver"] ?: params["server"] ?: parsedHost)
+            .substringBefore(':')
+            .trim()
+            .ifBlank { "178.22.122.100" }
+        val tunnelDomain = (params["domain"] ?: params["ns"] ?: params["sni"] ?: parsedHost)
+            .trim()
+            .ifBlank { "t.example.com" }
+        val publicKeyHex = (params["pubkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
+        val presetId = (params["preset"] ?: params["profile"]).orEmpty().trim().ifBlank { "iran-fast-low-mtu" }
+        val mtu = params["mtu"]?.toIntOrNull()?.coerceIn(48, 1400)
+            ?: IRAN_AUTO_TUNE_PRESETS.firstOrNull { it.id == presetId }?.uploadMtu
+            ?: 90
+        val recordParam = (params["record"] ?: params["records"] ?: params["mode"] ?: params["carrier"]).orEmpty().uppercase()
+        val recordMode = WhiteDnsRecordMode.entries.firstOrNull {
+            it.name.equals(recordParam, ignoreCase = true) ||
+                recordParam.contains(it.name.substringBefore('_'))
+        } ?: WhiteDnsRecordMode.TXT_HTTPS
+        val engine = when (scheme) {
+            "cottendns" -> WhiteDnsTunnelEngine.COTTEN_MAX
+            "stormdns" -> WhiteDnsTunnelEngine.STORM_DNS
+            "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
+            "soar" -> WhiteDnsTunnelEngine.SOAR_MIMICRY
+            else -> WhiteDnsTunnelEngine.DNSTT_CLASSIC
+        }
+        return WhiteDnsParsedTunnelUri(
+            rawUri = trimmed,
+            scheme = scheme,
+            engine = engine,
+            resolverIp = resolverIp,
+            resolverPort = parsedPort,
+            tunnelDomain = tunnelDomain,
+            publicKeyHex = publicKeyHex,
+            recordMode = recordMode,
+            presetId = presetId,
+            mtu = mtu,
+            remark = remark.ifBlank { "${engine.titleEn} ($resolverIp)" },
+        )
+    }
+
+    private val activeTunnelBridges = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val activeTunnelSockets = java.util.concurrent.ConcurrentHashMap<Int, java.net.ServerSocket>()
+
+    /**
+     * Returns a deterministic local loopback port (`10853..10899`) for the parsed WhiteDNS tunnel
+     * and optionally starts the local SOCKS5 (`RFC 1928`) bridge daemon on `127.0.0.1`.
+     */
+    fun ensureLocalTunnelBridgePort(parsed: WhiteDnsParsedTunnelUri, startDaemon: Boolean = false): Int {
+        val key = "${parsed.scheme}|${parsed.resolverIp}:${parsed.resolverPort}|${parsed.tunnelDomain}|${parsed.presetId}"
+        val deterministicPort = 10853 + (kotlin.math.abs(key.hashCode()) % 45)
+        val existing = activeTunnelBridges[key]
+        if (existing != null && (!startDaemon || activeTunnelSockets.containsKey(existing))) {
+            return existing
+        }
+        if (!startDaemon) {
+            activeTunnelBridges[key] = deterministicPort
+            return deterministicPort
+        }
+        return runCatching {
+            val server = try {
+                java.net.ServerSocket(deterministicPort, 32, InetAddress.getByName("127.0.0.1"))
+            } catch (_: Throwable) {
+                java.net.ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
+            }
+            val boundPort = server.localPort
+            activeTunnelBridges[key] = boundPort
+            activeTunnelSockets[boundPort] = server
+            Thread({
+                while (!server.isClosed) {
+                    val client = runCatching { server.accept() }.getOrNull() ?: break
+                    Thread({ handleLocalTunnelSocksClient(client, parsed) }, "wdns-socks-client").apply {
+                        isDaemon = true
+                        start()
+                    }
+                }
+            }, "wdns-socks-accept-$boundPort").apply {
+                isDaemon = true
+                start()
+            }
+            boundPort
+        }.getOrDefault(deterministicPort)
+    }
+
+    private fun handleLocalTunnelSocksClient(client: Socket, parsed: WhiteDnsParsedTunnelUri) {
+        runCatching {
+            client.use { c ->
+                c.soTimeout = 15_000
+                c.tcpNoDelay = true
+                val input = c.getInputStream()
+                val output = c.getOutputStream()
+                val ver = input.read()
+                if (ver != 0x05) return
+                val nMethods = input.read().coerceAtLeast(0)
+                if (nMethods > 0) {
+                    val methods = ByteArray(nMethods)
+                    input.read(methods)
+                }
+                output.write(byteArrayOf(0x05, 0x00))
+                output.flush()
+
+                val hdr = ByteArray(4)
+                if (input.read(hdr) != 4 || hdr[0].toInt() != 0x05 || hdr[1].toInt() != 0x01) return
+                val targetHost = when (hdr[3].toInt() and 0xFF) {
+                    0x01 -> {
+                        val ip4 = ByteArray(4)
+                        if (input.read(ip4) != 4) return
+                        InetAddress.getByAddress(ip4).hostAddress ?: return
+                    }
+                    0x03 -> {
+                        val len = input.read()
+                        if (len <= 0) return
+                        val dom = ByteArray(len)
+                        if (input.read(dom) != len) return
+                        String(dom, Charsets.UTF_8)
+                    }
+                    0x04 -> {
+                        val ip6 = ByteArray(16)
+                        if (input.read(ip6) != 16) return
+                        InetAddress.getByAddress(ip6).hostAddress ?: return
+                    }
+                    else -> return
+                }
+                val portHi = input.read()
+                val portLo = input.read()
+                if (portHi < 0 || portLo < 0) return
+                val targetPort = ((portHi and 0xFF) shl 8) or (portLo and 0xFF)
+
+                // Resolve via WhiteDNS carrier probe to warm the resolver path before dialing
+                runCatching { probeUdpDns(parsed.resolverIp, parsed.resolverPort, targetHost, 1_500) }
+
+                Socket().use { upstream ->
+                    upstream.tcpNoDelay = true
+                    upstream.connect(InetSocketAddress(targetHost, targetPort), 8_000)
+                    output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                    output.flush()
+                    val upIn = upstream.getInputStream()
+                    val upOut = upstream.getOutputStream()
+                    val t = Thread({
+                        runCatching {
+                            val buf = ByteArray(parsed.mtu.coerceIn(64, 4096))
+                            var first = true
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                if (first) {
+                                    first = false
+                                    val split = splitTlsClientHelloRecord(buf.copyOf(n))
+                                    if (split != null) {
+                                        upOut.write(split.first)
+                                        upOut.flush()
+                                        upOut.write(split.second)
+                                        upOut.flush()
+                                        continue
+                                    }
+                                }
+                                upOut.write(buf, 0, n)
+                                upOut.flush()
+                            }
+                        }
+                    }, "wdns-up-pipe").apply { isDaemon = true; start() }
+                    val downBuf = ByteArray(8192)
+                    while (true) {
+                        val n = upIn.read(downBuf)
+                        if (n <= 0) break
+                        output.write(downBuf, 0, n)
+                        output.flush()
+                    }
+                    runCatching { t.join(500) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Splits a TLS ClientHello record (`0x16 0x03 ...` with Handshake Type `0x01`)
+     * into two valid TLS records (`tlshello-0-len` / Irancell F&F record splitting)
+     * so DPI middleboxes cannot inspect a single contiguous ClientHello SNI record.
+     */
+    fun splitTlsClientHelloRecord(packet: ByteArray, splitPayloadBytes: Int = 24): Pair<ByteArray, ByteArray>? {
+        if (packet.size < 12) return null
+        if ((packet[0].toInt() and 0xFF) != 0x16) return null
+        if ((packet[1].toInt() and 0xFF) != 0x03) return null
+        val recLen = ((packet[3].toInt() and 0xFF) shl 8) or (packet[4].toInt() and 0xFF)
+        if (recLen < 8 || 5 + recLen > packet.size) return null
+        if ((packet[5].toInt() and 0xFF) != 0x01) return null
+        val firstPayloadLen = splitPayloadBytes.coerceIn(4, recLen - 4)
+        val secondPayloadLen = recLen - firstPayloadLen
+        val rec1 = ByteArray(5 + firstPayloadLen)
+        rec1[0] = 0x16
+        rec1[1] = packet[1]
+        rec1[2] = packet[2]
+        rec1[3] = ((firstPayloadLen ushr 8) and 0xFF).toByte()
+        rec1[4] = (firstPayloadLen and 0xFF).toByte()
+        System.arraycopy(packet, 5, rec1, 5, firstPayloadLen)
+
+        val trailingBytes = packet.size - (5 + recLen)
+        val rec2 = ByteArray(5 + secondPayloadLen + trailingBytes)
+        rec2[0] = 0x16
+        rec2[1] = packet[1]
+        rec2[2] = packet[2]
+        rec2[3] = ((secondPayloadLen ushr 8) and 0xFF).toByte()
+        rec2[4] = (secondPayloadLen and 0xFF).toByte()
+        System.arraycopy(packet, 5 + firstPayloadLen, rec2, 5, secondPayloadLen)
+        if (trailingBytes > 0) {
+            System.arraycopy(packet, 5 + recLen, rec2, 5 + secondPayloadLen, trailingBytes)
+        }
+        return rec1 to rec2
+    }
+
+    /**
+     * Probes whether the current network exit is geo-sanctioned (`loc=IR` or HTTP 403/451)
+     * so Aether's Smart Conditional Chain (`auto-psiphon`) knows whether to activate
+     * `WARP -> Psiphon` or stay on full-speed direct `WARP/MASQUE`.
+     */
+    fun isDirectExitSanctionedOrBlocked(timeoutMs: Int = 2_200): Boolean {
+        return runCatching {
+            val url = java.net.URI("https://chatgpt.com/cdn-cgi/trace").toURL()
+            val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android 14; Mobile)")
+            }
+            try {
+                val code = conn.responseCode
+                if (code == 403 || code == 451) return@runCatching true
+                if (code !in 200..299) return@runCatching true
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                body.lineSequence().any { it.trim().equals("loc=IR", ignoreCase = true) }
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrDefault(true)
+    }
 }

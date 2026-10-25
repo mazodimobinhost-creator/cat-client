@@ -60,7 +60,7 @@ data class AetherSelection(
      * - If `exitLocation == "auto"`, `WireGuardOverMasque` implies `"foreign"` and single-hop implies `"iran"`.
      */
     fun effectiveExitLocation(): String = when {
-        chainTarget in setOf("psiphon", "tor") || mode == AetherMode.MasquePsiphon -> "foreign"
+        chainTarget in setOf("psiphon", "tor", "auto-psiphon") || mode == AetherMode.MasquePsiphon -> "foreign"
         exitLocation in setOf("iran", "foreign") -> exitLocation
         mode == AetherMode.WireGuardOverMasque -> "foreign"
         else -> "iran"
@@ -250,6 +250,12 @@ data class AetherSelection(
             if (psiphonRegion.matches(Regex("[A-Z]{2}"))) {
                 params += "region=$psiphonRegion"
             }
+        } else if (chainTarget == "auto-psiphon") {
+            params += "psiphon=auto"
+            params += "psiphon_mode=auto"
+            if (psiphonRegion.matches(Regex("[A-Z]{2}"))) {
+                params += "region=$psiphonRegion"
+            }
         } else if (chainTarget == "tor") {
             params += "tor=chain"
             params += "tor_bridges=auto"
@@ -270,11 +276,11 @@ data class AetherSelection(
 
     companion object {
         const val ENDPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000L
-        val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "tor")
+        val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "tor", "auto-psiphon")
         val VALID_EXIT_LOCATIONS = setOf("auto", "iran", "foreign")
 
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
-            if (chainTarget !in setOf("psiphon", "tor")) return mode
+            if (chainTarget !in setOf("psiphon", "tor", "auto-psiphon")) return mode
             return when (mode) {
                 AetherMode.WireGuard, AetherMode.MasqueHttp2 -> mode
                 else -> AetherMode.WireGuard
@@ -305,6 +311,7 @@ data class AetherSelection(
             val torParam = map["tor"].orEmpty().lowercase()
             val legacyChain = (map["chain"] ?: map["cfil"]).orEmpty().lowercase()
             val chainTarget = when {
+                psiphonParam == "auto" || legacyChain == "auto-psiphon" -> "auto-psiphon"
                 psiphonParam in setOf("chain", "reverse", "only", "1", "true") || legacyChain == "psiphon" -> "psiphon"
                 torParam in setOf("chain", "reverse", "only", "1", "true") || legacyChain == "tor" -> "tor"
                 else -> "none"
@@ -449,7 +456,8 @@ class AetherPreferenceStore(context: Context) {
 
     /**
      * Remembers a verified endpoint specifically for the current SIM operator or Wi-Fi network
-     * (inspired by WhiteAestherMobile's EndpointDiscoveryMemory + NetworkIdentity).
+     * (inspired by WhiteAestherMobile's EndpointDiscoveryMemory + NetworkIdentity) and updates
+     * the Top-10 ranked clean endpoint pool for that carrier.
      */
     fun rememberEndpointForNetwork(
         networkKey: String,
@@ -468,6 +476,7 @@ class AetherPreferenceStore(context: Context) {
             .put("savedAt", nowMs)
             .toString()
         prefs.edit().putString(slotKey, payload).apply()
+        rememberEndpointPoolForNetwork(networkKey, mode, ipScan, peer, rttMs, nowMs)
     }
 
     fun recallEndpointForNetwork(
@@ -477,16 +486,97 @@ class AetherPreferenceStore(context: Context) {
         nowMs: Long = System.currentTimeMillis(),
     ): String? {
         if (networkKey.isBlank()) return null
+        val poolFirst = recallEndpointPoolForNetwork(networkKey, mode, ipScan, nowMs).firstOrNull()?.peer
         val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
         val slotKey = "netmem_${networkKey}_${family}_$ipScan"
-        val raw = prefs.getString(slotKey, null) ?: return null
+        val raw = prefs.getString(slotKey, null) ?: return poolFirst
         return runCatching {
             val obj = org.json.JSONObject(raw)
             val savedAt = obj.optLong("savedAt", 0L)
             val age = nowMs - savedAt
-            if (age !in 0L..(7L * 24 * 60 * 60 * 1000L)) return null
+            if (age !in 0L..(7L * 24 * 60 * 60 * 1000L)) return@runCatching null
             obj.optString("peer").trim().takeIf(AetherOperations::isSafePublicPeer)
-        }.getOrNull()
+        }.getOrNull() ?: poolFirst
+    }
+
+    data class AetherCachedEndpoint(
+        val peer: String,
+        val rttMs: Long,
+        val savedAt: Long,
+        val networkKey: String = "",
+    )
+
+    fun rememberEndpointPoolForNetwork(
+        networkKey: String,
+        mode: AetherMode,
+        ipScan: String,
+        peer: String,
+        rttMs: Long = 0L,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        if (networkKey.isBlank() || !AetherOperations.isSafePublicPeer(peer)) return
+        val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
+        val poolKey = "netpool_${networkKey}_${family}_$ipScan"
+        val existing = recallEndpointPoolForNetwork(networkKey, mode, ipScan, nowMs)
+            .filterNot { it.peer.equals(peer.trim(), ignoreCase = true) }
+        val added = AetherCachedEndpoint(
+            peer = peer.trim(),
+            rttMs = rttMs.coerceAtLeast(0L),
+            savedAt = nowMs,
+            networkKey = networkKey,
+        )
+        val merged = (listOf(added) + existing)
+            .sortedWith(compareBy<AetherCachedEndpoint> { if (it.rttMs > 0L) it.rttMs else 9_999L }.thenByDescending { it.savedAt })
+            .take(10)
+        val arr = org.json.JSONArray()
+        merged.forEach { item ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("peer", item.peer)
+                    .put("rttMs", item.rttMs)
+                    .put("savedAt", item.savedAt)
+                    .put("networkKey", item.networkKey),
+            )
+        }
+        prefs.edit().putString(poolKey, arr.toString()).apply()
+    }
+
+    fun recallEndpointPoolForNetwork(
+        networkKey: String,
+        mode: AetherMode,
+        ipScan: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): List<AetherCachedEndpoint> {
+        if (networkKey.isBlank()) return emptyList()
+        val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
+        val poolKey = "netpool_${networkKey}_${family}_$ipScan"
+        val raw = prefs.getString(poolKey, null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val maxAge = 7L * 24 * 60 * 60 * 1000L
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val peer = obj.optString("peer").trim().takeIf(AetherOperations::isSafePublicPeer) ?: continue
+                    val savedAt = obj.optLong("savedAt", 0L)
+                    val age = nowMs - savedAt
+                    if (age !in 0L..maxAge) continue
+                    val rttMs = obj.optLong("rttMs", 0L).coerceAtLeast(0L)
+                    add(AetherCachedEndpoint(peer = peer, rttMs = rttMs, savedAt = savedAt, networkKey = networkKey))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun nextFailoverEndpointForNetwork(
+        networkKey: String,
+        mode: AetherMode,
+        ipScan: String,
+        failedPeer: String?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): String? {
+        val pool = recallEndpointPoolForNetwork(networkKey, mode, ipScan, nowMs)
+        return pool.firstOrNull { !it.peer.equals(failedPeer?.trim(), ignoreCase = true) }?.peer
     }
 
     companion object {

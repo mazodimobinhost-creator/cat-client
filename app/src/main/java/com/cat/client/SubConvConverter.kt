@@ -44,6 +44,7 @@ object SubConvConverter {
                     "socks", "socks5" -> parseSocks(line, names)
                     "ss" -> parseShadowsocks(line, names)
                     "wireguard" -> parseWireGuard(line, names)
+                    "cottendns", "stormdns", "masterdns", "soar", "dnstt" -> parseWhiteDnsTunnel(line, names)
                     else -> null
                 }
             } catch (_: ParseError) {
@@ -90,7 +91,13 @@ object SubConvConverter {
             query["pcs"]?.takeIf(String::isNotBlank)?.let { proxy.put("fingerprint", it) }
         }
         (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
-        echOptions(query, tlsEnabled = security.endsWith("tls"))?.let { proxy.put("ech-opts", it) }
+        val ech = echOptions(query, tlsEnabled = security.endsWith("tls"))
+        if (ech != null) {
+            proxy.put("ech-opts", ech)
+        } else if (tlsEnabled) {
+            (query["cs"] ?: query["cipherSuites"])?.takeIf(String::isNotBlank)?.let { proxy.put("cipher-suites", it) }
+            (query["fm"] ?: query["finalMask"])?.takeIf(String::isNotBlank)?.let { proxy.put("final-mask", it) }
+        }
         query["pbk"]?.takeIf(String::isNotBlank)?.let { publicKey ->
             proxy.put(
                 "reality-opts",
@@ -225,7 +232,13 @@ object SubConvConverter {
                     put("tls", false)
                 }
                 (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { put("sni", it) }
-                echOptions(query, tlsEnabled = !isPlain)?.let { put("ech-opts", it) }
+                val ech = echOptions(query, tlsEnabled = !isPlain)
+                if (ech != null) {
+                    put("ech-opts", ech)
+                } else if (!isPlain) {
+                    (query["cs"] ?: query["cipherSuites"])?.takeIf(String::isNotBlank)?.let { put("cipher-suites", it) }
+                    (query["fm"] ?: query["finalMask"])?.takeIf(String::isNotBlank)?.let { put("final-mask", it) }
+                }
                 query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", it.split(',')) }
                 val network = query["type"].orEmpty().lowercase()
                 if (network.isNotBlank()) put("network", network)
@@ -303,6 +316,18 @@ object SubConvConverter {
             password?.let { proxy.put("password", it) }
         }
         return proxy
+    }
+
+    private fun parseWhiteDnsTunnel(line: String, names: NameRegistry): JSONObject {
+        val parsed = WhiteDnsSmartScanner.parseTunnelUri(line) ?: throw ParseError()
+        val localPort = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = false)
+        return JSONObject()
+            .put("name", names.register(parsed.remark))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", localPort)
+            .put("udp", true)
+            .put("whitedns-uri", parsed.rawUri)
     }
 
     private fun socksCredentials(rawUserInfo: String): Pair<String, String?> {

@@ -4027,6 +4027,8 @@ class MainActivity : Activity() {
         }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped }
         aetherPanel.addView(aetherModeRow, LinearLayout.LayoutParams(-1, -2))
         val exitLocValue = when {
+            aetherSelection.chainTarget == "auto-psiphon" ->
+                if (isFarsiAether) "🤖 زنجیره شرطی هوشمند (فقط در صورت تحریم: WARP → سایفون)" else "🤖 Smart Conditional Chain (WARP → Psiphon if sanctioned)"
             aetherSelection.chainTarget == "psiphon" ->
                 if (isFarsiAether) "🌍 آی‌پی خارج تضمینی (WARP → سایفون)" else "🌍 Foreign IP (WARP → Psiphon)"
             aetherSelection.chainTarget == "tor" ->
@@ -11328,16 +11330,18 @@ class MainActivity : Activity() {
                 chipBtn(
                     if (isFarsi) "🔓 چین (Psiphon / Tor) ▾" else "🔓 Chain (Psiphon / Tor) ▾",
                 ) {
-                    val chains = listOf("none", "psiphon", "tor")
+                    val chains = listOf("none", "auto-psiphon", "psiphon", "tor")
                     val chainTitles = if (isFarsi) {
                         arrayOf(
                             "بدون چین (مستقیم — سرعت کامل، بدون محدودیت سرعت tor/psiphon)",
+                            "🤖 زنجیره شرطی هوشمند (اول مستقیم پرسرعت؛ فقط در صورت تحریم: WARP → Psiphon)",
                             "WARP → Psiphon (چین سایفون با انتخاب ۲۹ کشور — پروتکل ساده، رفع تحریم کامل)",
                             "WARP → Tor / Orbot (چین تور — پروتکل ساده wireguard/masque-h2، سرعت متوسط)",
                         )
                     } else {
                         arrayOf(
                             "Direct (No chain — full speed)",
+                            "🤖 Smart Conditional Chain (Direct first; WARP → Psiphon only if sanctioned)",
                             "WARP → Psiphon (29 Countries — forces simple wireguard/masque-h2)",
                             "WARP → Tor / Orbot (Sanction bypass — forces simple wireguard/masque-h2)",
                         )
@@ -11358,12 +11362,12 @@ class MainActivity : Activity() {
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
-                            if (chosenChain == "psiphon" && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
+                            if ((chosenChain == "psiphon" || chosenChain == "auto-psiphon") && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
                                 nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Psiphon")
                             } else if (chosenChain == "tor" && !nameInput.text.toString().contains("Tor", ignoreCase = true)) {
                                 nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "WARP" }}-Tor")
                             }
-                            updateStateLabel(if (chosenChain == "tor") "tor" else if (chosenChain == "psiphon") "psiphon" else "")
+                            updateStateLabel(if (chosenChain == "tor") "tor" else if (chosenChain == "psiphon" || chosenChain == "auto-psiphon") "psiphon" else "")
                         }
                         .create()
                         .showCatClientDialog()
@@ -11452,6 +11456,15 @@ class MainActivity : Activity() {
                 val found = scanResult?.getOrDefault(emptyList()).orEmpty()
                 val netKey = AetherPreferenceStore.underlyingNetworkKey(this@MainActivity)
                 if (found.isNotEmpty()) {
+                    found.take(6).forEach { candidate ->
+                        aetherPreferenceStore.rememberEndpointPoolForNetwork(
+                            netKey,
+                            chosenMode,
+                            chosenIpScan,
+                            candidate.peer,
+                            candidate.rttMillis,
+                        )
+                    }
                     val top = found.first()
                     setScanProgress(85, if (isFarsi) "🔍 مرحله ۲/۲: تأیید واقعی عبور ترافیک روی ${top.peer}…" else "🔍 Stage 2/2: Confirming real traffic on ${top.peer}…")
                     val confirmed = if (currentVpnServiceState == VpnState.Stopped) {
@@ -11461,11 +11474,12 @@ class MainActivity : Activity() {
                     } else top
                     scannedEndpoint = confirmed.peer
                     aetherPreferenceStore.rememberEndpointForNetwork(netKey, chosenMode, chosenIpScan, confirmed.peer, confirmed.rttMillis)
+                    val poolSize = aetherPreferenceStore.recallEndpointPoolForNetwork(netKey, chosenMode, chosenIpScan).size
                     updateStateLabel()
                     setScanProgress(
                         100,
-                        if (isFarsi) "✅ آی‌پی تأییدشده: ${confirmed.peer} (${confirmed.rttMillis}ms · ذخیره برای همین سیم‌کارت/وای‌فای)"
-                        else "✅ Traffic-verified: ${confirmed.peer} (${confirmed.rttMillis}ms · remembered for this network)",
+                        if (isFarsi) "✅ آی‌پی تأییدشده: ${confirmed.peer} (${confirmed.rttMillis}ms · استخر سیم‌کارت/وای‌فای: $poolSize اندپوینت)"
+                        else "✅ Traffic-verified: ${confirmed.peer} (${confirmed.rttMillis}ms · carrier pool: $poolSize endpoints)",
                     )
                 } else {
                     val remembered = aetherPreferenceStore.recallEndpointForNetwork(netKey, chosenMode, chosenIpScan)
@@ -12350,6 +12364,18 @@ class MainActivity : Activity() {
         }
         root.addView(row2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
+        // Button: Direct In-App Tunnel Connect (CottenMax / StormDNS / Soar via local SOCKS5 bridge + Mihomo)
+        root.addView(
+            actionBtn(
+                if (isFarsi) "🚀 اتصال مستقیم تانل DNS در همین اپ (In-App Tunnel Connect)"
+                else "🚀 Connect DNS Tunnel Directly in App",
+                accent = true,
+            ) {
+                connectWhiteDnsTunnelDirectly(currentBundle())
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         root.addView(previewBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val scroll = ScrollView(this).apply { addView(root) }
@@ -12407,6 +12433,58 @@ class MainActivity : Activity() {
             }
             .create()
             .showCatClientDialog()
+    }
+
+    private fun connectWhiteDnsTunnelDirectly(bundle: WhiteDnsTunnelBundle) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            runCatching {
+                val uris = listOf(bundle.cottenMaxUri, bundle.stormDnsUri, bundle.soarUri)
+                uris.forEach { uri ->
+                    WhiteDnsSmartScanner.parseTunnelUri(uri)?.let { parsed ->
+                        withContext(Dispatchers.IO) {
+                            WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                        }
+                    }
+                }
+                val content = uris.joinToString("\n")
+                val title = "🧬 تانل WhiteDNS (اتصال مستقیم)"
+                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                val saved = withContext(Dispatchers.IO) {
+                    if (existing != null) {
+                        userSubscriptionManager.update(existing.id, title, content)
+                    } else {
+                        userSubscriptionManager.add(title, content)
+                    }
+                }
+                userSubscriptionManager.select(saved.id)
+                orbotEnginePreferenceStore.setEnabled(false)
+                val curAether = aetherPreferenceStore.read()
+                if (curAether.enabled) {
+                    aetherPreferenceStore.save(curAether.copy(enabled = false))
+                }
+                renderSubscriptionSelection()
+                renderAdvancedControls()
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "🚀 تانل WhiteDNS (CottenMax / StormDNS / Soar) داخل اپ فعال شد — در حال اتصال…"
+                    else "🚀 WhiteDNS Tunnel (CottenMax / StormDNS / Soar) activated in app — connecting…",
+                    Toast.LENGTH_LONG,
+                ).show()
+                openScreen(SCREEN_HOME)
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
+            }.onFailure { err ->
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "خطا در راه‌اندازی تانل: ${err.message}" else "Tunnel setup error: ${err.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     private fun runRegionalFirewallFingerprinterDialog() {

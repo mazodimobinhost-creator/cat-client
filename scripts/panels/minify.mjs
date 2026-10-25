@@ -127,6 +127,7 @@ function scrubAstSignatures(code) {
   function countWalk(node, parent, prop) {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'Literal' && node.regex) {
+      if (!ALL_SENSITIVE_TEST_RE.test(node.regex.pattern)) return;
       bump(node.regex.pattern);
       if (node.regex.flags) bump(node.regex.flags);
       return;
@@ -184,6 +185,7 @@ function scrubAstSignatures(code) {
   function collectEdits(node, parent, prop, outEdits) {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'Literal' && node.regex) {
+      if (!ALL_SENSITIVE_TEST_RE.test(node.regex.pattern)) return;
       const pIdx = getIdx(node.regex.pattern);
       const fIdx = node.regex.flags ? getIdx(node.regex.flags) : -1;
       const prevChar = node.start > 0 ? code[node.start - 1] : '';

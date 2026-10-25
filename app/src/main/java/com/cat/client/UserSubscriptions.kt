@@ -435,6 +435,20 @@ object JsonSubscriptionImporter {
                     } else if (Regex("""^[A-Za-z0-9+/=]{16,}$""").matches(rawEch)) {
                         proxy.put("ech-opts", JSONObject().put("enable", true).put("config", rawEch))
                     }
+                } else {
+                    tls.optString("cipherSuites").trim().takeIf(String::isNotBlank)?.let {
+                        proxy.put("cipher-suites", it)
+                    }
+                    val fmType = stream.optJSONObject("finalmask")
+                        ?.optJSONArray("tcp")
+                        ?.optJSONObject(0)
+                        ?.optString("type")
+                        .orEmpty()
+                        .ifBlank { stream.optString("finalMask") }
+                        .trim()
+                    if (fmType.isNotBlank()) {
+                        proxy.put("final-mask", fmType)
+                    }
                 }
             }
         } else if (protocol == "trojan") {

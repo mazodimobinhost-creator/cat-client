@@ -48,12 +48,52 @@ internal object SubscriptionSourceLoader {
         is SubscriptionSource.RemoteHttps -> loadHttps(source.url)
     }
 
-    private suspend fun loadHttps(value: String): LoadedSubscription = runInterruptible(Dispatchers.IO) {
-        val uri = runCatching { URI(value) }
+    internal fun candidateHttpsUrls(primaryUrl: String): List<URI> {
+        val uri = runCatching { URI(primaryUrl) }
             .getOrElse { throw IOException("Subscription Source URL is invalid", it) }
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
             throw IOException("Subscription Source must use HTTPS")
         }
+        val query = uri.rawQuery.orEmpty()
+        val fallbackHosts = query.split('&')
+            .mapNotNull { pair ->
+                val eq = pair.indexOf('=')
+                if (eq <= 0) return@mapNotNull null
+                val k = pair.substring(0, eq).lowercase()
+                if (k !in setOf("fallback_host", "mirror", "backup_host")) return@mapNotNull null
+                runCatching { java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8") }.getOrNull()
+            }
+            .flatMap { it.split(',') }
+            .map { it.trim().lowercase() }
+            .filter { it.matches(Regex("""^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?$""")) }
+            .distinct()
+        if (fallbackHosts.isEmpty()) return listOf(uri)
+        val mirrors = fallbackHosts.mapNotNull { hostPort ->
+            val colon = hostPort.indexOf(':')
+            val fHost = if (colon > 0) hostPort.substring(0, colon) else hostPort
+            val fPort = if (colon > 0) hostPort.substring(colon + 1).toIntOrNull() ?: -1 else uri.port
+            if (fHost.equals(uri.host, ignoreCase = true) && fPort == uri.port) return@mapNotNull null
+            runCatching {
+                URI("https", uri.rawUserInfo, fHost, fPort, uri.rawPath, uri.rawQuery, uri.rawFragment)
+            }.getOrNull()
+        }
+        return listOf(uri) + mirrors
+    }
+
+    private suspend fun loadHttps(value: String): LoadedSubscription = runInterruptible(Dispatchers.IO) {
+        val candidates = candidateHttpsUrls(value)
+        var lastError: IOException? = null
+        for (uri in candidates) {
+            try {
+                return@runInterruptible fetchSingleHttpsUri(uri)
+            } catch (e: IOException) {
+                lastError = e
+            }
+        }
+        throw lastError ?: IOException("Subscription Source failed")
+    }
+
+    private fun fetchSingleHttpsUri(uri: URI): LoadedSubscription {
         val connection = uri.toURL().openConnection() as HttpURLConnection
         connection.connectTimeout = 12_000
         connection.readTimeout = 20_000
@@ -71,7 +111,7 @@ internal object SubscriptionSourceLoader {
             if (bytes.size > UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) {
                 throw IOException("Subscription Source exceeds the maximum size")
             }
-            LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
+            return LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
         } finally {
             connection.disconnect()
         }

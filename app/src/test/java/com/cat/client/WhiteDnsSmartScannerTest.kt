@@ -72,6 +72,53 @@ class WhiteDnsSmartScannerTest {
         assertEquals("FR", ProxyScannerPage.countryCodeFromNameOrIso("fr"))
     }
 
+    @Test fun whiteDnsTunnelUrisImportIntoMihomoAndRoundTripViaShareLink() {
+        val bundle = WhiteDnsSmartScanner.buildWhiteDnsTunnelBundle(
+            resolverIp = "178.22.122.100",
+            transport = "auto",
+            recordMode = WhiteDnsRecordMode.TXT_HTTPS,
+            preset = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS.first(),
+        )
+        val lines = listOf(bundle.cottenMaxUri, bundle.stormDnsUri, bundle.soarUri).joinToString("\n")
+        val imported = UserSubscriptionImporter.import(lines, nowMs = 1_000L)
+        assertEquals(3, imported.connectionCount)
+        val parsed = MihomoConfigParser.parse(imported.yaml, 1_000L)
+        assertEquals(3, parsed.summary.proxies.size)
+        val rebuilt = MihomoShareLink.fromYamlBlock(parsed.summary.proxies[0].rawYaml)
+        assertEquals(bundle.cottenMaxUri, rebuilt)
+    }
+
+    @Test fun tlsClientHelloSplitterAndIrancellFfParametersWorkEndToEnd() {
+        // Fake 40-byte TLS 1.2 ClientHello record: 0x16 0x03 0x03 0x00 0x23 (len=35), handshake type 0x01
+        val payload = ByteArray(35) { idx -> if (idx == 0) 0x01 else (idx + 1).toByte() }
+        val record = byteArrayOf(0x16, 0x03, 0x03, 0x00, 35) + payload
+        val split = WhiteDnsSmartScanner.splitTlsClientHelloRecord(record, splitPayloadBytes = 16)!!
+        assertEquals(0x16, split.first[0].toInt() and 0xFF)
+        assertEquals(16, ((split.first[3].toInt() and 0xFF) shl 8) or (split.first[4].toInt() and 0xFF))
+        assertEquals(0x16, split.second[0].toInt() and 0xFF)
+        assertEquals(19, ((split.second[3].toInt() and 0xFF) shl 8) or (split.second[4].toInt() and 0xFF))
+
+        val ffLink =
+            "vless://uuid@188.114.98.0:443?encryption=none&security=tls&type=ws&host=worker.example" +
+                "&path=%2Fvl&sni=worker.example&fp=unsafe&alpn=http%2F1.1&cs=semi-python&fm=tlshello-0-len#MTN-FF"
+        val imported = UserSubscriptionImporter.import(ffLink, nowMs = 1_000L)
+        val rawBlock = MihomoConfigParser.parse(imported.yaml, 1_000L).summary.proxies.single().rawYaml
+        val rebuilt = MihomoShareLink.fromYamlBlock(rawBlock)!!
+        assertTrue(rebuilt.contains("cs=semi-python"))
+        assertTrue(rebuilt.contains("fm=tlshello-0-len"))
+    }
+
+    @Test fun subscriptionSourceLoaderBuildsFallbackDomainCandidateUrls() {
+        val urls = SubscriptionSourceLoader.candidateHttpsUrls(
+            "https://primary.workers.dev/sub/abc?fallback_host=mirror1.example.com,mirror2.example.com",
+        )
+        assertEquals(3, urls.size)
+        assertEquals("primary.workers.dev", urls[0].host)
+        assertEquals("mirror1.example.com", urls[1].host)
+        assertEquals("mirror2.example.com", urls[2].host)
+        assertEquals("/sub/abc", urls[1].rawPath)
+    }
+
     @Test fun moatBridgesJsonParserExtractsBridgeStrings() {
         val sampleJson = """
             {"settings":[
