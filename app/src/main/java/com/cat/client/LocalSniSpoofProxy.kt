@@ -8,6 +8,11 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -507,6 +512,7 @@ internal object LocalSniSpoofProxy {
             val dnsOutcome = runCatching {
                 val t0 = System.nanoTime()
                 DatagramSocket().use { sock ->
+                    protectOutboundDatagramSocket(sock)
                     sock.soTimeout = timeoutMs
                     sock.send(DatagramPacket(query, query.size, InetAddress.getByName(resolverIp), 53))
                     val buf = ByteArray(512)
@@ -588,6 +594,7 @@ internal object LocalSniSpoofProxy {
             val tcpRtt = runCatching {
                 val t0 = System.nanoTime()
                 Socket().use { s ->
+                    protectOutboundSocket(s)
                     s.connect(InetSocketAddress(target.ip, target.port), timeoutMs)
                 }
                 ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
@@ -612,6 +619,7 @@ internal object LocalSniSpoofProxy {
             val t0 = System.nanoTime()
             val addr = InetAddress.getByName(ip.trim().removePrefix("[").removeSuffix("]"))
             Socket().use { raw ->
+                protectOutboundSocket(raw)
                 raw.soTimeout = timeoutMs
                 raw.connect(InetSocketAddress(addr, port), timeoutMs)
                 val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -809,6 +817,21 @@ internal object LocalSniSpoofProxy {
         return null
     }
 
+    private val spoofPoolSeq = AtomicInteger(0)
+    private val spoofWorkerPool: ThreadPoolExecutor = ThreadPoolExecutor(
+        4,
+        36,
+        30L,
+        TimeUnit.SECONDS,
+        LinkedBlockingQueue(96),
+        ThreadFactory { runnable ->
+            Thread(null, runnable, "sni-spoof-pool-${spoofPoolSeq.incrementAndGet()}", 256 * 1024L).apply {
+                isDaemon = true
+            }
+        },
+        ThreadPoolExecutor.DiscardPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+
     /**
      * Starts a direct TCP port forwarder on `127.0.0.1` that intercepts the first TLS ClientHello
      * record (`0x16`) from Mihomo's VLESS/Trojan outbound, applies [strategy] (SNI record split,
@@ -830,17 +853,16 @@ internal object LocalSniSpoofProxy {
         return runCatching {
             val server = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
             activeTcpForwarders[key] = server
-            Thread(Runnable {
+            Thread(null, Runnable {
                 while (!server.isClosed) {
                     val client = runCatching { server.accept() }.getOrNull() ?: break
-                    Thread(Runnable {
-                        handleDirectTcpForwardClient(client, remoteHost, remotePort, strategy)
-                    }, "sni-tcp-fwd-worker").apply {
-                        isDaemon = true
-                        start()
-                    }
+                    runCatching {
+                        spoofWorkerPool.execute {
+                            handleDirectTcpForwardClient(client, remoteHost, remotePort, strategy)
+                        }
+                    }.onFailure { runCatching { client.close() } }
                 }
-            }, "sni-tcp-fwd-${server.localPort}").apply {
+            }, "sni-tcp-fwd-${server.localPort}", 256 * 1024L).apply {
                 isDaemon = true
                 start()
             }
@@ -860,15 +882,19 @@ internal object LocalSniSpoofProxy {
                 c.tcpNoDelay = true
                 val inp = c.getInputStream()
                 val out = c.getOutputStream()
+                val cleanHost = remoteHost.removePrefix("[").removeSuffix("]")
+                if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true) || cleanHost == "::1") {
+                    return@use
+                }
                 val upstream = Socket()
                 try {
+                    protectOutboundSocket(upstream)
                     upstream.tcpNoDelay = true
                     upstream.soTimeout = 20_000
-                    val cleanHost = remoteHost.removePrefix("[").removeSuffix("]")
                     upstream.connect(InetSocketAddress(cleanHost, remotePort), 8_000)
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
-                    val upThread = Thread(Runnable {
+                    spoofWorkerPool.execute {
                         runCatching {
                             val buf = ByteArray(4096)
                             var firstPacket = true
@@ -924,9 +950,7 @@ internal object LocalSniSpoofProxy {
                                 }
                             }
                         }
-                    }, "sni-tcp-fwd-up")
-                    upThread.isDaemon = true
-                    upThread.start()
+                    }
                     val downBuf = ByteArray(4096)
                     while (true) {
                         val n = upIn.read(downBuf)
@@ -1028,15 +1052,14 @@ internal object LocalSniSpoofProxy {
                 ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
             }
             activeSpoofServers[strategy.id] = server
-            Thread(Runnable {
+            Thread(null, Runnable {
                 while (!server.isClosed) {
                     val client = runCatching { server.accept() }.getOrNull() ?: break
-                    Thread(Runnable { handleSpoofSocksClient(client, strategy, currentDecoySni) }, "sni-spoof-worker").apply {
-                        isDaemon = true
-                        start()
-                    }
+                    runCatching {
+                        spoofWorkerPool.execute { handleSpoofSocksClient(client, strategy, currentDecoySni) }
+                    }.onFailure { runCatching { client.close() } }
                 }
-            }, "sni-spoof-accept-${server.localPort}").apply {
+            }, "sni-spoof-accept-${server.localPort}", 256 * 1024L).apply {
                 isDaemon = true
                 start()
             }
@@ -1091,15 +1114,21 @@ internal object LocalSniSpoofProxy {
                 if (pHi < 0 || pLo < 0) return@use
                 val port = ((pHi and 0xFF) shl 8) or (pLo and 0xFF)
 
+                val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
+                if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true) || cleanHost == "::1" || cleanHost == "0.0.0.0") {
+                    return@use
+                }
+
                 val upstream = Socket()
                 try {
+                    protectOutboundSocket(upstream)
                     upstream.tcpNoDelay = true
-                    upstream.connect(InetSocketAddress(host, port), 8_000)
+                    upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
                     out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
                     out.flush()
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
-                    val upThread = Thread(Runnable {
+                    spoofWorkerPool.execute {
                         runCatching {
                             val buf = ByteArray(4096)
                             var firstPacket = true
@@ -1125,7 +1154,6 @@ internal object LocalSniSpoofProxy {
                                             }
                                         }
                                         SpoofStrategy.LOW_TTL_DECOY -> {
-                                            // Split at SNI boundary after warming socket buffer
                                             val split = splitClientHelloAtSni(rawRecord)
                                             if (split != null) {
                                                 upOut.write(split.first)
@@ -1168,9 +1196,7 @@ internal object LocalSniSpoofProxy {
                                 }
                             }
                         }
-                    }, "sni-spoof-up")
-                    upThread.isDaemon = true
-                    upThread.start()
+                    }
                     val downBuf = ByteArray(4096)
                     while (true) {
                         val n = upIn.read(downBuf)

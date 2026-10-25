@@ -14502,7 +14502,7 @@ class MainActivity : Activity() {
                         append("👤 حساب فعال: ${activeAcc.email} (از ${accounts.size} حساب · چرخش خودکار ۹۵٪)\n")
                         append("📊 حجم رایگان: ${FirefoxVpnEngine.formatQuotaSummaryFa(activeAcc)}\n")
                     } else {
-                        append("👤 حساب فایرفاکس: بدون حساب (حالت مهمان Fastly فعال است · برای ۵۰ گیگ اختصاصی حساب اضافه کنید)\n")
+                        append("👤 حساب فایرفاکس: هنوز وارد نشده‌اید (روی «👤 حساب ۵۰ گیگ» یا «🦊 اتصال فوری» بزنید تا با ایمیل یا گوگل ۵۰ گیگ رایگان بگیرید)\n")
                     }
                     append("🌍 کشور خروجی: $countryLabel\n")
                     append("🛡️ ضد فیلترینگ: ${if (fragOn) "برش TLS SNI روشن ✅" else "عادی"} · لبه Fastly: $cleanIp")
@@ -14513,7 +14513,7 @@ class MainActivity : Activity() {
                         append("👤 Active Account: ${activeAcc.email} (${accounts.size} total · 95% auto-failover)\n")
                         append("📊 Free Quota: ${FirefoxVpnEngine.formatQuotaSummaryEn(activeAcc)}\n")
                     } else {
-                        append("👤 Account: Guest Fastly mode ready (Add a free Firefox account for 50 GB/mo)\n")
+                        append("👤 Account: Not signed in yet (Tap '👤 50GB Accounts' or '🦊 Connect' to sign in via Mozilla/Google for 50 GB/mo free)\n")
                     }
                     append("🌍 Exit Country: $countryLabel\n")
                     append("🛡️ Anti-DPI: ${if (fragOn) "TLS SNI Split ON ✅" else "Standard"} · Fastly Edge: $cleanIp")
@@ -14659,17 +14659,17 @@ class MainActivity : Activity() {
 
         val options = if (isFarsi) {
             arrayOf(
-                "📧 ۱) ورود مستقیم با ایمیل و رمز عبور حساب فایرفاکس (با پشتیبانی کد تایید ایمیل)",
-                "🔑 ۲) افزودن سریع با توکن / JSON (کپی‌شده از مرورگر فایرفاکس، foxyvpn یا MLM VPN)",
-                "🌐 ۳) ساخت حساب رایگان فایرفاکس در مرورگر (۳۰ ثانیه — ۵۰ گیگ هدیه ماهانه)",
+                "🌐 ۱) ورود آسان با صفحه رسمی موزیلا / گوگل داخل برنامه (پیشنهادی ⭐ · مشابه MLM VPN)",
+                "📧 ۲) ورود مستقیم با ایمیل و رمز عبور فایرفاکس (با حل خودکار چالش Fastly + کد ۲ مرحله‌ای)",
+                "🔑 ۳) افزودن سریع با توکن / SessionToken / JSON (از مرورگر، foxyvpn یا MLM VPN)",
                 "🔄 ۴) بروزرسانی حجم ۵۰ گیگابایت و تمدید توکن همه حساب‌ها",
                 "🗑️ ۵) حذف یکی از حساب‌های ذخیره‌شده",
             )
         } else {
             arrayOf(
-                "📧 1) Sign in with Firefox Account Email & Password (supports Email 2FA)",
-                "🔑 2) Quick Import via Token / JSON (from Firefox Browser, foxyvpn, or MLM VPN)",
-                "🌐 3) Create a Free Firefox Account in Browser (50 GB/month free)",
+                "🌐 1) Easy Sign-In via In-App Mozilla Page / Google (Recommended ⭐ · Like MLM VPN)",
+                "📧 2) Direct Sign-In with Firefox Email & Password (Fastly Auto-Solver + 2FA)",
+                "🔑 3) Quick Import via Token / SessionToken / JSON (from Firefox, foxyvpn, or MLM VPN)",
                 "🔄 4) Refresh 50 GB Quota & Renew ProxyPass for All Accounts",
                 "🗑️ 5) Remove a Saved Account",
             )
@@ -14705,9 +14705,9 @@ class MainActivity : Activity() {
             )
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> showFirefoxEmailLoginDialog(onChanged)
-                    1 -> showFirefoxTokenImportDialog(onChanged)
-                    2 -> openExternalUrl("https://accounts.firefox.com/signup")
+                    0 -> showFirefoxWebViewLoginDialog(onChanged)
+                    1 -> showFirefoxEmailLoginDialog(onChanged)
+                    2 -> showFirefoxTokenImportDialog(onChanged)
                     3 -> {
                         if (accounts.isEmpty()) {
                             Toast.makeText(
@@ -14761,6 +14761,142 @@ class MainActivity : Activity() {
             .showCatClientDialog()
     }
 
+    /**
+     * In-App Official Mozilla WebView Sign-In (`https://accounts.firefox.com/`):
+     * Supports Email/Password, "Continue with Google" (Gmail), Apple Sign-In, new account sign-up,
+     * and Fastly CAPTCHA challenges, then automatically extracts `sessionToken` from
+     * `window.localStorage.getItem("__fxa_storage.accounts")` and activates 50 GB/month!
+     */
+    @Suppress("SetJavaScriptEnabled")
+    private fun showFirefoxWebViewLoginDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        var completed = false
+        var dialogRef: AlertDialog? = null
+
+        val statusBanner = TextView(this).apply {
+            text = if (isFarsi) {
+                "🔒 وارد حساب فایرفاکس شوید (با ایمیل، ادامه با گوگل/جیمیل، یا ساخت حساب جدید).\nبه محض ورود، برنامه خودکار ۵۰ گیگابایت را دریافت می‌کند…"
+            } else {
+                "🔒 Sign in to Firefox (via Email, Continue with Google, or Sign Up).\nAs soon as you sign in, 50 GB/mo will activate automatically…"
+            }
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEAL)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+
+        val webView = android.webkit.WebView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(470))
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.loadsImagesAutomatically = true
+            // Use standard Firefox Android User-Agent so Google Sign-In & Mozilla FxA both allow login
+            settings.userAgentString =
+                "Mozilla/5.0 (Android 14; Mobile; rv:138.0) Gecko/138.0 Firefox/138.0"
+        }
+        runCatching {
+            val cm = android.webkit.CookieManager.getInstance()
+            cm.setAcceptCookie(true)
+            cm.setAcceptThirdPartyCookies(webView, true)
+        }
+
+        fun checkWebViewForFxaSession() {
+            if (completed || isFinishing || isDestroyed) return
+            webView.evaluateJavascript(
+                "(function(){try{return window.localStorage.getItem('__fxa_storage.accounts')||'';}catch(e){return '';}})();",
+            ) { rawValue ->
+                if (completed || rawValue.isNullOrBlank() || rawValue == "null" || rawValue == "\"\"") return@evaluateJavascript
+                val pair = FirefoxVpnEngine.extractSessionFromWebViewStorageJson(rawValue) ?: return@evaluateJavascript
+                completed = true
+                statusBanner.text = if (isFarsi) {
+                    "✅ نشست «${pair.second}» دریافت شد! در حال فعال‌سازی سهمیه ۵۰ گیگابایت…"
+                } else {
+                    "✅ Session for '${pair.second}' captured! Activating 50 GB quota…"
+                }
+                activityScope.launch {
+                    val outcome = withContext(Dispatchers.IO) {
+                        FirefoxVpnEngine.loginFromWebViewStorageJson(this@MainActivity, rawValue)
+                    }
+                    runCatching { dialogRef?.dismiss() }
+                    runCatching { webView.destroy() }
+                    when (outcome) {
+                        is FirefoxVpnEngine.LoginOutcome.Success -> {
+                            onChanged()
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
+                                else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        is FirefoxVpnEngine.LoginOutcome.Failure -> {
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) outcome.messageFa else outcome.messageEn,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+        }
+
+        webView.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                checkWebViewForFxaSession()
+                view?.postDelayed({ checkWebViewForFxaSession() }, 1200L)
+                view?.postDelayed({ checkWebViewForFxaSession() }, 2800L)
+            }
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(statusBanner)
+            addView(webView)
+        }
+
+        val pollRunnable = object : Runnable {
+            override fun run() {
+                if (!completed && dialogRef?.isShowing == true) {
+                    checkWebViewForFxaSession()
+                    mainHandler.postDelayed(this, 1800L)
+                }
+            }
+        }
+
+        dialogRef = MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🌐 ورود رسمی به حساب فایرفاکس (۵۰ گیگ رایگان)"
+                else "🌐 Official Firefox Account Sign-In (50 GB Free)",
+            )
+            .setView(container)
+            .setPositiveButton(if (isFarsi) "✅ وارد شدم (بررسی نشست)" else "✅ I Signed In (Check)") { _, _ ->
+                checkWebViewForFxaSession()
+            }
+            .setNeutralButton(if (isFarsi) "📧 ورود با فرم مستقیم" else "📧 Direct Form") { dlg, _ ->
+                completed = true
+                dlg.dismiss()
+                runCatching { webView.destroy() }
+                showFirefoxEmailLoginDialog(onChanged)
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                completed = true
+                runCatching { webView.destroy() }
+            }
+            .create()
+
+        dialogRef.setOnDismissListener {
+            completed = true
+            mainHandler.removeCallbacks(pollRunnable)
+        }
+        dialogRef.showCatClientDialog()
+        webView.loadUrl("https://accounts.firefox.com/")
+        mainHandler.postDelayed(pollRunnable, 2000L)
+    }
+
     private fun showFirefoxEmailLoginDialog(onChanged: () -> Unit = {}) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val emailInput = EditText(this).apply {
@@ -14783,102 +14919,154 @@ class MainActivity : Activity() {
             addView(passInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
 
+        fun handleLoginOutcome(outcome: FirefoxVpnEngine.LoginOutcome) {
+            when (outcome) {
+                is FirefoxVpnEngine.LoginOutcome.Success -> {
+                    onChanged()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
+                        else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                is FirefoxVpnEngine.LoginOutcome.NeedsEmailVerification -> {
+                    val isTotp = outcome.verificationMethod.equals("totp-2fa", ignoreCase = true)
+                    val codeInput = EditText(this@MainActivity).apply {
+                        hint = if (isFarsi) {
+                            if (isTotp) "کد ۶ رقمی برنامه Authenticator" else "کد ۶ رقمی ارسال‌شده به ایمیل"
+                        } else {
+                            if (isTotp) "6-digit Authenticator code" else "6-digit code from email"
+                        }
+                        setSingleLine(true)
+                        layoutDirection = View.LAYOUT_DIRECTION_LTR
+                        textDirection = View.TEXT_DIRECTION_LTR
+                    }
+                    val codeWrap = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(20), dp(10), dp(20), dp(4))
+                        addView(codeInput)
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(
+                            if (isFarsi) {
+                                if (isTotp) "🔐 ورود کد دو مرحله‌ای (Authenticator)" else "📩 ورود کد تایید ایمیل فایرفاکس"
+                            } else {
+                                if (isTotp) "🔐 Enter Authenticator 2FA Code" else "📩 Enter Email Verification Code"
+                            },
+                        )
+                        .setMessage(
+                            if (isFarsi) {
+                                if (isTotp) "کد ۶ رقمی برنامه Authenticator حساب ${outcome.email} را وارد کنید:"
+                                else "فایرفاکس یک کد تایید ۶ رقمی به ایمیل ${outcome.email} فرستاد. آن را وارد کنید:"
+                            } else {
+                                if (isTotp) "Enter the 6-digit code from your authenticator app for ${outcome.email}:"
+                                else "Enter the verification code sent to ${outcome.email}:"
+                            },
+                        )
+                        .setView(codeWrap)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(if (isFarsi) "✅ تایید کد و فعال‌سازی" else "✅ Verify & Activate") { _, _ ->
+                            val code = codeInput.text?.toString()?.trim().orEmpty()
+                            activityScope.launch {
+                                val verifiedOutcome = withContext(Dispatchers.IO) {
+                                    FirefoxVpnEngine.verifyEmail2faAndCompleteLogin(
+                                        this@MainActivity,
+                                        outcome.sessionTokenHex,
+                                        code,
+                                        outcome.email,
+                                        outcome.verificationMethod,
+                                    )
+                                }
+                                handleLoginOutcome(verifiedOutcome)
+                            }
+                        }
+                        .create()
+                        .showCatClientDialog()
+                }
+                is FirefoxVpnEngine.LoginOutcome.NeedsUnblockCode -> {
+                    val unblockInput = EditText(this@MainActivity).apply {
+                        hint = if (isFarsi) "کد ۸ کاراکتری رفع مسدودی (ارسال‌شده به ایمیل)" else "8-character unblock code from email"
+                        setSingleLine(true)
+                        layoutDirection = View.LAYOUT_DIRECTION_LTR
+                        textDirection = View.TEXT_DIRECTION_LTR
+                    }
+                    val unblockWrap = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(20), dp(10), dp(20), dp(4))
+                        addView(unblockInput)
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "🛡️ کد تایید امنیتی موزیلا (Unblock Code)" else "🛡️ Mozilla Security Unblock Code")
+                        .setMessage(
+                            if (isFarsi) "موزیلا برای اطمینان از ورود شما یک کد ۸ کاراکتری به ایمیل ${outcome.email} ارسال کرد. آن را وارد کنید:"
+                            else "Mozilla emailed an 8-character unblock code to ${outcome.email}. Enter it below:",
+                        )
+                        .setView(unblockWrap)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(if (isFarsi) "🚀 ادامه ورود" else "🚀 Continue Sign-In") { _, _ ->
+                            val unblockCode = unblockInput.text?.toString()?.trim().orEmpty()
+                            activityScope.launch {
+                                val retryOutcome = withContext(Dispatchers.IO) {
+                                    FirefoxVpnEngine.loginWithEmailAndPassword(
+                                        this@MainActivity,
+                                        outcome.email,
+                                        outcome.password,
+                                        unblockCode,
+                                    )
+                                }
+                                handleLoginOutcome(retryOutcome)
+                            }
+                        }
+                        .create()
+                        .showCatClientDialog()
+                }
+                is FirefoxVpnEngine.LoginOutcome.Failure -> {
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "⚠️ راهنمای ورود به فایرفاکس" else "⚠️ Firefox Sign-In Notice")
+                        .setMessage(if (isFarsi) outcome.messageFa else outcome.messageEn)
+                        .setPositiveButton(
+                            if (isFarsi) "🌐 ورود آسان با صفحه رسمی موزیلا / گوگل" else "🌐 Sign In via Mozilla WebView",
+                        ) { _, _ ->
+                            showFirefoxWebViewLoginDialog(onChanged)
+                        }
+                        .setNeutralButton(if (isFarsi) "🔄 تلاش مجدد" else "🔄 Retry") { _, _ ->
+                            showFirefoxEmailLoginDialog(onChanged)
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create()
+                        .showCatClientDialog()
+                }
+            }
+        }
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "📧 ورود به حساب فایرفاکس (دریافت ۵۰ گیگ رایگان ماهانه)"
                 else "📧 Sign in to Firefox Account (50 GB/mo Free)",
             )
             .setMessage(
-                if (isFarsi) "ایمیل و رمز حساب فایرفاکس خود را وارد کنید. اگر کد تایید به ایمیلتان ارسال شود، در مرحله بعد کد را وارد می‌کنید:"
-                else "Enter your Firefox Account email and password:",
+                if (isFarsi) "ایمیل و رمز حساب فایرفاکس خود را وارد کنید (یا اگر اکانت شما با جیمیل/گوگل است، روی دکمه «🌐 صفحه وب موزیلا» بزنید):"
+                else "Enter your Firefox Account email and password (or tap '🌐 Mozilla Web' for Google Sign-In):",
             )
             .setView(box)
             .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "🌐 صفحه وب موزیلا / گوگل" else "🌐 Mozilla Web / Google") { _, _ ->
+                showFirefoxWebViewLoginDialog(onChanged)
+            }
             .setPositiveButton(if (isFarsi) "🚀 ورود و فعال‌سازی ۵۰ گیگ" else "🚀 Sign In & Activate 50 GB") { _, _ ->
                 val email = emailInput.text?.toString()?.trim().orEmpty()
                 val pass = passInput.text?.toString().orEmpty()
                 Toast.makeText(
                     this,
-                    if (isFarsi) "⏳ در حال رمزنگاری PBKDF2/HKDF و ورود به حساب فایرفاکس…" else "⏳ Signing in to Firefox Account…",
+                    if (isFarsi) "⏳ در حال حل چالش Fastly و ورود به حساب فایرفاکس…" else "⏳ Solving Fastly challenge & signing in…",
                     Toast.LENGTH_SHORT,
                 ).show()
                 activityScope.launch {
                     val outcome = withContext(Dispatchers.IO) {
                         FirefoxVpnEngine.loginWithEmailAndPassword(this@MainActivity, email, pass)
                     }
-                    when (outcome) {
-                        is FirefoxVpnEngine.LoginOutcome.Success -> {
-                            onChanged()
-                            Toast.makeText(
-                                this@MainActivity,
-                                if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
-                                else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        is FirefoxVpnEngine.LoginOutcome.NeedsEmailVerification -> {
-                            val codeInput = EditText(this@MainActivity).apply {
-                                hint = if (isFarsi) "کد ۶ رقمی ارسال‌شده به ایمیل" else "6-digit code from email"
-                                setSingleLine(true)
-                                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                                textDirection = View.TEXT_DIRECTION_LTR
-                            }
-                            val codeWrap = LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                setPadding(dp(20), dp(10), dp(20), dp(4))
-                                addView(codeInput)
-                            }
-                            MaterialAlertDialogBuilder(this@MainActivity)
-                                .setTitle(if (isFarsi) "📩 ورود کد تایید ایمیل فایرفاکس" else "📩 Enter Email Verification Code")
-                                .setMessage(
-                                    if (isFarsi) "فایرفاکس یک کد تایید به ایمیل ${outcome.email} فرستاد. آن را وارد کنید:"
-                                    else "Enter the verification code sent to ${outcome.email}:",
-                                )
-                                .setView(codeWrap)
-                                .setNegativeButton(android.R.string.cancel, null)
-                                .setPositiveButton(if (isFarsi) "✅ تایید کد و فعال‌سازی" else "✅ Verify & Activate") { _, _ ->
-                                    val code = codeInput.text?.toString()?.trim().orEmpty()
-                                    activityScope.launch {
-                                        val verifiedOutcome = withContext(Dispatchers.IO) {
-                                            FirefoxVpnEngine.verifyEmail2faAndCompleteLogin(
-                                                this@MainActivity,
-                                                outcome.sessionTokenHex,
-                                                code,
-                                                outcome.email,
-                                            )
-                                        }
-                                        when (verifiedOutcome) {
-                                            is FirefoxVpnEngine.LoginOutcome.Success -> {
-                                                onChanged()
-                                                Toast.makeText(
-                                                    this@MainActivity,
-                                                    if (isFarsi) "✅ حساب «${verifiedOutcome.account.email}» با موفقیت تایید و فعال شد!"
-                                                    else "✅ Account '${verifiedOutcome.account.email}' verified and activated!",
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                            is FirefoxVpnEngine.LoginOutcome.Failure -> {
-                                                Toast.makeText(
-                                                    this@MainActivity,
-                                                    if (isFarsi) verifiedOutcome.messageFa else verifiedOutcome.messageEn,
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                            else -> Unit
-                                        }
-                                    }
-                                }
-                                .create()
-                                .showCatClientDialog()
-                        }
-                        is FirefoxVpnEngine.LoginOutcome.Failure -> {
-                            Toast.makeText(
-                                this@MainActivity,
-                                if (isFarsi) outcome.messageFa else outcome.messageEn,
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
+                    handleLoginOutcome(outcome)
                 }
             }
             .create()
@@ -15092,6 +15280,46 @@ class MainActivity : Activity() {
      */
     private fun connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val initialAccounts = FirefoxVpnEngine.loadAccounts(this)
+        if (initialAccounts.isEmpty()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(
+                    if (isFarsi) "🦊 ابتدا وارد حساب رایگان فایرفاکس شوید (۵۰ گیگ در ماه)"
+                    else "🦊 Sign in to a Free Firefox Account First (50 GB/mo)",
+                )
+                .setMessage(
+                    if (isFarsi) {
+                        "برای اتصال به سرورهای Fastly فایرفاکس VPN، نیاز به یک حساب رایگان فایرفاکس دارید (هر حساب ماهانه ۵۰ گیگابایت اینترنت رایگان می‌دهد).\n\nروش ورود را انتخاب کنید تا بلافاصله پس از ورود متصل شوید:"
+                    } else {
+                        "Firefox VPN requires a free Firefox Account (each account provides 50 GB/month on Fastly).\n\nChoose how to sign in and connect immediately:"
+                    },
+                )
+                .setPositiveButton(
+                    if (isFarsi) "🌐 ورود آسان با صفحه موزیلا / گوگل ⭐" else "🌐 Easy Mozilla / Google Sign-In ⭐",
+                ) { _, _ ->
+                    showFirefoxWebViewLoginDialog {
+                        onChanged()
+                        if (FirefoxVpnEngine.loadAccounts(this).isNotEmpty()) {
+                            connectFirefoxVpnDirectly(onChanged)
+                        }
+                    }
+                }
+                .setNeutralButton(
+                    if (isFarsi) "📧 ایمیل و رمز عبور" else "📧 Email & Password",
+                ) { _, _ ->
+                    showFirefoxEmailLoginDialog {
+                        onChanged()
+                        if (FirefoxVpnEngine.loadAccounts(this).isNotEmpty()) {
+                            connectFirefoxVpnDirectly(onChanged)
+                        }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+                .showCatClientDialog()
+            return
+        }
+
         Toast.makeText(
             this,
             if (isFarsi) "🦊 در حال آماده‌سازی تانل فایرفاکس VPN روی شبکه Fastly و اتصال کل گوشی…"
@@ -15127,10 +15355,21 @@ class MainActivity : Activity() {
                     Triple(country, bestAcc, port)
                 }
 
+                if (activeAccount == null || activeAccount.proxyPassToken.isBlank()) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ توکن ۵۰ گیگابایت برای این حساب دریافت نشد؛ لطفاً دوباره وارد حساب فایرفاکس شوید."
+                        else "⚠️ Could not obtain 50 GB ProxyPass token; please sign in to Firefox Account again.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    showFirefoxAccountManagerDialog(onChanged)
+                    return@launch
+                }
+
                 val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(
                     country = chosenCountry,
                     localPort = localPort,
-                    accountEmail = activeAccount?.email.orEmpty(),
+                    accountEmail = activeAccount.email,
                     cleanFastlyIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@MainActivity),
                     tlsFragment = FirefoxVpnEngine.isTlsFragmentEnabled(this@MainActivity),
                 )
@@ -15148,14 +15387,9 @@ class MainActivity : Activity() {
                 }
                 userSubscriptionManager.select(saved.id)
 
-                // If user has no Firefox account yet, also enable Aether MASQUE with Fastly/Whitelist SNI as carrier backup
-                if (activeAccount == null || activeAccount.proxyPassToken.isBlank()) {
-                    LocalSniSpoofProxy.startSpoofSocksProxy()
-                } else {
-                    val curAether = aetherPreferenceStore.read()
-                    if (curAether.enabled) {
-                        aetherPreferenceStore.save(curAether.copy(enabled = false))
-                    }
+                val curAether = aetherPreferenceStore.read()
+                if (curAether.enabled) {
+                    aetherPreferenceStore.save(curAether.copy(enabled = false))
                 }
                 orbotEnginePreferenceStore.setEnabled(false)
 

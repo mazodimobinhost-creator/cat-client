@@ -220,6 +220,12 @@ internal var currentVpnServiceState: VpnState = VpnState.Stopped
 @Volatile
 private var currentVpnService: CatClientVpnService? = null
 
+internal fun protectOutboundSocket(socket: java.net.Socket): Boolean =
+    runCatching { currentVpnService?.protect(socket) ?: true }.getOrDefault(false)
+
+internal fun protectOutboundDatagramSocket(socket: java.net.DatagramSocket): Boolean =
+    runCatching { currentVpnService?.protect(socket) ?: true }.getOrDefault(false)
+
 internal const val ALWAYS_ON_VPN_SETTING = "always_on_vpn_app"
 
 internal fun vpnAlwaysOnEnabled(context: android.content.Context, fallback: Boolean = VpnRuntimeStateStore.readAlwaysOn(context)): Boolean =

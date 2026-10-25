@@ -590,6 +590,18 @@ class WhiteDnsSmartScannerTest {
         val detectedIran = MlmAndNextGenVpnHub.detectInstalledIranianAndBankingApps(sampleApps)
         assertEquals(3, detectedIran.size)
         assertTrue(detectedIran.none { it.packageName == "com.google.android.youtube" })
+
+        // 5. Firefox VPN WebView session extraction, Persian/Arabic digit code normalization & errno 120 case preservation
+        assertEquals("123456", FirefoxVpnEngine.normalizeCode(" ۱۲۳-۴۵۶\u200C "))
+        assertEquals("789012", FirefoxVpnEngine.normalizeCode("٧٨٩ ٠١٢"))
+        assertEquals("User@Example.com", FirefoxVpnEngine.normalizeEmail(" User@Example.com\u200B ", preserveCase = true))
+        assertEquals("user@example.com", FirefoxVpnEngine.normalizeEmail(" User@Example.com\u200B ", preserveCase = false))
+
+        val sampleWebViewJson = """{"uid_abc123":{"email":"mobin@gmail.com","sessionToken":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","verified":true}}"""
+        val extractedSession = FirefoxVpnEngine.extractSessionFromWebViewStorageJson(sampleWebViewJson)
+        assertTrue(extractedSession != null)
+        assertEquals("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", extractedSession?.first)
+        assertEquals("mobin@gmail.com", extractedSession?.second)
     }
 }
 
