@@ -1040,6 +1040,14 @@ internal object WhiteDnsSmartScanner {
         }.getOrNull()
     }
 
+    enum class WhiteDnsTunnelEngine(val titleFa: String, val titleEn: String) {
+        COTTEN_MAX("CottenMax (FEC 4:1)", "CottenMax (FEC 4:1)"),
+        STORM_DNS("StormDNS", "StormDNS"),
+        MASTER_DNS("MasterDNS", "MasterDNS"),
+        SOAR_MIMICRY("Soar Mimicry", "Soar Mimicry"),
+        DNSTT_CLASSIC("dnstt", "dnstt"),
+    }
+
     data class WhiteDnsParsedTunnelUri(
         val rawUri: String,
         val scheme: String,
@@ -1109,8 +1117,14 @@ internal object WhiteDnsSmartScanner {
             .ifBlank { "t.example.com" }
         val publicKeyHex = (params["pubkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
         val presetId = (params["preset"] ?: params["profile"]).orEmpty().trim().ifBlank { "iran-fast-low-mtu" }
+        val presetDefaultMtu = IRAN_AUTO_TUNE_PRESETS
+            .firstOrNull { it.id == presetId }
+            ?.mtuUpRange
+            ?.substringBefore('-')
+            ?.trim()
+            ?.toIntOrNull()
         val mtu = params["mtu"]?.toIntOrNull()?.coerceIn(48, 1400)
-            ?: IRAN_AUTO_TUNE_PRESETS.firstOrNull { it.id == presetId }?.uploadMtu
+            ?: presetDefaultMtu
             ?: 90
         val recordParam = (params["record"] ?: params["records"] ?: params["mode"] ?: params["carrier"]).orEmpty().uppercase()
         val recordMode = WhiteDnsRecordMode.entries.firstOrNull {
@@ -1166,10 +1180,10 @@ internal object WhiteDnsSmartScanner {
             val boundPort = server.localPort
             activeTunnelBridges[key] = boundPort
             activeTunnelSockets[boundPort] = server
-            Thread({
+            Thread(Runnable {
                 while (!server.isClosed) {
                     val client = runCatching { server.accept() }.getOrNull() ?: break
-                    Thread({ handleLocalTunnelSocksClient(client, parsed) }, "wdns-socks-client").apply {
+                    Thread(Runnable { handleLocalTunnelSocksClient(client, parsed) }, "wdns-socks-client").apply {
                         isDaemon = true
                         start()
                     }
@@ -1184,13 +1198,13 @@ internal object WhiteDnsSmartScanner {
 
     private fun handleLocalTunnelSocksClient(client: Socket, parsed: WhiteDnsParsedTunnelUri) {
         runCatching {
-            client.use { c ->
+            client.use { c: Socket ->
                 c.soTimeout = 15_000
                 c.tcpNoDelay = true
                 val input = c.getInputStream()
                 val output = c.getOutputStream()
                 val ver = input.read()
-                if (ver != 0x05) return
+                if (ver != 0x05) return@use
                 val nMethods = input.read().coerceAtLeast(0)
                 if (nMethods > 0) {
                     val methods = ByteArray(nMethods)
@@ -1200,43 +1214,44 @@ internal object WhiteDnsSmartScanner {
                 output.flush()
 
                 val hdr = ByteArray(4)
-                if (input.read(hdr) != 4 || hdr[0].toInt() != 0x05 || hdr[1].toInt() != 0x01) return
+                if (input.read(hdr) != 4 || hdr[0].toInt() != 0x05 || hdr[1].toInt() != 0x01) return@use
                 val targetHost = when (hdr[3].toInt() and 0xFF) {
                     0x01 -> {
                         val ip4 = ByteArray(4)
-                        if (input.read(ip4) != 4) return
-                        InetAddress.getByAddress(ip4).hostAddress ?: return
+                        if (input.read(ip4) != 4) return@use
+                        InetAddress.getByAddress(ip4).hostAddress ?: return@use
                     }
                     0x03 -> {
                         val len = input.read()
-                        if (len <= 0) return
+                        if (len <= 0) return@use
                         val dom = ByteArray(len)
-                        if (input.read(dom) != len) return
+                        if (input.read(dom) != len) return@use
                         String(dom, Charsets.UTF_8)
                     }
                     0x04 -> {
                         val ip6 = ByteArray(16)
-                        if (input.read(ip6) != 16) return
-                        InetAddress.getByAddress(ip6).hostAddress ?: return
+                        if (input.read(ip6) != 16) return@use
+                        InetAddress.getByAddress(ip6).hostAddress ?: return@use
                     }
-                    else -> return
+                    else -> return@use
                 }
                 val portHi = input.read()
                 val portLo = input.read()
-                if (portHi < 0 || portLo < 0) return
+                if (portHi < 0 || portLo < 0) return@use
                 val targetPort = ((portHi and 0xFF) shl 8) or (portLo and 0xFF)
 
                 // Resolve via WhiteDNS carrier probe to warm the resolver path before dialing
                 runCatching { probeUdpDns(parsed.resolverIp, parsed.resolverPort, targetHost, 1_500) }
 
-                Socket().use { upstream ->
+                val upstream = Socket()
+                try {
                     upstream.tcpNoDelay = true
                     upstream.connect(InetSocketAddress(targetHost, targetPort), 8_000)
                     output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
                     output.flush()
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
-                    val t = Thread({
+                    val t = Thread(Runnable {
                         runCatching {
                             val buf = ByteArray(parsed.mtu.coerceIn(64, 4096))
                             var first = true
@@ -1267,7 +1282,10 @@ internal object WhiteDnsSmartScanner {
                         output.flush()
                     }
                     runCatching { t.join(500) }
+                } finally {
+                    runCatching { upstream.close() }
                 }
+                Unit
             }
         }
     }

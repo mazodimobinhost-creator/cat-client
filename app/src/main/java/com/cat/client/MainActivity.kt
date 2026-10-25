@@ -12463,7 +12463,8 @@ class MainActivity : Activity() {
                 if (curAether.enabled) {
                     aetherPreferenceStore.save(curAether.copy(enabled = false))
                 }
-                renderSubscriptionSelection()
+                renderSubscriptions()
+                onSubscriptionSelected()
                 renderAdvancedControls()
                 Toast.makeText(
                     this@MainActivity,
