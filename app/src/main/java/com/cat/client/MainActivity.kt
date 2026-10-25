@@ -12069,6 +12069,9 @@ class MainActivity : Activity() {
                 "🧅 ۱۲) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
                 "💾 ۱۳) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
                 "📥 ۱۴) بازیابی کلید کلودفلر از کلیپ‌بورد",
+                "✨ ۱۵) تست یک‌کلیکی باز بودن Gemini، AI Studio، ChatGPT و یوتیوب بدون تحریم",
+                "🚨 ۱۶) تشخیص هوشمند «اینترنت ملی (قطع بین‌الملل)» در برابر «خرابی کانفیگ»",
+                "🛡️ ۱۷) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
             )
         } else {
             arrayOf(
@@ -12086,6 +12089,9 @@ class MainActivity : Activity() {
                 "🧅 12) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
                 "💾 13) Backup Cloudflare Identity Key to Clipboard",
                 "📥 14) Restore Cloudflare Identity Key from Clipboard",
+                "✨ 15) 1-Click Gemini, AI Studio, ChatGPT & YouTube Unblock Tester",
+                "🚨 16) Smart Net Melli (International Shutdown) vs. Dead Config Detector",
+                "🛡️ 17) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
             )
         }
 
@@ -12110,6 +12116,9 @@ class MainActivity : Activity() {
                     11 -> runFetchMoatTorBridgesDialog()
                     12 -> exportAetherIdentityToClipboard()
                     13 -> importAetherIdentityFromClipboard()
+                    14 -> runAiAndGeminiUnblockTesterDialog()
+                    15 -> runNetMelliDetectorDialog()
+                    16 -> showNineAntiFilterPresetsDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -12338,24 +12347,27 @@ class MainActivity : Activity() {
             VpnRuntimeStateStore.isAutoReconnectOnDropEnabled(this),
             VpnRuntimeStateStore.isAutoConnectOnBootOrUpdateEnabled(this),
             VpnRuntimeStateStore.isKillSwitchEnabled(this),
+            VpnRuntimeStateStore.isSmartUnspoofedDirectBypassEnabled(this),
         )
         val labels = if (isFarsi) {
             arrayOf(
                 "🔄 وصل دوباره اگر اتصال قطع شد (پیش‌فرض: خاموش)",
                 "🚀 وصل خودکار بعد از ری‌استارت گوشی یا آپدیت برنامه (پیش‌فرض: خاموش)",
                 "🛑 قطع‌کن اضطراری (Kill Switch) برای همه‌ی متودها و کانفیگ‌ها (جلوگیری از لو رفتن IP ایران)",
+                "⚡ عبور مستقیم سایت‌های بدون مسمومیت DNS (Smart Direct Bypass — افزایش سرعت و حفظ کوئوتا)",
             )
         } else {
             arrayOf(
                 "🔄 Reconnect automatically if dropped (default: off)",
                 "🚀 Connect after device reboot or app update (default: off)",
                 "🛑 Universal Emergency Kill Switch across all methods & configs",
+                "⚡ Smart Unspoofed Direct Bypass (route unpoisoned non-sanctioned sites direct)",
             )
         }
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🔌 تنظیمات وصل خودکار و قطع‌کن اضطراری (Kill Switch)"
-                else "🔌 Auto-Reconnect, Boot Connect & Kill Switch",
+                if (isFarsi) "🔌 تنظیمات وصل خودکار، قطع‌کن اضطراری و مسیریابی هوشمند"
+                else "🔌 Auto-Reconnect, Kill Switch & Smart Direct Bypass",
             )
             .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                 checked[which] = isChecked
@@ -12365,13 +12377,133 @@ class MainActivity : Activity() {
                 VpnRuntimeStateStore.setAutoReconnectOnDropEnabled(this, checked[0])
                 VpnRuntimeStateStore.setAutoConnectOnBootOrUpdateEnabled(this, checked[1])
                 VpnRuntimeStateStore.setKillSwitchEnabled(this, checked[2])
+                VpnRuntimeStateStore.setSmartUnspoofedDirectBypassEnabled(this, checked[3])
                 Toast.makeText(
                     this,
-                    if (isFarsi) "✅ تنظیمات پایداری و قطع‌کن اضطراری ذخیره شد"
-                    else "✅ Saved resilience & Kill Switch settings",
+                    if (isFarsi) "✅ تنظیمات پایداری، Kill Switch و مسیریابی هوشمند ذخیره شد"
+                    else "✅ Saved resilience, Kill Switch & Smart Direct Bypass settings",
                     Toast.LENGTH_SHORT,
                 ).show()
             }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun runAiAndGeminiUnblockTesterDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست باز بودن Gemini، AI Studio، ChatGPT و یوتیوب روی خروجی فعلی…"
+            else "⏳ Testing Gemini, AI Studio, ChatGPT & YouTube unblock status on current exit…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val report = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.probeAiAndGeminiUnblockSuite()
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "✨ نتیجه تست باز بودن Gemini / AI Studio / ChatGPT"
+                    else "✨ Gemini, AI Studio & ChatGPT Unblock Report",
+                )
+                .setMessage(if (isFarsi) report.summaryFa else report.summaryEn)
+                .setNegativeButton(android.R.string.ok, null)
+                .setNeutralButton(if (isFarsi) "🧦 بخش اختصاصی ساکس۵" else "🧦 Open SOCKS5 Hub") { _, _ ->
+                    showSocks5HubPage()
+                }
+                .setPositiveButton(
+                    if (isFarsi) "🔓 فعال‌سازی WARP ← سایفون (آمریکا US)"
+                    else "🔓 Enable WARP -> Psiphon (US)",
+                ) { _, _ ->
+                    val cur = aetherPreferenceStore.read()
+                    aetherPreferenceStore.save(
+                        cur.copy(
+                            enabled = true,
+                            exitLocation = "foreign",
+                            chainTarget = "psiphon",
+                            psiphonRegion = "US",
+                            mode = AetherSelection.simplifyModeForChain(cur.mode, "psiphon"),
+                        ),
+                    )
+                    renderAdvancedControls()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ زنجیره WARP ← سایفون (آمریکا US) برای باز شدن Gemini و هوش مصنوعی فعال شد"
+                        else "✅ Enabled WARP -> Psiphon (US) for Gemini & AI unblock",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runNetMelliDetectorDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال مقایسه پینگ سرورهای داخل ایران با درگاه‌های بین‌المللی (تشخیص نت ملی)…"
+            else "⏳ Comparing domestic Iranian resolvers vs. international edges (Net Melli check)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val verdict = withContext(Dispatchers.IO) {
+                WhiteDnsSmartScanner.probeNetMelliVsDeadConfig()
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🚨 نتیجه تشخیص هوشمند «اینترنت ملی» در برابر «خرابی کانفیگ»"
+                    else "🚨 Net Melli vs. Dead Config Diagnostic",
+                )
+                .setMessage(if (isFarsi) verdict.summaryFa else verdict.summaryEn)
+                .setNegativeButton(android.R.string.ok, null)
+                .setPositiveButton(
+                    if (isFarsi) "📡 باز کردن آزمایشگاه تانل DNS (ضد نت ملی)"
+                    else "📡 Open WhiteDNS Tunnel Lab",
+                ) { _, _ ->
+                    showWhiteDnsResolverMethodsDialog()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun showNineAntiFilterPresetsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val presets = WhiteDnsSmartScanner.ANTI_FILTER_9_PRESETS
+        val titles = presets.map { p ->
+            val name = if (isFarsi) p.titleFa else p.titleEn
+            "$name · len=${p.fragmentLengths} · delay=${p.fragmentDelaysMs}ms"
+        }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🛡️ انتخاب از ۹ پریست ضد فیلترینگ (شامل Max-Stealth، Double-Fragment و Starlink)"
+                else "🛡️ Select from 9 Anti-Filtering Presets (Max-Stealth, Double-Fragment & Starlink)",
+            )
+            .setItems(titles) { _, idx ->
+                val p = presets[idx]
+                val summary = if (isFarsi) {
+                    "✅ پریست «${p.titleFa}»:\n" +
+                        "• Fingerprint: ${p.fingerprint}\n" +
+                        "• CipherSuites: ${p.cipherSuites.ifEmpty { "(خالی / استاندارد)" }}\n" +
+                        "• FinalMask: ${p.finalMask.ifEmpty { "(خالی / استاندارد)" }}\n" +
+                        "• Fragment: packets=${p.fragmentPackets}, length=${p.fragmentLengths}, interval=${p.fragmentDelaysMs}ms\n" +
+                        "• ALPN: ${p.alpn}\n" +
+                        "• اصلاح خودکار باگ REALITY: فعال (تبدیل خودکار tlshello به 1-3 روی REALITY)"
+                } else {
+                    "✅ Preset '${p.titleEn}':\n" +
+                        "• Fingerprint: ${p.fingerprint}\n" +
+                        "• CipherSuites: ${p.cipherSuites.ifEmpty { "(default)" }}\n" +
+                        "• FinalMask: ${p.finalMask.ifEmpty { "(default)" }}\n" +
+                        "• Fragment: packets=${p.fragmentPackets}, length=${p.fragmentLengths}, interval=${p.fragmentDelaysMs}ms\n" +
+                        "• ALPN: ${p.alpn}\n" +
+                        "• Auto REALITY Fragment Fix: Active (tlshello -> 1-3)"
+                }
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("cat-antifilter-preset", summary))
+                Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .create()
             .showCatClientDialog()
     }

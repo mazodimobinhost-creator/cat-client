@@ -289,14 +289,20 @@ data class AetherSelection(
 
         fun fromAetherUri(raw: String, nowMs: Long = System.currentTimeMillis()): AetherSelection? {
             val trimmed = raw.trim()
-            if (!trimmed.startsWith("aether://", ignoreCase = true)) return null
-            val withoutScheme = trimmed.substring("aether://".length)
+            val schemeLower = when {
+                trimmed.startsWith("aether://", ignoreCase = true) -> "aether"
+                trimmed.startsWith("masque://", ignoreCase = true) -> "masque"
+                trimmed.startsWith("wireguard://", ignoreCase = true) -> "wireguard"
+                else -> return null
+            }
+            val withoutScheme = trimmed.substringAfter("://")
             val hashIdx = withoutScheme.indexOf('#')
             val beforeHash = if (hashIdx >= 0) withoutScheme.substring(0, hashIdx) else withoutScheme
             val rawFragment = if (hashIdx >= 0) withoutScheme.substring(hashIdx + 1) else ""
             val qIdx = beforeHash.indexOf('?')
-            val authority = if (qIdx >= 0) beforeHash.substring(0, qIdx).trim().trim('/') else ""
-            val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else beforeHash.trimStart('/')
+            val rawAuthority = if (qIdx >= 0) beforeHash.substring(0, qIdx).trim().trim('/') else beforeHash.trim().trim('/')
+            val authority = if ('@' in rawAuthority) rawAuthority.substringAfterLast('@') else rawAuthority
+            val query = if (qIdx >= 0) beforeHash.substring(qIdx + 1) else ""
             val map = mutableMapOf<String, String>()
             query.split('&').forEach { pair ->
                 val eq = pair.indexOf('=')
@@ -306,7 +312,13 @@ data class AetherSelection(
                     if (k.isNotBlank()) map[k.lowercase()] = v.trim()
                 }
             }
-            val proto = map["protocol"].orEmpty().lowercase()
+            val proto = map["protocol"].orEmpty().lowercase().ifEmpty {
+                when (schemeLower) {
+                    "masque" -> "masque"
+                    "wireguard" -> "wg"
+                    else -> ""
+                }
+            }
             val psiphonParam = map["psiphon"].orEmpty().lowercase()
             val torParam = map["tor"].orEmpty().lowercase()
             val legacyChain = (map["chain"] ?: map["cfil"]).orEmpty().lowercase()

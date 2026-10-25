@@ -196,6 +196,18 @@ object VpnRuntimeStateStore {
             .apply()
     }
 
+    /** Smart Unspoofed Direct Bypass (patterniha XTLS/BBS#10): route unspoofed non-sanctioned domains direct. */
+    fun isSmartUnspoofedDirectBypassEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean("smart_unspoofed_direct_bypass", false)
+
+    fun setSmartUnspoofedDirectBypassEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("smart_unspoofed_direct_bypass", enabled)
+            .apply()
+    }
+
     fun readLiveConnectStep(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_LIVE_CONNECT_STEP, "")

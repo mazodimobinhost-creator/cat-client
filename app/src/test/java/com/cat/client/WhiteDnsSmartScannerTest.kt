@@ -196,4 +196,81 @@ class WhiteDnsSmartScannerTest {
         assertTrue(rules.contains("com.whitedns.whiteaesther.core.NativeEngineListener"))
         assertTrue(rules.contains("onNativeReady()"))
     }
+
+    @Test fun doubleFragmentAndTlsInterceptionQuarantineWorkEndToEnd() {
+        val payload = ByteArray(160) { i -> if (i == 0) 0x01 else (i and 0x7F).toByte() }
+        val chPacket = ByteArray(5 + payload.size).apply {
+            this[0] = 0x16
+            this[1] = 0x03
+            this[2] = 0x03
+            this[3] = ((payload.size ushr 8) and 0xFF).toByte()
+            this[4] = (payload.size and 0xFF).toByte()
+            System.arraycopy(payload, 0, this, 5, payload.size)
+        }
+        val segments = WhiteDnsSmartScanner.buildDoubleFragmentSegments(
+            packet = chPacket,
+            firstTlsPayloadBytes = 104,
+            firstTcpSegmentBytes = 114,
+            maxTailSegments = 5,
+            interSegmentDelayMs = 15L,
+        )
+        assertTrue(segments.size >= 6)
+        assertEquals(114, segments.first().first.size)
+        assertEquals(0L, segments.first().second)
+        assertEquals(1, segments[1].first.size)
+        assertEquals(15L, segments[1].second)
+
+        val now = 1_760_000_000_000L
+        WhiteDnsSmartScanner.quarantineInterceptedEndpoint("net-mci", "104.18.2.161:443", now)
+        assertTrue(WhiteDnsSmartScanner.isEndpointQuarantined("net-mci", "104.18.2.161:443", now + 60_000L))
+        assertTrue(!WhiteDnsSmartScanner.isEndpointQuarantined("net-mci", "104.18.2.161:443", now + 25 * 3600_000L))
+        val filtered = WhiteDnsSmartScanner.filterOutQuarantinedEndpoints(
+            "net-mci",
+            listOf("104.18.2.161:443", "188.114.98.0:443"),
+            now + 10_000L,
+        )
+        assertEquals(listOf("188.114.98.0:443"), filtered)
+    }
+
+    @Test fun masqueAndWireGuardAutoSchemesParseAndRealityFragmentNormalizes() {
+        val masqueSel = AetherSelection.fromAetherUri("masque://auto@162.159.198.1:443/?ip=v6#Mahsa-MASQUE")
+        assertTrue(masqueSel != null)
+        assertEquals(AetherMode.MasqueHttp2, masqueSel?.mode)
+        assertEquals("162.159.198.1:443", masqueSel?.endpoint)
+        assertEquals("v6", masqueSel?.ipScan)
+
+        val wgAutoSel = AetherSelection.fromAetherUri("wireguard://auto@162.159.192.1:2408/?ip=both#Mahsa-WG-Auto")
+        assertTrue(wgAutoSel != null)
+        assertEquals(AetherMode.WireGuard, wgAutoSel?.mode)
+        assertEquals("162.159.192.1:2408", wgAutoSel?.endpoint)
+
+        val parsedMasqueTunnel = WhiteDnsSmartScanner.parseTunnelUri("masque://162.159.198.1:443/#MASQUE-Node")
+        assertTrue(parsedMasqueTunnel != null)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.MASQUE_ENDPOINT, parsedMasqueTunnel?.engine)
+
+        assertEquals("1-3", WhiteDnsSmartScanner.normalizeRealityFragmentPackets("reality", "tlshello"))
+        assertEquals("1-3-0-len", WhiteDnsSmartScanner.normalizeRealityFragmentPackets("REALITY", "tlshello-0-len"))
+        assertEquals("tlshello", WhiteDnsSmartScanner.normalizeRealityFragmentPackets("tls", "tlshello"))
+        assertEquals(9, WhiteDnsSmartScanner.ANTI_FILTER_9_PRESETS.size)
+    }
+
+    @Test fun aiUnblockNetMelliAndSmartUnspoofedDirectBypassEvaluatorsAreAccurate() {
+        val geminiBlocked = WhiteDnsSmartScanner.evaluateAiServiceProbe("Gemini", 302, "https://gemini.google.com/faq", 120L)
+        assertTrue(!geminiBlocked.unlocked)
+        val geminiOpen = WhiteDnsSmartScanner.evaluateAiServiceProbe("Gemini", 200, "ok", 95L)
+        assertTrue(geminiOpen.unlocked)
+
+        val netMelli = WhiteDnsSmartScanner.evaluateNetMelliState(
+            domesticHits = 3,
+            internationalHits = 0,
+            dnsTunnelReachable = true,
+            fastestDomesticMs = 24L,
+            fastestIntlMs = null,
+        )
+        assertEquals(WhiteDnsSmartScanner.NetworkIsolationState.NET_MELLI_SHUTDOWN, netMelli.state)
+
+        assertTrue(WhiteDnsSmartScanner.shouldBypassTunnelForUnspoofedDomain("digikala.com", listOf("185.143.233.5")))
+        assertTrue(!WhiteDnsSmartScanner.shouldBypassTunnelForUnspoofedDomain("youtube.com", listOf("10.10.34.35")))
+        assertTrue(!WhiteDnsSmartScanner.shouldBypassTunnelForUnspoofedDomain("gemini.google.com", listOf("142.250.185.78")))
+    }
 }

@@ -447,7 +447,7 @@ object JsonSubscriptionImporter {
                         .ifBlank { stream.optString("finalMask") }
                         .trim()
                     if (fmType.isNotBlank()) {
-                        proxy.put("final-mask", fmType)
+                        proxy.put("final-mask", WhiteDnsSmartScanner.normalizeRealityFragmentPackets(security, fmType))
                     }
                 }
             }

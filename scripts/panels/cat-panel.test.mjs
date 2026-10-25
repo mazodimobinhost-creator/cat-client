@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.28', T.CAT_PANEL_VERSION === '6.69.28');
+  check('panel version is 6.69.29', T.CAT_PANEL_VERSION === '6.69.29');
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
   // plaintext asset. CI obfuscates that asset IN PLACE and re-runs this whole
@@ -1370,6 +1370,20 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
   check('free library IPs still appear, on :443, behind the owner', feedAddrs.indexOf('172.64.151.179') > 1 && /172\.64\.151\.179:443\?/.test(feedSub), 'idx=' + feedAddrs.indexOf('172.64.151.179'));
   const noRepo = await (await req3('/sub/' + env3.UUID + '?norepo=1')).text();
   check('?norepo=1 still drops the library IPs', !noRepo.includes('172.64.151.179'));
+
+  const edgeRes = await req3('/api/edge-telemetry');
+  const edgeJson = await edgeRes.json();
+  check('edge-telemetry returns privacy-safe request.cf diagnostics', edgeRes.status === 200 && edgeJson.ok === true && edgeJson.ip === undefined && typeof edgeJson.clientTcpRtt === 'number');
+
+  const subRes1 = await req3('/sub/' + env3.UUID);
+  const etag = subRes1.headers.get('etag');
+  check('sub response emits ETag header', Boolean(etag && etag.startsWith('"cat-')));
+  const subRes304 = await req3('/sub/' + env3.UUID, { headers: { 'if-none-match': etag } });
+  check('sub response returns 304 Not Modified on matching If-None-Match', subRes304.status === 304);
+
+  const portalRes = await req3('/sub/' + env3.UUID + '?portal=1');
+  const portalHtml = await portalRes.text();
+  check('?portal=1 renders browser subscription portal with ISP presets', portalRes.status === 200 && portalHtml.includes('fw=mci-ipv6') && portalHtml.includes('fw=irancell-ff'));
 }
 console.log(failures ? ('\n' + failures + ' FAILED\n- ' + failed.join('\n- ')) : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

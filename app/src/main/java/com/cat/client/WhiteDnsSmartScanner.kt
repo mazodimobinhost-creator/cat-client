@@ -591,6 +591,8 @@ internal object WhiteDnsSmartScanner {
     fun probeTlsPortWithSni(host: String, port: Int, sni: String, timeoutMs: Int = 1300): Long? {
         if (port !in CLOUDFLARE_TLS_PORTS) return null
         val bareHost = host.trim().removeSurrounding("[", "]")
+        val endpointKey = "$bareHost:$port"
+        if (isEndpointQuarantined("default", endpointKey)) return null
         val t0 = System.nanoTime()
         return runCatching {
             val addr = InetAddress.getByName(bareHost)
@@ -603,7 +605,12 @@ internal object WhiteDnsSmartScanner {
                     val params = ssl.sslParameters
                     params.serverNames = listOf(SNIHostName(sni))
                     ssl.sslParameters = params
-                    ssl.startHandshake()
+                    try {
+                        ssl.startHandshake()
+                    } catch (e: javax.net.ssl.SSLHandshakeException) {
+                        quarantineInterceptedEndpoint("default", endpointKey)
+                        throw e
+                    }
                 }
             }
             ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
@@ -1047,6 +1054,7 @@ internal object WhiteDnsSmartScanner {
         SOAR_MIMICRY("Soar Mimicry", "Soar Mimicry"),
         DNSTT_CLASSIC("dnstt", "dnstt"),
         GOOGLE_SCRIPT_RELAY("رله اسکریپت گوگل (GAS)", "Google Apps Script Relay (GAS)"),
+        MASQUE_ENDPOINT("MASQUE/H2", "MASQUE/H2"),
     }
 
     data class WhiteDnsParsedTunnelUri(
@@ -1064,7 +1072,7 @@ internal object WhiteDnsSmartScanner {
         val scriptUrl: String = "",
     )
 
-    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay")
+    val SUPPORTED_TUNNEL_SCHEMES = setOf("cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay", "masque")
 
     /**
      * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `dnstt://`, and `gasrelay://` URIs
@@ -1106,7 +1114,7 @@ internal object WhiteDnsSmartScanner {
         } else {
             cleanHostPort.removePrefix("[").removeSuffix("]")
         }
-        val defaultPort = if (scheme == "gasrelay") 443 else 53
+        val defaultPort = if (scheme == "gasrelay" || scheme == "masque") 443 else 53
         val parsedPort = if (colonIdx > 0) {
             cleanHostPort.substring(colonIdx + 1).toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
         } else {
@@ -1115,10 +1123,22 @@ internal object WhiteDnsSmartScanner {
         val resolverIp = (params["resolver"] ?: params["server"] ?: parsedHost)
             .substringBefore(':')
             .trim()
-            .ifBlank { if (scheme == "gasrelay") "script.google.com" else "178.22.122.100" }
+            .ifBlank {
+                when (scheme) {
+                    "gasrelay" -> "script.google.com"
+                    "masque" -> "162.159.198.1"
+                    else -> "178.22.122.100"
+                }
+            }
         val tunnelDomain = (params["domain"] ?: params["ns"] ?: params["sni"] ?: parsedHost)
             .trim()
-            .ifBlank { if (scheme == "gasrelay") "script.google.com" else "t.example.com" }
+            .ifBlank {
+                when (scheme) {
+                    "gasrelay" -> "script.google.com"
+                    "masque" -> "consumer-masque.cloudflareclient.com"
+                    else -> "t.example.com"
+                }
+            }
         val publicKeyHex = (params["pubkey"] ?: params["key"] ?: params["pk"]).orEmpty().trim()
         val presetId = (params["preset"] ?: params["profile"]).orEmpty().trim().ifBlank { "iran-fast-low-mtu" }
         val presetDefaultMtu = IRAN_AUTO_TUNE_PRESETS
@@ -1141,6 +1161,7 @@ internal object WhiteDnsSmartScanner {
             "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
             "soar" -> WhiteDnsTunnelEngine.SOAR_MIMICRY
             "gasrelay" -> WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY
+            "masque" -> WhiteDnsTunnelEngine.MASQUE_ENDPOINT
             else -> WhiteDnsTunnelEngine.DNSTT_CLASSIC
         }
         val scriptUrl = if (scheme == "gasrelay") {
@@ -1277,12 +1298,15 @@ internal object WhiteDnsSmartScanner {
                                 if (n <= 0) break
                                 if (first) {
                                     first = false
-                                    val split = splitTlsClientHelloRecord(buf.copyOf(n))
-                                    if (split != null) {
-                                        upOut.write(split.first)
-                                        upOut.flush()
-                                        upOut.write(split.second)
-                                        upOut.flush()
+                                    val segments = buildDoubleFragmentSegments(buf.copyOf(n))
+                                    if (segments.size > 1) {
+                                        for ((segBytes, delayMs) in segments) {
+                                            if (delayMs > 0L) {
+                                                runCatching { Thread.sleep(delayMs) }
+                                            }
+                                            upOut.write(segBytes)
+                                            upOut.flush()
+                                        }
                                         continue
                                     }
                                 }
@@ -1707,5 +1731,496 @@ internal object WhiteDnsSmartScanner {
         appendLine("    return new Response('Cat Client Lite Worker Active', { status: 200, headers: { 'X-CatLite-Reqs': String(dailyReqs) } });")
         appendLine("  }")
         appendLine("};")
+    }
+
+    /**
+     * Two-Stage Fragment (`DOUBLE_FRAGMENT` — MAXIMUS-VPN #83 & Luncher streaming DPI bypass):
+     * 1) Splits the TLS ClientHello record (`0x16 0x03 ...`) into a `firstTlsPayloadBytes` (104B) TLS record
+     *    plus trailing TLS record(s) in a single buffer.
+     * 2) Cuts that buffer into an initial `firstTcpSegmentBytes` (114B) TCP write (`delayMs = 0L`)
+     *    followed by up to `maxTailSegments` 1-byte TCP segments spaced by `interSegmentDelayMs`
+     *    so Iranian streaming DPI reassemblers (40ms window) fail to reconstruct the SNI.
+     */
+    fun buildDoubleFragmentSegments(
+        packet: ByteArray,
+        firstTlsPayloadBytes: Int = 104,
+        firstTcpSegmentBytes: Int = 114,
+        maxTailSegments: Int = 10,
+        interSegmentDelayMs: Long = 15L,
+    ): List<Pair<ByteArray, Long>> {
+        val splitRecords = splitTlsClientHelloRecord(packet, splitPayloadBytes = firstTlsPayloadBytes)
+            ?: return listOf(packet to 0L)
+        val combined = ByteArray(splitRecords.first.size + splitRecords.second.size)
+        System.arraycopy(splitRecords.first, 0, combined, 0, splitRecords.first.size)
+        System.arraycopy(splitRecords.second, 0, combined, splitRecords.first.size, splitRecords.second.size)
+        if (combined.size <= firstTcpSegmentBytes) {
+            return listOf(combined to 0L)
+        }
+        val out = ArrayList<Pair<ByteArray, Long>>()
+        out += combined.copyOfRange(0, firstTcpSegmentBytes) to 0L
+        var offset = firstTcpSegmentBytes
+        var singleByteCount = 0
+        while (offset < combined.size && singleByteCount < maxTailSegments) {
+            out += byteArrayOf(combined[offset]) to interSegmentDelayMs.coerceAtLeast(1L)
+            offset++
+            singleByteCount++
+        }
+        if (offset < combined.size) {
+            out += combined.copyOfRange(offset, combined.size) to interSegmentDelayMs.coerceAtLeast(1L)
+        }
+        return out
+    }
+
+    private const val TLS_QUARANTINE_TTL_MS = 24 * 60 * 60 * 1000L
+    private val interceptedEndpointsByNetwork = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun quarantineKey(networkKey: String, endpoint: String): String =
+        "${networkKey.trim().lowercase()}|${endpoint.trim().lowercase()}"
+
+    /**
+     * Marks an endpoint as TLS-intercepted (forged certificate / MITM on ISP) for 24 hours on [networkKey].
+     */
+    fun quarantineInterceptedEndpoint(
+        networkKey: String,
+        endpoint: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        if (endpoint.isBlank()) return
+        interceptedEndpointsByNetwork[quarantineKey(networkKey, endpoint)] = nowMs
+    }
+
+    fun isEndpointQuarantined(
+        networkKey: String,
+        endpoint: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val key = quarantineKey(networkKey, endpoint)
+        val ts = interceptedEndpointsByNetwork[key] ?: return false
+        if (nowMs - ts >= TLS_QUARANTINE_TTL_MS) {
+            interceptedEndpointsByNetwork.remove(key)
+            return false
+        }
+        return true
+    }
+
+    fun filterOutQuarantinedEndpoints(
+        networkKey: String,
+        candidates: List<String>,
+        nowMs: Long = System.currentTimeMillis(),
+    ): List<String> = candidates.filterNot { isEndpointQuarantined(networkKey, it, nowMs) }
+
+    /**
+     * Normalizes REALITY fragment packets (`v2rayN #10407` fix):
+     * On Xray-core, `packets = "tlshello"` breaks REALITY handshakes (`delay = -1`);
+     * normalizing `"tlshello"` to `"1-3"` when `security == "reality"` restores compatibility.
+     */
+    fun normalizeRealityFragmentPackets(security: String, packetsOrFinalMask: String): String {
+        val trimmed = packetsOrFinalMask.trim()
+        if (trimmed.isEmpty()) return trimmed
+        if (!security.trim().equals("reality", ignoreCase = true)) return trimmed
+        if (trimmed.equals("tlshello", ignoreCase = true)) return "1-3"
+        if (trimmed.startsWith("tlshello-", ignoreCase = true)) {
+            return "1-3-" + trimmed.substring("tlshello-".length)
+        }
+        return trimmed
+    }
+
+    data class AntiFilterPreset(
+        val id: String,
+        val titleFa: String,
+        val titleEn: String,
+        val fingerprint: String,
+        val cipherSuites: String,
+        val finalMask: String,
+        val fragmentPackets: String,
+        val fragmentLengths: String,
+        val fragmentDelaysMs: String,
+        val alpn: String,
+    )
+
+    /**
+     * Nine field-tested anti-filtering presets for Iranian ISPs & satellite links
+     * (MCI IPv6, Irancell F&F, Rightel, TCI, Gaming, Max-Stealth 45ms streaming-DPI delay,
+     * Double-Fragment, PattNG Classic, and Starlink/Satellite).
+     */
+    val ANTI_FILTER_9_PRESETS: List<AntiFilterPreset> = listOf(
+        AntiFilterPreset(
+            id = "mci-ipv6",
+            titleFa = "۱) همراه اول (MCI IPv6 + Chrome)",
+            titleEn = "1) MCI (IPv6 + Chrome)",
+            fingerprint = "chrome",
+            cipherSuites = "",
+            finalMask = "",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "100-200",
+            fragmentDelaysMs = "10-20",
+            alpn = "h2,http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "irancell-ff",
+            titleFa = "۲) ایرانسل (متد F&F · رفع محدودیت آپلود)",
+            titleEn = "2) Irancell (F&F Method · Upload Uncap)",
+            fingerprint = "unsafe",
+            cipherSuites = "semi-python",
+            finalMask = "tlshello-0-len",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "16-32",
+            fragmentDelaysMs = "2-10",
+            alpn = "http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "max-stealth-delayed",
+            titleFa = "۳) Max-Stealth (ضد بازچینی ۴۰ میلی‌ثانیه‌ای فایروال استریمینگ)",
+            titleEn = "3) Max-Stealth (Anti-40ms Streaming DPI Reassembly)",
+            fingerprint = "unsafe",
+            cipherSuites = "semi-python",
+            finalMask = "tlshello-0-len",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "10-30",
+            fragmentDelaysMs = "25-45",
+            alpn = "http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "double-fragment",
+            titleFa = "۴) فرگمنت دومرحله‌ای (Double Fragment 104B TLS + 114B/1B TCP)",
+            titleEn = "4) Double Fragment (104B TLS + 114B/1B TCP Split)",
+            fingerprint = "chrome",
+            cipherSuites = "semi-python",
+            finalMask = "tlshello-104-1",
+            fragmentPackets = "1-3",
+            fragmentLengths = "114,1",
+            fragmentDelaysMs = "1-5",
+            alpn = "h2,http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "rightel-plain",
+            titleFa = "۵) رایتل (پورت‌های سبک و فرگمنت کوتاه)",
+            titleEn = "5) Rightel (Short Fragment)",
+            fingerprint = "chrome",
+            cipherSuites = "",
+            finalMask = "",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "20-50",
+            fragmentDelaysMs = "5-15",
+            alpn = "http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "tci-ios",
+            titleFa = "۶) مخابرات (TCI · اثرانگشت iOS)",
+            titleEn = "6) TCI (iOS TLS Fingerprint)",
+            fingerprint = "ios",
+            cipherSuites = "",
+            finalMask = "",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "40-90",
+            fragmentDelaysMs = "10-20",
+            alpn = "h2,http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "shatel-gaming",
+            titleFa = "۷) گیمینگ و شاتل (کمترین تأخیر فرگمنت)",
+            titleEn = "7) Gaming & Shatel (Low-Jitter Fragment)",
+            fingerprint = "chrome",
+            cipherSuites = "",
+            finalMask = "",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "50-100",
+            fragmentDelaysMs = "1-3",
+            alpn = "h2,http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "pattng-classic",
+            titleFa = "۸) PattNG کلاسیک (F&F + IPv6 ترکیبی)",
+            titleEn = "8) PattNG Classic (Hybrid F&F + IPv6)",
+            fingerprint = "unsafe",
+            cipherSuites = "semi-python",
+            finalMask = "tlshello-0-len",
+            fragmentPackets = "tlshello",
+            fragmentLengths = "16-32",
+            fragmentDelaysMs = "5-12",
+            alpn = "h2,http/1.1",
+        ),
+        AntiFilterPreset(
+            id = "starlink-satellite",
+            titleFa = "۹) ماهواره‌ای / استارلینک (ضد نوسان پکت و Handshake سریع)",
+            titleEn = "9) Satellite / Starlink (Fast Handshake & Loss Tolerant)",
+            fingerprint = "chrome",
+            cipherSuites = "",
+            finalMask = "",
+            fragmentPackets = "1-3",
+            fragmentLengths = "200-400",
+            fragmentDelaysMs = "1-2",
+            alpn = "h2,http/1.1",
+        ),
+    )
+
+    data class AiServiceUnblockStatus(
+        val serviceName: String,
+        val unlocked: Boolean,
+        val httpCode: Int,
+        val rttMs: Long,
+        val detailFa: String,
+        val detailEn: String,
+    )
+
+    data class AiSuiteUnblockReport(
+        val statuses: List<AiServiceUnblockStatus>,
+        val geminiUnlocked: Boolean,
+        val chatgptUnlocked: Boolean,
+        val allUnlocked: Boolean,
+        val summaryFa: String,
+        val summaryEn: String,
+    )
+
+    /**
+     * Pure evaluator for AI / Gemini / ChatGPT / YouTube unblock verification (`MahsaNG #179`).
+     */
+    fun evaluateAiServiceProbe(
+        serviceName: String,
+        httpCode: Int,
+        bodyOrLocation: String,
+        rttMs: Long,
+    ): AiServiceUnblockStatus {
+        val textLower = bodyOrLocation.lowercase()
+        val isGeoRefused = httpCode == 403 || httpCode == 451 ||
+            textLower.contains("loc=ir") ||
+            textLower.contains("/faq") ||
+            textLower.contains("unsupported_country") ||
+            textLower.contains("not available in your country")
+        val unlocked = httpCode in 200..399 && !isGeoRefused
+        val detailFa = when {
+            unlocked -> "✅ باز و بدون تحریم ($httpCode · ${rttMs}ms)"
+            isGeoRefused -> "🚫 مسدود با آی‌پی فعلی (تحریم جغرافیایی / دیتاسنتر کلودفلر — نیاز به ساکس۵ یا سایفون خارج)"
+            else -> "❌ عدم پاسخ شبکه (کد $httpCode)"
+        }
+        val detailEn = when {
+            unlocked -> "✅ Open & Unblocked ($httpCode · ${rttMs}ms)"
+            isGeoRefused -> "🚫 Geo-blocked or datacenter-refused ($httpCode — use foreign SOCKS5 or Psiphon)"
+            else -> "❌ Unreachable (HTTP $httpCode)"
+        }
+        return AiServiceUnblockStatus(
+            serviceName = serviceName,
+            unlocked = unlocked,
+            httpCode = httpCode,
+            rttMs = rttMs,
+            detailFa = detailFa,
+            detailEn = detailEn,
+        )
+    }
+
+    /**
+     * One-Click AI & Gemini Unblock Batch Tester (`MahsaNG #179` & YouTube feedback):
+     * Tests whether Google Gemini, Google AI Studio, ChatGPT, and YouTube are genuinely
+     * unblocked on the current exit (or via an optional SOCKS5 proxy).
+     */
+    fun probeAiAndGeminiUnblockSuite(
+        socksHost: String? = null,
+        socksPort: Int? = null,
+        timeoutMs: Int = 2_800,
+    ): AiSuiteUnblockReport {
+        val targets = listOf(
+            "✨ Google Gemini" to "https://gemini.google.com/app",
+            "🧪 Google AI Studio" to "https://aistudio.google.com/",
+            "🤖 ChatGPT (OpenAI)" to "https://chatgpt.com/cdn-cgi/trace",
+            "▶️ YouTube Unfiltered" to "https://www.youtube.com/generate_204",
+        )
+        val proxy = if (!socksHost.isNullOrBlank() && socksPort != null && socksPort in 1..65535) {
+            java.net.Proxy(java.net.Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
+        } else null
+
+        val statuses = targets.map { (label, urlStr) ->
+            val start = System.nanoTime()
+            var code = -1
+            var snippet = ""
+            runCatching {
+                val uriUrl = java.net.URI(urlStr).toURL()
+                val conn = ((if (proxy != null) uriUrl.openConnection(proxy) else uriUrl.openConnection()) as java.net.HttpURLConnection).apply {
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    instanceFollowRedirects = false
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36")
+                }
+                try {
+                    code = conn.responseCode
+                    val loc = conn.getHeaderField("Location").orEmpty()
+                    val body = if (urlStr.endsWith("/trace") && code in 200..299) {
+                        conn.inputStream.bufferedReader().use { it.readText().take(512) }
+                    } else ""
+                    snippet = "$loc\n$body"
+                } finally {
+                    conn.disconnect()
+                }
+            }
+            val rtt = ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)
+            evaluateAiServiceProbe(label, code, snippet, rtt)
+        }
+        val geminiOk = statuses.firstOrNull { it.serviceName.contains("Gemini") }?.unlocked == true
+        val chatgptOk = statuses.firstOrNull { it.serviceName.contains("ChatGPT") }?.unlocked == true
+        val allOk = statuses.all { it.unlocked }
+        val summaryFa = buildString {
+            statuses.forEach { st ->
+                appendLine("• ${st.serviceName}: ${st.detailFa}")
+            }
+            if (!geminiOk) {
+                append("\n💡 راهنما: گوگل جمینای آی‌پی‌های کلودفلر را مسدود می‌کند؛ برای باز شدن جمینای از «🧦 مرکز ساکس۵» یا «🔓 زنجیره WARP ← سایفون (آمریکا US / آلمان DE)» استفاده کنید.")
+            } else {
+                append("\n🎉 تمام سرویس‌های حساس و هوش مصنوعی روی آی‌پی فعلی شما کاملاً باز هستند!")
+            }
+        }
+        val summaryEn = buildString {
+            statuses.forEach { st ->
+                appendLine("• ${st.serviceName}: ${st.detailEn}")
+            }
+            if (!geminiOk) {
+                append("\n💡 Tip: Gemini refuses Cloudflare exit IPs; enable SOCKS5 Auto-Pool or WARP -> Psiphon (US/DE).")
+            } else {
+                append("\n🎉 Gemini, AI Studio, ChatGPT & YouTube are open on your current exit!")
+            }
+        }
+        return AiSuiteUnblockReport(
+            statuses = statuses,
+            geminiUnlocked = geminiOk,
+            chatgptUnlocked = chatgptOk,
+            allUnlocked = allOk,
+            summaryFa = summaryFa,
+            summaryEn = summaryEn,
+        )
+    }
+
+    enum class NetworkIsolationState {
+        GLOBAL_OPEN,
+        INTERNATIONAL_FILTERED_OR_THROTTLED,
+        NET_MELLI_SHUTDOWN,
+        NO_LOCAL_NETWORK,
+    }
+
+    data class NetMelliDiagnosticVerdict(
+        val state: NetworkIsolationState,
+        val domesticHits: Int,
+        val internationalHits: Int,
+        val dnsTunnelReachable: Boolean,
+        val fastestDomesticMs: Long?,
+        val fastestIntlMs: Long?,
+        val summaryFa: String,
+        val summaryEn: String,
+    )
+
+    fun evaluateNetMelliState(
+        domesticHits: Int,
+        internationalHits: Int,
+        dnsTunnelReachable: Boolean,
+        fastestDomesticMs: Long?,
+        fastestIntlMs: Long?,
+    ): NetMelliDiagnosticVerdict {
+        val state = when {
+            domesticHits <= 0 && internationalHits <= 0 -> NetworkIsolationState.NO_LOCAL_NETWORK
+            domesticHits > 0 && internationalHits <= 0 -> NetworkIsolationState.NET_MELLI_SHUTDOWN
+            internationalHits >= 2 -> NetworkIsolationState.GLOBAL_OPEN
+            else -> NetworkIsolationState.INTERNATIONAL_FILTERED_OR_THROTTLED
+        }
+        val summaryFa = when (state) {
+            NetworkIsolationState.NET_MELLI_SHUTDOWN ->
+                "🚨 وضعیت: اینترنت ملی (قطع ارتباط بین‌الملل)!\n" +
+                    "• سرورهای داخل ایران باز هستند (${fastestDomesticMs ?: 0}ms) اما تمام درگاه‌های مستقیم بین‌المللی بسته شده‌اند.\n" +
+                    "• کانفیگ شما خراب نیست؛ لینک بین‌الملل اپراتور قطع شده است.\n" +
+                    "• راهکار فوری: دکمه «🧬 اتصال با تانل DNS (CottenMax / StormDNS)» را بزنید."
+            NetworkIsolationState.GLOBAL_OPEN ->
+                "✅ وضعیت: لینک بین‌الملل باز است (اینترنت ملی نیست).\n" +
+                    "• پینگ داخل ایران: ${fastestDomesticMs ?: "-"}ms · پینگ لبه بین‌الملل: ${fastestIntlMs ?: "-"}ms.\n" +
+                    "• اگر کانفیگی وصل نمی‌شود، مشکل از فیلتر شدن IP/SNI همان کانفیگ است نه قطع اینترنت."
+            NetworkIsolationState.INTERNATIONAL_FILTERED_OR_THROTTLED ->
+                "⚠️ وضعیت: لینک بین‌الملل نیمه‌باز با فیلترینگ شدید پورت‌ها.\n" +
+                    "• پینگ داخل: ${fastestDomesticMs ?: "-"}ms · فقط برخی لبه‌های بین‌الملل پاسخ دادند (${fastestIntlMs ?: "-"}ms).\n" +
+                    "• پیشنهاد: از متد F&F، MASQUE-H2 یا اسکن ۶ پورت TLS استفاده کنید."
+            NetworkIsolationState.NO_LOCAL_NETWORK ->
+                "❌ هیچ پاسخی حتی از سرورهای داخل ایران دریافت نشد — اتصال دیتای موبایل یا Wi-Fi خود را بررسی کنید."
+        }
+        val summaryEn = when (state) {
+            NetworkIsolationState.NET_MELLI_SHUTDOWN ->
+                "🚨 Status: Net Melli (International Shutdown Detected)!\nDomestic servers respond (${fastestDomesticMs ?: 0}ms) while all international edges are unreachable. Switch to WhiteDNS Tunnel (CottenMax / StormDNS)."
+            NetworkIsolationState.GLOBAL_OPEN ->
+                "✅ Status: International link is OPEN (domestic ${fastestDomesticMs ?: "-"}ms, intl ${fastestIntlMs ?: "-"}ms)."
+            NetworkIsolationState.INTERNATIONAL_FILTERED_OR_THROTTLED ->
+                "⚠️ Status: International link is partially reachable under heavy DPI filtering."
+            NetworkIsolationState.NO_LOCAL_NETWORK ->
+                "❌ No local or international network response — check mobile data or Wi-Fi."
+        }
+        return NetMelliDiagnosticVerdict(
+            state = state,
+            domesticHits = domesticHits,
+            internationalHits = internationalHits,
+            dnsTunnelReachable = dnsTunnelReachable,
+            fastestDomesticMs = fastestDomesticMs,
+            fastestIntlMs = fastestIntlMs,
+            summaryFa = summaryFa,
+            summaryEn = summaryEn,
+        )
+    }
+
+    /**
+     * Active Net Melli vs. Dead Config Diagnostic (`Luncher` companion concept):
+     * Probes domestic Iranian endpoints alongside international Cloudflare/Google edges to tell
+     * whether the international link is cut (Net Melli) or just a single config is blocked.
+     */
+    fun probeNetMelliVsDeadConfig(timeoutMs: Int = 1_600): NetMelliDiagnosticVerdict {
+        val domesticTargets = listOf("178.22.122.100" to 53, "185.51.200.2" to 53, "217.218.155.155" to 53)
+        val intlTargets = listOf("188.114.98.0" to 443, "1.1.1.1" to 443, "104.18.2.161" to 443)
+        var domHits = 0
+        var fastestDom: Long? = null
+        for ((h, p) in domesticTargets) {
+            val rtt = probeDnsOverUdp(h, domain = "shaparak.ir", qtype = 1, timeoutMs = timeoutMs)
+                ?: probeTcpPort(h, p, timeoutMs)
+            if (rtt != null) {
+                domHits++
+                if (fastestDom == null || rtt < fastestDom) fastestDom = rtt
+            }
+        }
+        var intlHits = 0
+        var fastestIntl: Long? = null
+        for ((h, p) in intlTargets) {
+            val rtt = probeTcpPort(h, p, timeoutMs)
+            if (rtt != null) {
+                intlHits++
+                if (fastestIntl == null || rtt < fastestIntl) fastestIntl = rtt
+            }
+        }
+        val dnsTunnelOk = domHits > 0
+        return evaluateNetMelliState(
+            domesticHits = domHits,
+            internationalHits = intlHits,
+            dnsTunnelReachable = dnsTunnelOk,
+            fastestDomesticMs = fastestDom,
+            fastestIntlMs = fastestIntl,
+        )
+    }
+
+    private val GEO_SANCTIONED_SUFFIXES = listOf(
+        "gemini.google.com",
+        "aistudio.google.com",
+        "chatgpt.com",
+        "openai.com",
+        "claude.ai",
+        "anthropic.com",
+        "docker.io",
+        "docker.com",
+        "developer.android.com",
+    )
+
+    /**
+     * Smart Unspoofed Direct Bypass (`patterniha` Fact-A in `XTLS/BBS #10`):
+     * If a domain is neither geo-sanctioned nor DNS-poisoned by the Iranian ISP,
+     * it can bypass the proxy tunnel and connect directly to save Worker quota and maximize speed.
+     */
+    fun shouldBypassTunnelForUnspoofedDomain(
+        domain: String,
+        systemResolvedIps: List<String>,
+    ): Boolean {
+        val clean = domain.trim().lowercase().removeSuffix(".")
+        if (clean.isBlank()) return false
+        if (clean.endsWith(".ir")) return true
+        if (GEO_SANCTIONED_SUFFIXES.any { clean == it || clean.endsWith(".$it") }) return false
+        if (systemResolvedIps.isEmpty()) return false
+        return systemResolvedIps.all { !isPoisonedIranDnsIp(it) }
     }
 }
