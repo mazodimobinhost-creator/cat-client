@@ -4,6 +4,11 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta154] — 2026-10-25 (Panel 6.69.31)
+
+### Changed
+- **Clean Home Screen Hero (`MainActivity.kt`, `ZedBlobView.kt`):** Removed the extra Home hero mode switcher pill (`🫧 حباب Zed` / `🌍 رادار نقشه` / `🛡️ سپر Aether`), shield overlay, and duplicate map badge from `locationPill`, keeping the original clean ZedSecure wave blob (`ZedBlobView`) and existing Map button (`showMapPage()`).
+
 ## [1.10.0-beta153] — 2026-10-25 (Panel 6.69.31)
 
 ### Added

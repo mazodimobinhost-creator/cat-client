@@ -46,14 +46,4 @@ class AppAccentAndSurfaceStyleTest {
         assertEquals(AppSurfaceStyle.Glass, AppSurfaceStyle.fromWireName("unknown"))
         assertEquals(AppSurfaceStyle.Glass, AppSurfaceStyle.fromWireName(null))
     }
-
-    @Test
-    fun `HeroVisualMode resolves blob globe and shield`() {
-        assertEquals(3, HeroVisualMode.entries.size)
-        assertEquals(HeroVisualMode.Blob, HeroVisualMode.fromWireName("blob"))
-        assertEquals(HeroVisualMode.Globe, HeroVisualMode.fromWireName("globe"))
-        assertEquals(HeroVisualMode.Shield, HeroVisualMode.fromWireName("shield"))
-        assertEquals(HeroVisualMode.Blob, HeroVisualMode.fromWireName("other"))
-        assertEquals(HeroVisualMode.Blob, HeroVisualMode.fromWireName(null))
-    }
 }

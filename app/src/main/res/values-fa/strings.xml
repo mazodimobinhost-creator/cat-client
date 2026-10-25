@@ -1057,10 +1057,6 @@
     <string name="surface_style_glass">🧊 شیشه‌ای مات Zed</string>
     <string name="surface_style_amoled">🌑 مشکی مطلق AMOLED</string>
     <string name="surface_style_neon">✨ نئونی درخشان</string>
-    <string name="hero_visual_title">گرافیک مرکزی خانه</string>
-    <string name="hero_visual_blob">🫧 حباب Zed</string>
-    <string name="hero_visual_globe">🌍 رادار نقشه</string>
-    <string name="hero_visual_shield">🛡️ سپر Aether</string>
     <string name="pscan_title">اسکنر پروکسی عمومی</string>
     <string name="pscan_subtitle">پروکسی‌های SOCKS/HTTP را از لیست‌های عمومی یا رنج خودت جمع کن، واقعاً تست کن، خروجی بگیر یا اضافه کن</string>
     <string name="pscan_sources">منابع</string>

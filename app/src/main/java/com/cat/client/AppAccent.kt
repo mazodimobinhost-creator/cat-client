@@ -4,8 +4,9 @@ import android.content.Context
 import androidx.annotation.StringRes
 
 /**
- * Theme presets (ZedSecure "Theme presets"): a ready-made colour set that re-tints the whole app —
- * primary accent, secondary accent, and the hue the dark/light tonal surfaces lean toward.
+ * Accent/surface preset — mirrors ZedSecure's `AppTheme` (Color.kt + Theme.kt) plus 8 extended skins:
+ * each preset carries both dark and light primaries, on-primary text, secondary accent, and surface tint
+ * strength so the entire background/card stack shifts hue when the user picks a theme in Settings.
  */
 enum class AppAccent(
     val wireName: String,
@@ -39,7 +40,8 @@ enum class AppAccent(
     ;
 
     companion object {
-        fun fromWireName(value: String?): AppAccent = entries.firstOrNull { it.wireName == value } ?: Lavender
+        fun fromWireName(value: String?): AppAccent =
+            entries.firstOrNull { it.wireName == value } ?: Lavender
     }
 
     /** XML theme overlay so framework/Material widgets (dialogs, switches, inputs, ripples) follow the preset too. */
@@ -96,33 +98,5 @@ class AppSurfaceStylePreferenceStore(context: Context) {
 
     fun save(style: AppSurfaceStyle) {
         prefs.edit().putString("surface_style", style.wireName).apply()
-    }
-}
-
-/**
- * Home Hero Core visual mode:
- * - [Blob]: ZedSecure liquid morphing blob + neon halo + orbiting particles
- * - [Globe]: Live interactive world map radar (Iran -> Destination packet route)
- * - [Shield]: Cyber-Quantum Aether shield core
- */
-enum class HeroVisualMode(val wireName: String, @StringRes val labelRes: Int) {
-    Blob("blob", R.string.hero_visual_blob),
-    Globe("globe", R.string.hero_visual_globe),
-    Shield("shield", R.string.hero_visual_shield),
-    ;
-
-    companion object {
-        fun fromWireName(value: String?): HeroVisualMode =
-            entries.firstOrNull { it.wireName == value } ?: Blob
-    }
-}
-
-class HeroVisualModePreferenceStore(context: Context) {
-    private val prefs = context.getSharedPreferences("cat_client_theme", Context.MODE_PRIVATE)
-
-    fun read(): HeroVisualMode = HeroVisualMode.fromWireName(prefs.getString("hero_visual_mode", null))
-
-    fun save(mode: HeroVisualMode) {
-        prefs.edit().putString("hero_visual_mode", mode.wireName).apply()
     }
 }
