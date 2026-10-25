@@ -1,9 +1,9 @@
-# Android failure report (4cef6d5)
+# Android failure report (910ea60)
 
 
 ## files with compile errors
-      4 app/src/main/java/com/cat/client/MainActivity.kt
-      2 app/src/main/java/com/cat/client/FirefoxVpnEngine.kt
+      6 app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt
+      5 app/src/main/java/com/cat/client/MainActivity.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -154,9 +154,9 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
-> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
+> Task :app:mergeDebugResources
 > Task :app:parseDebugLocalResources
 
 > Task :app:processDebugMainManifest
@@ -170,12 +170,17 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/FirefoxVpnEngine.kt:535:52 Argument type mismatch: actual type is 'FirefoxVpnEngine.FirefoxVpnAccount?', but 'FirefoxVpnEngine.FirefoxVpnAccount' was expected.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/FirefoxVpnEngine.kt:537:32 Argument type mismatch: actual type is 'FirefoxVpnEngine.FirefoxVpnAccount?', but 'FirefoxVpnEngine.FirefoxVpnAccount' was expected.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14686:23 Unresolved reference 'profiles'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14686:43 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14687:27 Unresolved reference 'shareLink'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14687:71 Unresolved reference 'shareLink'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13824:71 Unresolved reference 'PURPLE'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13826:54 Unresolved reference 'PURPLE'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13827:30 Unresolved reference 'PURPLE'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13865:29 Unresolved reference 'refreshEngineSummary'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13867:29 Unresolved reference 'runQuickNetworkScanAndAutoBuildDialog'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:510:9 'public' function exposes its 'internal' parameter type containing declaration 'LocalSniSpoofProxy'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:519:62 Unresolved reference 'connectHost'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:524:131 Unresolved reference 'transportType'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:533:143 Unresolved reference 'transportType'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:540:141 Unresolved reference 'transportType'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:670:34 Unresolved reference 'loadLaunchableApps'.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -192,5 +197,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 50s
+BUILD FAILED in 1m 51s
 16 actionable tasks: 16 executed
