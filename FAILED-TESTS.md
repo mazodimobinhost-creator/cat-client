@@ -1,11 +1,8 @@
-# Android failure report (6a808a8)
+# Android failure report (9f50a09)
 
 
 ## files with compile errors
-     24 app/src/main/java/com/cat/client/ZedMotion.kt
-      6 app/src/main/java/com/cat/client/MainActivity.kt
-      2 app/src/main/java/com/cat/client/ZedBlobView.kt
-      2 app/src/main/java/com/cat/client/SpeedTestPage.kt
+     61 app/src/main/java/com/cat/client/MainActivity.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -40,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3723) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3505) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -58,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3738) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3520) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -68,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3757) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3539) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -101,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3769) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3551) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -130,8 +127,6 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
 
-Welcome to Gradle 8.9!
-
 Here are the highlights of this release:
  - Enhanced Error and Warning Messages
  - IDE Integration Improvements
@@ -156,10 +151,10 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
+> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
-> Task :app:mergeDebugResources
 
 > Task :app:processDebugMainManifest
 /home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-172:19 Warning:
@@ -168,44 +163,71 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
 
 > Task :app:processDebugManifest
-> Task :app:processDebugManifestForPackage
 > Task :app:javaPreCompileDebug
+> Task :app:processDebugManifestForPackage
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3555:64 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:3555:70 Unresolved reference 'setThemeColors'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:15073:38 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17784:74 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:18388:69 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:20655:102 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SpeedTestPage.kt:176:39 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SpeedTestPage.kt:178:41 Unresolved reference 'ZED_CYAN'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedBlobView.kt:16:23 Unresolved reference 'core'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedBlobView.kt:49:20 Unresolved reference 'CatClientHeadlineTypeface'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:38:25 Unresolved reference 'ZedDecorDrawable'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:36 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:60 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:165:86 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:36 Unresolved reference 'ZED_DEEP_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:65 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:166:89 Unresolved reference 'ZED_CYAN'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:36 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:62 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:167:86 Unresolved reference 'ZED_CYAN'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:36 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:60 Unresolved reference 'ZED_CYAN'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:168:82 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:36 Unresolved reference 'ZED_DEEP_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:65 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:169:91 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:171:39 Unresolved reference 'ZED_DEEP_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:49 Unresolved reference 'ZED_DEEP_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:78 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:175:102 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:44 Unresolved reference 'ZED_VIOLET'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:68 Unresolved reference 'ZED_HOT_PINK'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:94 Unresolved reference 'ZED_LIME'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedMotion.kt:176:116 Unresolved reference 'ZED_CYAN'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13519:75 Unresolved reference 'WhiteDnsRecordMode'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13519:130 Unresolved reference 'WhiteDnsRecordMode'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13542:30 Unresolved reference 'TEXT_MUTED'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13548:24 Unresolved reference 'CatClientMonoTypeface'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13678:45 Suspend function 'suspend fun update(id: String, name: String, input: String): UserSubscription' can only be called from a coroutine or another suspend function.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13680:45 Suspend function 'suspend fun add(name: String, input: String): UserSubscription' can only be called from a coroutine or another suspend function.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13706:47 Unresolved reference 'isRunning'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13708:67 Unresolved reference 'activeListenPort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13708:115 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13709:62 Unresolved reference 'activeListenPort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13709:110 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13711:74 Unresolved reference 'DEFAULT_LISTEN_PORT'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13712:60 Unresolved reference 'DEFAULT_LISTEN_PORT'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13764:48 Unresolved reference 'tcpOpen'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13776:27 Unresolved reference 'tlsOk'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13776:56 Unresolved reference 'rttMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13777:27 Unresolved reference 'tcpOpen'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13777:56 Unresolved reference 'rttMs'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13780:48 Unresolved reference 'titleFa'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13780:63 Unresolved reference 'titleEn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13782:78 Unresolved reference 'whitelistSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13801:101 Unresolved reference 'whitelistSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13801:124 Unresolved reference 'defaultHost'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13806:49 Suspension functions can only be called within coroutine body.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13808:49 Suspension functions can only be called within coroutine body.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13834:27 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13835:36 Unresolved reference 'scanCandidateSnisWithFactAOracle'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13837:47 Unresolved reference 'it'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13847:35 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13848:39 Unresolved reference 'domain'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13848:67 Unresolved reference 'detailFa'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13848:83 Unresolved reference 'detailEn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13851:52 Unresolved reference 'domain'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13854:65 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13855:57 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13863:40 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13883:36 Unresolved reference 'descFa'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13883:50 Unresolved reference 'descEn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13894:36 Unresolved reference 'currentStrategy'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13895:47 Unresolved reference 'startOrGetPort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13898:137 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13899:130 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13904:36 Unresolved reference 'stop'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13930:50 Unresolved reference 'buildCloudflareSpoofConfigSnippet'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13934:51 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13960:64 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13964:44 Unresolved reference 'startOrGetPort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13965:25 Unresolved reference 'refreshEngineSummary'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13969:98 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13970:103 Unresolved reference 'currentSpoofSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13994:58 Unresolved reference 'titleFa'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13994:73 Unresolved reference 'titleEn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13995:51 Unresolved reference 'summaryFa'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13995:68 Unresolved reference 'summaryEn'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:13996:43 Unresolved reference 'uri'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14008:35 Unresolved reference 'joinToString'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14008:56 Unresolved reference 'it'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14018:35 Unresolved reference 'joinToString'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14018:56 Unresolved reference 'it'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14022:45 Suspend function 'suspend fun update(id: String, name: String, input: String): UserSubscription' can only be called from a coroutine or another suspend function.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14024:45 Suspend function 'suspend fun add(name: String, input: String): UserSubscription' can only be called from a coroutine or another suspend function.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -222,5 +244,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 47s
+BUILD FAILED in 1m 59s
 16 actionable tasks: 16 executed
