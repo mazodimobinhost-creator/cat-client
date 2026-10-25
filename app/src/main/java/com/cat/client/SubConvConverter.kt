@@ -44,6 +44,7 @@ object SubConvConverter {
                     "socks", "socks5" -> parseSocks(line, names)
                     "ss" -> parseShadowsocks(line, names)
                     "wireguard" -> parseWireGuard(line, names)
+                    "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
                     else -> null
                 }
@@ -330,6 +331,21 @@ object SubConvConverter {
             .put("port", localPort)
             .put("udp", true)
             .put("whitedns-uri", parsed.rawUri)
+    }
+
+    private fun parseFenixVpn(line: String, names: NameRegistry): JSONObject {
+        val uri = parseUri(line)
+        val query = parseQuery(uri.rawQuery)
+        val rawPort = uri.port.takeIf { it in 1..65535 } ?: FirefoxVpnEngine.activeProxyPort()
+        val countryCode = query["country"].orEmpty().uppercase().ifBlank { "DE" }
+        val defaultName = "🦊 Firefox VPN ($countryCode)"
+        return JSONObject()
+            .put("name", names.register(name(uri).ifBlank { defaultName }))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", rawPort)
+            .put("udp", true)
+            .put("fenix-uri", line.trim())
     }
 
     private fun socksCredentials(rawUserInfo: String): Pair<String, String?> {

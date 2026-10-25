@@ -445,5 +445,81 @@ class WhiteDnsSmartScannerTest {
         assertEquals("ebanksepah.ir", roundTrip?.masqueSni)
         assertEquals(true, roundTrip?.echEnabled)
     }
+
+    @Test fun firefoxVpnFenixAndRealConfigRepairWorkEndToEnd() {
+        // 1. Verify FxA PICL v1 PBKDF2 + HKDF + HAWK cryptographic derivation
+        val authPw = FirefoxVpnEngine.deriveAuthPw("user@example.com", "correct-horse-battery-staple")
+        assertEquals(64, authPw.length)
+        val authPwSame = FirefoxVpnEngine.deriveAuthPw("USER@EXAMPLE.COM ", "correct-horse-battery-staple")
+        assertEquals(authPw, authPwSame)
+
+        val sessionTokenHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        val (tokenId, hmacKey) = FirefoxVpnEngine.deriveHawkCredentials(sessionTokenHex)
+        assertEquals(64, tokenId.length)
+        assertEquals(32, hmacKey.size)
+
+        val hawk = FirefoxVpnEngine.generateHawkHeader(
+            method = "POST",
+            url = "https://api.accounts.firefox.com/v1/oauth/token",
+            tokenId = tokenId,
+            hmacKey = hmacKey,
+            bodyBytes = """{"client_id":"5882386c6d801776"}""".toByteArray(Charsets.UTF_8),
+            tsSeconds = "1700000000",
+            nonceOverride = "abc123",
+        )
+        assertTrue(hawk.startsWith("""Hawk id="$tokenId", ts="1700000000", nonce="abc123", mac=""""))
+        assertTrue(hawk.contains("""hash=""""))
+
+        // 2. Verify 35-country Fastly catalog and multi-account 95% auto-failover
+        assertEquals(35, FirefoxVpnEngine.BUILTIN_COUNTRIES.size)
+        val nearlyFullAcc = FirefoxVpnEngine.FirefoxVpnAccount(
+            email = "acc1@mozilla.org",
+            quotaLimitBytes = FirefoxVpnEngine.DEFAULT_MONTHLY_QUOTA_BYTES,
+            quotaRemainingBytes = 1L * 1024L * 1024L * 1024L, // 1 GB left (98% used)
+        )
+        val freshAcc = FirefoxVpnEngine.FirefoxVpnAccount(
+            email = "acc2@mozilla.org",
+            quotaLimitBytes = FirefoxVpnEngine.DEFAULT_MONTHLY_QUOTA_BYTES,
+            quotaRemainingBytes = 49L * 1024L * 1024L * 1024L, // 49 GB left
+        )
+        assertTrue(nearlyFullAcc.isQuotaExhaustedOrNearLimit)
+        val picked = FirefoxVpnEngine.selectBestActiveAccount(listOf(nearlyFullAcc, freshAcc))
+        assertEquals("acc2@mozilla.org", picked?.email)
+
+        // 3. Verify `fenix://` tunnel URI conversion in SubConvConverter
+        val deCountry = FirefoxVpnEngine.BUILTIN_COUNTRIES.first { it.code == "DE" }
+        val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(
+            country = deCountry,
+            localPort = 10829,
+            accountEmail = "acc2@mozilla.org",
+            cleanFastlyIp = "151.101.1.195",
+            tlsFragment = true,
+        )
+        assertTrue(fenixUri.startsWith("fenix://127.0.0.1:10829/"))
+        val convertedFenix = SubConvConverter.convert(fenixUri)
+        assertEquals(1, convertedFenix.size)
+        assertEquals("socks5", convertedFenix.first().optString("type"))
+        assertEquals("127.0.0.1", convertedFenix.first().optString("server"))
+        assertEquals(10829, convertedFenix.first().optInt("port"))
+
+        // 4. Verify RealConfigTemplate extraction & repair ignores placeholder 11111111-... UUIDs
+        val placeholderLine = "vless://11111111-2222-4333-8444-555555555555@188.114.98.0:443?type=ws&host=sub.workers.dev#Placeholder"
+        val realUserLine = "vless://9f8e7d6c-5b4a-4321-8765-abcdef123456@104.16.132.229:2053?encryption=none&security=tls&type=ws&host=my-panel.workers.dev&path=%2Fmy-secret&sni=my-panel.workers.dev#MyRealServer"
+        val extracted = LocalSniSpoofProxy.extractRealConfigTemplate(listOf(placeholderLine, realUserLine))
+        assertTrue(extracted != null)
+        assertEquals("9f8e7d6c-5b4a-4321-8765-abcdef123456", extracted?.uuidOrPass)
+        assertEquals("my-panel.workers.dev", extracted?.hostHeader)
+        assertEquals(2053, extracted?.remotePort)
+        assertEquals("/my-secret", extracted?.path)
+
+        val repaired = LocalSniSpoofProxy.buildRepairedConfigsForRealTemplate(extracted!!)
+        assertTrue(repaired.size >= 6)
+        assertTrue(repaired.first().contains("@127.0.0.1:"))
+        assertTrue(repaired.all { it.contains("9f8e7d6c-5b4a-4321-8765-abcdef123456") })
+        assertTrue(repaired.all { it.contains("host=my-panel.workers.dev") })
+        val convertedRepaired = SubConvConverter.convert(repaired.joinToString("\n"))
+        assertEquals(repaired.size, convertedRepaired.size)
+        LocalSniSpoofProxy.stopAllSpoofProxies()
+    }
 }
 

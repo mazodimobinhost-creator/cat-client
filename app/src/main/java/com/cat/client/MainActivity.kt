@@ -10280,23 +10280,36 @@ class MainActivity : Activity() {
         body.addView(
             advancedSectionDetail(
                 if (isFarsi) {
-                    "بخش اختصاصی اتصال اضطراری و ضدسانسور بدون نیاز به سرور شخصی — وارپ/گول، سایفون ۲۹ کشور، تور/dnstt، متدهای WhiteDNS، مرکز ساکس۵ و ابزارهای آیفون."
+                    "بخش اختصاصی اتصال اضطراری و ضدسانسور بدون نیاز به سرور شخصی — فایرفاکس VPN (۵۰ گیگ رایگان)، وارپ/گول، سایفون ۲۹ کشور، تور/dnstt، تعمیر خودکار کانفیگ‌ها، متدهای WhiteDNS، مرکز ساکس۵ و ابزارهای آیفون."
                 } else {
-                    "Dedicated server-less & emergency connection hub — WARP/Gool, 29-country Psiphon, Tor/dnstt, WhiteDNS methods, SOCKS5 Live Hub & iOS tools."
+                    "Dedicated server-less & emergency connection hub — Firefox VPN (50 GB/mo free), WARP/Gool, 29-country Psiphon, Tor/dnstt, 1-click config repair, WhiteDNS methods, SOCKS5 Live Hub & iOS tools."
                 },
             ),
             LinearLayout.LayoutParams(-1, -2).apply {
                 topMargin = dp(6)
-                bottomMargin = dp(14)
+                bottomMargin = dp(12)
             },
         )
 
+        // 1) Plain-Language Step-by-Step Guide Card ("If you tap this, this happens")
+        body.addView(
+            buildPlainLanguageQuickGuideCard(),
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) },
+        )
+
+        // 2) Firefox Browser VPN (FENIX / Mozilla IP Protection — 50 GB/mo Free per Account on Fastly)
+        body.addView(
+            buildFirefoxVpnFenixCard(),
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) },
+        )
+
+        // 3) Core Anti-Censorship Engines (Aether / WARP / Psiphon / Tor)
         body.addView(buildAntiCensorshipEnginesCard(), LinearLayout.LayoutParams(-1, -2))
 
         val quickHubsCard = advancedSettingsPanel().apply {
             addView(
                 TextView(this@MainActivity).apply {
-                    text = if (isFarsi) "🚀 دسترسی مستقیم به مراکز تخصصی" else "🚀 Direct Specialized Hubs"
+                    text = if (isFarsi) "🚀 دسترسی مستقیم به مراکز تخصصی و تعمیر یک‌کلیکی" else "🚀 Direct Specialized Hubs & 1-Click Repair"
                     textSize = 15f
                     typeface = CatClientBodyBoldTypeface
                     setTextColor(TEAL)
@@ -10326,11 +10339,27 @@ class MainActivity : Activity() {
             }
             addView(
                 hubBtn(
+                    if (isFarsi) "🪄 تعمیر خودکار کانفیگ من و اتصال فوری (۵ روش اسپوف کلادفلر + برش SNI)"
+                    else "🪄 1-Click Repair My Config & Connect Now (5 CF Spoofs + Local SNI Split)",
+                    accent = true,
+                ) { runOneClickRepairMyRealConfigAndConnect() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            )
+            addView(
+                hubBtn(
+                    if (isFarsi) "🧪 آزمایشگاه نت ملی و سایت‌های سفید (بدون کلادفلر + ۵ روش اسپوف)"
+                    else "🧪 Net Melli Whitelist Lab (Non-Cloudflare + 5 CF Spoof Methods)",
+                    accent = false,
+                ) { showNetMelli2026BypassLabDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+            addView(
+                hubBtn(
                     if (isFarsi) "🍎 مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS)"
                     else "🍎 iPhone & iPad (iOS) Connection Hub (CoreForge / .mobileconfig / Hotspot)",
-                    accent = true,
+                    accent = false,
                 ) { showIphoneIosConnectionHubDialog() },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
             )
             addView(
                 hubBtn(
@@ -12255,79 +12284,88 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val items = if (isFarsi) {
             arrayOf(
-                "🧦 ۱) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
-                "🧭 ۲) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
-                "🩺 ۳) تشخیص اختلال و قطع نیمه‌کاره صفحه (Mid-Stream Freeze Detector)",
-                "🛡️ ۴) دامین فرانتینگ + پیدا کردن آدرس واقعی سایت‌های فیلترشده روی ایرانسل/همراه اول",
-                "🌐 ۵) رله گوگل (Google Apps Script) — اتصال از اسکریپت گوگل خودتان + نمایش سهمیه روزانه",
-                "🪶 ۶) ساخت ورکر سبک کلودفلر (Cat Client Lite Worker — سریع و بدون مصرف KV)",
-                "🔌 ۷) تنظیمات پایداری: وصل دوباره در قطعی، وصل بعد از ری‌استارت و قطع‌کن اضطراری (Kill Switch)",
-                "⚡ ۸) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
-                "📡 ۹) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۶ پریست ایران + ۴ موتور)",
-                "🌐 ۱۰) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
-                "🔍 ۱۱) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
-                "🧅 ۱۲) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
-                "💾 ۱۳) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
-                "📥 ۱۴) بازیابی کلید کلودفلر از کلیپ‌بورد",
-                "✨ ۱۵) تست یک‌کلیکی باز بودن Gemini، AI Studio، ChatGPT و یوتیوب بدون تحریم",
-                "🚨 ۱۶) تشخیص هوشمند «اینترنت ملی (قطع بین‌الملل)» در برابر «خرابی کانفیگ»",
-                "🛡️ ۱۷) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
-                "🍎 ۱۸) مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS / هات‌اسپات)",
-                "🧪 ۱۹) آزمایشگاه نت ملی ۲۰۲۶ (وایت‌لیست غیرکلادفلر + ۵ روش اسپوف کلادفلر + پروکسی Fake ClientHello + Fact-A + S3 Bypass)",
-                "🎯 ۲۰) اسکن ۶ امتیازی SlipNet (0..6 Score + Prism) و جنریتور MasterDnsVPN / VayDNS / NoizDNS / dnst://",
+                "📖 ۰) راهنمای خیلی ساده به زبان خودمانی (اینو بزنی این میشه، اونو بزنی این میشه!)",
+                "🦊 ۱) فایرفاکس VPN (FENIX · مشابه MLM VPN — ۵۰ گیگ رایگان ماهانه + ۳۵ کشور Fastly)",
+                "🪄 ۲) تعمیر خودکار کانفیگ واقعی من و اتصال فوری (۵ روش اسپوف کلادفلر + برش SNI)",
+                "🧦 ۳) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
+                "🧭 ۴) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
+                "🩺 ۵) تشخیص اختلال و قطع نیمه‌کاره صفحه (Mid-Stream Freeze Detector)",
+                "🛡️ ۶) دامین فرانتینگ + پیدا کردن آدرس واقعی سایت‌های فیلترشده روی ایرانسل/همراه اول",
+                "🌐 ۷) رله گوگل (Google Apps Script) — اتصال از اسکریپت گوگل خودتان + نمایش سهمیه روزانه",
+                "🪶 ۸) ساخت ورکر سبک کلودفلر (Cat Client Lite Worker — سریع و بدون مصرف KV)",
+                "🔌 ۹) تنظیمات پایداری: وصل دوباره در قطعی، وصل بعد از ری‌استارت و قطع‌کن اضطراری (Kill Switch)",
+                "⚡ ۱۰) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
+                "📡 ۱۱) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۶ پریست ایران + ۹ موتور)",
+                "🌐 ۱۲) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
+                "🔍 ۱۳) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
+                "🧅 ۱۴) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
+                "💾 ۱۵) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
+                "📥 ۱۶) بازیابی کلید کلودفلر از کلیپ‌بورد",
+                "✨ ۱۷) تست یک‌کلیکی باز بودن Gemini، AI Studio، ChatGPT و یوتیوب بدون تحریم",
+                "🚨 ۱۸) تشخیص هوشمند «اینترنت ملی (قطع بین‌الملل)» در برابر «خرابی کانفیگ»",
+                "🛡️ ۱۹) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
+                "🍎 ۲۰) مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS / هات‌اسپات)",
+                "🧪 ۲۱) آزمایشگاه نت ملی ۲۰۲۶ (وایت‌لیست غیرکلادفلر + ۵ روش اسپوف کلادفلر + پروکسی Fake ClientHello + Fact-A + S3 Bypass)",
+                "🎯 ۲۲) اسکن ۶ امتیازی SlipNet (0..6 Score + Prism) و جنریتور MasterDnsVPN / VayDNS / NoizDNS / dnst://",
             )
         } else {
             arrayOf(
-                "🧦 1) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
-                "🧭 2) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
-                "🩺 3) Mid-Stream Freeze & Throttling Detector (Half-Loaded Page Diagnosis)",
-                "🛡️ 4) Domain Fronting + Unpoisoned Real IP Finder on Irancell/MCI",
-                "🌐 5) Google Apps Script (GAS) Relay — Personal Script + Quota Tracker",
-                "🪶 6) Cat Client Lite Worker Generator (Fast, Zero-KV Quota Cloudflare Worker)",
-                "🔌 7) Resilience & Kill Switch Settings (Reconnect on Drop / Boot Connect / Kill Switch)",
-                "⚡ 8) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
-                "📡 9) WhiteDNS & Resolver Connection Lab (52 Servers + 6 Iran Presets + 4 Engines)",
-                "🌐 10) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
-                "🔍 11) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
-                "🧅 12) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
-                "💾 13) Backup Cloudflare Identity Key to Clipboard",
-                "📥 14) Restore Cloudflare Identity Key from Clipboard",
-                "✨ 15) 1-Click Gemini, AI Studio, ChatGPT & YouTube Unblock Tester",
-                "🚨 16) Smart Net Melli (International Shutdown) vs. Dead Config Detector",
-                "🛡️ 17) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
-                "🍎 18) iPhone & iPad (iOS) Connection Hub (CoreForge / Streisand / .mobileconfig / Hotspot)",
-                "🧪 19) Net Melli 2026 Bypass Lab (Non-CF Whitelist + 5 CF Spoof Methods + Local Fake ClientHello Proxy + Fact-A Oracle + S3 Bypass)",
-                "🎯 20) SlipNet 6-Point Score Scanner (0..6 + Prism) & MasterDnsVPN / VayDNS / NoizDNS / dnst:// Generator",
+                "📖 0) Plain-Language Step-by-Step Guide (What Every Button Does!)",
+                "🦊 1) Firefox Browser VPN (FENIX · 50 GB/mo Free + 35 Fastly Countries)",
+                "🪄 2) 1-Click Auto-Repair My Real Config & Connect Immediately",
+                "🧦 3) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
+                "🧭 4) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
+                "🩺 5) Mid-Stream Freeze & Throttling Detector (Half-Loaded Page Diagnosis)",
+                "🛡️ 6) Domain Fronting + Unpoisoned Real IP Finder on Irancell/MCI",
+                "🌐 7) Google Apps Script (GAS) Relay — Personal Script + Quota Tracker",
+                "🪶 8) Cat Client Lite Worker Generator (Fast, Zero-KV Quota Cloudflare Worker)",
+                "🔌 9) Resilience & Kill Switch Settings (Reconnect on Drop / Boot Connect / Kill Switch)",
+                "⚡ 10) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
+                "📡 11) WhiteDNS & Resolver Connection Lab (52 Servers + 6 Iran Presets + 9 Engines)",
+                "🌐 12) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
+                "🔍 13) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
+                "🧅 14) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
+                "💾 15) Backup Cloudflare Identity Key to Clipboard",
+                "📥 16) Restore Cloudflare Identity Key from Clipboard",
+                "✨ 17) 1-Click Gemini, AI Studio, ChatGPT & YouTube Unblock Tester",
+                "🚨 18) Smart Net Melli (International Shutdown) vs. Dead Config Detector",
+                "🛡️ 19) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
+                "🍎 20) iPhone & iPad (iOS) Connection Hub (CoreForge / Streisand / .mobileconfig / Hotspot)",
+                "🧪 21) Net Melli 2026 Bypass Lab (Non-CF Whitelist + 5 CF Spoof Methods + Local Fake ClientHello Proxy + Fact-A Oracle + S3 Bypass)",
+                "🎯 22) SlipNet 6-Point Score Scanner (0..6 + Prism) & MasterDnsVPN / VayDNS / NoizDNS / dnst:// Generator",
             )
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS، ساکس۵ و Aether"
-                else "🧰 WhiteDNS, SOCKS5 & Aether Smart Tools",
+                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS، فایرفاکس VPN، ساکس۵ و Aether"
+                else "🧰 WhiteDNS, Firefox VPN, SOCKS5 & Aether Smart Tools",
             )
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> showSocks5HubPage()
-                    1 -> runRegionalFirewallFingerprinterDialog()
-                    2 -> runMidStreamFreezeDetectorDialog()
-                    3 -> showDomainFrontingAndUnpoisonResolverDialog()
-                    4 -> showGoogleAppsScriptRelayDialog()
-                    5 -> showLiteWorkerGeneratorDialog()
-                    6 -> showConnectionResilienceAndKillSwitchDialog()
-                    7 -> runWhiteDnsAutoMtuAndCarrierDialog()
-                    8 -> showWhiteDnsResolverMethodsDialog()
-                    9 -> runCloudflareSixPortsAndSniScanDialog()
-                    10 -> runIranDnsAndDnsttScanDialog()
-                    11 -> runFetchMoatTorBridgesDialog()
-                    12 -> exportAetherIdentityToClipboard()
-                    13 -> importAetherIdentityFromClipboard()
-                    14 -> runAiAndGeminiUnblockTesterDialog()
-                    15 -> runNetMelliDetectorDialog()
-                    16 -> showNineAntiFilterPresetsDialog()
-                    17 -> showIphoneIosConnectionHubDialog()
-                    18 -> showNetMelli2026BypassLabDialog()
-                    19 -> runSlipNetSixPointScoreDialog()
+                    0 -> showPlainLanguageFullGuideDialog()
+                    1 -> showFirefoxVpnFenixHubDialog()
+                    2 -> runOneClickRepairMyRealConfigAndConnect()
+                    3 -> showSocks5HubPage()
+                    4 -> runRegionalFirewallFingerprinterDialog()
+                    5 -> runMidStreamFreezeDetectorDialog()
+                    6 -> showDomainFrontingAndUnpoisonResolverDialog()
+                    7 -> showGoogleAppsScriptRelayDialog()
+                    8 -> showLiteWorkerGeneratorDialog()
+                    9 -> showConnectionResilienceAndKillSwitchDialog()
+                    10 -> runWhiteDnsAutoMtuAndCarrierDialog()
+                    11 -> showWhiteDnsResolverMethodsDialog()
+                    12 -> runCloudflareSixPortsAndSniScanDialog()
+                    13 -> runIranDnsAndDnsttScanDialog()
+                    14 -> runFetchMoatTorBridgesDialog()
+                    15 -> exportAetherIdentityToClipboard()
+                    16 -> importAetherIdentityFromClipboard()
+                    17 -> runAiAndGeminiUnblockTesterDialog()
+                    18 -> runNetMelliDetectorDialog()
+                    19 -> showNineAntiFilterPresetsDialog()
+                    20 -> showIphoneIosConnectionHubDialog()
+                    21 -> showNetMelli2026BypassLabDialog()
+                    22 -> runSlipNetSixPointScoreDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -13698,55 +13736,1128 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Plain-language step-by-step quick guide card displayed at the top of the Anti-Censorship tab
+     * so non-technical users immediately know which button to tap ("اینو بزنی این میشه، اونو بزنی این میشه").
+     */
+    private fun buildPlainLanguageQuickGuideCard(): View {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val card = advancedSettingsPanel()
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "📖 راهنمای خیلی ساده (بدون دانش فنی: کدوم دکمه رو بزنم؟)"
+                } else {
+                    "📖 Simple Step-by-Step Guide (Which button should I tap?)"
+                }
+                textSize = 15f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEAL)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "🟢 ۱) کانفیگ نداری و می‌خوای رایگان و سریع وصل بشی؟\n" +
+                        "   👈 دکمه «🦊 اتصال فوری با فایرفاکس VPN» یا «🚀 اتصال مستقیم Aether» رو بزن؛ خودش سرور سالم پیدا می‌کنه و کل گوشی رو وصل می‌کنه.\n\n" +
+                        "🟡 ۲) کانفیگ یا اشتراک داری ولی روی همراه اول / ایرانسل کار نمی‌کنه؟\n" +
+                        "   👈 دکمه «🪄 تعمیر خودکار کانفیگ من و اتصال فوری» رو بزن؛ کانفیگ واقعی خودت رو برمی‌داره، قفل اپراتور رو با ۵ روش اسپوف دور می‌زنه و وصلش می‌کنه.\n\n" +
+                        "🟠 ۳) وصل هستی ولی جمینی (Gemini)، چت‌جی‌پی‌تی یا یوتیوب باز نمیشه؟\n" +
+                        "   👈 دکمه «✨ تست باز بودن Gemini» یا «🌍 کشور فایرفاکس / سایفون (آمریکا US)» رو بزن تا آی‌پی آمریکا برات فعال بشه.\n\n" +
+                        "🔴 ۴) اینترنت کاملاً ملی شده و کلادفلر هم قطع شده؟\n" +
+                        "   👈 دکمه «🧪 آزمایشگاه نت ملی» یا «📡 متدهای DNS و ریزولور» رو بزن تا از سایت‌های سفید (فستلی، آکامای، آروان و DNSهای باز) وصل بشی."
+                } else {
+                    "🟢 1) No config and want free 1-tap VPN?\n" +
+                        "   👉 Tap '🦊 Connect Firefox VPN Now' or '🚀 Connect Aether Now' — connects the whole phone automatically.\n\n" +
+                        "🟡 2) Have a subscription/config that stopped working on MCI / Irancell?\n" +
+                        "   👉 Tap '🪄 1-Click Repair My Config & Connect' — grabs your real config, applies anti-DPI spoofing, and connects.\n\n" +
+                        "🟠 3) Connected, but Gemini, ChatGPT, or YouTube won't open?\n" +
+                        "   👉 Tap '✨ Gemini Unblock Tester' or pick '🇺🇸 United States' in Firefox VPN / Psiphon.\n\n" +
+                        "🔴 4) Complete Net Melli (International internet & Cloudflare blocked)?\n" +
+                        "   👉 Tap '🧪 Net Melli Whitelist Lab' or '📡 DNS & Resolver Methods' to tunnel over whitelisted routes."
+                }
+                textSize = 12f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_PRIMARY)
+                setLineSpacing(dp(2).toFloat(), 1.05f)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "📖 باز کردن راهنمای کامل به زبان ساده (اینو بزنی این میشه!)"
+                } else {
+                    "📖 Open Full Plain-Language Guide (What Every Button Does)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 42 else 28))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
+                setOnClickListener { showPlainLanguageFullGuideDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        return card
+    }
+
+    /**
+     * Full conversational guide dialog explaining every section and button in simple, everyday language.
+     */
+    private fun showPlainLanguageFullGuideDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val guideText = if (isFarsi) {
+            """
+            👋 سلام! اگر با اصطلاحات فنی (مثل SNI، فرگمنت، وارپ، ساکس یا DNS) آشنا نیستی، اصلاً نگران نباش. اینجا به زبان خیلی ساده بهت می‌گیم هر دکمه دقیقاً چکار می‌کنه:
+
+            ────────────────────────
+            🦊 ۱) کارت «فایرفاکس VPN (FENIX — ۵۰ گیگ رایگان)»
+            • این چیه؟ مرورگر معروف فایرفاکس یک VPN داخلی روی سرورهای شرکت Fastly داره که برخلاف کلادفلر تو ایران فیلتر نیست و به هر ایمیل رایگان ماهی ۵۰ گیگ حجم مجانی میده!
+            • «🦊 اتصال فوری با فایرفاکس VPN» رو بزنی چی میشه؟
+              👈 سریع‌ترین سرور فایرفاکس رو انتخاب می‌کنه، قفل فیلترینگ رو می‌شکنه و کل اینترنت گوشیت رو وصل می‌کنه.
+            • «👤 افزودن حساب ۵۰ گیگ» رو بزنی چی میشه؟
+              👈 می‌تونی ایمیل و رمز حساب فایرفاکست رو بزنی (حتی می‌تونی ۲ یا ۳ تا اکانت رایگان اضافه کنی تا بشه ۱۵۰ گیگ در ماه و وقتی یکی تموم شد خودش بره رو بعدی!).
+
+            ────────────────────────
+            🪄 ۲) دکمه «تعمیر خودکار کانفیگ من و اتصال فوری»
+            • کی بزنم؟ وقتی خودت کانفیگ یا اشتراک خریدی (یا ساختی)، ولی روی همراه اول یا ایرانسل وصل نمیشه یا سرعتش صفره.
+            • اینو بزنی چی میشه؟
+              👈 برنامه خودش می‌گرده کانفیگ واقعی تو رو پیدا می‌کنه (نه کانفیگ فرضی!)، آی‌پی‌های باز رو تست می‌کنه، بستهٔ اول اینترنت رو تکهتکه (برش SNI) می‌کنه تا فایروال مخابرات نفهمه کجا داری میری، و بلافاصله وصلت می‌کنه!
+
+            ────────────────────────
+            🚀 ۳) دکمه «اتصال مستقیم Aether» و «🤖 اسکن و ساخت خودکار»
+            • کی بزنم؟ وقتی هیچ کانفیگ و اکانتی نداری و می‌خوای با اینترنت رایگان کلودفلر (WARP / MASQUE) وصل بشی.
+            • «🤖 اسکن و ساخت خودکار» رو بزنی چی میشه؟
+              👈 اول ازت می‌پرسه آی‌پی ایران می‌خوای (برای بانک و سرعت بالا) یا آی‌پی خارج (آلمان، آمریکا، هلند و...)، بعد خودش خطت رو اسکن می‌کنه و بهترین حالت رو می‌سازه و وصل می‌کنه.
+
+            ────────────────────────
+            ✨ ۴) دکمه «تست باز بودن Gemini، ChatGPT و یوتیوب»
+            • کی بزنم؟ وقتی VPN وصله ولی جمینی میگه «کشور شما پشتیبانی نمی‌شود» یا یوتیوب بالا نمیاد.
+            • اینو بزنی چی میشه؟
+              👈 هر ۴ سرویس هوش مصنوعی و یوتیوب رو تست می‌کنه و با یک کلیک آی‌پی آمریکا (US) رو برات فعال می‌کنه تا تحریم دور زده بشه.
+
+            ────────────────────────
+            🧪 ۵) دکمه «آزمایشگاه نت ملی و سایت‌های سفید»
+            • کی بزنم؟ وقتی اینترنت خیلی خراب یا «نت ملی» شده و کلادفلر کامل بسته شده.
+            • داخلش چی داره؟
+              ۱. اسکنر سایت‌ها و شرکت‌های باز غیرکلادفلر (مثل Fastly، Akamai، گوگل و آروان) که کانفیگ واقعی خودت رو روی آی‌پی باز اون‌ها سوار می‌کنه و وصل می‌کنه.
+              ۲. پروکسی محلی برش SNI که نام سایت‌های مجاز بانکی/داخلی رو جلوی دید فایروال می‌ذاره و ترافیک اصلیت رو رد می‌کنه.
+              ۳. ۵ روش اسپوف کلادفلر (مخصوص دور زدن قفل همراه اول و ایرانسل روی کانفیگ خودت).
+
+            ────────────────────────
+            📡 ۶) دکمه «متدهای DNS و ریزولور (WhiteDNS)»
+            • کی بزنم؟ وقتی همهٔ پورت‌ها بسته شده و فقط پورت DNS کار می‌کنه.
+            • «🚀 اتصال مستقیم تانل DNS» رو بزنی چی میشه؟
+              👈 ۵۲ سرور DNS ایران و جهان رو بررسی می‌کنه و ترافیک رو از داخل بسته‌های DNS رد می‌کنه.
+
+            ────────────────────────
+            🧦 ۷) دکمه «بخش اختصاصی ساکس۵ (SOCKS5)»
+            • اینو بزنی چی میشه؟
+              👈 از ۷ منبع زنده دنیا پروکسی‌های سالم رو می‌گیره، پینگ می‌گیره و هم برای تلگرام و هم برای کل گوشی وصلشون می‌کنه.
+            """.trimIndent()
+        } else {
+            """
+            👋 Welcome! You don't need any technical knowledge to use these tools. Here is what each button does in plain language:
+
+            1) 🦊 Firefox VPN (FENIX — 50 GB/mo Free):
+               Uses Mozilla's official Fastly edge servers (which aren't blocked like Cloudflare) to connect your whole phone. You can add multiple free Firefox accounts (50 GB each) with automatic failover.
+
+            2) 🪄 1-Click Repair My Config & Connect:
+               Automatically takes your existing subscription/config, wraps it in our local Anti-DPI SNI Splitter + 5 Cloudflare Spoof methods, and connects immediately.
+
+            3) 🚀 Connect Aether Now / 🤖 Auto-Scan & Build:
+               Free serverless Cloudflare WARP/MASQUE + 29-country Psiphon chain. Asks whether you want an Iran IP or Foreign Country IP, scans your ISP, and connects.
+
+            4) 🧪 Net Melli Whitelist Lab:
+               For severe blackouts when Cloudflare is blocked: scans open Non-Cloudflare CDNs (Akamai, Fastly, Google, Arvan) and repairs your real configs to connect through them.
+
+            5) 📡 DNS & Resolver Methods:
+               Scans 52 DNS resolvers and connects via 9 DNS tunnel engines when standard ports are blocked.
+            """.trimIndent()
+        }
+
+        val tv = TextView(this).apply {
+            text = guideText
+            textSize = 12.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(dp(2).toFloat(), 1.15f)
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+        val scroll = ScrollView(this).apply { addView(tv) }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "📖 راهنمای کامل به زبان ساده (اینو بزنی این میشه!)"
+                else "📖 Complete Plain-Language Guide",
+            )
+            .setView(scroll)
+            .setNegativeButton(android.R.string.ok, null)
+            .setNeutralButton(if (isFarsi) "🪄 تعمیر کانفیگ من و اتصال" else "🪄 Repair My Config") { _, _ ->
+                runOneClickRepairMyRealConfigAndConnect()
+            }
+            .setPositiveButton(if (isFarsi) "🦊 اتصال فوری فایرفاکس VPN" else "🦊 Connect Firefox VPN") { _, _ ->
+                connectFirefoxVpnDirectly()
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Dedicated card for **Firefox Browser VPN (`FENIX` / Mozilla IP Protection on Fastly)**
+     * offering 50 GB/month per free Firefox Account, multi-account auto-failover, and 35 countries.
+     */
+    private fun buildFirefoxVpnFenixCard(): View {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val card = advancedSettingsPanel()
+
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "🦊 فایرفاکس VPN (FENIX · مشابه MLM VPN — ۵۰ گیگ رایگان در ماه)"
+                } else {
+                    "🦊 Firefox Browser VPN (FENIX · 50 GB/mo Free on Fastly)"
+                }
+                textSize = 15.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEAL)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        card.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "ترافیک کل گوشی روی سرورهای Fastly مرورگر فایرفاکس (غیرکلادفلر و باز در ایران) در ۳۵ کشور دنیا + پشتیبانی از چند اکانت همزمان با چرخش خودکار ۵۰ گیگابایت و برش بسته TLS ضد فیلترینگ."
+                } else {
+                    "Full-device VPN over Mozilla's Fastly Edge in 35 countries — 50 GB/month per free Firefox account with multi-account auto-failover and Anti-DPI TLS splitting."
+                }
+                textSize = 12f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(dp(2).toFloat(), 1f)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+
+        val statusView = TextView(this).apply {
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(dp(2).toFloat(), 1.05f)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        card.addView(statusView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        fun refreshFenixSummary() {
+            val accounts = FirefoxVpnEngine.loadAccounts(this)
+            val activeAcc = FirefoxVpnEngine.selectBestActiveAccount(accounts)
+            val selCode = FirefoxVpnEngine.readSelectedCountryCode(this)
+            val countries = FirefoxVpnEngine.getAvailableCountries(this)
+            val countryLabel = when (selCode) {
+                FirefoxVpnEngine.COUNTRY_FASTEST ->
+                    if (isFarsi) "⚡ سریع‌ترین کشور (انتخاب خودکار با کمترین پینگ)" else "⚡ Fastest Country (Auto-Ping)"
+                else -> {
+                    val c = countries.firstOrNull { it.code.equals(selCode, ignoreCase = true) } ?: countries.first()
+                    "${c.flag} ${if (isFarsi) c.nameFa else c.nameEn}"
+                }
+            }
+            val cleanIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this)
+                .ifBlank { if (isFarsi) "خودکار (سرور مستقیم Fastly)" else "Auto (Direct Fastly Edge)" }
+            val fragOn = FirefoxVpnEngine.isTlsFragmentEnabled(this)
+
+            statusView.text = if (isFarsi) {
+                buildString {
+                    if (activeAcc != null) {
+                        append("👤 حساب فعال: ${activeAcc.email} (از ${accounts.size} حساب · چرخش خودکار ۹۵٪)\n")
+                        append("📊 حجم رایگان: ${FirefoxVpnEngine.formatQuotaSummaryFa(activeAcc)}\n")
+                    } else {
+                        append("👤 حساب فایرفاکس: بدون حساب (حالت مهمان Fastly فعال است · برای ۵۰ گیگ اختصاصی حساب اضافه کنید)\n")
+                    }
+                    append("🌍 کشور خروجی: $countryLabel\n")
+                    append("🛡️ ضد فیلترینگ: ${if (fragOn) "برش TLS SNI روشن ✅" else "عادی"} · لبه Fastly: $cleanIp")
+                }
+            } else {
+                buildString {
+                    if (activeAcc != null) {
+                        append("👤 Active Account: ${activeAcc.email} (${accounts.size} total · 95% auto-failover)\n")
+                        append("📊 Free Quota: ${FirefoxVpnEngine.formatQuotaSummaryEn(activeAcc)}\n")
+                    } else {
+                        append("👤 Account: Guest Fastly mode ready (Add a free Firefox account for 50 GB/mo)\n")
+                    }
+                    append("🌍 Exit Country: $countryLabel\n")
+                    append("🛡️ Anti-DPI: ${if (fragOn) "TLS SNI Split ON ✅" else "Standard"} · Fastly Edge: $cleanIp")
+                }
+            }
+        }
+        refreshFenixSummary()
+
+        fun fenixBtn(label: String, accent: Boolean = false, onClick: () -> Unit): MaterialButton =
+            MaterialButton(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                minimumHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                setPadding(dp(10), 0, dp(10), 0)
+                if (accent) {
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(BACKGROUND)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 215))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 200))
+                    setTextColor(TEXT_PRIMARY)
+                }
+                setOnClickListener { onClick() }
+            }
+
+        // Primary 1-Click Connect Button
+        card.addView(
+            fenixBtn(
+                label = if (isFarsi) "🦊 اتصال فوری با فایرفاکس VPN (روشن کردن کل گوشی)" else "🦊 Connect Firefox VPN Now (Full Device)",
+                accent = true,
+            ) {
+                connectFirefoxVpnDirectly { refreshFenixSummary() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
+        // Row: Country Picker (35 Countries) + Account Manager (50 GB/mo)
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                fenixBtn(if (isFarsi) "🌍 کشور (۳۵ کشور) ▾" else "🌍 Country (35) ▾") {
+                    showFirefoxCountryPickerDialog { refreshFenixSummary() }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                fenixBtn(if (isFarsi) "👤 حساب ۵۰ گیگ ▾" else "👤 50GB Accounts ▾") {
+                    showFirefoxAccountManagerDialog { refreshFenixSummary() }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
+            )
+        }
+        card.addView(row1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Secondary Row: Full FENIX Hub & Ping Scanner
+        card.addView(
+            fenixBtn(
+                label = if (isFarsi) "⚙️ پنل کامل فایرفاکس VPN، تست پینگ ۳۵ کشور و اسکن Fastly" else "⚙️ Full Firefox VPN Hub, 35-Country Ping & Fastly Scan",
+                accent = false,
+            ) {
+                showFirefoxVpnFenixHubDialog { refreshFenixSummary() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        return card
+    }
+
+    private fun showFirefoxCountryPickerDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val countries = FirefoxVpnEngine.getAvailableCountries(this)
+        val codes = listOf(FirefoxVpnEngine.COUNTRY_FASTEST) + countries.map { it.code }
+        val labels = buildList {
+            add(
+                if (isFarsi) "⚡ سریع‌ترین کشور خودکار (تست پینگ لحظه‌ای هنگام اتصال)"
+                else "⚡ Fastest Country Automatically (Live Ping on Connect)",
+            )
+            countries.forEach { c ->
+                val name = if (isFarsi) c.nameFa else c.nameEn
+                add("${c.flag} $name (${c.code}) · ${c.exactEndpoint}")
+            }
+        }.toTypedArray()
+        val currentCode = FirefoxVpnEngine.readSelectedCountryCode(this)
+        val checkedIdx = codes.indexOfFirst { it.equals(currentCode, ignoreCase = true) }.coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🌍 انتخاب کشور خروجی فایرفاکس VPN (۳۵ کشور روی شبکه Fastly)"
+                else "🌍 Select Firefox VPN Country (35 Fastly Locations)",
+            )
+            .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
+                dlg.dismiss()
+                val chosenCode = codes[idx]
+                FirefoxVpnEngine.saveSelectedCountryCode(this, chosenCode)
+                onChanged()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "✅ کشور فایرفاکس VPN روی «${labels[idx].substringBefore(" ·")}» تنظیم شد"
+                    else "✅ Firefox VPN country set to '${labels[idx].substringBefore(" ·")}'",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            .setNeutralButton(if (isFarsi) "🔄 دریافت آخرین لیست سرورهای موزیلا" else "🔄 Sync Mozilla Servers") { _, _ ->
+                activityScope.launch {
+                    val synced = withContext(Dispatchers.IO) {
+                        FirefoxVpnEngine.syncRemoteSettingsCountries(this@MainActivity)
+                    }
+                    onChanged()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ لیست ${synced.size} کشور از سرور موزیلا بروزرسانی شد"
+                        else "✅ Synced ${synced.size} countries from Mozilla Remote Settings",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showFirefoxAccountManagerDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val accounts = FirefoxVpnEngine.loadAccounts(this)
+        val accountLines = if (accounts.isEmpty()) {
+            if (isFarsi) "هنوز حسابی اضافه نشده است (هر حساب رایگان فایرفاکس = ۵۰ گیگابایت در ماه)."
+            else "No Firefox account added yet (each free account gives 50 GB/month)."
+        } else {
+            accounts.mapIndexed { idx, acc ->
+                val quota = if (isFarsi) FirefoxVpnEngine.formatQuotaSummaryFa(acc) else FirefoxVpnEngine.formatQuotaSummaryEn(acc)
+                val status = if (acc.hasUnexpiredProxyPass()) "🟢" else "🟡"
+                "${idx + 1}. $status ${acc.email}\n   📊 $quota"
+            }.joinToString("\n\n")
+        }
+
+        val options = if (isFarsi) {
+            arrayOf(
+                "📧 ۱) ورود مستقیم با ایمیل و رمز عبور حساب فایرفاکس (با پشتیبانی کد تایید ایمیل)",
+                "🔑 ۲) افزودن سریع با توکن / JSON (کپی‌شده از مرورگر فایرفاکس، foxyvpn یا MLM VPN)",
+                "🌐 ۳) ساخت حساب رایگان فایرفاکس در مرورگر (۳۰ ثانیه — ۵۰ گیگ هدیه ماهانه)",
+                "🔄 ۴) بروزرسانی حجم ۵۰ گیگابایت و تمدید توکن همه حساب‌ها",
+                "🗑️ ۵) حذف یکی از حساب‌های ذخیره‌شده",
+            )
+        } else {
+            arrayOf(
+                "📧 1) Sign in with Firefox Account Email & Password (supports Email 2FA)",
+                "🔑 2) Quick Import via Token / JSON (from Firefox Browser, foxyvpn, or MLM VPN)",
+                "🌐 3) Create a Free Firefox Account in Browser (50 GB/month free)",
+                "🔄 4) Refresh 50 GB Quota & Renew ProxyPass for All Accounts",
+                "🗑️ 5) Remove a Saved Account",
+            )
+        }
+
+        val headerView = TextView(this).apply {
+            text = accountLines
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "👤 مدیریت حساب‌های ۵۰ گیگ فایرفاکس (پشتیبانی از چند اکانت)"
+                else "👤 Firefox VPN 50 GB Accounts (Multi-Account Pool)",
+            )
+            .setCustomTitle(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(16), dp(20), dp(4))
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = if (isFarsi) "👤 حساب‌های ۵۰ گیگ فایرفاکس VPN" else "👤 Firefox VPN 50 GB Accounts"
+                            textSize = 16f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(TEAL)
+                        },
+                    )
+                    addView(headerView)
+                },
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showFirefoxEmailLoginDialog(onChanged)
+                    1 -> showFirefoxTokenImportDialog(onChanged)
+                    2 -> openExternalUrl("https://accounts.firefox.com/signup")
+                    3 -> {
+                        if (accounts.isEmpty()) {
+                            Toast.makeText(
+                                this,
+                                if (isFarsi) "ابتدا یک حساب فایرفاکس اضافه کنید" else "Add a Firefox account first",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this,
+                                if (isFarsi) "⏳ در حال بروزرسانی توکن و سهمیه ۵۰ گیگ حساب‌ها…" else "⏳ Refreshing accounts & 50 GB quota…",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            activityScope.launch {
+                                withContext(Dispatchers.IO) {
+                                    accounts.forEach { acc ->
+                                        runCatching { FirefoxVpnEngine.refreshAndActivateAccountPass(this@MainActivity, acc) }
+                                    }
+                                }
+                                onChanged()
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "✅ توکن و سهمیه ۵۰ گیگ حساب‌ها بروزرسانی شد" else "✅ Refreshed accounts & quota",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    }
+                    4 -> {
+                        if (accounts.isEmpty()) return@setItems
+                        val titles = accounts.map { it.email }.toTypedArray()
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(if (isFarsi) "حذف حساب فایرفاکس" else "Remove Firefox Account")
+                            .setItems(titles) { _, rIdx ->
+                                FirefoxVpnEngine.removeAccount(this, accounts[rIdx].id)
+                                onChanged()
+                                Toast.makeText(
+                                    this,
+                                    if (isFarsi) "🗑️ حساب حذف شد" else "🗑️ Account removed",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .create()
+                            .showCatClientDialog()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showFirefoxEmailLoginDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val emailInput = EditText(this).apply {
+            hint = if (isFarsi) "ایمیل حساب فایرفاکس (مثلاً user@gmail.com)" else "Firefox Account Email"
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val passInput = EditText(this).apply {
+            hint = if (isFarsi) "رمز عبور حساب فایرفاکس" else "Password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+            addView(emailInput)
+            addView(passInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "📧 ورود به حساب فایرفاکس (دریافت ۵۰ گیگ رایگان ماهانه)"
+                else "📧 Sign in to Firefox Account (50 GB/mo Free)",
+            )
+            .setMessage(
+                if (isFarsi) "ایمیل و رمز حساب فایرفاکس خود را وارد کنید. اگر کد تایید به ایمیلتان ارسال شود، در مرحله بعد کد را وارد می‌کنید:"
+                else "Enter your Firefox Account email and password:",
+            )
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "🚀 ورود و فعال‌سازی ۵۰ گیگ" else "🚀 Sign In & Activate 50 GB") { _, _ ->
+                val email = emailInput.text?.toString()?.trim().orEmpty()
+                val pass = passInput.text?.toString().orEmpty()
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "⏳ در حال رمزنگاری PBKDF2/HKDF و ورود به حساب فایرفاکس…" else "⏳ Signing in to Firefox Account…",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                activityScope.launch {
+                    val outcome = withContext(Dispatchers.IO) {
+                        FirefoxVpnEngine.loginWithEmailAndPassword(this@MainActivity, email, pass)
+                    }
+                    when (outcome) {
+                        is FirefoxVpnEngine.LoginOutcome.Success -> {
+                            onChanged()
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
+                                else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        is FirefoxVpnEngine.LoginOutcome.NeedsEmailVerification -> {
+                            val codeInput = EditText(this@MainActivity).apply {
+                                hint = if (isFarsi) "کد ۶ رقمی ارسال‌شده به ایمیل" else "6-digit code from email"
+                                setSingleLine(true)
+                                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                                textDirection = View.TEXT_DIRECTION_LTR
+                            }
+                            val codeWrap = LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(20), dp(10), dp(20), dp(4))
+                                addView(codeInput)
+                            }
+                            MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle(if (isFarsi) "📩 ورود کد تایید ایمیل فایرفاکس" else "📩 Enter Email Verification Code")
+                                .setMessage(
+                                    if (isFarsi) "فایرفاکس یک کد تایید به ایمیل ${outcome.email} فرستاد. آن را وارد کنید:"
+                                    else "Enter the verification code sent to ${outcome.email}:",
+                                )
+                                .setView(codeWrap)
+                                .setNegativeButton(android.R.string.cancel, null)
+                                .setPositiveButton(if (isFarsi) "✅ تایید کد و فعال‌سازی" else "✅ Verify & Activate") { _, _ ->
+                                    val code = codeInput.text?.toString()?.trim().orEmpty()
+                                    activityScope.launch {
+                                        val verifiedOutcome = withContext(Dispatchers.IO) {
+                                            FirefoxVpnEngine.verifyEmail2faAndCompleteLogin(
+                                                this@MainActivity,
+                                                outcome.sessionTokenHex,
+                                                code,
+                                                outcome.email,
+                                            )
+                                        }
+                                        when (verifiedOutcome) {
+                                            is FirefoxVpnEngine.LoginOutcome.Success -> {
+                                                onChanged()
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    if (isFarsi) "✅ حساب «${verifiedOutcome.account.email}» با موفقیت تایید و فعال شد!"
+                                                    else "✅ Account '${verifiedOutcome.account.email}' verified and activated!",
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                            is FirefoxVpnEngine.LoginOutcome.Failure -> {
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    if (isFarsi) verifiedOutcome.messageFa else verifiedOutcome.messageEn,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                            else -> Unit
+                                        }
+                                    }
+                                }
+                                .create()
+                                .showCatClientDialog()
+                        }
+                        is FirefoxVpnEngine.LoginOutcome.Failure -> {
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) outcome.messageFa else outcome.messageEn,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showFirefoxTokenImportDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val labelInput = EditText(this).apply {
+            hint = if (isFarsi) "نام یا ایمیل دلخواه (مثلاً اکانت ۱)" else "Label or Email (e.g. Account 1)"
+            setSingleLine(true)
+        }
+        val tokenInput = EditText(this).apply {
+            hint = if (isFarsi) "توکن Refresh / Access / ProxyPass JWT (eyJ...) یا JSON" else "Refresh/Access Token, ProxyPass JWT (eyJ...) or JSON"
+            minLines = 3
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+            addView(labelInput)
+            addView(tokenInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🔑 افزودن سریع حساب با توکن یا JSON"
+                else "🔑 Quick Add Account via Token or JSON",
+            )
+            .setMessage(
+                if (isFarsi) "اگر توکن حساب فایرفاکس را از مرورگر فایرفاکس، MLM VPN یا ابزار foxyvpn کپی کرده‌اید، اینجا قرار دهید تا بلافاصله ۵۰ گیگابایت فعال شود:"
+                else "Paste your Firefox OAuth token, ProxyPass JWT (eyJ...), or account JSON:",
+            )
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "💾 ذخیره و فعال‌سازی" else "💾 Save & Activate") { _, _ ->
+                val label = labelInput.text?.toString()?.trim().orEmpty()
+                val raw = tokenInput.text?.toString()?.trim().orEmpty()
+                if (raw.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "لطفاً توکن را وارد کنید" else "Please paste the token",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setPositiveButton
+                }
+                activityScope.launch {
+                    val added = withContext(Dispatchers.IO) {
+                        FirefoxVpnEngine.addAccountFromTokenOrJson(this@MainActivity, label, raw)
+                    }
+                    if (added != null) {
+                        onChanged()
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "✅ حساب «${added.email}» اضافه شد (${FirefoxVpnEngine.formatQuotaSummaryFa(added)})"
+                            else "✅ Added '${added.email}' (${FirefoxVpnEngine.formatQuotaSummaryEn(added)})",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Full Firefox VPN (`FENIX`) Hub Dialog with 35-country live ping tester, clean Fastly edge
+     * scanner, multi-account manager, and 1-click full-device connection.
+     */
+    private fun showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val options = if (isFarsi) {
+            arrayOf(
+                "🦊 ۱) اتصال فوری با فایرفاکس VPN (روشن کردن تانل کل گوشی همین الان)",
+                "🌍 ۲) انتخاب کشور از بین ۳۵ کشور شبکه Fastly موزیلا",
+                "⚡ ۳) تست پینگ زنده همه کشورها و انتخاب خودکار سریع‌ترین کشور روی خط من",
+                "👤 ۴) مدیریت حساب‌های ۵۰ گیگابایتی فایرفاکس (افزودن چند اکانت + چرخش خودکار)",
+                "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
+                "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ فایرفاکس VPN)",
+            )
+        } else {
+            arrayOf(
+                "🦊 1) Connect Firefox VPN Immediately (Full-Device Tunnel Now)",
+                "🌍 2) Select Exit Country from 35 Mozilla Fastly Locations",
+                "⚡ 3) Live Ping All Countries & Auto-Select Fastest on My ISP",
+                "👤 4) Manage 50 GB/mo Firefox Accounts (Multi-Account Auto-Failover)",
+                "🛰️ 5) Scan Clean Fastly Edge IP for Net Melli & MCI / Irancell Bypass",
+                "🛡️ 6) Toggle Anti-DPI TLS ClientHello Split @ SNI",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🦊 مرکز کامل فایرفاکس VPN (FENIX · مشابه MLM VPN)"
+                else "🦊 Firefox Browser VPN Hub (FENIX · 50 GB/mo Free)",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> connectFirefoxVpnDirectly(onChanged)
+                    1 -> showFirefoxCountryPickerDialog(onChanged)
+                    2 -> {
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "⏳ در حال تست پینگ زنده سرورهای Fastly فایرفاکس در کشورهای مختلف…"
+                            else "⏳ Probing live latency across Firefox Fastly country nodes…",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        activityScope.launch {
+                            val pings = withContext(Dispatchers.IO) {
+                                FirefoxVpnEngine.pingCountries(this@MainActivity, maxCountries = 14, timeoutMs = 850)
+                            }
+                            val best = pings.firstOrNull { it.reachable } ?: pings.firstOrNull()
+                            val report = buildString {
+                                if (isFarsi) {
+                                    appendLine("⚡ نتیجه تست پینگ واقعی کشورهای فایرفاکس VPN روی خط شما:")
+                                    appendLine("────────────────────────")
+                                } else {
+                                    appendLine("⚡ Live Firefox VPN Country Ping Results:")
+                                    appendLine("────────────────────────")
+                                }
+                                pings.forEachIndexed { idx, p ->
+                                    val c = p.country
+                                    val name = if (isFarsi) c.nameFa else c.nameEn
+                                    val st = if (p.reachable) "🟢 ${p.rttMs} ms" else "⚪ Timeout"
+                                    appendLine("${idx + 1}. ${c.flag} $name (${c.code}) — $st")
+                                }
+                            }
+                            MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle(
+                                    if (isFarsi) "⚡ سریع‌ترین کشور: ${best?.country?.flag ?: "🇩🇪"} ${best?.country?.nameFa ?: "آلمان"}"
+                                    else "⚡ Fastest: ${best?.country?.flag ?: "🇩🇪"} ${best?.country?.nameEn ?: "Germany"}",
+                                )
+                                .setMessage(report.trim())
+                                .setNegativeButton(android.R.string.cancel, null)
+                                .setPositiveButton(
+                                    if (isFarsi) "🦊 انتخاب سریع‌ترین و اتصال فوری" else "🦊 Select Fastest & Connect",
+                                ) { _, _ ->
+                                    if (best != null) {
+                                        FirefoxVpnEngine.saveSelectedCountryCode(this@MainActivity, best.country.code)
+                                    }
+                                    onChanged()
+                                    connectFirefoxVpnDirectly(onChanged)
+                                }
+                                .create()
+                                .showCatClientDialog()
+                        }
+                    }
+                    3 -> showFirefoxAccountManagerDialog(onChanged)
+                    4 -> {
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "⏳ در حال اسکن آی‌پی‌های لبه تمیز Fastly (151.101.* / 146.75.*) روی اینترنت شما…"
+                            else "⏳ Scanning clean Fastly Anycast edge IPs on your ISP…",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        activityScope.launch {
+                            val bestEdge = withContext(Dispatchers.IO) {
+                                FirefoxVpnEngine.findBestCleanFastlyEdgeIp(timeoutMs = 900)
+                            }
+                            if (bestEdge != null) {
+                                FirefoxVpnEngine.saveCleanFastlyEdgeIp(this@MainActivity, bestEdge.first)
+                                onChanged()
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "✅ آی‌پی تمیز Fastly پیدا و فعال شد: ${bestEdge.first} (پینگ: ${bestEdge.second} ms)"
+                                    else "✅ Clean Fastly Edge IP activated: ${bestEdge.first} (${bestEdge.second} ms)",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else {
+                                FirefoxVpnEngine.saveCleanFastlyEdgeIp(this@MainActivity, "151.101.1.195")
+                                onChanged()
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "⚡ لبه پیش‌فرض Fastly (151.101.1.195) تنظیم شد"
+                                    else "⚡ Default Fastly Edge (151.101.1.195) configured",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
+                    5 -> {
+                        val next = !FirefoxVpnEngine.isTlsFragmentEnabled(this)
+                        FirefoxVpnEngine.setTlsFragmentEnabled(this, next)
+                        onChanged()
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) {
+                                if (next) "🛡️ برش بسته TLS در مرز SNI برای فایرفاکس VPN روشن شد ✅"
+                                else "⚪ برش بسته TLS فایرفاکس VPN خاموش شد"
+                            } else {
+                                if (next) "🛡️ Firefox VPN TLS SNI Split enabled ✅"
+                                else "⚪ Firefox VPN TLS SNI Split disabled"
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Connects the entire device through **Firefox Browser VPN (`FENIX`)** with 1 tap:
+     * 1) Selects the best active Firefox Account (auto-rotating if >= 95% of 50 GB used)
+     * 2) Resolves the chosen country (or auto-pings to pick the fastest Fastly location)
+     * 3) Starts the local FENIX Anti-DPI proxy on `127.0.0.1:10829`
+     * 4) Saves & selects the `🦊 فایرفاکس VPN (FENIX)` subscription and starts the VPN tunnel!
+     */
+    private fun connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🦊 در حال آماده‌سازی تانل فایرفاکس VPN روی شبکه Fastly و اتصال کل گوشی…"
+            else "🦊 Preparing Firefox VPN (FENIX) over Fastly Edge & connecting…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            runCatching {
+                val (chosenCountry, activeAccount, localPort) = withContext(Dispatchers.IO) {
+                    val accounts = FirefoxVpnEngine.loadAccounts(this@MainActivity)
+                    val bestAcc = FirefoxVpnEngine.selectBestActiveAccount(accounts)?.let { acc ->
+                        if (acc.hasUnexpiredProxyPass()) acc
+                        else runCatching { FirefoxVpnEngine.refreshAndActivateAccountPass(this@MainActivity, acc) }.getOrDefault(acc)
+                    }
+                    val selCode = FirefoxVpnEngine.readSelectedCountryCode(this@MainActivity)
+                    val allCountries = FirefoxVpnEngine.getAvailableCountries(this@MainActivity)
+                    val country = if (selCode == FirefoxVpnEngine.COUNTRY_FASTEST) {
+                        val pings = FirefoxVpnEngine.pingCountries(this@MainActivity, maxCountries = 8, timeoutMs = 700)
+                        pings.firstOrNull { it.reachable }?.country ?: allCountries[1] // DE fallback
+                    } else {
+                        allCountries.firstOrNull { it.code.equals(selCode, ignoreCase = true) } ?: allCountries[1]
+                    }
+                    val cleanEdge = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@MainActivity)
+                    val frag = FirefoxVpnEngine.isTlsFragmentEnabled(this@MainActivity)
+                    val port = FirefoxVpnEngine.startOrUpdateLocalFenixProxy(
+                        context = this@MainActivity,
+                        country = country,
+                        bearerPass = bestAcc?.proxyPassToken.orEmpty(),
+                        cleanEdgeIp = cleanEdge,
+                        fragmentTls = frag,
+                    )
+                    Triple(country, bestAcc, port)
+                }
+
+                val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(
+                    country = chosenCountry,
+                    localPort = localPort,
+                    accountEmail = activeAccount?.email.orEmpty(),
+                    cleanFastlyIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@MainActivity),
+                    tlsFragment = FirefoxVpnEngine.isTlsFragmentEnabled(this@MainActivity),
+                )
+
+                val subTitle = "🦊 فایرفاکس VPN (FENIX · ${chosenCountry.flag} ${chosenCountry.code})"
+                val existing = userSubscriptionManager.list().firstOrNull {
+                    it.name.startsWith("🦊 فایرفاکس VPN")
+                }
+                val saved = withContext(Dispatchers.IO) {
+                    if (existing != null) {
+                        userSubscriptionManager.update(existing.id, subTitle, fenixUri)
+                    } else {
+                        userSubscriptionManager.add(subTitle, fenixUri)
+                    }
+                }
+                userSubscriptionManager.select(saved.id)
+
+                // If user has no Firefox account yet, also enable Aether MASQUE with Fastly/Whitelist SNI as carrier backup
+                if (activeAccount == null || activeAccount.proxyPassToken.isBlank()) {
+                    LocalSniSpoofProxy.startSpoofSocksProxy()
+                } else {
+                    val curAether = aetherPreferenceStore.read()
+                    if (curAether.enabled) {
+                        aetherPreferenceStore.save(curAether.copy(enabled = false))
+                    }
+                }
+                orbotEnginePreferenceStore.setEnabled(false)
+
+                onChanged()
+                renderSubscriptions()
+                onSubscriptionSelected()
+                renderAdvancedControls()
+
+                val countryName = if (isFarsi) chosenCountry.nameFa else chosenCountry.nameEn
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "🦊 فایرفاکس VPN روی کشور «${chosenCountry.flag} $countryName» فعال شد — در حال اتصال…"
+                    else "🦊 Firefox VPN active on '${chosenCountry.flag} $countryName' — connecting…",
+                    Toast.LENGTH_LONG,
+                ).show()
+
+                openScreen(SCREEN_HOME)
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
+            }.onFailure { err ->
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "خطا در اتصال فایرفاکس VPN: ${err.message}"
+                    else "Firefox VPN connection error: ${err.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    /**
+     * Inspects the user's real subscriptions and deployed Worker to find their actual working
+     * VLESS/Trojan server (`UUID`, `host`, `port`, `path`) so repair/spoof tools never use
+     * fake placeholder UUIDs (`11111111-...`).
+     */
+    private suspend fun resolveUserRealConfigTemplate(): LocalSniSpoofProxy.RealConfigTemplate? =
+        withContext(Dispatchers.IO) {
+            val allSubs = userSubscriptionManager.list()
+            val selectedId = userSubscriptionManager.selectedId()
+            val orderedSubs = buildList {
+                allSubs.firstOrNull { it.id == selectedId }?.let { add(it) }
+                allSubs.forEach { if (it.id != selectedId) add(it) }
+            }
+            val candidateLines = mutableListOf<String>()
+            for (sub in orderedSubs) {
+                val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
+                snap?.profiles?.forEach { p ->
+                    if (p.shareLink.isNotBlank()) candidateLines += p.shareLink
+                }
+                sub.input.lines().forEach { line ->
+                    val t = line.trim()
+                    if (t.startsWith("vless://", ignoreCase = true) || t.startsWith("trojan://", ignoreCase = true)) {
+                        candidateLines += t
+                    }
+                }
+            }
+            val dep = runCatching { PanelDeploymentStore(this@MainActivity).deployments().firstOrNull() }.getOrNull()
+            val depHost = dep?.workerUrl
+                ?.removePrefix("https://")
+                ?.removePrefix("http://")
+                ?.substringBefore("/")
+                ?.trim()
+            LocalSniSpoofProxy.extractRealConfigTemplate(
+                rawLines = candidateLines,
+                deployedUuid = dep?.uuid,
+                deployedWorkerHost = depHost,
+            )
+        }
+
+    /**
+     * 1-Click Real Config Repair & Connect:
+     * - Finds the user's REAL config (or falls back to serverless Aether/Firefox VPN if the user has no personal config),
+     * - Scans open Non-Cloudflare & Cloudflare endpoints,
+     * - Starts the local TCP Anti-DPI SNI Splitter forwarding to the user's real server,
+     * - Saves the repaired configs, selects them, and immediately connects the VPN!
+     */
+    private fun runOneClickRepairMyRealConfigAndConnect(
+        preferredStrategy: LocalSniSpoofProxy.SpoofStrategy = LocalSniSpoofProxy.SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
+    ) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🪄 در حال بررسی کانفیگ واقعی شما، اسکن آی‌پی‌های باز و راه‌اندازی تانل ضد فیلترینگ…"
+            else "🪄 Inspecting your real config, scanning open IPs & starting Anti-DPI tunnel…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val realTemplate = resolveUserRealConfigTemplate()
+            val openHits = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(timeoutMs = 900)
+            }
+            if (realTemplate != null) {
+                val repairedLinks = withContext(Dispatchers.IO) {
+                    LocalSniSpoofProxy.buildRepairedConfigsForRealTemplate(
+                        template = realTemplate,
+                        strategy = preferredStrategy,
+                        verifiedNonCfHits = openHits,
+                    )
+                }
+                val content = repairedLinks.joinToString("\n")
+                val subTitle = "🪄 تعمیرشده خودکار (${realTemplate.remark.take(22)})"
+                val existing = userSubscriptionManager.list().firstOrNull {
+                    it.name.startsWith("🪄 تعمیرشده خودکار")
+                }
+                val saved = withContext(Dispatchers.IO) {
+                    if (existing != null) {
+                        userSubscriptionManager.update(existing.id, subTitle, content)
+                    } else {
+                        userSubscriptionManager.add(subTitle, content)
+                    }
+                }
+                userSubscriptionManager.select(saved.id)
+                val curAether = aetherPreferenceStore.read()
+                if (curAether.enabled) {
+                    aetherPreferenceStore.save(curAether.copy(enabled = false))
+                }
+                orbotEnginePreferenceStore.setEnabled(false)
+                renderSubscriptions()
+                onSubscriptionSelected()
+                renderAdvancedControls()
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "✅ کانفیگ واقعی شما («${realTemplate.remark}») با برش محلی SNI و ۵ روش اسپوف تعمیر شد — در حال اتصال…"
+                    else "✅ Repaired your real config ('${realTemplate.remark}') with local SNI split & 5 CF spoofs — connecting…",
+                    Toast.LENGTH_LONG,
+                ).show()
+                openScreen(SCREEN_HOME)
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
+            } else {
+                // User has no personal VLESS/Trojan config yet -> automatically configure serverless Aether MASQUE with clean SNI & connect!
+                val bestSni = openHits.firstOrNull()?.target?.sni ?: LocalSniSpoofProxy.currentDecoySni
+                val cur = aetherPreferenceStore.read()
+                aetherPreferenceStore.save(
+                    cur.copy(
+                        enabled = true,
+                        mode = AetherMode.MasqueHttp2,
+                        endpoint = cur.endpoint ?: "162.159.198.1:443",
+                        masqueSni = bestSni,
+                        endpointScannedAt = System.currentTimeMillis(),
+                    ),
+                )
+                LocalSniSpoofProxy.startSpoofSocksProxy(strategy = preferredStrategy, decoySni = bestSni)
+                renderAdvancedControls()
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، موتور بدون سرور Aether با SNI سفید «$bestSni» فعال شد — در حال اتصال…"
+                    else "💡 No personal config found; activated serverless Aether with clean SNI '$bestSni' — connecting…",
+                    Toast.LENGTH_LONG,
+                ).show()
+                openScreen(SCREEN_HOME)
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
+            }
+        }
+    }
+
+    /**
      * Comprehensive 2026 Net Melli Bypass Lab combining:
+     * 0) 1-Click Automatic Repair & Connect on User's Real Config
      * 1) Non-Cloudflare & Domestic Whitelist CDN Scanner (`Akamai`, `Fastly`, `Google`, `Azure`, `Arvan`, `Derak`) preserving exact `IP:port`
-     * 2) `Fact-A DNS Non-Hijack SNI Oracle` (probing non-DNS IP `1.2.3.4:53` to detect DPI-unblocked SNIs)
-     * 3) In-App `LocalSniSpoofProxy` (`127.0.0.1:10819` with `Low-TTL=3 Fake ClientHello + TLS Record Split @ SNI`)
-     * 4) The 5 Cloudflare Spoofing Methods alongside Non-CF methods (`echOutbound + fromMitm`, `pinnedPeerCertSha256`, `Aether --masque-sni`, `Fake ClientHello`, `FinalMask`)
+     * 2) `Fact-A DNS Non-Hijack SNI Oracle`
+     * 3) In-App `LocalSniSpoofProxy` (`127.0.0.1` direct TCP forwarder + SOCKS5)
+     * 4) The 5 Cloudflare Spoofing Methods applied directly to the user's real config
      * 5) 2026 Hybrid Net Melli Tunnels (`QS-Tunnel`, `QQ-Tunnel`, `Spoof-Tunnel`, `S3 Bypass / Fedarisha`)
      */
     private fun showNetMelli2026BypassLabDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val proxyRunning = LocalSniSpoofProxy.isRunning()
         val proxyStatus = if (proxyRunning) {
-            if (isFarsi) "🟢 روشن (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentDecoySni})"
-            else "🟢 Running (127.0.0.1:${LocalSniSpoofProxy.activeListenPort()} · SNI: ${LocalSniSpoofProxy.currentDecoySni})"
+            if (isFarsi) "🟢 روشن (SNI: ${LocalSniSpoofProxy.currentDecoySni})"
+            else "🟢 Running (SNI: ${LocalSniSpoofProxy.currentDecoySni})"
         } else {
-            if (isFarsi) "⚪ آماده به‌کار (پورت محلی ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
-            else "⚪ Ready (Local port ${LocalSniSpoofProxy.DEFAULT_LISTEN_PORT})"
+            if (isFarsi) "⚪ آماده به‌کار"
+            else "⚪ Ready"
         }
 
         val options = if (isFarsi) {
             arrayOf(
-                "🛰️ ۱) اسکن زنده آی‌پی و دامنه‌های وایت‌لیست غیرکلادفلر و داخلی (Akamai · Fastly · Google · Azure · Arvan · Derak با حفظ دقیق IP:port)",
-                "🔎 ۲) اوراکل هوشمند Fact-A DNS (کشف دامنه‌ها و SNIهای مسدودنشده در DPI)",
-                "🛡️ ۳) پروکسی محلی تزریق Fake ClientHello + برش SNI ($proxyStatus)",
-                "☁️ ۴) ۵ روش اسپوفینگ کلادفلر در کنار روش‌های غیرکلادفلر (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
-                "🚀 ۵) ساخت و افزودن ۴ تانل هیبریدی نت ملی ۲۰۲۶ (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
+                "🪄 ۰) تعمیر خودکار کانفیگ من و اتصال فوری با یک کلیک (پیشنهادی — بدون نیاز به تنظیم فنی!)",
+                "🛰️ ۱) اسکن زنده آی‌پی‌های باز غیرکلادفلر (Akamai · Fastly · Google · Arvan) و اتصال روی کانفیگ من",
+                "🔎 ۲) کشف خودکار سایت‌های سفید باز روی خط من (Fact-A Oracle) و اعمال روی اتصال",
+                "🛡️ ۳) روشن کردن برش بسته TLS / تزریق SNI سفید و اتصال فوری ($proxyStatus)",
+                "☁️ ۴) اعمال ۵ روش اسپوفینگ کلادفلر روی کانفیگ واقعی من و اتصال فوری",
+                "🚀 ۵) اتصال با ۴ تانل هیبریدی نت ملی ۲۰۲۶ (S3 Bypass · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
             )
         } else {
             arrayOf(
-                "🛰️ 1) Live Non-Cloudflare & Domestic Whitelist CDN Scanner (Akamai · Fastly · Google · Azure · Arvan · Derak preserving exact IP:port)",
-                "🔎 2) Fact-A DNS Non-Hijack SNI Oracle (Find DPI-unblocked SNIs)",
-                "🛡️ 3) Local Fake ClientHello + SNI Split Proxy ($proxyStatus)",
-                "☁️ 4) The 5 Cloudflare Spoofing Methods alongside Non-CF (fromMitm · PinnedCert · MASQUE-SNI · FakeHello · FinalMask)",
-                "🚀 5) Generate & Add 2026 Hybrid Net Melli Tunnels (S3 Bypass Fedarisha · QS-Tunnel · QQ-Tunnel · Spoof-Tunnel)",
+                "🪄 0) 1-Click Auto-Repair My Real Config & Connect Immediately (Recommended!)",
+                "🛰️ 1) Live Scan Open Non-Cloudflare CDNs (Akamai · Fastly · Google · Arvan) & Connect My Config",
+                "🔎 2) Find Unblocked Whitelist Domains on My ISP (Fact-A Oracle) & Apply",
+                "🛡️ 3) Enable Local TLS SNI Split / Fake ClientHello & Connect Now ($proxyStatus)",
+                "☁️ 4) Apply the 5 Cloudflare Spoofing Methods to My Real Config & Connect",
+                "🚀 5) Connect via 2026 Hybrid Net Melli Tunnels (S3 Bypass · QS · QQ · Spoof)",
             )
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧪 آزمایشگاه نت ملی ۲۰۲۶ (بدون کلادفلر + ۵ روش اسپوف کلادفلر)"
-                else "🧪 Net Melli 2026 Lab (Non-Cloudflare + 5 CF Spoof Methods)",
+                if (isFarsi) "🧪 آزمایشگاه نت ملی و ۵ روش اسپوف کلادفلر (اتصال واقعی)"
+                else "🧪 Net Melli & 5 CF Spoof Lab (Real 1-Click Connect)",
             )
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> runNonCloudflareWhitelistScannerDialog()
-                    1 -> runFactADnsSniOracleDialog()
-                    2 -> showLocalFakeClientHelloProxyDialog()
-                    3 -> showCloudflareFiveSpoofMethodsDialog()
-                    4 -> generateAndAddHybridNetMelliTunnelsDialog()
+                    0 -> runOneClickRepairMyRealConfigAndConnect()
+                    1 -> runNonCloudflareWhitelistScannerDialog()
+                    2 -> runFactADnsSniOracleDialog()
+                    3 -> showLocalFakeClientHelloProxyDialog()
+                    4 -> showCloudflareFiveSpoofMethodsDialog()
+                    5 -> generateAndAddHybridNetMelliTunnelsDialog()
                 }
+            }
+            .setNeutralButton(if (isFarsi) "📖 راهنمای ساده" else "📖 Simple Guide") { _, _ ->
+                showPlainLanguageFullGuideDialog()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
@@ -13765,9 +14876,15 @@ class MainActivity : Activity() {
             val results = withContext(Dispatchers.IO) {
                 LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(timeoutMs = 1100)
             }
+            val realTemplate = resolveUserRealConfigTemplate()
             val report = buildString {
                 if (isFarsi) {
                     appendLine("🛰️ نتیجه تست واقعی بانک وایت‌لیست غیرکلادفلر و داخلی (با حفظ دقیق IP:port):")
+                    if (realTemplate != null) {
+                        appendLine("✅ کانفیگ واقعی شناسایی‌شده: ${realTemplate.remark} (${realTemplate.hostHeader})")
+                    } else {
+                        appendLine("💡 کانفیگ شخصی پیدا نشد؛ با زدن دکمه زیر، اتصال بدون سرور روی آی‌پی باز فعال می‌شود.")
+                    }
                     appendLine("────────────────────────")
                 } else {
                     appendLine("🛰️ Live Non-Cloudflare & Domestic Whitelist Scan (preserving exact IP:port):")
@@ -13798,34 +14915,17 @@ class MainActivity : Activity() {
                 )
                 .setMessage(report.trim())
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(
-                    if (isFarsi) "➕ ساخت کانفیگ با IP:portهای باز" else "➕ Build Configs from Open IP:ports",
-                ) { _, _ ->
-                    val lines = LocalSniSpoofProxy.buildSpoofedVlessLinks(
-                        uuid = "11111111-2222-4333-8444-555555555555",
-                        workerHost = "sub.workers.dev",
-                        verifiedNonCfHits = results,
-                    ).joinToString("\n")
-                    val subTitle = "🛰️ وایت‌لیست نت ملی (Non-CF + 5 CF)"
-                    activityScope.launch {
-                        val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                        val saved = withContext(Dispatchers.IO) {
-                            if (existing != null) {
-                                userSubscriptionManager.update(existing.id, subTitle, lines)
-                            } else {
-                                userSubscriptionManager.add(subTitle, lines)
-                            }
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        renderSubscriptions()
-                        onSubscriptionSelected()
-                        Toast.makeText(
-                            this@MainActivity,
-                            if (isFarsi) "✅ کانفیگ‌های وایت‌لیست دقیقاً با همان IP:port اسکن‌شده به اشتراک اضافه شد"
-                            else "✅ Added whitelist configs with exact scanned IP:ports",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                .setNeutralButton(if (isFarsi) "🦊 اتصال با فایرفاکس Fastly" else "🦊 Connect via Firefox Fastly") { _, _ ->
+                    val fastlyHit = results.firstOrNull { it.target.provider == LocalSniSpoofProxy.NonCfCdnProvider.FASTLY_GITHUB }
+                    if (fastlyHit != null) {
+                        FirefoxVpnEngine.saveCleanFastlyEdgeIp(this@MainActivity, fastlyHit.target.ip)
                     }
+                    connectFirefoxVpnDirectly()
+                }
+                .setPositiveButton(
+                    if (isFarsi) "🚀 تعمیر کانفیگ من با این IP:portها و اتصال" else "🚀 Repair My Config & Connect",
+                ) { _, _ ->
+                    runOneClickRepairMyRealConfigAndConnect()
                 }
                 .create()
                 .showCatClientDialog()
@@ -13848,6 +14948,7 @@ class MainActivity : Activity() {
             val text = buildString {
                 if (isFarsi) {
                     appendLine("🔎 نتیجه اوراکل Fact-A DNS Non-Hijack SNI Finder:")
+                    appendLine("💡 هر سایتی که جلوی آن 🟢 سبز خورده یعنی فایروال خط شما آن را مسدود نکرده است:")
                     appendLine("────────────────────────")
                 } else {
                     appendLine("🔎 Fact-A DNS Non-Hijack SNI Finder Results:")
@@ -13871,18 +14972,13 @@ class MainActivity : Activity() {
                 .setMessage(text.trim())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(
-                    if (isFarsi) "✅ تنظیم «$bestSni» روی پروکسی اسپوف و Aether"
-                    else "✅ Apply '$bestSni' to Spoof Proxy & Aether",
+                    if (isFarsi) "🚀 اعمال «$bestSni» و اتصال فوری"
+                    else "🚀 Apply '$bestSni' & Connect Now",
                 ) { _, _ ->
                     LocalSniSpoofProxy.updateDecoySni(bestSni)
                     val cur = aetherPreferenceStore.read()
                     aetherPreferenceStore.save(cur.copy(masqueSni = bestSni))
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (isFarsi) "✅ دامنه سفید «$bestSni» روی پروکسی محلی Fake ClientHello و --masque-sni تنظیم شد"
-                        else "✅ Set clean SNI '$bestSni' on Local Fake ClientHello Proxy & Aether --masque-sni",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    runOneClickRepairMyRealConfigAndConnect()
                 }
                 .create()
                 .showCatClientDialog()
@@ -13900,21 +14996,16 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🛡️ پروکسی محلی تزریق Fake ClientHello + برش SNI"
-                else "🛡️ Local Fake ClientHello + SNI Split Proxy",
+                if (isFarsi) "🛡️ انتخاب روش برش بسته TLS و اتصال فوری کانفیگ شما"
+                else "🛡️ Select Local TLS SNI Split Strategy & Connect Now",
             )
             .setItems(labels) { _, idx ->
                 val chosen = strategies[idx]
-                val port = LocalSniSpoofProxy.startSpoofSocksProxy(
+                LocalSniSpoofProxy.startSpoofSocksProxy(
                     strategy = chosen,
                     decoySni = LocalSniSpoofProxy.currentDecoySni,
                 )
-                Toast.makeText(
-                    this,
-                    if (isFarsi) "🟢 پروکسی محلی ضد-DPI روی 127.0.0.1:$port با استراتژی «${chosen.titleFa}» و SNI «${LocalSniSpoofProxy.currentDecoySni}» فعال شد!"
-                    else "🟢 Local Anti-DPI Proxy active on 127.0.0.1:$port with '${chosen.titleEn}' & SNI '${LocalSniSpoofProxy.currentDecoySni}'!",
-                    Toast.LENGTH_LONG,
-                ).show()
+                runOneClickRepairMyRealConfigAndConnect(preferredStrategy = chosen)
             }
             .setNeutralButton(if (isFarsi) "⏹ توقف پروکسی محلی" else "⏹ Stop Local Proxy") { _, _ ->
                 LocalSniSpoofProxy.stopAllSpoofProxies()
@@ -13938,50 +15029,77 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "☁️ ۵ روش اسپوفینگ کلادفلر (در کنار روش‌های نت ملی)"
-                else "☁️ The 5 Cloudflare Spoofing Methods",
+                if (isFarsi) "☁️ ۵ روش اسپوفینگ کلادفلر (اعمال مستقیم روی کانفیگ واقعی شما)"
+                else "☁️ The 5 Cloudflare Spoofing Methods (Applied to Your Real Config)",
             )
             .setItems(items) { _, idx ->
                 val m = methods[idx]
-                val snippet = "vless://11111111-2222-4333-8444-555555555555@${m.sampleEndpoint}?encryption=none&type=ws&host=sub.workers.dev&path=%2Fws&${m.queryParams}#CF-Spoof-${m.index}-${m.id}"
-                MaterialAlertDialogBuilder(this)
-                    .setTitle(if (isFarsi) m.titleFa else m.titleEn)
-                    .setMessage(
-                        (if (isFarsi) "${m.summaryFa}\n\n" else "${m.summaryEn}\n\n") + snippet,
-                    )
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .setNeutralButton(if (isFarsi) "📋 کپی کانفیگ" else "📋 Copy Snippet") { _, _ ->
-                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("cf-spoof-${m.id}", snippet))
-                        Toast.makeText(
-                            this,
-                            if (isFarsi) "✅ کانفیگ «${m.titleFa}» کپی شد" else "✅ Copied '${m.titleEn}' snippet",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                activityScope.launch {
+                    val realTemplate = resolveUserRealConfigTemplate()
+                    val encPath = runCatching {
+                        java.net.URLEncoder.encode(realTemplate?.path ?: "/ws?ed=2048", "UTF-8")
+                    }.getOrDefault("%2Fws")
+                    val realUuid = realTemplate?.uuidOrPass ?: "auto-aether-masque"
+                    val realHost = realTemplate?.hostHeader ?: "speed.cloudflare.com"
+                    val scheme = realTemplate?.scheme ?: "vless"
+                    val encParam = if (scheme == "vless") "encryption=none&" else ""
+                    val snippet = if (realTemplate != null) {
+                        "$scheme://$realUuid@${m.sampleEndpoint}?${encParam}type=${realTemplate.networkType}&host=$realHost&path=$encPath&${m.queryParams}#CF-Spoof-${m.index}-${realTemplate.remark}"
+                    } else {
+                        "aether://masque?endpoint=${m.sampleEndpoint}&sni=${m.sampleSni}#CF-Spoof-${m.index}"
                     }
-                    .setPositiveButton(
-                        if (isFarsi) "⚡ اعمال روی موتور Aether / اپ" else "⚡ Apply to Aether / App",
-                    ) { _, _ ->
-                        val cur = aetherPreferenceStore.read()
-                        aetherPreferenceStore.save(
-                            cur.copy(
-                                enabled = true,
-                                mode = AetherMode.MasqueHttp2,
-                                masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
-                                echEnabled = m.index == 1,
-                            ),
+                    val statusNote = if (realTemplate != null) {
+                        if (isFarsi) "✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
+                        else "✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
+                    } else {
+                        if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Aether اعمال می‌شود:\n\n"
+                        else "💡 Applied to serverless Aether engine:\n\n"
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) m.titleFa else m.titleEn)
+                        .setMessage(
+                            (if (isFarsi) "${m.summaryFa}\n\n" else "${m.summaryEn}\n\n") + statusNote + snippet,
                         )
-                        LocalSniSpoofProxy.startSpoofSocksProxy()
-                        renderAdvancedControls()
-                        Toast.makeText(
-                            this,
-                            if (isFarsi) "✅ متد «${m.titleFa}» با SNI سفید «${m.sampleSni}» فعال شد"
-                            else "✅ Activated '${m.titleEn}' with whitelist SNI '${m.sampleSni}'",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                    .create()
-                    .showCatClientDialog()
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setNeutralButton(if (isFarsi) "📋 کپی کانفیگ" else "📋 Copy Config") { _, _ ->
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("cf-spoof-${m.id}", snippet))
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ کانفیگ «${m.titleFa}» کپی شد" else "✅ Copied '${m.titleEn}' config",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        .setPositiveButton(
+                            if (isFarsi) "🚀 اعمال و اتصال فوری" else "🚀 Apply & Connect Now",
+                        ) { _, _ ->
+                            if (realTemplate != null) {
+                                runOneClickRepairMyRealConfigAndConnect()
+                            } else {
+                                val cur = aetherPreferenceStore.read()
+                                aetherPreferenceStore.save(
+                                    cur.copy(
+                                        enabled = true,
+                                        mode = AetherMode.MasqueHttp2,
+                                        endpoint = m.sampleEndpoint,
+                                        masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                                        echEnabled = m.index == 2,
+                                        endpointScannedAt = System.currentTimeMillis(),
+                                    ),
+                                )
+                                LocalSniSpoofProxy.startSpoofSocksProxy()
+                                renderAdvancedControls()
+                                openScreen(SCREEN_HOME)
+                                if (currentVpnServiceState == VpnState.Started) {
+                                    reconnectForConnectionOptionChange()
+                                } else {
+                                    beginConnectFlow(Actions.CONNECT)
+                                }
+                            }
+                        }
+                        .create()
+                        .showCatClientDialog()
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
@@ -14009,10 +15127,17 @@ class MainActivity : Activity() {
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            .setPositiveButton(if (isFarsi) "➕ افزودن به اشتراک و اتصال" else "➕ Add to Sub & Connect") { _, _ ->
+            .setPositiveButton(if (isFarsi) "🚀 راه‌اندازی و اتصال فوری" else "🚀 Start & Connect Now") { _, _ ->
                 val raw = uriLines.joinToString("\n")
                 val title = "🚀 تانل‌های هیبرید نت ملی (S3/QS/QQ/Spoof)"
                 activityScope.launch {
+                    withContext(Dispatchers.IO) {
+                        uriLines.forEach { uri ->
+                            WhiteDnsSmartScanner.parseTunnelUri(uri)?.let { parsed ->
+                                WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                            }
+                        }
+                    }
                     val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
                     val saved = withContext(Dispatchers.IO) {
                         if (existing != null) {
@@ -14022,14 +15147,26 @@ class MainActivity : Activity() {
                         }
                     }
                     userSubscriptionManager.select(saved.id)
+                    val curAether = aetherPreferenceStore.read()
+                    if (curAether.enabled) {
+                        aetherPreferenceStore.save(curAether.copy(enabled = false))
+                    }
+                    orbotEnginePreferenceStore.setEnabled(false)
                     renderSubscriptions()
                     onSubscriptionSelected()
+                    renderAdvancedControls()
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ ۴ تانل هیبریدی نت ملی (S3 Bypass / QS / QQ / Spoof) به اشتراک شما اضافه شد"
-                        else "✅ Added 4 Hybrid Net Melli tunnels to your subscriptions",
+                        if (isFarsi) "🚀 ۴ تانل هیبریدی نت ملی (S3 Bypass / QS / QQ / Spoof) فعال شد — در حال اتصال…"
+                        else "🚀 4 Hybrid Net Melli tunnels activated — connecting…",
                         Toast.LENGTH_LONG,
                     ).show()
+                    openScreen(SCREEN_HOME)
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    } else {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
                 }
             }
             .create()

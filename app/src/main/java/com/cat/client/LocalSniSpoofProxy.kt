@@ -694,7 +694,302 @@ internal object LocalSniSpoofProxy {
 
     // Active local SNI spoof SOCKS5 listeners keyed by strategy id
     private val activeSpoofServers = ConcurrentHashMap<String, ServerSocket>()
+    // Active direct TCP anti-DPI forwarders keyed by "remoteHost:remotePort|strategyId"
+    private val activeTcpForwarders = ConcurrentHashMap<String, ServerSocket>()
     const val DEFAULT_LISTEN_PORT = 10819
+
+    data class RealConfigTemplate(
+        val scheme: String,
+        val uuidOrPass: String,
+        val remoteHost: String,
+        val remotePort: Int,
+        val hostHeader: String,
+        val sni: String,
+        val path: String,
+        val networkType: String,
+        val remark: String,
+    )
+
+    /**
+     * Parses a user's real `vless://` or `trojan://` share links (excluding placeholder UUIDs
+     * like `11111111-...` or `example.workers.dev`) so that spoofing, whitelist scanning, and
+     * local anti-DPI forwarding operate on the user's actual working server.
+     */
+    fun extractRealConfigTemplate(
+        rawLines: List<String>,
+        deployedUuid: String? = null,
+        deployedWorkerHost: String? = null,
+    ): RealConfigTemplate? {
+        for (raw in rawLines) {
+            val line = raw.trim()
+            val lower = line.lowercase()
+            if (!lower.startsWith("vless://") && !lower.startsWith("trojan://")) continue
+            val parsed = runCatching {
+                val uri = java.net.URI(line.replace(" ", "%20"))
+                val scheme = uri.scheme.lowercase()
+                val auth = uri.rawAuthority ?: return@runCatching null
+                val atIdx = auth.lastIndexOf('@')
+                if (atIdx <= 0) return@runCatching null
+                val userInfo = java.net.URLDecoder.decode(auth.substring(0, atIdx), "UTF-8").trim()
+                if (userInfo.isBlank() ||
+                    userInfo.startsWith("11111111-") ||
+                    userInfo.startsWith("00000000-")
+                ) {
+                    return@runCatching null
+                }
+                val hostPortPart = auth.substring(atIdx + 1).substringBefore('/')
+                val (host, port) = if (hostPortPart.startsWith("[")) {
+                    val closeIdx = hostPortPart.indexOf(']')
+                    val h = hostPortPart.substring(1, closeIdx)
+                    val p = hostPortPart.substring(closeIdx + 1).removePrefix(":").toIntOrNull() ?: 443
+                    h to p
+                } else {
+                    val colon = hostPortPart.lastIndexOf(':')
+                    if (colon <= 0) return@runCatching null
+                    val h = hostPortPart.substring(0, colon)
+                    val p = hostPortPart.substring(colon + 1).toIntOrNull() ?: 443
+                    h to p
+                }
+                if (host.isBlank() || host == "127.0.0.1") return@runCatching null
+                val qMap = LinkedHashMap<String, String>()
+                uri.rawQuery.orEmpty().split('&').forEach { kv ->
+                    val eq = kv.indexOf('=')
+                    if (eq > 0) {
+                        val k = java.net.URLDecoder.decode(kv.substring(0, eq), "UTF-8").lowercase()
+                        val v = java.net.URLDecoder.decode(kv.substring(eq + 1), "UTF-8")
+                        qMap[k] = v
+                    }
+                }
+                val wsHost = qMap["host"]?.trim().orEmpty()
+                val sni = (qMap["sni"] ?: qMap["servername"])?.trim().orEmpty()
+                val effectiveHostHeader = wsHost.ifBlank { sni.ifBlank { host } }
+                if (effectiveHostHeader.contains("example.workers.dev") ||
+                    effectiveHostHeader == "sub.workers.dev"
+                ) {
+                    return@runCatching null
+                }
+                val path = qMap["path"]?.takeIf { it.isNotBlank() } ?: "/ws?ed=2048"
+                val netType = qMap["type"]?.takeIf { it.isNotBlank() } ?: "ws"
+                val remark = runCatching {
+                    java.net.URLDecoder.decode(uri.rawFragment.orEmpty(), "UTF-8")
+                }.getOrDefault("").ifBlank { effectiveHostHeader }
+                RealConfigTemplate(
+                    scheme = scheme,
+                    uuidOrPass = userInfo,
+                    remoteHost = host,
+                    remotePort = port,
+                    hostHeader = effectiveHostHeader,
+                    sni = sni.ifBlank { effectiveHostHeader },
+                    path = path,
+                    networkType = netType,
+                    remark = remark,
+                )
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        val cleanUuid = deployedUuid?.trim()?.takeIf {
+            it.isNotBlank() && !it.startsWith("11111111-") && !it.startsWith("00000000-")
+        }
+        val cleanWorker = deployedWorkerHost?.trim()?.takeIf {
+            it.isNotBlank() && !it.contains("example.") && it != "sub.workers.dev"
+        }
+        if (cleanUuid != null && cleanWorker != null) {
+            return RealConfigTemplate(
+                scheme = "vless",
+                uuidOrPass = cleanUuid,
+                remoteHost = "188.114.98.0",
+                remotePort = 443,
+                hostHeader = cleanWorker,
+                sni = cleanWorker,
+                path = "/$cleanUuid?ed=2048",
+                networkType = "ws",
+                remark = cleanWorker,
+            )
+        }
+        return null
+    }
+
+    /**
+     * Starts a direct TCP port forwarder on `127.0.0.1` that intercepts the first TLS ClientHello
+     * record (`0x16`) from Mihomo's VLESS/Trojan outbound, applies [strategy] (SNI record split,
+     * decoy ClientHello, or 2-stage fragment), and forwards it to `[remoteHost]:[remotePort]`.
+     */
+    fun startDirectTcpSpoofForwarder(
+        remoteHost: String,
+        remotePort: Int,
+        strategy: SpoofStrategy = currentActiveStrategy,
+        decoySni: String = currentDecoySni,
+    ): Int {
+        currentActiveStrategy = strategy
+        currentDecoySni = decoySni.trim().ifBlank { "ebanksepah.ir" }
+        val key = "$remoteHost:$remotePort|${strategy.id}"
+        val existing = activeTcpForwarders[key]
+        if (existing != null && !existing.isClosed) {
+            return existing.localPort
+        }
+        return runCatching {
+            val server = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
+            activeTcpForwarders[key] = server
+            Thread(Runnable {
+                while (!server.isClosed) {
+                    val client = runCatching { server.accept() }.getOrNull() ?: break
+                    Thread(Runnable {
+                        handleDirectTcpForwardClient(client, remoteHost, remotePort, strategy)
+                    }, "sni-tcp-fwd-worker").apply {
+                        isDaemon = true
+                        start()
+                    }
+                }
+            }, "sni-tcp-fwd-${server.localPort}").apply {
+                isDaemon = true
+                start()
+            }
+            server.localPort
+        }.getOrDefault(DEFAULT_LISTEN_PORT)
+    }
+
+    private fun handleDirectTcpForwardClient(
+        client: Socket,
+        remoteHost: String,
+        remotePort: Int,
+        strategy: SpoofStrategy,
+    ) {
+        runCatching {
+            client.use { c ->
+                c.soTimeout = 20_000
+                c.tcpNoDelay = true
+                val inp = c.getInputStream()
+                val out = c.getOutputStream()
+                val upstream = Socket()
+                try {
+                    upstream.tcpNoDelay = true
+                    upstream.soTimeout = 20_000
+                    val cleanHost = remoteHost.removePrefix("[").removeSuffix("]")
+                    upstream.connect(InetSocketAddress(cleanHost, remotePort), 8_000)
+                    val upIn = upstream.getInputStream()
+                    val upOut = upstream.getOutputStream()
+                    val upThread = Thread(Runnable {
+                        runCatching {
+                            val buf = ByteArray(4096)
+                            var firstPacket = true
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n <= 0) break
+                                if (firstPacket && n > 5 && (buf[0].toInt() and 0xFF) == 0x16) {
+                                    firstPacket = false
+                                    val rawRecord = buf.copyOfRange(0, n)
+                                    when (strategy) {
+                                        SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
+                                        SpoofStrategy.MITM_PINNED_CERT_FRONTING,
+                                        SpoofStrategy.LOW_TTL_DECOY -> {
+                                            val split = splitClientHelloAtSni(rawRecord)
+                                            if (split != null) {
+                                                upOut.write(split.first)
+                                                upOut.flush()
+                                                Thread.sleep(2)
+                                                upOut.write(split.second)
+                                                upOut.flush()
+                                            } else {
+                                                upOut.write(rawRecord)
+                                                upOut.flush()
+                                            }
+                                        }
+                                        SpoofStrategy.WRONG_TIMESTAMP_PAWS,
+                                        SpoofStrategy.FINALMASK_HEADER_CUSTOM -> {
+                                            val stage1 = WhiteDnsSmartScanner.splitTlsClientHelloRecord(rawRecord, 6)
+                                            if (stage1 != null) {
+                                                upOut.write(stage1.first)
+                                                upOut.flush()
+                                                Thread.sleep(1)
+                                                val stage2 = WhiteDnsSmartScanner.splitTlsClientHelloRecord(stage1.second, 98)
+                                                if (stage2 != null) {
+                                                    upOut.write(stage2.first)
+                                                    upOut.flush()
+                                                    Thread.sleep(1)
+                                                    upOut.write(stage2.second)
+                                                } else {
+                                                    upOut.write(stage1.second)
+                                                }
+                                                upOut.flush()
+                                            } else {
+                                                upOut.write(rawRecord)
+                                                upOut.flush()
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    firstPacket = false
+                                    upOut.write(buf, 0, n)
+                                    upOut.flush()
+                                }
+                            }
+                        }
+                    }, "sni-tcp-fwd-up")
+                    upThread.isDaemon = true
+                    upThread.start()
+                    val downBuf = ByteArray(4096)
+                    while (true) {
+                        val n = upIn.read(downBuf)
+                        if (n <= 0) break
+                        out.write(downBuf, 0, n)
+                        out.flush()
+                    }
+                } finally {
+                    runCatching { upstream.close() }
+                }
+            }
+        }
+    }
+
+    /**
+     * Builds ready-to-connect repaired share links for the user's REAL [template]:
+     * 1) Local TCP Anti-DPI Spoof Forwarder (`127.0.0.1:<localPort>`) -> user's real server
+     * 2) All 5 Cloudflare Spoofing methods using the user's real UUID/password, Host & Path
+     * 3) Any verified open endpoints from [verifiedNonCfHits] preserving exact `IP:port`
+     */
+    fun buildRepairedConfigsForRealTemplate(
+        template: RealConfigTemplate,
+        strategy: SpoofStrategy = currentActiveStrategy,
+        verifiedNonCfHits: List<WhitelistScanHit> = emptyList(),
+    ): List<String> {
+        val out = mutableListOf<String>()
+        val encPath = runCatching { java.net.URLEncoder.encode(template.path, "UTF-8") }.getOrDefault("%2Fws")
+        val scheme = template.scheme
+        val auth = template.uuidOrPass
+        val host = template.hostHeader
+        val netType = template.networkType
+
+        // 1. Direct Local Anti-DPI Forwarder wrapping the user's real remote endpoint
+        val localFwdPort = startDirectTcpSpoofForwarder(
+            remoteHost = template.remoteHost,
+            remotePort = template.remotePort,
+            strategy = strategy,
+            decoySni = currentDecoySni,
+        )
+        val localRemark = runCatching {
+            java.net.URLEncoder.encode("🛡️ تعمیرشده با برش SNI محلی · ${template.remark}", "UTF-8")
+        }.getOrDefault("Repaired-Local-SNI")
+        val encParam = if (scheme == "vless") "encryption=none&" else ""
+        out += "$scheme://$auth@127.0.0.1:$localFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=${template.sni}&fp=chrome#$localRemark"
+
+        // 2. All 5 Cloudflare Spoofing methods applied to the user's real UUID & Host
+        for (m in CF_SPOOF_5_METHODS) {
+            val mRemark = runCatching {
+                java.net.URLEncoder.encode("⚡ اسپوف کلادفلر ${m.index} · ${template.remark}", "UTF-8")
+            }.getOrDefault("CF-Spoof-${m.index}")
+            out += "$scheme://$auth@${m.sampleEndpoint}?${encParam}type=$netType&host=$host&path=$encPath&${m.queryParams}#$mRemark"
+        }
+
+        // 3. Verified Non-Cloudflare / Whitelist open endpoints (preserving exact IP:port)
+        for (hit in verifiedNonCfHits) {
+            val t = hit.target
+            val hitRemark = runCatching {
+                java.net.URLEncoder.encode("🛰️ وایت‌لیست ${t.provider.id.uppercase()} · ${t.exactEndpoint}", "UTF-8")
+            }.getOrDefault("Whitelist-${t.provider.id}")
+            out += "$scheme://$auth@${t.exactEndpoint}?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=${t.sni}&fp=chrome&alpn=h2%2Chttp%2F1.1#$hitRemark"
+        }
+        return out
+    }
 
     @Volatile
     var currentActiveStrategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI
@@ -752,6 +1047,8 @@ internal object LocalSniSpoofProxy {
     fun stopAllSpoofProxies() {
         activeSpoofServers.values.forEach { runCatching { it.close() } }
         activeSpoofServers.clear()
+        activeTcpForwarders.values.forEach { runCatching { it.close() } }
+        activeTcpForwarders.clear()
     }
 
     private fun handleSpoofSocksClient(client: Socket, strategy: SpoofStrategy, decoySni: String) {
