@@ -1,9 +1,8 @@
-# Android failure report (004e4a6)
+# Android failure report (f3a30cb)
 
 
 ## files with compile errors
-     10 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
-      1 app/src/main/java/com/cat/client/MainActivity.kt
+      2 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -38,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3923) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3519) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -56,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3939) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3535) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -66,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3958) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3554) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -99,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3970) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3566) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -169,19 +168,9 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:processDebugManifestForPackage
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
-
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:12466:17 Unresolved reference 'renderSubscriptionSelection'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1046:21 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1113:74 Unresolved reference 'uploadMtu'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1121:28 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1122:27 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1123:28 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1124:23 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1125:21 Unresolved reference 'WhiteDnsTunnelEngine'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1138:49 Unresolved reference 'titleEn'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1230:17 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1230:31 Unresolved reference 'probeUdpDns'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1244:17 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1244:31 Unresolved reference 'probeUdpDns'.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -198,5 +187,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 33s
+BUILD FAILED in 1m 51s
 16 actionable tasks: 16 executed
