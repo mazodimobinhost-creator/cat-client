@@ -14683,8 +14683,9 @@ class MainActivity : Activity() {
             val candidateLines = mutableListOf<String>()
             for (sub in orderedSubs) {
                 val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
-                snap?.profiles?.forEach { p ->
-                    if (p.shareLink.isNotBlank()) candidateLines += p.shareLink
+                snap?.catalog?.profiles?.forEach { p ->
+                    val link = p.shareLink?.trim().orEmpty()
+                    if (link.isNotEmpty()) candidateLines += link
                 }
                 sub.input.lines().forEach { line ->
                     val t = line.trim()

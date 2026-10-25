@@ -497,7 +497,7 @@ internal object FirefoxVpnEngine {
         if (trimmed.isEmpty()) return null
         val cleanEmail = emailOrLabel.trim().ifBlank { "firefox-${(1000..9999).random()}@mozilla.org" }
 
-        val parsedAccount = if (trimmed.startsWith("{")) {
+        val parsedAccount: FirefoxVpnAccount = (if (trimmed.startsWith("{")) {
             runCatching {
                 val obj = JSONObject(trimmed)
                 val email = obj.optString("email").ifBlank { cleanEmail }
@@ -529,7 +529,7 @@ internal object FirefoxVpnEngine {
                 accessToken = trimmed,
                 refreshToken = trimmed,
             )
-        } ?: return null
+        }) ?: return null
 
         val enriched = runCatching {
             refreshAndActivateAccountPass(context, parsedAccount)
