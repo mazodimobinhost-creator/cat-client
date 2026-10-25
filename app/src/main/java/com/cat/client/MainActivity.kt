@@ -12305,7 +12305,7 @@ class MainActivity : Activity() {
                         dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
                     }
                 }
-                renderPrivacyControls()
+                renderDnsPrivacySelection()
                 if (currentVpnServiceState == VpnState.Started) {
                     reconnectForConnectionOptionChange()
                 }
