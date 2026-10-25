@@ -457,25 +457,39 @@ internal object WhiteDnsSmartScanner {
         ),
     )
 
-    fun buildDnsQueryPacket(txId: Int = 0x4341, qtype: Int = 1): ByteArray {
+    fun buildDnsQueryPacket(
+        txId: Int = 0x4341,
+        qtype: Int = 1,
+        domain: String = "cloudflare.com",
+    ): ByteArray {
         val hi = ((txId ushr 8) and 0xff).toByte()
         val lo = (txId and 0xff).toByte()
         val qtypeHi = ((qtype ushr 8) and 0xff).toByte()
         val qtypeLo = (qtype and 0xff).toByte()
-        // Standard recursive DNS query for "cloudflare.com" with configurable qtype (A=1, CNAME=5, NULL=10, TXT=16, AAAA=28, HTTPS=65)
-        return byteArrayOf(
+        val labels = domain.trim('.').ifEmpty { "cloudflare.com" }.split('.').filter { it.isNotEmpty() }
+        val qnameBytes = java.io.ByteArrayOutputStream()
+        for (label in labels) {
+            val bytes = label.toByteArray(Charsets.US_ASCII)
+            val len = bytes.size.coerceAtMost(63)
+            qnameBytes.write(len)
+            qnameBytes.write(bytes, 0, len)
+        }
+        qnameBytes.write(0)
+        val qname = qnameBytes.toByteArray()
+        val header = byteArrayOf(
             hi, lo, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x0a, 'c'.code.toByte(), 'l'.code.toByte(), 'o'.code.toByte(), 'u'.code.toByte(),
-            'd'.code.toByte(), 'f'.code.toByte(), 'l'.code.toByte(), 'a'.code.toByte(),
-            'r'.code.toByte(), 'e'.code.toByte(),
-            0x03, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(),
-            0x00, qtypeHi, qtypeLo, 0x00, 0x01,
         )
+        val footer = byteArrayOf(qtypeHi, qtypeLo, 0x00, 0x01)
+        return header + qname + footer
     }
 
     /** Builds an RFC 1035 TCP DNS query frame prefixed with a 2-byte big-endian length. */
-    fun buildTcpDnsQueryFrame(txId: Int = 0x4341, qtype: Int = 1): ByteArray {
-        val payload = buildDnsQueryPacket(txId, qtype)
+    fun buildTcpDnsQueryFrame(
+        txId: Int = 0x4341,
+        qtype: Int = 1,
+        domain: String = "cloudflare.com",
+    ): ByteArray {
+        val payload = buildDnsQueryPacket(txId, qtype, domain)
         val len = payload.size
         return ByteArray(len + 2).also { frame ->
             frame[0] = ((len ushr 8) and 0xff).toByte()
@@ -621,9 +635,14 @@ internal object WhiteDnsSmartScanner {
         return hits.sortedBy { it.rttMs }
     }
 
-    fun probeDnsOverUdp(ip: String, qtype: Int = 1, timeoutMs: Int = 850): Long? {
+    fun probeDnsOverUdp(
+        ip: String,
+        qtype: Int = 1,
+        timeoutMs: Int = 850,
+        domain: String = "cloudflare.com",
+    ): Long? {
         val txId = (0x4300 or (qtype and 0xff))
-        val query = buildDnsQueryPacket(txId, qtype)
+        val query = buildDnsQueryPacket(txId, qtype, domain)
         return runCatching {
             val t0 = System.nanoTime()
             DatagramSocket().use { sock ->
@@ -640,9 +659,14 @@ internal object WhiteDnsSmartScanner {
     }
 
     /** Sends a real RFC 1035 2-byte length-prefixed DNS query over TCP:53 and validates the DNS response header. */
-    fun probeDnsOverTcp(ip: String, qtype: Int = 1, timeoutMs: Int = 950): Long? {
+    fun probeDnsOverTcp(
+        ip: String,
+        qtype: Int = 1,
+        timeoutMs: Int = 950,
+        domain: String = "cloudflare.com",
+    ): Long? {
         val txId = (0x5400 or (qtype and 0xff))
-        val frame = buildTcpDnsQueryFrame(txId, qtype)
+        val frame = buildTcpDnsQueryFrame(txId, qtype, domain)
         return runCatching {
             val t0 = System.nanoTime()
             Socket().use { sock ->
@@ -671,9 +695,15 @@ internal object WhiteDnsSmartScanner {
     }
 
     /** Sends a real RFC 1035 DNS query over TLS on port 853 (DoT) and validates the DNS response. */
-    fun probeDnsOverTls(ip: String, port: Int = 853, qtype: Int = 1, timeoutMs: Int = 1200): Long? {
+    fun probeDnsOverTls(
+        ip: String,
+        port: Int = 853,
+        qtype: Int = 1,
+        timeoutMs: Int = 1200,
+        domain: String = "cloudflare.com",
+    ): Long? {
         val txId = (0x5800 or (qtype and 0xff))
-        val frame = buildTcpDnsQueryFrame(txId, qtype)
+        val frame = buildTcpDnsQueryFrame(txId, qtype, domain)
         return runCatching {
             val t0 = System.nanoTime()
             val addr = InetAddress.getByName(ip.trim())
@@ -866,11 +896,11 @@ internal object WhiteDnsSmartScanner {
             else -> 62
         }
         val recordMode = when {
-            "HTTPS/SVCB" in supported -> WhiteDnsRecordMode.TXT_HTTPS
-            "NULL" in supported && maxSafeQName >= 101 -> WhiteDnsRecordMode.NULL_RAW
+            "HTTPS(65)" in supported || "HTTPS/SVCB" in supported -> WhiteDnsRecordMode.TXT_HTTPS
+            "NULL" in supported && maxSafeQName >= 101 -> WhiteDnsRecordMode.NULL_EDNS0
             "CNAME" in supported -> WhiteDnsRecordMode.TXT_CNAME
             "AAAA" in supported -> WhiteDnsRecordMode.TXT_AAAA
-            else -> WhiteDnsRecordMode.ALL
+            else -> WhiteDnsRecordMode.ALL_ADAPTIVE
         }
         val presetId = when {
             useTcp -> "tcp-survival"
