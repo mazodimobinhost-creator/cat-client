@@ -1,9 +1,8 @@
-# Android failure report (0a72c4c)
+# Android failure report (6162fdd)
 
 
 ## files with compile errors
-     38 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
-      1 app/src/main/java/com/cat/client/MainActivity.kt
+      7 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -38,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3546) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3513) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -56,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3561) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3528) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -66,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3580) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3547) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -99,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3592) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3559) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -154,9 +153,9 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
-> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
+> Task :app:mergeDebugResources
 > Task :app:parseDebugLocalResources
 
 > Task :app:processDebugMainManifest
@@ -170,45 +169,13 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:12475:21 Unresolved reference 'refreshEngineSummary'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:806:26 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:806:26 Not enough information to infer type argument for 'T'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:807:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:807:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:808:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:808:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:809:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:809:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:810:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:810:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:811:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:811:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:812:13 Unresolved reference 'resolverById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:812:13 Not enough information to infer type argument for 'K'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:814:39 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:814:39 Not enough information to infer type argument for 'T'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:818:48 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:818:59 No parameter with name 'domain' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:824:52 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:824:63 No parameter with name 'domain' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:833:38 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:833:38 Not enough information to infer type argument for 'T'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:833:45 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:833:50 Unresolved reference 'dotEndpoint'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:834:52 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:834:68 No parameter with name 'domain' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:844:55 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:850:42 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:850:53 No parameter with name 'domain' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:854:42 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:854:53 No parameter with name 'domain' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:864:78 Unresolved reference 'NULL_RAW'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:867:40 Unresolved reference 'ALL'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:876:22 Unresolved reference 'presetById'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:886:57 Unresolved reference 'nameFa'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:886:81 Unresolved reference 'primaryIp'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:887:56 Unresolved reference 'nameEn'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:887:80 Unresolved reference 'primaryIp'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:824:59 No parameter with name 'domain' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:830:63 No parameter with name 'domain' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:840:68 No parameter with name 'domain' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:856:53 No parameter with name 'domain' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:860:53 No parameter with name 'domain' found.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:870:78 Unresolved reference 'NULL_RAW'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:873:40 Unresolved reference 'ALL'.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -225,5 +192,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 56s
+BUILD FAILED in 1m 49s
 16 actionable tasks: 16 executed
