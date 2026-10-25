@@ -151,7 +151,7 @@ class WhiteDnsSmartScannerTest {
             "MyGAS",
         )
         val parsedGas = WhiteDnsSmartScanner.parseTunnelUri(gasUri)
-        assertNotNull(parsedGas)
+        assertTrue(parsedGas != null)
         assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.GOOGLE_SCRIPT_RELAY, parsedGas!!.engine)
         assertTrue(parsedGas.scriptUrl.startsWith("https://script.google.com/macros/s/AKfycb123/exec"))
         val convertedGas = SubConvConverter.convert(gasUri)
