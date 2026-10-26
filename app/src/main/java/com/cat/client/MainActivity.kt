@@ -16127,6 +16127,7 @@ class MainActivity : Activity() {
      * 4) 📊 Live Tunnel Status Bar + 📲 1-Click Hotspot/Wi-Fi Share with QR Code + 🧹 1-Click Dead Config Cleaner & Sorter
      */
     private fun showFourPowerFeaturesCenterDialog() {
+        LocalSniSpoofProxy.loadPersistedPowerSettings(this)
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val rootScroll = ScrollView(this)
         val container = LinearLayout(this).apply {
@@ -16161,16 +16162,18 @@ class MainActivity : Activity() {
             val rttText = if (rtt > 0) "${rtt}ms" else if (isFarsi) "آماده تست" else "Ready"
             val autoHealOn = LocalSniSpoofProxy.autoHealWatchdogEnabled
             val gamingOn = LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled
+            val batteryOn = LocalSniSpoofProxy.batteryAndDataSaverEnabled
             val hotspotOn = LocalSniSpoofProxy.isLanHotspotProxyRunning()
             val rotCount = LocalSniSpoofProxy.autoHealRotationCount.get()
             liveStatusView.text = if (isFarsi) {
                 buildString {
-                    appendLine("📊 وضعیت زندهٔ تانل و ۴ قابلیت طلایی:")
+                    appendLine("📊 وضعیت زندهٔ تانل و مرکز قابلیت‌های طلایی:")
                     appendLine("• لبه/آی‌پی فعال فعلی: $edge (پینگ: $rttText)")
                     appendLine("• ۱) پایشگر خودکار ضد-فریز: ${if (autoHealOn) "🟢 روشن (تعویض بدون قطعی: $rotCount بار)" else "⚪ خاموش"}")
                     appendLine("• ۲) تفکیک هوشمند برنامه‌ها: $splitLabel")
                     appendLine("• ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس: ${if (gamingOn) "🟢 روشن (DSCP EF + ضد خواب 4G/5G)" else "⚪ خاموش"}")
-                    append("• ۴) هات‌اسپات پروکسی شبکه‌ای: ${if (hotspotOn) "🟢 روشن روی پورت ${LocalSniSpoofProxy.activeLanHotspotPort()}" else "⚪ آماده اشتراک‌گذاری"}")
+                    appendLine("• ۴) هات‌اسپات پروکسی شبکه‌ای: ${if (hotspotOn) "🟢 روشن روی پورت ${LocalSniSpoofProxy.activeLanHotspotPort()}" else "⚪ آماده اشتراک‌گذاری"}")
+                    append("• ۵) ذخیرهٔ هوشمند باتری و حجم: ${if (batteryOn) "🟢 روشن" else "⚪ معمولی"}")
                     if (extraNote.isNotBlank()) {
                         appendLine()
                         append(extraNote)
@@ -16178,12 +16181,13 @@ class MainActivity : Activity() {
                 }
             } else {
                 buildString {
-                    appendLine("📊 Live Tunnel & 4 Power Features Status:")
+                    appendLine("📊 Live Tunnel & Power Features Status:")
                     appendLine("• Active Clean Edge: $edge (Ping: $rttText)")
                     appendLine("• 1) Auto-Heal Watchdog: ${if (autoHealOn) "🟢 ON (Rotations: $rotCount)" else "⚪ OFF"}")
                     appendLine("• 2) Smart Split Tunnel: $splitLabel")
                     appendLine("• 3) Gaming & Call Booster: ${if (gamingOn) "🟢 ON (DSCP EF + 4G/5G Anti-Sleep)" else "⚪ OFF"}")
-                    append("• 4) LAN Hotspot Proxy: ${if (hotspotOn) "🟢 ON (Port ${LocalSniSpoofProxy.activeLanHotspotPort()})" else "⚪ Ready"}")
+                    appendLine("• 4) LAN Hotspot Proxy: ${if (hotspotOn) "🟢 ON (Port ${LocalSniSpoofProxy.activeLanHotspotPort()})" else "⚪ Ready"}")
+                    append("• 5) Battery & Data Saver: ${if (batteryOn) "🟢 ON" else "⚪ Normal"}")
                     if (extraNote.isNotBlank()) {
                         appendLine()
                         append(extraNote)
@@ -16236,6 +16240,18 @@ class MainActivity : Activity() {
                                 endpointScannedAt = System.currentTimeMillis(),
                             ),
                         )
+                    } else if (rot.updatedForwardersCount == 0) {
+                        // Also start a forwarder on the newly rotated edge for the user's real template if present
+                        val tpl = resolveUserRealConfigTemplate()
+                        if (tpl != null) {
+                            withContext(Dispatchers.IO) {
+                                LocalSniSpoofProxy.startDirectTcpSpoofForwarder(
+                                    remoteHost = rot.newIp,
+                                    remotePort = rot.newPort,
+                                    strategy = LocalSniSpoofProxy.currentActiveStrategy,
+                                )
+                            }
+                        }
                     }
                     refreshLiveStatusText(
                         if (isFarsi) "✅ آی‌پی تانل بدون قطعی از ${rot.previousEndpoint} به ${rot.newEndpoint} (${rot.rttMs}ms) منتقل شد!"
@@ -16258,6 +16274,7 @@ class MainActivity : Activity() {
         autoHealBtn.setOnClickListener {
             val next = !LocalSniSpoofProxy.autoHealWatchdogEnabled
             LocalSniSpoofProxy.autoHealWatchdogEnabled = next
+            LocalSniSpoofProxy.savePersistedPowerSettings(this)
             if (next) LocalSniSpoofProxy.ensureAutoHealWatchdogLoop()
             autoHealBtn.text = if (isFarsi) {
                 if (next) "🔄 ۱) پایشگر خودکار ضد-فریز در پس‌زمینه: 🟢 روشن (ضربه برای خاموش)"
@@ -16268,10 +16285,10 @@ class MainActivity : Activity() {
             }
             refreshLiveStatusText(
                 if (isFarsi) {
-                    if (next) "✅ پایشگر ضد-فریز فعال شد؛ در صورت افت پینگ، آی‌پی خودکار در پس‌زمینه عوض می‌شود."
+                    if (next) "✅ پایشگر ضد-فریز فعال و ذخیره شد؛ در صورت افت پینگ، آی‌پی خودکار در پس‌زمینه عوض می‌شود."
                     else "ℹ️ پایشگر خودکار پس‌زمینه غیرفعال شد."
                 } else {
-                    if (next) "✅ Auto-Heal Watchdog enabled." else "ℹ️ Auto-Heal Watchdog disabled."
+                    if (next) "✅ Auto-Heal Watchdog enabled & saved." else "ℹ️ Auto-Heal Watchdog disabled."
                 },
             )
         }
@@ -16350,6 +16367,7 @@ class MainActivity : Activity() {
         gamingBtn.setOnClickListener {
             val next = !LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled
             LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled = next
+            LocalSniSpoofProxy.savePersistedPowerSettings(this)
             if (next) LocalSniSpoofProxy.ensureAutoHealWatchdogLoop()
             gamingBtn.text = if (isFarsi) {
                 if (next) "🎮 ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس: 🟢 روشن (ضربه برای خاموش)"
@@ -16396,10 +16414,109 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 5: Real Tunnel Speed & 16KB Upload-Freeze Tester
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "⚡ ۵) تست واقعی سرعت دانلود، پینگ و تشخیص قفل آپلود ویس/عکس (۱۶ کیلوبایت)"
+                else "⚡ 5) Real Download/Upload Speed & 16KB Upload-Freeze Detector",
+            ) {
+                refreshLiveStatusText(if (isFarsi) "⏳ در حال تست سرعت دانلود و ارسال بستهٔ آپلود ۱۶ کیلوبایتی…" else "⏳ Probing download speed & 16KB upload burst…")
+                activityScope.launch {
+                    val rep = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.probeTunnelSpeedAndUploadFreeze(timeoutMs = 2_000)
+                    }
+                    refreshLiveStatusText(if (isFarsi) rep.diagnosisFa else rep.diagnosisEn)
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 6: 1-Click Anti-Sanction & Google Captcha Remover (Psiphon -> WARP Reverse Chain + DoH)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🔓 ۶) رفع تحریم هوش مصنوعی (Gemini/ChatGPT) + حذف کپچای گوگل (Psiphon -> WARP)"
+                else "🔓 6) Unblock AI (Gemini/ChatGPT/Spotify) + Zero Google Captcha (Psiphon -> WARP)",
+            ) {
+                val cur = aetherPreferenceStore.read()
+                aetherPreferenceStore.save(
+                    cur.copy(
+                        enabled = true,
+                        transport = AetherTransport.MasqueInMasque,
+                        masqueTransport = AetherMasqueTransport.Http2,
+                        carrierMode = AetherCarrierMode.PsiphonReverse,
+                        psiphonRegion = "US",
+                        endpoint = cur.endpoint.ifBlank { "188.114.98.0:443" },
+                        innerEndpoint = cur.innerEndpoint.ifBlank { "162.159.198.235:443" },
+                        masqueSni = "speed.cloudflare.com",
+                        echEnabled = true,
+                        endpointScannedAt = System.currentTimeMillis(),
+                    ),
+                )
+                dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.Doh)
+                dnsPrivacyPreferenceStore.saveDohUrl("https://cloudflare-dns.com/dns-query")
+                orbotEnginePreferenceStore.setEnabled(false)
+                renderAdvancedControls()
+                refreshLiveStatusText(
+                    if (isFarsi) "✅ زنجیرهٔ معکوس ضد-تحریم و ضد-کپچا (Psiphon -> WARP US + DoH) فعال و آمادهٔ اتصال شد!"
+                    else "✅ Reverse Anti-Sanction & Zero-Captcha chain (Psiphon -> WARP US + DoH) enabled!",
+                )
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                } else {
+                    beginConnectFlow(Actions.CONNECT)
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 7: Smart Battery & Data Saver Mode
+        val batteryBtn = makeActionButton(
+            label = if (isFarsi) {
+                if (LocalSniSpoofProxy.batteryAndDataSaverEnabled) "🔋 ۷) حالت ذخیرهٔ هوشمند باتری و اینترنت پس‌زمینه: 🟢 روشن (ضربه برای خاموش)"
+                else "🔋 ۷) حالت ذخیرهٔ هوشمند باتری و اینترنت پس‌زمینه: ⚪ خاموش (ضربه برای روشن)"
+            } else {
+                if (LocalSniSpoofProxy.batteryAndDataSaverEnabled) "🔋 7) Smart Battery & Data Saver: 🟢 ON"
+                else "🔋 7) Smart Battery & Data Saver: ⚪ OFF (Tap to Enable)"
+            },
+        ) {}
+        batteryBtn.setOnClickListener {
+            val next = !LocalSniSpoofProxy.batteryAndDataSaverEnabled
+            LocalSniSpoofProxy.batteryAndDataSaverEnabled = next
+            LocalSniSpoofProxy.savePersistedPowerSettings(this)
+            batteryBtn.text = if (isFarsi) {
+                if (next) "🔋 ۷) حالت ذخیرهٔ هوشمند باتری و اینترنت پس‌زمینه: 🟢 روشن (ضربه برای خاموش)"
+                else "🔋 ۷) حالت ذخیرهٔ هوشمند باتری و اینترنت پس‌زمینه: ⚪ خاموش (ضربه برای روشن)"
+            } else {
+                if (next) "🔋 7) Smart Battery & Data Saver: 🟢 ON"
+                else "🔋 7) Smart Battery & Data Saver: ⚪ OFF (Tap to Enable)"
+            }
+            refreshLiveStatusText(
+                if (isFarsi) {
+                    if (next) "✅ حالت ذخیرهٔ هوشمند باتری و اینترنت پس‌زمینه فعال و ذخیره شد."
+                    else "ℹ️ حالت ذخیرهٔ باتری غیرفعال شد."
+                } else {
+                    if (next) "✅ Smart Battery & Data Saver enabled & saved."
+                    else "ℹ️ Smart Battery & Data Saver disabled."
+                },
+            )
+        }
+        container.addView(batteryBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Feature 8: 1-Click Multi-Subscription Merger into a deduplicated Super-Subscription
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "💎 ۸) ترکیب همهٔ اشتراک‌ها و کلیپ‌بورد در یک «سوپر-اشتراک» بدون تکرار"
+                else "💎 8) Merge All Subscriptions & Clipboard into 1 Deduplicated Super-Subscription",
+            ) {
+                runOneClickCleanAndSortConfigsDialog(mergeIntoSuperSubscription = true)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🚀 مرکز ۴ قابلیت طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات و پالایش)"
-                else "🚀 4 Power Features Center (Auto-Heal · Smart Split · Gaming · Hotspot & Cleaner)",
+                if (isFarsi) "🚀 مرکز قابلیت‌های طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات · سرعت و پالایش)"
+                else "🚀 Power Features Center (Auto-Heal · Smart Split · Gaming · Hotspot · Speed & Cleaner)",
             )
             .setView(rootScroll)
             .setPositiveButton(android.R.string.ok, null)
@@ -16514,7 +16631,7 @@ class MainActivity : Activity() {
      * removes dead/timed-out servers, auto-repairs blocked Cloudflare configs via Multi-Chunk SNI Split,
      * sorts by real ping (`ms`), and saves + connects immediately.
      */
-    private fun runOneClickCleanAndSortConfigsDialog() {
+    private fun runOneClickCleanAndSortConfigsDialog(mergeIntoSuperSubscription: Boolean = false) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         Toast.makeText(
             this,
@@ -16595,11 +16712,21 @@ class MainActivity : Activity() {
                     else "🚀 Save Sorted Configs & Connect Now",
                 ) { _, _ ->
                     activityScope.launch {
-                        val subTitle = activeSub?.name ?: if (isFarsi) "⚡ کانفیگ‌های پالایش‌شده (بر اساس پینگ)" else "⚡ Cleaned & Sorted Configs"
+                        val superTitle = if (isFarsi) "💎 سوپر-اشتراک ترکیبی (سریع‌ترین‌های همهٔ اشتراک‌ها)" else "💎 Super-Merged Subscription (Fastest)"
+                        val subTitle = if (mergeIntoSuperSubscription) {
+                            superTitle
+                        } else {
+                            activeSub?.name ?: if (isFarsi) "⚡ کانفیگ‌های پالایش‌شده (بر اساس پینگ)" else "⚡ Cleaned & Sorted Configs"
+                        }
+                        val targetExisting = if (mergeIntoSuperSubscription) {
+                            subs.firstOrNull { it.name == superTitle }
+                        } else {
+                            activeSub
+                        }
                         val rawJoined = report.sortedAliveLinks.joinToString("\n")
                         val saved = withContext(Dispatchers.IO) {
-                            if (activeSub != null) {
-                                userSubscriptionManager.update(activeSub.id, subTitle, rawJoined)
+                            if (targetExisting != null) {
+                                userSubscriptionManager.update(targetExisting.id, subTitle, rawJoined)
                             } else {
                                 userSubscriptionManager.add(subTitle, rawJoined)
                             }

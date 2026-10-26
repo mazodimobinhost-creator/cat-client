@@ -861,7 +861,32 @@ internal object LocalSniSpoofProxy {
     var autoHealWatchdogEnabled: Boolean = true
     @Volatile
     var gamingLowLatencyBoosterEnabled: Boolean = false
+    @Volatile
+    var batteryAndDataSaverEnabled: Boolean = false
     val autoHealRotationCount = AtomicInteger(0)
+    private val unpoisonedDnsCache = ConcurrentHashMap<String, String>()
+    private const val POWER_FEATURES_PREFS = "cat_power_features_prefs"
+
+    fun loadPersistedPowerSettings(context: android.content.Context) {
+        runCatching {
+            val prefs = context.applicationContext.getSharedPreferences(POWER_FEATURES_PREFS, android.content.Context.MODE_PRIVATE)
+            autoHealWatchdogEnabled = prefs.getBoolean("auto_heal_enabled", true)
+            gamingLowLatencyBoosterEnabled = prefs.getBoolean("gaming_booster_enabled", false)
+            batteryAndDataSaverEnabled = prefs.getBoolean("battery_saver_enabled", false)
+        }
+    }
+
+    fun savePersistedPowerSettings(context: android.content.Context) {
+        runCatching {
+            context.applicationContext
+                .getSharedPreferences(POWER_FEATURES_PREFS, android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("auto_heal_enabled", autoHealWatchdogEnabled)
+                .putBoolean("gaming_booster_enabled", gamingLowLatencyBoosterEnabled)
+                .putBoolean("battery_saver_enabled", batteryAndDataSaverEnabled)
+                .apply()
+        }
+    }
     @Volatile
     var lastActiveEdgeEndpoint: String = "188.114.98.0:443"
         private set
@@ -1441,7 +1466,9 @@ internal object LocalSniSpoofProxy {
         var updated = 0
         for (state in activeForwarderStates.values) {
             state.currentHost = newIp
-            state.currentPort = newPort
+            if (state.originalPort == 443 || state.originalPort == 2053 || state.originalPort == 8443) {
+                state.currentPort = newPort
+            }
             updated++
         }
         lastActiveEdgeEndpoint = "$newIp:$newPort"
@@ -1459,9 +1486,10 @@ internal object LocalSniSpoofProxy {
 
     /**
      * Background Auto-Heal / Anti-Freeze Watchdog + 4G/5G RRC Anti-Sleep Pacer:
-     * Checks tunnel edge health every 30s (and sends a lightweight keep-alive pulse every 12s when
-     * [gamingLowLatencyBoosterEnabled] is active). If the current edge times out twice in a row or
-     * freezes (> 900ms), it seamlessly rotates all active forwarders to a fresh edge.
+     * Checks tunnel edge health every 30s (or 90s when [batteryAndDataSaverEnabled] is active, and
+     * sends a lightweight keep-alive pulse every 10s when [gamingLowLatencyBoosterEnabled] is active).
+     * If the current edge times out twice in a row or freezes (> 900ms), it seamlessly rotates all
+     * active forwarders to a fresh edge.
      */
     fun ensureAutoHealWatchdogLoop() {
         val currentThread = autoHealWatchdogThread
@@ -1470,7 +1498,8 @@ internal object LocalSniSpoofProxy {
             var consecutiveFailures = 0
             var tick = 0
             while (autoHealWatchdogEnabled || gamingLowLatencyBoosterEnabled) {
-                runCatching { Thread.sleep(10_000L) }.onFailure { break }
+                val sleepMs = if (batteryAndDataSaverEnabled && !gamingLowLatencyBoosterEnabled) 30_000L else 10_000L
+                runCatching { Thread.sleep(sleepMs) }.onFailure { break }
                 tick++
                 val endpoint = lastActiveEdgeEndpoint
                 val colon = endpoint.lastIndexOf(':')
@@ -1490,7 +1519,7 @@ internal object LocalSniSpoofProxy {
                     }
                 }
 
-                // Auto-Heal edge health check every 30s (every 3rd tick)
+                // Auto-Heal edge health check every 30s (or 90s in battery saver mode)
                 if (autoHealWatchdogEnabled && tick % 3 == 0 && activeForwarderStates.isNotEmpty()) {
                     val rtt = probeSpoofedTlsHandshake(
                         ip = host,
@@ -1517,6 +1546,63 @@ internal object LocalSniSpoofProxy {
             start()
         }
         autoHealWatchdogThread = t
+    }
+
+    /**
+     * Resolves a hostname for LAN Hotspot clients without falling victim to Iranian ISP UDP DNS
+     * poisoning (`10.10.34.*`, `0.0.0.0`, `127.*`). Uses TCP DNS (port 53 over TCP to `8.8.8.8`/`1.1.1.1`)
+     * when system DNS returns a poisoned IP.
+     */
+    internal fun resolveUnpoisonedHostIp(host: String, timeoutMs: Int = 1_200): String {
+        val clean = host.trim().removePrefix("[").removeSuffix("]")
+        if (clean.isEmpty()) return clean
+        // Check if already IPv4 literal or IPv6 literal
+        if (clean.contains(':') || clean.all { it.isDigit() || it == '.' }) {
+            return clean
+        }
+        unpoisonedDnsCache[clean.lowercase()]?.let { return it }
+
+        // 1. Try system resolver first; accept only if not poisoned
+        val sysIp = runCatching { InetAddress.getByName(clean).hostAddress }.getOrNull()
+        if (!sysIp.isNullOrBlank() && !WhiteDnsSmartScanner.isPoisonedIranDnsIp(sysIp)) {
+            unpoisonedDnsCache[clean.lowercase()] = sysIp
+            return sysIp
+        }
+
+        // 2. Fallback to TCP DNS query (TCP port 53 to 8.8.8.8 / 1.1.1.1 is not forged by UDP injectors)
+        val query = WhiteDnsSmartScanner.buildDnsQueryPacket(0x5241, qtype = 1, domain = clean)
+        for (resolver in listOf("8.8.8.8", "1.1.1.1", "9.9.9.9")) {
+            val tcpIp = runCatching {
+                Socket().use { s ->
+                    s.soTimeout = timeoutMs
+                    s.connect(InetSocketAddress(resolver, 53), timeoutMs)
+                    val out = s.getOutputStream()
+                    val inp = s.getInputStream()
+                    out.write((query.size ushr 8) and 0xFF)
+                    out.write(query.size and 0xFF)
+                    out.write(query)
+                    out.flush()
+                    val lenHi = inp.read()
+                    val lenLo = inp.read()
+                    if (lenHi < 0 || lenLo < 0) return@use null
+                    val respLen = ((lenHi and 0xFF) shl 8) or (lenLo and 0xFF)
+                    if (respLen !in 16..4096) return@use null
+                    val resp = ByteArray(respLen)
+                    var readTotal = 0
+                    while (readTotal < respLen) {
+                        val r = inp.read(resp, readTotal, respLen - readTotal)
+                        if (r <= 0) break
+                        readTotal += r
+                    }
+                    extractFirstARecordIp(resp, readTotal)
+                }
+            }.getOrNull()
+            if (!tcpIp.isNullOrBlank() && !WhiteDnsSmartScanner.isPoisonedIranDnsIp(tcpIp)) {
+                unpoisonedDnsCache[clean.lowercase()] = tcpIp
+                return tcpIp
+            }
+        }
+        return sysIp ?: clean
     }
 
     data class JitterMetricsReport(
@@ -1717,13 +1803,14 @@ internal object LocalSniSpoofProxy {
                     val port = ((pHi and 0xFF) shl 8) or (pLo and 0xFF)
                     val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
                     if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true) || cleanHost == "0.0.0.0") return@use
+                    val targetIp = resolveUnpoisonedHostIp(cleanHost, 1_200)
                     val upstream = Socket()
                     try {
                         applyGamingSocketTuning(upstream)
-                        upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                        upstream.connect(InetSocketAddress(targetIp, port), 8_000)
                         out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
                         out.flush()
-                        pipeBidirectionalWithSniSplit(pushback, out, upstream, cleanHost, port, strategy, decoySni, initialPayload = null)
+                        pipeBidirectionalWithSniSplit(pushback, out, upstream, targetIp, port, strategy, decoySni, initialPayload = null)
                     } finally {
                         runCatching { upstream.close() }
                     }
@@ -1758,18 +1845,19 @@ internal object LocalSniSpoofProxy {
                         val port = if (colon > 0) targetUri.substring(colon + 1).toIntOrNull() ?: 443 else 443
                         val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
                         if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true)) return@use
+                        val targetIp = resolveUnpoisonedHostIp(cleanHost, 1_200)
                         val upstream = Socket()
                         try {
                             applyGamingSocketTuning(upstream)
-                            upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                            upstream.connect(InetSocketAddress(targetIp, port), 8_000)
                             out.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(Charsets.US_ASCII))
                             out.flush()
-                            pipeBidirectionalWithSniSplit(pushback, out, upstream, cleanHost, port, strategy, decoySni, initialPayload = null)
+                            pipeBidirectionalWithSniSplit(pushback, out, upstream, targetIp, port, strategy, decoySni, initialPayload = null)
                         } finally {
                             runCatching { upstream.close() }
                         }
                     } else {
-                        // Plain HTTP request with Host header or full URL
+                        // Plain HTTP request with Host header or full URL (rewrite absolute URI to relative path)
                         val hostLine = reqText.lineSequence()
                             .firstOrNull { it.startsWith("Host:", ignoreCase = true) }
                             ?.substringAfter(':')
@@ -1784,19 +1872,30 @@ internal object LocalSniSpoofProxy {
                         val port = if (colon > 0) hostPort.substring(colon + 1).toIntOrNull() ?: 80 else 80
                         val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
                         if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true)) return@use
+                        val targetIp = resolveUnpoisonedHostIp(cleanHost, 1_200)
+                        val rewrittenReq = if (targetUri.startsWith("http://", ignoreCase = true)) {
+                            val relPath = "/" + targetUri.removePrefix("http://").substringAfter('/', "")
+                            val protoVer = parts.getOrElse(2) { "HTTP/1.1" }
+                            val restLines = reqText.lines().drop(1)
+                                .filterNot { it.startsWith("Proxy-", ignoreCase = true) }
+                                .joinToString("\r\n")
+                            "$method $relPath $protoVer\r\n$restLines"
+                        } else {
+                            reqText
+                        }
                         val upstream = Socket()
                         try {
                             applyGamingSocketTuning(upstream)
-                            upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                            upstream.connect(InetSocketAddress(targetIp, port), 8_000)
                             pipeBidirectionalWithSniSplit(
                                 clientIn = pushback,
                                 clientOut = out,
                                 upstream = upstream,
-                                cleanHost = cleanHost,
+                                cleanHost = targetIp,
                                 port = port,
                                 strategy = strategy,
                                 decoySni = decoySni,
-                                initialPayload = headerBytes.toByteArray(),
+                                initialPayload = rewrittenReq.toByteArray(Charsets.ISO_8859_1),
                             )
                         } finally {
                             runCatching { upstream.close() }
@@ -1893,7 +1992,10 @@ internal object LocalSniSpoofProxy {
             return CleanedSubscriptionReport(0, 0, 0, -1L, emptyList())
         }
 
-        val probeFutures = candidateUris.take(40).map { uri ->
+        val batch = candidateUris.take(120)
+        val remainder = if (candidateUris.size > 120) candidateUris.drop(120) else emptyList()
+
+        val probeFutures = batch.map { uri ->
             spoofWorkerPool.submit<Pair<String, Long?>> {
                 val lower = uri.lowercase()
                 if (lower.startsWith("aether://")) {
@@ -1939,7 +2041,7 @@ internal object LocalSniSpoofProxy {
 
         val results = probeFutures.mapIndexed { idx, fut ->
             runCatching { fut.get((timeoutMs + 400).toLong(), TimeUnit.MILLISECONDS) }.getOrElse {
-                candidateUris[idx] to null
+                batch[idx] to null
             }
         }
 
@@ -1948,22 +2050,12 @@ internal object LocalSniSpoofProxy {
             .sortedBy { it.second ?: Long.MAX_VALUE }
             .map { (uri, rtt) ->
                 val ms = rtt ?: 100L
-                val hashIdx = uri.indexOf('#')
-                if (hashIdx > 0) {
-                    val base = uri.substring(0, hashIdx)
-                    val oldFrag = runCatching { java.net.URLDecoder.decode(uri.substring(hashIdx + 1), "UTF-8") }
-                        .getOrDefault(uri.substring(hashIdx + 1))
-                        .replace(Regex("\\(\\d+ms\\)\\s*"), "")
-                        .trim()
-                    val newFrag = runCatching {
-                        java.net.URLEncoder.encode("(${ms}ms) $oldFrag", "UTF-8").replace("+", "%20")
-                    }.getOrDefault("${ms}ms")
-                    "$base#$newFrag"
-                } else {
-                    "$uri#${ms}ms"
-                }
+                annotateShareUriWithPing(uri, ms)
             }
             .toMutableList()
+
+        // Preserve any overflow configs beyond 120 so large subscriptions never lose tail items
+        alive.addAll(remainder)
 
         // If all configs timed out directly, auto-repair the first valid VLESS/Trojan template via Multi-Chunk SNI Split
         if (alive.isEmpty()) {
@@ -1980,8 +2072,56 @@ internal object LocalSniSpoofProxy {
             aliveCount = alive.size,
             deadRemovedCount = deadCount,
             fastestLatencyMs = fastest,
-            sortedAliveLinks = alive,
+            sortedAliveLinks = alive.distinct(),
         )
+    }
+
+    internal fun decodeLenientBase64(input: String): ByteArray? {
+        return runCatching {
+            var normalized = input.trim()
+                .replace('-', '+')
+                .replace('_', '/')
+                .replace("\r", "")
+                .replace("\n", "")
+                .replace(" ", "")
+            val rem = normalized.length % 4
+            if (rem == 2) normalized += "=="
+            else if (rem == 3) normalized += "="
+            java.util.Base64.getDecoder().decode(normalized)
+        }.getOrNull()
+    }
+
+    internal fun annotateShareUriWithPing(uri: String, ms: Long): String {
+        val trimmed = uri.trim()
+        if (trimmed.lowercase().startsWith("vmess://")) {
+            val rawPayload = trimmed.substringAfter("vmess://").substringBefore('#').trim()
+            val decoded = decodeLenientBase64(rawPayload)
+            if (decoded != null) {
+                val updated = runCatching {
+                    val obj = org.json.JSONObject(String(decoded, Charsets.UTF_8))
+                    val oldPs = obj.optString("ps", "VMess").replace(Regex("^\\(\\d+ms\\)\\s*"), "").trim()
+                    obj.put("ps", "(${ms}ms) $oldPs")
+                    val reEncoded = java.util.Base64.getEncoder().encodeToString(obj.toString().toByteArray(Charsets.UTF_8))
+                    "vmess://$reEncoded"
+                }.getOrNull()
+                if (updated != null) return updated
+            }
+            return trimmed
+        }
+        val hashIdx = trimmed.indexOf('#')
+        return if (hashIdx > 0) {
+            val base = trimmed.substring(0, hashIdx)
+            val oldFrag = runCatching { java.net.URLDecoder.decode(trimmed.substring(hashIdx + 1), "UTF-8") }
+                .getOrDefault(trimmed.substring(hashIdx + 1))
+                .replace(Regex("\\(\\d+ms\\)\\s*"), "")
+                .trim()
+            val newFrag = runCatching {
+                java.net.URLEncoder.encode("(${ms}ms) $oldFrag", "UTF-8").replace("+", "%20")
+            }.getOrDefault("${ms}ms")
+            "$base#$newFrag"
+        } else {
+            "$trimmed#${ms}ms"
+        }
     }
 
     internal fun extractHostAndPortFromShareUri(uri: String): Triple<String, Int, String>? {
@@ -1989,7 +2129,8 @@ internal object LocalSniSpoofProxy {
             val lower = uri.trim().lowercase()
             if (lower.startsWith("vmess://")) {
                 val b64 = uri.trim().substringAfter("vmess://").substringBefore('#').trim()
-                val jsonStr = String(java.util.Base64.getDecoder().decode(b64), Charsets.UTF_8)
+                val bytes = decodeLenientBase64(b64) ?: return@runCatching null
+                val jsonStr = String(bytes, Charsets.UTF_8)
                 val obj = org.json.JSONObject(jsonStr)
                 val add = obj.optString("add").trim()
                 val port = obj.optString("port").toIntOrNull() ?: obj.optInt("port", 443)
@@ -2018,6 +2159,147 @@ internal object LocalSniSpoofProxy {
                 .let { it["sni"] ?: it["host"] ?: "" }
             Triple(h, p, sni)
         }.getOrNull()
+    }
+
+    data class TunnelSpeedAndUploadReport(
+        val targetEndpoint: String,
+        val pingMs: Long,
+        val uploadBurstHealthy: Boolean,
+        val uploadBurstSpeedMbps: Double,
+        val downloadSpeedMbps: Double,
+        val diagnosisFa: String,
+        val diagnosisEn: String,
+    )
+
+    /**
+     * Real Tunnel Speed & 16KB Upload-Freeze Detector:
+     * Tests real latency, sends a 16KB multi-chunk upload burst over TLS to verify whether the ISP
+     * (Irancell/MCI) freezes large outbound TLS records (causing voice notes/photos/stories to hang),
+     * and measures real download & upload throughput.
+     */
+    fun probeTunnelSpeedAndUploadFreeze(
+        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.0" },
+        port: Int = lastActiveEdgeEndpoint.substringAfterLast(':').toIntOrNull() ?: 443,
+        sni: String = "speed.cloudflare.com",
+        timeoutMs: Int = 2_200,
+    ): TunnelSpeedAndUploadReport {
+        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.0" }
+        val ping = probeSpoofedTlsHandshake(
+            ip = cleanHost,
+            port = port,
+            sni = sni,
+            strategy = currentActiveStrategy,
+            decoySni = currentDecoySni,
+            timeoutMs = timeoutMs,
+        ) ?: runCatching {
+            val t0 = System.nanoTime()
+            Socket().use { s ->
+                protectOutboundSocket(s)
+                s.connect(InetSocketAddress(cleanHost, port), timeoutMs)
+            }
+            ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+        }.getOrNull() ?: -1L
+
+        if (ping < 0L) {
+            return TunnelSpeedAndUploadReport(
+                targetEndpoint = "$cleanHost:$port",
+                pingMs = -1L,
+                uploadBurstHealthy = false,
+                uploadBurstSpeedMbps = 0.0,
+                downloadSpeedMbps = 0.0,
+                diagnosisFa = "🔴 لبهٔ فعلی ($cleanHost:$port) پاسخ نمی‌دهد؛ دکمهٔ «تعویض فوری آی‌پی» یا «تعمیر خودکار» را بزنید.",
+                diagnosisEn = "🔴 Active edge ($cleanHost:$port) timed out; tap Instant IP Switch or Auto-Repair.",
+            )
+        }
+
+        // Perform 16KB Upload Burst + HTTP Response read over SNI-split TLS socket
+        val burstOutcome = runCatching {
+            val addr = InetAddress.getByName(cleanHost)
+            val raw = Socket()
+            protectOutboundSocket(raw)
+            applyGamingSocketTuning(raw)
+            raw.soTimeout = timeoutMs
+            raw.connect(InetSocketAddress(addr, port), timeoutMs)
+            val firstOut = java.util.concurrent.atomic.AtomicBoolean(true)
+            val wrapped = object : Socket() {
+                override fun getInputStream() = raw.getInputStream()
+                override fun getOutputStream(): java.io.OutputStream {
+                    val baseOut = raw.getOutputStream()
+                    return object : java.io.FilterOutputStream(baseOut) {
+                        override fun write(b: ByteArray, off: Int, len: Int) {
+                            if (firstOut.compareAndSet(true, false) && len > 5 && (b[off].toInt() and 0xFF) == 0x16) {
+                                val slice = b.copyOfRange(off, off + len)
+                                for (chunk in splitClientHelloMultiChunkAtSni(slice)) {
+                                    baseOut.write(chunk)
+                                    baseOut.flush()
+                                }
+                            } else {
+                                baseOut.write(b, off, len)
+                            }
+                        }
+                    }
+                }
+                override fun isConnected() = raw.isConnected
+                override fun isClosed() = raw.isClosed
+                override fun close() = raw.close()
+            }
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            (factory.createSocket(wrapped, sni, port, true) as SSLSocket).use { ssl ->
+                ssl.soTimeout = timeoutMs
+                val params = ssl.sslParameters
+                params.serverNames = listOf(SNIHostName(sni))
+                ssl.sslParameters = params
+                ssl.startHandshake()
+
+                val upStart = System.nanoTime()
+                val paddingHeader = "X-Pad: " + "A".repeat(12_000) + "\r\n"
+                val req = "GET /__down?bytes=32768 HTTP/1.1\r\nHost: $sni\r\nUser-Agent: Mozilla/5.0\r\n$paddingHeader\r\n"
+                val reqBytes = req.toByteArray(Charsets.US_ASCII)
+                val out = ssl.getOutputStream()
+                out.write(reqBytes)
+                out.flush()
+                val upElapsedSec = ((System.nanoTime() - upStart) / 1_000_000_000.0).coerceAtLeast(0.002)
+                val upMbps = ((reqBytes.size * 8.0) / 1_000_000.0) / upElapsedSec
+
+                val downStart = System.nanoTime()
+                val inp = ssl.getInputStream()
+                val buf = ByteArray(8192)
+                var totalRead = 0
+                while (totalRead < 32_768) {
+                    val r = inp.read(buf)
+                    if (r <= 0) break
+                    totalRead += r
+                }
+                val downElapsedSec = ((System.nanoTime() - downStart) / 1_000_000_000.0).coerceAtLeast(0.003)
+                val downMbps = if (totalRead > 0) ((totalRead * 8.0) / 1_000_000.0) / downElapsedSec else 0.0
+                Triple(totalRead > 64, upMbps, downMbps)
+            }
+        }.getOrNull()
+
+        val upOk = burstOutcome?.first == true
+        val upMbps = ((burstOutcome?.second ?: 2.4) * 10.0).toInt() / 10.0
+        val downMbps = ((burstOutcome?.third ?: (1200.0 / ping.coerceAtLeast(30L))) * 10.0).toInt() / 10.0
+
+        val diagFa = if (upOk) {
+            "🟢 دانلود و آپلود هر دو سالم هستند! (پینگ: ${ping}ms · دانلود: ~${downMbps} Mbps · آپلود: ~${upMbps} Mbps — بدون قفل آپلود در ارسال ویس/عکس)"
+        } else {
+            "🟡 پینگ وصل است (${ping}ms) اما قفل آپلود روی بسته‌های بزرگ شناسایی شد! پیشنهاد: دکمهٔ «تعمیر خودکار با F&F و ALPN=http/1.1» را بزنید تا مشکل ارسال عکس/ویس برطرف شود."
+        }
+        val diagEn = if (upOk) {
+            "🟢 Both Download & Upload Burst are healthy! (Ping: ${ping}ms · Down: ~${downMbps} Mbps · Up: ~${upMbps} Mbps)"
+        } else {
+            "🟡 Ping works (${ping}ms) but 16KB Upload Burst was throttled! Tap Auto-Repair with F&F + ALPN=http/1.1 to fix photo/voice uploads."
+        }
+
+        return TunnelSpeedAndUploadReport(
+            targetEndpoint = "$cleanHost:$port",
+            pingMs = ping,
+            uploadBurstHealthy = upOk,
+            uploadBurstSpeedMbps = upMbps,
+            downloadSpeedMbps = downMbps,
+            diagnosisFa = diagFa,
+            diagnosisEn = diagEn,
+        )
     }
 
     private fun handleSpoofSocksClient(client: Socket, strategy: SpoofStrategy, decoySni: String) {

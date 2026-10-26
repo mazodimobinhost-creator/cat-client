@@ -5414,6 +5414,7 @@ class CatClientVpnService : VpnService() {
         currentVpnServiceState = newState
         if (newState == VpnState.Started) {
             startNotificationTrafficUpdates()
+            LocalSniSpoofProxy.loadPersistedPowerSettings(this)
             if (LocalSniSpoofProxy.autoHealWatchdogEnabled || LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled) {
                 LocalSniSpoofProxy.ensureAutoHealWatchdogLoop()
             }

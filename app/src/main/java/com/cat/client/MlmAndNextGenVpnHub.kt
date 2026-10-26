@@ -789,6 +789,7 @@ internal object MlmAndNextGenVpnHub {
         val store = SplitTunnelPreferenceStore(context)
         val allInstalled = InstalledAppRepository(context).loadLaunchableApps()
         val foreignSet = KNOWN_FOREIGN_SOCIAL_AND_AI_PACKAGES.map { it.lowercase(Locale.US) }.toSet()
+        val detectedIran = detectInstalledIranianAndBankingApps(allInstalled).map { it.packageName }.toSet()
         val detectedApps = allInstalled.filter { app ->
             val pkg = app.packageName.lowercase(Locale.US)
             val lbl = app.label.lowercase(Locale.getDefault())
@@ -801,18 +802,30 @@ internal object MlmAndNextGenVpnHub {
                 pkg.contains("discord") ||
                 pkg.contains("spotify") ||
                 pkg.contains("chatgpt") ||
+                pkg.contains("browser") ||
+                pkg.contains("chrome") ||
+                pkg.contains("firefox") ||
+                pkg.contains("webview") ||
                 lbl.contains("تلگرام") ||
                 lbl.contains("اینستاگرام") ||
                 lbl.contains("یوتیوب") ||
                 lbl.contains("واتساپ")
+        }.ifEmpty {
+            // Safe fallback so SplitTunnelPolicy.runtimePlan never throws SplitTunnelNoSelectedAppsException
+            allInstalled.filterNot { it.packageName in detectedIran }.take(5)
         }
         val selectedPkgs = buildSet {
             detectedApps.forEach { add(it.packageName) }
             addAll(KNOWN_FOREIGN_SOCIAL_AND_AI_PACKAGES)
         }
+        val targetMode = if (detectedApps.isNotEmpty()) {
+            SplitTunnelMode.VpnOnlySelected
+        } else {
+            SplitTunnelMode.BypassSelected
+        }
         store.saveSettings(
             SplitTunnelSettings(
-                mode = SplitTunnelMode.VpnOnlySelected,
+                mode = targetMode,
                 selectedPackages = selectedPkgs,
             ),
         )

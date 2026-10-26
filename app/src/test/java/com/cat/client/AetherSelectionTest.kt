@@ -310,6 +310,21 @@ class AetherSelectionTest {
         val lanIps = LocalSniSpoofProxy.detectDeviceLanIpAddresses()
         org.junit.Assert.assertTrue(lanIps.isNotEmpty())
 
+        // Test unpadded URL-safe Base64 VMess parsing and ping annotation without corrupting JSON
+        val rawVmessJson = """{"v":"2","ps":"MyNode","add":"162.159.198.235","port":"2083","id":"a1b2c3d4-e5f6-4789-abcd-ef0123456789","aid":"0","net":"ws","type":"none","host":"my.worker.dev","path":"/ws","tls":"tls","sni":"speed.cloudflare.com"}"""
+        val urlSafeUnpadded = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(rawVmessJson.toByteArray(Charsets.UTF_8))
+        val vmessUri = "vmess://$urlSafeUnpadded"
+        val vmessParsed = LocalSniSpoofProxy.extractHostAndPortFromShareUri(vmessUri)!!
+        assertEquals("162.159.198.235", vmessParsed.first)
+        assertEquals(2083, vmessParsed.second)
+        assertEquals("speed.cloudflare.com", vmessParsed.third)
+
+        val annotatedVmess = LocalSniSpoofProxy.annotateShareUriWithPing(vmessUri, 64L)
+        org.junit.Assert.assertTrue(annotatedVmess.startsWith("vmess://"))
+        org.junit.Assert.assertFalse(annotatedVmess.contains("#"))
+        val decodedAfter = String(LocalSniSpoofProxy.decodeLenientBase64(annotatedVmess.removePrefix("vmess://"))!!, Charsets.UTF_8)
+        org.junit.Assert.assertTrue(decodedAfter.contains("(64ms) MyNode"))
+
         val port = LocalSniSpoofProxy.startLanHotspotShareProxy(0)
         org.junit.Assert.assertTrue(port > 0)
         org.junit.Assert.assertTrue(LocalSniSpoofProxy.isLanHotspotProxyRunning())
