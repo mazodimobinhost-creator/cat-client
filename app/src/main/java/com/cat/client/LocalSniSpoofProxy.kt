@@ -493,6 +493,147 @@ internal object LocalSniSpoofProxy {
     }
 
     /**
+     * Multi-chunk TLS Record Splitter at the SNI extension: slices the SNI hostname into multiple
+     * tiny 3-4 byte valid TLS Handshake records (`0x16 0x03 0x01 ...`) so no single TCP segment or
+     * TLS record ever contains more than 4 consecutive characters of the target domain name.
+     */
+    fun splitClientHelloMultiChunkAtSni(record: ByteArray): List<ByteArray> {
+        if (record.size < 20 || (record[0].toInt() and 0xFF) != 0x16) return listOf(record)
+        val verMajor = record[1]
+        val verMinor = record[2]
+        val payload = record.copyOfRange(5, record.size)
+        val hostOffsetInRecord = findSniHostnameOffset(record)
+        val sniStart = if (hostOffsetInRecord > 7 && hostOffsetInRecord < record.size - 4) {
+            hostOffsetInRecord - 5
+        } else {
+            12.coerceAtMost(payload.size / 2)
+        }
+
+        val cutPoints = mutableListOf<Int>()
+        // First cut: 2 bytes into the SNI hostname
+        val firstCut = (sniStart + 2).coerceIn(4, payload.size - 2)
+        cutPoints += firstCut
+        // Subsequent cuts: slice the next 24 bytes (the domain name) into 4-byte micro-records
+        var cursor = firstCut
+        repeat(6) {
+            cursor += 4
+            if (cursor < payload.size - 2) {
+                cutPoints += cursor
+            }
+        }
+
+        val outRecords = mutableListOf<ByteArray>()
+        var prev = 0
+        for (cut in cutPoints) {
+            if (cut <= prev || cut >= payload.size) continue
+            val sliceLen = cut - prev
+            val rec = ByteArray(5 + sliceLen)
+            rec[0] = 0x16
+            rec[1] = verMajor
+            rec[2] = verMinor
+            rec[3] = ((sliceLen ushr 8) and 0xFF).toByte()
+            rec[4] = (sliceLen and 0xFF).toByte()
+            System.arraycopy(payload, prev, rec, 5, sliceLen)
+            outRecords += rec
+            prev = cut
+        }
+        if (prev < payload.size) {
+            val sliceLen = payload.size - prev
+            val rec = ByteArray(5 + sliceLen)
+            rec[0] = 0x16
+            rec[1] = verMajor
+            rec[2] = verMinor
+            rec[3] = ((sliceLen ushr 8) and 0xFF).toByte()
+            rec[4] = (sliceLen and 0xFF).toByte()
+            System.arraycopy(payload, prev, rec, 5, sliceLen)
+            outRecords += rec
+        }
+        return if (outRecords.isNotEmpty()) outRecords else listOf(record)
+    }
+
+    /**
+     * Sends a short decoy TLS ClientHello carrying [decoySni] (e.g. `ebanksepah.ir` or `speed.cloudflare.com`)
+     * to `[host]:[port]` right before the real connection's fragmented ClientHello so stateful DPI
+     * caches associate the destination flow with the whitelisted SNI.
+     */
+    private fun sendDecoyClientHelloPulse(host: String, port: Int, decoySni: String) {
+        runCatching {
+            Socket().use { decoySock ->
+                protectOutboundSocket(decoySock)
+                decoySock.tcpNoDelay = true
+                decoySock.soTimeout = 600
+                decoySock.connect(InetSocketAddress(host, port), 600)
+                val fakeHello = buildFakeClientHelloRecord(decoySni)
+                decoySock.getOutputStream().write(fakeHello)
+                decoySock.getOutputStream().flush()
+            }
+        }
+    }
+
+    /**
+     * Tests a real end-to-end TLS handshake through the specified [strategy] (splitting the outgoing
+     * ClientHello at the SNI boundary) against `[ip]:[port]` with `[sni]` and returns the verified
+     * handshake latency in milliseconds, or `null` if blocked/unreachable.
+     */
+    fun probeSpoofedTlsHandshake(
+        ip: String,
+        port: Int,
+        sni: String,
+        strategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
+        decoySni: String = currentDecoySni,
+        timeoutMs: Int = 1_400,
+    ): Long? {
+        return runCatching {
+            val cleanIp = ip.trim().removePrefix("[").removeSuffix("]")
+            if (strategy == SpoofStrategy.LOW_TTL_DECOY) {
+                sendDecoyClientHelloPulse(cleanIp, port, decoySni)
+            }
+            val t0 = System.nanoTime()
+            val raw = Socket()
+            protectOutboundSocket(raw)
+            raw.tcpNoDelay = true
+            raw.soTimeout = timeoutMs
+            raw.connect(InetSocketAddress(cleanIp, port), timeoutMs)
+
+            val wrapped = object : Socket() {
+                private val firstOut = java.util.concurrent.atomic.AtomicBoolean(true)
+                override fun getInputStream() = raw.getInputStream()
+                override fun getOutputStream(): java.io.OutputStream {
+                    val baseOut = raw.getOutputStream()
+                    return object : java.io.FilterOutputStream(baseOut) {
+                        override fun write(b: ByteArray, off: Int, len: Int) {
+                            if (firstOut.compareAndSet(true, false) && len > 5 && (b[off].toInt() and 0xFF) == 0x16) {
+                                val slice = b.copyOfRange(off, off + len)
+                                val chunks = splitClientHelloMultiChunkAtSni(slice)
+                                for ((idx, chunk) in chunks.withIndex()) {
+                                    baseOut.write(chunk)
+                                    baseOut.flush()
+                                    if (idx == 0) Thread.sleep(2)
+                                }
+                            } else {
+                                baseOut.write(b, off, len)
+                            }
+                        }
+                    }
+                }
+                override fun isConnected(): Boolean = raw.isConnected
+                override fun isClosed(): Boolean = raw.isClosed
+                override fun close() = raw.close()
+            }
+
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            (factory.createSocket(wrapped, sni, port, true) as SSLSocket).use { ssl ->
+                ssl.soTimeout = timeoutMs
+                val params = ssl.sslParameters
+                params.serverNames = listOf(SNIHostName(sni))
+                ssl.sslParameters = params
+                ssl.startHandshake()
+            }
+            ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+        }.getOrNull()
+    }
+
+    /**
      * Fact-A DNS Non-Hijack SNI Finder Oracle (`XTLS/BBS#10`):
      * Queries a UDP DNS resolver for each candidate domain and checks whether the firewall
      * hijacks the A-record to `10.10.34.*` / `0.0.0.0` / loopback. Any domain whose UDP DNS
@@ -746,7 +887,7 @@ internal object LocalSniSpoofProxy {
                     return@runCatching null
                 }
                 val hostPortPart = auth.substring(atIdx + 1).substringBefore('/')
-                val (host, port) = if (hostPortPart.startsWith("[")) {
+                var (host, port) = if (hostPortPart.startsWith("[")) {
                     val closeIdx = hostPortPart.indexOf(']')
                     val h = hostPortPart.substring(1, closeIdx)
                     val p = hostPortPart.substring(closeIdx + 1).removePrefix(":").toIntOrNull() ?: 443
@@ -758,7 +899,6 @@ internal object LocalSniSpoofProxy {
                     val p = hostPortPart.substring(colon + 1).toIntOrNull() ?: 443
                     h to p
                 }
-                if (host.isBlank() || host == "127.0.0.1") return@runCatching null
                 val qMap = LinkedHashMap<String, String>()
                 uri.rawQuery.orEmpty().split('&').forEach { kv ->
                     val eq = kv.indexOf('=')
@@ -768,6 +908,15 @@ internal object LocalSniSpoofProxy {
                         qMap[k] = v
                     }
                 }
+                if (host == "127.0.0.1") {
+                    val fwdTarget = (qMap["sni_fwd_target"] ?: qMap["sni-fwd-target"])?.trim().orEmpty()
+                    val colonIdx = fwdTarget.lastIndexOf(':')
+                    if (colonIdx > 0) {
+                        host = fwdTarget.substring(0, colonIdx).removePrefix("[").removeSuffix("]")
+                        port = fwdTarget.substring(colonIdx + 1).toIntOrNull() ?: 443
+                    }
+                }
+                if (host.isBlank() || host == "127.0.0.1") return@runCatching null
                 val wsHost = qMap["host"]?.trim().orEmpty()
                 val sni = (qMap["sni"] ?: qMap["servername"])?.trim().orEmpty()
                 val effectiveHostHeader = wsHost.ifBlank { sni.ifBlank { host } }
@@ -778,9 +927,13 @@ internal object LocalSniSpoofProxy {
                 }
                 val path = qMap["path"]?.takeIf { it.isNotBlank() } ?: "/ws?ed=2048"
                 val netType = qMap["type"]?.takeIf { it.isNotBlank() } ?: "ws"
-                val remark = runCatching {
+                val rawRemark = runCatching {
                     java.net.URLDecoder.decode(uri.rawFragment.orEmpty(), "UTF-8")
-                }.getOrDefault("").ifBlank { effectiveHostHeader }
+                }.getOrDefault("")
+                val cleanRemark = rawRemark
+                    .substringAfterLast("· ")
+                    .trim()
+                    .ifBlank { effectiveHostHeader }
                 RealConfigTemplate(
                     scheme = scheme,
                     uuidOrPass = userInfo,
@@ -790,7 +943,7 @@ internal object LocalSniSpoofProxy {
                     sni = sni.ifBlank { effectiveHostHeader },
                     path = path,
                     networkType = netType,
-                    remark = remark,
+                    remark = cleanRemark,
                 )
             }.getOrNull()
             if (parsed != null) return parsed
@@ -905,19 +1058,22 @@ internal object LocalSniSpoofProxy {
                                     firstPacket = false
                                     val rawRecord = buf.copyOfRange(0, n)
                                     when (strategy) {
-                                        SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
-                                        SpoofStrategy.MITM_PINNED_CERT_FRONTING,
                                         SpoofStrategy.LOW_TTL_DECOY -> {
-                                            val split = splitClientHelloAtSni(rawRecord)
-                                            if (split != null) {
-                                                upOut.write(split.first)
+                                            sendDecoyClientHelloPulse(cleanHost, remotePort, currentDecoySni)
+                                            val chunks = splitClientHelloMultiChunkAtSni(rawRecord)
+                                            for ((idx, chunk) in chunks.withIndex()) {
+                                                upOut.write(chunk)
                                                 upOut.flush()
-                                                Thread.sleep(2)
-                                                upOut.write(split.second)
+                                                if (idx <= 2) Thread.sleep(2)
+                                            }
+                                        }
+                                        SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
+                                        SpoofStrategy.MITM_PINNED_CERT_FRONTING -> {
+                                            val chunks = splitClientHelloMultiChunkAtSni(rawRecord)
+                                            for ((idx, chunk) in chunks.withIndex()) {
+                                                upOut.write(chunk)
                                                 upOut.flush()
-                                            } else {
-                                                upOut.write(rawRecord)
-                                                upOut.flush()
+                                                if (idx <= 2) Thread.sleep(2)
                                             }
                                         }
                                         SpoofStrategy.WRONG_TIMESTAMP_PAWS,
@@ -927,16 +1083,12 @@ internal object LocalSniSpoofProxy {
                                                 upOut.write(stage1.first)
                                                 upOut.flush()
                                                 Thread.sleep(1)
-                                                val stage2 = WhiteDnsSmartScanner.splitTlsClientHelloRecord(stage1.second, 98)
-                                                if (stage2 != null) {
-                                                    upOut.write(stage2.first)
+                                                val restChunks = splitClientHelloMultiChunkAtSni(stage1.second)
+                                                for (chunk in restChunks) {
+                                                    upOut.write(chunk)
                                                     upOut.flush()
                                                     Thread.sleep(1)
-                                                    upOut.write(stage2.second)
-                                                } else {
-                                                    upOut.write(stage1.second)
                                                 }
-                                                upOut.flush()
                                             } else {
                                                 upOut.write(rawRecord)
                                                 upOut.flush()
@@ -999,10 +1151,11 @@ internal object LocalSniSpoofProxy {
         val encTarget = runCatching { java.net.URLEncoder.encode(primaryTarget, "UTF-8") }.getOrDefault(primaryTarget)
         out += "$scheme://$auth@127.0.0.1:$localFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1&sni_fwd_target=$encTarget#$localRemark"
 
-        // 2. Probe clean Cloudflare edges on the user's current ISP and build both Local-SNI-Split + Direct configs
-        // preserving the user's REAL sni & host header so Cloudflare routes WebSocket to the user's worker!
+        // 2. Probe clean Cloudflare edges in parallel using real multi-chunk SNI-split TLS handshakes
+        // so the fastest reachable edge on the user's ISP is placed right at the top!
         val candidateCfEdges = listOf(
             "188.114.98.0" to 443,
+            "162.159.198.235" to 443,
             "172.67.73.163" to 443,
             "104.16.132.229" to 443,
             "162.159.135.42" to 443,
@@ -1010,7 +1163,32 @@ internal object LocalSniSpoofProxy {
             "188.114.97.3" to 2053,
             "172.67.73.163" to 8443,
         )
-        for ((edgeIp, edgePort) in candidateCfEdges) {
+        val edgeFutures = candidateCfEdges.map { (edgeIp, edgePort) ->
+            spoofWorkerPool.submit<Triple<String, Int, Long?>> {
+                val rtt = probeSpoofedTlsHandshake(
+                    ip = edgeIp,
+                    port = edgePort,
+                    sni = realSni,
+                    strategy = strategy,
+                    decoySni = currentDecoySni,
+                    timeoutMs = 1_100,
+                )
+                Triple(edgeIp, edgePort, rtt)
+            }
+        }
+        val rankedEdges = edgeFutures.mapIndexed { idx, fut ->
+            runCatching {
+                fut.get(1_400L, TimeUnit.MILLISECONDS)
+            }.getOrElse {
+                val (ip, p) = candidateCfEdges[idx]
+                Triple(ip, p, null)
+            }
+        }.sortedWith(
+            compareByDescending<Triple<String, Int, Long?>> { it.third != null }
+                .thenBy { it.third ?: Long.MAX_VALUE },
+        )
+
+        for ((edgeIp, edgePort, rttMs) in rankedEdges) {
             val edgeTarget = "$edgeIp:$edgePort"
             val edgeFwdPort = startDirectTcpSpoofForwarder(
                 remoteHost = edgeIp,
@@ -1019,15 +1197,33 @@ internal object LocalSniSpoofProxy {
                 decoySni = currentDecoySni,
             )
             val encEdgeTarget = runCatching { java.net.URLEncoder.encode(edgeTarget, "UTF-8") }.getOrDefault(edgeTarget)
+            val pingBadge = if (rttMs != null) " (${rttMs}ms)" else ""
             val splitEdgeRemark = runCatching {
-                java.net.URLEncoder.encode("🛡️ برش SNI روی لبه $edgeIp:$edgePort · ${template.remark}", "UTF-8").replace("+", "%20")
+                java.net.URLEncoder.encode("🛡️ برش SNI روی لبه $edgeIp:$edgePort$pingBadge · ${template.remark}", "UTF-8").replace("+", "%20")
             }.getOrDefault("SNI-Split-$edgeIp")
             out += "$scheme://$auth@127.0.0.1:$edgeFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1&sni_fwd_target=$encEdgeTarget#$splitEdgeRemark"
 
             val fnfRemark = runCatching {
-                java.net.URLEncoder.encode("⚡ ایرانسل/همراه اول F&F ($edgeIp:$edgePort) · ${template.remark}", "UTF-8").replace("+", "%20")
+                java.net.URLEncoder.encode("⚡ ایرانسل/همراه اول F&F ($edgeIp:$edgePort$pingBadge) · ${template.remark}", "UTF-8").replace("+", "%20")
             }.getOrDefault("CF-FnF-$edgeIp")
             out += "$scheme://$auth@$edgeIp:$edgePort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=unsafe&cs=semi-python&fm=tlshello-0-len&alpn=http%2F1.1#$fnfRemark"
+        }
+
+        // 2b. Include the 5 Cloudflare Spoofing methods routed via the fastest verified edge + multi-chunk SNI forwarder
+        val bestEdgePair = rankedEdges.firstOrNull { it.third != null } ?: rankedEdges.first()
+        val bestEdgeTarget = "${bestEdgePair.first}:${bestEdgePair.second}"
+        val bestEdgeFwdPort = startDirectTcpSpoofForwarder(
+            remoteHost = bestEdgePair.first,
+            remotePort = bestEdgePair.second,
+            strategy = strategy,
+            decoySni = currentDecoySni,
+        )
+        val encBestEdgeTarget = runCatching { java.net.URLEncoder.encode(bestEdgeTarget, "UTF-8") }.getOrDefault(bestEdgeTarget)
+        for (m in CF_SPOOF_5_METHODS) {
+            val mRemark = runCatching {
+                java.net.URLEncoder.encode("☁️ ${m.titleFa.substringBefore(":")} · ${template.remark}", "UTF-8").replace("+", "%20")
+            }.getOrDefault("CF-Spoof-${m.index}")
+            out += "$scheme://$auth@127.0.0.1:$bestEdgeFwdPort?${encParam}type=$netType&host=$host&path=$encPath&${m.queryParams}&sni_fwd_target=$encBestEdgeTarget#$mRemark"
         }
 
         // 3. MCI IPv6 Clean Edges preserving the user's REAL sni & host header
@@ -1177,29 +1373,20 @@ internal object LocalSniSpoofProxy {
                                     when (strategy) {
                                         SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
                                         SpoofStrategy.MITM_PINNED_CERT_FRONTING -> {
-                                            val split = splitClientHelloAtSni(rawRecord)
-                                            if (split != null) {
-                                                upOut.write(split.first)
+                                            val chunks = splitClientHelloMultiChunkAtSni(rawRecord)
+                                            for ((idx, chunk) in chunks.withIndex()) {
+                                                upOut.write(chunk)
                                                 upOut.flush()
-                                                Thread.sleep(2)
-                                                upOut.write(split.second)
-                                                upOut.flush()
-                                            } else {
-                                                upOut.write(rawRecord)
-                                                upOut.flush()
+                                                if (idx <= 2) Thread.sleep(2)
                                             }
                                         }
                                         SpoofStrategy.LOW_TTL_DECOY -> {
-                                            val split = splitClientHelloAtSni(rawRecord)
-                                            if (split != null) {
-                                                upOut.write(split.first)
+                                            sendDecoyClientHelloPulse(cleanHost, port, decoySni)
+                                            val chunks = splitClientHelloMultiChunkAtSni(rawRecord)
+                                            for ((idx, chunk) in chunks.withIndex()) {
+                                                upOut.write(chunk)
                                                 upOut.flush()
-                                                Thread.sleep(2)
-                                                upOut.write(split.second)
-                                                upOut.flush()
-                                            } else {
-                                                upOut.write(rawRecord)
-                                                upOut.flush()
+                                                if (idx <= 2) Thread.sleep(2)
                                             }
                                         }
                                         SpoofStrategy.WRONG_TIMESTAMP_PAWS,

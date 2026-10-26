@@ -275,4 +275,27 @@ class AetherSelectionTest {
             SubConvConverter.convert(invalidSs2022)
         }
     }
+
+    @Test fun multiChunkSniSplitAndRealConfigTargetRecovery() {
+        val ch = LocalSniSpoofProxy.buildFakeClientHelloRecord("my-secret-worker.user.workers.dev")
+        val chunks = LocalSniSpoofProxy.splitClientHelloMultiChunkAtSni(ch)
+        assertTrue(chunks.size >= 4)
+        // Reconstructed payloads must equal the original ClientHello payload byte-for-byte
+        val origPayload = ch.copyOfRange(5, ch.size)
+        val joined = java.io.ByteArrayOutputStream()
+        for (rec in chunks) {
+            assertEquals(0x16, rec[0].toInt() and 0xFF)
+            val len = ((rec[3].toInt() and 0xFF) shl 8) or (rec[4].toInt() and 0xFF)
+            assertEquals(rec.size - 5, len)
+            joined.write(rec, 5, len)
+        }
+        org.junit.Assert.assertArrayEquals(origPayload, joined.toByteArray())
+
+        // Recover real remoteHost:remotePort from 127.0.0.1 link carrying sni_fwd_target
+        val repairedUri = "vless://a1b2c3d4-e5f6-4789-abcd-ef0123456789@127.0.0.1:41922?encryption=none&security=tls&type=ws&host=my.worker.dev&path=%2Fws&sni=my.worker.dev&sni_fwd_target=188.114.98.0%3A2053#Repaired"
+        val tpl = LocalSniSpoofProxy.extractRealConfigTemplate(listOf(repairedUri))!!
+        assertEquals("188.114.98.0", tpl.remoteHost)
+        assertEquals(2053, tpl.remotePort)
+        assertEquals("my.worker.dev", tpl.hostHeader)
+    }
 }

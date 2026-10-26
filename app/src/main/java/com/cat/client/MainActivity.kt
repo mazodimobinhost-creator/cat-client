@@ -17751,26 +17751,69 @@ class MainActivity : Activity() {
             )
             .setItems(items) { _, idx ->
                 val m = methods[idx]
+                val chosenStrategy = when (m.index) {
+                    1 -> LocalSniSpoofProxy.SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI
+                    2 -> LocalSniSpoofProxy.SpoofStrategy.MITM_PINNED_CERT_FRONTING
+                    3 -> LocalSniSpoofProxy.SpoofStrategy.LOW_TTL_DECOY
+                    4 -> LocalSniSpoofProxy.SpoofStrategy.WRONG_TIMESTAMP_PAWS
+                    else -> LocalSniSpoofProxy.SpoofStrategy.FINALMASK_HEADER_CUSTOM
+                }
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "⏳ در حال تست زنده هندشیک TLS روش ${m.index} روی خط شما…"
+                    else "⏳ Probing live TLS handshake for Method ${m.index}…",
+                    Toast.LENGTH_SHORT,
+                ).show()
                 activityScope.launch {
                     val realTemplate = resolveUserRealConfigTemplate()
+                    val hostPart = m.sampleEndpoint.substringBeforeLast(":")
+                    val portPart = m.sampleEndpoint.substringAfterLast(":").toIntOrNull() ?: 443
+                    val liveTlsRtt = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.probeSpoofedTlsHandshake(
+                            ip = if (hostPart.startsWith("[")) "162.159.198.235" else hostPart,
+                            port = portPart,
+                            sni = realTemplate?.sni ?: m.sampleSni,
+                            strategy = chosenStrategy,
+                            decoySni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                            timeoutMs = 1_200,
+                        )
+                    }
+                    val fwdPort = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.startDirectTcpSpoofForwarder(
+                            remoteHost = realTemplate?.remoteHost ?: hostPart.removePrefix("[").removeSuffix("]"),
+                            remotePort = realTemplate?.remotePort ?: portPart,
+                            strategy = chosenStrategy,
+                            decoySni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                        )
+                    }
                     val encPath = runCatching {
                         java.net.URLEncoder.encode(realTemplate?.path ?: "/ws?ed=2048", "UTF-8")
                     }.getOrDefault("%2Fws")
                     val realUuid = realTemplate?.uuidOrPass ?: "auto-aether-masque"
                     val realHost = realTemplate?.hostHeader ?: "speed.cloudflare.com"
+                    val realSni = realTemplate?.sni ?: m.sampleSni
                     val scheme = realTemplate?.scheme ?: "vless"
                     val encParam = if (scheme == "vless") "encryption=none&" else ""
+                    val targetHostPort = if (realTemplate != null) "${realTemplate.remoteHost}:${realTemplate.remotePort}" else m.sampleEndpoint
+                    val encTarget = runCatching { java.net.URLEncoder.encode(targetHostPort, "UTF-8") }.getOrDefault(targetHostPort)
                     val snippet = if (realTemplate != null) {
-                        "$scheme://$realUuid@${m.sampleEndpoint}?${encParam}type=${realTemplate.networkType}&host=$realHost&path=$encPath&${m.queryParams}#CF-Spoof-${m.index}-${realTemplate.remark}"
+                        "$scheme://$realUuid@127.0.0.1:$fwdPort?${encParam}type=${realTemplate.networkType}&host=$realHost&path=$encPath&sni=$realSni&${m.queryParams}&sni_fwd_target=$encTarget#CF-Spoof-${m.index}-${realTemplate.remark}"
                     } else {
-                        "aether://masque?endpoint=${m.sampleEndpoint}&sni=${m.sampleSni}#CF-Spoof-${m.index}"
+                        "aether://162.159.198.235:443?protocol=mim&transport=h2&sni=${m.sampleSni}&outer=162.159.198.235:443&inner=162.159.198.2:443&psiphon=chain&region=DE#CF-Spoof-${m.index}"
+                    }
+                    val rttBadge = if (liveTlsRtt != null) {
+                        if (isFarsi) "🟢 تست هندشیک TLS با برش چندتکه‌ای SNI: موفق ($liveTlsRtt ms)\n"
+                        else "🟢 Multi-Chunk SNI TLS Handshake: OK ($liveTlsRtt ms)\n"
+                    } else {
+                        if (isFarsi) "⚡ آماده عبور از طریق فورواردر محلی برش چندتکه‌ای SNI (پورت $fwdPort)\n"
+                        else "⚡ Ready via Local Multi-Chunk SNI Splitter (port $fwdPort)\n"
                     }
                     val statusNote = if (realTemplate != null) {
-                        if (isFarsi) "✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
-                        else "✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
+                        if (isFarsi) "$rttBadge✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
+                        else "$rttBadge✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
                     } else {
-                        if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Aether اعمال می‌شود:\n\n"
-                        else "💡 Applied to serverless Aether engine:\n\n"
+                        if (isFarsi) "$rttBadge💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Aether با SNI اسپوف‌شده (${m.sampleSni}) اعمال می‌شود:\n\n"
+                        else "$rttBadge💡 Applied to serverless Aether engine with spoofed SNI (${m.sampleSni}):\n\n"
                     }
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(if (isFarsi) m.titleFa else m.titleEn)
@@ -17788,29 +17831,52 @@ class MainActivity : Activity() {
                             ).show()
                         }
                         .setPositiveButton(
-                            if (isFarsi) "🚀 اعمال و اتصال فوری" else "🚀 Apply & Connect Now",
+                            if (isFarsi) "🚀 اعمال همین روش و اتصال فوری" else "🚀 Apply This Method & Connect Now",
                         ) { _, _ ->
+                            LocalSniSpoofProxy.updateDecoySni(m.sampleSni.ifBlank { "ebanksepah.ir" })
                             if (realTemplate != null) {
-                                runOneClickRepairMyRealConfigAndConnect()
+                                runOneClickRepairMyRealConfigAndConnect(preferredStrategy = chosenStrategy)
                             } else {
-                                val cur = aetherPreferenceStore.read()
-                                aetherPreferenceStore.save(
-                                    cur.copy(
-                                        enabled = true,
-                                        mode = AetherMode.MasqueHttp2,
-                                        endpoint = m.sampleEndpoint,
-                                        masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
-                                        echEnabled = m.index == 2,
-                                        endpointScannedAt = System.currentTimeMillis(),
-                                    ),
-                                )
-                                LocalSniSpoofProxy.startSpoofSocksProxy()
-                                renderAdvancedControls()
-                                openScreen(SCREEN_HOME)
-                                if (currentVpnServiceState == VpnState.Started) {
-                                    reconnectForConnectionOptionChange()
-                                } else {
-                                    beginConnectFlow(Actions.CONNECT)
+                                activityScope.launch {
+                                    val subTitle = "☁️ اسپوف کلودفلر (روش ${m.index})"
+                                    val existing = userSubscriptionManager.list().firstOrNull {
+                                        it.name.startsWith("☁️ اسپوف کلودفلر")
+                                    }
+                                    val saved = withContext(Dispatchers.IO) {
+                                        if (existing != null) {
+                                            userSubscriptionManager.update(existing.id, subTitle, snippet)
+                                        } else {
+                                            userSubscriptionManager.add(subTitle, snippet)
+                                        }
+                                    }
+                                    userSubscriptionManager.select(saved.id)
+                                    val cur = aetherPreferenceStore.read()
+                                    aetherPreferenceStore.save(
+                                        cur.copy(
+                                            enabled = true,
+                                            mode = AetherMode.MasqueInMasque,
+                                            masqueTransport = "h2",
+                                            endpoint = "162.159.198.235:443",
+                                            wiwOuterEndpoint = "162.159.198.235:443",
+                                            wiwInnerEndpoint = "162.159.198.2:443",
+                                            masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                                            echEnabled = m.index == 2,
+                                            endpointScannedAt = System.currentTimeMillis(),
+                                        ),
+                                    )
+                                    LocalSniSpoofProxy.startSpoofSocksProxy(
+                                        strategy = chosenStrategy,
+                                        decoySni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
+                                    )
+                                    renderSubscriptions()
+                                    onSubscriptionSelected()
+                                    renderAdvancedControls()
+                                    openScreen(SCREEN_HOME)
+                                    if (currentVpnServiceState == VpnState.Started) {
+                                        reconnectForConnectionOptionChange()
+                                    } else {
+                                        beginConnectFlow(Actions.CONNECT)
+                                    }
                                 }
                             }
                         }
