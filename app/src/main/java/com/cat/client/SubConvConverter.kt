@@ -33,7 +33,7 @@ object SubConvConverter {
         "vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hy2://",
         "socks://", "socks5://", "ss://", "wireguard://", "wg://", "awg://", "amneziawg://",
         "fenix://", "firefoxvpn://", "paqet://", "paqetng://", "patth://", "patthng://",
-        "dnstt://", "slipstream://", "slipnet://", "doh://",
+        "dnstt://", "slipstream://", "slipnet://", "doh://", "aether://", "masque://",
     )
 
     private fun extractShareUriFromLine(raw: String): String? {
@@ -75,6 +75,7 @@ object SubConvConverter {
                     "socks", "socks5" -> parseSocks(line, names)
                     "ss" -> parseShadowsocks(line, names)
                     "wireguard", "wg", "awg", "amneziawg" -> parseWireGuard(line, names)
+                    "aether", "masque" -> parseAether(line, names)
                     "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
                     in PaqetEngine.SUPPORTED_SCHEMES -> parsePaqet(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
@@ -370,6 +371,27 @@ object SubConvConverter {
             .put("port", localPort)
             .put("udp", true)
             .put("whitedns-uri", parsed.rawUri)
+    }
+
+    private fun parseAether(line: String, names: NameRegistry): JSONObject {
+        val sel = AetherSelection.fromAetherUri(line) ?: throw ParseError()
+        val defaultLabel = when (sel.mode) {
+            AetherMode.MasqueInMasque ->
+                if (sel.chainTarget == "psiphon") "PattNG MIM + Psiphon (${sel.psiphonRegion.ifBlank { "Auto" }})"
+                else "PattNG MASQUE in MASQUE"
+            AetherMode.WarpInWarp -> "Aether WARP in WARP"
+            AetherMode.WireGuardOverMasque -> "Aether WG over MASQUE"
+            AetherMode.WireGuard -> "Aether WARP"
+            else -> "Aether MASQUE H2"
+        }
+        val label = sel.profileName.takeIf { it.isNotBlank() && it != "Aether" } ?: defaultLabel
+        return JSONObject()
+            .put("name", names.register(label))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", 1819)
+            .put("udp", true)
+            .put("aether-uri", sel.toAetherUri())
     }
 
     private fun parseFenixVpn(line: String, names: NameRegistry): JSONObject {

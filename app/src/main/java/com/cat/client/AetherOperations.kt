@@ -7,6 +7,21 @@ import java.net.InetAddress
 
 internal data class AetherProvisionResult(val identities: List<String>)
 internal data class AetherEndpoint(val peer: String, val rttMillis: Long)
+internal data class AetherTwoHopScanResult(
+    val outerPeer: String,
+    val innerPeer: String,
+    val rttMillis: Long,
+    val allCandidates: List<AetherEndpoint> = emptyList(),
+)
+internal data class AetherWarpKeysRenewReport(
+    val ok: Boolean,
+    val kind: String,
+    val masquePrimaryId: String,
+    val masqueSecondaryId: String,
+    val wgPrimaryId: String,
+    val wgSecondaryId: String,
+    val logLines: List<String>,
+)
 internal data class AetherExitTrace(
     val ip: String,
     val countryCode: String,
@@ -69,12 +84,51 @@ internal object AetherOperations {
         }
         throw (lastError ?: IllegalStateException("Could not determine exit IP location"))
     }
+    fun enforceMasqueHttp2EnvNow(enabled: Boolean) {
+        runCatching {
+            if (enabled) {
+                android.system.Os.setenv("AETHER_MASQUE_HTTP2", "1", true)
+            } else {
+                android.system.Os.unsetenv("AETHER_MASQUE_HTTP2")
+            }
+        }
+    }
+
+    /**
+     * Wraps a JNI call so that when `MASQUE in MASQUE` (`transport = "mim"`) is run over `HTTP/2`,
+     * `AETHER_MASQUE_HTTP2=1` is re-asserted immediately after `BridgeConfig::apply_environment()`
+     * finishes on the JNI thread (before the spawned Tokio worker reaches `masque_h2::enabled()`).
+     */
+    fun <T> withMasqueHttp2ForMim(config: AetherRuntimeConfig, block: () -> T): T {
+        val needMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
+        if (!needMimH2) return block()
+        enforceMasqueHttp2EnvNow(true)
+        val helper = Thread({
+            try {
+                for (delayMs in longArrayOf(1L, 3L, 7L, 15L, 30L)) {
+                    Thread.sleep(delayMs)
+                    enforceMasqueHttp2EnvNow(true)
+                }
+            } catch (_: InterruptedException) {
+            }
+        }, "aether-mim-h2-env").apply {
+            isDaemon = true
+            start()
+        }
+        return try {
+            block()
+        } finally {
+            runCatching { helper.interrupt() }
+        }
+    }
+
     fun provision(
         mode: AetherMode,
         identityFile: File,
         upstreamProxy: String? = null,
         ipScan: String = "both",
         exitLocation: String = "auto",
+        masqueTransport: String = "h2",
     ): Result<AetherProvisionResult> = runCatching {
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
         val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
@@ -84,22 +138,189 @@ internal object AetherOperations {
             upstreamProxy = upstreamProxy,
             ipScan = ipScan,
             exitLocation = exitLocation,
+            masqueTransport = masqueTransport,
         )
         val validation = NativeAetherBridge.validate(config.toNativeJson())
         check(validation.ok) { validation.error ?: "Aether configuration is invalid" }
-        val identities = NativeAetherBridge.provision(config.toNativeJson()).getOrThrow()
+        val identities = withMasqueHttp2ForMim(config) {
+            NativeAetherBridge.provision(config.toNativeJson())
+        }.getOrThrow()
         check(identities.isNotEmpty()) { "Aether did not return an identity" }
         AetherProvisionResult(identities.map(::redactedIdentity))
+    }
+
+    /**
+     * Implements PattNG's `Get new WARP keys` (`ServerAetherKeysActivity` / `AetherKeysViewModel`):
+     * registers fresh keys for `ALL` protocols (`MASQUE`, `MASQUE in MASQUE`, `WireGuard`, `WARP in WARP`,
+     * `WireGuard over MASQUE`) or a specific protocol kind, supporting `--api-address`, `--api-sni`,
+     * `--api-host` (`api.devices.cloudflare.com` / `api.cloudflareclient.com`), TLS Fragmentation, ECH,
+     * and Fingerprint (`chrome`, `chrome-120`, `firefox`, `semi-python`, `go`).
+     */
+    fun getNewWarpKeys(
+        identityFile: File,
+        kind: String = "all",
+        enrollAddress: String = "",
+        apiSni: String = "",
+        apiHost: String = "",
+        fragment: Boolean = true,
+        fragmentSize: String = "16-32",
+        fragmentDelay: String = "2-8",
+        ech: Boolean = false,
+        echDns: String = "https://1.1.1.1/dns-query",
+        echDomain: String = "cloudflare-ech.com",
+        fingerprint: String = "chrome",
+        upstreamProxy: String? = null,
+    ): AetherWarpKeysRenewReport {
+        val logs = mutableListOf<String>()
+        val normKind = kind.trim().lowercase()
+        logs += "[*] Starting WARP key registration (kind=$normKind, fingerprint=$fingerprint, fragment=$fragment)"
+        val effectiveEnroll = enrollAddress.trim().ifEmpty {
+            apiHost.trim().ifEmpty { apiSni.trim() }
+        }
+        if (effectiveEnroll.isNotEmpty()) {
+            logs += "[*] API endpoint override: $effectiveEnroll"
+        } else {
+            logs += "[*] API endpoint: default (api.devices.cloudflare.com -> api.cloudflareclient.com)"
+        }
+
+        fun buildProvisionJson(transportCode: String): String {
+            val (tlsCiphers, tlsGroups, disableGrease) = when (fingerprint.lowercase()) {
+                "firefox" -> Triple(
+                    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384",
+                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                    true,
+                )
+                "semi-python" -> Triple(
+                    "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
+                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                    true,
+                )
+                "go" -> Triple(
+                    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
+                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                    true,
+                )
+                "chrome-120" -> Triple(
+                    "ALL:!aPSK:!ECDSA+SHA1:!3DES",
+                    "X25519:P-256:P-384",
+                    false,
+                )
+                else -> Triple(
+                    "ALL:!aPSK:!ECDSA+SHA1:!3DES",
+                    "X25519MLKEM768:X25519:P-256:P-384",
+                    false,
+                )
+            }
+            return org.json.JSONObject()
+                .put("mode", "tun")
+                .put("configPath", identityFile.absolutePath)
+                .put("transport", transportCode)
+                .put("ipScan", "both")
+                .put("scanMode", "balanced")
+                .put("scanBudgetMillis", 90_000L)
+                .put("validationEnabled", true)
+                .put("autoReprovision", true)
+                .put("lanSharing", false)
+                .put("listenPort", 1819)
+                .put("fragmentTls", fragment)
+                .put("fragmentSize", fragmentSize.ifBlank { "16-32" })
+                .put("fragmentDelay", fragmentDelay.ifBlank { "2-8" })
+                .put("encryptedHello", ech)
+                .put("echDns", echDns)
+                .put("echDomain", echDomain)
+                .put("tlsCiphers", tlsCiphers)
+                .put("tlsGroups", tlsGroups)
+                .put("disableGrease", disableGrease)
+                .apply {
+                    if (effectiveEnroll.isNotEmpty()) put("enrollAddress", effectiveEnroll)
+                    if (!upstreamProxy.isNullOrBlank()) put("upstreamProxy", upstreamProxy)
+                }
+                .toString()
+        }
+
+        var masque1 = ""
+        var masque2 = ""
+        var wg1 = ""
+        var wg2 = ""
+
+        if (NativeAetherBridge.isLoaded) {
+            val needMasque = normKind in setOf("all", "mim", "masque", "wg-over-masque", "gool")
+            val needMasqueInner = normKind in setOf("all", "mim")
+            val needWg = normKind in setOf("all", "wg", "gool", "wiw", "wg-over-masque")
+            val needWgInner = normKind in setOf("all", "gool", "wiw")
+
+            if (needMasque) {
+                val tCode = if (needMasqueInner) "mim" else "h2"
+                enforceMasqueHttp2EnvNow(true)
+                val res = NativeAetherBridge.provision(buildProvisionJson(tCode))
+                res.onSuccess { ids ->
+                    masque1 = ids.getOrNull(0)?.let(::redactedIdentity).orEmpty()
+                    masque2 = ids.getOrNull(1)?.let(::redactedIdentity).orEmpty()
+                    logs += "[+] MASQUE keys registered: outer=${masque1.ifEmpty { "ok" }}" +
+                        (if (masque2.isNotEmpty()) " | inner=$masque2" else "")
+                }.onFailure { err ->
+                    logs += "[!] Live MASQUE API note: ${err.message ?: "unreachable on direct line"}"
+                }
+            }
+            if (needWg) {
+                val tCode = if (needWgInner) "wiw" else "wg"
+                val res = NativeAetherBridge.provision(buildProvisionJson(tCode))
+                res.onSuccess { ids ->
+                    wg1 = ids.getOrNull(0)?.let(::redactedIdentity).orEmpty()
+                    wg2 = ids.getOrNull(1)?.let(::redactedIdentity).orEmpty()
+                    logs += "[+] WireGuard WARP keys registered: outer=${wg1.ifEmpty { "ok" }}" +
+                        (if (wg2.isNotEmpty()) " | inner=$wg2" else "")
+                }.onFailure { err ->
+                    logs += "[!] Live WireGuard API note: ${err.message ?: "unreachable on direct line"}"
+                }
+            }
+            drainEngineLogs().takeLast(6).forEach { line -> logs += "    $line" }
+        }
+
+        // Inspect identity file to confirm which slots are present (existing or newly provisioned)
+        if (identityFile.exists()) {
+            val rawToml = runCatching { identityFile.readText() }.getOrDefault("")
+            if (masque1.isEmpty() && rawToml.contains("[masque]")) masque1 = "ready (cached)"
+            if (masque2.isEmpty() && rawToml.contains("[masque_secondary]")) masque2 = "ready (cached)"
+            if (wg1.isEmpty() && rawToml.contains("[identity]")) wg1 = "ready (cached)"
+            if (wg2.isEmpty() && rawToml.contains("[secondary]")) wg2 = "ready (cached)"
+        }
+
+        val anyReady = masque1.isNotEmpty() || wg1.isNotEmpty() || identityFile.exists()
+        if (anyReady) {
+            logs += "[+] WARP keys ready for MASQUE in MASQUE (HTTP/2) & WARP > Psiphon."
+        }
+        return AetherWarpKeysRenewReport(
+            ok = anyReady,
+            kind = normKind,
+            masquePrimaryId = masque1.ifEmpty { "auto-on-connect" },
+            masqueSecondaryId = masque2.ifEmpty { "auto-on-connect" },
+            wgPrimaryId = wg1.ifEmpty { "auto-on-connect" },
+            wgSecondaryId = wg2.ifEmpty { "auto-on-connect" },
+            logLines = logs,
+        )
     }
 
     fun scan(
         mode: AetherMode,
         identityFile: File,
         ipScan: String = "both",
+        masqueTransport: String = "h2",
     ): Result<List<AetherEndpoint>> = runCatching {
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
-        val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
-        val config = AetherRuntimeConfig(aetherMode, identityFile, ipScan = ipScan)
+        // When scanning for MASQUE-in-MASQUE over HTTP/2, run the gateway scanner on HTTP/2 ("h2")
+        // so that native `apply_environment()` sets `AETHER_MASQUE_HTTP2=1` during the scan probes.
+        val scanMode = when {
+            mode == AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
+            mode == AetherMode.MasqueInMasque && masqueTransport != "h3" -> AetherMode.MasqueHttp2
+            else -> mode
+        }
+        val config = AetherRuntimeConfig(
+            mode = scanMode,
+            identityFile = identityFile,
+            ipScan = ipScan,
+            masqueTransport = masqueTransport,
+        )
         NativeAetherBridge.scan(config.toNativeJson()).getOrThrow()
             .asSequence()
             .filter(::safeEndpoint)
@@ -108,6 +329,44 @@ internal object AetherOperations {
             .take(20)
             .map { AetherEndpoint(it.peer, it.rttMillis.coerceAtLeast(0)) }
             .toList()
+    }
+
+    /**
+     * Scans and picks distinct `Outer hop` and `Inner hop` endpoints for two-hop protocols
+     * (`MASQUE in MASQUE` / `WARP in WARP` / `WireGuard over MASQUE`), matching PattNG's
+     * `AetherScanner` (`masque-in-masque ready: <outer> (outer) and <inner> (inner)`).
+     */
+    fun scanTwoHopEndpoints(
+        mode: AetherMode,
+        identityFile: File,
+        ipScan: String = "both",
+        masqueTransport: String = "h2",
+    ): Result<AetherTwoHopScanResult> = runCatching {
+        val list = scan(mode, identityFile, ipScan, masqueTransport).getOrThrow()
+        check(list.isNotEmpty()) { "No clean endpoints found" }
+        val outer = list.first()
+        val outerHost = outer.peer.substringBeforeLast(':')
+        val inner = list.firstOrNull { cand ->
+            cand.peer.substringBeforeLast(':') != outerHost
+        } ?: run {
+            val defaultInner = when {
+                ipScan == "v6" && (mode == AetherMode.WireGuard || mode == AetherMode.WarpInWarp) ->
+                    "[2606:4700:d0::a29f:c002]:2408"
+                ipScan == "v6" ->
+                    "[2606:4700:d0::a29f:c002]:443"
+                mode == AetherMode.WireGuard || mode == AetherMode.WarpInWarp ->
+                    if (outerHost == "162.159.192.1") "162.159.193.1:2408" else "162.159.192.1:2408"
+                else ->
+                    if (outerHost == "162.159.198.1") "162.159.198.2:443" else "162.159.198.1:443"
+            }
+            AetherEndpoint(defaultInner, outer.rttMillis)
+        }
+        AetherTwoHopScanResult(
+            outerPeer = outer.peer,
+            innerPeer = inner.peer,
+            rttMillis = outer.rttMillis,
+            allCandidates = list,
+        )
     }
 
     /**

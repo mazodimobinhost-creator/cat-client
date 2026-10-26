@@ -127,6 +127,10 @@ internal object PsiphonCarrierConfig {
         "AU" to "🇦🇺 استرالیا (AU)",
         "IN" to "🇮🇳 هند (IN)",
         "BR" to "🇧🇷 برزیل (BR)",
+        "HR" to "🇭🇷 کرواسی (HR)",
+        "PT" to "🇵🇹 پرتغال (PT)",
+        "RS" to "🇷🇸 صربستان (RS)",
+        "UA" to "🇺🇦 اوکراین (UA)",
     )
 
     private val REGION_NAMES_EN: Map<String, String> = mapOf(
@@ -159,6 +163,10 @@ internal object PsiphonCarrierConfig {
         "AU" to "🇦🇺 Australia (AU)",
         "IN" to "🇮🇳 India (IN)",
         "BR" to "🇧🇷 Brazil (BR)",
+        "HR" to "🇭🇷 Croatia (HR)",
+        "PT" to "🇵🇹 Portugal (PT)",
+        "RS" to "🇷🇸 Serbia (RS)",
+        "UA" to "🇺🇦 Ukraine (UA)",
     )
 
     fun regionDisplayLabel(code: String, isFarsi: Boolean, automaticLabel: String? = null): String {

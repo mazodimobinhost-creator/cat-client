@@ -23,22 +23,40 @@ internal class AetherSession(
         var tunFd = -1
         return try {
             check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
-            NativeAetherBridge.setSocketProtector(NativeSocketProtector(protectSocket))
+            val forceMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
+            NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd ->
+                if (forceMimH2) AetherOperations.enforceMasqueHttp2EnvNow(true)
+                protectSocket(fd)
+            })
             val primaryJson = config.toNativeJson()
             val validation = NativeAetherBridge.validate(primaryJson)
             if (!validation.ok) throw IOException(validation.error ?: "Aether configuration is invalid")
+            var effectiveConfig = config
             var effectiveJson = primaryJson
-            val prepared = NativeAetherBridge.prepare(primaryJson).recoverCatching { firstError ->
+            val prepared = AetherOperations.withMasqueHttp2ForMim(config) {
+                NativeAetherBridge.prepare(primaryJson)
+            }.recoverCatching { firstError ->
                 // Automatic fallback 1: if a pinned endpoint or IPv6-only scan failed (e.g. SIM has no IPv6 route),
                 // retry with dual-stack automatic endpoint discovery.
-                val autoDiscovery = config.copy(endpoint = null, ipScan = "both").toNativeJson()
-                NativeAetherBridge.prepare(autoDiscovery).onSuccess {
+                val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
+                val autoDiscovery = autoDiscoveryCfg.toNativeJson()
+                AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
+                    NativeAetherBridge.prepare(autoDiscovery)
+                }.onSuccess {
+                    effectiveConfig = autoDiscoveryCfg
                     effectiveJson = autoDiscovery
                 }.recoverCatching {
                     // Automatic fallback 2: switch between MASQUE and WireGuard while preserving Iran/Foreign exit policy.
-                    val altMode = if (config.mode == AetherMode.WireGuard) AetherMode.MasqueHttp2 else AetherMode.WireGuard
-                    val altJson = config.copy(mode = altMode, endpoint = null, ipScan = "both").toNativeJson()
+                    val altMode = when (config.mode) {
+                        AetherMode.MasqueInMasque -> AetherMode.WireGuardOverMasque
+                        AetherMode.WarpInWarp -> AetherMode.WireGuard
+                        AetherMode.WireGuard -> AetherMode.MasqueHttp2
+                        else -> AetherMode.WireGuard
+                    }
+                    val altCfg = config.copy(mode = altMode, endpoint = null, ipScan = "both")
+                    val altJson = altCfg.toNativeJson()
                     NativeAetherBridge.prepare(altJson).onSuccess {
+                        effectiveConfig = altCfg
                         effectiveJson = altJson
                     }.getOrElse { throw firstError }
                 }.getOrThrow()
@@ -47,7 +65,9 @@ internal class AetherSession(
             tunFd = establishTun(ipv4, ipv6)
             check(tunFd >= 0) { "Could not establish Aether TUN" }
             handedOff = true
-            NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady))
+            AetherOperations.withMasqueHttp2ForMim(effectiveConfig) {
+                NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady))
+            }
         } catch (error: Throwable) {
             NativeResult(false, error.message ?: "Aether session failed")
         } finally {

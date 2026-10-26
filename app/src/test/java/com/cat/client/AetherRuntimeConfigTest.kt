@@ -78,6 +78,31 @@ class AetherRuntimeConfigTest {
             exitLocation = "iran",
         ).toNativeJson())
         assertEquals("h2", womIran.getString("transport"))
+
+        // PattNG MASQUE-in-MASQUE (mim) with HTTP/2 framing
+        val mimCfg = AetherRuntimeConfig(
+            mode = AetherMode.MasqueInMasque,
+            identityFile = File("/tmp/aether-mim.toml"),
+            endpoint = "162.159.198.1:443",
+            innerEndpoint = "162.159.198.2:443",
+            ipScan = "v4",
+            masqueTransport = "h2",
+        )
+        val mimJson = JSONObject(mimCfg.toNativeJson())
+        assertEquals("mim", mimJson.getString("transport"))
+        assertEquals("162.159.198.1:443", mimJson.getString("peer"))
+        assertTrue(mimCfg.usesMasqueHttp2)
+
+        // WARP-in-WARP (wiw)
+        val wiwJson = JSONObject(AetherRuntimeConfig(
+            mode = AetherMode.WarpInWarp,
+            identityFile = File("/tmp/aether-wiw.toml"),
+            endpoint = "162.159.192.1:2408",
+            innerEndpoint = "162.159.193.1:2408",
+            ipScan = "v4",
+        ).toNativeJson())
+        assertEquals("wiw", wiwJson.getString("transport"))
+        assertEquals("162.159.192.1:2408", wiwJson.getString("peer"))
     }
 
     @Test fun refusesUnreadyCarrierUnsafePathAndInvalidEndpoint() {

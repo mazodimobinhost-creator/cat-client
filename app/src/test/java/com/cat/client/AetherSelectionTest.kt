@@ -171,5 +171,54 @@ class AetherSelectionTest {
         val psiphonHint = AetherSelection(mode = AetherMode.WireGuard, chainTarget = "psiphon", psiphonRegion = "NL").smartRecommendation("psiphon")
         assertEquals("NL", psiphonHint.recommendedPsiphonRegion)
         assertEquals(AetherMode.WireGuard, psiphonHint.recommendedMode)
+
+        val mimHint = AetherSelection(mode = AetherMode.MasqueInMasque, psiphonRegion = "DE").smartRecommendation("mim")
+        assertEquals(AetherMode.MasqueInMasque, mimHint.recommendedMode)
+        assertEquals("psiphon", mimHint.recommendedChain)
+        assertEquals("DE", mimHint.recommendedPsiphonRegion)
+    }
+
+    @Test fun pattNgMasqueInMasqueWithHttp2AndPsiphonRoundTripsAndConvertsToMihomo() {
+        val mimSelection = AetherSelection(
+            enabled = true,
+            mode = AetherMode.MasqueInMasque,
+            endpoint = "162.159.198.1:443",
+            innerEndpoint = "162.159.198.2:443",
+            ipScan = "v4",
+            psiphonRegion = "DE",
+            profileName = "PattNG-MIM-Psiphon-DE",
+            chainTarget = "psiphon",
+            exitLocation = "foreign",
+            masqueTransport = "h2",
+        )
+        assertEquals(AetherMode.MasqueInMasque, mimSelection.effectiveCarrierMode())
+        assertEquals(
+            AetherMode.MasqueInMasque,
+            AetherSelection.simplifyModeForChain(AetherMode.MasqueInMasque, "psiphon"),
+        )
+        val uri = mimSelection.toAetherUri()
+        org.junit.Assert.assertTrue(uri.startsWith("aether://?"))
+        org.junit.Assert.assertTrue(uri.contains("protocol=mim"))
+        org.junit.Assert.assertTrue(uri.contains("transport=h2"))
+        org.junit.Assert.assertTrue(uri.contains("outer=162.159.198.1%3A443"))
+        org.junit.Assert.assertTrue(uri.contains("inner=162.159.198.2%3A443"))
+        org.junit.Assert.assertTrue(uri.contains("psiphon=chain"))
+        org.junit.Assert.assertTrue(uri.contains("region=DE"))
+
+        val parsed = AetherSelection.fromAetherUri(uri, nowMs = 321000L)!!
+        assertEquals(AetherMode.MasqueInMasque, parsed.mode)
+        assertEquals("h2", parsed.masqueTransport)
+        assertEquals("162.159.198.1:443", parsed.endpoint)
+        assertEquals("162.159.198.2:443", parsed.innerEndpoint)
+        assertEquals("psiphon", parsed.chainTarget)
+        assertEquals("DE", parsed.psiphonRegion)
+        assertEquals("PattNG-MIM-Psiphon-DE", parsed.profileName)
+
+        // SubConvConverter & MihomoShareLink round-trip for main config list
+        val converted = SubConvConverter.convert(uri)
+        assertEquals(1, converted.size)
+        assertEquals("PattNG-MIM-Psiphon-DE", converted[0].getString("name"))
+        assertEquals("socks5", converted[0].getString("type"))
+        org.junit.Assert.assertTrue(converted[0].getString("aether-uri").contains("protocol=mim"))
     }
 }

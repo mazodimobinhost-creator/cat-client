@@ -10,6 +10,8 @@ enum class AetherMode(
     MasqueHttp2("masque-h2", true, false, false),
     WireGuard("wireguard", true, false, false),
     WireGuardOverMasque("wireguard-over-masque", false, true, false),
+    MasqueInMasque("masque-in-masque", true, false, false),
+    WarpInWarp("warp-in-warp", true, false, false),
     MasquePsiphon("masque-h2-psiphon", true, false, true),
 }
 

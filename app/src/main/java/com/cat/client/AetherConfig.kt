@@ -9,12 +9,14 @@ data class AetherRuntimeConfig(
     val mode: AetherMode,
     val identityFile: File,
     val endpoint: String? = null,
+    val innerEndpoint: String? = null,
     val scanBudgetMillis: Long = 180_000,
     val upstreamProxy: String? = null,
     val runtimeEndpoint: AetherRuntimeEndpoint = AetherRuntimeEndpoint.Tun,
     val listenPort: Int = 1819,
     val ipScan: String = "both",
     val exitLocation: String = "auto",
+    val masqueTransport: String = "h2",
     val masqueSni: String = "",
     val echEnabled: Boolean = false,
 ) {
@@ -26,7 +28,9 @@ data class AetherRuntimeConfig(
         require(exitLocation in setOf("auto", "iran", "foreign")) {
             "Aether exitLocation must be auto, iran or foreign"
         }
+        require(masqueTransport in setOf("h2", "h3")) { "Aether masqueTransport must be h2 or h3" }
         endpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether endpoint" } }
+        innerEndpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether inner endpoint" } }
         upstreamProxy?.let {
             require(it.matches(Regex("socks5h?://127\\.0\\.0\\.1:[0-9]{2,5}"))) {
                 "Aether provisioning proxy must be a loopback SOCKS endpoint"
@@ -36,19 +40,36 @@ data class AetherRuntimeConfig(
     }
 
     /**
-     * Resolves the native bridge transport code (`wg`, `h2`, `wiw`, `wom`):
-     * - `iran`: forces single-hop (`wg` or `h2`) so Cloudflare WARP assigns an Iran IP (`IR`).
-     * - `foreign`: upgrades single-hop `wg` to `wiw` (WARP-in-WARP / Gool) and `h2` to `wom`
-     *   (WireGuard-over-MASQUE-H2) so the inner tunnel handshakes inside the outer tunnel and
-     *   exits with a non-Iran (foreign) IP (`!IR`).
-     * - `auto`: uses the mode's native transport as-is.
+     * Resolves the native bridge transport code (`wg`, `h2`, `h3`, `wiw`, `mim`, `wom`):
+     * - `MasqueInMasque`: always resolves to `"mim"` (MASQUE in MASQUE two-hop tunnel).
+     * - `WarpInWarp`: always resolves to `"wiw"` (WARP in WARP / classic Gool two-hop tunnel).
+     * - `WireGuardOverMasque`: resolves to `"wom"` (or single-hop if explicitly `iran`).
+     * - `iran`: forces single-hop (`wg` or `h2`/`h3`) so Cloudflare WARP assigns an Iran IP (`IR`).
+     * - `foreign`: upgrades single-hop `wg` to `wiw` and `h2` to `wom` when not already two-hop.
      */
     fun resolvedNativeTransport(): String = when (mode) {
         AetherMode.MasquePsiphon -> error("Psiphon carrier is not ready")
+        AetherMode.MasqueInMasque -> "mim"
+        AetherMode.WarpInWarp -> "wiw"
         AetherMode.WireGuard -> if (exitLocation == "foreign") "wiw" else "wg"
-        AetherMode.MasqueHttp2 -> if (exitLocation == "foreign") "wom" else "h2"
-        AetherMode.WireGuardOverMasque -> if (exitLocation == "iran") "h2" else "wom"
+        AetherMode.MasqueHttp2 -> when {
+            exitLocation == "foreign" -> "wom"
+            masqueTransport == "h3" -> "h3"
+            else -> "h2"
+        }
+        AetherMode.WireGuardOverMasque -> if (exitLocation == "iran") {
+            if (masqueTransport == "h3") "h3" else "h2"
+        } else {
+            "wom"
+        }
     }
+
+    val usesMasqueHttp2: Boolean
+        get() = when (mode) {
+            AetherMode.MasqueInMasque, AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque ->
+                masqueTransport != "h3"
+            else -> false
+        }
 
     fun toNativeJson(): String = JSONObject()
         .put("mode", runtimeEndpoint.wireName)

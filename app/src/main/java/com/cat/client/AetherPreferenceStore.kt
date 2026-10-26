@@ -11,6 +11,8 @@ data class AetherSavedProfile(
     val chainTarget: String = "none",
     val exitLocation: String = "auto",
     val psiphonRegion: String = "",
+    val masqueTransport: String = "h2",
+    val innerEndpoint: String = "",
 )
 
 data class AetherSmartHint(
@@ -31,12 +33,14 @@ data class AetherSelection(
     val enabled: Boolean = false,
     val mode: AetherMode = AetherMode.MasqueHttp2,
     val endpoint: String? = null,
+    val innerEndpoint: String? = null,
     val endpointScannedAt: Long = 0L,
     val psiphonRegion: String = "",
     val ipScan: String = "both",
     val profileName: String = "",
     val chainTarget: String = "none",
     val exitLocation: String = "auto",
+    val masqueTransport: String = "h2",
     val masqueSni: String = "",
     val echEnabled: Boolean = false,
 ) {
@@ -45,13 +49,16 @@ data class AetherSelection(
     }
 
     /**
-     * When chaining Psiphon or Tor (warp -> psiphon/tor) to bypass geo-sanctions,
-     * enforce simple protocols (WireGuard or MASQUE-HTTP/2) rather than
-     * double-encapsulated WireGuard-over-MASQUE.
+     * Resolves the carrier mode when chaining Psiphon or Tor (`warp -> psiphon/tor`).
+     * Preserves `MasqueInMasque` (`MASQUE in MASQUE` over `HTTP/2`), `WarpInWarp`,
+     * `MasqueHttp2`, and `WireGuard` as requested by the user/profile.
      */
     fun effectiveCarrierMode(): AetherMode = when (mode) {
+        AetherMode.MasqueInMasque -> AetherMode.MasqueInMasque
+        AetherMode.WarpInWarp -> AetherMode.WarpInWarp
         AetherMode.WireGuard -> AetherMode.WireGuard
         AetherMode.MasqueHttp2 -> AetherMode.MasqueHttp2
+        AetherMode.WireGuardOverMasque -> AetherMode.MasqueHttp2
         else -> if (ipScan == "v6") AetherMode.WireGuard else AetherMode.MasqueHttp2
     }
 
@@ -59,12 +66,13 @@ data class AetherSelection(
      * Effective exit location policy:
      * - If Psiphon/Tor chain is active, exit is always `"foreign"`.
      * - If `exitLocation` is explicitly `"iran"` or `"foreign"`, returns it.
-     * - If `exitLocation == "auto"`, `WireGuardOverMasque` implies `"foreign"` and single-hop implies `"iran"`.
+     * - If `exitLocation == "auto"`, two-hop modes (`MasqueInMasque`, `WarpInWarp`, `WireGuardOverMasque`)
+     *   imply `"foreign"` and single-hop implies `"iran"`.
      */
     fun effectiveExitLocation(): String = when {
         chainTarget in setOf("psiphon", "tor", "auto-psiphon") || mode == AetherMode.MasquePsiphon -> "foreign"
         exitLocation in setOf("iran", "foreign") -> exitLocation
-        mode == AetherMode.WireGuardOverMasque -> "foreign"
+        mode in setOf(AetherMode.MasqueInMasque, AetherMode.WarpInWarp, AetherMode.WireGuardOverMasque) -> "foreign"
         else -> "iran"
     }
 
@@ -76,6 +84,28 @@ data class AetherSelection(
         val effExit = effectiveExitLocation()
         val curRegion = psiphonRegion.ifBlank { "DE" }
         return when {
+            lastClicked == "mim" || mode == AetherMode.MasqueInMasque -> AetherSmartHint(
+                titleFa = "💡 آموزش رسمی PattNG: متد MASQUE in MASQUE + خروجی Psiphon",
+                bodyFa = "• طبق آموزش استاندارد PattNG:\n" +
+                    "  ۱) ابتدا یک بار «🔑 Get new WARP keys» را بزنید تا هر دو کلید MASQUE ثبت شوند.\n" +
+                    "  ۲) پروتکل (Protocol): روی «MASQUE in MASQUE» قرار دارد.\n" +
+                    "  ۳) ترنسپورت (Transport): روی «HTTP/2» قرار گیرد.\n" +
+                    "  ۴) بخش Psiphon: روی «WARP > Psiphon» و کشور (Exit country) روی کشور دلخواه (${curRegion}).\n" +
+                    "  ۵) در پایان «🔍 Scan for an endpoint» را بزنید و ذخیره (✅) کنید.",
+                actionLabelFa = "✨ اعمال کامل تنظیمات آموزش (MASQUE in MASQUE + HTTP/2 + WARP > Psiphon)",
+                titleEn = "💡 PattNG Guide: MASQUE in MASQUE + HTTP/2 + WARP > Psiphon",
+                bodyEn = "• Recommended PattNG setup:\n" +
+                    "  1) Tap '🔑 Get new WARP keys' once.\n" +
+                    "  2) Protocol = MASQUE in MASQUE · Transport = HTTP/2.\n" +
+                    "  3) Psiphon = WARP > Psiphon · Exit country = $curRegion.\n" +
+                    "  4) Tap '🔍 Scan for an endpoint' and Save (✅).",
+                actionLabelEn = "✨ Apply Full Guide Preset (MIM + HTTP/2 + WARP > Psiphon)",
+                recommendedMode = AetherMode.MasqueInMasque,
+                recommendedIpScan = "v4",
+                recommendedChain = "psiphon",
+                recommendedExitLocation = "foreign",
+                recommendedPsiphonRegion = curRegion,
+            )
             lastClicked == "mci" || (ipScan == "v6" && mode == AetherMode.WireGuard && lastClicked.isEmpty()) -> AetherSmartHint(
                 titleFa = "💡 پیشنهاد هوشمند برای فایروال همراه اول (WARP + IPv6)",
                 bodyFa = "• با «WireGuard + IPv6» بهترین مکمل:\n" +
@@ -215,8 +245,10 @@ data class AetherSelection(
         val effExit = effectiveExitLocation()
         val finalMode = simplifyModeForChain(mode, chainTarget)
         val proto = when {
+            finalMode == AetherMode.MasqueInMasque -> "mim"
+            finalMode == AetherMode.WarpInWarp -> "gool"
             chainTarget in setOf("psiphon", "tor") ->
-                if (finalMode == AetherMode.MasqueHttp2) "masque" else "wg"
+                if (finalMode == AetherMode.WireGuard) "wg" else "masque"
             finalMode == AetherMode.WireGuard && effExit == "foreign" -> "gool"
             finalMode == AetherMode.WireGuard -> "wg"
             finalMode == AetherMode.WireGuardOverMasque || (finalMode == AetherMode.MasqueHttp2 && effExit == "foreign") ->
@@ -225,6 +257,19 @@ data class AetherSelection(
         }
         val twoHops = proto in setOf("gool", "wg-over-masque", "mim")
         val cleanPeer = endpoint?.trim()?.takeIf { it.isNotBlank() }
+        val cleanInner = innerEndpoint?.trim()?.takeIf { it.isNotBlank() } ?: run {
+            if (proto == "mim" && cleanPeer != null) {
+                val outerHost = cleanPeer.substringBeforeLast(':')
+                if (cleanPeer.startsWith("[")) "[2606:4700:d0::a29f:c002]:443"
+                else if (outerHost == "162.159.198.1") "162.159.198.2:443"
+                else "162.159.198.1:443"
+            } else if (proto == "gool" && cleanPeer != null) {
+                val outerHost = cleanPeer.substringBeforeLast(':')
+                if (cleanPeer.startsWith("[")) "[2606:4700:d0::a29f:c002]:2408"
+                else if (outerHost == "162.159.192.1") "162.159.193.1:2408"
+                else "162.159.192.1:2408"
+            } else null
+        }
         val effectiveIp = when {
             ipScan in setOf("v4", "v6") -> ipScan
             cleanPeer != null && cleanPeer.startsWith("[") -> "v6"
@@ -236,12 +281,15 @@ data class AetherSelection(
             "scan=balanced",
             "ip=$effectiveIp",
         )
-        if (proto == "masque" || proto == "wg-over-masque") {
-            params += "transport=h2"
-            params += "fragment=1"
-            params += "fragment_size=16-32"
-            params += "fragment_delay=2-10"
-            params += "fingerprint=semi-python"
+        if (proto in setOf("masque", "wg-over-masque", "mim")) {
+            val tr = if (masqueTransport == "h3") "h3" else "h2"
+            params += "transport=$tr"
+            if (tr == "h2") {
+                params += "fragment=1"
+                params += "fragment_size=16-32"
+                params += "fragment_delay=2-10"
+            }
+            params += "fingerprint=${if (proto == "mim") "chrome" else "semi-python"}"
             val cleanMasqueSni = masqueSni.trim()
             if (cleanMasqueSni.isNotEmpty()) {
                 params += "masque_sni=${java.net.URLEncoder.encode(cleanMasqueSni, "UTF-8")}"
@@ -252,6 +300,9 @@ data class AetherSelection(
         }
         if (twoHops && cleanPeer != null) {
             params += "outer=${java.net.URLEncoder.encode(cleanPeer, "UTF-8")}"
+            if (cleanInner != null) {
+                params += "inner=${java.net.URLEncoder.encode(cleanInner, "UTF-8")}"
+            }
         }
         if (chainTarget == "psiphon" || mode == AetherMode.MasquePsiphon) {
             params += "psiphon=chain"
@@ -272,6 +323,7 @@ data class AetherSelection(
         }
         val labelBase = profileName.trim().ifEmpty {
             when (proto) {
+                "mim" -> if (chainTarget == "psiphon") "PattNG-MIM-Psiphon" else "Aether-MIM-H2"
                 "gool" -> "Aether-Gool"
                 "wg-over-masque" -> "Aether-WG-MASQUE"
                 "wg" -> "Aether-WARP"
@@ -291,7 +343,11 @@ data class AetherSelection(
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
             if (chainTarget !in setOf("psiphon", "tor", "auto-psiphon")) return mode
             return when (mode) {
-                AetherMode.WireGuard, AetherMode.MasqueHttp2 -> mode
+                AetherMode.MasqueInMasque,
+                AetherMode.WarpInWarp,
+                AetherMode.WireGuard,
+                AetherMode.MasqueHttp2,
+                -> mode
                 else -> AetherMode.WireGuard
             }
         }
@@ -341,18 +397,23 @@ data class AetherSelection(
             val exitLocation = when {
                 chainTarget != "none" -> "foreign"
                 exitLocRaw == "IR" -> "iran"
-                exitLocRaw == "!IR" || proto in setOf("gool", "wiw", "wg-over-masque", "wom", "mim") -> "foreign"
+                exitLocRaw == "!IR" || proto in setOf("gool", "wiw", "warp-in-warp", "wg-over-masque", "wom", "mim", "masque-in-masque") -> "foreign"
                 else -> "iran"
             }
             val baseMode = when (proto) {
-                "wg", "wireguard", "gool", "wiw" -> AetherMode.WireGuard
+                "mim", "masque-in-masque" -> AetherMode.MasqueInMasque
+                "gool", "wiw", "warp-in-warp" ->
+                    if (chainTarget != "none") AetherMode.WarpInWarp else AetherMode.WireGuard
+                "wg", "wireguard" -> AetherMode.WireGuard
                 "wg-over-masque", "wom" ->
                     if (chainTarget != "none") AetherMode.MasqueHttp2 else AetherMode.WireGuardOverMasque
                 else -> AetherMode.MasqueHttp2
             }
+            val transportParam = map["transport"].orEmpty().lowercase().takeIf { it in setOf("h2", "h3") } ?: "h2"
             val ipScan = map["ip"].orEmpty().lowercase().takeIf { it in setOf("both", "v4", "v6") } ?: "both"
             val peer = (map["endpoint"] ?: map["outer"] ?: map["peer"] ?: authority.takeIf { it.isNotEmpty() })
                 ?.takeIf(AetherOperations::isSafePublicPeer)
+            val innerPeer = map["inner"]?.takeIf(AetherOperations::isSafePublicPeer)
             val region = map["region"].orEmpty().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
             val masqueSniParam = (map["masque_sni"] ?: map["sni"]).orEmpty().trim()
             val echParam = map["ech"].orEmpty().lowercase() in setOf("1", "true", "yes", "on")
@@ -361,12 +422,14 @@ data class AetherSelection(
                 enabled = true,
                 mode = simplifyModeForChain(baseMode, chainTarget),
                 endpoint = peer,
+                innerEndpoint = innerPeer,
                 endpointScannedAt = if (peer != null) nowMs else 0L,
                 psiphonRegion = region,
                 ipScan = ipScan,
                 profileName = name.ifEmpty { "Aether" },
                 chainTarget = chainTarget,
                 exitLocation = exitLocation,
+                masqueTransport = transportParam,
                 masqueSni = masqueSniParam,
                 echEnabled = echParam,
             )
@@ -382,6 +445,7 @@ class AetherPreferenceStore(context: Context) {
         val mode = AetherMode.entries.firstOrNull { it.wireName == prefs.getString("mode", null) }
             ?: AetherMode.MasqueHttp2
         val endpoint = prefs.getString("endpoint", null)?.takeIf(AetherOperations::isSafePublicPeer)
+        val innerEndpoint = prefs.getString("innerEndpoint", null)?.takeIf(AetherOperations::isSafePublicPeer)
         val region = prefs.getString("psiphonRegion", "").orEmpty()
             .takeIf { it.isEmpty() || it.matches(Regex("[A-Z]{2}")) }.orEmpty()
         val ipScan = prefs.getString("ipScan", "both").orEmpty()
@@ -395,18 +459,22 @@ class AetherPreferenceStore(context: Context) {
         }
         val exitLocation = prefs.getString("exitLocation", "auto").orEmpty()
             .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
+        val masqueTransport = prefs.getString("masqueTransport", "h2").orEmpty()
+            .takeIf { it in setOf("h2", "h3") } ?: "h2"
         val masqueSni = prefs.getString("masqueSni", "").orEmpty().trim()
         val echEnabled = prefs.getBoolean("echEnabled", false)
         return AetherSelection(
             enabled = enabled,
             mode = mode,
             endpoint = endpoint,
+            innerEndpoint = innerEndpoint,
             endpointScannedAt = prefs.getLong("endpointScannedAt", 0L),
             psiphonRegion = region,
             ipScan = ipScan,
             profileName = profileName,
             chainTarget = chainTarget,
             exitLocation = exitLocation,
+            masqueTransport = masqueTransport,
             masqueSni = masqueSni,
             echEnabled = echEnabled,
         )
@@ -422,19 +490,25 @@ class AetherPreferenceStore(context: Context) {
             selection.chainTarget.takeIf { it in AetherSelection.VALID_CHAIN_TARGETS } ?: "none"
         }
         val normalizedMode = when {
-            validExitLoc == "iran" && selection.mode == AetherMode.WireGuardOverMasque -> AetherMode.MasqueHttp2
+            validExitLoc == "iran" && selection.mode in setOf(AetherMode.WireGuardOverMasque, AetherMode.MasqueInMasque) ->
+                AetherMode.MasqueHttp2
+            validExitLoc == "iran" && selection.mode == AetherMode.WarpInWarp ->
+                AetherMode.WireGuard
             else -> AetherSelection.simplifyModeForChain(selection.mode, validChain)
         }
+        val validTransport = selection.masqueTransport.takeIf { it in setOf("h2", "h3") } ?: "h2"
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", normalizedMode.wireName)
             .putString("endpoint", selection.endpoint)
+            .putString("innerEndpoint", selection.innerEndpoint)
             .putLong("endpointScannedAt", selection.endpointScannedAt)
             .putString("psiphonRegion", selection.psiphonRegion)
             .putString("ipScan", validIpScan)
             .putString("profileName", selection.profileName.trim())
             .putString("chainTarget", validChain)
             .putString("exitLocation", validExitLoc)
+            .putString("masqueTransport", validTransport)
             .putString("masqueSni", selection.masqueSni.trim())
             .putBoolean("echEnabled", selection.echEnabled)
             .apply()
@@ -459,7 +533,10 @@ class AetherPreferenceStore(context: Context) {
                         .takeIf { it in AetherSelection.VALID_EXIT_LOCATIONS } ?: "auto"
                     val region = obj.optString("psiphonRegion", "").trim().uppercase()
                         .takeIf { it.isEmpty() || it.matches(Regex("[A-Z]{2}")) }.orEmpty()
-                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc, region))
+                    val tr = obj.optString("masqueTransport", "h2").takeIf { it in setOf("h2", "h3") } ?: "h2"
+                    val innerEp = obj.optString("innerEndpoint", "").trim()
+                        .takeIf(AetherOperations::isSafePublicPeer).orEmpty()
+                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc, region, tr, innerEp))
                 }
             }
         }.getOrDefault(emptyList())
@@ -479,7 +556,9 @@ class AetherPreferenceStore(context: Context) {
                     .put("scannedAt", item.scannedAt)
                     .put("chainTarget", item.chainTarget)
                     .put("exitLocation", item.exitLocation)
-                    .put("psiphonRegion", item.psiphonRegion),
+                    .put("psiphonRegion", item.psiphonRegion)
+                    .put("masqueTransport", item.masqueTransport)
+                    .put("innerEndpoint", item.innerEndpoint),
             )
         }
         prefs.edit().putString("savedProfilesJson", arr.toString()).apply()

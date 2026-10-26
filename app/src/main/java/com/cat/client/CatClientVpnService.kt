@@ -1515,6 +1515,16 @@ class CatClientVpnService : VpnService() {
                 selectedSubscriptionId,
                 selectedSnapshot.catalog.profiles,
             )
+            requested?.shareLink?.let { link ->
+                if (link.startsWith("aether://", ignoreCase = true) || link.startsWith("masque://", ignoreCase = true)) {
+                    val parsedAether = AetherSelection.fromAetherUri(link)
+                    if (parsedAether != null) {
+                        aetherPreferenceStore.save(parsedAether.copy(enabled = true))
+                        runAetherStartup(eventPrefix, parsedAether.copy(enabled = true))
+                        return
+                    }
+                }
+            }
             explicitProfile = requested?.let { profile ->
                 eligibleProfilesForRuntime(selectedSnapshot.catalog)
                     .firstOrNull { it.fingerprint == profile.fingerprint }
@@ -4111,8 +4121,10 @@ class CatClientVpnService : VpnService() {
             mode = effectiveSelection.mode,
             identityFile = File(filesDir, "aether.toml"),
             endpoint = effectiveEndpoint,
+            innerEndpoint = effectiveSelection.innerEndpoint,
             ipScan = effectiveSelection.ipScan,
             exitLocation = effectiveSelection.exitLocation,
+            masqueTransport = effectiveSelection.masqueTransport,
         )
         DiagnosticLogger.info(
             this,
@@ -4165,6 +4177,8 @@ class CatClientVpnService : VpnService() {
             endpoint = selection.freshEndpoint(),
             carrierMode = carrierMode,
             ipScan = selection.ipScan,
+            masqueTransport = selection.masqueTransport,
+            innerEndpoint = selection.innerEndpoint,
         ).also { aetherPsiphonChain = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.start", "carrier=${carrierMode.wireName}")
         try {
@@ -4206,6 +4220,8 @@ class CatClientVpnService : VpnService() {
             port = 1819,
             carrierMode = carrierMode,
             ipScan = selection.ipScan,
+            masqueTransport = selection.masqueTransport,
+            innerEndpoint = selection.innerEndpoint,
         ).also { aetherTorCarrier = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName}")
         try {

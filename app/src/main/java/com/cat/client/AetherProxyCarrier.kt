@@ -14,7 +14,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Aether WARP (simple WireGuard or MASQUE-HTTP/2) as a loopback-only SOCKS carrier for Psiphon or Tor. */
+/** Aether WARP (MASQUE-in-MASQUE, MASQUE-HTTP/2, WireGuard-over-MASQUE, WARP-in-WARP, or WireGuard) as a loopback-only SOCKS carrier for Psiphon or Tor. */
 internal class AetherProxyCarrier(
     private val scope: CoroutineScope,
     private val identityFile: File,
@@ -23,6 +23,8 @@ internal class AetherProxyCarrier(
     val port: Int = 1819,
     private val carrierMode: AetherMode = AetherMode.MasqueHttp2,
     private val ipScan: String = "both",
+    private val masqueTransport: String = "h2",
+    private val innerEndpoint: String? = null,
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var job: Job? = null
@@ -32,40 +34,63 @@ internal class AetherProxyCarrier(
         check(active.compareAndSet(false, true)) { "Aether proxy carrier is already active" }
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
         ready = CompletableDeferred()
-        val simpleMode = when (carrierMode) {
-            AetherMode.WireGuard -> AetherMode.WireGuard
-            else -> AetherMode.MasqueHttp2
+        val requestedMode = when (carrierMode) {
+            AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
+            else -> carrierMode
         }
         val config = AetherRuntimeConfig(
-            mode = simpleMode,
+            mode = requestedMode,
             identityFile = identityFile,
             endpoint = endpoint,
+            innerEndpoint = innerEndpoint,
             runtimeEndpoint = AetherRuntimeEndpoint.Proxy,
             listenPort = port,
             ipScan = ipScan,
+            masqueTransport = masqueTransport,
         )
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)
         check(validation.ok) { validation.error ?: "Invalid Aether proxy configuration" }
-        NativeAetherBridge.setSocketProtector(NativeSocketProtector(protectSocket))
+        val forceMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
+        NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd ->
+            if (forceMimH2) AetherOperations.enforceMasqueHttp2EnvNow(true)
+            protectSocket(fd)
+        })
+        var effectiveConfig = config
         var effectiveJson = primaryJson
-        val prepared = NativeAetherBridge.prepare(primaryJson).recoverCatching { firstError ->
-            val autoDiscovery = config.copy(endpoint = null, ipScan = "both").toNativeJson()
-            NativeAetherBridge.prepare(autoDiscovery).onSuccess {
+        val prepared = AetherOperations.withMasqueHttp2ForMim(config) {
+            NativeAetherBridge.prepare(primaryJson)
+        }.recoverCatching { firstError ->
+            val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
+            val autoDiscovery = autoDiscoveryCfg.toNativeJson()
+            AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
+                NativeAetherBridge.prepare(autoDiscovery)
+            }.onSuccess {
+                effectiveConfig = autoDiscoveryCfg
                 effectiveJson = autoDiscovery
             }.recoverCatching {
-                val altMode = if (simpleMode == AetherMode.WireGuard) AetherMode.MasqueHttp2 else AetherMode.WireGuard
-                val altJson = config.copy(mode = altMode, endpoint = null, ipScan = "both").toNativeJson()
+                val fallbackMode = when (requestedMode) {
+                    AetherMode.MasqueInMasque, AetherMode.WireGuardOverMasque -> AetherMode.MasqueHttp2
+                    AetherMode.WarpInWarp -> AetherMode.WireGuard
+                    AetherMode.WireGuard -> AetherMode.MasqueHttp2
+                    else -> AetherMode.WireGuard
+                }
+                val altCfg = config.copy(mode = fallbackMode, endpoint = null, ipScan = "both")
+                val altJson = altCfg.toNativeJson()
                 NativeAetherBridge.prepare(altJson).onSuccess {
+                    effectiveConfig = altCfg
                     effectiveJson = altJson
                 }.getOrElse { throw firstError }
             }.getOrThrow()
         }.getOrThrow()
+        val runCfg = effectiveConfig
         val runJson = effectiveJson
         job = scope.launch(Dispatchers.IO) {
-            val result = NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
-                ready.complete(Unit)
-            })
+            val result = AetherOperations.withMasqueHttp2ForMim(runCfg) {
+                NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
+                    ready.complete(Unit)
+                })
+            }
             if (!result.ok && !ready.isCompleted) {
                 ready.completeExceptionally(IOException(result.error ?: "Aether proxy stopped"))
             }
