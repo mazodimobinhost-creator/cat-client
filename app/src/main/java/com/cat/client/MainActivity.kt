@@ -4186,6 +4186,8 @@ class MainActivity : Activity() {
         )
         val isFarsiAether = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val aetherModeLabel = when (aetherSelection.mode) {
+            AetherMode.MasqueInMasque -> "MASQUE in MASQUE (${aetherSelection.masqueTransport.uppercase(Locale.US)})"
+            AetherMode.WarpInWarp -> "WARP in WARP (Gool)"
             AetherMode.MasqueHttp2 -> getString(R.string.aether_mode_h2)
             AetherMode.WireGuard -> if (isFarsiAether) "WARP · WireGuard (${aetherSelection.ipScan.uppercase(Locale.US)})" else "WARP · WireGuard (${aetherSelection.ipScan.uppercase(Locale.US)})"
             AetherMode.WireGuardOverMasque -> getString(R.string.aether_mode_wom)
@@ -4198,10 +4200,12 @@ class MainActivity : Activity() {
             if (aetherOperationJob?.isActive == true) return@appPreferenceRow
             val current = aetherPreferenceStore.read()
             val next = when (current.mode) {
+                AetherMode.MasqueInMasque -> AetherMode.MasqueHttp2
                 AetherMode.MasqueHttp2 -> AetherMode.WireGuard
                 AetherMode.WireGuard -> AetherMode.WireGuardOverMasque
-                AetherMode.WireGuardOverMasque -> AetherMode.MasquePsiphon
-                AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
+                AetherMode.WireGuardOverMasque -> AetherMode.WarpInWarp
+                AetherMode.WarpInWarp -> AetherMode.MasquePsiphon
+                AetherMode.MasquePsiphon -> AetherMode.MasqueInMasque
             }
             aetherPreferenceStore.save(current.copy(mode = next, endpoint = null, endpointScannedAt = 0L))
             recreate()
@@ -10613,6 +10617,8 @@ class MainActivity : Activity() {
         }
 
         fun modeLabelOf(mode: AetherMode): String = when (mode) {
+            AetherMode.MasqueInMasque -> "MASQUE in MASQUE (HTTP/2)"
+            AetherMode.WarpInWarp -> "WARP in WARP (Gool)"
             AetherMode.MasqueHttp2 -> getString(R.string.aether_mode_h2)
             AetherMode.WireGuard -> if (isFarsi) "WARP · WireGuard" else "WARP · WireGuard"
             AetherMode.WireGuardOverMasque -> getString(R.string.aether_mode_wom)
@@ -11285,7 +11291,7 @@ class MainActivity : Activity() {
      * (Steps 2-1 & 2-2 of the official PattNG guide).
      */
     private fun showGetNewWarpKeysDialog(
-        onKeysReady: ((AetherOperations.WarpKeysEnrollResult) -> Unit)? = null,
+        onKeysReady: ((AetherWarpKeysRenewReport) -> Unit)? = null,
     ) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val tomlFile = java.io.File(filesDir, "aether.toml")
@@ -11470,42 +11476,38 @@ class MainActivity : Activity() {
                     val proxy = if (currentVpnServiceState == VpnState.Started) {
                         "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
                     } else null
-                    val res = withContext(Dispatchers.IO) {
+                    val report = withContext(Dispatchers.IO) {
                         AetherOperations.getNewWarpKeys(
-                            protocol = selectedProto,
                             identityFile = tomlFile,
-                            enrollAddress = enrollAddrInput.text?.toString()?.trim(),
-                            apiSni = apiSniInput.text?.toString()?.trim(),
-                            apiHost = apiHostInput.text?.toString()?.trim(),
-                            fragmentEnabled = fragmentCheck.isChecked,
-                            echEnabled = echCheck.isChecked,
+                            kind = selectedProto,
+                            enrollAddress = enrollAddrInput.text?.toString()?.trim().orEmpty(),
+                            apiSni = apiSniInput.text?.toString()?.trim().orEmpty(),
+                            apiHost = apiHostInput.text?.toString()?.trim().orEmpty(),
+                            fragment = fragmentCheck.isChecked,
+                            ech = echCheck.isChecked,
                             fingerprint = selectedFingerprint,
-                            socksProxy = proxy,
+                            upstreamProxy = proxy,
                         )
                     }
                     progressBar.progress = 100
                     btn.isEnabled = true
-                    res.onSuccess { enrolled ->
+                    if (report.ok) {
                         statusText.text = if (isFarsi) {
                             "✅ Keys saved! کلیدهای جدید WARP با موفقیت دریافت و ذخیره شدند:\n" +
-                                "• Outer IPv4/IPv6: ${enrolled.primaryIpv4} / ${enrolled.primaryIpv6.ifBlank { "auto" }}\n" +
-                                "• Inner IPv4/IPv6: ${enrolled.secondaryIpv4} / ${enrolled.secondaryIpv6.ifBlank { "auto" }}"
+                                "• MASQUE Outer / Inner: ${report.masquePrimaryId} / ${report.masqueSecondaryId}\n" +
+                                "• WireGuard Outer / Inner: ${report.wgPrimaryId} / ${report.wgSecondaryId}"
                         } else {
-                            "✅ Keys saved!\n• Outer: ${enrolled.primaryIpv4} / ${enrolled.primaryIpv6}\n• Inner: ${enrolled.secondaryIpv4} / ${enrolled.secondaryIpv6}"
+                            "✅ Keys saved!\n• MASQUE: ${report.masquePrimaryId} / ${report.masqueSecondaryId}\n• WireGuard: ${report.wgPrimaryId} / ${report.wgSecondaryId}"
                         }
                         Toast.makeText(
                             this@MainActivity,
                             if (isFarsi) "✅ Keys saved! کلیدهای جدید WARP ذخیره شدند" else "✅ Keys saved!",
                             Toast.LENGTH_LONG,
                         ).show()
-                        onKeysReady?.invoke(enrolled)
+                        onKeysReady?.invoke(report)
                         parentDialog?.dismiss()
-                    }.onFailure { err ->
-                        statusText.text = if (isFarsi) {
-                            "⚠️ خطا در دریافت کلید: ${err.message}"
-                        } else {
-                            "⚠️ Failed to fetch keys: ${err.message}"
-                        }
+                    } else {
+                        statusText.text = report.logLines.joinToString("\n")
                     }
                 }
             }
@@ -11594,10 +11596,10 @@ class MainActivity : Activity() {
                     withContext(Dispatchers.IO) {
                         runCatching {
                             AetherOperations.getNewWarpKeys(
-                                protocol = "mim",
                                 identityFile = tomlFile,
-                                socksProxy = proxy,
-                            ).getOrThrow()
+                                kind = "mim",
+                                upstreamProxy = proxy,
+                            )
                         }
                     }
 
@@ -11617,11 +11619,10 @@ class MainActivity : Activity() {
                                 masqueTransport = "h2",
                             ).getOrThrow()
                         }.getOrDefault(
-                            AetherOperations.TwoHopScanResult(
+                            AetherTwoHopScanResult(
                                 outerPeer = "162.159.198.1:443",
                                 innerPeer = "162.159.198.2:443",
-                                outerRttMs = 65L,
-                                innerRttMs = 70L,
+                                rttMillis = 65L,
                             ),
                         )
                     }
@@ -11640,7 +11641,7 @@ class MainActivity : Activity() {
                         AetherMode.MasqueInMasque,
                         "v4",
                         twoHop.outerPeer,
-                        twoHop.outerRttMs,
+                        twoHop.rttMillis,
                     )
                     val readySelection = AetherSelection(
                         enabled = true,
@@ -12057,8 +12058,8 @@ class MainActivity : Activity() {
             showGetNewWarpKeysDialog { enrolled ->
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "✅ کلیدهای WARP آماده شدند (${enrolled.primaryIpv4} / ${enrolled.secondaryIpv4})"
-                    else "✅ WARP keys ready (${enrolled.primaryIpv4} / ${enrolled.secondaryIpv4})",
+                    if (isFarsi) "✅ کلیدهای WARP آماده شدند (${enrolled.masquePrimaryId} / ${enrolled.masqueSecondaryId})"
+                    else "✅ WARP keys ready (${enrolled.masquePrimaryId} / ${enrolled.masqueSecondaryId})",
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -12363,7 +12364,7 @@ class MainActivity : Activity() {
                         AetherOperations.provision(
                             mode = chosenMode,
                             identityFile = tomlFile,
-                            socksProxy = proxy,
+                            upstreamProxy = proxy,
                             ipScan = chosenIpScan,
                             exitLocation = chosenExitLocation,
                             masqueTransport = chosenTransport,
@@ -12391,12 +12392,12 @@ class MainActivity : Activity() {
                         scannedInnerEndpoint = twoHop.innerPeer
                         outerEndpointInput.setText(twoHop.outerPeer)
                         innerEndpointInput.setText(twoHop.innerPeer)
-                        aetherPreferenceStore.rememberEndpointForNetwork(netKey, chosenMode, chosenIpScan, twoHop.outerPeer, twoHop.outerRttMs)
+                        aetherPreferenceStore.rememberEndpointForNetwork(netKey, chosenMode, chosenIpScan, twoHop.outerPeer, twoHop.rttMillis)
                         updateStateLabel()
                         setScanProgress(
                             100,
-                            if (isFarsi) "✅ اسکن کامل شد! Outer: ${twoHop.outerPeer} (${twoHop.outerRttMs}ms) · Inner: ${twoHop.innerPeer} (${twoHop.innerRttMs}ms)"
-                            else "✅ Scan complete! Outer: ${twoHop.outerPeer} (${twoHop.outerRttMs}ms) · Inner: ${twoHop.innerPeer} (${twoHop.innerRttMs}ms)",
+                            if (isFarsi) "✅ اسکن کامل شد! Outer: ${twoHop.outerPeer} · Inner: ${twoHop.innerPeer} (${twoHop.rttMillis}ms)"
+                            else "✅ Scan complete! Outer: ${twoHop.outerPeer} · Inner: ${twoHop.innerPeer} (${twoHop.rttMillis}ms)",
                         )
                     }
                 } else {
