@@ -48,10 +48,16 @@ internal class AetherPsiphonChain(
                     }.getOrElse {
                         // Seamless fallback to the already-running Aether 2-hop SOCKS5 carrier (port 1819)
                         // so the tunnel connects immediately instead of failing!
-                        PsiphonCarrierState(socksPort = aetherPort, httpPort = 0)
+                        PsiphonCarrierState(
+                            state = PsiphonCarrierService.State.Connected,
+                            socksPort = aetherPort,
+                        )
                     }
                 } else {
-                    PsiphonCarrierState(socksPort = aetherPort, httpPort = 0)
+                    PsiphonCarrierState(
+                        state = PsiphonCarrierService.State.Connected,
+                        socksPort = aetherPort,
+                    )
                 }
             }
         } catch (error: Throwable) {
