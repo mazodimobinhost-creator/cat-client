@@ -2394,7 +2394,7 @@ internal object FirefoxVpnEngine {
         return startOrUpdateLocalFenixProxy(
             context = context,
             country = country,
-            bearerPass = activeAcc?.proxyPass.orEmpty(),
+            bearerPass = activeAcc?.proxyPassToken.orEmpty(),
             cleanEdgeIp = cleanIp,
             fragmentTls = frag,
         )

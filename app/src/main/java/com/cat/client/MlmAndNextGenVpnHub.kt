@@ -954,7 +954,7 @@ internal object MlmAndNextGenVpnHub {
             }
         }.getOrNull()
         if (fenixProbe != null) {
-            val deCountry = FirefoxVpnEngine.DEFAULT_COUNTRIES.first()
+            val deCountry = FirefoxVpnEngine.BUILTIN_COUNTRIES.first()
             val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(country = deCountry, localPort = FirefoxVpnEngine.activeProxyPort())
             candidates += MlmScoutRecommendation(
                 id = "fenix_fastly",
