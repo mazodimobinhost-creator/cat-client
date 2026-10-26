@@ -6239,11 +6239,15 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
             addView(
-                tabBtn(if (isFarsiScanner) "🎯 اسکنر ProxyIP" else "🎯 ProxyIP", active = false) { showProxyIpScannerPage() },
+                tabBtn(if (isFarsiScanner) "🏳️ آی‌پی سفید" else "🏳️ Whitelist", active = false) { showWhitelistSuperScannerDialog() },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) },
             )
             addView(
-                tabBtn(if (isFarsiScanner) "🧦 اسکنر SOCKS5" else "🧦 SOCKS5/Proxy", active = false) { showProxyScannerPage() },
+                tabBtn(if (isFarsiScanner) "🎯 ProxyIP" else "🎯 ProxyIP", active = false) { showProxyIpScannerPage() },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) },
+            )
+            addView(
+                tabBtn(if (isFarsiScanner) "🧦 SOCKS5" else "🧦 SOCKS5", active = false) { showProxyScannerPage() },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) },
             )
         }
@@ -6453,6 +6457,64 @@ class MainActivity : Activity() {
         renderScannerIpHealth()
         startIpHealthLoop()
 
+        // ---- 🏳️ Smart Whitelist & Multi-CDN Target Selector Card ----
+        val whitelistPresetCard = advancedSettingsPanel().apply {
+            setPadding(dp(14), dp(12), dp(14), dp(14))
+        }
+        whitelistPresetCard.addView(
+            TextView(this).apply {
+                text = if (isFarsiScanner) {
+                    "🏳️ انتخاب سریع آی‌پی‌های سفید، نت ملی و CDNها (۱-کلیکی)"
+                } else {
+                    "🏳️ 1-Tap Whitelist, Net Melli & Multi-CDN Presets"
+                }
+                textSize = 14f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        val whitelistPresetDesc = TextView(this).apply {
+            text = if (isFarsiScanner) {
+                "روی هر شبکه بزنید تا رنج‌های آی‌پی سفید، پورت‌ها و بهترین SNI مخصوص همان شبکه خودکار تنظیم شود:"
+            } else {
+                "Tap any network preset to auto-populate its whitelisted CIDR ranges, ports, and optimal SNI:"
+            }
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(0, dp(4), 0, dp(8))
+        }
+        whitelistPresetCard.addView(whitelistPresetDesc, LinearLayout.LayoutParams(-1, -2))
+        val whitelistPresetChips = ChipGroup(this).apply {
+            isSingleLine = false
+            chipSpacingHorizontal = dp(6)
+            chipSpacingVertical = dp(6)
+        }
+        whitelistPresetCard.addView(whitelistPresetChips, LinearLayout.LayoutParams(-1, -2))
+        whitelistPresetCard.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsiScanner) {
+                    "🚀 باز کردن ابر-اسکنر تخصصی آی‌پی سفید، پلتفرم‌ها و تزریق کانفیگ"
+                } else {
+                    "🚀 Open Deep Whitelist & Multi-CDN Super-Scanner"
+                }
+                isAllCaps = false
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                cornerRadius = dp(10)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 45))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
+                insetTop = 0
+                insetBottom = 0
+                setOnClickListener { showWhitelistSuperScannerDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(whitelistPresetCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
         val controls = advancedSettingsPanel()
         controls.addView(
             advancedSectionLabel(getString(R.string.scanner_settings_section)),
@@ -6483,8 +6545,11 @@ class MainActivity : Activity() {
             isSingleLine = true
             chipSpacingHorizontal = dp(6)
             chipSpacingVertical = dp(4)
-            recommendedScannerSnis().forEach { suggestion ->
-                addView(Chip(this@MainActivity).apply {
+        }
+        fun populateSniSuggestions(snis: List<String>) {
+            sniSuggestions.removeAllViews()
+            snis.forEach { suggestion ->
+                sniSuggestions.addView(Chip(this@MainActivity).apply {
                     text = suggestion
                     isCheckable = false
                     isClickable = true
@@ -6500,6 +6565,42 @@ class MainActivity : Activity() {
                     }
                 })
             }
+        }
+        populateSniSuggestions(recommendedScannerSnis())
+        IpScanner.WHITELIST_AND_CDN_RANGE_PRESETS.forEach { preset ->
+            whitelistPresetChips.addView(
+                Chip(this@MainActivity).apply {
+                    text = if (isFarsiScanner) preset.badge else preset.titleEn.substringBefore(" (")
+                    isCheckable = false
+                    isClickable = true
+                    textSize = 11.5f
+                    setTextColor(TEXT_PRIMARY)
+                    chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 175))
+                    chipStrokeWidth = dp(1).toFloat()
+                    chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 215 else 245))
+                    setOnClickListener {
+                        scannerSubnetsInput.setText(preset.rangesText)
+                        saveScannerRanges(preset.rangesText)
+                        scannerSniInput.setText(preset.recommendedSni)
+                        saveScannerSni(preset.recommendedSni)
+                        populateSniSuggestions((preset.fallbackSnis + recommendedScannerSnis()).distinct().take(10))
+                        saveScannerSource("mine", true)
+                        renderScannerSources()
+                        whitelistPresetDesc.text = if (isFarsiScanner) {
+                            "✅ ${preset.titleFa}\n${preset.summaryFa}"
+                        } else {
+                            "✅ ${preset.titleEn}\n${preset.summaryEn}"
+                        }
+                        whitelistPresetDesc.setTextColor(TEAL)
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsiScanner) "✅ رنج‌ها و SNI روی «${preset.badge}» تنظیم شد!"
+                            else "✅ Ranges & SNI set to ${preset.id}!",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+            )
         }
         controls.addView(sniSuggestions, LinearLayout.LayoutParams(-1, -2))
         controls.addView(
@@ -6750,6 +6851,58 @@ class MainActivity : Activity() {
         // long timeouts) — same engine, different depth, persisted per device.
         scannerProfile = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString("profile", "std") ?: "std"
         controls.addView(scannerProfileRow(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        // 🛡️ 2026 Anti-DPI Fragmentation + Limited Network + All 13 CF Ports toggles
+        val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+        val powerTogglesGroup = ChipGroup(this).apply {
+            isSingleLine = false
+            chipSpacingHorizontal = dp(6)
+            chipSpacingVertical = dp(4)
+        }
+        val antiDpiChip = Chip(this).apply {
+            text = if (isFarsiScanner) "🛡️ اسکن ضد-DPI (فرگمنت v52)" else "🛡️ Anti-DPI Fragment (v52)"
+            isCheckable = true
+            isChecked = scanPrefs.getBoolean("anti_dpi_scan", true)
+            textSize = 11f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 175))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 215 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                scanPrefs.edit().putBoolean("anti_dpi_scan", checked).apply()
+            }
+        }
+        val limitedNetChip = Chip(this).apply {
+            text = if (isFarsiScanner) "📡 شبکه محدود / ضد پکت‌لاس" else "📡 Limited Network (Retry)"
+            isCheckable = true
+            isChecked = scanPrefs.getBoolean("limited_net_scan", false)
+            textSize = 11f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(AMBER, 175))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 215 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                scanPrefs.edit().putBoolean("limited_net_scan", checked).apply()
+            }
+        }
+        val all13PortsChip = Chip(this).apply {
+            text = if (isFarsiScanner) "🔌 همه ۱۳ پورت کلادفلر" else "🔌 All 13 CF Ports"
+            isCheckable = true
+            isChecked = scanPrefs.getBoolean("all_13_ports_scan", false)
+            textSize = 11f
+            setTextColor(TEXT_PRIMARY)
+            chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 175))
+            chipStrokeWidth = dp(1).toFloat()
+            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 215 else 245))
+            setOnCheckedChangeListener { _, checked ->
+                scanPrefs.edit().putBoolean("all_13_ports_scan", checked).apply()
+            }
+        }
+        powerTogglesGroup.addView(antiDpiChip)
+        powerTogglesGroup.addView(limitedNetChip)
+        powerTogglesGroup.addView(all13PortsChip)
+        controls.addView(powerTogglesGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -6865,6 +7018,28 @@ class MainActivity : Activity() {
             }
         }
         body.addView(scannerBuildButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        val scannerInjectSubButton = MaterialButton(this).apply {
+            text = if (isFarsiScanner) {
+                "💉 تزریق آی‌پی‌های اسکن‌شده به همهٔ کانفیگ‌های فعلی من (بدون نیاز به پنل)"
+            } else {
+                "💉 Inject Scanned Clean IPs into My Active Configs"
+            }
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(AMBER, 45))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(AMBER)
+            setTextColor(AMBER)
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener {
+                val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
+                injectScannedIpsIntoActiveSubscription(source)
+            }
+        }
+        body.addView(scannerInjectSubButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         // Hand the verified rows to Cat Panel as `addr#CC` lines: copied to the
         // clipboard AND opened in the panel (its import box pre-fills from ?ips=),
         // so the panel learns which address lands in which country for THIS user.
@@ -7529,9 +7704,19 @@ class MainActivity : Activity() {
         scannerSelected.clear()
         scannerResultsList.removeAllViews()
         scannerApplyButton.isEnabled = false
+        val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+        val useAntiDpi = scanPrefs.getBoolean("anti_dpi_scan", true)
+        val useLimitedNet = scanPrefs.getBoolean("limited_net_scan", false)
+        val useAll13Ports = scanPrefs.getBoolean("all_13_ports_scan", false)
+        val activePorts = if (useAll13Ports) {
+            (listOf(scannerPort) + IpScanner.CLOUDFLARE_ALL_13_PORTS).distinct()
+        } else {
+            (listOf(scannerPort) + IpScanner.DEFAULT_SCAN_PORTS).distinct()
+        }
         val options = IpScanner.ScanOptions(
             sni = sni,
             port = scannerPort,
+            ports = activePorts,
             customSubnets = customSubnets,
             // The four switches in the «منابع اسکن» card own this decision now. They
             // default to the old hardcoded values (ranges + both libraries on, v6 via
@@ -7546,20 +7731,22 @@ class MainActivity : Activity() {
             randomSample = true,
             // 🌙 Gentle (SenPai-style): 6 workers only — for ISPs that cut the
             // whole connection when a scan floods SYN packets.
-            concurrency = if (scannerProfile == "gentle") 6 else SCANNER_CONCURRENCY,
+            concurrency = if (scannerProfile == "gentle" || useLimitedNet) 6 else SCANNER_CONCURRENCY,
             // Profile depth: fast = snappy timeouts, deep = doubled TLS patience,
             // gentle = calm pacing with generous timeouts.
-            connectTimeoutMs = when (scannerProfile) {
-                "fast" -> 1000
-                "gentle" -> 4000
+            connectTimeoutMs = when {
+                scannerProfile == "fast" -> 1000
+                scannerProfile == "gentle" || useLimitedNet -> 4000
                 else -> SCANNER_CONNECT_TIMEOUT_MS
             },
-            tlsTimeoutMs = when (scannerProfile) {
-                "deep" -> SCANNER_TLS_TIMEOUT_MS * 2
-                "gentle" -> SCANNER_TLS_TIMEOUT_MS * 2
+            tlsTimeoutMs = when {
+                scannerProfile == "deep" || scannerProfile == "gentle" || useLimitedNet -> SCANNER_TLS_TIMEOUT_MS * 2
                 else -> SCANNER_TLS_TIMEOUT_MS
             },
             verifyHttp = true,
+            antiDpiFragment = useAntiDpi,
+            fragmentMode = "v52-fragA",
+            limitedNetworkMode = useLimitedNet,
         )
         scannerProgressBar.progress = 0
         scannerJob = activityScope.launch {
@@ -16559,6 +16746,18 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 13: Ultimate Whitelist, Multi-CDN & Anti-DPI Super-Scanner
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🏳️ ۱۳) ابر-اسکنر آی‌پی سفید، پلتفرم‌ها و نت ملی (اسکن ضد-DPI + همسایه /24 + تزریق کانفیگ)"
+                else "🏳️ 13) Ultimate Whitelist, Multi-CDN & Anti-DPI Super-Scanner (/24 Harvest + Config Injector)",
+                filled = true,
+            ) {
+                showWhitelistSuperScannerDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای جدید ۲۰۲۶ (Serverless-v52 · فرانتینگ v23 · CottenMax · ضد-فریز)"
@@ -16891,6 +17090,462 @@ class MainActivity : Activity() {
                 .create()
                 .showCatClientDialog()
         }
+    }
+
+    /**
+     * Injects verified `IP:port` endpoints from the scanner into the user's existing VLESS/Trojan
+     * configs (preserving exact `IP:port` and original `host`/`sni`), or generates a ready-to-use
+     * Whitelist + 5 CF Spoof bundle when no VLESS/Trojan template is stored yet.
+     */
+    private fun injectScannedIpsIntoActiveSubscription(results: List<IpScanner.ScanResult>) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val verified = results.filter { it.tlsOk }.sortedBy { it.pingMs }.ifEmpty {
+            results.sortedBy { it.pingMs }
+        }
+        if (verified.isEmpty()) {
+            Toast.makeText(
+                this,
+                if (isFarsi) "⚠️ ابتدا یک اسکن اجرا کنید یا از ابر-اسکنر آی‌پی سفید استفاده کنید."
+                else "⚠️ Run a scan first or open the Whitelist Super-Scanner.",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        val topAuthorities = verified.map { it.authority }.distinct().take(6)
+        activityScope.launch {
+            val allRaw = withContext(Dispatchers.IO) { collectAllUserSubscriptionRawTexts() }
+            val injected = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.injectVerifiedCleanIpsIntoConfigs(
+                    rawConfigsText = allRaw,
+                    verifiedEndpoints = topAuthorities,
+                    maxVariantsPerConfig = 4,
+                )
+            }
+            val finalLinks = if (injected.isNotEmpty()) {
+                injected
+            } else {
+                val tpl = resolveUserRealConfigTemplate()
+                val uuid = tpl?.uuid ?: "11111111-2222-4333-8444-555555555555"
+                val host = tpl?.hostHeader?.ifBlank { tpl.serverHost } ?: scannerSniPreference().ifBlank { "speed.cloudflare.com" }
+                val path = tpl?.path ?: "/ws?ed=2048"
+                topAuthorities.mapIndexed { idx, ep ->
+                    val encPath = runCatching { java.net.URLEncoder.encode(path, "UTF-8") }.getOrDefault("%2Fws")
+                    val sni = verified.getOrNull(idx)?.sni?.ifBlank { host } ?: host
+                    val encRem = runCatching {
+                        java.net.URLEncoder.encode("⚡ CleanIP-$ep (${verified.getOrNull(idx)?.pingMs ?: 0}ms)", "UTF-8")
+                    }.getOrDefault("CleanIP-$idx")
+                    "vless://$uuid@$ep?encryption=none&security=tls&type=ws&host=$host&sni=$sni&path=$encPath&fp=chrome&alpn=h2%2Chttp%2F1.1#$encRem"
+                }
+            }
+            val subTitle = if (isFarsi) {
+                "💉 کانفیگ‌های احیاشده با آی‌پی سفید/تمیز (${topAuthorities.first()})"
+            } else {
+                "💉 Clean-IP Injected Configs (${topAuthorities.first()})"
+            }
+            val joined = finalLinks.joinToString("\n")
+            val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("💉") }
+            val saved = withContext(Dispatchers.IO) {
+                if (existing != null) userSubscriptionManager.update(existing.id, subTitle, joined)
+                else userSubscriptionManager.add(subTitle, joined)
+            }
+            userSubscriptionManager.select(saved.id)
+            val bestEp = topAuthorities.first()
+            frontingIps = FrontingIpPolicy.normalizeIps(topAuthorities.take(5).joinToString(","))
+            saveFrontingIps(reconnectIfChanged = false, previousValue = frontingIpPreferenceStore.readFrontingIp())
+            renderSubscriptions()
+            onSubscriptionSelected()
+            Toast.makeText(
+                this@MainActivity,
+                if (isFarsi) "✅ ${finalLinks.size} کانفیگ با آی‌پی‌های اسکن‌شده ($bestEp) ساخته شد و در حال اتصال است!"
+                else "✅ Built ${finalLinks.size} configs with scanned clean IPs ($bestEp) & connecting!",
+                Toast.LENGTH_LONG,
+            ).show()
+            openScreen(SCREEN_HOME)
+            if (currentVpnServiceState == VpnState.Started) {
+                reconnectForConnectionOptionChange()
+            } else {
+                beginConnectFlow(Actions.CONNECT)
+            }
+        }
+    }
+
+    /**
+     * 🏳️ Ultimate Whitelist, Multi-CDN & Anti-DPI Super-Scanner Dialog:
+     * Combines parallel Non-Cloudflare & Iran Domestic Whitelist scanning (22 targets),
+     * Anti-DPI Serverless-v52 fragmented TLS verification, Deep `/24` Neighbor Harvesting around
+     * live whitelist hits, 16KB Upload-Freeze Speed Testing, and 1-tap Subscription Injection.
+     */
+    private fun showWhitelistSuperScannerDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val rootScroll = ScrollView(this).apply {
+            isFillViewport = true
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(18), dp(14), dp(18), dp(18))
+        }
+        rootScroll.addView(container)
+
+        container.addView(
+            TextView(this).apply {
+                text = if (isFarsi) {
+                    "🏳️ ابر-اسکنر آی‌پی‌های سفید، پلتفرم‌ها و نت ملی (نسخه ۲۰۲۶)\n" +
+                        "• اسکن موازی ۲۲ هدف سفید (آروان، دراک، پارس‌پک، ستون، فستلی، گیت‌هاب، آکامای، گوگل، آژور، Vercel، Render، Fly.io)\n" +
+                        "• مجهز به برش دو مرحله‌ای Serverless-v52 در هندشیک TLS برای کشف آی‌پی‌هایی که اسکنرهای عادی نمی‌بینند\n" +
+                        "• استخراج خودکار همسایه‌های زیرشبکه /24 اطراف هر آی‌پی سفید باز و تزریق ۱-کلیکی به اشتراک"
+                } else {
+                    "🏳️ 2026 Ultimate Whitelist, Multi-CDN & Anti-DPI Super-Scanner\n" +
+                        "• Parallel scan across 22 Whitelist & Non-CF CDN targets (Arvan, Derak, ParsPack, Sotoon, Fastly, GitHub, Akamai, Google, Azure, Vercel, Render, Fly.io)\n" +
+                        "• Powered by Serverless-v52 two-stage TLS fragmentation\n" +
+                        "• Deep /24 subnet neighbor harvesting + 1-tap config injection"
+                }
+                textSize = 12f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) },
+        )
+
+        val liveStatusView = TextView(this).apply {
+            text = if (isFarsi) {
+                "📊 آماده اسکن — یکی از عملیات‌های زیر را انتخاب کنید:"
+            } else {
+                "📊 Ready — choose a scan operation below:"
+            }
+            textSize = 12f
+            typeface = CatClientDataTypeface
+            setTextColor(TEAL)
+            background = glassSurfaceDrawable(radiusDp = 14)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setTextIsSelectable(true)
+        }
+        container.addView(liveStatusView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+
+        val discoveredWhitelistResults = mutableListOf<IpScanner.ScanResult>()
+
+        fun makeSuperBtn(label: String, filled: Boolean = false, accentColor: Int = TEAL, onClick: () -> Unit): MaterialButton =
+            MaterialButton(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                cornerRadius = dp(12)
+                minHeight = dp(46)
+                if (filled) {
+                    backgroundTintList = ColorStateList.valueOf(accentColor)
+                    setTextColor(palette.onAccent)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(accentColor, 34))
+                    strokeColor = ColorStateList.valueOf(accentColor)
+                    strokeWidth = dp(1)
+                    setTextColor(TEXT_PRIMARY)
+                }
+                setOnClickListener { onClick() }
+            }
+
+        // Action 1: Parallel Scan of All 22 Whitelist & Non-CF CDN Targets (with Anti-DPI Split Fallback)
+        container.addView(
+            makeSuperBtn(
+                label = if (isFarsi) "🏳️ ۱) اسکن موازی همهٔ ۲۲ هدف آی‌پی سفید و CDNهای غیرکلادفلر (ایران + جهانی)"
+                else "🏳️ 1) Parallel Scan All 22 Whitelist & Non-CF CDN Targets (Iran + Global)",
+                filled = true,
+            ) {
+                liveStatusView.text = if (isFarsi) {
+                    "⏳ در حال اسکن موازی ۲۲ درگاه سفید (آروان، دراک، پارس‌پک، ستون، فستلی، گیت‌هاب، آکامای، گوگل، آژور، Vercel، Render، Fly.io) با برش ضد-DPI…"
+                } else {
+                    "⏳ Scanning 22 Whitelist & Non-CF CDN targets in parallel with Anti-DPI fragmentation…"
+                }
+                activityScope.launch {
+                    val hits = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(
+                            providerFilter = null,
+                            timeoutMs = 1_100,
+                            useAntiDpiSplit = true,
+                        )
+                    }
+                    val mapped = hits.map { h ->
+                        IpScanner.ScanResult(
+                            ip = h.target.ip,
+                            pingMs = h.effectiveRttMs,
+                            sni = h.target.sni,
+                            tlsMs = h.tlsRttMs,
+                            colo = h.target.provider.id.uppercase(),
+                            tlsOk = h.tlsVerified,
+                            httpStatus = if (h.tlsVerified) 200 else null,
+                            port = h.target.port,
+                            countryCode = IpScanner.detectCountryCodeForWhitelistIp(h.target.ip),
+                            countryName = IpScanner.detectEdgeLabelForIp(h.target.ip, h.target.provider.id),
+                            sourceRange = "whitelist-${h.target.provider.id}",
+                            verifyTls = true,
+                        )
+                    }
+                    discoveredWhitelistResults.clear()
+                    discoveredWhitelistResults.addAll(mapped)
+                    if (mapped.isNotEmpty()) {
+                        val merged = (mapped + scannerResults).distinctBy { it.authority }
+                            .sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                        scannerResults = merged
+                        runCatching { renderScannerResults() }
+                        runCatching {
+                            scannerApplyButton.isEnabled = merged.any { it.tlsOk }
+                            scannerBuildButton.isEnabled = merged.any { it.tlsOk }
+                            scannerSpeedTestButton?.isEnabled = merged.any { it.tlsOk }
+                        }
+                    }
+                    liveStatusView.text = buildString {
+                        if (isFarsi) {
+                            appendLine("✅ اسکن موازی وایت‌لیست کامل شد: ${hits.size} آی‌پی سفید پاسخ‌گو (${hits.count { it.tlsVerified }} تایید کامل TLS)")
+                            appendLine("────────────────────────────")
+                            hits.take(12).forEachIndexed { i, h ->
+                                val tlsTag = if (h.tlsVerified) "TLS✓ (${h.tlsRttMs}ms)" else "TCP✓ (${h.tcpRttMs}ms)"
+                                appendLine("${i + 1}. ${h.exactEndpoint} | $tlsTag | SNI: ${h.target.sni}")
+                                appendLine("   👈 ${h.target.noteFa}")
+                            }
+                            if (hits.isNotEmpty()) {
+                                appendLine("────────────────────────────")
+                                append("💡 این آی‌پی‌ها به جدول اصلی اسکنر هم اضافه شدند! حالا می‌توانید دکمه ۲ (کشف همسایه‌های /24) یا دکمه ۵ (تزریق به اشتراک) را بزنید.")
+                            }
+                        } else {
+                            appendLine("✅ Whitelist Scan Complete: ${hits.size} reachable (${hits.count { it.tlsVerified }} TLS verified)")
+                            hits.take(12).forEachIndexed { i, h ->
+                                val tlsTag = if (h.tlsVerified) "TLS✓ (${h.tlsRttMs}ms)" else "TCP✓ (${h.tcpRttMs}ms)"
+                                appendLine("${i + 1}. ${h.exactEndpoint} | $tlsTag | SNI: ${h.target.sni}")
+                            }
+                        }
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+
+        // Action 2: Deep /24 Whitelist Subnet Neighbor Harvester
+        container.addView(
+            makeSuperBtn(
+                label = if (isFarsi) "👑 ۲) کشف خودکار همسایه‌های /24 اطراف آی‌پی‌های سفید باز (استخراج ده‌ها آی‌پی سفید جدید)"
+                else "👑 2) Harvest /24 Subnet Neighbors Around Live Whitelist Hits",
+                accentColor = AMBER,
+            ) {
+                val basePool = if (discoveredWhitelistResults.isNotEmpty()) discoveredWhitelistResults else scannerResults
+                val topSeeds = basePool.filter { it.tlsOk }.ifEmpty { basePool }.take(3)
+                if (topSeeds.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "⚠️ ابتدا دکمه ۱ را بزنید تا آی‌پی‌های سفید اولیه پیدا شوند."
+                        else "⚠️ Run step 1 first to discover initial whitelist seeds.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@makeSuperBtn
+                }
+                val seedIps = topSeeds.map { it.ip }
+                val primarySni = topSeeds.first().sni.ifBlank { "ebanksepah.ir" }
+                val primaryPort = topSeeds.first().port
+                val expandedNeighbors = IpScanner.expandAroundGoldenHits(seedIps, radius = 16)
+                liveStatusView.text = if (isFarsi) {
+                    "👑 در حال اسکن موازی ${expandedNeighbors.size} آی‌پی همسایه در زیرشبکه /24 اطراف ${seedIps.joinToString(", ")} با SNI=$primarySni و برش ضد-DPI…"
+                } else {
+                    "👑 Scanning ${expandedNeighbors.size} neighbor IPs in /24 around ${seedIps.joinToString(", ")}…"
+                }
+                activityScope.launch {
+                    val foundNeighbors = withContext(Dispatchers.IO) {
+                        IpScanner.scan(
+                            this@MainActivity,
+                            IpScanner.ScanOptions(
+                                sni = primarySni,
+                                port = primaryPort,
+                                ports = listOf(primaryPort),
+                                customSubnets = expandedNeighbors.joinToString(","),
+                                includeBuiltin = false,
+                                includeIranLibrary = false,
+                                includeIpv6 = true,
+                                perRange = 1,
+                                randomSample = false,
+                                concurrency = 20,
+                                connectTimeoutMs = 1_100,
+                                tlsTimeoutMs = 1_800,
+                                verifyHttp = false,
+                                antiDpiFragment = true,
+                                fragmentMode = "v52-fragA",
+                            ),
+                        )
+                    }
+                    val verifiedNeighbors = foundNeighbors.filter { it.tlsOk }.ifEmpty { foundNeighbors }
+                    if (verifiedNeighbors.isNotEmpty()) {
+                        discoveredWhitelistResults.addAll(verifiedNeighbors)
+                        val merged = (verifiedNeighbors + scannerResults).distinctBy { it.authority }
+                            .sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                        scannerResults = merged
+                        runCatching { renderScannerResults() }
+                        runCatching {
+                            scannerApplyButton.isEnabled = merged.any { it.tlsOk }
+                            scannerBuildButton.isEnabled = merged.any { it.tlsOk }
+                        }
+                    }
+                    liveStatusView.text = buildString {
+                        if (isFarsi) {
+                            appendLine("👑 نتیجهٔ کشف زیرشبکه /24 وایت‌لیست: ${verifiedNeighbors.size} آی‌پی همسایهٔ جدید از ${expandedNeighbors.size} آی‌پی پاسخ دادند!")
+                            appendLine("────────────────────────────")
+                            verifiedNeighbors.take(10).forEachIndexed { idx, r ->
+                                appendLine("${idx + 1}. ${r.authority} · ${r.pingMs}ms · ${r.countryName ?: "Whitelist"} (SNI: ${r.sni})")
+                            }
+                        } else {
+                            appendLine("👑 /24 Neighbor Harvest: ${verifiedNeighbors.size}/${expandedNeighbors.size} new sibling IPs responded!")
+                            verifiedNeighbors.take(10).forEachIndexed { idx, r ->
+                                appendLine("${idx + 1}. ${r.authority} · ${r.pingMs}ms (SNI: ${r.sni})")
+                            }
+                        }
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Action 3: Multi-Port Cloudflare Golden F&F + IPv6 Anti-DPI Scan (6 TLS ports)
+        container.addView(
+            makeSuperBtn(
+                label = if (isFarsi) "🔥 ۳) اسکن ۶ پورت TLS روی لبه‌های طلایی کلادفلر (F&F ایرانسل + همراه اول IPv6)"
+                else "🔥 3) Scan 6 TLS Ports on Golden Cloudflare F&F + MCI IPv6 Edges",
+            ) {
+                liveStatusView.text = if (isFarsi) {
+                    "🔥 در حال اسکن ۶ پورت TLS (443, 2053, 2083, 2087, 2096, 8443) روی لبه‌های طلایی کلادفلر…"
+                } else {
+                    "🔥 Scanning 6 TLS ports across golden Cloudflare F&F & IPv6 edges…"
+                }
+                activityScope.launch {
+                    val cfHits = withContext(Dispatchers.IO) {
+                        WhiteDnsSmartScanner.scanCloudflareSixPortsAndSni(
+                            customSni = scannerSniPreference().ifBlank { "speed.cloudflare.com" },
+                            maxHosts = 6,
+                            timeoutMs = 1_100,
+                        )
+                    }
+                    val mappedCf = cfHits.map { h ->
+                        IpScanner.ScanResult(
+                            ip = h.host.removeSurrounding("[", "]"),
+                            pingMs = h.rttMs,
+                            sni = h.sni,
+                            tlsMs = h.rttMs,
+                            tlsOk = true,
+                            port = h.port,
+                            countryName = "Cloudflare Golden Edge",
+                            sourceRange = "cf-golden-6port",
+                            verifyTls = true,
+                        )
+                    }
+                    if (mappedCf.isNotEmpty()) {
+                        discoveredWhitelistResults.addAll(mappedCf)
+                        val merged = (mappedCf + scannerResults).distinctBy { it.authority }
+                            .sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+                        scannerResults = merged
+                        runCatching { renderScannerResults() }
+                    }
+                    liveStatusView.text = buildString {
+                        if (isFarsi) {
+                            appendLine("🔥 نتیجهٔ اسکن ۶ پورت طلایی کلادفلر: ${cfHits.size} زوج IP:port باز پیدا شد!")
+                            cfHits.forEachIndexed { idx, h ->
+                                appendLine("${idx + 1}. ${h.endpoint} · ${h.rttMs}ms · SNI: ${h.sni}")
+                            }
+                        } else {
+                            appendLine("🔥 Golden 6-Port Scan: ${cfHits.size} open IP:port pairs found!")
+                            cfHits.forEachIndexed { idx, h ->
+                                appendLine("${idx + 1}. ${h.endpoint} · ${h.rttMs}ms · SNI: ${h.sni}")
+                            }
+                        }
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Action 4: Real 16KB Upload-Freeze & Download Throughput Test on Best Discovered IPs
+        container.addView(
+            makeSuperBtn(
+                label = if (isFarsi) "🧪 ۴) تست واقعی سرعت دانلود + تست ضد-فریز آپلود ۱۶ کیلوبایت روی بهترین آی‌پی‌ها"
+                else "🧪 4) Real Download Speed + 16KB Upload-Freeze Probe on Best Hits",
+            ) {
+                val pool = (discoveredWhitelistResults + scannerResults).distinctBy { it.authority }
+                    .filter { it.tlsOk }
+                    .take(3)
+                if (pool.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "⚠️ ابتدا دکمه ۱ یا ۳ را بزنید تا آی‌پی‌های باز پیدا شوند."
+                        else "⚠️ Run step 1 or 3 first.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@makeSuperBtn
+                }
+                liveStatusView.text = if (isFarsi) {
+                    "🧪 در حال تست واقعی انتقال دیتا و بررسی قفل آپلود ۱۶ کیلوبایت روی ${pool.size} آی‌پی برتر…"
+                } else {
+                    "🧪 Probing download throughput & 16KB upload-freeze survival on top ${pool.size} endpoints…"
+                }
+                activityScope.launch {
+                    val lines = withContext(Dispatchers.IO) {
+                        pool.map { r ->
+                            val rep = LocalSniSpoofProxy.probeTunnelSpeedAndUploadFreeze(
+                                targetHost = r.ip,
+                                targetPort = r.port,
+                                sni = r.sni.ifBlank { "speed.cloudflare.com" },
+                                timeoutMs = 2_400,
+                            )
+                            r to rep
+                        }
+                    }
+                    liveStatusView.text = buildString {
+                        if (isFarsi) {
+                            appendLine("🧪 نتیجهٔ تست واقعی سرعت و ضد-فریز ۱۶ کیلوبایت:")
+                            appendLine("────────────────────────────")
+                            lines.forEachIndexed { idx, (r, rep) ->
+                                val upBadge = if (rep.upload16kPassed) "🟢 بدون قفل آپلود 16KB" else "🟠 حساس به آپلود (نیازمند برش v52)"
+                                appendLine("${idx + 1}. ${r.authority} (${r.countryName ?: "Edge"})")
+                                appendLine("   👈 پینگ: ${rep.handshakeRttMs}ms | سرعت: ${rep.downloadKbps} Kbps | $upBadge")
+                            }
+                        } else {
+                            appendLine("🧪 Speed & 16KB Upload-Freeze Results:")
+                            lines.forEachIndexed { idx, (r, rep) ->
+                                appendLine("${idx + 1}. ${r.authority} -> ${rep.handshakeRttMs}ms | ${rep.downloadKbps} Kbps | 16KB Upload OK: ${rep.upload16kPassed}")
+                            }
+                        }
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Action 5: 1-Tap Inject Verified Whitelist/Clean IPs into Subscriptions & Connect
+        container.addView(
+            makeSuperBtn(
+                label = if (isFarsi) "💉 ۵) تزریق آی‌پی‌های سفید/تمیز پیدا شده به کانفیگ‌های من و اتصال فوری"
+                else "💉 5) Inject Discovered Whitelist/Clean IPs into My Configs & Connect",
+                filled = true,
+            ) {
+                val combined = (discoveredWhitelistResults + scannerResults).distinctBy { it.authority }
+                if (combined.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "⚠️ ابتدا دکمه ۱ را بزنید تا آی‌پی‌های سفید اسکن شوند."
+                        else "⚠️ Run step 1 first to scan whitelist IPs.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    injectScannedIpsIntoActiveSubscription(combined)
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🏳️ ابر-اسکنر آی‌پی سفید، پلتفرم‌ها و نت ملی"
+                else "🏳️ Whitelist, Multi-CDN & Net Melli Super-Scanner",
+            )
+            .setView(rootScroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
     }
 
     /**

@@ -275,6 +275,69 @@ internal object LocalSniSpoofProxy {
             noteFa = "لبه ابر دراک ایران (پل داخلی نت ملی)",
             noteEn = "Derak Cloud Domestic Edge (Net Melli internal bridge)",
         ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.IRAN_DOMESTIC_BRIDGE,
+            ip = "185.141.212.1",
+            port = 443,
+            sni = "parspack.com",
+            hostHeader = "parspack.com",
+            noteFa = "لبه CDN پارس‌پک ایران (درگاه سفید داخلی)",
+            noteEn = "ParsPack Domestic CDN Edge (Iran Whitelist)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.IRAN_DOMESTIC_BRIDGE,
+            ip = "185.166.104.1",
+            port = 443,
+            sni = "sotoon.ir",
+            hostHeader = "sotoon.ir",
+            noteFa = "لبه ابر ستون ایران (درگاه ابری سفید نت ملی)",
+            noteEn = "Sotoon Cloud Domestic Edge (Iran Whitelist)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.IRAN_DOMESTIC_BRIDGE,
+            ip = "94.182.182.10",
+            port = 443,
+            sni = "s3.ir-thr-at1.arvanstorage.ir",
+            hostHeader = "s3.ir-thr-at1.arvanstorage.ir",
+            noteFa = "باکت S3 آروان (حامل تانل S3-Bypass / Fedarisha در نت ملی)",
+            noteEn = "Arvan S3 Object Storage (S3-Bypass / Fedarisha Carrier)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.FASTLY_GITHUB,
+            ip = "185.199.108.154",
+            port = 443,
+            sni = "github.githubassets.com",
+            hostHeader = "www.reddit.com",
+            noteFa = "لبه Anycast فستلی/گیت‌هاب (مناسب MITM-DomainFronting v23 و رددیت)",
+            noteEn = "Fastly/GitHub Anycast Edge (for MITM-DomainFronting v23 & Reddit)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.AZURE_CLOUDFRONT_GCORE,
+            ip = "76.76.21.21",
+            port = 443,
+            sni = "vercel.app",
+            hostHeader = "vercel.app",
+            noteFa = "لبه Anycast پلتفرم Vercel (پشتیبانی از گواهی Wildcard اپ‌ها)",
+            noteEn = "Vercel Anycast Edge (Wildcard app certificate fronting)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.AZURE_CLOUDFRONT_GCORE,
+            ip = "216.24.57.1",
+            port = 443,
+            sni = "onrender.com",
+            hostHeader = "onrender.com",
+            noteFa = "لبه پلتفرم Render (مناسب پنل‌ها و سرویس‌های روی Render)",
+            noteEn = "Render PaaS Edge (for Render-hosted services & panels)",
+        ),
+        WhitelistTargetEndpoint(
+            provider = NonCfCdnProvider.AZURE_CLOUDFRONT_GCORE,
+            ip = "66.241.124.1",
+            port = 443,
+            sni = "fly.dev",
+            hostHeader = "fly.dev",
+            noteFa = "لبه Anycast پلتفرم Fly.io (پشتیبانی از HTTP/2 و TLS 1.3)",
+            noteEn = "Fly.io Anycast Edge (HTTP/2 & TLS 1.3)",
+        ),
     )
 
     /**
@@ -718,41 +781,127 @@ internal object LocalSniSpoofProxy {
     }
 
     /**
-     * Scans the Non-Cloudflare CDN & Domestic Whitelist catalog and returns reachable endpoints
-     * with their exact verified `IP:port` (never altering ports).
+     * Scans the Non-Cloudflare CDN & Domestic Whitelist catalog concurrently and returns
+     * reachable endpoints with their exact verified `IP:port` (never altering ports).
+     * When [useAntiDpiSplit] is true, falls back to a Serverless-v52 / Multi-Chunk SNI split
+     * handshake if plain TLS is reset or dropped by the ISP DPI.
      */
     fun scanNonCloudflareWhitelistTargets(
         providerFilter: NonCfCdnProvider? = null,
         timeoutMs: Int = 1_100,
+        useAntiDpiSplit: Boolean = true,
     ): List<WhitelistScanHit> {
         val candidates = if (providerFilter != null) {
             NON_CF_WHITELIST_TARGETS.filter { it.provider == providerFilter }
         } else {
             NON_CF_WHITELIST_TARGETS
         }
-        val hits = mutableListOf<WhitelistScanHit>()
+        val hits = java.util.Collections.synchronizedList(mutableListOf<WhitelistScanHit>())
+        val latch = java.util.concurrent.CountDownLatch(candidates.size)
         for (target in candidates) {
-            val tcpRtt = runCatching {
-                val t0 = System.nanoTime()
-                Socket().use { s ->
-                    protectOutboundSocket(s)
-                    s.connect(InetSocketAddress(target.ip, target.port), timeoutMs)
+            spoofWorkerPool.execute {
+                try {
+                    val tcpRtt = runCatching {
+                        val t0 = System.nanoTime()
+                        Socket().use { s ->
+                            protectOutboundSocket(s)
+                            s.connect(InetSocketAddress(target.ip, target.port), timeoutMs)
+                        }
+                        ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                    }.getOrNull()
+                    if (tcpRtt != null) {
+                        var tlsRtt = probeTlsEndpoint(target.ip, target.port, target.sni, timeoutMs)
+                        if (tlsRtt == null && useAntiDpiSplit) {
+                            tlsRtt = IpScanner.tlsProbe(
+                                ip = target.ip,
+                                port = target.port,
+                                sni = target.sni,
+                                timeoutMs = timeoutMs + 400,
+                                http = false,
+                                antiDpiFragment = true,
+                                fragmentMode = "v52-fragA",
+                            )?.ms
+                        }
+                        hits += WhitelistScanHit(
+                            target = target,
+                            tcpRttMs = tcpRtt,
+                            tlsRttMs = tlsRtt,
+                            tlsVerified = tlsRtt != null,
+                        )
+                    }
+                } finally {
+                    latch.countDown()
                 }
-                ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
-            }.getOrNull() ?: continue
-
-            val tlsRtt = probeTlsEndpoint(target.ip, target.port, target.sni, timeoutMs)
-            hits += WhitelistScanHit(
-                target = target,
-                tcpRttMs = tcpRtt,
-                tlsRttMs = tlsRtt,
-                tlsVerified = tlsRtt != null,
-            )
+            }
         }
-        return hits.sortedWith(
+        runCatching { latch.await((timeoutMs * 4L).coerceIn(2_500L, 9_000L), TimeUnit.MILLISECONDS) }
+        return hits.toList().sortedWith(
             compareByDescending<WhitelistScanHit> { it.tlsVerified }
                 .thenBy { it.effectiveRttMs },
         )
+    }
+
+    /**
+     * Takes existing VLESS / Trojan URI configs and injects verified `IP:port` endpoints
+     * (preserving the exact scanned port and preserving the config's original `host` and `sni`)
+     * so users can revive blocked CDN/Worker configs with 1 tap using scanned clean/whitelist IPs.
+     */
+    fun injectVerifiedCleanIpsIntoConfigs(
+        rawConfigsText: String,
+        verifiedEndpoints: List<String>,
+        maxVariantsPerConfig: Int = 3,
+    ): List<String> {
+        val cleanEndpoints = verifiedEndpoints
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(maxVariantsPerConfig.coerceIn(1, 10))
+        if (cleanEndpoints.isEmpty()) return emptyList()
+
+        val rawLines = extractSupportedConfigUris(rawConfigsText)
+        val out = LinkedHashSet<String>()
+        val uriRegex = Regex("""^(vless|trojan)://([^@]+)@([^/?#]+)(\?[^#]*)?(#.*)?$""", RegexOption.IGNORE_CASE)
+
+        for (uri in rawLines) {
+            val m = uriRegex.find(uri.trim()) ?: continue
+            val scheme = m.groupValues[1].lowercase()
+            val userInfo = m.groupValues[2]
+            val originalHostPort = m.groupValues[3]
+            val queryPart = m.groupValues[4].removePrefix("?")
+            val fragPart = m.groupValues[5].removePrefix("#")
+
+            val origHost = if (originalHostPort.startsWith("[")) {
+                originalHostPort.substringAfter('[').substringBefore(']')
+            } else {
+                originalHostPort.substringBeforeLast(':')
+            }
+            val hasHostParam = Regex("""(?:^|&)host=([^&]+)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart)
+            val hasSniParam = Regex("""(?:^|&)sni=([^&]+)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart)
+
+            for (ep in cleanEndpoints) {
+                val parsed = IpScanner.parseManualTarget(ep)
+                val targetHost = parsed.first.ifBlank { continue }
+                val targetPort = parsed.second ?: 443
+                val formattedAuthority = if (targetHost.contains(':')) "[$targetHost]:$targetPort" else "$targetHost:$targetPort"
+                val extraQuery = buildString {
+                    if (queryPart.isNotBlank()) append(queryPart)
+                    if (!hasHostParam && origHost.contains('.') && !IpScanner.isValidIpv4(origHost)) {
+                        if (isNotEmpty()) append("&")
+                        append("host=").append(java.net.URLEncoder.encode(origHost, "UTF-8"))
+                    }
+                    if (!hasSniParam && origHost.contains('.') && !IpScanner.isValidIpv4(origHost)) {
+                        if (isNotEmpty()) append("&")
+                        append("sni=").append(java.net.URLEncoder.encode(origHost, "UTF-8"))
+                    }
+                }
+                val baseRemark = runCatching { java.net.URLDecoder.decode(fragPart, "UTF-8") }.getOrDefault(fragPart).ifBlank { scheme.uppercase() }
+                val newRemark = runCatching {
+                    java.net.URLEncoder.encode("⚡ $baseRemark [$formattedAuthority]", "UTF-8")
+                }.getOrDefault(fragPart)
+                out += "$scheme://$userInfo@$formattedAuthority?$extraQuery#$newRemark"
+            }
+        }
+        return out.toList()
     }
 
     private fun probeTlsEndpoint(ip: String, port: Int, sni: String, timeoutMs: Int): Long? {

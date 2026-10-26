@@ -354,5 +354,31 @@ class AetherSelectionTest {
         val cottenToml = LocalSniSpoofProxy.buildCottenMaxClientConfigToml("t.whitedns.ir", "0123456789abcdef", emptyList())
         org.junit.Assert.assertTrue(cottenToml.contains("TUNNEL_MODE = \"cottenmax\""))
         org.junit.Assert.assertTrue(cottenToml.contains("RESOLVER_TRANSPORT = \"auto\""))
+
+        // Test Whitelist & Multi-CDN scanner presets, hard-reject filter, /24 neighbor expansion, and exact IP:port config injection
+        org.junit.Assert.assertEquals(6, IpScanner.WHITELIST_AND_CDN_RANGE_PRESETS.size)
+        org.junit.Assert.assertTrue(LocalSniSpoofProxy.NON_CF_WHITELIST_TARGETS.size >= 22)
+        org.junit.Assert.assertTrue(IpScanner.isHardRejectedBody("<html>Error 1034 - Edge IP Restricted</html>"))
+        org.junit.Assert.assertTrue(IpScanner.isHardRejectedBody("http://10.10.34.35/peyvandha.ir"))
+        org.junit.Assert.assertFalse(IpScanner.isHardRejectedBody("fl=29f12\nh=speed.cloudflare.com\ncolo=FRA"))
+
+        assertEquals("🇮🇷 ArvanCloud Whitelist", IpScanner.detectEdgeLabelForIp("185.143.232.1", null))
+        assertEquals("🟪 Fastly Anycast Whitelist", IpScanner.detectEdgeLabelForIp("151.101.1.195", null))
+        assertEquals("IR", IpScanner.detectCountryCodeForWhitelistIp("185.239.104.1"))
+
+        val neighbors = IpScanner.expandAroundGoldenHits(listOf("185.143.232.10"), radius = 4)
+        org.junit.Assert.assertTrue(neighbors.contains("185.143.232.9"))
+        org.junit.Assert.assertTrue(neighbors.contains("185.143.232.11"))
+        org.junit.Assert.assertFalse(neighbors.contains("185.143.232.10"))
+
+        val sampleConfig = "vless://a1b2c3d4-e5f6-4789-abcd-ef0123456789@my.panel.workers.dev:443?encryption=none&security=tls&type=ws&path=%2Fws#MyWorker"
+        val injected = LocalSniSpoofProxy.injectVerifiedCleanIpsIntoConfigs(
+            rawConfigsText = sampleConfig,
+            verifiedEndpoints = listOf("185.143.232.1:2053", "[2a06:98c1:3101::6812:202f]:8443"),
+        )
+        assertEquals(2, injected.size)
+        org.junit.Assert.assertTrue(injected[0].contains("@185.143.232.1:2053?"))
+        org.junit.Assert.assertTrue(injected[0].contains("host=my.panel.workers.dev"))
+        org.junit.Assert.assertTrue(injected[1].contains("@[2a06:98c1:3101::6812:202f]:8443?"))
     }
 }

@@ -59,12 +59,25 @@ object IpScanner {
         /** Ports to try, in order. A candidate is stored on the port that
          * actually answered (`ip:port`) — never on a port we assumed. */
         val ports: List<Int> = DEFAULT_SCAN_PORTS,
+        /** When true, fragments the initial TLS ClientHello using Serverless-v52 / Multi-Chunk SNI split
+         * so clean IPs behind Iranian DPI (MCI/Irancell) are discovered instead of timing out. */
+        val antiDpiFragment: Boolean = false,
+        /** Fragment profile when [antiDpiFragment] is enabled (`v52-fragA`, `v52-fragB`, or `sni-multi`). */
+        val fragmentMode: String = "v52-fragA",
+        /** Limited/lossy network mode (WhiteDNS v1.4.7+ style): skips separate TCP pre-sweep and retries TLS directly with jitter. */
+        val limitedNetworkMode: Boolean = false,
     )
 
     const val DEFAULT_PER_RANGE = 24
 
     /** Ports Cloudflare answers on: the three TLS ones and the two plain ones. */
     val DEFAULT_SCAN_PORTS = listOf(443, 2053, 8443, 80, 8080)
+
+    /** All 6 official Cloudflare HTTPS/TLS ports. */
+    val CLOUDFLARE_TLS_6_PORTS = listOf(443, 2053, 2083, 2087, 2096, 8443)
+
+    /** All 13 official Cloudflare ports (6 HTTPS/TLS + 7 HTTP). */
+    val CLOUDFLARE_ALL_13_PORTS = listOf(443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095)
 
     /** 5 samples keeps a scan of a few hundred IPs inside a couple of minutes. */
     const val DEFAULT_SAMPLES = 5
@@ -796,6 +809,13 @@ object IpScanner {
      */
     internal fun probe(ip: String, options: ScanOptions): ScanResult? {
         val ports = (if (options.ports.isNotEmpty()) options.ports else listOf(options.port)).distinct()
+        if (options.limitedNetworkMode) {
+            for (port in ports) {
+                val res = probePort(ip, port, options)
+                if (res != null) return res
+            }
+            return null
+        }
         val answered = ArrayList<Pair<Int, Long>>()
         for (port in ports) {
             val ms = tcpConnect(ip, port, options.connectTimeoutMs) ?: continue
@@ -808,7 +828,8 @@ object IpScanner {
 
     /** Sampled ping + TLS/trace for ONE already-chosen port. */
     internal fun probePort(ip: String, port: Int, options: ScanOptions): ScanResult? {
-        val stats = sampleTcp(ip, port, options.samples, options.connectTimeoutMs) ?: return null
+        val sampleCount = if (options.limitedNetworkMode) options.samples.coerceAtMost(2) else options.samples
+        val stats = sampleTcp(ip, port, sampleCount, options.connectTimeoutMs) ?: return null
         val sourceRange = if (isValidIpv4(ip)) {
             (parseRangeList(options.customSubnets) + DEFAULT_RANGES).firstOrNull { cidrContains(ip, it) }
         } else if (isValidHostname(ip)) {
@@ -825,12 +846,33 @@ object IpScanner {
                 lossPct = stats.lossPct,
                 jitterMs = stats.jitterMs,
                 sampleCount = stats.answered,
-                countryName = "Cloudflare edge",
+                countryName = detectEdgeLabelForIp(ip, null),
                 sourceRange = sourceRange,
             )
         }
         val verifyTls = options.verifyHttp || options.sni.isNotBlank()
-        val tls = tlsProbe(ip, port, options.sni, options.tlsTimeoutMs, options.verifyHttp)
+        var tls = tlsProbe(
+            ip = ip,
+            port = port,
+            sni = options.sni,
+            timeoutMs = options.tlsTimeoutMs,
+            http = options.verifyHttp,
+            antiDpiFragment = options.antiDpiFragment,
+            fragmentMode = options.fragmentMode,
+        )
+        if (tls == null && options.limitedNetworkMode) {
+            // Limited network retry with small jitter so a single dropped packet does not waste a clean IP
+            runCatching { Thread.sleep(60L + (System.nanoTime() % 90L).coerceAtLeast(0L)) }
+            tls = tlsProbe(
+                ip = ip,
+                port = port,
+                sni = options.sni,
+                timeoutMs = options.tlsTimeoutMs + 800,
+                http = options.verifyHttp,
+                antiDpiFragment = options.antiDpiFragment,
+                fragmentMode = options.fragmentMode,
+            )
+        }
         val edge = EdgeLocationCatalog.fromColo(tls?.colo)
         return ScanResult(
             ip = ip,
@@ -843,8 +885,8 @@ object IpScanner {
             colo = tls?.colo,
             tlsOk = tls != null,
             httpStatus = tls?.status,
-            countryCode = edge?.countryCode,
-            countryName = edge?.label ?: "Cloudflare edge",
+            countryCode = edge?.countryCode ?: detectCountryCodeForWhitelistIp(ip),
+            countryName = edge?.label ?: detectEdgeLabelForIp(ip, tls?.colo),
             sourceRange = sourceRange,
             lossPct = stats.lossPct,
             jitterMs = stats.jitterMs,
@@ -874,6 +916,10 @@ object IpScanner {
      * TLS handshake against [ip] with [sni] pinned via SSLParameters (the public
      * SSLSocket API has no setSNIHostName), then an optional HTTP trace request
      * that proves the edge really answers for this SNI.
+     *
+     * When [antiDpiFragment] is true, wraps the underlying TCP socket so the initial
+     * TLS ClientHello record is split using [LocalSniSpoofProxy.splitClientHelloServerlessV52]
+     * before hitting the wire.
      */
     internal fun tlsProbe(
         ip: String,
@@ -881,32 +927,56 @@ object IpScanner {
         sni: String,
         timeoutMs: Int,
         http: Boolean,
+        antiDpiFragment: Boolean = false,
+        fragmentMode: String = "v52-fragA",
     ): TlsProbe? {
         val started = System.nanoTime()
         var socket: SSLSocket? = null
+        var rawUnderlying: Socket? = null
         return try {
-            val connectedSocket = SSLSocketFactory.getDefault().createSocket() as SSLSocket
-            socket = connectedSocket
-            connectedSocket.apply {
-                soTimeout = timeoutMs
-                tcpNoDelay = true
-                connect(InetSocketAddress(ip, port), timeoutMs)
-                if (sni.isNotBlank()) {
-                    val params = sslParameters
-                    params.serverNames = listOf(SNIHostName(sni))
-                    params.endpointIdentificationAlgorithm = null
-                    sslParameters = params
+            val connectedSocket: SSLSocket = if (antiDpiFragment) {
+                val base = Socket().apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
                 }
-                startHandshake()
+                rawUnderlying = base
+                val wrapped = AntiDpiFragmentSocketWrapper(base, fragmentMode)
+                val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+                (factory.createSocket(wrapped, sni.ifBlank { ip }, port, true) as SSLSocket).apply {
+                    soTimeout = timeoutMs
+                    if (sni.isNotBlank()) {
+                        val params = sslParameters
+                        params.serverNames = listOf(SNIHostName(sni))
+                        params.endpointIdentificationAlgorithm = null
+                        sslParameters = params
+                    }
+                    startHandshake()
+                }
+            } else {
+                (SSLSocketFactory.getDefault().createSocket() as SSLSocket).apply {
+                    soTimeout = timeoutMs
+                    tcpNoDelay = true
+                    connect(InetSocketAddress(ip, port), timeoutMs)
+                    if (sni.isNotBlank()) {
+                        val params = sslParameters
+                        params.serverNames = listOf(SNIHostName(sni))
+                        params.endpointIdentificationAlgorithm = null
+                        sslParameters = params
+                    }
+                    startHandshake()
+                }
             }
+            socket = connectedSocket
             val ms = (System.nanoTime() - started) / 1_000_000
             if (!http) return TlsProbe(ms, null, null)
-            val trace = readTrace(connectedSocket, sni, timeoutMs)
-            TlsProbe(ms, trace?.first, trace?.second)
+            val trace = readTrace(connectedSocket, sni, timeoutMs) ?: return null
+            TlsProbe(ms, trace.first, trace.second)
         } catch (e: Exception) {
             null
         } finally {
             runCatching { socket?.close() }
+            runCatching { rawUnderlying?.close() }
         }
     }
 
@@ -940,7 +1010,9 @@ object IpScanner {
                     inBody = true
                 }
             }
-            val colo = Regex("^colo=(\\S+)", RegexOption.MULTILINE).find(body)?.groupValues?.get(1)
+            val bodyText = body.toString()
+            if (isHardRejectedBody(bodyText)) return null
+            val colo = Regex("^colo=(\\S+)", RegexOption.MULTILINE).find(bodyText)?.groupValues?.get(1)
             Pair(colo.orEmpty(), status ?: 0)
         } catch (e: Exception) {
             null
@@ -1176,6 +1248,375 @@ object IpScanner {
 
     private fun longToIp(v: Long): String =
         listOf(24, 16, 8, 0).joinToString(".") { "${((v shr it) and 0xFF)}" }
+
+    private val HARD_REJECT_PATTERNS: List<String> = listOf(
+        "error 1034",
+        "error 1001",
+        "error 1002",
+        "error 1003",
+        "error 1016",
+        "error 1033",
+        "edge ip restricted",
+        "direct ip access not allowed",
+        "peyvandha.ir",
+        "internet.ir",
+        "10.10.34.",
+        "cra.ir",
+    )
+
+    /**
+     * Returns true when an HTTP response body contains Iranian ISP censorship block-page
+     * markers (`peyvandha.ir`, `10.10.34.*`) or Cloudflare edge restriction errors (`error 1034`, `1003`).
+     */
+    fun isHardRejectedBody(body: String): Boolean {
+        if (body.isBlank()) return false
+        val lower = body.lowercase()
+        return HARD_REJECT_PATTERNS.any { lower.contains(it) }
+    }
+
+    /**
+     * Identifies the CDN/Provider or domestic whitelist network for a scanned IP so
+     * non-Cloudflare whitelist IPs display their real network badge in the scanner table.
+     */
+    fun detectEdgeLabelForIp(ip: String, colo: String?): String {
+        val clean = ip.trim().removeSurrounding("[", "]")
+        return when {
+            clean.startsWith("185.143.23") || clean.startsWith("94.182.182.") || clean.startsWith("37.152.182.") ->
+                "🇮🇷 ArvanCloud Whitelist"
+            clean.startsWith("185.239.10") || clean.startsWith("5.144.130.") ->
+                "🇮🇷 Derak Cloud Whitelist"
+            clean.startsWith("185.141.21") ->
+                "🇮🇷 ParsPack Whitelist"
+            clean.startsWith("185.166.10") ->
+                "🇮🇷 Sotoon Cloud Whitelist"
+            clean.startsWith("151.101.") || clean.startsWith("146.75.") ->
+                "🟪 Fastly Anycast Whitelist"
+            clean.startsWith("185.199.10") || clean.startsWith("140.82.121.") ->
+                "🟪 GitHub / Fastly Edge"
+            clean.startsWith("23.215.") || clean.startsWith("23.212.") || clean.startsWith("92.123.") || clean.startsWith("2.22.") ->
+                "🟦 Akamai Edge Whitelist"
+            clean.startsWith("34.143.") || clean.startsWith("142.250.") || clean.startsWith("216.239.") ->
+                "🟩 Google Cloud Edge"
+            clean.startsWith("204.79.197.") || clean.startsWith("13.107.") ->
+                "🟨 Microsoft Azure Edge"
+            clean.startsWith("13.224.") || clean.startsWith("99.83.") || clean.startsWith("75.2.60.") ->
+                "🟨 AWS CloudFront / Global Accelerator"
+            clean.startsWith("92.223.") ->
+                "🟨 Gcore CDN Edge"
+            clean.startsWith("76.76.21.") ->
+                "☁️ Vercel Edge"
+            clean.startsWith("216.24.57.") ->
+                "☁️ Render Edge"
+            clean.startsWith("66.241.12") ->
+                "☁️ Fly.io Edge"
+            !colo.isNullOrBlank() -> "Cloudflare ($colo)"
+            else -> "Cloudflare edge"
+        }
+    }
+
+    fun detectCountryCodeForWhitelistIp(ip: String): String? {
+        val clean = ip.trim().removeSurrounding("[", "]")
+        return when {
+            clean.startsWith("185.143.23") || clean.startsWith("94.182.182.") ||
+                clean.startsWith("37.152.182.") || clean.startsWith("185.239.10") ||
+                clean.startsWith("5.144.130.") || clean.startsWith("185.141.21") ||
+                clean.startsWith("185.166.10") -> "IR"
+            clean.startsWith("92.123.") || clean.startsWith("92.223.") -> "DE"
+            clean.startsWith("151.101.") || clean.startsWith("146.75.") ||
+                clean.startsWith("185.199.10") || clean.startsWith("140.82.121.") ||
+                clean.startsWith("23.215.") || clean.startsWith("23.212.") ||
+                clean.startsWith("34.143.") || clean.startsWith("142.250.") ||
+                clean.startsWith("204.79.197.") || clean.startsWith("76.76.21.") ||
+                clean.startsWith("216.24.57.") || clean.startsWith("66.241.12") -> "US"
+            else -> null
+        }
+    }
+
+    /**
+     * Curated Whitelist & Multi-CDN target preset for 1-tap scanner configuration.
+     */
+    data class WhitelistRangePreset(
+        val id: String,
+        val badge: String,
+        val titleFa: String,
+        val titleEn: String,
+        val summaryFa: String,
+        val summaryEn: String,
+        val cidrs: List<String>,
+        val recommendedSni: String,
+        val fallbackSnis: List<String>,
+        val recommendedPorts: List<Int> = listOf(443),
+    ) {
+        val rangesText: String get() = cidrs.joinToString(", ")
+    }
+
+    val WHITELIST_AND_CDN_RANGE_PRESETS: List<WhitelistRangePreset> = listOf(
+        WhitelistRangePreset(
+            id = "iran-whitelist",
+            badge = "🇮🇷 سفید ایران / نت ملی",
+            titleFa = "🇮🇷 آی‌پی‌ها و رنج‌های سفید داخل ایران (آروان / دراک / پارس‌پک / ستون)",
+            titleEn = "🇮🇷 Iran Domestic Whitelist Ranges (Arvan / Derak / ParsPack / Sotoon)",
+            summaryFa = "مخصوص شرایط نت ملی و قطعی بین‌الملل: اسکن رنج‌های CDN داخلی و درگاه‌های سفید برای ریورس تانل، پل داخلی و اسپوفینگ.",
+            summaryEn = "For Net Melli & international blackouts: scans domestic CDN & gateway ranges for reverse bridges and spoofing.",
+            cidrs = listOf(
+                "185.143.232.0/22",
+                "94.182.182.0/24",
+                "37.152.182.0/24",
+                "185.239.104.0/22",
+                "5.144.130.0/24",
+                "185.141.212.0/22",
+                "185.166.104.0/22",
+                "185.143.232.1",
+                "185.239.104.1",
+            ),
+            recommendedSni = "ebanksepah.ir",
+            fallbackSnis = listOf(
+                "ebanksepah.ir",
+                "shaparak.ir",
+                "bale.ai",
+                "rubika.ir",
+                "aparat.com",
+                "digikala.com",
+                "edge01.82.ir.cdn.ir",
+                "derak.cloud",
+            ),
+            recommendedPorts = listOf(443, 8443, 2053),
+        ),
+        WhitelistRangePreset(
+            id = "fastly-github-whitelist",
+            badge = "🟪 فستلی و گیت‌هاب سفید",
+            titleFa = "🟪 رنج‌های سفید فستلی و گیت‌هاب (PyPI / jsDelivr / GitHub CDN)",
+            titleEn = "🟪 Fastly & GitHub Whitelist Ranges (PyPI / jsDelivr / GitHub CDN)",
+            summaryFa = "رنج‌های باز توسعه‌دهندگان که حتی در زمان اختلال شدید کلادفلر برای فرانتینگ، رددیت و دانلود کانفیگ باز می‌مانند.",
+            summaryEn = "Developer-whitelisted Fastly & GitHub ranges that stay open when Cloudflare is throttled.",
+            cidrs = listOf(
+                "151.101.1.0/24",
+                "151.101.65.0/24",
+                "151.101.129.0/24",
+                "151.101.193.0/24",
+                "146.75.32.0/24",
+                "185.199.108.0/22",
+                "140.82.121.0/24",
+                "151.101.1.195",
+                "151.101.65.195",
+                "185.199.108.154",
+                "185.199.108.133",
+                "140.82.121.6",
+            ),
+            recommendedSni = "pypi.org",
+            fallbackSnis = listOf(
+                "pypi.org",
+                "github.githubassets.com",
+                "fastly.jsdelivr.net",
+                "www.python.org",
+                "raw.githubusercontent.com",
+            ),
+            recommendedPorts = listOf(443),
+        ),
+        WhitelistRangePreset(
+            id = "akamai-google-azure",
+            badge = "🟦 آکامای / گوگل / آژور / Gcore",
+            titleFa = "🟦 لبه‌های سفید غیرکلادفلر (Akamai / Google / Azure / CloudFront / Gcore)",
+            titleEn = "🟦 Non-Cloudflare Whitelist Edges (Akamai / Google / Azure / CloudFront / Gcore)",
+            summaryFa = "اسکن لبه‌های اپل، ادوبی، گوگل API، مایکروسافت آژور و Gcore برای عبور از مسدودی AS13335 کلادفلر.",
+            summaryEn = "Scans Apple/Adobe Akamai, Google APIs, Azure, and Gcore edges to bypass Cloudflare AS13335 blocks.",
+            cidrs = listOf(
+                "23.215.0.0/24",
+                "23.212.250.0/24",
+                "92.123.102.0/24",
+                "2.22.250.0/24",
+                "34.143.72.0/24",
+                "142.250.185.0/24",
+                "204.79.197.0/24",
+                "13.224.163.0/24",
+                "92.223.84.0/24",
+                "23.215.0.206",
+                "34.143.72.2",
+                "142.250.185.206",
+                "204.79.197.200",
+                "92.223.84.84",
+            ),
+            recommendedSni = "www.googleapis.com",
+            fallbackSnis = listOf(
+                "www.googleapis.com",
+                "a248.e.akamai.net",
+                "www.apple.com",
+                "www.microsoft.com",
+                "gcore.com",
+                "d1.cloudfront.net",
+            ),
+            recommendedPorts = listOf(443),
+        ),
+        WhitelistRangePreset(
+            id = "paas-serverless",
+            badge = "☁️ پلتفرم‌های ابری PaaS",
+            titleFa = "☁️ پلتفرم‌های ابری و Serverless (Vercel / Render / Fly.io / Railway / Netlify)",
+            titleEn = "☁️ Serverless & PaaS Platforms (Vercel / Render / Fly.io / Railway / Netlify)",
+            summaryFa = "کشف آی‌پی‌های ورودی پلتفرم‌های ابری که گواهی Wildcard معتبر برای اپ‌ها و ورکرها ارائه می‌کنند.",
+            summaryEn = "Finds front IPs of PaaS platforms serving valid wildcard certificates for hosted apps.",
+            cidrs = listOf(
+                "76.76.21.0/24",
+                "216.24.57.0/24",
+                "66.241.124.0/24",
+                "66.241.125.0/24",
+                "75.2.60.0/24",
+                "99.83.190.0/24",
+                "104.18.2.0/24",
+            ),
+            recommendedSni = "vercel.app",
+            fallbackSnis = listOf(
+                "vercel.app",
+                "onrender.com",
+                "fly.dev",
+                "up.railway.app",
+                "netlify.app",
+                "koyeb.app",
+                "workers.dev",
+                "pages.dev",
+            ),
+            recommendedPorts = listOf(443),
+        ),
+        WhitelistRangePreset(
+            id = "cf-golden-ff-v6",
+            badge = "🔥 طلایی F&F + IPv6",
+            titleFa = "🔥 لبه‌های طلایی کلادفلر (ایرانسل F&F + همراه اول IPv6)",
+            titleEn = "🔥 Golden Cloudflare Edges (Irancell F&F + MCI IPv6)",
+            summaryFa = "رنج‌های طلایی و کم‌حساسیت کلادفلر مخصوص فایروال ایرانسل (188.114.96.0/20 و 162.159.192.0/24) و IPv6 همراه اول.",
+            summaryEn = "Golden low-DPI Cloudflare subnets tuned for Irancell F&F and MCI IPv6 firewalls.",
+            cidrs = listOf(
+                "188.114.96.0/20",
+                "162.159.192.0/24",
+                "162.159.128.0/20",
+                "172.67.73.0/24",
+                "104.18.2.0/24",
+                "188.114.98.0",
+                "162.159.192.1",
+                "172.67.73.163",
+                "104.18.2.161",
+            ),
+            recommendedSni = "speed.cloudflare.com",
+            fallbackSnis = listOf(
+                "speed.cloudflare.com",
+                "challenges.cloudflare.com",
+                "radar.cloudflare.com",
+                "www.cloudflare.com",
+                "skk.moe",
+            ),
+            recommendedPorts = CLOUDFLARE_TLS_6_PORTS,
+        ),
+        WhitelistRangePreset(
+            id = "cf-full-anycast",
+            badge = "🌐 کل کلادفلر (۱۹ رنج)",
+            titleFa = "🌐 همه ۱۹ رنج اصلی کلادفلر Anycast",
+            titleEn = "🌐 All 19 Standard Cloudflare Anycast Ranges",
+            summaryFa = "بازگردانی به ۱۹ رنج کامل کلادفلر برای اسکن عمومی روی تمام پورت‌ها.",
+            summaryEn = "Restores all 19 official Cloudflare IPv4 anycast blocks.",
+            cidrs = DEFAULT_RANGES,
+            recommendedSni = "skk.moe",
+            fallbackSnis = listOf(
+                "skk.moe",
+                "speed.cloudflare.com",
+                "www.speedtest.net",
+                "cdnjs.cloudflare.com",
+            ),
+            recommendedPorts = DEFAULT_SCAN_PORTS,
+        ),
+    )
+
+    /**
+     * Expands ±[radius] neighbor hosts in the same `/24` (IPv4) or `/64` (IPv6) around
+     * verified golden/whitelist IPs so users can harvest dozens of clean sibling IPs in seconds.
+     */
+    fun expandAroundGoldenHits(seeds: List<String>, radius: Int = 24): List<String> {
+        val safeRadius = radius.coerceIn(2, 120)
+        val out = LinkedHashSet<String>()
+        for (raw in seeds) {
+            val ip = raw.trim().removeSurrounding("[", "]").substringBefore(':')
+            if (isValidIpv4(ip)) {
+                val parts = ip.split(".")
+                val prefix3 = parts.take(3).joinToString(".")
+                val last = parts[3].toIntOrNull() ?: continue
+                for (delta in -safeRadius..safeRadius) {
+                    if (delta == 0) continue
+                    val cand = last + delta
+                    if (cand in 1..254) {
+                        out += "$prefix3.$cand"
+                    }
+                }
+            } else if (isIpv6(raw)) {
+                val cleanV6 = raw.trim().removeSurrounding("[", "]")
+                val head = if (cleanV6.contains("::")) cleanV6.substringBefore("::") + "::"
+                else cleanV6.split(":").take(4).joinToString(":") + "::"
+                for (k in 1..safeRadius.coerceAtMost(32)) {
+                    val candidate = head + Integer.toHexString(k)
+                    if (isValidIpv6(candidate)) out += candidate
+                }
+            }
+        }
+        return out.toList()
+    }
+
+    /**
+     * Socket wrapper that intercepts the first TLS ClientHello (`0x16 0x03 ...`) written by
+     * `SSLSocket.startHandshake()` and splits it via [LocalSniSpoofProxy.splitClientHelloServerlessV52]
+     * so DPI boxes cannot reassemble the SNI during clean-IP / whitelist scanning.
+     */
+    private class AntiDpiFragmentSocketWrapper(
+        private val delegate: Socket,
+        private val fragmentMode: String,
+    ) : Socket() {
+        private var firstHandshakeSplitDone = false
+
+        override fun isConnected(): Boolean = delegate.isConnected
+        override fun isClosed(): Boolean = delegate.isClosed
+        override fun isBound(): Boolean = delegate.isBound
+        override fun getInetAddress(): InetAddress? = delegate.inetAddress
+        override fun getLocalAddress(): InetAddress = delegate.localAddress
+        override fun getPort(): Int = delegate.port
+        override fun getLocalPort(): Int = delegate.localPort
+        override fun getRemoteSocketAddress() = delegate.remoteSocketAddress
+        override fun getLocalSocketAddress() = delegate.localSocketAddress
+        override fun setSoTimeout(timeout: Int) { delegate.soTimeout = timeout }
+        override fun getSoTimeout(): Int = delegate.soTimeout
+        override fun setTcpNoDelay(on: Boolean) { delegate.tcpNoDelay = on }
+        override fun getTcpNoDelay(): Boolean = delegate.tcpNoDelay
+        override fun getInputStream() = delegate.getInputStream()
+
+        override fun getOutputStream(): java.io.OutputStream {
+            val rawOut = delegate.getOutputStream()
+            return object : java.io.FilterOutputStream(rawOut) {
+                override fun write(b: ByteArray, off: Int, len: Int) {
+                    if (!firstHandshakeSplitDone && len >= 6 &&
+                        (b[off].toInt() and 0xFF) == 0x16 &&
+                        (b[off + 1].toInt() and 0xFF) == 0x03
+                    ) {
+                        firstHandshakeSplitDone = true
+                        val packet = b.copyOfRange(off, off + len)
+                        val chunks: List<ByteArray> = if (fragmentMode.equals("sni-multi", ignoreCase = true)) {
+                            LocalSniSpoofProxy.splitClientHelloMultiChunkAtSni(packet)
+                        } else {
+                            val cleanVar = if (fragmentMode.contains("fragB", ignoreCase = true)) "fragB" else "fragA"
+                            LocalSniSpoofProxy.splitClientHelloServerlessV52(packet, fragVariant = cleanVar)
+                        }
+                        for ((idx, bytes) in chunks.withIndex()) {
+                            if (bytes.isEmpty()) continue
+                            rawOut.write(bytes)
+                            rawOut.flush()
+                            if (idx < chunks.lastIndex) {
+                                runCatching { Thread.sleep(1L) }
+                            }
+                        }
+                    } else {
+                        rawOut.write(b, off, len)
+                    }
+                }
+            }
+        }
+
+        override fun close() {
+            delegate.close()
+        }
+    }
 }
 
 /** Executes [block] on the IO dispatcher, used by the scanner UI helper below. */
