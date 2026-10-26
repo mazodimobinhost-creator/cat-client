@@ -2409,6 +2409,20 @@ class MainActivity : Activity() {
                     return
                 }
             }
+            if (CatFusionLink.isCatFusion(trimmed)) {
+                val fusedCount = CatFusionLink.decode(trimmed.lines().first().trim())?.size ?: 0
+                liveFormatBadge.text = when {
+                    fusedCount == 0 && isFarsiSubDialog -> "⚠️ لینک catfusion:// خراب یا ناقص است"
+                    fusedCount == 0 -> "⚠️ Broken catfusion:// link"
+                    isFarsiSubDialog -> "📤 تانل ترکیبی catfusion:// با $fusedCount کانفیگ (موازی + ضدقطع + سریع‌ترین)"
+                    else -> "📤 catfusion:// fused tunnel with $fusedCount configs"
+                }
+                liveFormatBadge.visibility = View.VISIBLE
+                if (nameInput.text.isNullOrBlank()) {
+                    CatFusionLink.title(trimmed)?.let { nameInput.setText(it.take(40)) }
+                }
+                return
+            }
             val inspection = runCatching { SubConvConverter.inspectUniversalConfigInput(trimmed) }.getOrNull()
             if (inspection != null && inspection.totalCount > 0) {
                 val summary = inspection.formatCounts.entries.joinToString(" · ") { "${it.value}× ${it.key}" }
@@ -15259,7 +15273,11 @@ class MainActivity : Activity() {
                         "🟠 ۳) وصل هستی ولی جمینی (Gemini)، چت‌جی‌پی‌تی یا یوتیوب باز نمیشه؟\n" +
                         "   👈 دکمه «✨ تست باز بودن Gemini» یا «🌍 کشور فایرفاکس / سایفون (آمریکا US)» رو بزن تا آی‌پی آمریکا برات فعال بشه.\n\n" +
                         "🔴 ۴) اینترنت کاملاً ملی شده و کلادفلر هم قطع شده؟\n" +
-                        "   👈 دکمه «🧪 آزمایشگاه نت ملی» یا «📡 متدهای DNS و ریزولور» رو بزن تا از سایت‌های سفید (فستلی، آکامای، آروان و DNSهای باز) وصل بشی."
+                        "   👈 دکمه «🧪 آزمایشگاه نت ملی» یا «📡 متدهای DNS و ریزولور» رو بزن تا از سایت‌های سفید (فستلی، آکامای، آروان و DNSهای باز) وصل بشی.\n\n" +
+                        "🔵 ۵) نمی‌دونی روی خطت کدوم پروتکل بازه؟\n" +
+                        "   👈 در «🚀 مرکز قابلیت‌های ۲۰۲۶» دکمه «📡 ۱۷) رادار یک‌لمسی» رو بزن؛ خط و تک‌تک کانفیگ‌هات واقعاً تست میشن، سبزها رو نشون میده و با یک دکمه فقط از سبزها تانل ترکیبی می‌سازه و وصل می‌کنه.\n\n" +
+                        "🟣 ۶) می‌خوای تانل ترکیبی‌ات رو به گوشی دوستت بدی؟\n" +
+                        "   👈 در «⚡ ۱۵) ترکیب موازی» دکمه «📤 اشتراک با QR / لینک» رو بزن؛ گوشی دوم فقط QR رو اسکن می‌کنه یا لینک catfusion:// رو در «➕ افزودن سابسکریپشن» می‌چسبونه."
                 } else {
                     "🟢 1) No config and want free 1-tap VPN?\n" +
                         "   👉 Tap '🦊 Connect Firefox VPN Now' or '🚀 Connect Aether Now' — connects the whole phone automatically.\n\n" +
@@ -15268,7 +15286,11 @@ class MainActivity : Activity() {
                         "🟠 3) Connected, but Gemini, ChatGPT, or YouTube won't open?\n" +
                         "   👉 Tap '✨ Gemini Unblock Tester' or pick '🇺🇸 United States' in Firefox VPN / Psiphon.\n\n" +
                         "🔴 4) Complete Net Melli (International internet & Cloudflare blocked)?\n" +
-                        "   👉 Tap '🧪 Net Melli Whitelist Lab' or '📡 DNS & Resolver Methods' to tunnel over whitelisted routes."
+                        "   👉 Tap '🧪 Net Melli Whitelist Lab' or '📡 DNS & Resolver Methods' to tunnel over whitelisted routes.\n\n" +
+                        "🔵 5) Not sure which protocol is open on your line?\n" +
+                        "   👉 In the 2026 hub tap '📡 17) 1-Tap Protocol Matrix' — real tests, then fuse only the green configs and connect.\n\n" +
+                        "🟣 6) Want to give your fused tunnel to a friend?\n" +
+                        "   👉 In '⚡ 15) Speed Fusion' tap '📤 Share (QR / link)' — the other phone scans it or pastes the catfusion:// link."
                 }
                 textSize = 12f
                 typeface = CatClientBodyTypeface
@@ -16870,6 +16892,18 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 17: 1-Tap ISP Protocol Matrix (real probes) + green-only fusion
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "📡 ۱۷) رادار یک‌لمسی: کدام پروتکل الان روی خط من باز است؟ (تست واقعی + تانل ترکیبی از سبزها)"
+                else "📡 17) 1-Tap ISP Protocol Matrix: which protocol is open on my line? (real probes)",
+                filled = true,
+            ) {
+                showIspProtocolMatrixDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
@@ -17114,20 +17148,32 @@ class MainActivity : Activity() {
      * CottenMax, TUIC, WireGuard) into a single Mihomo YAML subscription featuring simultaneous
      * Round-Robin Load-Balancing, 15s Zero-Drop Failover, and Fastest URL-Test.
      */
-    private fun showMultiConfigSpeedFusionDialog() {
-        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    private fun isFusedSubscriptionName(name: String): Boolean =
+        name.startsWith("⚡ تانل ترکیبی") || name.startsWith("⚡ Fused") || name.startsWith("📡 تانل سبز") || name.startsWith("📡 Green")
+
+    /** Raw texts of every user subscription (inline links + cached YAML snapshots) and, optionally, the clipboard. */
+    private fun collectFusionRawTexts(includeClipboard: Boolean = true): List<String> {
         val rawTexts = mutableListOf<String>()
         userSubscriptionManager.list().forEach { sub ->
+            if (isFusedSubscriptionName(sub.name)) return@forEach
             if (sub.input.isNotBlank() && !sub.input.startsWith("http://", true) && !sub.input.startsWith("https://", true)) {
                 rawTexts.add(sub.input)
             }
             userSubscriptionManager.cachedSnapshot(sub.id)?.rawConfig?.takeIf { it.isNotBlank() }?.let { rawTexts.add(it) }
         }
-        runCatching {
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
-            if (clip.isNotBlank()) rawTexts.add(0, clip)
+        if (includeClipboard) {
+            runCatching {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
+                if (clip.isNotBlank() && clip.length < UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) rawTexts.add(0, clip)
+            }
         }
+        return rawTexts
+    }
+
+    private fun showMultiConfigSpeedFusionDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val rawTexts = collectFusionRawTexts(includeClipboard = true)
 
         activityScope.launch {
             val bundle = withContext(Dispatchers.IO) {
@@ -17180,34 +17226,250 @@ class MainActivity : Activity() {
                 .setPositiveButton(
                     if (isFarsi) "🚀 ساخت تانل ترکیبی و اتصال فوری" else "🚀 Activate Fusion & Connect",
                 ) { _, _ ->
-                    activityScope.launch {
-                        val subTitle = if (isFarsi) {
-                            "⚡ تانل ترکیبی موازی (${bundle.totalProxiesFused} کانفیگ)"
-                        } else {
-                            "⚡ Fused Multi-Tunnel (${bundle.totalProxiesFused} nodes)"
-                        }
-                        val saved = withContext(Dispatchers.IO) {
-                            val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("⚡ تانل ترکیبی") || it.name.startsWith("⚡ Fused") }
-                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, bundle.yaml)
-                            else userSubscriptionManager.add(subTitle, bundle.yaml)
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        val curAether = aetherPreferenceStore.read()
-                        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
-                        orbotEnginePreferenceStore.setEnabled(false)
-                        renderSubscriptions()
-                        onSubscriptionSelected()
-                        openScreen(SCREEN_HOME)
-                        if (currentVpnServiceState == VpnState.Started) {
-                            reconnectForConnectionOptionChange()
-                        } else {
-                            beginConnectFlow(Actions.CONNECT)
-                        }
-                    }
+                    activateFusedBundle(bundle, isFarsi, greenOnly = false)
+                }
+                .setNeutralButton(
+                    if (isFarsi) "📤 اشتراک با QR / لینک" else "📤 Share (QR / link)",
+                ) { _, _ ->
+                    showCatFusionShareDialog(bundle, isFarsi)
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .create()
                 .showCatClientDialog()
+        }
+    }
+
+    /** Saves [bundle] as the single fused subscription, selects it and connects (or reconnects). */
+    private fun activateFusedBundle(
+        bundle: LocalSniSpoofProxy.FusedMultiTunnelBundle,
+        isFarsi: Boolean,
+        greenOnly: Boolean,
+    ) {
+        activityScope.launch {
+            val subTitle = when {
+                greenOnly && isFarsi -> "📡 تانل سبز ترکیبی (${bundle.totalProxiesFused} کانفیگ تست‌شده)"
+                greenOnly -> "📡 Green fused tunnel (${bundle.totalProxiesFused} verified)"
+                isFarsi -> "⚡ تانل ترکیبی موازی (${bundle.totalProxiesFused} کانفیگ)"
+                else -> "⚡ Fused Multi-Tunnel (${bundle.totalProxiesFused} nodes)"
+            }
+            val saved = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = userSubscriptionManager.list().firstOrNull { isFusedSubscriptionName(it.name) }
+                    if (existing != null) userSubscriptionManager.update(existing.id, subTitle, bundle.yaml)
+                    else userSubscriptionManager.add(subTitle, bundle.yaml)
+                }
+            }.getOrElse { err ->
+                Toast.makeText(
+                    this@MainActivity,
+                    (if (isFarsi) "⚠️ ذخیرهٔ تانل ترکیبی ناموفق بود: " else "⚠️ Could not save fused tunnel: ") + (err.message ?: err.javaClass.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            userSubscriptionManager.select(saved.id)
+            val curAether = aetherPreferenceStore.read()
+            if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+            orbotEnginePreferenceStore.setEnabled(false)
+            renderSubscriptions()
+            onSubscriptionSelected()
+            openScreen(SCREEN_HOME)
+            if (currentVpnServiceState == VpnState.Started) {
+                reconnectForConnectionOptionChange()
+            } else {
+                beginConnectFlow(Actions.CONNECT)
+            }
+        }
+    }
+
+    /**
+     * 📤 Exports a fused multi-tunnel as ONE `catfusion://` link + QR code. Scanning the QR with
+     * Cat Client on another phone (or pasting the link into «➕ افزودن سابسکریپشن») rebuilds the
+     * same 3-group fused profile there.
+     */
+    private fun showCatFusionShareDialog(bundle: LocalSniSpoofProxy.FusedMultiTunnelBundle, isFarsi: Boolean) {
+        val title = if (isFarsi) "تانل ترکیبی ${bundle.totalProxiesFused} کانفیگ" else "Fused ${bundle.totalProxiesFused} configs"
+        val link = CatFusionLink.encode(bundle.shareUris, title)
+        if (link == null) {
+            Toast.makeText(
+                this,
+                if (isFarsi) "⚠️ هیچ‌کدام از کانفیگ‌های این تانل لینک اشتراکی قابل‌انتقال ندارند."
+                else "⚠️ None of the fused configs has a shareable link.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val skipped = bundle.totalProxiesFused - bundle.shareUris.size.coerceAtMost(CatFusionLink.MAX_LINKS)
+        val qr = QrCodes.bitmap(link, sizePx = dp(280))
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(10), dp(16), dp(4))
+        }
+        if (qr != null) {
+            container.addView(
+                ImageView(this).apply {
+                    adjustViewBounds = true
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    setBackgroundColor(Color.WHITE)
+                    setImageBitmap(qr)
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+        container.addView(
+            TextView(this).apply {
+                textSize = 12f
+                setTextColor(TEXT_SECONDARY)
+                setPadding(0, dp(8), 0, 0)
+                text = buildString {
+                    if (isFarsi) {
+                        appendLine("📱 روی گوشی دیگر: Cat Client ← «اسکن QR» یا کپی لینک ← «➕ افزودن سابسکریپشن».")
+                        appendLine("همان تانل ترکیبی (موازی + ضدقطع + سریع‌ترین) آنجا ساخته می‌شود.")
+                        if (qr == null) appendLine("⚠️ لینک برای QR خیلی بزرگ است؛ از دکمهٔ کپی/اشتراک استفاده کن.")
+                        if (skipped > 0) appendLine("ℹ️ $skipped کانفیگ (مثل TUIC/SSH/WireGuard داخل YAML) لینک استاندارد ندارند و منتقل نمی‌شوند.")
+                        append("🔒 این لینک شامل رمز/UUID کانفیگ‌های شماست؛ فقط با افراد مورد اعتماد به اشتراک بگذارید.")
+                    } else {
+                        appendLine("📱 On another phone: Cat Client → Scan QR, or paste the link into “Add subscription”.")
+                        if (qr == null) appendLine("⚠️ Link is too large for a QR code — use copy/share.")
+                        if (skipped > 0) appendLine("ℹ️ $skipped configs have no standard share link and are not included.")
+                        append("🔒 The link contains your config secrets — share only with people you trust.")
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "📤 اشتراک تانل ترکیبی (catfusion://)" else "📤 Share fused tunnel (catfusion://)")
+            .setView(container)
+            .setPositiveButton(if (isFarsi) "📋 کپی لینک" else "📋 Copy link") { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("catfusion", link))
+                Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(if (isFarsi) "↗️ ارسال" else "↗️ Send") { _, _ ->
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, title)
+                    putExtra(Intent.EXTRA_TEXT, link)
+                }
+                runCatching { startActivity(Intent.createChooser(send, title)) }
+                    .onFailure { Toast.makeText(this, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show() }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * 📡 1-Tap ISP Protocol Matrix: runs REAL probes (TLS / TCP / SSH banner / QUIC version
+     * negotiation / DNS through the tunnel resolver / DoH / IPv6) against the user's line and
+     * against every one of the user's own configs, then shows a green/red table, a plain-language
+     * verdict and lets the user build a fused tunnel from ONLY the configs that really passed.
+     */
+    private fun showIspProtocolMatrixDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val rawTexts = collectFusionRawTexts(includeClipboard = true)
+        val progress = MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "📡 در حال تست واقعی خط شما…" else "📡 Probing your line…")
+            .setMessage(
+                if (isFarsi) "۹ تست پایه (داخلی، کلادفلر، گوگل، QUIC، DNS روی UDP/TCP، DoH، IPv6) + تست جداگانهٔ هر کانفیگ خودت (حداکثر ${IspProtocolMatrix.MAX_CONFIGS}).\nمعمولاً ۵ تا ۱۵ ثانیه طول می‌کشد."
+                else "9 baseline probes + a real probe of each of your configs (max ${IspProtocolMatrix.MAX_CONFIGS}). Usually 5–15 s.",
+            )
+            .setCancelable(false)
+            .create()
+        progress.showCatClientDialog()
+        activityScope.launch {
+            val report = withContext(Dispatchers.IO) {
+                runCatching { IspProtocolMatrix.run(rawTexts) }.getOrNull()
+            }
+            runCatching { progress.dismiss() }
+            if (report == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ تست انجام نشد؛ دوباره امتحان کن." else "⚠️ Probe failed — try again.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            fun mark(ok: Boolean?) = when (ok) { true -> "🟢"; false -> "🔴"; null -> "⚪" }
+            val msg = buildString {
+                appendLine(if (isFarsi) "🧭 نتیجه به زبان ساده:" else "🧭 Plain-language verdict:")
+                report.verdict(isFarsi).forEach { appendLine("• $it") }
+                appendLine()
+                appendLine(if (isFarsi) "🌐 تست‌های پایهٔ خط (${report.durationMs / 1000.0}s):" else "🌐 Line baseline (${report.durationMs / 1000.0}s):")
+                report.baseline.forEach { row ->
+                    val ms = row.latencyMs?.let { " · ${it}ms" }.orEmpty()
+                    appendLine("${mark(row.ok)} ${if (isFarsi) row.labelFa else row.labelEn}$ms")
+                }
+                val fam = report.familyStatus()
+                if (fam.isNotEmpty()) {
+                    appendLine()
+                    appendLine(if (isFarsi) "🧩 خانواده‌های پروتکل در کانفیگ‌های خودت (سبز/قرمز/نامعلوم):" else "🧩 Protocol families in your configs (green/red/unknown):")
+                    fam.forEach { (f, t) ->
+                        val icon = when {
+                            t.first > 0 -> "🟢"
+                            t.second > 0 && t.third == 0 -> "🔴"
+                            else -> "⚪"
+                        }
+                        appendLine("$icon ${if (isFarsi) f.fa else f.en}: ${t.first}/${t.second}/${t.third}")
+                    }
+                    appendLine()
+                    appendLine(if (isFarsi) "📋 تک‌تک کانفیگ‌ها:" else "📋 Each config:")
+                    report.configs.sortedWith(compareBy({ it.ok != true }, { it.latencyMs ?: Long.MAX_VALUE })).forEach { row ->
+                        val ms = row.latencyMs?.let { " · ${it}ms" }.orEmpty()
+                        val why = when (row.ok) {
+                            null -> if (isFarsi) " (فقط هنگام اتصال قابل‌سنجش)" else " (verifiable only on connect)"
+                            false -> " (${row.detail})"
+                            true -> ""
+                        }
+                        appendLine("${mark(row.ok)} ${row.name.take(34)}$ms$why")
+                    }
+                } else {
+                    appendLine()
+                    appendLine(
+                        if (isFarsi) "ℹ️ هنوز کانفیگی در اپ یا کلیپ‌بورد نیست؛ فقط خط اینترنت تست شد."
+                        else "ℹ️ No configs in the app or clipboard yet — only the line was tested.",
+                    )
+                }
+                appendLine()
+                append(if (isFarsi) "⚪ = بدون اتصال کامل قابل‌سنجش نیست (WireGuard/WARP، Paqet، Firefox VPN، Aether) — رنگ سبز الکی نشان داده نمی‌شود." else "⚪ = cannot be verified without a full connection — no fake greens.")
+            }
+            val green = report.greenConfigs
+            val builder = MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(if (isFarsi) "📡 رادار پروتکل‌های باز روی خط من" else "📡 Open protocols on my line")
+                .setMessage(msg.trimEnd())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "🔁 تست دوباره" else "🔁 Re-test") { _, _ -> showIspProtocolMatrixDialog() }
+            if (green.isNotEmpty()) {
+                builder.setPositiveButton(
+                    if (isFarsi) "⚡ تانل ترکیبی فقط از ${green.size} کانفیگ سبز + اتصال" else "⚡ Fuse ${green.size} green configs & connect",
+                ) { _, _ ->
+                    activityScope.launch {
+                        val bundle = withContext(Dispatchers.IO) {
+                            val greenRaw = green.joinToString("\n") { it.shareUri }.takeIf { green.all { g -> g.shareUri.isNotBlank() } }
+                            if (greenRaw != null) {
+                                LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(listOf(greenRaw), maxProxies = 12)
+                            } else {
+                                val proxies = green.mapNotNull { runCatching { org.json.JSONObject(it.proxyJson) }.getOrNull() }
+                                runCatching {
+                                    val yaml = MihomoLinkConfigBuilder.build(proxies)
+                                    LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(listOf(yaml), maxProxies = 12)
+                                }.getOrNull()
+                            }
+                        }
+                        if (bundle == null || bundle.totalProxiesFused == 0) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "⚠️ ساخت تانل از کانفیگ‌های سبز ممکن نشد." else "⚠️ Could not build a tunnel from green configs.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            return@launch
+                        }
+                        activateFusedBundle(bundle, isFarsi, greenOnly = true)
+                    }
+                }
+            }
+            builder.create().showCatClientDialog()
         }
     }
 

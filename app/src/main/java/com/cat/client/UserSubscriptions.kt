@@ -103,6 +103,15 @@ object UserSubscriptionImporter {
         val trimmed = content.trim()
         require(trimmed.isNotBlank()) { "سابسکریپشن خالی است" }
         require(trimmed.toByteArray().size <= MAX_SUBSCRIPTION_BYTES) { "حجم سابسکریپشن بیش از حد مجاز است" }
+        if (CatFusionLink.isCatFusion(trimmed)) {
+            val links = CatFusionLink.decode(trimmed.lines().first().trim())
+            require(!links.isNullOrEmpty()) { "لینک catfusion:// معتبر نیست" }
+            val bundle = LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(listOf(links.joinToString("\n")))
+            require(bundle != null && bundle.totalProxiesFused > 0) { "اتصال پشتیبانی‌شده‌ای در catfusion:// پیدا نشد" }
+            val count = MihomoConfigParser.parse(bundle.yaml, nowMs).catalog.profiles.size
+            require(count > 0) { "اتصال پشتیبانی‌شده‌ای پیدا نشد" }
+            return ImportedUserSubscription(bundle.yaml, UserSubscriptionFormat.Links, count)
+        }
         val normalized = SubConvConverter.decodeBase64Text(trimmed)
             ?.trim()
             ?.takeIf(String::isNotBlank)

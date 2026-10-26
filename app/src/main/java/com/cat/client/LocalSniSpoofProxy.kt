@@ -3155,6 +3155,8 @@ RESOLVERS = [$resolversList]
         val totalProxiesFused: Int,
         val protocolSummary: String,
         val proxyNames: List<String>,
+        /** Share URIs of the fused nodes (for `catfusion://` / QR export). */
+        val shareUris: List<String> = emptyList(),
     )
 
     /**
@@ -3171,12 +3173,16 @@ RESOLVERS = [$resolversList]
     ): FusedMultiTunnelBundle? {
         val allProxies = mutableListOf<org.json.JSONObject>()
         val seenNames = mutableSetOf<String>()
+        val seenEndpoints = mutableSetOf<String>()
         val protoCounts = linkedMapOf<String, Int>()
 
         for (raw in rawSubscriptionTexts) {
-            val converted = runCatching { SubConvConverter.convert(raw) }.getOrNull() ?: continue
+            val converted = IspProtocolMatrix.proxiesFromRaw(raw).takeIf { it.isNotEmpty() } ?: continue
             for (p in converted) {
                 if (allProxies.size >= maxProxies) break
+                val dedupeKey = (CatFusionLink.shareUriOf(p)?.substringBefore('#')
+                    ?: listOf("type", "server", "port", "uuid", "password", "whitedns-uri").joinToString("|") { p.optString(it) })
+                if (!seenEndpoints.add(dedupeKey)) continue
                 val baseName = p.optString("name", "Proxy").replace("'", "").trim()
                 val uniqueName = if (seenNames.add(baseName)) baseName else "$baseName-${allProxies.size + 1}"
                 val copy = org.json.JSONObject(p.toString())
@@ -3246,6 +3252,7 @@ RESOLVERS = [$resolversList]
             totalProxiesFused = allProxies.size,
             protocolSummary = summary,
             proxyNames = pNames,
+            shareUris = allProxies.mapNotNull { CatFusionLink.shareUriOf(it) }.distinct(),
         )
     }
 }

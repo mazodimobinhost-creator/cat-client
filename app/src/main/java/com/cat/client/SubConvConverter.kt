@@ -126,7 +126,7 @@ object SubConvConverter {
     }
 
     fun convert(input: String): List<JSONObject> {
-        val data = decodeBase64Text(input) ?: input
+        val data = CatFusionLink.expandInText(decodeBase64Text(input) ?: input)
         val names = NameRegistry()
         val proxies = data.lineSequence().mapNotNull { raw ->
             val line = extractShareUriFromLine(raw) ?: return@mapNotNull null
@@ -901,7 +901,7 @@ object SubConvConverter {
         if (trimmed.isBlank()) {
             return UniversalConfigInspection(0, emptyMap(), emptyList(), "")
         }
-        val decoded = decodeBase64Text(trimmed) ?: trimmed
+        val decoded = CatFusionLink.expandInText(decodeBase64Text(trimmed) ?: trimmed)
         val items = mutableListOf<UniversalConfigItemSummary>()
         val counts = linkedMapOf<String, Int>()
         val normalizedLines = mutableListOf<String>()
