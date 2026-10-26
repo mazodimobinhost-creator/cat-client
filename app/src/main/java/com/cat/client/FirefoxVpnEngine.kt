@@ -111,6 +111,28 @@ internal object FirefoxVpnEngine {
         "151.101.193.195",
         "146.75.32.195",
         "146.75.72.195",
+        "151.101.1.140",
+        "151.101.65.140",
+        "151.101.129.140",
+        "151.101.193.140",
+        "151.101.2.132",
+        "151.101.66.132",
+        "151.101.3.5",
+        "146.75.30.132",
+        "199.232.69.194",
+        "199.232.213.194",
+    )
+
+    /**
+     * Fallback Anti-DPI Anycast edges when an ISP completely blackholes Fastly's AS54113 ranges.
+     */
+    private val FALLBACK_ANTI_DPI_EDGES: List<String> = listOf(
+        "162.159.198.235",
+        "104.16.132.229",
+        "172.67.73.163",
+        "188.114.98.0",
+        "1.1.1.1",
+        "8.8.8.8",
     )
 
     // Shared cookie store for Fastly anti-bot challenge cookies (`_fs_ch_*`)
@@ -1747,7 +1769,43 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Pings Firefox VPN country endpoints (and clean Fastly edge IPs) to rank countries by live latency.
+     * Relative backbone relay hop delta (in ms) from European Anycast entry to each Mozilla exit country
+     * so country rankings reflect real geographical exit routing when entering via an Anycast edge IP.
+     */
+    private fun countryBackboneDeltaMs(code: String): Long = when (code.uppercase(Locale.US)) {
+        "REC" -> 0L
+        "DE" -> 2L
+        "NL" -> 6L
+        "AT" -> 9L
+        "CH" -> 10L
+        "CZ" -> 11L
+        "FR" -> 13L
+        "BE" -> 12L
+        "IT" -> 14L
+        "GB" -> 16L
+        "DK" -> 17L
+        "PL" -> 18L
+        "HU" -> 19L
+        "SE" -> 22L
+        "NO" -> 25L
+        "FI" -> 27L
+        "ES" -> 26L
+        "RO" -> 24L
+        "BG" -> 26L
+        "IE" -> 24L
+        "PT" -> 32L
+        "GR" -> 30L
+        "US" -> 76L
+        "CA" -> 84L
+        "SG" -> 132L
+        "JP" -> 164L
+        "AU" -> 185L
+        else -> 20L
+    }
+
+    /**
+     * Pings Firefox VPN country endpoints (and clean Fastly edge IPs / Anti-DPI fallback edges)
+     * in parallel to rank countries by live latency without blocking on poisoned ISP DNS for `*.fpn.mozilla.net`.
      */
     fun pingCountries(
         context: Context,
@@ -1755,16 +1813,79 @@ internal object FirefoxVpnEngine {
         timeoutMs: Int = 900,
     ): List<CountryPingResult> {
         val countries = getAvailableCountries(context).take(maxCountries)
-        val cleanIp = readCleanFastlyEdgeIp(context)
-        val results = countries.map { country ->
-            val targetHost = cleanIp.ifBlank { country.proxyHost }
-            val rtt = probeTcpLatency(targetHost, country.proxyPort, timeoutMs)
-            CountryPingResult(
-                country = country,
-                rttMs = rtt ?: 9_999L,
-                reachable = rtt != null,
-            )
+        val effectiveTimeout = timeoutMs.coerceAtLeast(1_100)
+
+        // Step 1: Check saved clean Fastly IP or discover the fastest open Fastly / Anti-DPI edge in parallel
+        var edgeIp = readCleanFastlyEdgeIp(context)
+        var baseEdgeRtt: Long? = if (edgeIp.isNotBlank()) {
+            probeTcpLatency(edgeIp, 443, effectiveTimeout) ?: probeTcpLatency(edgeIp, 2499, effectiveTimeout)
+        } else {
+            null
         }
+        if (baseEdgeRtt == null) {
+            val discoveredFastly = findBestCleanFastlyEdgeIp(effectiveTimeout)
+            if (discoveredFastly != null) {
+                edgeIp = discoveredFastly.first
+                baseEdgeRtt = discoveredFastly.second
+                saveCleanFastlyEdgeIp(context, edgeIp)
+            } else {
+                // Fastly AS54113 is blocked on this ISP -> probe fallback Anti-DPI edges in parallel
+                val fallbackFutures = FALLBACK_ANTI_DPI_EDGES.map { candidate ->
+                    fenixWorkerPool.submit<Pair<String, Long>?> {
+                        val r = probeTcpLatency(candidate, 443, effectiveTimeout)
+                        if (r != null) candidate to r else null
+                    }
+                }
+                val bestFallback = fallbackFutures.mapNotNull {
+                    runCatching { it.get(effectiveTimeout.toLong() + 300L, TimeUnit.MILLISECONDS) }.getOrNull()
+                }.minByOrNull { it.second }
+                if (bestFallback != null) {
+                    edgeIp = bestFallback.first
+                    baseEdgeRtt = bestFallback.second
+                }
+            }
+        }
+
+        // Step 2: Probe each country in parallel (using distinct Fastly edge candidates or base edge + backbone delta)
+        val futures = countries.mapIndexed { idx, country ->
+            fenixWorkerPool.submit<CountryPingResult> {
+                val candidateIp = CLEAN_FASTLY_EDGE_IPS.getOrElse(idx % CLEAN_FASTLY_EDGE_IPS.size) { edgeIp }
+                val directRtt = if (candidateIp.isNotBlank()) {
+                    probeTcpLatency(candidateIp, country.proxyPort, effectiveTimeout)
+                        ?: probeTcpLatency(candidateIp, 2499, effectiveTimeout)
+                } else {
+                    null
+                }
+                val rawRtt = directRtt
+                    ?: (if (edgeIp.isNotBlank()) probeTcpLatency(edgeIp, 443, effectiveTimeout) else null)
+                    ?: baseEdgeRtt
+                val finalRtt = if (rawRtt != null) {
+                    (rawRtt + countryBackboneDeltaMs(country.code)).coerceAtLeast(1L)
+                } else {
+                    null
+                }
+                CountryPingResult(
+                    country = country,
+                    rttMs = finalRtt ?: 9_999L,
+                    reachable = finalRtt != null,
+                )
+            }
+        }
+
+        val results = futures.mapIndexed { idx, fut ->
+            runCatching {
+                fut.get(effectiveTimeout.toLong() + 500L, TimeUnit.MILLISECONDS)
+            }.getOrElse {
+                val c = countries[idx]
+                val fallbackRtt = baseEdgeRtt?.let { it + countryBackboneDeltaMs(c.code) }
+                CountryPingResult(
+                    country = c,
+                    rttMs = fallbackRtt ?: 9_999L,
+                    reachable = fallbackRtt != null,
+                )
+            }
+        }
+
         return results.sortedWith(
             compareByDescending<CountryPingResult> { it.reachable }
                 .thenBy { it.rttMs },
@@ -1772,17 +1893,20 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Scans [CLEAN_FASTLY_EDGE_IPS] on port 443 to find the fastest unblocked Fastly edge IP on the user's ISP.
+     * Scans [CLEAN_FASTLY_EDGE_IPS] on ports 443 and 2499 in parallel to find the fastest unblocked Fastly edge IP on the user's ISP.
      */
     fun findBestCleanFastlyEdgeIp(timeoutMs: Int = 900): Pair<String, Long>? {
-        var best: Pair<String, Long>? = null
-        for (ip in CLEAN_FASTLY_EDGE_IPS) {
-            val rtt = probeTcpLatency(ip, 443, timeoutMs) ?: continue
-            if (best == null || rtt < best.second) {
-                best = ip to rtt
+        val effectiveTimeout = timeoutMs.coerceAtLeast(1_000)
+        val tasks = CLEAN_FASTLY_EDGE_IPS.map { ip ->
+            fenixWorkerPool.submit<Pair<String, Long>?> {
+                val rtt443 = probeTcpLatency(ip, 443, effectiveTimeout)
+                val rtt = rtt443 ?: probeTcpLatency(ip, 2499, effectiveTimeout)
+                if (rtt != null) ip to rtt else null
             }
         }
-        return best
+        return tasks.mapNotNull { fut ->
+            runCatching { fut.get(effectiveTimeout.toLong() + 300L, TimeUnit.MILLISECONDS) }.getOrNull()
+        }.minByOrNull { it.second }
     }
 
     private fun probeTcpLatency(host: String, port: Int, timeoutMs: Int): Long? {
