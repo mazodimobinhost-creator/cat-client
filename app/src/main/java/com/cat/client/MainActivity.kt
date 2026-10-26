@@ -16772,7 +16772,7 @@ class MainActivity : Activity() {
                 if (currentUrl.contains("accounts.google.com") &&
                     (currentUrl.contains("/signin/rejected") || currentUrl.contains("disallowed_useragent") || currentUrl.contains("/v3/signin/rejected"))
                 ) {
-                    statusBanner.setTextColor(WARNING)
+                    statusBanner.setTextColor(0xFFFBBF24.toInt())
                     statusBanner.text = if (isFarsi) {
                         "⚠️ گوگل ورود OAuth داخل برنامه‌ها را محدود کرد! صفحه به فرم مستقیم موزیلا برگشت:\nجیمیل خود را در کادر بالای صفحهٔ موزیلا بنویسید و دکمهٔ آبی را بزنید (کد ۶ رقمی به جیمیلتان ارسال می‌شود)."
                     } else {
