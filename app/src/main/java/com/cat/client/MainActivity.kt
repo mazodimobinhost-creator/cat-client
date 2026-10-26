@@ -16441,18 +16441,18 @@ class MainActivity : Activity() {
                 aetherPreferenceStore.save(
                     cur.copy(
                         enabled = true,
-                        transport = AetherTransport.MasqueInMasque,
-                        masqueTransport = AetherMasqueTransport.Http2,
-                        carrierMode = AetherCarrierMode.PsiphonReverse,
+                        mode = AetherMode.MasqueInMasque,
+                        masqueTransport = "h2",
+                        chainTarget = "psiphon-reverse",
                         psiphonRegion = "US",
-                        endpoint = cur.endpoint.ifBlank { "188.114.98.0:443" },
-                        innerEndpoint = cur.innerEndpoint.ifBlank { "162.159.198.235:443" },
+                        endpoint = cur.endpoint?.takeIf { it.isNotBlank() } ?: "188.114.98.0:443",
+                        innerEndpoint = cur.innerEndpoint?.takeIf { it.isNotBlank() } ?: "162.159.198.235:443",
                         masqueSni = "speed.cloudflare.com",
                         echEnabled = true,
                         endpointScannedAt = System.currentTimeMillis(),
                     ),
                 )
-                dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.Doh)
+                dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
                 dnsPrivacyPreferenceStore.saveDohUrl("https://cloudflare-dns.com/dns-query")
                 orbotEnginePreferenceStore.setEnabled(false)
                 renderAdvancedControls()
