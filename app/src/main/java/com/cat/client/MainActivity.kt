@@ -16549,15 +16549,36 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
 
-        val webView = android.webkit.WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(470))
+        val webView = object : android.webkit.WebView(this) {
+            // Crucial for AlertDialog: tells AlertController.canTextInput() that this dialog
+            // contains a text editor so it does NOT set FLAG_ALT_FOCUSABLE_IM (which blocks the keyboard).
+            override fun onCheckIsTextEditor(): Boolean = true
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dp(430))
+            isFocusable = true
+            isFocusableInTouchMode = true
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.javaScriptCanOpenWindowsAutomatically = true
             settings.loadsImagesAutomatically = true
             // Use standard Firefox Android User-Agent so Google Sign-In & Mozilla FxA both allow login
             settings.userAgentString =
                 "Mozilla/5.0 (Android 14; Mobile; rv:138.0) Gecko/138.0 Firefox/138.0"
+            setOnTouchListener { v, event ->
+                if (event.action == android.view.MotionEvent.ACTION_DOWN ||
+                    event.action == android.view.MotionEvent.ACTION_UP
+                ) {
+                    dialogRef?.window?.clearFlags(
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                    )
+                    if (!v.hasFocus()) {
+                        v.requestFocus()
+                    }
+                }
+                false
+            }
         }
         runCatching {
             val cm = android.webkit.CookieManager.getInstance()
@@ -16565,10 +16586,92 @@ class MainActivity : Activity() {
             cm.setAcceptThirdPartyCookies(webView, true)
         }
 
+        val quickTypeInput = EditText(this).apply {
+            hint = if (isFarsi) "ایمیل یا رمز (در صورت نیاز اینجا تایپ/پیست کنید)" else "Type/paste email or password here if needed"
+            textSize = 12.5f
+            setSingleLine(true)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        }
+        val quickTypeBtn = MaterialButton(
+            this,
+            null,
+            com.google.android.material.R.attr.materialButtonOutlinedStyle,
+        ).apply {
+            text = if (isFarsi) "⌨️ درج در صفحه" else "⌨️ Fill Field"
+            textSize = 11.5f
+            isAllCaps = false
+            typeface = CatClientBodyBoldTypeface
+            setOnClickListener {
+                dialogRef?.window?.clearFlags(
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                )
+                val typed = quickTypeInput.text?.toString().orEmpty()
+                if (typed.isNotEmpty()) {
+                    val escaped = org.json.JSONObject.quote(typed)
+                    webView.evaluateJavascript(
+                        """
+                        (function(val){
+                          try {
+                            var el = document.activeElement;
+                            if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) {
+                              var inputs = document.querySelectorAll('input:not([type=hidden]):not([disabled])');
+                              for (var i = 0; i < inputs.length; i++) {
+                                if (inputs[i].offsetParent !== null) { el = inputs[i]; break; }
+                              }
+                            }
+                            if (el) {
+                              el.focus();
+                              var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+                              if (setter && setter.set) { setter.set.call(el, val); } else { el.value = val; }
+                              el.dispatchEvent(new Event('input', { bubbles: true }));
+                              el.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                          } catch(e) {}
+                        })($escaped);
+                        """.trimIndent(),
+                        null,
+                    )
+                    quickTypeInput.setText("")
+                } else {
+                    webView.requestFocus()
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                    imm?.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+                }
+            }
+        }
+        val quickTypeBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(2), dp(10), dp(6))
+            addView(quickTypeInput, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+            addView(quickTypeBtn, LinearLayout.LayoutParams(-2, -2))
+        }
+
         fun checkWebViewForFxaSession() {
             if (completed || isFinishing || isDestroyed) return
             webView.evaluateJavascript(
-                "(function(){try{return window.localStorage.getItem('__fxa_storage.accounts')||'';}catch(e){return '';}})();",
+                """
+                (function(){
+                  try {
+                    var a = window.localStorage.getItem('__fxa_storage.accounts');
+                    if (a && a.indexOf('sessionToken') !== -1) return a;
+                    for (var i = 0; i < window.localStorage.length; i++) {
+                      var k = window.localStorage.key(i);
+                      var v = window.localStorage.getItem(k);
+                      if (v && v.indexOf('sessionToken') !== -1) return v;
+                    }
+                    for (var j = 0; j < window.sessionStorage.length; j++) {
+                      var sk = window.sessionStorage.key(j);
+                      var sv = window.sessionStorage.getItem(sk);
+                      if (sv && sv.indexOf('sessionToken') !== -1) return sv;
+                    }
+                    return '';
+                  } catch(e) { return ''; }
+                })();
+                """.trimIndent(),
             ) { rawValue ->
                 if (completed || rawValue.isNullOrBlank() || rawValue == "null" || rawValue == "\"\"") return@evaluateJavascript
                 val pair = FirefoxVpnEngine.extractSessionFromWebViewStorageJson(rawValue) ?: return@evaluateJavascript
@@ -16619,6 +16722,7 @@ class MainActivity : Activity() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(statusBanner)
+            addView(quickTypeBar)
             addView(webView)
         }
 
@@ -16656,8 +16760,18 @@ class MainActivity : Activity() {
             completed = true
             mainHandler.removeCallbacks(pollRunnable)
         }
-        dialogRef.showCatClientDialog()
+        dialogRef.showCatClientDialog {
+            window?.clearFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            )
+            window?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+            )
+        }
         webView.loadUrl("https://accounts.firefox.com/")
+        webView.requestFocus()
         mainHandler.postDelayed(pollRunnable, 2000L)
     }
 
