@@ -859,10 +859,18 @@ object SubConvConverter {
         return if (separator > 0 && port in 1..65535) HostPort(value.substring(0, separator), port!!) else null
     }
 
+    private fun isHexDigit(c: Char): Boolean =
+        c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
+
     private fun sanitizeUriComponent(raw: String, allowBrackets: Boolean = false): String {
         val sb = StringBuilder(raw.length + 16)
-        for (ch in raw) {
+        for (i in raw.indices) {
+            val ch = raw[i]
             when {
+                ch == '%' -> {
+                    val hasValidHex = i + 2 < raw.length && isHexDigit(raw[i + 1]) && isHexDigit(raw[i + 2])
+                    if (hasValidHex) sb.append('%') else sb.append("%25")
+                }
                 ch == ' ' -> sb.append("%20")
                 ch == '|' -> sb.append("%7C")
                 ch == '{' -> sb.append("%7B")
