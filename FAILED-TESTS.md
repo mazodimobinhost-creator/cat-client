@@ -1,8 +1,8 @@
-# Android failure report (2e8f443)
+# Android failure report (dda01c4)
 
 
 ## files with compile errors
-      5 app/src/main/java/com/cat/client/SlipNetCliEngine.kt
+     19 app/src/main/java/com/cat/client/ZedShapes.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -37,7 +37,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3317) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3484) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -55,7 +55,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3332) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3499) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -65,7 +65,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3351) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3518) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -98,7 +98,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3363) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3530) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -169,11 +169,25 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:processDebugManifestForPackage
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SlipNetCliEngine.kt:61:15 'public' function exposes its 'internal' parameter type containing declaration 'WhiteDnsSmartScanner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SlipNetCliEngine.kt:65:18 'public' function exposes its 'internal' parameter type containing declaration 'WhiteDnsSmartScanner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SlipNetCliEngine.kt:68:27 'public' function exposes its 'internal' parameter type containing declaration 'WhiteDnsSmartScanner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SlipNetCliEngine.kt:94:19 'public' function exposes its 'internal' parameter type containing declaration 'WhiteDnsSmartScanner'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SlipNetCliEngine.kt:137:9 'public' function exposes its 'internal' parameter type containing declaration 'WhiteDnsSmartScanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:31:12 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:32:10 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:33:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:34:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:35:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:36:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:37:14 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:38:15 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:39:11 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:40:11 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:41:14 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:42:9 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:43:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:44:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:45:12 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:46:11 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:47:12 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:48:13 Companion object of enum class 'ZedShape' is uninitialized here.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:49:10 Companion object of enum class 'ZedShape' is uninitialized here.
 
 > Task :app:compileDebugKotlin FAILED
 
@@ -190,5 +204,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 39s
+BUILD FAILED in 2m 24s
 16 actionable tasks: 16 executed
