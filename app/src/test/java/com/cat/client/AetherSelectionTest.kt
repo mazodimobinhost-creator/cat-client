@@ -279,7 +279,7 @@ class AetherSelectionTest {
     @Test fun multiChunkSniSplitAndRealConfigTargetRecovery() {
         val ch = LocalSniSpoofProxy.buildFakeClientHelloRecord("my-secret-worker.user.workers.dev")
         val chunks = LocalSniSpoofProxy.splitClientHelloMultiChunkAtSni(ch)
-        assertTrue(chunks.size >= 4)
+        org.junit.Assert.assertTrue(chunks.size >= 4)
         // Reconstructed payloads must equal the original ClientHello payload byte-for-byte
         val origPayload = ch.copyOfRange(5, ch.size)
         val joined = java.io.ByteArrayOutputStream()
