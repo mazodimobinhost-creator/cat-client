@@ -159,8 +159,12 @@ internal fun writeSubscriptionTextAtomically(file: File, value: String) {
                 StandardCopyOption.REPLACE_EXISTING,
                 StandardCopyOption.ATOMIC_MOVE,
             )
-        } catch (error: AtomicMoveNotSupportedException) {
-            throw IOException("Atomic Subscription Snapshot replacement is not supported", error)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temporary.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
         }
     } finally {
         temporary.delete()

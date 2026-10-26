@@ -465,8 +465,15 @@ class CatClientVpnService : VpnService() {
         )
         val action = Actions.resolveServiceAction(intent?.action, appInitiated)
         val startsConnectionTest = action == Actions.TEST_CONNECTION_DELAYS || action == Actions.TEST_CONNECTION_SPEED
-        if (startsConnectionTest && shouldStopServiceAfterConnectionTest(state)) {
-            startForeground(NOTIFICATION_ID, serviceNotification(getString(R.string.connection_delay_testing)))
+        if (startsConnectionTest) {
+            val notifText = when (state) {
+                VpnState.Started -> getString(R.string.notification_connected)
+                VpnState.Starting -> getString(R.string.notification_starting)
+                else -> getString(R.string.connection_delay_testing)
+            }
+            runCatching {
+                startForeground(NOTIFICATION_ID, serviceNotification(notifText))
+            }
         }
         when (action) {
             Actions.CONNECT -> startVpn()
@@ -571,6 +578,12 @@ class CatClientVpnService : VpnService() {
 
     private fun startVpn() {
         if (state == VpnState.Starting || state == VpnState.Started) {
+            val notifText = if (state == VpnState.Started) {
+                getString(R.string.notification_connected)
+            } else {
+                getString(R.string.notification_starting)
+            }
+            runCatching { startForeground(NOTIFICATION_ID, serviceNotification(notifText)) }
             DiagnosticLogger.info(this, "connect.ignored", "state=${state.wireName}")
             return
         }
@@ -584,6 +597,9 @@ class CatClientVpnService : VpnService() {
 
     private fun reconnectVpn() {
         if (state == VpnState.Starting || state == VpnState.Stopping) {
+            runCatching {
+                startForeground(NOTIFICATION_ID, serviceNotification(getString(R.string.notification_starting)))
+            }
             DiagnosticLogger.info(this, "reconnect.ignored", "state=${state.wireName}")
             return
         }
@@ -3914,12 +3930,70 @@ class CatClientVpnService : VpnService() {
         DiagnosticLogger.info(this, "mihomo.core.started", "config=${paths.runtimeConfigYaml.absolutePath}")
     }
 
+    private fun ensureEmbeddedLocalBridgesForRuntimeFile(runtimeYamlFile: File) {
+        if (!runtimeYamlFile.isFile) return
+        runCatching {
+            var yaml = runtimeYamlFile.readText()
+            var modified = false
+
+            // 1. WhiteDNS / DNSTT / Slipstream / SlipNet / DoH local SOCKS5 bridges
+            val wdnsRegex = Regex("""whitedns-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
+            wdnsRegex.findAll(yaml).forEach { match ->
+                val uri = match.groupValues[1].trim()
+                val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri)
+                if (parsed != null) {
+                    WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                }
+            }
+
+            // 2. Firefox Browser VPN (FENIX) local SOCKS5 bridge
+            val fenixRegex = Regex("""fenix-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
+            val fenixMatches = fenixRegex.findAll(yaml).toList()
+            if (fenixMatches.isNotEmpty()) {
+                val activePort = FirefoxVpnEngine.startLocalBridge(applicationContext)
+                if (activePort in 1..65535) {
+                    val updated = yaml.replace(
+                        Regex("""(server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*)\d+(\s*\r?\n(?:.*\r?\n){0,3}\s*fenix-uri\s*:)"""),
+                        "$1$activePort$2",
+                    )
+                    if (updated != yaml) {
+                        yaml = updated
+                        modified = true
+                    }
+                }
+            }
+
+            // 3. Paqet / paqetNG (patth / patth ng) local SOCKS5 bridge
+            val paqetRegex = Regex("""paqet-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
+            val paqetMatches = paqetRegex.findAll(yaml).toList()
+            if (paqetMatches.isNotEmpty()) {
+                val firstUri = paqetMatches.first().groupValues[1].trim()
+                val activePort = PaqetEngine.ensureLocalBridgeRunning(applicationContext, firstUri)
+                if (activePort in 1..65535) {
+                    val updated = yaml.replace(
+                        Regex("""(server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*)\d+(\s*\r?\n(?:.*\r?\n){0,3}\s*paqet-uri\s*:)"""),
+                        "$1$activePort$2",
+                    )
+                    if (updated != yaml) {
+                        yaml = updated
+                        modified = true
+                    }
+                }
+            }
+
+            if (modified) {
+                runtimeYamlFile.writeText(yaml)
+            }
+        }
+    }
+
     private suspend fun setupCore(paths: MihomoRuntimePaths) {
         val initParams = MihomoRuntimeConfigBuilder.initParamsJson(
             baseDir = paths.baseDir.absolutePath,
             sdkInt = Build.VERSION.SDK_INT,
         ).toString()
         val setupParams = withContext(Dispatchers.IO) {
+            ensureEmbeddedLocalBridgesForRuntimeFile(paths.runtimeConfigYaml)
             val installed = MihomoGeoDataInstaller.install(paths.baseDir) { assetPath ->
                 assets.open(assetPath)
             }

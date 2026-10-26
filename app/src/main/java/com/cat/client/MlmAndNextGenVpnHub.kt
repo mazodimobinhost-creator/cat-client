@@ -145,6 +145,30 @@ internal object MlmAndNextGenVpnHub {
             actionLabelFa = "🏦 فعال‌سازی یک‌کلیکی سپر بانک‌ها و برنامه‌های ایرانی",
             actionLabelEn = "🏦 1-Tap Enable Iran Banking & App Shield",
         ),
+        VpnEcosystemEntry(
+            id = "paqet_patth_ng",
+            badge = "📦 PaqetNG v1.3.7",
+            titleFa = "۸) موتور سطح پکت Paqet و paqetNG (patth / patth ng + بازیابی DNS در ngv2)",
+            titleEn = "8) Packet-Level Paqet & paqetNG (patth / patth ng v1.3.7 + paqet-ngv2 DNS Recovery)",
+            howItWorksFa = "ترافیک را با ترنسپورت KCP + smux، رمزنگاری AES-GCM، پوشش در رکوردهای TLS (TLS Record Obfuscation)، چرخش خودکار پورت (Port Hopping) و تشخیص خودکار رابط دیتای موبایل (rmnet/ccmni) عبور می‌دهد و در نسخهٔ ngv2 مختصات سرور جدید را روی DNS بازگشتی بازیابی می‌کند.",
+            howItWorksEn = "Transports traffic via KCP + smux, AES-GCM, TLS Record Obfuscation, dynamic Port Hopping, mobile-data interface detection, and emergency DNS coordinate recovery (paqet-ngv2).",
+            statusInIranFa = "🟢 فوق‌العاده مقاوم در برابر DPI شدید همراه اول و ایرانسل (با و بدون روت + پشتیبانی سرور ایران)",
+            statusInIranEn = "🟢 Highly resilient against deep packet inspection (Root & Non-Root + Iranian Entry Relay)",
+            actionLabelFa = "📦 باز کردن پنل Paqet / paqetNG (patth / patth ng)",
+            actionLabelEn = "📦 Open Paqet / paqetNG (patth / patth ng) Engine",
+        ),
+        VpnEcosystemEntry(
+            id = "mlm_scout_flux",
+            badge = "⭐ MLM v1.2.42",
+            titleFa = "۹) رادار MLM Scout + موتور MLM FLUX + پزشک هوشمند تعمیر کانفیگ‌ها (⭐ پیشنهادی)",
+            titleEn = "9) MLM Scout Radar + MLM FLUX Engine + Smart Config Doctor (⭐ Recommended)",
+            howItWorksFa = "تمام روش‌های اتصال (کانفیگ‌های خودتان، استخر Quick Connect Pool، کلودفلر IPv4/IPv6/F&F، فایرفاکس FENIX، Aether و PaqetNG) را روی خط فعلی شما تست واقعی می‌زند، بهترین را با برچسب «⭐ پیشنهادی» نشان می‌دهد و کانفیگ‌های خراب شما را تعمیر می‌کند.",
+            howItWorksEn = "Probes all connection methods on your current ISP, highlights the fastest with a '⭐ Recommended' badge, and auto-repairs broken configs.",
+            statusInIranFa = "🟢 ساده‌ترین و مطمئن‌ترین راه وصل شدن برای همه بدون نیاز به دانش فنی",
+            statusInIranEn = "🟢 Easiest 1-click connection wizard for everyone",
+            actionLabelFa = "🚀 اجرای اتصال جادویی ۱-کلیکی (⭐ پیشنهادی)",
+            actionLabelEn = "🚀 Launch 1-Click Magic Connect (⭐ Recommended)",
+        ),
     )
 
     // =========================================================================
@@ -202,10 +226,10 @@ internal object MlmAndNextGenVpnHub {
      * or before feeds finish downloading.
      */
     val BUILTIN_OUTLINE_SS_KEYS: List<String> = listOf(
-        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpOutlineFreeKey2026@188.114.98.0:443/?outline=1#🔑%20Outline-DE-Fast-1",
-        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpOutlineFreeKey2026@162.159.192.1:443/?outline=1#🔑%20Outline-NL-Fast-2",
+        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpPdXRsaW5lRnJlZUtleTIwMjY@188.114.98.0:443/?outline=1#🔑%20Outline-DE-Fast-1",
+        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpPdXRsaW5lRnJlZUtleTIwMjY@162.159.192.1:443/?outline=1#🔑%20Outline-NL-Fast-2",
         "ss://YWVzLTI1Ni1nY206T3V0bGluZUZyZWVLZXkyMDI2@104.16.132.229:8443/?outline=1#🔑%20Outline-US-Fast-3",
-        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpOutlineFreeKey2026@172.67.73.163:2053/?outline=1#🔑%20Outline-FI-Fast-4",
+        "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpPdXRsaW5lRnJlZUtleTIwMjY@172.67.73.163:2053/?outline=1#🔑%20Outline-FI-Fast-4",
     )
 
     data class VerifiedProxyNode(
@@ -723,6 +747,333 @@ internal object MlmAndNextGenVpnHub {
         return null
     }
 
+    // =========================================================================
+    // 6. MLM v1.2.42: MLM Scout + MLM FLUX + Quick Connect Pool + Config Doctor
+    // =========================================================================
+
+    enum class MlmFluxIpFamily(val id: String, val labelFa: String) {
+        BOTH("both", "ترکیبی هوشمند (IPv4 + IPv6)"),
+        IPV6_ONLY("ipv6", "فقط IPv6 (⭐ پیشنهادی برای همراه اول)"),
+        IPV4_FN_F("ipv4_fnf", "IPv4 با روش F&F (⭐ پیشنهادی برای ایرانسل)"),
+    }
+
+    data class MlmScoutRecommendation(
+        val id: String,
+        val titleFa: String,
+        val subtitleFa: String,
+        val latencyMs: Long,
+        val isRecommended: Boolean,
+        val category: String, // "user_config", "quick_pool", "fenix", "aether", "paqet"
+        val shareUriOrPayload: String = "",
+    )
+
+    data class SmartConfigDoctorReport(
+        val totalInputCount: Int,
+        val validUniqueCount: Int,
+        val healthyDirectCount: Int,
+        val autoHealedCount: Int,
+        val bestRecommendedName: String,
+        val bestRecommendedLatencyMs: Long,
+        val repairedLinks: List<String>,
+    )
+
+    /**
+     * MLM FLUX (v1.2.42): Optimizes a list of share links according to the selected IP family
+     * (`IPv4 F&F`, `IPv6`, or `Both`) and target country tag.
+     */
+    fun applyMlmFluxOptimization(
+        rawLinks: List<String>,
+        ipFamily: MlmFluxIpFamily,
+        countryTag: String = "AUTO",
+    ): List<String> {
+        val result = mutableListOf<String>()
+        val cleanIpv6Edges = listOf(
+            "2a06:98c1:3101::6812:202f",
+            "2606:4700:3030::6815:1001",
+            "2606:4700::6810:84e5",
+        )
+        val cleanIpv4Edges = listOf(
+            "188.114.98.0",
+            "172.67.73.163",
+            "104.16.132.229",
+        )
+        for ((idx, raw) in rawLinks.withIndex()) {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) continue
+            val isCfCandidate = trimmed.startsWith("vless://", ignoreCase = true) ||
+                trimmed.startsWith("trojan://", ignoreCase = true)
+            if (!isCfCandidate) {
+                result += trimmed
+                continue
+            }
+            when (ipFamily) {
+                MlmFluxIpFamily.IPV6_ONLY -> {
+                    val edge = cleanIpv6Edges[idx % cleanIpv6Edges.size]
+                    val patched = replaceShareUriHostAndAppendTag(
+                        uri = trimmed,
+                        newHost = "[$edge]",
+                        extraQuery = "fp=chrome",
+                        suffixTag = "FLUX-IPv6-$countryTag",
+                    )
+                    result += patched
+                }
+                MlmFluxIpFamily.IPV4_FN_F -> {
+                    val edge = cleanIpv4Edges[idx % cleanIpv4Edges.size]
+                    val patched = replaceShareUriHostAndAppendTag(
+                        uri = trimmed,
+                        newHost = edge,
+                        extraQuery = "fp=unsafe&fm=tlshello-0-len&cs=semi-python",
+                        suffixTag = "FLUX-FnF-$countryTag",
+                    )
+                    result += patched
+                }
+                MlmFluxIpFamily.BOTH -> {
+                    val v6Edge = cleanIpv6Edges[idx % cleanIpv6Edges.size]
+                    val v4Edge = cleanIpv4Edges[idx % cleanIpv4Edges.size]
+                    result += replaceShareUriHostAndAppendTag(
+                        uri = trimmed,
+                        newHost = "[$v6Edge]",
+                        extraQuery = "fp=chrome",
+                        suffixTag = "⭐FLUX-IPv6-$countryTag",
+                    )
+                    result += replaceShareUriHostAndAppendTag(
+                        uri = trimmed,
+                        newHost = v4Edge,
+                        extraQuery = "fp=unsafe&fm=tlshello-0-len&cs=semi-python",
+                        suffixTag = "⭐FLUX-FnF-$countryTag",
+                    )
+                }
+            }
+        }
+        return result.distinct()
+    }
+
+    /**
+     * Smart Config Doctor & Cleaner:
+     * Deduplicates user configs, probes real reachability, auto-heals timed-out Cloudflare/Worker configs
+     * with clean IPv6/F&F edges, sorts healthy configs to the top, and marks the fastest with `⭐ پیشنهادی`.
+     */
+    fun diagnoseAndRepairUserConfigs(rawLinks: List<String>, timeoutMs: Int = 1200): SmartConfigDoctorReport {
+        val cleanInput = rawLinks.map { it.trim() }.filter { "://" in it }
+        val uniqueLinks = cleanInput.distinct()
+        if (uniqueLinks.isEmpty()) {
+            return SmartConfigDoctorReport(0, 0, 0, 0, "", -1L, emptyList())
+        }
+
+        val probed = probeCandidateUris(uniqueLinks, timeoutMs = timeoutMs)
+        val healthyByUri = probed.associateBy { it.uri }
+
+        val finalOrdered = mutableListOf<Pair<String, Long>>()
+        var healedCount = 0
+
+        for (uri in uniqueLinks) {
+            val directHit = healthyByUri[uri]
+            if (directHit != null) {
+                finalOrdered += uri to directHit.rttMs
+            } else if (uri.startsWith("vless://", ignoreCase = true) || uri.startsWith("trojan://", ignoreCase = true)) {
+                // Attempt auto-healing with clean Cloudflare edges (MCI IPv6 & Irancell F&F IPv4)
+                val candidates = listOf(
+                    replaceShareUriHostAndAppendTag(uri, "188.114.98.0", "fp=unsafe&fm=tlshello-0-len&cs=semi-python", "تعمیرشده-FnF"),
+                    replaceShareUriHostAndAppendTag(uri, "[2a06:98c1:3101::6812:202f]", "fp=chrome", "تعمیرشده-IPv6"),
+                    replaceShareUriHostAndAppendTag(uri, "172.67.73.163", "fp=chrome", "تعمیرشده-CF"),
+                )
+                val healedHit = probeCandidateUris(candidates, timeoutMs = timeoutMs).firstOrNull()
+                if (healedHit != null) {
+                    healedCount++
+                    finalOrdered += healedHit.uri to healedHit.rttMs
+                } else {
+                    finalOrdered += uri to Long.MAX_VALUE
+                }
+            } else {
+                finalOrdered += uri to Long.MAX_VALUE
+            }
+        }
+
+        val sorted = finalOrdered.sortedBy { it.second }
+        var bestName = ""
+        var bestRtt = -1L
+
+        val outputLinks = sorted.mapIndexed { index, (uri, rtt) ->
+            if (index == 0 && rtt < Long.MAX_VALUE) {
+                bestRtt = rtt
+                val baseFrag = uri.substringAfter('#', "Config").let {
+                    runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)
+                }.removePrefix("⭐ پیشنهادی · ")
+                bestName = baseFrag
+                val newFrag = URLEncoder.encode("⭐ پیشنهادی · $baseFrag (${rtt}ms)", "UTF-8").replace("+", "%20")
+                uri.substringBefore('#') + "#$newFrag"
+            } else {
+                uri
+            }
+        }
+
+        return SmartConfigDoctorReport(
+            totalInputCount = cleanInput.size,
+            validUniqueCount = uniqueLinks.size,
+            healthyDirectCount = healthyByUri.size,
+            autoHealedCount = healedCount,
+            bestRecommendedName = bestName,
+            bestRecommendedLatencyMs = bestRtt,
+            repairedLinks = outputLinks,
+        )
+    }
+
+    /**
+     * MLM Scout (v1.2.42): Probes all available connection pathways on the user's current network
+     * and returns ranked options with the best one marked `isRecommended = true` (`⭐ پیشنهادی`).
+     */
+    fun runMlmScoutRecommendations(
+        userShareLinks: List<String>,
+        timeoutMs: Int = 1200,
+    ): List<MlmScoutRecommendation> {
+        val candidates = mutableListOf<MlmScoutRecommendation>()
+
+        // 1. Probe User's Own Configs (+ Auto-Repair if needed)
+        if (userShareLinks.isNotEmpty()) {
+            val doctor = diagnoseAndRepairUserConfigs(userShareLinks.take(30), timeoutMs = timeoutMs)
+            if (doctor.bestRecommendedLatencyMs > 0 && doctor.repairedLinks.isNotEmpty()) {
+                candidates += MlmScoutRecommendation(
+                    id = "user_best_config",
+                    titleFa = "کانفیگ شخصی شما: ${doctor.bestRecommendedName}",
+                    subtitleFa = "پینگ واقعی: ${doctor.bestRecommendedLatencyMs}ms · ${doctor.healthyDirectCount + doctor.autoHealedCount} کانفیگ فعال (تعمیر خودکار: ${doctor.autoHealedCount})",
+                    latencyMs = doctor.bestRecommendedLatencyMs,
+                    isRecommended = false,
+                    category = "user_config",
+                    shareUriOrPayload = doctor.repairedLinks.joinToString("\n"),
+                )
+            }
+        }
+
+        // 2. Probe Firefox Browser VPN (FENIX / Fastly Edge)
+        val fenixProbe = runCatching {
+            val t0 = System.nanoTime()
+            Socket().use { s ->
+                CatClientVpnService.protectOutboundSocket(s)
+                s.connect(InetSocketAddress("151.101.1.91", 443), timeoutMs)
+                ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+            }
+        }.getOrNull()
+        if (fenixProbe != null) {
+            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(countryCode = "DE", localPort = FirefoxVpnEngine.activeProxyPort())
+            candidates += MlmScoutRecommendation(
+                id = "fenix_fastly",
+                titleFa = "🦊 VPN مرورگر فایرفاکس (FENIX · آلمان/هلند/آمریکا)",
+                subtitleFa = "پینگ لبهٔ Fastly: ${fenixProbe}ms · بدون نیاز به سرور شخصی · ضد-DPI خودکار",
+                latencyMs = fenixProbe,
+                isRecommended = false,
+                category = "fenix",
+                shareUriOrPayload = fenixUri,
+            )
+        }
+
+        // 3. Probe MLM Quick Connect Pool / Outline & Free Nodes
+        val poolVerified = fetchAndProbeOutlineNodes(maxNodes = 8, timeoutMs = timeoutMs)
+        if (poolVerified.isNotEmpty()) {
+            val bestNode = poolVerified.first()
+            candidates += MlmScoutRecommendation(
+                id = "quick_connect_pool",
+                titleFa = "⚡ استخر آمادهٔ اتصال سریع (MLM Quick Connect Pool)",
+                subtitleFa = "بهترین سرور: ${bestNode.label} (${bestNode.rttMs}ms) · ${poolVerified.size} سرور آماده",
+                latencyMs = bestNode.rttMs,
+                isRecommended = false,
+                category = "quick_pool",
+                shareUriOrPayload = poolVerified.joinToString("\n") { it.uri },
+            )
+        }
+
+        // 4. Probe Serverless Aether (Cloudflare WARP / MASQUE-H2 / Psiphon)
+        val warpProbe = runCatching {
+            val t0 = System.nanoTime()
+            Socket().use { s ->
+                CatClientVpnService.protectOutboundSocket(s)
+                s.connect(InetSocketAddress("188.114.98.0", 443), timeoutMs)
+                ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+            }
+        }.getOrNull()
+        if (warpProbe != null) {
+            candidates += MlmScoutRecommendation(
+                id = "aether_serverless",
+                titleFa = "🛡️ موتور بدون سرور Aether (WARP + MASQUE/H2 + ضدتحریم)",
+                subtitleFa = "پینگ لبهٔ کلودفلر: ${warpProbe}ms · مناسب همراه اول و ایرانسل بدون نیاز به کانفیگ",
+                latencyMs = warpProbe + 15L,
+                isRecommended = false,
+                category = "aether",
+                shareUriOrPayload = "aether://auto",
+            )
+        }
+
+        // 5. Fallback if network is in total shutdown (Net Melli): PaqetNG & WhiteDNS
+        if (candidates.isEmpty()) {
+            val paqetCfg = PaqetEngine.PaqetConfig(
+                variant = PaqetEngine.TransportVariant.PATTH_NG_DNS,
+                serverHost = "188.114.98.0",
+                serverPort = 443,
+                portHopStart = 20000,
+                portHopEnd = 20500,
+                remark = "⭐ پیشنهادی · PaqetNG Anti-DPI",
+            )
+            candidates += MlmScoutRecommendation(
+                id = "paqet_emergency",
+                titleFa = "📦 تانل سطح پکت PaqetNG (patth ng) + ضد-DPI",
+                subtitleFa = "مخصوص شرایط مسدودیت شدید و فایروال سنگین (KCP + TLS Record Obfs)",
+                latencyMs = 190L,
+                isRecommended = true,
+                category = "paqet",
+                shareUriOrPayload = PaqetEngine.buildPaqetUri(paqetCfg),
+            )
+        }
+
+        val sorted = candidates.sortedBy { it.latencyMs }
+        return sorted.mapIndexed { index, item ->
+            if (index == 0) {
+                item.copy(
+                    isRecommended = true,
+                    titleFa = "⭐ پیشنهادی: ${item.titleFa}",
+                )
+            } else {
+                item
+            }
+        }
+    }
+
+    private fun replaceShareUriHostAndAppendTag(
+        uri: String,
+        newHost: String,
+        extraQuery: String,
+        suffixTag: String,
+    ): String {
+        val scheme = uri.substringBefore("://", "")
+        if (scheme.isBlank()) return uri
+        val rest = uri.substringAfter("://")
+        val frag = rest.substringAfter('#', "").let {
+            runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)
+        }
+        val beforeFrag = rest.substringBefore('#')
+        val query = beforeFrag.substringAfter('?', "")
+        val authAndPath = beforeFrag.substringBefore('?')
+        val slashIdx = authAndPath.indexOf('/')
+        val authority = if (slashIdx >= 0) authAndPath.substring(0, slashIdx) else authAndPath
+        val path = if (slashIdx >= 0) authAndPath.substring(slashIdx) else ""
+        val atIdx = authority.lastIndexOf('@')
+        if (atIdx < 0) return uri
+        val userInfo = authority.substring(0, atIdx)
+        val hostPort = authority.substring(atIdx + 1)
+        val port = if (hostPort.startsWith("[")) {
+            hostPort.substringAfter("]:", "443")
+        } else {
+            hostPort.substringAfterLast(':', "443")
+        }
+        val mergedQuery = listOf(query, extraQuery).filter { it.isNotBlank() }.joinToString("&")
+        val cleanFrag = frag.ifBlank { scheme.uppercase(Locale.US) }
+        val newFrag = URLEncoder.encode("$cleanFrag [$suffixTag]", "UTF-8").replace("+", "%20")
+        return buildString {
+            append(scheme).append("://").append(userInfo).append('@').append(newHost).append(':').append(port)
+            append(path)
+            if (mergedQuery.isNotBlank()) append('?').append(mergedQuery)
+            append('#').append(newFrag)
+        }
+    }
+
     private fun probeCandidateUris(uris: Collection<String>, timeoutMs: Int = 1100): List<VerifiedProxyNode> {
         if (uris.isEmpty()) return emptyList()
         val pool = Executors.newFixedThreadPool(minOf(10, uris.size))
@@ -739,6 +1090,7 @@ internal object MlmAndNextGenVpnHub {
                     val startNs = System.nanoTime()
                     val alive = runCatching {
                         Socket().use { sock ->
+                            CatClientVpnService.protectOutboundSocket(sock)
                             sock.connect(InetSocketAddress(host.removePrefix("[").removeSuffix("]"), port), timeoutMs)
                             true
                         }

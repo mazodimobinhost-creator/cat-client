@@ -501,7 +501,10 @@ object JsonSubscriptionImporter {
     }
 
     private fun isSupportedMihomoProxy(proxy: JSONObject): Boolean =
-        proxy.optString("type") in setOf("vless", "vmess", "trojan", "ss", "socks5", "wireguard") &&
+        proxy.optString("type").lowercase() in setOf(
+            "vless", "vmess", "trojan", "ss", "socks5", "socks",
+            "wireguard", "hysteria2", "hy2", "tuic", "anytls",
+        ) &&
             proxy.optString("name").isNotBlank() &&
             proxy.optString("server").isNotBlank() &&
             proxy.optInt("port") in 1..65535

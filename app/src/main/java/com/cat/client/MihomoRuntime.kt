@@ -1590,7 +1590,11 @@ object MihomoFrontingPatcher {
 
         fun flushProxy() {
             if (currentProxy.isEmpty()) return
-            output += patchSni(patchProxyBlock(currentProxy, override, serverOverridePort), sni)
+            if (isLoopbackProxyBlock(currentProxy)) {
+                output += currentProxy
+            } else {
+                output += patchSni(patchProxyBlock(currentProxy, override, serverOverridePort), sni)
+            }
             currentProxy = mutableListOf()
         }
 
@@ -1653,6 +1657,15 @@ object MihomoFrontingPatcher {
         }
         if (inProxies) flushProxy()
         return output.joinToString("\n")
+    }
+
+    internal fun isLoopbackProxyBlock(lines: List<String>): Boolean {
+        val joined = lines.joinToString("\n")
+        return Regex("""\bserver\s*:\s*['"]?(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)['"]?\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(joined) ||
+            joined.contains("whitedns-uri:") ||
+            joined.contains("fenix-uri:") ||
+            joined.contains("paqet-uri:")
     }
 
     internal fun hasEchEnabled(lines: List<String>): Boolean {
@@ -1957,7 +1970,10 @@ object MihomoDpiBypassPatcher {
             if (proxyName(currentProxy) == DpiBypassDefaults.PROXY_NAME) {
                 sawDpiProxy = true
                 output += dpiProxyBlock(proxyPort)
-            } else if (MihomoFrontingPatcher.hasEchEnabled(currentProxy)) {
+            } else if (
+                MihomoFrontingPatcher.hasEchEnabled(currentProxy) ||
+                MihomoFrontingPatcher.isLoopbackProxyBlock(currentProxy)
+            ) {
                 output += currentProxy
             } else {
                 output += withDialerProxy(currentProxy)

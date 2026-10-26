@@ -602,6 +602,79 @@ class WhiteDnsSmartScannerTest {
         assertTrue(extractedSession != null)
         assertEquals("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", extractedSession?.first)
         assertEquals("mobin@gmail.com", extractedSession?.second)
+
+        // 6. Paqet & paqetNG (patth / patth ng v1.3.7 + paqet-ngv2) URI & Config parsing + SubConv conversion
+        val paqetUri = "paqetng://mysecretkey@188.114.98.0:443?mode=fast3&hop=20000-20500&sni=speedtest.net&obfs=1&dns_domain=ctrl.example.com#PaqetNG%20Test"
+        val parsedPaqet = PaqetEngine.parsePaqetUri(paqetUri)
+        assertTrue(parsedPaqet != null)
+        assertEquals("188.114.98.0", parsedPaqet!!.serverHost)
+        assertEquals(443, parsedPaqet.serverPort)
+        assertEquals(20000, parsedPaqet.portHopStart)
+        assertEquals(20500, parsedPaqet.portHopEnd)
+        assertTrue(parsedPaqet.hasPortHopping)
+        assertTrue(parsedPaqet.pickTargetPort() in 20000..20500)
+        assertEquals("mysecretkey", parsedPaqet.secretKey)
+
+        val obfuscatedFrame = PaqetEngine.buildObfuscatedPaqetFrame("HELLO-PAQET".toByteArray(), parsedPaqet)
+        assertEquals(0x17.toByte(), obfuscatedFrame[0])
+        assertEquals(0x03.toByte(), obfuscatedFrame[1])
+        assertEquals(0x03.toByte(), obfuscatedFrame[2])
+
+        val convertedPaqet = SubConvConverter.convert(paqetUri)
+        assertEquals(1, convertedPaqet.size)
+        assertEquals("socks5", convertedPaqet[0].getString("type"))
+        assertEquals("127.0.0.1", convertedPaqet[0].getString("server"))
+        assertTrue(convertedPaqet[0].optString("paqet-uri").startsWith("paqetng://"))
+
+        // 7. SubConvConverter resilience on Telegram captions, brackets [MCI], pipes |, and unescaped % in #remark
+        val messyTelegramLines = """
+            🔥 کانفیگ جدید همراه اول: vless://11111111-2222-3333-4444-555555555555@188.114.98.0:443?encryption=none&security=tls&sni=worker.example.com&type=ws&path=/ws#[MCI] 🇩🇪 Germany | 100% Free
+            patth://secret2@172.67.73.163:8443?hop=30000-30100#Patth [Irancell] | تست 100%
+        """.trimIndent()
+        val parsedMessy = SubConvConverter.convert(messyTelegramLines)
+        assertEquals(2, parsedMessy.size)
+        assertTrue(parsedMessy[0].getString("name").contains("[MCI]"))
+        assertTrue(parsedMessy[0].getString("name").contains("100% Free"))
+
+        // 8. MihomoFrontingPatcher & MihomoDpiBypassPatcher must skip loopback (127.0.0.1 / paqet / fenix / whitedns)
+        val loopbackYaml = """
+            proxies:
+              - name: Local Paqet
+                type: socks5
+                server: 127.0.0.1
+                port: 10809
+                udp: true
+                paqet-uri: paqetng://k@1.2.3.4:443
+              - name: Remote VLESS
+                type: vless
+                server: example.com
+                port: 443
+                uuid: 11111111-2222-3333-4444-555555555555
+                tls: true
+        """.trimIndent()
+        val fronted = MihomoFrontingPatcher.patchProxyServers(loopbackYaml, "188.114.98.0", 2053, "speedtest.net")
+        assertTrue(fronted.contains("server: 127.0.0.1"))
+        assertTrue(fronted.contains("port: 10809"))
+        assertTrue(fronted.contains("server: 188.114.98.0"))
+
+        val dpiPatched = MihomoDpiBypassPatcher.patch(loopbackYaml, enabled = true, proxyPort = 10801)
+        val localBlock = dpiPatched.substringBefore("- name: Remote VLESS")
+        assertTrue(!localBlock.contains("dialer-proxy:"))
+
+        // 9. MLM FLUX optimization & Builtin Outline keys validity
+        for (ssUri in MlmAndNextGenVpnHub.BUILTIN_OUTLINE_SS_KEYS) {
+            val conv = SubConvConverter.convert(ssUri)
+            assertEquals(1, conv.size)
+            assertEquals("ss", conv[0].getString("type"))
+        }
+        val fluxOut = MlmAndNextGenVpnHub.applyMlmFluxOptimization(
+            listOf("vless://11111111-2222-3333-4444-555555555555@example.com:443?security=tls&type=ws#MyNode"),
+            MlmAndNextGenVpnHub.MlmFluxIpFamily.BOTH,
+            "DE",
+        )
+        assertEquals(2, fluxOut.size)
+        assertTrue(fluxOut.any { it.contains("2a06:98c1:3101::6812:202f") })
+        assertTrue(fluxOut.any { it.contains("188.114.98.0") && it.contains("tlshello-0-len") })
     }
 }
 

@@ -29,11 +29,35 @@ object SubConvConverter {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
     )
 
+    private val EXTRACTABLE_SCHEMES = listOf(
+        "vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hy2://",
+        "socks://", "socks5://", "ss://", "wireguard://", "wg://", "awg://", "amneziawg://",
+        "fenix://", "firefoxvpn://", "paqet://", "paqetng://", "patth://", "patthng://",
+        "dnstt://", "slipstream://", "slipnet://", "doh://",
+    )
+
+    private fun extractShareUriFromLine(raw: String): String? {
+        val trimmed = raw.trim().trimStart('\uFEFF')
+        if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("//")) return null
+        if ("://" !in trimmed) return null
+        val firstSchemeBefore = trimmed.substringBefore("://")
+        if (firstSchemeBefore.all { it.isLetterOrDigit() || it == '+' || it == '-' || it == '.' }) {
+            return trimmed
+        }
+        // Extract embedded link when user copied Telegram caption text before the URI
+        val lower = trimmed.lowercase()
+        val matchIdx = EXTRACTABLE_SCHEMES
+            .map { scheme -> lower.indexOf(scheme) }
+            .filter { it >= 0 }
+            .minOrNull() ?: return null
+        return trimmed.substring(matchIdx).trim().split(Regex("\\s+")).firstOrNull()
+    }
+
     fun convert(input: String): List<JSONObject> {
         val data = decodeBase64Text(input) ?: input
         val names = NameRegistry()
         val proxies = data.lineSequence().mapNotNull { raw ->
-            val line = raw.trimEnd(' ', '\r').takeIf { "://" in it } ?: return@mapNotNull null
+            val line = extractShareUriFromLine(raw) ?: return@mapNotNull null
             try {
                 when (line.substringBefore("://").lowercase()) {
                     "vless" -> parseVless(line, names)
@@ -45,13 +69,21 @@ object SubConvConverter {
                     "ss" -> parseShadowsocks(line, names)
                     "wireguard", "wg", "awg", "amneziawg" -> parseWireGuard(line, names)
                     "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
+                    in PaqetEngine.SUPPORTED_SCHEMES -> parsePaqet(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
                     else -> null
                 }
-            } catch (_: ParseError) {
+            } catch (_: Exception) {
                 null
             }
         }.toList()
+        if (proxies.isEmpty()) {
+            PaqetEngine.parsePaqetFileOrUri(data)?.let { paqetCfg ->
+                val obj = PaqetEngine.toMihomoProxyJson(paqetCfg)
+                obj.put("name", names.register(obj.optString("name", "PaqetNG")))
+                return listOf(obj)
+            }
+        }
         require(proxies.isNotEmpty()) { "No valid proxies found" }
         return proxies
     }
@@ -346,6 +378,18 @@ object SubConvConverter {
             .put("port", rawPort)
             .put("udp", true)
             .put("fenix-uri", line.trim())
+    }
+
+    private fun parsePaqet(line: String, names: NameRegistry): JSONObject {
+        val cfg = PaqetEngine.parsePaqetUri(line) ?: throw ParseError()
+        val localPort = PaqetEngine.activeProxyPort()
+        return JSONObject()
+            .put("name", names.register(cfg.remark.ifBlank { "PaqetNG ${cfg.serverHost}:${cfg.serverPort}" }))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", localPort)
+            .put("udp", true)
+            .put("paqet-uri", PaqetEngine.buildPaqetUri(cfg))
     }
 
     private fun socksCredentials(rawUserInfo: String): Pair<String, String?> {
@@ -808,8 +852,67 @@ object SubConvConverter {
         return if (separator > 0 && port in 1..65535) HostPort(value.substring(0, separator), port!!) else null
     }
 
+    private fun sanitizeUriComponent(raw: String, allowBrackets: Boolean = false): String {
+        val sb = StringBuilder(raw.length + 16)
+        for (ch in raw) {
+            when {
+                ch == ' ' -> sb.append("%20")
+                ch == '|' -> sb.append("%7C")
+                ch == '{' -> sb.append("%7B")
+                ch == '}' -> sb.append("%7D")
+                ch == '"' -> sb.append("%22")
+                ch == '<' -> sb.append("%3C")
+                ch == '>' -> sb.append("%3E")
+                ch == '^' -> sb.append("%5E")
+                ch == '`' -> sb.append("%60")
+                ch == '\\' -> sb.append("%5C")
+                !allowBrackets && ch == '[' -> sb.append("%5B")
+                !allowBrackets && ch == ']' -> sb.append("%5D")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun sanitizeFullShareUri(raw: String): String {
+        val trimmed = raw.trim()
+        val schemeIdx = trimmed.indexOf("://")
+        if (schemeIdx <= 0) return sanitizeUriComponent(trimmed)
+        val scheme = trimmed.substring(0, schemeIdx)
+        val rest = trimmed.substring(schemeIdx + 3)
+        val fragIdx = rest.indexOf('#')
+        val beforeFrag = if (fragIdx >= 0) rest.substring(0, fragIdx) else rest
+        val frag = if (fragIdx >= 0) rest.substring(fragIdx + 1) else null
+
+        val queryIdx = beforeFrag.indexOf('?')
+        val authAndPath = if (queryIdx >= 0) beforeFrag.substring(0, queryIdx) else beforeFrag
+        val query = if (queryIdx >= 0) beforeFrag.substring(queryIdx + 1) else null
+
+        val slashIdx = authAndPath.indexOf('/')
+        val authority = if (slashIdx >= 0) authAndPath.substring(0, slashIdx) else authAndPath
+        val path = if (slashIdx >= 0) authAndPath.substring(slashIdx) else ""
+
+        // In authority, keep brackets only for IPv6 host part after '@'
+        val atIdx = authority.lastIndexOf('@')
+        val sanitizedAuthority = if (atIdx >= 0) {
+            val userInfo = sanitizeUriComponent(authority.substring(0, atIdx), allowBrackets = false)
+                .replace("/", "%2F")
+            val hostPort = sanitizeUriComponent(authority.substring(atIdx + 1), allowBrackets = true)
+            "$userInfo@$hostPort"
+        } else {
+            sanitizeUriComponent(authority, allowBrackets = true)
+        }
+
+        return buildString {
+            append(scheme).append("://").append(sanitizedAuthority)
+            if (path.isNotEmpty()) append(sanitizeUriComponent(path, allowBrackets = false))
+            if (query != null) append('?').append(sanitizeUriComponent(query, allowBrackets = false))
+            if (frag != null) append('#').append(sanitizeUriComponent(frag, allowBrackets = false))
+        }
+    }
+
     private fun parseUri(value: String): URI = try {
-        URI(value.replace(" ", "%20"))
+        URI(sanitizeFullShareUri(value))
     } catch (_: Exception) {
         throw ParseError()
     }
@@ -831,8 +934,16 @@ object SubConvConverter {
         if (hostPort.isNotBlank()) "$scheme-$hostPort" else scheme
     }
 
-    private fun decode(value: String): String =
-        URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    private fun decode(value: String): String {
+        if (value.isEmpty()) return ""
+        return try {
+            URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+        } catch (_: Throwable) {
+            // Escape lone '%' not followed by two hex characters
+            val safe = value.replace(Regex("%(?![0-9a-fA-F]{2})"), "%25")
+            runCatching { URLDecoder.decode(safe, StandardCharsets.UTF_8.name()) }.getOrDefault(value)
+        }
+    }
 
     private fun removeQueryParameter(path: String, key: String): String {
         val base = path.substringBefore('?')

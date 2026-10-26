@@ -386,6 +386,8 @@ object MihomoShareLink {
 
     private fun socks(proxy: Map<String, Any?>, name: String, host: String, port: Int): String {
         proxy.str("whitedns-uri")?.let { return it }
+        proxy.str("fenix-uri")?.let { return it }
+        proxy.str("paqet-uri")?.let { return it }
         val username = proxy.str("username")
         val password = proxy.str("password")
         val credentials = if (username != null) {

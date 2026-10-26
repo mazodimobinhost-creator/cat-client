@@ -126,7 +126,12 @@ class MainActivity : Activity() {
     private val palette: CatClientPalette by lazy { CatClientDesignTokens.forContext(this) }
     private val buttonModel = ConnectButtonModel()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val activityCoroutineExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+        runCatching {
+            DiagnosticLogger.warn(this@MainActivity, "activity.coroutine.uncaught", error = throwable)
+        }
+    }
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + activityCoroutineExceptionHandler)
     private var aetherOperationJob: Job? = null
     private var updateSettingsBadge: TextView? = null
     private val appUpdateUi by lazy {
@@ -1315,11 +1320,54 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
         column.addView(freeConfigsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        FreeConfigs.loadCache(this)?.takeIf { it.entries.isNotEmpty() }?.let { cached ->
-            freeConfigEntries = cached.entries
-            freeConfigsStatus.setText(R.string.free_from_cache)
-            renderFreeConfigs()
+        activityScope.launch {
+            val cached = withContext(Dispatchers.IO) { FreeConfigs.loadCache(this@MainActivity) }
+            if (cached != null && cached.entries.isNotEmpty() && freeConfigEntries.isEmpty()) {
+                freeConfigEntries = cached.entries
+                freeConfigsStatus.setText(R.string.free_from_cache)
+                renderFreeConfigs()
+            }
         }
+
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        column.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "🚀 اتصال جادویی ۱-کلیکی (⭐ پیشنهادی برای اینترنت شما)"
+                } else {
+                    "🚀 1-Click Magic Connect (⭐ Recommended for Your ISP)"
+                }
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(10)
+                backgroundTintList = ColorStateList.valueOf(TEAL)
+                setTextColor(palette.onAccent)
+                insetTop = 0
+                insetBottom = 0
+                setOnClickListener { showRecommendedOneClickConnectWizardDialog() }
+            },
+            LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(12) },
+        )
+        column.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "🩺 تعمیر خودکار کانفیگ‌های من + موتور MLM FLUX (IPv4/IPv6)"
+                } else {
+                    "🩺 Smart Config Doctor & MLM FLUX (IPv4/IPv6 Optimizer)"
+                }
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(10)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 40))
+                setTextColor(TEAL)
+                insetTop = 0
+                insetBottom = 0
+                setOnClickListener { showSmartConfigDoctorAndFluxDialog() }
+            },
+            LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(8) },
+        )
 
         column.addView(
             MaterialButton(this).apply {
@@ -1334,7 +1382,7 @@ class MainActivity : Activity() {
                 insetBottom = 0
                 setOnClickListener { showQuickConfigMenu(this) }
             },
-            LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(14) },
+            LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(8) },
         )
         return column
     }
@@ -2295,9 +2343,11 @@ class MainActivity : Activity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 // Links copied from Telegram/HTML surfaces arrive as &amp; —
                 // saving them verbatim silently breaks ports/limit params.
-                val name = nameInput.text.toString()
-                val source = unescapeHtmlEntities(sourceInput.text.toString())
-                if (name.isBlank() || source.isBlank()) {
+                val source = unescapeHtmlEntities(sourceInput.text.toString()).trim()
+                val name = nameInput.text.toString().trim().ifBlank {
+                    scannedSubscriptionName(source)?.takeIf { it.isNotBlank() } ?: "Cat Config"
+                }
+                if (source.isBlank()) {
                     Toast.makeText(
                         this@MainActivity,
                         R.string.subscription_fields_required,
@@ -2318,10 +2368,15 @@ class MainActivity : Activity() {
                     }
                     result.onSuccess { item ->
                         dialog.dismiss()
-                        renderSubscriptions()
-                        renderConnectionDetails(buttonModel.state)
-                        if (existing?.id == userSubscriptionManager.selectedId()) {
-                            refreshLocationOptions()
+                        if (existing == null) {
+                            userSubscriptionManager.select(item.id)
+                            onSubscriptionSelected()
+                        } else {
+                            renderSubscriptions()
+                            renderConnectionDetails(buttonModel.state)
+                            if (existing.id == userSubscriptionManager.selectedId()) {
+                                refreshLocationOptions()
+                            }
                         }
                         Toast.makeText(
                             this@MainActivity,
@@ -2882,13 +2937,28 @@ class MainActivity : Activity() {
     }
 
     private fun onSubscriptionSelected() {
+        if (aetherPreferenceStore.read().enabled) {
+            aetherPreferenceStore.setEnabled(false)
+            renderAetherSummary()
+        }
         locationPreferenceStore.clearSelectedCountry()
+        val selectedId = SubscriptionStore(this).readSelectedSubscriptionId()
+        val cachedCatalog = if (SubscriptionStore.isBuiltInSubscription(selectedId)) {
+            SubscriptionStore(this).readCatalog(selectedId)
+        } else {
+            userSubscriptionManager.cachedSnapshot(selectedId)?.catalog
+        }
+        if (cachedCatalog != null) {
+            updateLocationOptions(cachedCatalog.profiles, resetMissingSelection = true)
+        }
         renderSubscriptions()
         renderConnectionDetails(buttonModel.state)
         renderConnectionSelection()
         refreshLocationOptions()
         if (buttonModel.state == VpnState.Started) {
-            Toast.makeText(this, R.string.subscription_selected_reconnect, Toast.LENGTH_LONG).show()
+            buttonModel.onStateChanged(VpnState.Starting)
+            renderState(VpnState.Starting)
+            startVpnService(Actions.RECONNECT)
         }
     }
 
@@ -13788,6 +13858,70 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
+                    "🚀 اتصال جادویی ۱-کلیکی (⭐ پیشنهادی برای اینترنت شما — ساده‌ترین راه)"
+                } else {
+                    "🚀 1-Click Magic Connect (⭐ Recommended for Your ISP)"
+                }
+                isAllCaps = false
+                textSize = 13f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(48)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(TEAL)
+                setTextColor(palette.onAccent)
+                setOnClickListener { showRecommendedOneClickConnectWizardDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "📦 موتور Paqet و paqetNG (patth / patth ng v1.3.7 + بازیابی DNS)"
+                } else {
+                    "📦 Paqet & paqetNG Engine (patth / patth ng v1.3.7 + DNS Recovery)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 44 else 28))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
+                setOnClickListener { showPaqetPatthEngineDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "🩺 پزشک هوشمند تعمیر کانفیگ‌های من + موتور MLM FLUX (IPv4/IPv6)"
+                } else {
+                    "🩺 Smart Config Doctor + MLM FLUX (IPv4/IPv6 Optimizer)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 44 else 28))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
+                setOnClickListener { showSmartConfigDoctorAndFluxDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
                     "📖 باز کردن راهنمای کامل به زبان ساده (اینو بزنی این میشه!)"
                 } else {
                     "📖 Open Full Plain-Language Guide (What Every Button Does)"
@@ -13805,14 +13939,14 @@ class MainActivity : Activity() {
                 setTextColor(TEAL)
                 setOnClickListener { showPlainLanguageFullGuideDialog() }
             },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
-                    "🌐 مرکز همهٔ VPNهای ۲۰۲۶ (Outline · آمنزیا/پروتون · سپر بانک · IPv6)"
+                    "🌐 مرکز همهٔ VPNهای ۲۰۲۶ (Outline · آمنزیا · PaqetNG · سپر بانک)"
                 } else {
-                    "🌐 All-in-One 2026 VPN Hub (Outline · Amnezia/Proton · Bank Shield · IPv6)"
+                    "🌐 All-in-One 2026 VPN Hub (Outline · Amnezia · PaqetNG · Bank Shield)"
                 }
                 isAllCaps = false
                 textSize = 12.5f
@@ -13836,7 +13970,7 @@ class MainActivity : Activity() {
      * Interactive 2026 Multi-VPN Hub & Comparison Dialog:
      * Explains what every major VPN (`MLM v1.2.40–v1.2.42`, `Firefox FENIX`, `Outline`,
      * `AmneziaWG 2.0 / Proton`, `SlipNet / MasterDNS`, `WhiteDNS`, `Defyx / Oblivion`,
-     * and `3-Layer Smart Iran Banking Shield`) does in plain language and launches each engine directly.
+     * `PaqetNG (patth / patth ng)`, and `3-Layer Smart Iran Banking Shield`) does in plain language and launches each engine directly.
      */
     private fun showAllVpns2026ComparisonAndMlmHubDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
@@ -13867,15 +14001,442 @@ class MainActivity : Activity() {
                     }
                     5 -> runSlipNetSixPointScoreDialog()
                     6 -> runSmartIranBankingShieldDialog()
+                    7 -> showPaqetPatthEngineDialog()
+                    8 -> showRecommendedOneClickConnectWizardDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .setNeutralButton(if (isFarsi) "🏦 سپر همراه بانک‌ها" else "🏦 Iran Bank Shield") { _, _ ->
-                runSmartIranBankingShieldDialog()
+            .setNeutralButton(if (isFarsi) "📦 PaqetNG / patth" else "📦 PaqetNG / patth") { _, _ ->
+                showPaqetPatthEngineDialog()
             }
-            .setPositiveButton(if (isFarsi) "🔑 سرورهای رایگان Outline" else "🔑 Free Outline Hub") { _, _ ->
-                showOutlineFreeHubDialog()
+            .setPositiveButton(if (isFarsi) "🚀 اتصال پیشنهادی ۱-کلیکی" else "🚀 1-Click Recommended") { _, _ ->
+                showRecommendedOneClickConnectWizardDialog()
             }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Simple 1-Click Magic Connect Wizard with "⭐ پیشنهادی" (Recommended) badge for everyone (`MLM Scout v1.2.42`):
+     * Probes the user's own configs, Firefox VPN (FENIX), MLM Quick Connect Pool, Serverless Aether, and PaqetNG
+     * on the user's current network, highlights the best working option with "⭐ پیشنهادی", and connects in 1 tap.
+     */
+    private fun showRecommendedOneClickConnectWizardDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🔍 رادار MLM Scout در حال تست تمام مسیرهای اتصال روی اینترنت فعلی شما..."
+            else "🔍 MLM Scout probing all connection methods on your current ISP...",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val userLinks = withContext(Dispatchers.IO) {
+                val store = SubscriptionStore(this@MainActivity)
+                val selectedId = store.readSelectedSubscriptionId()
+                val snap = userSubscriptionManager.cachedSnapshot(selectedId)
+                val currentLinks = snap?.catalog?.profiles?.mapNotNull { it.shareLink }.orEmpty()
+                if (currentLinks.isNotEmpty()) {
+                    currentLinks
+                } else {
+                    userSubscriptionManager.list().flatMap { sub ->
+                        userSubscriptionManager.cachedSnapshot(sub.id)?.catalog?.profiles?.mapNotNull { it.shareLink }.orEmpty()
+                    }
+                }
+            }
+            val recommendations = withContext(Dispatchers.IO) {
+                MlmAndNextGenVpnHub.runMlmScoutRecommendations(userLinks, timeoutMs = 1100)
+            }
+            if (recommendations.isEmpty()) return@launch
+
+            val best = recommendations.first()
+            val itemLabels = recommendations.map { rec ->
+                "${rec.titleFa}\n   ⚡ ${rec.subtitleFa}"
+            }.toTypedArray()
+
+            fun activateRecommendation(rec: MlmAndNextGenVpnHub.MlmScoutRecommendation) {
+                activityScope.launch {
+                    when (rec.category) {
+                        "aether" -> {
+                            aetherPreferenceStore.setEnabled(true)
+                            renderAetherSummary()
+                            beginConnectFlow(if (buttonModel.state == VpnState.Started) Actions.RECONNECT else Actions.CONNECT)
+                        }
+                        "fenix" -> {
+                            withContext(Dispatchers.IO) { FirefoxVpnEngine.startLocalBridge(this@MainActivity) }
+                            val subTitle = "⭐ پیشنهادی · 🦊 Firefox VPN (FENIX)"
+                            val saved = withContext(Dispatchers.IO) {
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
+                                else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            onSubscriptionSelected()
+                            if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
+                        }
+                        "paqet" -> {
+                            withContext(Dispatchers.IO) {
+                                PaqetEngine.ensureLocalBridgeRunning(this@MainActivity, rec.shareUriOrPayload)
+                            }
+                            val subTitle = "⭐ پیشنهادی · 📦 PaqetNG (patth ng)"
+                            val saved = withContext(Dispatchers.IO) {
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
+                                else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            onSubscriptionSelected()
+                            if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
+                        }
+                        else -> {
+                            val subTitle = if (rec.category == "user_config") {
+                                "⭐ کانفیگ‌های تعمیرشده و بهینهٔ من"
+                            } else {
+                                "⭐ پیشنهادی · استخر اتصال سریع (MLM Pool)"
+                            }
+                            val saved = withContext(Dispatchers.IO) {
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
+                                else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            onSubscriptionSelected()
+                            if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ در حال اتصال به: ${rec.titleFa}" else "✅ Connecting to: ${rec.titleFa}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🚀 اتصال جادویی ۱-کلیکی (⭐ گزینهٔ پیشنهادی برای اینترنت شما)"
+                    else "🚀 1-Click Magic Connect (⭐ Recommended for Your ISP)",
+                )
+                .setItems(itemLabels) { _, which ->
+                    activateRecommendation(recommendations[which])
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(if (isFarsi) "🩺 تعمیر کانفیگ‌های من" else "🩺 Config Doctor") { _, _ ->
+                    showSmartConfigDoctorAndFluxDialog()
+                }
+                .setPositiveButton(
+                    if (isFarsi) "✅ اتصال فوری به گزینهٔ ⭐ پیشنهادی (${best.latencyMs}ms)"
+                    else "✅ Connect Now to ⭐ Recommended (${best.latencyMs}ms)",
+                ) { _, _ ->
+                    activateRecommendation(best)
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    /**
+     * Full `Paqet` & `paqetNG` (`patth` & `patth ng` v1.3.7 + `paqet-ngv2` DNS Coordinate Recovery) Engine Dialog:
+     * - Supports `paqet://`, `paqetng://`, `patth://`, `patthng://` links and YAML/TOML/JSON configs
+     * - Auto-detects mobile data interface (`rmnet_data*`, `ccmni*`, `wlan*`, skipping `tun0` per `paqetNG v1.2.4`)
+     * - Supports KCP + smux + AES-GCM + TLS Record Obfuscation + Dynamic Port Hopping + DNS Emergency Recovery
+     */
+    private fun showPaqetPatthEngineDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val savedCfg = PaqetEngine.loadLastConfig(this) ?: PaqetEngine.PaqetConfig(
+            variant = PaqetEngine.TransportVariant.PAQET_NG,
+            serverHost = "188.114.98.0",
+            serverPort = 443,
+            portHopStart = 20000,
+            portHopEnd = 20500,
+            secretKey = "catclient-paqet-key",
+            sniHost = "speedtest.net",
+            remark = "PaqetNG Anti-DPI",
+        )
+        val detectedIface = PaqetEngine.detectBestPhysicalNetworkInterface()
+        val rootOk = PaqetEngine.isRootAvailableQuick()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(8))
+        }
+
+        val infoBanner = TextView(this).apply {
+            text = if (isFarsi) {
+                "📦 موتور سطح پکت Paqet و paqetNG (patth / patth ng v1.3.7 + ngv2)\n" +
+                    "• رابط شبکهٔ شناسایی‌شده (فیکس دیتای موبایل v1.2.4): $detectedIface\n" +
+                    "• وضعیت دسترسی: ${if (rootOk) "Root + Userspace" else "بدون نیاز به روت (Userspace KCP + TLS Record Obfs + Entry Relay)"}\n" +
+                    "• پشتیبانی از لینک‌های paqet:// ، paqetng:// ، patth:// ، patthng:// و فایل‌های YAML/TOML/JSON"
+            } else {
+                "📦 Paqet & paqetNG Engine (patth / patth ng v1.3.7 + ngv2)\n" +
+                    "• Detected physical interface (v1.2.4 mobile data fix): $detectedIface\n" +
+                    "• Mode: ${if (rootOk) "Root + Userspace" else "Non-Root Userspace (KCP + TLS Record Obfs + Entry Relay)"}"
+            }
+            textSize = 12f
+            setTextColor(TEAL)
+            typeface = CatClientBodyTypeface
+        }
+        container.addView(infoBanner, LinearLayout.LayoutParams(-1, -2))
+
+        var selectedVariant = savedCfg.variant
+        val variantBtn = MaterialButton(this).apply {
+            text = "⚙️ حالت موتور: ${selectedVariant.titleFa} ▾"
+            isAllCaps = false
+            textSize = 12f
+            setOnClickListener {
+                val all = PaqetEngine.TransportVariant.values()
+                val labels = all.map { it.titleFa }.toTypedArray()
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(if (isFarsi) "انتخاب حالت paqet / patth" else "Select paqet / patth Variant")
+                    .setItems(labels) { _, which ->
+                        selectedVariant = all[which]
+                        this.text = "⚙️ حالت موتور: ${selectedVariant.titleFa} ▾"
+                    }
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+        container.addView(variantBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val serverInput = EditText(this).apply {
+            hint = if (isFarsi) "آدرس سرور یا Entry Point (مثلاً 188.114.98.0:443) یا لینک کامل paqetng://..." else "Server IP:Port or full paqetng:// URI"
+            setText("${savedCfg.serverHost}:${savedCfg.serverPort}")
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        container.addView(serverInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        val keyInput = EditText(this).apply {
+            hint = if (isFarsi) "کلید رمزنگاری AES-GCM (Secret Key)" else "AES-GCM Secret Key"
+            setText(savedCfg.secretKey)
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        container.addView(keyInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val hopInput = EditText(this).apply {
+            hint = if (isFarsi) "بازهٔ چرخش پورت Port Hopping (مثلاً 20000-20500)" else "Port Hopping Range (e.g. 20000-20500)"
+            setText(if (savedCfg.hasPortHopping) "${savedCfg.portHopStart}-${savedCfg.portHopEnd}" else "20000-20500")
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        container.addView(hopInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val dnsRecoveryInput = EditText(this).apply {
+            hint = if (isFarsi) "دامنهٔ بازیابی اضطراری روی DNS (paqet-ngv2 اختیاری)" else "Emergency DNS Control Domain (paqet-ngv2 optional)"
+            setText(savedCfg.dnsControlDomain)
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        container.addView(dnsRecoveryInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val statusView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(TEXT_SECONDARY)
+            typeface = CatClientDataTypeface
+            text = PaqetEngine.buildPaqetUri(savedCfg)
+        }
+
+        fun buildCurrentConfig(): PaqetEngine.PaqetConfig {
+            val rawServer = serverInput.text?.toString()?.trim().orEmpty()
+            PaqetEngine.parsePaqetFileOrUri(rawServer)?.let { return it }
+            val host = if (':' in rawServer) rawServer.substringBeforeLast(':').removePrefix("[").removeSuffix("]") else rawServer.ifBlank { "188.114.98.0" }
+            val port = if (':' in rawServer) (rawServer.substringAfterLast(':').toIntOrNull() ?: 443) else 443
+            val hopRaw = hopInput.text?.toString()?.trim().orEmpty()
+            val hopStart = hopRaw.substringBefore('-', "0").trim().toIntOrNull() ?: 0
+            val hopEnd = hopRaw.substringAfter('-', "0").trim().toIntOrNull() ?: 0
+            val key = keyInput.text?.toString()?.trim().orEmpty().ifBlank { "catclient-paqet-key" }
+            val dnsDom = dnsRecoveryInput.text?.toString()?.trim().orEmpty()
+            return PaqetEngine.PaqetConfig(
+                variant = selectedVariant,
+                serverHost = host,
+                serverPort = port.coerceIn(1, 65535),
+                portHopStart = hopStart,
+                portHopEnd = hopEnd,
+                secretKey = key,
+                sniHost = "speedtest.net",
+                networkInterface = detectedIface,
+                dnsControlDomain = dnsDom,
+                remark = "📦 ${selectedVariant.id.uppercase(Locale.US)} $host:$port",
+            )
+        }
+
+        val testBtn = MaterialButton(this).apply {
+            text = if (isFarsi) "🔍 تست واقعی پکت و دست‌تکان سرور (Probe)" else "🔍 Probe Server & Packet Handshake"
+            isAllCaps = false
+            textSize = 12f
+            setOnClickListener {
+                val cfg = buildCurrentConfig()
+                statusView.text = if (isFarsi) "⏳ در حال تست سرور ${cfg.serverHost}:${cfg.serverPort}..." else "⏳ Probing..."
+                activityScope.launch {
+                    val res = withContext(Dispatchers.IO) { PaqetEngine.probePaqetEndpoint(cfg, timeoutMs = 2500) }
+                    statusView.text = res.messageFa + "\n" + PaqetEngine.buildPaqetUri(cfg)
+                }
+            }
+        }
+        container.addView(testBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        container.addView(statusView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        val scroll = ScrollView(this).apply { addView(container) }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "📦 موتور Paqet و paqetNG (patth / patth ng v1.3.7)" else "📦 Paqet & paqetNG Engine (patth / patth ng)")
+            .setView(scroll)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(if (isFarsi) "📋 کپی لینک paqetng://" else "📋 Copy paqetng:// URI") { _, _ ->
+                val uri = PaqetEngine.buildPaqetUri(buildCurrentConfig())
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("paqet-uri", uri))
+                Toast.makeText(this, if (isFarsi) "✅ لینک کانفیگ PaqetNG کپی شد" else "✅ Copied PaqetNG URI", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton(if (isFarsi) "🚀 افزودن به اشتراک و اتصال فوری" else "🚀 Add to Subscriptions & Connect") { _, _ ->
+                val cfg = buildCurrentConfig()
+                val uri = PaqetEngine.buildPaqetUri(cfg)
+                activityScope.launch {
+                    withContext(Dispatchers.IO) {
+                        PaqetEngine.ensureLocalBridgeRunning(this@MainActivity, uri)
+                    }
+                    val subTitle = "📦 PaqetNG (patth / patth ng)"
+                    val saved = withContext(Dispatchers.IO) {
+                        val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                        if (existing != null) userSubscriptionManager.update(existing.id, subTitle, uri)
+                        else userSubscriptionManager.add(subTitle, uri)
+                    }
+                    userSubscriptionManager.select(saved.id)
+                    onSubscriptionSelected()
+                    if (buttonModel.state != VpnState.Started) {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ موتور ${cfg.variant.id.uppercase(Locale.US)} روشن شد و کانفیگ انتخاب گردید"
+                        else "✅ Started ${cfg.variant.id.uppercase(Locale.US)} engine & selected config",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * Smart Config Doctor & Cleaner + MLM FLUX (`IPv4 F&F` / `IPv6` / `Both`) Dialog (`MLM v1.2.42`):
+     * Scans all configs inside the user's current subscription, removes duplicates, repairs broken Cloudflare
+     * edges with MCI IPv6 or Irancell F&F, sorts healthy configs to the top, and marks the fastest with "⭐ پیشنهادی".
+     */
+    private fun showSmartConfigDoctorAndFluxDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val options = if (isFarsi) {
+            arrayOf(
+                "🩺 ۱) تعمیر خودکار، حذف تکراری‌ها و علامت‌گذاری «⭐ پیشنهادی» روی اشتراک فعلی",
+                "⚡ ۲) موتور MLM FLUX: بهینه‌سازی کانفیگ‌ها برای همراه اول (IPv6 تمیز کلودفلر)",
+                "🔥 ۳) موتور MLM FLUX: بهینه‌سازی کانفیگ‌ها برای ایرانسل (IPv4 + روش ضد فیلتر F&F)",
+                "🌐 ۴) موتور MLM FLUX: حالت ترکیبی دوگانه (IPv4 F&F + IPv6 همزمان — ⭐ پیشنهادی)",
+            )
+        } else {
+            arrayOf(
+                "🩺 1) Smart Config Doctor: Deduplicate, Auto-Heal & Mark '⭐ Recommended'",
+                "⚡ 2) MLM FLUX: Optimize for MCI (Clean Cloudflare IPv6)",
+                "🔥 3) MLM FLUX: Optimize for Irancell (IPv4 + F&F Fragmentation)",
+                "🌐 4) MLM FLUX: Dual-Stack Both (IPv4 F&F + IPv6 — ⭐ Recommended)",
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🩺 پزشک هوشمند تعمیر کانفیگ‌ها و موتور MLM FLUX (v1.2.42)"
+                else "🩺 Smart Config Doctor & MLM FLUX Engine (v1.2.42)",
+            )
+            .setItems(options) { _, which ->
+                activityScope.launch {
+                    val store = SubscriptionStore(this@MainActivity)
+                    val selectedId = store.readSelectedSubscriptionId()
+                    val snap = withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(selectedId) }
+                    val currentLinks = snap?.catalog?.profiles?.mapNotNull { it.shareLink }.orEmpty().ifEmpty {
+                        freeConfigEntries.take(25).map { it.link }
+                    }
+                    if (currentLinks.isEmpty()) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "⚠️ ابتدا یک کانفیگ یا اشتراک اضافه کنید یا از «🚀 اتصال جادویی ۱-کلیکی» استفاده کنید"
+                            else "⚠️ Please add a config first or use '🚀 1-Click Magic Connect'",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@launch
+                    }
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⏳ در حال بررسی، تست پینگ واقعی و تعمیر کانفیگ‌ها..."
+                        else "⏳ Diagnosing, probing, and repairing configs...",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+
+                    if (which == 0) {
+                        val report = withContext(Dispatchers.IO) {
+                            MlmAndNextGenVpnHub.diagnoseAndRepairUserConfigs(currentLinks, timeoutMs = 1100)
+                        }
+                        if (report.repairedLinks.isNotEmpty()) {
+                            val title = "🩺 کانفیگ‌های تعمیرشده (⭐ ${report.bestRecommendedName.take(18)})"
+                            val payload = report.repairedLinks.joinToString("\n")
+                            val saved = withContext(Dispatchers.IO) {
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("🩺 کانفیگ‌های تعمیرشده") }
+                                if (existing != null) userSubscriptionManager.update(existing.id, title, payload)
+                                else userSubscriptionManager.add(title, payload)
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            onSubscriptionSelected()
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) {
+                                    "✅ ${report.validUniqueCount} کانفیگ بررسی شد (${report.healthyDirectCount} سالم + ${report.autoHealedCount} تعمیر خودکار) · بهترین: ⭐ ${report.bestRecommendedName} (${report.bestRecommendedLatencyMs}ms)"
+                                } else {
+                                    "✅ Checked ${report.validUniqueCount} configs (${report.healthyDirectCount} healthy + ${report.autoHealedCount} auto-healed)"
+                                },
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    } else {
+                        val family = when (which) {
+                            1 -> MlmAndNextGenVpnHub.MlmFluxIpFamily.IPV6_ONLY
+                            2 -> MlmAndNextGenVpnHub.MlmFluxIpFamily.IPV4_FN_F
+                            else -> MlmAndNextGenVpnHub.MlmFluxIpFamily.BOTH
+                        }
+                        val fluxLinks = withContext(Dispatchers.IO) {
+                            MlmAndNextGenVpnHub.applyMlmFluxOptimization(currentLinks, family, "AUTO")
+                        }
+                        if (fluxLinks.isNotEmpty()) {
+                            val title = "⚡ MLM FLUX (${family.id.uppercase(Locale.US)})"
+                            val payload = fluxLinks.joinToString("\n")
+                            val saved = withContext(Dispatchers.IO) {
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                                if (existing != null) userSubscriptionManager.update(existing.id, title, payload)
+                                else userSubscriptionManager.add(title, payload)
+                            }
+                            userSubscriptionManager.select(saved.id)
+                            onSubscriptionSelected()
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "✅ ${fluxLinks.size} کانفیگ با موتور MLM FLUX (${family.labelFa}) ساخته و انتخاب شد"
+                                else "✅ Built & selected ${fluxLinks.size} MLM FLUX configs",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .create()
             .showCatClientDialog()
     }
@@ -19708,6 +20269,16 @@ class MainActivity : Activity() {
         }
         activeChainPickerSlot = chainSlot
         activeChainPickerSubscriptionId = selectedSubscriptionId.takeIf { pickerMode }
+        if (!pickerMode && connectionProfiles.isEmpty()) {
+            val cached = if (SubscriptionStore.isBuiltInSubscription(selectedSubscriptionId)) {
+                subscriptionStore.readCatalog(selectedSubscriptionId)?.profiles
+            } else {
+                userSubscriptionManager.cachedSnapshot(selectedSubscriptionId)?.catalog?.profiles
+            }
+            if (!cached.isNullOrEmpty()) {
+                connectionProfiles = cached
+            }
+        }
         val pageProfiles = if (pickerMode) {
             pickerOptions.filter { it.subscriptionId == selectedSubscriptionId }.map { it.profile }
         } else {
@@ -19717,12 +20288,8 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == selectedSubscriptionId
         val canRunConnectionTests = buttonModel.state != VpnState.Started ||
             (activeChainHopCount <= 1 && activeRuntimeSubscriptionId == selectedSubscriptionId)
-        if (usesActiveRuntime && !liveSelectorReady) {
-            Toast.makeText(this, R.string.connection_selector_loading, Toast.LENGTH_SHORT).show()
-            return
-        }
-        var selectorProfiles = if (usesActiveRuntime) {
-            pageProfiles.filter { it.fingerprint in liveSelectableConnectionFingerprints }
+        var selectorProfiles = if (usesActiveRuntime && liveSelectorReady && liveSelectableConnectionFingerprints.isNotEmpty()) {
+            pageProfiles.filter { it.fingerprint in liveSelectableConnectionFingerprints }.ifEmpty { pageProfiles }
         } else {
             pageProfiles
         }
@@ -21438,6 +22005,10 @@ class MainActivity : Activity() {
         profile: ConnectionProfile?,
         selectedTypes: Set<String>,
     ) {
+        if (aetherPreferenceStore.read().enabled) {
+            aetherPreferenceStore.setEnabled(false)
+            renderAetherSummary()
+        }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val previous = connectionSelectionPreferenceStore.readSelectedProfile(
             selectedSubscriptionId,
@@ -21458,19 +22029,21 @@ class MainActivity : Activity() {
             selectedTypes,
             connectionProfiles,
         )
+        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile)
+        renderConnectionSelection()
+        renderLocationSelection()
+
         val usesActiveRuntime = buttonModel.state == VpnState.Started &&
             activeRuntimeSubscriptionId == selectedSubscriptionId
+        val activeSelectionChanged = profile != null &&
+            activeConnectionFingerprint != profile.fingerprint
         if (
             profile != null &&
             usesActiveRuntime &&
-            (!liveSelectorReady || profile.fingerprint !in liveSelectableConnectionFingerprints)
+            liveSelectorReady &&
+            profile.fingerprint in liveSelectableConnectionFingerprints &&
+            (selectionChanged || activeSelectionChanged)
         ) {
-            Toast.makeText(this, R.string.connection_switch_unavailable, Toast.LENGTH_LONG).show()
-            return
-        }
-        val activeSelectionChanged = profile != null &&
-            activeConnectionFingerprint != profile.fingerprint
-        if (profile != null && usesActiveRuntime && (selectionChanged || activeSelectionChanged)) {
             DiagnosticLogger.info(
                 this,
                 "activity.connection.switch.requested",
@@ -21480,16 +22053,13 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.connection_switching, Toast.LENGTH_SHORT).show()
             return
         }
-        if (!selectionChanged) return
-        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile)
+        if (!selectionChanged && !activeSelectionChanged) return
         DiagnosticLogger.info(
             this,
             "activity.connection.selected",
             "mode=${if (profile == null) "automatic" else "explicit"} " +
                 "profile=${profile?.tag.orEmpty()} types=${automaticTypes.sorted().joinToString(",")}",
         )
-        renderConnectionSelection()
-        renderLocationSelection()
         if (buttonModel.state == VpnState.Started) {
             buttonModel.onStateChanged(VpnState.Starting)
             renderState(VpnState.Starting)

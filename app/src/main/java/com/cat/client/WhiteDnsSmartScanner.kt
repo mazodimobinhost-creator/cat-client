@@ -737,6 +737,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val t0 = System.nanoTime()
             DatagramSocket().use { sock ->
+                CatClientVpnService.protectOutboundDatagramSocket(sock)
                 sock.soTimeout = timeoutMs
                 val addr = InetAddress.getByName(ip.trim())
                 sock.send(DatagramPacket(query, query.size, addr, 53))
@@ -761,6 +762,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val t0 = System.nanoTime()
             Socket().use { sock ->
+                CatClientVpnService.protectOutboundSocket(sock)
                 sock.soTimeout = timeoutMs
                 sock.connect(InetSocketAddress(InetAddress.getByName(ip.trim()), 53), timeoutMs)
                 val out = sock.getOutputStream()
@@ -1424,6 +1426,23 @@ internal object WhiteDnsSmartScanner {
 
     private val activeTunnelBridges = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val activeTunnelSockets = java.util.concurrent.ConcurrentHashMap<Int, java.net.ServerSocket>()
+    private val wdnsWorkerSeq = java.util.concurrent.atomic.AtomicInteger(1)
+    private val wdnsWorkerPool = java.util.concurrent.ThreadPoolExecutor(
+        4,
+        48,
+        30L,
+        java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue(256),
+        java.util.concurrent.ThreadFactory { runnable ->
+            Thread(
+                null,
+                runnable,
+                "wdns-worker-${wdnsWorkerSeq.getAndIncrement()}",
+                256 * 1024L,
+            ).apply { isDaemon = true }
+        },
+        java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy(),
+    )
 
     /**
      * Returns a deterministic local loopback port (`10853..10899`) for the parsed WhiteDNS tunnel
@@ -1449,15 +1468,19 @@ internal object WhiteDnsSmartScanner {
             val boundPort = server.localPort
             activeTunnelBridges[key] = boundPort
             activeTunnelSockets[boundPort] = server
-            Thread(Runnable {
-                while (!server.isClosed) {
-                    val client = runCatching { server.accept() }.getOrNull() ?: break
-                    Thread(Runnable { handleLocalTunnelSocksClient(client, parsed) }, "wdns-socks-client").apply {
-                        isDaemon = true
-                        start()
+            Thread(
+                null,
+                Runnable {
+                    while (!server.isClosed) {
+                        val client = runCatching { server.accept() }.getOrNull() ?: break
+                        wdnsWorkerPool.execute {
+                            handleLocalTunnelSocksClient(client, parsed)
+                        }
                     }
-                }
-            }, "wdns-socks-accept-$boundPort").apply {
+                },
+                "wdns-socks-accept-$boundPort",
+                256 * 1024L,
+            ).apply {
                 isDaemon = true
                 start()
             }
@@ -1503,15 +1526,19 @@ internal object WhiteDnsSmartScanner {
             val boundPort = server.localPort
             activeTunnelBridges[key] = boundPort
             activeTunnelSockets[boundPort] = server
-            Thread(Runnable {
-                while (!server.isClosed) {
-                    val client = runCatching { server.accept() }.getOrNull() ?: break
-                    Thread(Runnable { handleLocalTunnelSocksClient(client, parsed) }, "ios-lan-socks-client").apply {
-                        isDaemon = true
-                        start()
+            Thread(
+                null,
+                Runnable {
+                    while (!server.isClosed) {
+                        val client = runCatching { server.accept() }.getOrNull() ?: break
+                        wdnsWorkerPool.execute {
+                            handleLocalTunnelSocksClient(client, parsed)
+                        }
                     }
-                }
-            }, "ios-lan-socks-accept-$boundPort").apply {
+                },
+                "ios-lan-socks-accept-$boundPort",
+                256 * 1024L,
+            ).apply {
                 isDaemon = true
                 start()
             }
@@ -1563,6 +1590,19 @@ internal object WhiteDnsSmartScanner {
                 if (portHi < 0 || portLo < 0) return@use
                 val targetPort = ((portHi and 0xFF) shl 8) or (portLo and 0xFF)
 
+                val cleanTarget = targetHost.trim().removePrefix("[").removeSuffix("]").lowercase()
+                if (
+                    cleanTarget == "127.0.0.1" ||
+                    cleanTarget == "localhost" ||
+                    cleanTarget == "::1" ||
+                    cleanTarget == "0.0.0.0" ||
+                    cleanTarget.startsWith("127.")
+                ) {
+                    output.write(byteArrayOf(0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                    output.flush()
+                    return@use
+                }
+
                 // Resolve via WhiteDNS carrier probe to warm the resolver path before dialing
                 runCatching {
                     probeDnsOverUdp(
@@ -1575,13 +1615,14 @@ internal object WhiteDnsSmartScanner {
 
                 val upstream = Socket()
                 try {
+                    CatClientVpnService.protectOutboundSocket(upstream)
                     upstream.tcpNoDelay = true
                     upstream.connect(InetSocketAddress(targetHost, targetPort), 8_000)
                     output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
                     output.flush()
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
-                    val t = Thread(Runnable {
+                    wdnsWorkerPool.execute {
                         runCatching {
                             val buf = ByteArray(parsed.mtu.coerceIn(64, 4096))
                             var first = true
@@ -1605,8 +1646,10 @@ internal object WhiteDnsSmartScanner {
                                 upOut.write(buf, 0, n)
                                 upOut.flush()
                             }
+                        }.also {
+                            runCatching { upstream.shutdownOutput() }
                         }
-                    }, "wdns-up-pipe").apply { isDaemon = true; start() }
+                    }
                     val downBuf = ByteArray(8192)
                     while (true) {
                         val n = upIn.read(downBuf)
@@ -1614,7 +1657,6 @@ internal object WhiteDnsSmartScanner {
                         output.write(downBuf, 0, n)
                         output.flush()
                     }
-                    runCatching { t.join(500) }
                 } finally {
                     runCatching { upstream.close() }
                 }
