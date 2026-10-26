@@ -258,4 +258,20 @@ class AetherSelectionTest {
         assertEquals("cdn.psiphon.ca", parsedRev.psiphonCdnSni)
         assertEquals("first", parsedRev.torBridgesMode)
     }
+
+    @Test fun shadowsocks2022PreservesPlusInBase64KeyAndRejectsMalformedKey() {
+        // 32-byte key in standard base64 containing '+' at index 34:
+        // "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAAAAAA=" (32 bytes = 44 base64 chars)
+        val validKey32 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAAAAAA="
+        val ss2022Uri = "ss://2022-blake3-aes-256-gcm:$validKey32@206.1.100.83:25178#SS2022-Valid"
+        val converted = SubConvConverter.convert(ss2022Uri)
+        assertEquals(1, converted.size)
+        assertEquals("2022-blake3-aes-256-gcm", converted[0].getString("cipher"))
+        assertEquals(validKey32, converted[0].getString("password"))
+
+        // Malformed SS-2022 key (not 32 bytes) must be rejected so Mihomo doesn't fail the whole subscription
+        val invalidSs2022 = "ss://2022-blake3-aes-256-gcm:not-a-32-byte-base64-key@206.1.100.83:25178#SS2022-Bad"
+        val badConverted = SubConvConverter.convert(invalidSs2022)
+        assertEquals(0, badConverted.size)
+    }
 }

@@ -981,9 +981,12 @@ internal object LocalSniSpoofProxy {
         val scheme = template.scheme
         val auth = template.uuidOrPass
         val host = template.hostHeader
+        val realSni = template.sni.ifBlank { host }
         val netType = template.networkType
+        val encParam = if (scheme == "vless") "encryption=none&" else ""
 
-        // 1. Direct Local Anti-DPI Forwarder wrapping the user's real remote endpoint
+        // 1. Direct Local Anti-DPI Forwarder wrapping the user's real remote endpoint (splits ClientHello at SNI boundary)
+        val primaryTarget = "${template.remoteHost}:${template.remotePort}"
         val localFwdPort = startDirectTcpSpoofForwarder(
             remoteHost = template.remoteHost,
             remotePort = template.remotePort,
@@ -991,28 +994,61 @@ internal object LocalSniSpoofProxy {
             decoySni = currentDecoySni,
         )
         val localRemark = runCatching {
-            java.net.URLEncoder.encode("🛡️ تعمیرشده با برش SNI محلی · ${template.remark}", "UTF-8")
+            java.net.URLEncoder.encode("⭐ پیشنهادی · برش SNI ضد-DPI · ${template.remark}", "UTF-8").replace("+", "%20")
         }.getOrDefault("Repaired-Local-SNI")
-        val encParam = if (scheme == "vless") "encryption=none&" else ""
-        out += "$scheme://$auth@127.0.0.1:$localFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=${template.sni}&fp=chrome#$localRemark"
+        val encTarget = runCatching { java.net.URLEncoder.encode(primaryTarget, "UTF-8") }.getOrDefault(primaryTarget)
+        out += "$scheme://$auth@127.0.0.1:$localFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1&sni_fwd_target=$encTarget#$localRemark"
 
-        // 2. All 5 Cloudflare Spoofing methods applied to the user's real UUID & Host
-        for (m in CF_SPOOF_5_METHODS) {
-            val mRemark = runCatching {
-                java.net.URLEncoder.encode("⚡ اسپوف کلادفلر ${m.index} · ${template.remark}", "UTF-8")
-            }.getOrDefault("CF-Spoof-${m.index}")
-            out += "$scheme://$auth@${m.sampleEndpoint}?${encParam}type=$netType&host=$host&path=$encPath&${m.queryParams}#$mRemark"
+        // 2. Probe clean Cloudflare edges on the user's current ISP and build both Local-SNI-Split + Direct configs
+        // preserving the user's REAL sni & host header so Cloudflare routes WebSocket to the user's worker!
+        val candidateCfEdges = listOf(
+            "188.114.98.0" to 443,
+            "172.67.73.163" to 443,
+            "104.16.132.229" to 443,
+            "162.159.135.42" to 443,
+            "104.18.2.161" to 443,
+            "188.114.97.3" to 2053,
+            "172.67.73.163" to 8443,
+        )
+        for ((edgeIp, edgePort) in candidateCfEdges) {
+            val edgeTarget = "$edgeIp:$edgePort"
+            val edgeFwdPort = startDirectTcpSpoofForwarder(
+                remoteHost = edgeIp,
+                remotePort = edgePort,
+                strategy = strategy,
+                decoySni = currentDecoySni,
+            )
+            val encEdgeTarget = runCatching { java.net.URLEncoder.encode(edgeTarget, "UTF-8") }.getOrDefault(edgeTarget)
+            val splitEdgeRemark = runCatching {
+                java.net.URLEncoder.encode("🛡️ برش SNI روی لبه $edgeIp:$edgePort · ${template.remark}", "UTF-8").replace("+", "%20")
+            }.getOrDefault("SNI-Split-$edgeIp")
+            out += "$scheme://$auth@127.0.0.1:$edgeFwdPort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1&sni_fwd_target=$encEdgeTarget#$splitEdgeRemark"
+
+            val fnfRemark = runCatching {
+                java.net.URLEncoder.encode("⚡ ایرانسل/همراه اول F&F ($edgeIp:$edgePort) · ${template.remark}", "UTF-8").replace("+", "%20")
+            }.getOrDefault("CF-FnF-$edgeIp")
+            out += "$scheme://$auth@$edgeIp:$edgePort?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=unsafe&cs=semi-python&fm=tlshello-0-len&alpn=http%2F1.1#$fnfRemark"
         }
 
-        // 3. Verified Non-Cloudflare / Whitelist open endpoints (preserving exact IP:port)
-        for (hit in verifiedNonCfHits) {
-            val t = hit.target
-            val hitRemark = runCatching {
-                java.net.URLEncoder.encode("🛰️ وایت‌لیست ${t.provider.id.uppercase()} · ${t.exactEndpoint}", "UTF-8")
-            }.getOrDefault("Whitelist-${t.provider.id}")
-            out += "$scheme://$auth@${t.exactEndpoint}?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=${t.sni}&fp=chrome&alpn=h2%2Chttp%2F1.1#$hitRemark"
+        // 3. MCI IPv6 Clean Edges preserving the user's REAL sni & host header
+        val ipv6Edges = listOf(
+            "[2a06:98c1:3101::6812:202f]:443",
+            "[2606:4700:3030::6815:1001]:443",
+        )
+        for (v6 in ipv6Edges) {
+            val v6Remark = runCatching {
+                java.net.URLEncoder.encode("🌐 همراه اول IPv6 ($v6) · ${template.remark}", "UTF-8").replace("+", "%20")
+            }.getOrDefault("MCI-IPv6")
+            out += "$scheme://$auth@$v6?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1#$v6Remark"
         }
-        return out
+
+        // 4. Original user endpoint with Chrome fingerprint & HTTP/1.1 ALPN
+        val origRemark = runCatching {
+            java.net.URLEncoder.encode("📌 سرور اصلی (${template.remoteHost}:${template.remotePort}) · ${template.remark}", "UTF-8").replace("+", "%20")
+        }.getOrDefault("Original")
+        out += "$scheme://$auth@${template.remoteHost}:${template.remotePort}?${encParam}security=tls&type=$netType&host=$host&path=$encPath&sni=$realSni&fp=chrome&alpn=http%2F1.1#$origRemark"
+
+        return out.distinct()
     }
 
     @Volatile

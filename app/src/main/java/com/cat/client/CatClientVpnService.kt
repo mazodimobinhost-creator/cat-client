@@ -1512,13 +1512,52 @@ class CatClientVpnService : VpnService() {
         ensureUnderlyingNetworkAvailable()
         networkMonitor.start()
 
+        val selectedSubscriptionId = subscriptionStore.readSelectedSubscriptionId()
+        val snapshots = mutableMapOf<String, MihomoSubscriptionSnapshot>()
+        val initialSnapshot = runCatching {
+            configRepository.fetchOrCachedMihomoConfig(selectedSubscriptionId).also {
+                snapshots[selectedSubscriptionId] = it
+            }
+        }.getOrNull()
+
+        // Check if the selected subscription or explicitly selected profile is an aether:// / masque:// config
+        val explicitCandidate = if (initialSnapshot != null && connectionSelectionPreferenceStore.hasSelectedProfile(selectedSubscriptionId)) {
+            connectionSelectionPreferenceStore.readSelectedProfile(
+                selectedSubscriptionId,
+                initialSnapshot.catalog.profiles,
+            )
+        } else null
+        val autoAetherCandidate = if (explicitCandidate == null && initialSnapshot != null) {
+            initialSnapshot.catalog.profiles.firstOrNull { p ->
+                val l = p.shareLink?.trim().orEmpty()
+                l.startsWith("aether://", ignoreCase = true) || l.startsWith("masque://", ignoreCase = true)
+            }?.takeIf {
+                // In Automatic mode, launch Aether directly if the subscription is an Aether subscription
+                // (e.g. "⚡ Aether / PattNG Configs" or all profiles in the sub are aether://)
+                initialSnapshot.catalog.profiles.all { p ->
+                    val l = p.shareLink?.trim().orEmpty()
+                    l.startsWith("aether://", ignoreCase = true) || l.startsWith("masque://", ignoreCase = true)
+                }
+            }
+        } else null
+        val chosenAetherProfile = explicitCandidate ?: autoAetherCandidate
+        chosenAetherProfile?.shareLink?.let { link ->
+            if (link.startsWith("aether://", ignoreCase = true) || link.startsWith("masque://", ignoreCase = true)) {
+                val parsedAether = AetherSelection.fromAetherUri(link)
+                if (parsedAether != null) {
+                    aetherPreferenceStore.save(parsedAether.copy(enabled = true))
+                    runAetherStartup(eventPrefix, parsedAether.copy(enabled = true))
+                    return
+                }
+            }
+        }
+
         val aetherSelection = aetherPreferenceStore.read()
         if (aetherSelection.enabled) {
             runAetherStartup(eventPrefix, aetherSelection)
             return
         }
 
-        val selectedSubscriptionId = subscriptionStore.readSelectedSubscriptionId()
         val chainSettings = connectionChainPreferenceStore.read()
         if (chainSettings.isActive) {
             if (quickSpeedRequested) {
@@ -1549,25 +1588,16 @@ class CatClientVpnService : VpnService() {
             return
         }
 
-        val snapshots = mutableMapOf<String, MihomoSubscriptionSnapshot>()
         var explicitProfile: ConnectionProfile? = null
         if (connectionSelectionPreferenceStore.hasSelectedProfile(selectedSubscriptionId)) {
-            val selectedSnapshot = configRepository.fetchOrCachedMihomoConfig(selectedSubscriptionId)
-            snapshots[selectedSubscriptionId] = selectedSnapshot
-            val requested = connectionSelectionPreferenceStore.readSelectedProfile(
+            val selectedSnapshot = snapshots[selectedSubscriptionId]
+                ?: configRepository.fetchOrCachedMihomoConfig(selectedSubscriptionId).also {
+                    snapshots[selectedSubscriptionId] = it
+                }
+            val requested = explicitCandidate ?: connectionSelectionPreferenceStore.readSelectedProfile(
                 selectedSubscriptionId,
                 selectedSnapshot.catalog.profiles,
             )
-            requested?.shareLink?.let { link ->
-                if (link.startsWith("aether://", ignoreCase = true) || link.startsWith("masque://", ignoreCase = true)) {
-                    val parsedAether = AetherSelection.fromAetherUri(link)
-                    if (parsedAether != null) {
-                        aetherPreferenceStore.save(parsedAether.copy(enabled = true))
-                        runAetherStartup(eventPrefix, parsedAether.copy(enabled = true))
-                        return
-                    }
-                }
-            }
             explicitProfile = requested?.let { profile ->
                 eligibleProfilesForRuntime(selectedSnapshot.catalog)
                     .firstOrNull { it.fingerprint == profile.fingerprint }
@@ -4031,6 +4061,54 @@ class CatClientVpnService : VpnService() {
                         yaml = updated
                         modified = true
                     }
+                }
+            }
+
+            // 4. Local Anti-DPI SNI Record Splitter forwarder (for "🪄 تعمیرشده خودکار" configs)
+            val sniFwdRegex = Regex("""sni-fwd-target\s*:\s*['"]?([^'"\r\n]+)['"]?""")
+            sniFwdRegex.findAll(yaml).toList().forEach { match ->
+                val rawTarget = match.groupValues[1].trim()
+                val colon = rawTarget.lastIndexOf(':')
+                if (colon > 0) {
+                    val targetHost = rawTarget.substring(0, colon).removePrefix("[").removeSuffix("]")
+                    val targetPort = rawTarget.substring(colon + 1).toIntOrNull() ?: 443
+                    val activePort = LocalSniSpoofProxy.startDirectTcpSpoofForwarder(
+                        remoteHost = targetHost,
+                        remotePort = targetPort,
+                    )
+                    if (activePort in 1..65535) {
+                        val escapedTarget = Regex.escape(rawTarget)
+                        val blockPattern = Regex(
+                            """(server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*)\d+((?:\s*\r?\n.*){0,25}?\s*\r?\n\s*sni-fwd-target\s*:\s*['"]?$escapedTarget['"]?)""",
+                        )
+                        val updated = yaml.replace(blockPattern, "$1$activePort$2")
+                        if (updated != yaml) {
+                            yaml = updated
+                            modified = true
+                        }
+                    }
+                }
+            }
+
+            // 5. Auto-heal any cached Shadowsocks 2022 ('2022-blake3-*') keys where URLDecoder previously turned '+' into ' '
+            if (yaml.contains("2022-blake3-")) {
+                val ss2022KeyFixRegex = Regex(
+                    """(password\s*:\s*['"]?)([A-Za-z0-9+/=_:\- ]{20,120})(['"]?\s*\r?\n\s*cipher\s*:\s*['"]?2022-blake3-[a-z0-9\-]+['"]?)""",
+                )
+                val healedYaml = ss2022KeyFixRegex.replace(yaml) { m ->
+                    val prefix = m.groupValues[1]
+                    val rawPass = m.groupValues[2]
+                    val suffix = m.groupValues[3]
+                    val fixedPass = rawPass.split(':').joinToString(":") { part ->
+                        val std = part.trim().replace(' ', '+').replace('-', '+').replace('_', '/')
+                        val noPad = std.trimEnd('=')
+                        noPad + "=".repeat((4 - noPad.length % 4) % 4)
+                    }
+                    "$prefix$fixedPass$suffix"
+                }
+                if (healedYaml != yaml) {
+                    yaml = healedYaml
+                    modified = true
                 }
             }
 

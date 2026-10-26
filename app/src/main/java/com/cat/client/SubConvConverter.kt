@@ -172,6 +172,7 @@ object SubConvConverter {
             )
             "xhttp" -> proxy.put("xhttp-opts", xhttpOptions(query))
         }
+        query["sni_fwd_target"]?.takeIf(String::isNotBlank)?.let { proxy.put("sni-fwd-target", it.trim()) }
         return proxy
     }
 
@@ -297,6 +298,7 @@ object SubConvConverter {
                 }
                 put("client-fingerprint", query["fp"].orEmpty().ifBlank { "chrome" })
                 query["pcs"]?.takeIf(String::isNotBlank)?.let { put("fingerprint", it) }
+                query["sni_fwd_target"]?.takeIf(String::isNotBlank)?.let { put("sni-fwd-target", it.trim()) }
             }
     }
 
@@ -456,27 +458,94 @@ object SubConvConverter {
         val at = authority.lastIndexOf('@')
         if (at < 1) throw ParseError()
         val rawCredentials = authority.substring(0, at)
-        val credentials = if (':' in rawCredentials) {
-            decode(rawCredentials)
+        val credentials = if (':' in rawCredentials || "%3A" in rawCredentials || "%3a" in rawCredentials) {
+            decodeSocksUserInfo(rawCredentials)
         } else {
-            decodeBase64Text(rawCredentials) ?: throw ParseError()
+            decodeBase64Text(decodeSocksUserInfo(rawCredentials)) ?: throw ParseError()
         }
         val separator = credentials.indexOf(':')
         if (separator < 1) throw ParseError()
         val endpoint = parseHostPort(authority.substring(at + 1)) ?: throw ParseError()
+        val (validCipher, validPassword) = normalizeAndValidateShadowsocksCredentials(
+            cipherRaw = credentials.substring(0, separator),
+            passwordRaw = credentials.substring(separator + 1),
+        )
         val proxy = JSONObject()
             .put("name", names.register(decode(fragmentSplit.getOrNull(1).orEmpty())))
             .put("type", "ss")
             .put("server", endpoint.host)
             .put("port", endpoint.port)
-            .put("password", credentials.substring(separator + 1))
-            .put("cipher", credentials.substring(0, separator))
+            .put("password", validPassword)
+            .put("cipher", validCipher)
             .put("udp", true)
         query["plugin"]?.let { plugin -> applyPlugin(proxy, plugin) }
         if (query["udp-over-tcp"] == "true" || query["uot"] == "1") {
             proxy.put("udp-over-tcp", true)
         }
         return proxy
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun normalizeAndValidateShadowsocksCredentials(
+        cipherRaw: String,
+        passwordRaw: String,
+    ): Pair<String, String> {
+        val cipher = cipherRaw.trim().lowercase()
+        val password = passwordRaw.trim()
+        if (cipher.isEmpty() || password.isEmpty()) throw ParseError()
+
+        if (cipher.startsWith("2022-blake3-")) {
+            val expectedKeyLen = when (cipher) {
+                "2022-blake3-aes-128-gcm" -> 16
+                "2022-blake3-aes-256-gcm",
+                "2022-blake3-chacha20-poly1305",
+                -> 32
+                else -> throw ParseError()
+            }
+            val keyParts = password.split(':').filter { it.isNotBlank() }
+            if (keyParts.isEmpty()) throw ParseError()
+            val normalizedParts = keyParts.map { rawPart ->
+                // Restore '+' if a previous URLDecoder turned '+' into ' ' in a base64 key,
+                // convert URL-safe alphabet ('-', '_') to standard ('+', '/'), and pad with '='.
+                val stdAlphabet = rawPart.trim()
+                    .replace(' ', '+')
+                    .replace('-', '+')
+                    .replace('_', '/')
+                val noPad = stdAlphabet.trimEnd('=')
+                if (noPad.isEmpty() || !noPad.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' }) {
+                    throw ParseError()
+                }
+                val padded = noPad + "=".repeat((4 - noPad.length % 4) % 4)
+                val decodedBytes = runCatching { Base64.Default.decode(padded) }.getOrNull()
+                    ?: throw ParseError()
+                if (decodedBytes.size != expectedKeyLen) {
+                    throw ParseError()
+                }
+                Base64.Default.encode(decodedBytes)
+            }
+            return cipher to normalizedParts.joinToString(":")
+        }
+
+        val supportedLegacyAndAeadCiphers = setOf(
+            "aes-128-gcm",
+            "aes-192-gcm",
+            "aes-256-gcm",
+            "chacha20-ietf-poly1305",
+            "xchacha20-ietf-poly1305",
+            "aes-128-cfb",
+            "aes-192-cfb",
+            "aes-256-cfb",
+            "aes-128-ctr",
+            "aes-192-ctr",
+            "aes-256-ctr",
+            "rc4-md5",
+            "chacha20",
+            "chacha20-ietf",
+            "none",
+            "dummy",
+        )
+        if (cipher !in supportedLegacyAndAeadCiphers) throw ParseError()
+        return cipher to password
     }
 
     private fun parseWireGuard(line: String, names: NameRegistry): JSONObject {

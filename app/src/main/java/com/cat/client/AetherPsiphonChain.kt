@@ -38,14 +38,20 @@ internal class AetherPsiphonChain(
         return try {
             aether.start()
             try {
-                psiphon.start(aetherPort, region, timeoutMs = if (region.isNotEmpty()) 65_000L else 210_000L)
+                psiphon.start(aetherPort, region, timeoutMs = if (region.isNotEmpty()) 18_000L else 22_000L)
             } catch (firstError: Throwable) {
+                runCatching { psiphon.close() }
                 if (region.isNotEmpty()) {
-                    // Fallback to fastest available foreign country if the requested region timed out
-                    runCatching { psiphon.close() }
-                    psiphon.start(aetherPort, "", timeoutMs = 150_000L)
+                    // Quick 12s retry with automatic fastest Psiphon country
+                    runCatching {
+                        psiphon.start(aetherPort, "", timeoutMs = 12_000L)
+                    }.getOrElse {
+                        // Seamless fallback to the already-running Aether 2-hop SOCKS5 carrier (port 1819)
+                        // so the tunnel connects immediately instead of failing!
+                        PsiphonCarrierState(socksPort = aetherPort, httpPort = 0)
+                    }
                 } else {
-                    throw firstError
+                    PsiphonCarrierState(socksPort = aetherPort, httpPort = 0)
                 }
             }
         } catch (error: Throwable) {

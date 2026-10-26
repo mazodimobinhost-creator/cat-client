@@ -295,6 +295,7 @@ object MihomoShareLink {
         proxy.str("flow")?.let { params["flow"] = it }
         params += tlsParams(proxy, sniKey = "servername")
         params += transportParams(proxy)
+        proxy.str("sni-fwd-target")?.takeIf { it.isNotBlank() }?.let { params["sni_fwd_target"] = it }
         return "vless://$uuid@$host:$port" + query(params) + fragment(name)
     }
 
@@ -304,6 +305,7 @@ object MihomoShareLink {
         // Mihomo treats trojan as TLS unless the entry says `tls: false` (Cat Panel plain ports).
         params += tlsParams(proxy, sniKey = "sni", alwaysTls = proxy["tls"] == null)
         params += transportParams(proxy)
+        proxy.str("sni-fwd-target")?.takeIf { it.isNotBlank() }?.let { params["sni_fwd_target"] = it }
         return "trojan://${encode(password)}@$host:$port" + query(params) + fragment(name)
     }
 
