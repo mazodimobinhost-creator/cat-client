@@ -31,6 +31,17 @@ internal data class AetherExitTrace(
     val isIranIp: Boolean get() = countryCode.equals("IR", ignoreCase = true)
 }
 
+internal data class AetherTwoHopProbeReport(
+    val outerPeer: String,
+    val outerReachable: Boolean,
+    val outerRttMs: Long,
+    val innerPeer: String?,
+    val innerReachable: Boolean,
+    val innerRttMs: Long,
+    val exitTrace: AetherExitTrace?,
+    val sanctionFree: Boolean,
+)
+
 /** Explicit foreground operations only; callers own coroutine/lifecycle cancellation. */
 internal object AetherOperations {
     fun parseExitTrace(raw: String): AetherExitTrace? {
@@ -306,20 +317,24 @@ internal object AetherOperations {
         identityFile: File,
         ipScan: String = "both",
         masqueTransport: String = "h2",
+        scanMode: String = "balanced",
+        noizePreset: String = "auto",
     ): Result<List<AetherEndpoint>> = runCatching {
         check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
         // When scanning for MASQUE-in-MASQUE over HTTP/2, run the gateway scanner on HTTP/2 ("h2")
         // so that native `apply_environment()` sets `AETHER_MASQUE_HTTP2=1` during the scan probes.
-        val scanMode = when {
+        val effectiveMode = when {
             mode == AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
             mode == AetherMode.MasqueInMasque && masqueTransport != "h3" -> AetherMode.MasqueHttp2
             else -> mode
         }
         val config = AetherRuntimeConfig(
-            mode = scanMode,
+            mode = effectiveMode,
             identityFile = identityFile,
             ipScan = ipScan,
             masqueTransport = masqueTransport,
+            scanMode = scanMode.takeIf { it in AetherRuntimeConfig.VALID_SCAN_MODES } ?: "balanced",
+            noizePreset = noizePreset.takeIf { it in AetherRuntimeConfig.VALID_NOIZE_PRESETS } ?: "auto",
         )
         NativeAetherBridge.scan(config.toNativeJson()).getOrThrow()
             .asSequence()
@@ -341,8 +356,10 @@ internal object AetherOperations {
         identityFile: File,
         ipScan: String = "both",
         masqueTransport: String = "h2",
+        scanMode: String = "balanced",
+        noizePreset: String = "auto",
     ): Result<AetherTwoHopScanResult> = runCatching {
-        val list = scan(mode, identityFile, ipScan, masqueTransport).getOrThrow()
+        val list = scan(mode, identityFile, ipScan, masqueTransport, scanMode, noizePreset).getOrThrow()
         check(list.isNotEmpty()) { "No clean endpoints found" }
         val outer = list.first()
         val outerHost = outer.peer.substringBeforeLast(':')
@@ -367,6 +384,141 @@ internal object AetherOperations {
             rttMillis = outer.rttMillis,
             allCandidates = list,
         )
+    }
+
+    /**
+     * Replenishes the Warm WARP Key Pool (`AetherPreferenceStore.readWarpKeyPool()`) up to `targetCount`
+     * complete keybundles (default 3) so users can create new `MASQUE in MASQUE` / `WARP` configs
+     * in 0ms even when Cloudflare's registration API is temporarily throttled.
+     */
+    fun replenishWarmWarpKeyPool(
+        store: AetherPreferenceStore,
+        workDir: File,
+        targetCount: Int = 3,
+        upstreamProxy: String? = null,
+    ): List<AetherWarmWarpKeyEntry> {
+        val desired = targetCount.coerceIn(1, 5)
+        workDir.mkdirs()
+        val existingCount = store.readWarpKeyPool().size
+        val toFetch = (desired - existingCount).coerceAtLeast(1)
+        for (idx in 1..toFetch) {
+            val slotFile = File(workDir, "aether_pool_slot_${System.currentTimeMillis()}_$idx.toml")
+            try {
+                val report = getNewWarpKeys(
+                    identityFile = slotFile,
+                    kind = "all",
+                    upstreamProxy = upstreamProxy,
+                )
+                if (slotFile.isFile && slotFile.length() > 40L) {
+                    val toml = slotFile.readText()
+                    val summary = "MASQUE(${report.masquePrimaryId}) + WG(${report.wgPrimaryId})"
+                    store.pushWarmWarpKeyEntry(
+                        AetherWarmWarpKeyEntry(
+                            idSummary = summary,
+                            tomlContent = toml,
+                            createdAt = System.currentTimeMillis(),
+                        ),
+                        maxEntries = desired,
+                    )
+                }
+            } finally {
+                runCatching { slotFile.delete() }
+            }
+        }
+        // Also seed from active aether.toml if pool is still empty
+        val mainToml = File(workDir, "aether.toml")
+        if (store.readWarpKeyPool().isEmpty() && mainToml.isFile && mainToml.length() > 40L) {
+            store.pushWarmWarpKeyEntry(
+                AetherWarmWarpKeyEntry(
+                    idSummary = "Cached-Active-WARP-Key",
+                    tomlContent = mainToml.readText(),
+                    createdAt = System.currentTimeMillis(),
+                ),
+                maxEntries = desired,
+            )
+        }
+        return store.readWarpKeyPool()
+    }
+
+    /**
+     * Measures real network RTT (ms) for an `aether://` or `masque://` share URI so that
+     * `ConnectionTestingPage` in `MainActivity` displays real ping values for Aether configs.
+     */
+    fun probeAetherUriLatencyMs(rawUri: String, timeoutMs: Int = 2_500): Int? {
+        val sel = AetherSelection.fromAetherUri(rawUri) ?: return null
+        val outer = sel.endpoint ?: when {
+            sel.ipScan == "v6" && sel.mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) ->
+                "[2606:4700:d0::a29f:c001]:2408"
+            sel.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+            sel.mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "162.159.192.1:2408"
+            else -> "162.159.198.1:443"
+        }
+        val useTcp = sel.mode in setOf(AetherMode.MasqueInMasque, AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque) &&
+            sel.masqueTransport != "h3"
+        val outerRtt = probePeerSocketRttMs(outer, useTcp = useTcp, timeoutMs = timeoutMs) ?: return null
+        val inner = sel.innerEndpoint
+        if (inner != null && sel.mode in setOf(AetherMode.MasqueInMasque, AetherMode.WarpInWarp, AetherMode.WireGuardOverMasque)) {
+            val innerRtt = probePeerSocketRttMs(inner, useTcp = useTcp, timeoutMs = timeoutMs)
+            if (innerRtt != null) {
+                return ((outerRtt + innerRtt) / 2L).toInt().coerceAtLeast(1)
+            }
+        }
+        return outerRtt.toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Live 2-Hop diagnostic probe (`Outer Hop` + `Inner Hop` + Cloudflare Trace + Sanction Bypass check).
+     */
+    fun probeTwoHopLiveReport(selection: AetherSelection, timeoutMs: Int = 2_800): AetherTwoHopProbeReport {
+        val outer = selection.endpoint ?: when {
+            selection.ipScan == "v6" && selection.mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) ->
+                "[2606:4700:d0::a29f:c001]:2408"
+            selection.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+            selection.mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "162.159.192.1:2408"
+            else -> "162.159.198.1:443"
+        }
+        val isTwoHop = selection.mode in setOf(AetherMode.MasqueInMasque, AetherMode.WarpInWarp, AetherMode.WireGuardOverMasque)
+        val inner = if (isTwoHop) {
+            selection.innerEndpoint ?: if (outer.startsWith("162.159.198.1:")) "162.159.198.2:443" else "162.159.198.1:443"
+        } else null
+        val useTcp = selection.mode in setOf(AetherMode.MasqueInMasque, AetherMode.MasqueHttp2, AetherMode.WireGuardOverMasque) &&
+            selection.masqueTransport != "h3"
+        val outerRtt = probePeerSocketRttMs(outer, useTcp = useTcp, timeoutMs = timeoutMs)
+        val innerRtt = inner?.let { probePeerSocketRttMs(it, useTcp = useTcp, timeoutMs = timeoutMs) }
+        val trace = probeExitTrace(timeoutMs).getOrNull()
+        val sanctioned = runCatching { WhiteDnsSmartScanner.isDirectExitSanctionedOrBlocked(timeoutMs) }.getOrDefault(false)
+        return AetherTwoHopProbeReport(
+            outerPeer = outer,
+            outerReachable = outerRtt != null,
+            outerRttMs = outerRtt ?: -1L,
+            innerPeer = inner,
+            innerReachable = inner == null || innerRtt != null,
+            innerRttMs = innerRtt ?: -1L,
+            exitTrace = trace,
+            sanctionFree = !sanctioned && (trace == null || !trace.isIranIp),
+        )
+    }
+
+    internal fun probePeerSocketRttMs(peer: String, useTcp: Boolean, timeoutMs: Int = 2_200): Long? {
+        val ep = connectionChainEndpointOrNull(peer.trim()) ?: return null
+        val t0 = System.nanoTime()
+        return runCatching {
+            val addr = InetAddress.getByName(ep.ip)
+            val sockAddr = java.net.InetSocketAddress(addr, ep.port)
+            if (useTcp) {
+                java.net.Socket().use { sock ->
+                    sock.connect(sockAddr, timeoutMs)
+                }
+            } else {
+                java.net.DatagramSocket().use { dgram ->
+                    dgram.soTimeout = timeoutMs
+                    dgram.connect(sockAddr)
+                    val pkt = ByteArray(32)
+                    dgram.send(java.net.DatagramPacket(pkt, pkt.size))
+                }
+            }
+            ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+        }.getOrNull()
     }
 
     /**

@@ -2,6 +2,12 @@ package com.cat.client
 
 import android.content.Context
 
+data class AetherWarmWarpKeyEntry(
+    val idSummary: String,
+    val tomlContent: String,
+    val createdAt: Long,
+)
+
 data class AetherSavedProfile(
     val name: String,
     val mode: AetherMode,
@@ -13,6 +19,9 @@ data class AetherSavedProfile(
     val psiphonRegion: String = "",
     val masqueTransport: String = "h2",
     val innerEndpoint: String = "",
+    val scanMode: String = "balanced",
+    val noizePreset: String = "auto",
+    val psiphonMode: String = "auto",
 )
 
 data class AetherSmartHint(
@@ -43,13 +52,28 @@ data class AetherSelection(
     val masqueTransport: String = "h2",
     val masqueSni: String = "",
     val echEnabled: Boolean = false,
+    val echDns: String = "https://1.1.1.1/dns-query",
+    val echDomain: String = "cloudflare-ech.com",
+    val scanMode: String = "balanced",
+    val noizePreset: String = "auto",
+    val fingerprint: String = "",
+    val fragmentEnabled: Boolean = true,
+    val fragmentSize: String = "16-32",
+    val fragmentDelay: String = "2-10",
+    val psiphonMode: String = "auto",
+    val psiphonCdnIps: String = "",
+    val psiphonCdnSni: String = "",
+    val psiphonBundled: Boolean = true,
+    val torBridgesMode: String = "auto",
+    val torCustomBridges: String = "",
+    val torRelaysMode: String = "auto",
 ) {
     fun freshEndpoint(now: Long = System.currentTimeMillis()): String? = endpoint?.takeIf {
         endpointScannedAt > 0L && now >= endpointScannedAt && now - endpointScannedAt <= ENDPOINT_MAX_AGE_MS
     }
 
     /**
-     * Resolves the carrier mode when chaining Psiphon or Tor (`warp -> psiphon/tor`).
+     * Resolves the carrier mode when chaining Psiphon or Tor (`warp -> psiphon/tor` or `reverse`).
      * Preserves `MasqueInMasque` (`MASQUE in MASQUE` over `HTTP/2`), `WarpInWarp`,
      * `MasqueHttp2`, and `WireGuard` as requested by the user/profile.
      */
@@ -70,7 +94,8 @@ data class AetherSelection(
      *   imply `"foreign"` and single-hop implies `"iran"`.
      */
     fun effectiveExitLocation(): String = when {
-        chainTarget in setOf("psiphon", "tor", "auto-psiphon") || mode == AetherMode.MasquePsiphon -> "foreign"
+        chainTarget in setOf("psiphon", "psiphon-reverse", "tor", "tor-reverse", "auto-psiphon") ||
+            mode == AetherMode.MasquePsiphon -> "foreign"
         exitLocation in setOf("iran", "foreign") -> exitLocation
         mode in setOf(AetherMode.MasqueInMasque, AetherMode.WarpInWarp, AetherMode.WireGuardOverMasque) -> "foreign"
         else -> "iran"
@@ -276,26 +301,39 @@ data class AetherSelection(
             cleanPeer != null && !cleanPeer.startsWith("[") -> "v4"
             else -> "both"
         }
+        val validScan = scanMode.takeIf { it in VALID_SCAN_MODES } ?: "balanced"
         val params = mutableListOf(
             "protocol=$proto",
-            "scan=balanced",
+            "scan=$validScan",
             "ip=$effectiveIp",
         )
+        val validNoize = noizePreset.takeIf { it in VALID_NOIZE_PRESETS } ?: "auto"
+        if (validNoize != "auto") {
+            params += "noize=$validNoize"
+        }
         if (proto in setOf("masque", "wg-over-masque", "mim")) {
             val tr = if (masqueTransport == "h3") "h3" else "h2"
             params += "transport=$tr"
-            if (tr == "h2") {
+            if (tr == "h2" && fragmentEnabled) {
                 params += "fragment=1"
-                params += "fragment_size=16-32"
-                params += "fragment_delay=2-10"
+                params += "fragment_size=${fragmentSize.ifBlank { "16-32" }}"
+                params += "fragment_delay=${fragmentDelay.ifBlank { "2-10" }}"
             }
-            params += "fingerprint=${if (proto == "mim") "chrome" else "semi-python"}"
+            val effFp = fingerprint.takeIf { it in VALID_FINGERPRINTS }
+                ?: if (proto == "mim") "chrome" else "semi-python"
+            params += "fingerprint=$effFp"
             val cleanMasqueSni = masqueSni.trim()
             if (cleanMasqueSni.isNotEmpty()) {
                 params += "masque_sni=${java.net.URLEncoder.encode(cleanMasqueSni, "UTF-8")}"
             }
             if (echEnabled) {
                 params += "ech=1"
+                if (echDns.isNotBlank() && echDns != "https://1.1.1.1/dns-query") {
+                    params += "ech_dns=${java.net.URLEncoder.encode(echDns.trim(), "UTF-8")}"
+                }
+                if (echDomain.isNotBlank() && echDomain != "cloudflare-ech.com") {
+                    params += "ech_domain=${java.net.URLEncoder.encode(echDomain.trim(), "UTF-8")}"
+                }
             }
         }
         if (twoHops && cleanPeer != null) {
@@ -304,26 +342,42 @@ data class AetherSelection(
                 params += "inner=${java.net.URLEncoder.encode(cleanInner, "UTF-8")}"
             }
         }
-        if (chainTarget == "psiphon" || mode == AetherMode.MasquePsiphon) {
-            params += "psiphon=chain"
-            params += "psiphon_mode=auto"
+        val effPsiphonMode = psiphonMode.takeIf { it in VALID_PSIPHON_MODES } ?: "auto"
+        if (chainTarget in setOf("psiphon", "psiphon-reverse", "auto-psiphon") || mode == AetherMode.MasquePsiphon) {
+            val psiVal = when (chainTarget) {
+                "psiphon-reverse" -> "reverse"
+                "auto-psiphon" -> "auto"
+                else -> "chain"
+            }
+            params += "psiphon=$psiVal"
+            params += "psiphon_mode=$effPsiphonMode"
+            if (effPsiphonMode == "cdn") {
+                if (psiphonCdnIps.isNotBlank()) {
+                    params += "cdn_ips=${java.net.URLEncoder.encode(psiphonCdnIps.trim(), "UTF-8")}"
+                }
+                if (psiphonCdnSni.isNotBlank()) {
+                    params += "cdn_sni=${java.net.URLEncoder.encode(psiphonCdnSni.trim(), "UTF-8")}"
+                }
+            }
+            if (!psiphonBundled) {
+                params += "psiphon_bundled=0"
+            }
             if (psiphonRegion.matches(Regex("[A-Z]{2}"))) {
                 params += "region=$psiphonRegion"
             }
-        } else if (chainTarget == "auto-psiphon") {
-            params += "psiphon=auto"
-            params += "psiphon_mode=auto"
-            if (psiphonRegion.matches(Regex("[A-Z]{2}"))) {
-                params += "region=$psiphonRegion"
+        } else if (chainTarget in setOf("tor", "tor-reverse")) {
+            params += "tor=${if (chainTarget == "tor-reverse") "reverse" else "chain"}"
+            val effTorBridges = torBridgesMode.takeIf { it in VALID_TOR_BRIDGES_MODES } ?: "auto"
+            val effTorRelays = torRelaysMode.takeIf { it in VALID_TOR_RELAYS_MODES } ?: "auto"
+            params += "tor_bridges=$effTorBridges"
+            if (effTorBridges == "own" && torCustomBridges.isNotBlank()) {
+                params += "bridges=${java.net.URLEncoder.encode(torCustomBridges.trim(), "UTF-8")}"
             }
-        } else if (chainTarget == "tor") {
-            params += "tor=chain"
-            params += "tor_bridges=auto"
-            params += "tor_relays=auto"
+            params += "tor_relays=$effTorRelays"
         }
         val labelBase = profileName.trim().ifEmpty {
             when (proto) {
-                "mim" -> if (chainTarget == "psiphon") "PattNG-MIM-Psiphon" else "Aether-MIM-H2"
+                "mim" -> if (chainTarget.startsWith("psiphon")) "PattNG-MIM-Psiphon" else "Aether-MIM-H2"
                 "gool" -> "Aether-Gool"
                 "wg-over-masque" -> "Aether-WG-MASQUE"
                 "wg" -> "Aether-WARP"
@@ -337,11 +391,17 @@ data class AetherSelection(
 
     companion object {
         const val ENDPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000L
-        val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "tor", "auto-psiphon")
+        val VALID_CHAIN_TARGETS = setOf("none", "psiphon", "psiphon-reverse", "tor", "tor-reverse", "auto-psiphon")
         val VALID_EXIT_LOCATIONS = setOf("auto", "iran", "foreign")
+        val VALID_SCAN_MODES = setOf("turbo", "balanced", "thorough", "verified", "ironclad")
+        val VALID_NOIZE_PRESETS = setOf("auto", "off", "light", "firewall", "balanced", "gfw", "aggressive")
+        val VALID_FINGERPRINTS = setOf("chrome", "chrome-120", "firefox", "semi-python", "go")
+        val VALID_PSIPHON_MODES = setOf("auto", "cdn", "direct")
+        val VALID_TOR_BRIDGES_MODES = setOf("auto", "first", "never", "own")
+        val VALID_TOR_RELAYS_MODES = setOf("auto", "only", "off")
 
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
-            if (chainTarget !in setOf("psiphon", "tor", "auto-psiphon")) return mode
+            if (chainTarget !in setOf("psiphon", "psiphon-reverse", "tor", "tor-reverse", "auto-psiphon")) return mode
             return when (mode) {
                 AetherMode.MasqueInMasque,
                 AetherMode.WarpInWarp,
@@ -388,9 +448,11 @@ data class AetherSelection(
             val torParam = map["tor"].orEmpty().lowercase()
             val legacyChain = (map["chain"] ?: map["cfil"]).orEmpty().lowercase()
             val chainTarget = when {
+                psiphonParam == "reverse" || legacyChain == "psiphon-reverse" -> "psiphon-reverse"
                 psiphonParam == "auto" || legacyChain == "auto-psiphon" -> "auto-psiphon"
-                psiphonParam in setOf("chain", "reverse", "only", "1", "true") || legacyChain == "psiphon" -> "psiphon"
-                torParam in setOf("chain", "reverse", "only", "1", "true") || legacyChain == "tor" -> "tor"
+                psiphonParam in setOf("chain", "only", "1", "true") || legacyChain == "psiphon" -> "psiphon"
+                torParam == "reverse" || legacyChain == "tor-reverse" -> "tor-reverse"
+                torParam in setOf("chain", "only", "1", "true") || legacyChain == "tor" -> "tor"
                 else -> "none"
             }
             val exitLocRaw = map["exit_loc"].orEmpty().uppercase()
@@ -417,6 +479,21 @@ data class AetherSelection(
             val region = map["region"].orEmpty().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
             val masqueSniParam = (map["masque_sni"] ?: map["sni"]).orEmpty().trim()
             val echParam = map["ech"].orEmpty().lowercase() in setOf("1", "true", "yes", "on")
+            val echDnsParam = map["ech_dns"]?.trim()?.takeIf { it.isNotEmpty() } ?: "https://1.1.1.1/dns-query"
+            val echDomainParam = map["ech_domain"]?.trim()?.takeIf { it.isNotEmpty() } ?: "cloudflare-ech.com"
+            val scanModeParam = map["scan"].orEmpty().lowercase().takeIf { it in VALID_SCAN_MODES } ?: "balanced"
+            val noizeParam = map["noize"].orEmpty().lowercase().takeIf { it in VALID_NOIZE_PRESETS } ?: "auto"
+            val fpParam = map["fingerprint"].orEmpty().lowercase().takeIf { it in VALID_FINGERPRINTS }.orEmpty()
+            val fragEnabledParam = map["fragment"].orEmpty().lowercase() !in setOf("0", "false", "off")
+            val fragSizeParam = map["fragment_size"]?.trim()?.takeIf { it.isNotEmpty() } ?: "16-32"
+            val fragDelayParam = map["fragment_delay"]?.trim()?.takeIf { it.isNotEmpty() } ?: "2-10"
+            val psiModeParam = map["psiphon_mode"].orEmpty().lowercase().takeIf { it in VALID_PSIPHON_MODES } ?: "auto"
+            val cdnIpsParam = map["cdn_ips"].orEmpty().trim()
+            val cdnSniParam = map["cdn_sni"].orEmpty().trim()
+            val psiBundledParam = map["psiphon_bundled"].orEmpty().lowercase() !in setOf("0", "false", "off")
+            val torBridgesParam = map["tor_bridges"].orEmpty().lowercase().takeIf { it in VALID_TOR_BRIDGES_MODES } ?: "auto"
+            val customBridgesParam = map["bridges"].orEmpty().trim()
+            val torRelaysParam = map["tor_relays"].orEmpty().lowercase().takeIf { it in VALID_TOR_RELAYS_MODES } ?: "auto"
             val name = runCatching { java.net.URLDecoder.decode(rawFragment, "UTF-8") }.getOrDefault(rawFragment).trim()
             return AetherSelection(
                 enabled = true,
@@ -432,6 +509,21 @@ data class AetherSelection(
                 masqueTransport = transportParam,
                 masqueSni = masqueSniParam,
                 echEnabled = echParam,
+                echDns = echDnsParam,
+                echDomain = echDomainParam,
+                scanMode = scanModeParam,
+                noizePreset = noizeParam,
+                fingerprint = fpParam,
+                fragmentEnabled = fragEnabledParam,
+                fragmentSize = fragSizeParam,
+                fragmentDelay = fragDelayParam,
+                psiphonMode = psiModeParam,
+                psiphonCdnIps = cdnIpsParam,
+                psiphonCdnSni = cdnSniParam,
+                psiphonBundled = psiBundledParam,
+                torBridgesMode = torBridgesParam,
+                torCustomBridges = customBridgesParam,
+                torRelaysMode = torRelaysParam,
             )
         }
     }
@@ -463,6 +555,27 @@ class AetherPreferenceStore(context: Context) {
             .takeIf { it in setOf("h2", "h3") } ?: "h2"
         val masqueSni = prefs.getString("masqueSni", "").orEmpty().trim()
         val echEnabled = prefs.getBoolean("echEnabled", false)
+        val echDns = prefs.getString("echDns", "https://1.1.1.1/dns-query").orEmpty().ifBlank { "https://1.1.1.1/dns-query" }
+        val echDomain = prefs.getString("echDomain", "cloudflare-ech.com").orEmpty().ifBlank { "cloudflare-ech.com" }
+        val scanMode = prefs.getString("scanMode", "balanced").orEmpty()
+            .takeIf { it in AetherSelection.VALID_SCAN_MODES } ?: "balanced"
+        val noizePreset = prefs.getString("noizePreset", "auto").orEmpty()
+            .takeIf { it in AetherSelection.VALID_NOIZE_PRESETS } ?: "auto"
+        val fingerprint = prefs.getString("fingerprint", "").orEmpty()
+            .takeIf { it.isEmpty() || it in AetherSelection.VALID_FINGERPRINTS }.orEmpty()
+        val fragmentEnabled = prefs.getBoolean("fragmentEnabled", true)
+        val fragmentSize = prefs.getString("fragmentSize", "16-32").orEmpty().ifBlank { "16-32" }
+        val fragmentDelay = prefs.getString("fragmentDelay", "2-10").orEmpty().ifBlank { "2-10" }
+        val psiphonMode = prefs.getString("psiphonMode", "auto").orEmpty()
+            .takeIf { it in AetherSelection.VALID_PSIPHON_MODES } ?: "auto"
+        val psiphonCdnIps = prefs.getString("psiphonCdnIps", "").orEmpty().trim()
+        val psiphonCdnSni = prefs.getString("psiphonCdnSni", "").orEmpty().trim()
+        val psiphonBundled = prefs.getBoolean("psiphonBundled", true)
+        val torBridgesMode = prefs.getString("torBridgesMode", "auto").orEmpty()
+            .takeIf { it in AetherSelection.VALID_TOR_BRIDGES_MODES } ?: "auto"
+        val torCustomBridges = prefs.getString("torCustomBridges", "").orEmpty().trim()
+        val torRelaysMode = prefs.getString("torRelaysMode", "auto").orEmpty()
+            .takeIf { it in AetherSelection.VALID_TOR_RELAYS_MODES } ?: "auto"
         return AetherSelection(
             enabled = enabled,
             mode = mode,
@@ -477,6 +590,21 @@ class AetherPreferenceStore(context: Context) {
             masqueTransport = masqueTransport,
             masqueSni = masqueSni,
             echEnabled = echEnabled,
+            echDns = echDns,
+            echDomain = echDomain,
+            scanMode = scanMode,
+            noizePreset = noizePreset,
+            fingerprint = fingerprint,
+            fragmentEnabled = fragmentEnabled,
+            fragmentSize = fragmentSize,
+            fragmentDelay = fragmentDelay,
+            psiphonMode = psiphonMode,
+            psiphonCdnIps = psiphonCdnIps,
+            psiphonCdnSni = psiphonCdnSni,
+            psiphonBundled = psiphonBundled,
+            torBridgesMode = torBridgesMode,
+            torCustomBridges = torCustomBridges,
+            torRelaysMode = torRelaysMode,
         )
     }
 
@@ -497,6 +625,12 @@ class AetherPreferenceStore(context: Context) {
             else -> AetherSelection.simplifyModeForChain(selection.mode, validChain)
         }
         val validTransport = selection.masqueTransport.takeIf { it in setOf("h2", "h3") } ?: "h2"
+        val validScan = selection.scanMode.takeIf { it in AetherSelection.VALID_SCAN_MODES } ?: "balanced"
+        val validNoize = selection.noizePreset.takeIf { it in AetherSelection.VALID_NOIZE_PRESETS } ?: "auto"
+        val validFp = selection.fingerprint.takeIf { it.isEmpty() || it in AetherSelection.VALID_FINGERPRINTS }.orEmpty()
+        val validPsiMode = selection.psiphonMode.takeIf { it in AetherSelection.VALID_PSIPHON_MODES } ?: "auto"
+        val validTorBridges = selection.torBridgesMode.takeIf { it in AetherSelection.VALID_TOR_BRIDGES_MODES } ?: "auto"
+        val validTorRelays = selection.torRelaysMode.takeIf { it in AetherSelection.VALID_TOR_RELAYS_MODES } ?: "auto"
         prefs.edit()
             .putBoolean("enabled", selection.enabled)
             .putString("mode", normalizedMode.wireName)
@@ -511,7 +645,100 @@ class AetherPreferenceStore(context: Context) {
             .putString("masqueTransport", validTransport)
             .putString("masqueSni", selection.masqueSni.trim())
             .putBoolean("echEnabled", selection.echEnabled)
+            .putString("echDns", selection.echDns.trim().ifBlank { "https://1.1.1.1/dns-query" })
+            .putString("echDomain", selection.echDomain.trim().ifBlank { "cloudflare-ech.com" })
+            .putString("scanMode", validScan)
+            .putString("noizePreset", validNoize)
+            .putString("fingerprint", validFp)
+            .putBoolean("fragmentEnabled", selection.fragmentEnabled)
+            .putString("fragmentSize", selection.fragmentSize.trim().ifBlank { "16-32" })
+            .putString("fragmentDelay", selection.fragmentDelay.trim().ifBlank { "2-10" })
+            .putString("psiphonMode", validPsiMode)
+            .putString("psiphonCdnIps", selection.psiphonCdnIps.trim())
+            .putString("psiphonCdnSni", selection.psiphonCdnSni.trim())
+            .putBoolean("psiphonBundled", selection.psiphonBundled)
+            .putString("torBridgesMode", validTorBridges)
+            .putString("torCustomBridges", selection.torCustomBridges.trim())
+            .putString("torRelaysMode", validTorRelays)
             .apply()
+    }
+
+    /**
+     * Warm WARP Key Pool (stores up to 3 pre-provisioned `aether.toml` key bundles
+     * containing Primary & Secondary WARP/MASQUE keys for instant offline/zero-wait config creation).
+     */
+    fun readWarpKeyPool(): List<AetherWarmWarpKeyEntry> {
+        val raw = prefs.getString("warpKeyPoolJson", null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val toml = obj.optString("tomlContent").trim()
+                    if (toml.length < 40) continue
+                    add(
+                        AetherWarmWarpKeyEntry(
+                            idSummary = obj.optString("idSummary", "WARP-Key-${i + 1}"),
+                            tomlContent = toml,
+                            createdAt = obj.optLong("createdAt", 0L),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun pushWarmWarpKeyEntry(entry: AetherWarmWarpKeyEntry, maxEntries: Int = 3) {
+        if (entry.tomlContent.trim().length < 40) return
+        val existing = readWarpKeyPool().filterNot { it.tomlContent.trim() == entry.tomlContent.trim() }
+        val updated = (listOf(entry) + existing).take(maxEntries.coerceIn(1, 5))
+        val arr = org.json.JSONArray()
+        updated.forEach { item ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("idSummary", item.idSummary)
+                    .put("tomlContent", item.tomlContent)
+                    .put("createdAt", item.createdAt),
+            )
+        }
+        prefs.edit().putString("warpKeyPoolJson", arr.toString()).apply()
+    }
+
+    fun applyWarmWarpKeyToFileIfNeeded(identityFile: java.io.File, forceReplace: Boolean = false): AetherWarmWarpKeyEntry? {
+        if (!forceReplace && identityFile.exists() && identityFile.length() > 80L) return null
+        val pool = readWarpKeyPool()
+        val picked = pool.firstOrNull() ?: return null
+        return runCatching {
+            identityFile.parentFile?.mkdirs()
+            identityFile.writeText(picked.tomlContent)
+            picked
+        }.getOrNull()
+    }
+
+    /**
+     * 1-Tap quick Psiphon egress country switcher for saved/active `MASQUE in MASQUE` or `WARP > Psiphon` configs.
+     */
+    fun switchPsiphonCountryQuick(regionCode: String): AetherSelection {
+        val cleanRegion = regionCode.trim().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+        val cur = read()
+        val newChain = if (cur.chainTarget in setOf("psiphon", "psiphon-reverse", "auto-psiphon")) {
+            cur.chainTarget
+        } else {
+            "psiphon"
+        }
+        val tag = cleanRegion.ifBlank { "Auto" }
+        val baseName = cur.profileName.substringBefore("-Psiphon").ifBlank {
+            if (cur.mode == AetherMode.MasqueInMasque) "PattNG-MIM" else "WARP"
+        }
+        val updated = cur.copy(
+            enabled = true,
+            psiphonRegion = cleanRegion,
+            chainTarget = newChain,
+            exitLocation = "foreign",
+            profileName = "$baseName-Psiphon-$tag",
+        )
+        save(updated)
+        return updated
     }
 
     fun readSavedProfiles(): List<AetherSavedProfile> {
@@ -536,7 +763,13 @@ class AetherPreferenceStore(context: Context) {
                     val tr = obj.optString("masqueTransport", "h2").takeIf { it in setOf("h2", "h3") } ?: "h2"
                     val innerEp = obj.optString("innerEndpoint", "").trim()
                         .takeIf(AetherOperations::isSafePublicPeer).orEmpty()
-                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc, region, tr, innerEp))
+                    val scanM = obj.optString("scanMode", "balanced")
+                        .takeIf { it in AetherSelection.VALID_SCAN_MODES } ?: "balanced"
+                    val noizeP = obj.optString("noizePreset", "auto")
+                        .takeIf { it in AetherSelection.VALID_NOIZE_PRESETS } ?: "auto"
+                    val psiM = obj.optString("psiphonMode", "auto")
+                        .takeIf { it in AetherSelection.VALID_PSIPHON_MODES } ?: "auto"
+                    add(AetherSavedProfile(name, mode, ipScan, ep, ts, chain, exitLoc, region, tr, innerEp, scanM, noizeP, psiM))
                 }
             }
         }.getOrDefault(emptyList())
@@ -558,7 +791,10 @@ class AetherPreferenceStore(context: Context) {
                     .put("exitLocation", item.exitLocation)
                     .put("psiphonRegion", item.psiphonRegion)
                     .put("masqueTransport", item.masqueTransport)
-                    .put("innerEndpoint", item.innerEndpoint),
+                    .put("innerEndpoint", item.innerEndpoint)
+                    .put("scanMode", item.scanMode)
+                    .put("noizePreset", item.noizePreset)
+                    .put("psiphonMode", item.psiphonMode),
             )
         }
         prefs.edit().putString("savedProfilesJson", arr.toString()).apply()

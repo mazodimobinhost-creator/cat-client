@@ -79,7 +79,6 @@ class AetherRuntimeConfigTest {
         ).toNativeJson())
         assertEquals("h2", womIran.getString("transport"))
 
-        // PattNG MASQUE-in-MASQUE (mim) with HTTP/2 framing
         val mimCfg = AetherRuntimeConfig(
             mode = AetherMode.MasqueInMasque,
             identityFile = File("/tmp/aether-mim.toml"),
@@ -87,10 +86,25 @@ class AetherRuntimeConfigTest {
             innerEndpoint = "162.159.198.2:443",
             ipScan = "v4",
             masqueTransport = "h2",
+            scanMode = "ironclad",
+            noizePreset = "aggressive",
+            fingerprint = "chrome-120",
+            masqueSni = "custom-masque.cloudflareclient.com",
+            echEnabled = true,
+            echDns = "https://8.8.8.8/dns-query",
+            echDomain = "cloudflare-ech.com",
         )
         val mimJson = JSONObject(mimCfg.toNativeJson())
         assertEquals("mim", mimJson.getString("transport"))
         assertEquals("162.159.198.1:443", mimJson.getString("peer"))
+        assertEquals("162.159.198.2:443", mimJson.getString("innerPeer"))
+        assertEquals("ironclad", mimJson.getString("scan"))
+        assertEquals("aggressive", mimJson.getString("noize"))
+        assertEquals("chrome-120", mimJson.getString("fingerprint"))
+        assertEquals("custom-masque.cloudflareclient.com", mimJson.getString("masque_sni"))
+        assertTrue(mimJson.getBoolean("ech"))
+        assertTrue(mimJson.getBoolean("enable_grease_sigalgs"))
+        assertTrue(mimJson.getBoolean("enable_ech_grease"))
         assertTrue(mimCfg.usesMasqueHttp2)
 
         // WARP-in-WARP (wiw)

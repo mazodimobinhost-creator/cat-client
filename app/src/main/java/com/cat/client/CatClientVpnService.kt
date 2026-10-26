@@ -1347,12 +1347,47 @@ class CatClientVpnService : VpnService() {
         profile: ConnectionProfile,
         timeoutMs: Int,
     ): Int? {
+        val rawShare = profile.shareLink?.trim().orEmpty()
+        val scheme = rawShare.substringBefore("://", "").lowercase()
+        if (scheme == "aether" || scheme == "masque") {
+            val aetherRtt = withContext(Dispatchers.IO) {
+                AetherOperations.probeAetherUriLatencyMs(rawShare, timeoutMs)
+            }
+            if (aetherRtt != null) return aetherRtt
+        }
         connectionDelayMs(
             controller = controller,
             profile = profile,
             timeoutMs = timeoutMs,
             url = MihomoRuntimeDefaults.DELAY_TEST_URL,
         )?.let { return it }
+        // Direct endpoint fallback for local-bridge schemes when the temporary core hasn't spun up the bridge yet
+        val directFallback = withContext(Dispatchers.IO) {
+            when {
+                scheme in PaqetEngine.SUPPORTED_SCHEMES -> {
+                    val cfg = PaqetEngine.parsePaqetUri(rawShare)
+                    if (cfg != null) {
+                        PaqetEngine.probeEndpointLatencyMs(cfg.serverHost, cfg.serverPort, timeoutMs)?.toInt()
+                    } else null
+                }
+                scheme == "fenix" || scheme == "firefoxvpn" -> {
+                    FirefoxVpnEngine.probeBestProxyRttMs(timeoutMs)?.toInt()
+                }
+                scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> {
+                    val parsed = WhiteDnsSmartScanner.parseTunnelUri(rawShare)
+                    if (parsed != null) {
+                        val useTcp = parsed.protocol in setOf("doh", "slipstream")
+                        AetherOperations.probePeerSocketRttMs(
+                            "${parsed.resolverHost}:${parsed.resolverPort}",
+                            useTcp = useTcp,
+                            timeoutMs = timeoutMs,
+                        )?.toInt()
+                    } else null
+                }
+                else -> null
+            }
+        }
+        if (directFallback != null) return directFallback
         DiagnosticLogger.warn(
             this,
             "connection.delay.unavailable",
@@ -4089,6 +4124,8 @@ class CatClientVpnService : VpnService() {
         if (effectiveEndpoint != null) {
             aetherPreferenceStore.rememberEndpointForNetwork(networkKey, selection.mode, selection.ipScan, effectiveEndpoint)
         }
+        val identityFile = File(filesDir, "aether.toml")
+        aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile)
         val effectiveSelection = if (effectiveEndpoint != null && selection.endpoint == null) {
             selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
         } else selection
@@ -4105,35 +4142,83 @@ class CatClientVpnService : VpnService() {
             }
             DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=none reason=directOpen")
         }
-        if (effectiveSelection.mode == AetherMode.MasquePsiphon || effectiveSelection.chainTarget == "psiphon") {
-            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره سایفون (${effectiveSelection.psiphonRegion})")
+        if (
+            effectiveSelection.mode == AetherMode.MasquePsiphon ||
+            effectiveSelection.chainTarget == "psiphon" ||
+            effectiveSelection.chainTarget == "psiphon-reverse"
+        ) {
+            val chainLabel = if (effectiveSelection.chainTarget == "psiphon-reverse") {
+                "Psiphon > WARP (${effectiveSelection.psiphonRegion.ifBlank { "Auto" }})"
+            } else {
+                "WARP > Psiphon (${effectiveSelection.psiphonRegion.ifBlank { "Auto" }})"
+            }
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره سایفون ($chainLabel)")
             runAetherPsiphonStartup(eventPrefix, effectiveSelection)
             return
         }
         if (effectiveSelection.chainTarget == "tor") {
-            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره تور (Orbot/Tor)")
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره تور (WARP > Tor)")
             runAetherTorStartup(eventPrefix, effectiveSelection)
             return
         }
+        val reverseTorProxy = if (effectiveSelection.chainTarget == "tor-reverse") {
+            val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
+            val reachable = withContext(Dispatchers.IO) {
+                runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
+            }
+            if (reachable) "socks5://127.0.0.1:$orbotPort" else null
+        } else null
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: هندشیک مستقیم ${effectiveSelection.mode.wireName} (${effectiveEndpoint ?: "auto"})")
         val session = createAetherSession(resolveSplitTunnelRuntimePlan())
         val config = AetherRuntimeConfig(
             mode = effectiveSelection.mode,
-            identityFile = File(filesDir, "aether.toml"),
+            identityFile = identityFile,
             endpoint = effectiveEndpoint,
             innerEndpoint = effectiveSelection.innerEndpoint,
+            upstreamProxy = reverseTorProxy,
             ipScan = effectiveSelection.ipScan,
             exitLocation = effectiveSelection.exitLocation,
             masqueTransport = effectiveSelection.masqueTransport,
+            scanMode = effectiveSelection.scanMode,
+            noizePreset = effectiveSelection.noizePreset,
+            fingerprint = effectiveSelection.fingerprint.ifBlank {
+                if (effectiveSelection.mode == AetherMode.MasqueInMasque) "chrome" else "semi-python"
+            },
+            fragmentEnabled = effectiveSelection.fragmentEnabled,
+            fragmentSize = effectiveSelection.fragmentSize,
+            fragmentDelay = effectiveSelection.fragmentDelay,
+            masqueSni = effectiveSelection.masqueSni,
+            echEnabled = effectiveSelection.echEnabled,
+            echDns = effectiveSelection.echDns,
+            echDomain = effectiveSelection.echDomain,
         )
         DiagnosticLogger.info(
             this,
             "$eventPrefix.aether.start",
             "mode=${effectiveSelection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${effectiveSelection.effectiveExitLocation()} net=$networkKey",
         )
+        val watchdogJob = scope.launch(Dispatchers.IO) {
+            var consecutiveFailures = 0
+            while (isActive && state == VpnState.Started) {
+                delay(45_000L)
+                if (state != VpnState.Started) break
+                val traceOk = AetherOperations.probeExitTrace(4_000).isSuccess
+                if (traceOk) {
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures += 1
+                    if (consecutiveFailures >= 2) {
+                        DiagnosticLogger.info(this@CatClientVpnService, "aether.watchdog.migrate", "failures=$consecutiveFailures")
+                        AetherOperations.migrateRunningTunnel()
+                        consecutiveFailures = 0
+                    }
+                }
+            }
+        }
         var result = try {
             withContext(Dispatchers.IO) { session.run(config) }
         } finally {
+            watchdogJob.cancel()
             runCatching { session.close() }
             if (aetherSession === session) aetherSession = null
         }

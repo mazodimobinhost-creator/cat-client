@@ -11454,6 +11454,20 @@ class MainActivity : Activity() {
         root.addView(statusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         var parentDialog: androidx.appcompat.app.AlertDialog? = null
+        val poolCountNow = aetherPreferenceStore.readWarpKeyPool().size
+        val poolStatusText = TextView(this).apply {
+            textSize = 11.2f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            text = if (isFarsi) {
+                "🔋 استخر کلیدهای آمادهٔ WARP (WARP Key Pool): $poolCountNow / 3 جفت کلید زاپاس آماده"
+            } else {
+                "🔋 Warm WARP Key Pool: $poolCountNow / 3 spare keypairs ready"
+            }
+        }
+        root.addView(poolStatusText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
         val fetchKeysBtn = MaterialButton(this).apply {
             text = if (isFarsi) "🔑 Get new WARP keys (دریافت کلیدهای جدید WARP)" else "🔑 Get new WARP keys"
             isAllCaps = false
@@ -11492,6 +11506,21 @@ class MainActivity : Activity() {
                     progressBar.progress = 100
                     btn.isEnabled = true
                     if (report.ok) {
+                        if (tomlFile.isFile && tomlFile.length() > 40L) {
+                            aetherPreferenceStore.pushWarmWarpKeyEntry(
+                                AetherWarmWarpKeyEntry(
+                                    idSummary = "MASQUE(${report.masquePrimaryId}) + WG(${report.wgPrimaryId})",
+                                    tomlContent = tomlFile.readText(),
+                                    createdAt = System.currentTimeMillis(),
+                                ),
+                            )
+                        }
+                        val newPoolCount = aetherPreferenceStore.readWarpKeyPool().size
+                        poolStatusText.text = if (isFarsi) {
+                            "🔋 استخر کلیدهای آمادهٔ WARP (WARP Key Pool): $newPoolCount / 3 جفت کلید زاپاس آماده"
+                        } else {
+                            "🔋 Warm WARP Key Pool: $newPoolCount / 3 spare keypairs ready"
+                        }
                         statusText.text = if (isFarsi) {
                             "✅ Keys saved! کلیدهای جدید WARP با موفقیت دریافت و ذخیره شدند:\n" +
                                 "• MASQUE Outer / Inner: ${report.masquePrimaryId} / ${report.masqueSecondaryId}\n" +
@@ -11513,6 +11542,85 @@ class MainActivity : Activity() {
             }
         }
         root.addView(fetchKeysBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        val warmPoolRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                MaterialButton(this@MainActivity).apply {
+                    text = if (isFarsi) "🔋 شارژ ۳ کلید زاپاس WARP" else "🔋 Pre-warm 3 Spare Keys"
+                    isAllCaps = false
+                    textSize = 11f
+                    typeface = CatClientBodyBoldTypeface
+                    minHeight = dp(38)
+                    cornerRadius = dp(8)
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 35))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(TEAL)
+                    setTextColor(TEXT_PRIMARY)
+                    setOnClickListener { btn ->
+                        btn.isEnabled = false
+                        progressBar.visibility = View.VISIBLE
+                        progressBar.progress = 40
+                        statusText.text = if (isFarsi) "⏳ در حال دریافت و ذخیرهٔ ۳ جفت کلید زاپاس WARP در استخر…" else "⏳ Replenishing 3 spare WARP keypairs into pool…"
+                        activityScope.launch {
+                            val proxy = if (currentVpnServiceState == VpnState.Started) {
+                                "socks5://127.0.0.1:${MihomoRuntimeDefaults.MIXED_PORT}"
+                            } else null
+                            val pool = withContext(Dispatchers.IO) {
+                                AetherOperations.replenishWarmWarpKeyPool(aetherPreferenceStore, filesDir, 3, proxy)
+                            }
+                            progressBar.progress = 100
+                            btn.isEnabled = true
+                            poolStatusText.text = if (isFarsi) {
+                                "🔋 استخر کلیدهای آمادهٔ WARP: ${pool.size} / 3 جفت کلید زاپاس آماده"
+                            } else {
+                                "🔋 Warm WARP Key Pool: ${pool.size} / 3 spare keypairs ready"
+                            }
+                            statusText.text = if (isFarsi) {
+                                "✅ ${pool.size} جفت کلید زاپاس WARP ذخیره شد (در زمان قطعی اینترنت بدون معطلی استفاده می‌شوند)"
+                            } else {
+                                "✅ ${pool.size} spare WARP keybundles stored for instant offline use"
+                            }
+                        }
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                MaterialButton(this@MainActivity).apply {
+                    text = if (isFarsi) "⚡ استفاده فوری از کلید زاپاس" else "⚡ Use Spare Key Now"
+                    isAllCaps = false
+                    textSize = 11f
+                    typeface = CatClientBodyBoldTypeface
+                    minHeight = dp(38)
+                    cornerRadius = dp(8)
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(SURFACE, 225))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 180))
+                    setTextColor(TEXT_PRIMARY)
+                    setOnClickListener {
+                        val applied = aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(tomlFile, forceReplace = true)
+                        if (applied != null) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "⚡ کلید زاپاس (${applied.idSummary}) در ۰ ثانیه اعمال شد!" else "⚡ Applied spare key (${applied.idSummary}) in 0ms!",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            parentDialog?.dismiss()
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                if (isFarsi) "ℹ️ ابتدا یک بار «شارژ ۳ کلید زاپاس» یا «Get new WARP keys» را بزنید" else "ℹ️ Please tap 'Get new WARP keys' or 'Pre-warm 3 Spare Keys' first",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        root.addView(warmPoolRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
         val scroll = ScrollView(this).apply { addView(root) }
         parentDialog = MaterialAlertDialogBuilder(this)
@@ -11723,6 +11831,23 @@ class MainActivity : Activity() {
         var chosenRegion = current.psiphonRegion
         var scannedEndpoint: String? = current.endpoint
         var scannedInnerEndpoint: String? = current.innerEndpoint
+        var chosenScanMode = current.scanMode.ifBlank { "balanced" }
+        var chosenNoize = current.noizePreset.ifBlank { "auto" }
+        var chosenFingerprint = current.fingerprint.ifBlank { "chrome" }
+        var chosenFragment = current.fragmentEnabled
+        var chosenFragmentSize = current.fragmentSize.ifBlank { "16-32" }
+        var chosenFragmentDelay = current.fragmentDelay.ifBlank { "2-10" }
+        var chosenMasqueSni = current.masqueSni.ifBlank { "consumer-masque.cloudflareclient.com" }
+        var chosenEch = current.echEnabled
+        var chosenEchDns = current.echDns.ifBlank { "https://1.1.1.1/dns-query" }
+        var chosenEchDomain = current.echDomain.ifBlank { "cloudflare-ech.com" }
+        var chosenPsiphonMode = current.psiphonMode.ifBlank { "auto" }
+        var chosenPsiphonCdnIps = current.psiphonCdnIps
+        var chosenPsiphonCdnSni = current.psiphonCdnSni
+        var chosenPsiphonBundled = current.psiphonBundled
+        var chosenTorBridgesMode = current.torBridgesMode.ifBlank { "auto" }
+        var chosenTorCustomBridges = current.torCustomBridges
+        var chosenTorRelaysMode = current.torRelaysMode.ifBlank { "auto" }
         var lastClickedTopic = if (chosenMode == AetherMode.MasqueInMasque) "mim" else ""
 
         val root = LinearLayout(this).apply {
@@ -11924,6 +12049,23 @@ class MainActivity : Activity() {
                 chainTarget = chosenChain,
                 exitLocation = chosenExitLocation,
                 masqueTransport = chosenTransport,
+                scanMode = chosenScanMode,
+                noizePreset = chosenNoize,
+                fingerprint = chosenFingerprint,
+                fragmentEnabled = chosenFragment,
+                fragmentSize = chosenFragmentSize,
+                fragmentDelay = chosenFragmentDelay,
+                masqueSni = chosenMasqueSni,
+                echEnabled = chosenEch,
+                echDns = chosenEchDns,
+                echDomain = chosenEchDomain,
+                psiphonMode = chosenPsiphonMode,
+                psiphonCdnIps = chosenPsiphonCdnIps,
+                psiphonCdnSni = chosenPsiphonCdnSni,
+                psiphonBundled = chosenPsiphonBundled,
+                torBridgesMode = chosenTorBridgesMode,
+                torCustomBridges = chosenTorCustomBridges,
+                torRelaysMode = chosenTorRelaysMode,
             )
         }
 
@@ -11948,8 +12090,10 @@ class MainActivity : Activity() {
             val regionShort = PsiphonCarrierConfig.regionShortLabel(chosenRegion, isFarsi)
             val chainName = when (chosenChain) {
                 "psiphon" -> "WARP > Psiphon ($regionShort)"
+                "psiphon-reverse" -> "Psiphon ($regionShort) > WARP (Reverse)"
                 "auto-psiphon" -> if (isFarsi) "هوشمند (WARP > Psiphon در صورت تحریم)" else "Smart Auto (WARP > Psiphon)"
                 "tor" -> "WARP > Tor"
+                "tor-reverse" -> "Tor > WARP (Reverse)"
                 else -> if (isFarsi) "Off (بدون سایفون)" else "Off (Direct WARP)"
             }
             val draft = currentDraftSelection()
@@ -11960,11 +12104,13 @@ class MainActivity : Activity() {
             }
             stateLabel.text = if (isFarsi) {
                 "پروتکل (Protocol): $modeName · ترنسپورت (Transport): $trLabel\n" +
-                    "سایفون (Psiphon): $chainName · نوع آی‌پی: $ipName\n" +
+                    "سایفون/زنجیره: $chainName · نوع آی‌پی: $ipName\n" +
+                    "اسکن/پارازیت: Scan=${chosenScanMode} · Noize=${chosenNoize} · TLS=${chosenFingerprint}\n" +
                     "اندپوینت‌ها: $epSummary"
             } else {
                 "Protocol: $modeName · Transport: $trLabel\n" +
-                    "Psiphon: $chainName · IP Type: $ipName\n" +
+                    "Chain: $chainName · IP Type: $ipName\n" +
+                    "Scan=${chosenScanMode} · Noize=${chosenNoize} · TLS=${chosenFingerprint}\n" +
                     "Endpoints: $epSummary"
             }
             uriPreviewBox.text = draft.toAetherUri()
@@ -12186,7 +12332,7 @@ class MainActivity : Activity() {
         }
         root.addView(protocolAndTransportRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
-        // Step 2-8 & 2-9 (Psiphon: WARP > Psiphon) + Step 2-10 & 2-11 (Exit country)
+        // Step 2-8 & 2-9 (Psiphon: WARP > Psiphon / Psiphon > WARP) + Step 2-10 & 2-11 (Exit country)
         val chainAndCountryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -12195,30 +12341,34 @@ class MainActivity : Activity() {
                     if (isFarsi) "۲-۸) Psiphon (WARP > Psiphon) ▾" else "2-8) Psiphon (WARP > Psiphon) ▾",
                     accent = true,
                 ) {
-                    val chains = listOf("psiphon", "auto-psiphon", "none", "tor")
+                    val chains = listOf("psiphon", "psiphon-reverse", "auto-psiphon", "none", "tor", "tor-reverse")
                     val chainTitles = if (isFarsi) {
                         arrayOf(
                             "⭐ WARP > Psiphon (پیشنهادی آموزش PattNG — خروجی سایفون روی MASQUE in MASQUE)",
+                            "🔄 Psiphon > WARP (زنجیره معکوس — آی‌پی تمیز کلودفلر در خروجی بدون کپچای گوگل)",
                             "🤖 زنجیره هوشمند (اول مستقیم؛ فقط در صورت تحریم: WARP > Psiphon)",
                             "Off (بدون سایفون — اتصال مستقیم WARP / MASQUE)",
                             "WARP > Tor (زنجیره تور)",
+                            "🔄 Tor > WARP (زنجیره معکوس تور به WARP)",
                         )
                     } else {
                         arrayOf(
                             "⭐ WARP > Psiphon (Recommended PattNG Guide — chains Psiphon over WARP/MIM)",
+                            "🔄 Psiphon > WARP (Reverse Chain — clean Cloudflare exit IP, fewer captchas)",
                             "🤖 Smart Conditional Chain (WARP > Psiphon only if sanctioned)",
                             "Off (Direct WARP / MASQUE)",
                             "WARP > Tor",
+                            "🔄 Tor > WARP (Reverse Tor to WARP)",
                         )
                     }
                     MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle(if (isFarsi) "۲-۹) تنظیم بخش Psiphon" else "2-9) Configure Psiphon")
+                        .setTitle(if (isFarsi) "۲-۹) تنظیم بخش Psiphon / Tor" else "2-9) Configure Psiphon / Tor Chain")
                         .setItems(chainTitles) { _, idx ->
                             chosenChain = chains[idx]
                             if (chosenChain != "none") {
                                 chosenExitLocation = "foreign"
                             }
-                            if ((chosenChain == "psiphon" || chosenChain == "auto-psiphon") && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
+                            if ((chosenChain.startsWith("psiphon") || chosenChain == "auto-psiphon") && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
                                 nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "PattNG-MIM" }}-Psiphon")
                             }
                             updateStateLabel(if (chosenMode == AetherMode.MasqueInMasque) "mim" else "psiphon")
@@ -12246,7 +12396,9 @@ class MainActivity : Activity() {
                         .setSingleChoiceItems(labels, activeIdx) { dlg, idx ->
                             dlg.dismiss()
                             chosenRegion = regions[idx]
-                            chosenChain = "psiphon"
+                            if (chosenChain !in setOf("psiphon", "psiphon-reverse")) {
+                                chosenChain = "psiphon"
+                            }
                             chosenExitLocation = "foreign"
                             val tag = chosenRegion.ifBlank { "Auto" }
                             val base = nameInput.text.toString().trim().substringBefore("-Psiphon").ifEmpty {
@@ -12263,6 +12415,47 @@ class MainActivity : Activity() {
             )
         }
         root.addView(chainAndCountryRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        // 1-Tap Quick Psiphon Country Switcher Row (DE, NL, US, FI, GB) without re-scanning
+        val quickCountryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            val quickCountries = listOf(
+                "DE" to (if (isFarsi) "🇩🇪 آلمان" else "🇩🇪 DE"),
+                "NL" to (if (isFarsi) "🇳🇱 هلند" else "🇳🇱 NL"),
+                "US" to (if (isFarsi) "🇺🇸 آمریکا" else "🇺🇸 US"),
+                "FI" to (if (isFarsi) "🇫🇮 فنلاند" else "🇫🇮 FI"),
+                "GB" to (if (isFarsi) "🇬🇧 انگلیس" else "🇬🇧 GB"),
+            )
+            quickCountries.forEachIndexed { idx, (code, label) ->
+                addView(
+                    chipBtn(label) {
+                        chosenRegion = code
+                        if (chosenChain !in setOf("psiphon", "psiphon-reverse")) {
+                            chosenChain = "psiphon"
+                        }
+                        chosenExitLocation = "foreign"
+                        val base = nameInput.text.toString().trim().substringBefore("-Psiphon").ifEmpty {
+                            if (chosenMode == AetherMode.MasqueInMasque) "PattNG-MIM" else "WARP"
+                        }
+                        nameInput.setText("$base-Psiphon-$code")
+                        val switched = aetherPreferenceStore.switchPsiphonCountryQuick(code)
+                        saveAetherConfigIntoMainSubscriptionList(switched, activateAetherEngine = false)
+                        updateStateLabel(if (chosenMode == AetherMode.MasqueInMasque) "mim" else "region")
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "🌍 کشور سایفون بدون نیاز به اسکن مجدد روی $label ($code) تنظیم شد!"
+                            else "🌍 Switched Psiphon country to $label ($code) without re-scanning!",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply {
+                        if (idx > 0) marginStart = dp(4)
+                    },
+                )
+            }
+        }
+        root.addView(quickCountryRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
 
         // IP Family + Exit IP location row
         val ipAndExitRow = LinearLayout(this).apply {
@@ -12317,6 +12510,220 @@ class MainActivity : Activity() {
 
         root.addView(outerEndpointInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         root.addView(innerEndpointInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        // Collapsible PattNG v2.3.13-P69 Advanced Controls (Scan Mode, Noize, Psiphon CDN, Tor Bridges, TLS/Fragment/ECH)
+        val advancedContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            visibility = View.GONE
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(SURFACE, 230))
+                setStroke(dp(1), withAlpha(OUTLINE, 180))
+            }
+        }
+        val scanAndNoizeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                chipBtn(if (isFarsi) "📡 Scan Mode (حالت اسکن) ▾" else "📡 Scan Mode ▾") {
+                    val modes = AetherSelection.VALID_SCAN_MODES.toList()
+                    val titles = if (isFarsi) {
+                        arrayOf(
+                            "⚡ Turbo (فوق سریع)",
+                            "⭐ Balanced (متعادل — پیشنهادی)",
+                            "🔍 Thorough (اسکن عمیق)",
+                            "✅ Verified (تأیید دو مرحله‌ای)",
+                            "🛡 Ironclad (سخت‌گیرانه ضد اختلال شدید)",
+                        )
+                    } else {
+                        arrayOf(
+                            "⚡ Turbo (Fastest)",
+                            "⭐ Balanced (Recommended)",
+                            "🔍 Thorough (Deep scan)",
+                            "✅ Verified (2-stage verified)",
+                            "🛡 Ironclad (Strictest anti-jamming)",
+                        )
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب حالت اسکن (Scan Mode)" else "Select Scan Mode")
+                        .setItems(titles) { _, idx ->
+                            chosenScanMode = modes[idx]
+                            updateStateLabel()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                chipBtn(if (isFarsi) "🔊 Noize (ضدپارازیت DPI) ▾" else "🔊 Noize (Anti-DPI) ▾") {
+                    val noizes = AetherSelection.VALID_NOIZE_PRESETS.toList()
+                    val titles = if (isFarsi) {
+                        arrayOf(
+                            "⭐ Auto (خودکار — پیشنهادی)",
+                            "Off (خاموش)",
+                            "Light (سبک)",
+                            "Firewall (عبور از فایروال اپراتور)",
+                            "Balanced (متعادل)",
+                            "GFW (ضدفیلترینگ سنگین)",
+                            "🔥 Aggressive (حداکثر ضدپارازیت)",
+                        )
+                    } else {
+                        arrayOf(
+                            "⭐ Auto (Recommended)",
+                            "Off",
+                            "Light",
+                            "Firewall",
+                            "Balanced",
+                            "GFW",
+                            "🔥 Aggressive",
+                        )
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب پروفایل ضدپارازیت (Noize)" else "Select Noize Preset")
+                        .setItems(titles) { _, idx ->
+                            chosenNoize = noizes[idx]
+                            updateStateLabel()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        advancedContainer.addView(scanAndNoizeRow, LinearLayout.LayoutParams(-1, -2))
+
+        val tlsAndPsiphonModeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                chipBtn(if (isFarsi) "🔐 TLS Fingerprint / ECH ▾" else "🔐 TLS Fingerprint / ECH ▾") {
+                    val fps = AetherSelection.VALID_FINGERPRINTS.toList()
+                    val titles = arrayOf(
+                        "⭐ Chrome (Recommended for MIM / MCI)",
+                        "Chrome 120",
+                        "Firefox",
+                        "Semi-Python (Irancell F&F)",
+                        "Go Standard",
+                    )
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "انتخاب Fingerprint مرورگر TLS" else "Select TLS Fingerprint")
+                        .setItems(titles) { _, idx ->
+                            chosenFingerprint = fps[idx]
+                            updateStateLabel()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                chipBtn(if (isFarsi) "☁️ Psiphon CDN Mode ▾" else "☁️ Psiphon CDN Mode ▾") {
+                    val pModes = AetherSelection.VALID_PSIPHON_MODES.toList()
+                    val titles = if (isFarsi) {
+                        arrayOf(
+                            "⭐ Auto (خودکار)",
+                            "☁️ CDN Mode (فرانتینگ CDN سایفون برای شرایط مسدودی مستقیم)",
+                            "Direct (مستقیم)",
+                        )
+                    } else {
+                        arrayOf(
+                            "⭐ Auto",
+                            "☁️ CDN Mode (Psiphon CDN fronting)",
+                            "Direct",
+                        )
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "حالت اتصال سایفون (Psiphon Mode)" else "Select Psiphon Mode")
+                        .setItems(titles) { _, idx ->
+                            chosenPsiphonMode = pModes[idx]
+                            updateStateLabel()
+                        }
+                        .create()
+                        .showCatClientDialog()
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) },
+            )
+        }
+        advancedContainer.addView(tlsAndPsiphonModeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
+        val sniAndFragInput = EditText(this).apply {
+            setSingleLine(true)
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            hint = if (isFarsi) "MASQUE SNI (پیش‌فرض: consumer-masque.cloudflareclient.com)" else "MASQUE SNI"
+            setText(chosenMasqueSni)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    chosenMasqueSni = s?.toString()?.trim().orEmpty().ifBlank { "consumer-masque.cloudflareclient.com" }
+                    uriPreviewBox.text = currentDraftSelection().toAetherUri()
+                }
+            })
+        }
+        advancedContainer.addView(sniAndFragInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val cdnIpsInput = EditText(this).apply {
+            setSingleLine(true)
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            hint = if (isFarsi) "Psiphon CDN IPs / CDN SNI (اختیاری — برای حالت CDN)" else "Psiphon CDN IPs (optional)"
+            setText(chosenPsiphonCdnIps)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    chosenPsiphonCdnIps = s?.toString()?.trim().orEmpty()
+                    uriPreviewBox.text = currentDraftSelection().toAetherUri()
+                }
+            })
+        }
+        advancedContainer.addView(cdnIpsInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val torBridgeBtn = chipBtn(if (isFarsi) "🧅 تنظیمات پل تور (Tor Bridges: $chosenTorBridgesMode) ▾" else "🧅 Tor Bridges ($chosenTorBridgesMode) ▾") {
+            val bModes = AetherSelection.VALID_TOR_BRIDGES.toList()
+            val titles = if (isFarsi) {
+                arrayOf(
+                    "Auto (خودکار — در صورت نیاز پل می‌زند)",
+                    "First (همیشه اول از پل تور استفاده کند)",
+                    "Never (بدون پل)",
+                    "Own (پل‌های سفارشی کاربر)",
+                )
+            } else {
+                arrayOf(
+                    "Auto (Use bridges automatically)",
+                    "First (Try bridges first)",
+                    "Never (Direct relays only)",
+                    "Own (Custom bridges)",
+                )
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(if (isFarsi) "حالت پل‌های تور (Tor Bridges)" else "Select Tor Bridges Mode")
+                .setItems(titles) { _, idx ->
+                    chosenTorBridgesMode = bModes[idx]
+                    updateStateLabel()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+        advancedContainer.addView(torBridgeBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+
+        val advancedToggleBtn = chipBtn(
+            if (isFarsi) "⚙️ تنظیمات پیشرفتهٔ PattNG 2.3.13-P69 (Scan / Noize / Psiphon CDN / Tor / TLS) ▾"
+            else "⚙️ PattNG 2.3.13-P69 Advanced (Scan / Noize / Psiphon CDN / Tor / TLS) ▾",
+        ) {
+            val show = advancedContainer.visibility != View.VISIBLE
+            advancedContainer.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        root.addView(advancedToggleBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        root.addView(advancedContainer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         updateStateLabel()
         root.addView(stateLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -12456,6 +12863,57 @@ class MainActivity : Activity() {
             }
         }
         root.addView(scanBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Live 2-Hop Health & Egress Probe Button
+        val liveTwoHopTestBtn = chipBtn(
+            if (isFarsi) "🩺 تست زندهٔ ۲-هاپ (Outer + Inner + کشور خروجی و ضدتحریم)"
+            else "🩺 Live 2-Hop Probe (Outer + Inner + Exit Country & Anti-Sanction)",
+        ) {
+            activityScope.launch {
+                val draft = currentDraftSelection()
+                setScanProgress(35, if (isFarsi) "⏳ در حال تست پینگ هاپ اول (Outer)، هاپ دوم (Inner) و کشور خروجی…" else "⏳ Probing Outer hop, Inner hop & Exit Trace…")
+                val report = withContext(Dispatchers.IO) {
+                    AetherOperations.probeTwoHopLiveReport(draft, 2_800)
+                }
+                setScanProgress(
+                    100,
+                    if (isFarsi) {
+                        val o = report.outerRttMs?.let { "${it}ms ✅" } ?: "❌"
+                        val i = report.innerRttMs?.let { "${it}ms ✅" } ?: "—"
+                        val loc = report.exitLoc.ifBlank { "—" }
+                        "🩺 نتیجه تست زنده: Outer=$o · Inner=$i · خروجی=$loc (${report.exitIp.ifBlank { "direct" }})"
+                    } else {
+                        val o = report.outerRttMs?.let { "${it}ms ✅" } ?: "❌"
+                        val i = report.innerRttMs?.let { "${it}ms ✅" } ?: "—"
+                        val loc = report.exitLoc.ifBlank { "—" }
+                        "🩺 Live Probe: Outer=$o · Inner=$i · Exit=$loc (${report.exitIp.ifBlank { "direct" }})"
+                    },
+                )
+                val msg = if (isFarsi) {
+                    "• هاپ اول (Outer — ${report.outerEndpoint}): ${report.outerRttMs?.let { "$it ms ✅" } ?: "بدون پاسخ ❌"}\n" +
+                        "• هاپ دوم (Inner — ${report.innerEndpoint.ifBlank { "تک‌هاپ" }}): ${report.innerRttMs?.let { "$it ms ✅" } ?: "—"}\n" +
+                        "• آی‌پی خروجی فعلی: ${report.exitIp.ifBlank { "نامشخص" }}\n" +
+                        "• کشور خروجی: ${report.exitLoc.ifBlank { "نامشخص" }}\n" +
+                        "• دیتاسنتر کلودفلر (COLO): ${report.exitColo.ifBlank { "—" }}\n" +
+                        "• وضعیت ضدتحریم: ${if (report.sanctionFree) "✅ باز و بدون تحریم" else "⚠️ نیاز به فعال بودن WARP > Psiphon"}"
+                } else {
+                    "• Hop 1 (Outer — ${report.outerEndpoint}): ${report.outerRttMs?.let { "$it ms ✅" } ?: "Unreachable ❌"}\n" +
+                        "• Hop 2 (Inner — ${report.innerEndpoint.ifBlank { "Single-hop" }}): ${report.innerRttMs?.let { "$it ms ✅" } ?: "—"}\n" +
+                        "• Current Exit IP: ${report.exitIp.ifBlank { "N/A" }}\n" +
+                        "• Exit Country: ${report.exitLoc.ifBlank { "N/A" }}\n" +
+                        "• Cloudflare COLO: ${report.exitColo.ifBlank { "—" }}\n" +
+                        "• Anti-Sanction Status: ${if (report.sanctionFree) "✅ Open & Unsanctioned" else "⚠️ Enable WARP > Psiphon for sanction bypass"}"
+                }
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(if (isFarsi) "🩺 گزارش تست زندهٔ ۲-هاپ و خروجی" else "🩺 Live 2-Hop & Egress Report")
+                    .setMessage(msg)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .create()
+                    .showCatClientDialog()
+            }
+        }
+        root.addView(liveTwoHopTestBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+
         root.addView(uriPreviewBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         val copyAndQrRow = LinearLayout(this).apply {
@@ -12516,6 +12974,23 @@ class MainActivity : Activity() {
                         chosenRegion = prof.psiphonRegion
                         scannedEndpoint = prof.endpoint
                         scannedInnerEndpoint = prof.innerEndpoint.ifBlank { null }
+                        chosenScanMode = prof.scanMode.ifBlank { "balanced" }
+                        chosenNoize = prof.noizePreset.ifBlank { "auto" }
+                        chosenFingerprint = prof.fingerprint.ifBlank { "chrome" }
+                        chosenFragment = prof.fragmentEnabled
+                        chosenFragmentSize = prof.fragmentSize.ifBlank { "16-32" }
+                        chosenFragmentDelay = prof.fragmentDelay.ifBlank { "2-10" }
+                        chosenMasqueSni = prof.masqueSni.ifBlank { "consumer-masque.cloudflareclient.com" }
+                        chosenEch = prof.echEnabled
+                        chosenEchDns = prof.echDns.ifBlank { "https://1.1.1.1/dns-query" }
+                        chosenEchDomain = prof.echDomain.ifBlank { "cloudflare-ech.com" }
+                        chosenPsiphonMode = prof.psiphonMode.ifBlank { "auto" }
+                        chosenPsiphonCdnIps = prof.psiphonCdnIps
+                        chosenPsiphonCdnSni = prof.psiphonCdnSni
+                        chosenPsiphonBundled = prof.psiphonBundled
+                        chosenTorBridgesMode = prof.torBridgesMode.ifBlank { "auto" }
+                        chosenTorCustomBridges = prof.torCustomBridges
+                        chosenTorRelaysMode = prof.torRelaysMode.ifBlank { "auto" }
                         outerEndpointInput.setText(prof.endpoint)
                         innerEndpointInput.setText(prof.innerEndpoint)
                         nameInput.setText(prof.name)
@@ -12542,6 +13017,23 @@ class MainActivity : Activity() {
                     psiphonRegion = draft.psiphonRegion,
                     masqueTransport = draft.masqueTransport,
                     innerEndpoint = draft.innerEndpoint.orEmpty(),
+                    scanMode = draft.scanMode,
+                    noizePreset = draft.noizePreset,
+                    fingerprint = draft.fingerprint,
+                    fragmentEnabled = draft.fragmentEnabled,
+                    fragmentSize = draft.fragmentSize,
+                    fragmentDelay = draft.fragmentDelay,
+                    masqueSni = draft.masqueSni,
+                    echEnabled = draft.echEnabled,
+                    echDns = draft.echDns,
+                    echDomain = draft.echDomain,
+                    psiphonMode = draft.psiphonMode,
+                    psiphonCdnIps = draft.psiphonCdnIps,
+                    psiphonCdnSni = draft.psiphonCdnSni,
+                    psiphonBundled = draft.psiphonBundled,
+                    torBridgesMode = draft.torBridgesMode,
+                    torCustomBridges = draft.torCustomBridges,
+                    torRelaysMode = draft.torRelaysMode,
                 ),
             )
             saveAetherConfigIntoMainSubscriptionList(draft, activateAetherEngine = true)
@@ -14566,6 +15058,48 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
+                    "⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)"
+                } else {
+                    "⚡ 1-Tap PattNG Setup (MASQUE in MASQUE + HTTP/2 + Psiphon)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(TEAL)
+                setTextColor(BACKGROUND)
+                setOnClickListener { runOneTapPattNgMimPsiphonSetup() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
+                    "➕ تنظیم دستی Aether / PattNG (کلید WARP · ۲-هاپ · سوییچ کشور سایفون)"
+                } else {
+                    "➕ Add Aether Config Manually (WARP Keys · 2-Hop · Country Switcher)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 44 else 28))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(TEAL)
+                setTextColor(TEAL)
+                setOnClickListener { showAddAetherDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
                     "🩺 پزشک هوشمند تعمیر کانفیگ‌های من + موتور MLM FLUX (IPv4/IPv6)"
                 } else {
                     "🩺 Smart Config Doctor + MLM FLUX (IPv4/IPv6 Optimizer)"
@@ -15584,10 +16118,12 @@ class MainActivity : Activity() {
               👈 برنامه خودش می‌گرده کانفیگ واقعی تو رو پیدا می‌کنه (نه کانفیگ فرضی!)، آی‌پی‌های باز رو تست می‌کنه، بستهٔ اول اینترنت رو تکهتکه (برش SNI) می‌کنه تا فایروال مخابرات نفهمه کجا داری میری، و بلافاصله وصلت می‌کنه!
 
             ────────────────────────
-            🚀 ۳) دکمه «اتصال مستقیم Aether» و «🤖 اسکن و ساخت خودکار»
-            • کی بزنم؟ وقتی هیچ کانفیگ و اکانتی نداری و می‌خوای با اینترنت رایگان کلودفلر (WARP / MASQUE) وصل بشی.
-            • «🤖 اسکن و ساخت خودکار» رو بزنی چی میشه؟
-              👈 اول ازت می‌پرسه آی‌پی ایران می‌خوای (برای بانک و سرعت بالا) یا آی‌پی خارج (آلمان، آمریکا، هلند و...)، بعد خودش خطت رو اسکن می‌کنه و بهترین حالت رو می‌سازه و وصل می‌کنه.
+            🚀 ۳) دکمه «اتصال مستقیم Aether» و «⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)»
+            • کی بزنم؟ وقتی هیچ کانفیگ و اکانتی نداری و می‌خوای با روش جدید PattNG (دو لایه MASQUE تو در تو روی HTTP/2 + خروج از سایفون آلمان/هلند/آمریکا) وصل بشی که روی شدیدترین فایروال‌های همراه اول و ایرانسل کار می‌کنه.
+            • «⚡ ساخت ۱-کلیکی آموزش PattNG» رو بزنی چی میشه؟
+              👈 تمام مراحل آموزش PattNG رو خودش اتوماتیک برات انجام میده: ۱) دو جفت کلید جدید WARP می‌گیره (و ۳ تا کلید زاپاس هم توی استخر ذخیره می‌کنه)، ۲) پروتکل رو روی MASQUE in MASQUE و ترنسپورت رو روی HTTP/2 می‌ذاره، ۳) خروجی رو روی WARP > Psiphon (یا زنجیره معکوس Psiphon > WARP برای نداشتن کپچای گوگل) می‌ذاره، ۴) هر دو اندپوینت Outer و Inner رو اسکن می‌کنه و ۵) کانفیگ رو تو لیست اصلی ذخیره و وصل می‌کنه!
+            • «🌍 دکمه‌های پرچم آلمان/هلند/آمریکا/فنلاند/انگلیس» رو بزنی چی میشه؟
+              👈 بدون نیاز به اسکن دوباره یا گرفتن کلید جدید، در جا کشور سایفونت رو عوض می‌کنه!
 
             ────────────────────────
             ✨ ۴) دکمه «تست باز بودن Gemini، ChatGPT و یوتیوب»

@@ -17,8 +17,18 @@ data class AetherRuntimeConfig(
     val ipScan: String = "both",
     val exitLocation: String = "auto",
     val masqueTransport: String = "h2",
+    val scanMode: String = "balanced",
+    val noizePreset: String = "auto",
+    val fingerprint: String = "chrome",
+    val fragmentEnabled: Boolean = true,
+    val fragmentSize: String = "16-32",
+    val fragmentDelay: String = "2-10",
     val masqueSni: String = "",
+    val apiHost: String = "",
+    val apiSni: String = "",
     val echEnabled: Boolean = false,
+    val echDns: String = "https://1.1.1.1/dns-query",
+    val echDomain: String = "cloudflare-ech.com",
 ) {
     init {
         require(identityFile.isAbsolute) { "Aether identity path must be absolute" }
@@ -29,6 +39,8 @@ data class AetherRuntimeConfig(
             "Aether exitLocation must be auto, iran or foreign"
         }
         require(masqueTransport in setOf("h2", "h3")) { "Aether masqueTransport must be h2 or h3" }
+        require(scanMode in VALID_SCAN_MODES) { "Invalid Aether scanMode: $scanMode" }
+        require(noizePreset in VALID_NOIZE_PRESETS) { "Invalid Aether noizePreset: $noizePreset" }
         endpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether endpoint" } }
         innerEndpoint?.let { require(AetherOperations.isSafePublicPeer(it)) { "Invalid or non-public Aether inner endpoint" } }
         upstreamProxy?.let {
@@ -71,27 +83,90 @@ data class AetherRuntimeConfig(
             else -> false
         }
 
-    fun toNativeJson(): String = JSONObject()
-        .put("mode", runtimeEndpoint.wireName)
-        .put("configPath", identityFile.absolutePath)
-        .put("transport", resolvedNativeTransport())
-        .put("ipScan", ipScan)
-        .put("scanMode", "balanced")
-        .put("scanBudgetMillis", scanBudgetMillis)
-        .put("validationEnabled", true)
-        .put("autoReprovision", false)
-        .put("lanSharing", false)
-        .put("listenPort", listenPort)
-        .apply {
-            endpoint?.let {
-                put("peer", it)
-                put("peerFallback", true)
-            }
-            upstreamProxy?.let { put("upstreamProxy", it) }
-            masqueSni.trim().takeIf { it.isNotEmpty() }?.let { put("masqueSni", it) }
-            if (echEnabled) {
-                put("ech", true)
-            }
+    fun toNativeJson(): String {
+        val (tlsCiphers, tlsGroups, disableGrease) = when (fingerprint.lowercase()) {
+            "firefox" -> Triple(
+                "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384",
+                "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                true,
+            )
+            "semi-python" -> Triple(
+                "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
+                "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                true,
+            )
+            "go" -> Triple(
+                "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
+                "X25519MLKEM768:X25519:P-256:P-384:P-521",
+                true,
+            )
+            "chrome-120" -> Triple(
+                "ALL:!aPSK:!ECDSA+SHA1:!3DES",
+                "X25519:P-256:P-384",
+                false,
+            )
+            else -> Triple(
+                "ALL:!aPSK:!ECDSA+SHA1:!3DES",
+                "X25519MLKEM768:X25519:P-256:P-384",
+                false,
+            )
         }
-        .toString()
+        return JSONObject()
+            .put("mode", runtimeEndpoint.wireName)
+            .put("configPath", identityFile.absolutePath)
+            .put("transport", resolvedNativeTransport())
+            .put("ipScan", ipScan)
+            .put("scanMode", scanMode)
+            .put("scanBudgetMillis", scanBudgetMillis)
+            .put("validationEnabled", true)
+            .put("autoReprovision", false)
+            .put("lanSharing", false)
+            .put("listenPort", listenPort)
+            .put("fragmentTls", fragmentEnabled)
+            .put("fragmentSize", fragmentSize.ifBlank { "16-32" })
+            .put("fragmentDelay", fragmentDelay.ifBlank { "2-10" })
+            .put("tlsCiphers", tlsCiphers)
+            .put("tlsGroups", tlsGroups)
+            .put("disableGrease", disableGrease)
+            .put("tlsKeyShares", tlsGroups)
+            .put("tlsCertCompression", "brotli")
+            .put("enableGreaseSigalgs", !disableGrease)
+            .put("enableEchGrease", !disableGrease)
+            .apply {
+                if (noizePreset != "auto" && noizePreset.isNotBlank()) {
+                    put("noizePreset", noizePreset)
+                }
+                endpoint?.let {
+                    put("peer", it)
+                    put("peerFallback", true)
+                }
+                innerEndpoint?.let { put("innerPeer", it) }
+                upstreamProxy?.let { put("upstreamProxy", it) }
+                masqueSni.trim().takeIf { it.isNotEmpty() }?.let {
+                    put("masqueSni", it)
+                    put("masque_sni", it)
+                }
+                apiHost.trim().takeIf { it.isNotEmpty() }?.let {
+                    put("apiHost", it)
+                    put("api_host", it)
+                }
+                apiSni.trim().takeIf { it.isNotEmpty() }?.let {
+                    put("apiSni", it)
+                    put("api_sni", it)
+                }
+                if (echEnabled) {
+                    put("ech", true)
+                    put("encryptedHello", true)
+                    put("echDns", echDns.ifBlank { "https://1.1.1.1/dns-query" })
+                    put("echDomain", echDomain.ifBlank { "cloudflare-ech.com" })
+                }
+            }
+            .toString()
+    }
+
+    companion object {
+        val VALID_SCAN_MODES = setOf("turbo", "balanced", "thorough", "verified", "ironclad")
+        val VALID_NOIZE_PRESETS = setOf("auto", "off", "light", "firewall", "balanced", "gfw", "aggressive")
+        val VALID_FINGERPRINTS = setOf("chrome", "chrome-120", "firefox", "semi-python", "go")
+    }
 }

@@ -220,5 +220,42 @@ class AetherSelectionTest {
         assertEquals("PattNG-MIM-Psiphon-DE", converted[0].getString("name"))
         assertEquals("socks5", converted[0].getString("type"))
         org.junit.Assert.assertTrue(converted[0].getString("aether-uri").contains("protocol=mim"))
+
+        // Reverse chain (Psiphon > WARP) + Scan/Noize/CDN/Tor Bridges round-trip
+        val reverseSelection = AetherSelection(
+            enabled = true,
+            mode = AetherMode.MasqueInMasque,
+            endpoint = "162.159.198.1:443",
+            innerEndpoint = "162.159.198.2:443",
+            ipScan = "v4",
+            psiphonRegion = "NL",
+            profileName = "PattNG-Reverse-NL",
+            chainTarget = "psiphon-reverse",
+            exitLocation = "foreign",
+            masqueTransport = "h2",
+            scanMode = "ironclad",
+            noizePreset = "firewall",
+            fingerprint = "chrome-120",
+            psiphonMode = "cdn",
+            psiphonCdnIps = "104.16.1.1,104.16.1.2",
+            psiphonCdnSni = "cdn.psiphon.ca",
+            torBridgesMode = "first",
+        )
+        val revUri = reverseSelection.toAetherUri()
+        org.junit.Assert.assertTrue(revUri.contains("psiphon=reverse"))
+        org.junit.Assert.assertTrue(revUri.contains("psiphon_mode=cdn"))
+        org.junit.Assert.assertTrue(revUri.contains("scan=ironclad"))
+        org.junit.Assert.assertTrue(revUri.contains("noize=firewall"))
+        org.junit.Assert.assertTrue(revUri.contains("fingerprint=chrome-120"))
+        val parsedRev = AetherSelection.fromAetherUri(revUri, nowMs = 999000L)!!
+        assertEquals("psiphon-reverse", parsedRev.chainTarget)
+        assertEquals("NL", parsedRev.psiphonRegion)
+        assertEquals("ironclad", parsedRev.scanMode)
+        assertEquals("firewall", parsedRev.noizePreset)
+        assertEquals("chrome-120", parsedRev.fingerprint)
+        assertEquals("cdn", parsedRev.psiphonMode)
+        assertEquals("104.16.1.1,104.16.1.2", parsedRev.psiphonCdnIps)
+        assertEquals("cdn.psiphon.ca", parsedRev.psiphonCdnSni)
+        assertEquals("first", parsedRev.torBridgesMode)
     }
 }
