@@ -2384,18 +2384,96 @@ class MainActivity : Activity() {
                 if (link.isNotBlank()) activityScope.launch { pushChainToPanelSuspend(link) }
             }
         }
+        val isFarsiSubDialog = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val liveFormatBadge = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(TEAL)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            visibility = View.GONE
+        }
+        fun updateLiveFormatBadge(rawText: String) {
+            val trimmed = rawText.trim()
+            if (trimmed.isEmpty()) {
+                liveFormatBadge.visibility = View.GONE
+                return
+            }
+            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                val hasAt = '@' in trimmed.substringAfter("://").substringBefore('/')
+                if (!hasAt) {
+                    liveFormatBadge.text = if (isFarsiSubDialog) {
+                        "🌐 لینک سابسکریپشن ابری تشخیص داده شد (آماده دانلود و اتصال)"
+                    } else {
+                        "🌐 Remote Subscription URL detected (Ready to fetch & connect)"
+                    }
+                    liveFormatBadge.visibility = View.VISIBLE
+                    return
+                }
+            }
+            val inspection = runCatching { SubConvConverter.inspectUniversalConfigInput(trimmed) }.getOrNull()
+            if (inspection != null && inspection.totalCount > 0) {
+                val summary = inspection.formatCounts.entries.joinToString(" · ") { "${it.value}× ${it.key}" }
+                liveFormatBadge.text = if (isFarsiSubDialog) {
+                    "✅ شناسایی شد (${inspection.totalCount} کانفیگ): $summary"
+                } else {
+                    "✅ Detected (${inspection.totalCount} configs): $summary"
+                }
+                liveFormatBadge.visibility = View.VISIBLE
+                if (nameInput.text.isNullOrBlank()) {
+                    val firstName = inspection.items.firstOrNull()?.proxyName.orEmpty()
+                    if (firstName.isNotBlank()) {
+                        nameInput.setText(firstName.take(40))
+                    }
+                }
+            } else {
+                liveFormatBadge.visibility = View.GONE
+            }
+        }
+        val pasteClipboardBtn = MaterialButton(this).apply {
+            text = if (isFarsiSubDialog) {
+                "📋 جای‌گذاری هوشمند از کلیپ‌بورد (SlipNet · DNS · VLESS · JSON · TOML · 28+)"
+            } else {
+                "📋 Smart Paste from Clipboard (SlipNet · DNS · VLESS · JSON · TOML · 28+)"
+            }
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            cornerRadius = dp(10)
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 160))
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 28))
+            setTextColor(TEAL)
+            setOnClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clipText = cm?.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
+                if (clipText.isBlank()) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsiSubDialog) "⚠️ کلیپ‌بورد خالی است" else "⚠️ Clipboard is empty",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    sourceInput.setText(clipText)
+                    updateLiveFormatBadge(clipText)
+                }
+            }
+        }
         sourceInput.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(e: android.text.Editable?) {
-                chainPush.visibility = if (e?.toString()?.trim()?.startsWith("socks5://") == true) View.VISIBLE else View.GONE
+                val txt = e?.toString().orEmpty()
+                chainPush.visibility = if (txt.trim().startsWith("socks5://")) View.VISIBLE else View.GONE
+                updateLiveFormatBadge(txt)
             }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
         })
+        updateLiveFormatBadge(sourceInput.text?.toString().orEmpty())
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(4))
             addView(nameLayout, LinearLayout.LayoutParams(-1, -2))
-            addView(sourceLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(pasteClipboardBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(sourceLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            addView(liveFormatBadge, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
             addView(chainPush, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
         val dialog = MaterialAlertDialogBuilder(this)
@@ -16758,13 +16836,480 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 14: Universal Omni-Config Translator & Runner (SlipNet v1..v28 + Raw JSON/TOML + 28 Protocols)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🧬 ۱۴) مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (SlipNet v1..v28 · تانل DNS · JSON · TOML · ۲۸ پروتکل)"
+                else "🧬 14) Universal Omni-Config Hub (SlipNet v1..v28 · DNS · Raw JSON/TOML · 28+ Protocols)",
+                filled = true,
+            ) {
+                showUniversalOmniConfigHubDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 15: Multi-Config Parallel Speed Fusion & Zero-Drop Autopilot
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "⚡ ۱۵) ترکیب موازی چند کانفیگ برای چندبرابر کردن سرعت + خلبان خودکار ضدقطع (Multi-Tunnel Fusion)"
+                else "⚡ 15) Multi-Config Parallel Speed Fusion & Zero-Drop Autopilot (Load-Balance + Failover)",
+            ) {
+                showMultiConfigSpeedFusionDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 16: Live Whitelist TLS Camouflage Cloner
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🕵️ ۱۶) کلون‌ساز زندهٔ اثرانگشت TLS سایت‌های سفید ایران (بانک سپه · شاپرک · بله · آپارات)"
+                else "🕵️ 16) Live Whitelist TLS Camouflage Cloner (Sepah · Shaparak · Bale · Aparat)",
+            ) {
+                showLiveWhitelistTlsClonerDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای جدید ۲۰۲۶ (Serverless-v52 · فرانتینگ v23 · CottenMax · ضد-فریز)"
-                else "🚀 2026 Power Features & New Methods Hub (Serverless-v52 · Fronting v23 · CottenMax)",
+                if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
+                else "🚀 2026 Exclusive Power Features Hub (SlipNet · Speed Fusion · TLS Cloner · Scanner)",
             )
             .setView(rootScroll)
             .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * 🧬 Universal Omni-Config Translator & Runner Dialog:
+     * Decodes, inspects, and runs ANY config format directly inside the app:
+     * - Official SlipNet v1..v28+ pipe-delimited profiles (`slipnet://`, `slipnet-enc://`, `slipnet-bundle-enc://`)
+     * - All DNS tunnels (`dnst://`, `dnstt://`, `vaydns://`, `noizdns://`, `slipstream://`, `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `qstunnel://`, `qqtunnel://`)
+     * - Raw Tor/SlipNet `dnstt 192.0.2.4:1 ...` bridge lines
+     * - Paqet / PaqetNG (`paqet://`, `paqetng://`, `patth://`, `patthng://`), Firefox VPN (`fenix://`)
+     * - TUIC v5 (`tuic://`), Juicity (`juicity://`), ShadowsocksR (`ssr://`), SSH (`ssh://`), Snell (`snell://`), Mieru (`mieru://`), Naive (`naive+https://`)
+     * - WARP / Psiphon / Tor / Gool (`warp://`, `psiphon://`, `tor://`, `gool://`, `aether://`, `masque://`)
+     * - Raw Xray / v2rayNG / Sing-box JSON configs (`{"outbounds": [...]}`) and CottenMax / MasterDNS TOML files
+     */
+    private fun showUniversalOmniConfigHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val scroll = android.widget.ScrollView(this).apply { isFillViewport = true }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(14), dp(18), dp(10))
+        }
+        scroll.addView(root)
+
+        val introView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(0f, 1.22f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(withAlpha(TEAL, if (palette.isDark) 32 else 20))
+                setStroke(dp(1), TEAL)
+            }
+            text = if (isFarsi) {
+                "🧬 مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (پشتیبانی از ۲۸+ فرمت):\n" +
+                    "• تمام لینک‌های SlipNet (نسخه‌های v1 تا v28 پایپ‌دار، JSON و رمزنگاری‌شده slipnet-enc://)\n" +
+                    "• تانل‌های DNS (dnst://, dnstt, VayDNS, NoizDNS, Slipstream, CottenMax, StormDNS, MasterDNS, QQ-Tunnel)\n" +
+                    "• پروتکل‌های TUIC v5, SSR, SSH, NaiveProxy, Snell, Mieru, PaqetNG, Firefox VPN, WARP, Psiphon\n" +
+                    "• فایل‌های JSON خام Xray / Sing-box و فایل‌های TOML خام CottenMax / MasterDNS"
+            } else {
+                "🧬 Universal Omni-Config Translator & Runner (28+ Formats):\n" +
+                    "• Official SlipNet v1..v28 pipe-delimited, JSON & slipnet-enc:// profiles\n" +
+                    "• All DNS Tunnels (dnst://, dnstt, VayDNS, NoizDNS, Slipstream, CottenMax, StormDNS, QQ-Tunnel)\n" +
+                    "• TUIC v5, SSR, SSH, Naive, Snell, Mieru, PaqetNG, Firefox VPN, WARP, Psiphon\n" +
+                    "• Raw Xray / Sing-box JSON files & CottenMax / MasterDNS TOML configs"
+            }
+        }
+        root.addView(introView, LinearLayout.LayoutParams(-1, -2))
+
+        val inputEdit = TextInputEditText(this).apply {
+            minLines = 5
+            maxLines = 10
+            gravity = Gravity.TOP or Gravity.START
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            hint = "slipnet://... | vless://... | tuic://... | dnst://... | {\"outbounds\":[...]} | DOMAINS = [...]"
+        }
+        root.addView(inputEdit, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        val reportView = TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(0f, 1.2f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = glassSurfaceDrawable(radiusDp = 12)
+            text = if (isFarsi) "ℹ️ کانفیگ‌های خود را در کادر بالا وارد کنید یا دکمهٔ «خواندن از کلیپ‌بورد» را بزنید."
+            else "ℹ️ Paste your configs above or tap 'Read from Clipboard'."
+        }
+
+        fun inspectAndRender(raw: String) {
+            val clean = unescapeHtmlEntities(raw).trim()
+            if (clean.isBlank()) {
+                reportView.text = if (isFarsi) "⚠️ متنی وارد نشده است." else "⚠️ Input is empty."
+                return
+            }
+            val inspection = SubConvConverter.inspectUniversalConfigInput(clean)
+            if (inspection.totalCount == 0) {
+                reportView.text = if (isFarsi) {
+                    "⚠️ کانفیگ معتبری در متن پیدا نشد. مطمئن شوید لینک کامل یا JSON/TOML معتبر است."
+                } else {
+                    "⚠️ No valid configs found in input."
+                }
+                return
+            }
+            val summaryBadges = inspection.formatCounts.entries.joinToString(" · ") { "${it.value}× ${it.key}" }
+            reportView.text = buildString {
+                if (isFarsi) {
+                    appendLine("✅ ${inspection.totalCount} کانفیگ با موفقیت دیکود و آمادهٔ اتصال شد:")
+                    appendLine("📊 فرمت‌ها: $summaryBadges")
+                    appendLine("────────────────────────")
+                } else {
+                    appendLine("✅ Decoded ${inspection.totalCount} configs ready to connect:")
+                    appendLine("📊 Formats: $summaryBadges")
+                    appendLine("────────────────────────")
+                }
+                inspection.items.take(15).forEach { item ->
+                    appendLine("${item.index}. [${item.detectedFormat}] ${item.proxyName} -> ${item.serverSummary}")
+                }
+            }.trimEnd()
+        }
+
+        val pasteBtn = MaterialButton(this).apply {
+            text = if (isFarsi) "📋 خواندن و کالبدشکافی خودکار از کلیپ‌بورد" else "📋 Auto-Read & Decode from Clipboard"
+            isAllCaps = false
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 36))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(TEAL)
+            setTextColor(TEAL)
+            setOnClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString().orEmpty()
+                if (clip.isNotBlank()) {
+                    inputEdit.setText(clip)
+                    inspectAndRender(clip)
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ کلیپ‌بورد خالی است" else "⚠️ Clipboard is empty",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+        root.addView(pasteBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        root.addView(reportView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        inputEdit.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                inspectAndRender(s?.toString().orEmpty())
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+        })
+
+        // Auto-populate if clipboard already has a config
+        runCatching {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
+            if (clip.isNotBlank() && SubConvConverter.inspectUniversalConfigInput(clip).totalCount > 0) {
+                inputEdit.setText(clip)
+                inspectAndRender(clip)
+            }
+        }
+
+        val importAndConnectBtn = MaterialButton(this).apply {
+            text = if (isFarsi) "🚀 افزودن به اپ و اتصال فوری (پشتیبانی از همهٔ فرمت‌ها)" else "🚀 Import to App & Connect Immediately"
+            isAllCaps = false
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            minHeight = dp(46)
+            cornerRadius = dp(10)
+            backgroundTintList = ColorStateList.valueOf(TEAL)
+            setTextColor(BACKGROUND)
+            setOnClickListener {
+                val raw = unescapeHtmlEntities(inputEdit.text?.toString().orEmpty()).trim()
+                val inspection = SubConvConverter.inspectUniversalConfigInput(raw)
+                val payloadToSave = inspection.normalizedSubscriptionText.ifBlank { raw }
+                if (payloadToSave.isBlank()) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ ابتدا کانفیگ را وارد کنید" else "⚠️ Please paste a config first",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                val firstTitle = inspection.items.firstOrNull()?.proxyName?.take(28).orEmpty()
+                val subTitle = if (inspection.totalCount == 1 && firstTitle.isNotBlank()) {
+                    "🧬 $firstTitle"
+                } else {
+                    if (isFarsi) "🧬 اشتراک همه‌کاره (${inspection.totalCount} کانفیگ)" else "🧬 Omni-Config (${inspection.totalCount} nodes)"
+                }
+                activityScope.launch {
+                    val saved = runCatching {
+                        withContext(Dispatchers.IO) {
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, payloadToSave)
+                            else userSubscriptionManager.add(subTitle, payloadToSave)
+                        }
+                    }.getOrNull()
+                    if (saved == null) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isFarsi) "⚠️ خطا در تبدیل کانفیگ — لطفاً فرمت ورودی را بررسی کنید" else "⚠️ Failed to import config",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@launch
+                    }
+                    userSubscriptionManager.select(saved.id)
+                    val curAether = aetherPreferenceStore.read()
+                    if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                    orbotEnginePreferenceStore.setEnabled(false)
+                    renderSubscriptions()
+                    onSubscriptionSelected()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ ${saved.connectionCount} کانفیگ وارد اپ شد و در حال اتصال است!"
+                        else "✅ Imported ${saved.connectionCount} configs & connecting!",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    openScreen(SCREEN_HOME)
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    } else {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
+                }
+            }
+        }
+        root.addView(importAndConnectBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🧬 مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (SlipNet + 28 پروتکل)"
+                else "🧬 Universal Omni-Config Translator & Runner",
+            )
+            .setView(scroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * ⚡ Multi-Config Parallel Speed Fusion & Zero-Drop Autopilot Dialog:
+     * Combines the user's heterogeneous configs (SlipNet, VLESS, Trojan, PaqetNG, Firefox VPN,
+     * CottenMax, TUIC, WireGuard) into a single Mihomo YAML subscription featuring simultaneous
+     * Round-Robin Load-Balancing, 15s Zero-Drop Failover, and Fastest URL-Test.
+     */
+    private fun showMultiConfigSpeedFusionDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val rawTexts = mutableListOf<String>()
+        userSubscriptionManager.list().forEach { sub ->
+            if (sub.input.isNotBlank() && !sub.input.startsWith("http://", true) && !sub.input.startsWith("https://", true)) {
+                rawTexts.add(sub.input)
+            }
+            userSubscriptionManager.cachedSnapshot(sub.id)?.rawConfig?.takeIf { it.isNotBlank() }?.let { rawTexts.add(it) }
+        }
+        runCatching {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
+            if (clip.isNotBlank()) rawTexts.add(0, clip)
+        }
+
+        activityScope.launch {
+            val bundle = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(rawTexts, maxProxies = 12)
+            }
+            if (bundle == null || bundle.totalProxiesFused == 0) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ ابتدا حداقل یک اشتراک یا کانفیگ (در اپ یا کلیپ‌بورد) داشته باشید."
+                    else "⚠️ Please add at least one subscription or copy a config first.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val msg = if (isFarsi) {
+                buildString {
+                    appendLine("⚡ ترکیب موازی چند کانفیگ (Multi-Tunnel Speed Fusion) آماده شد!")
+                    appendLine("• تعداد کانفیگ‌های ادغام‌شده: ${bundle.totalProxiesFused} کانفیگ")
+                    appendLine("• ترکیب پروتکل‌ها: ${bundle.protocolSummary}")
+                    appendLine()
+                    appendLine("🎯 با فعال‌سازی این پروفایل، ۳ موتور هم‌زمان برای شما ساخته می‌شود:")
+                    appendLine("۱) ⚡ ترکیب موازی سرعت (Round-Robin Load-Balance): پخش هم‌زمان کانکشن‌ها روی همهٔ تانل‌ها برای حداکثر سرعت دانلود")
+                    appendLine("۲) 🤖 خلبان خودکار ضدقطع (Zero-Drop Failover 15s): سوییچ آنی در ۰ میلی‌ثانیه بدون قطع شدن VPN")
+                    appendLine("۳) 🚀 سریع‌ترین پینگ زنده (Auto URL-Test)")
+                    appendLine()
+                    appendLine("📋 کانفیگ‌های داخل تانل ترکیبی:")
+                    bundle.proxyNames.take(8).forEachIndexed { idx, name ->
+                        appendLine("  ${idx + 1}. $name")
+                    }
+                }
+            } else {
+                buildString {
+                    appendLine("⚡ Multi-Tunnel Speed Fusion Ready!")
+                    appendLine("• Fused Configs: ${bundle.totalProxiesFused}")
+                    appendLine("• Protocol Mix: ${bundle.protocolSummary}")
+                    appendLine()
+                    appendLine("🎯 Includes 3 simultaneous smart groups:")
+                    appendLine("1) ⚡ Parallel Load-Balance (Round-Robin)")
+                    appendLine("2) 🤖 Zero-Drop Failover Autopilot (15s)")
+                    appendLine("3) 🚀 Fastest Auto URL-Test")
+                }
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "⚡ ترکیب موازی سرعت + خلبان خودکار ضدقطع"
+                    else "⚡ Multi-Config Speed Fusion & Autopilot",
+                )
+                .setMessage(msg.trimEnd())
+                .setPositiveButton(
+                    if (isFarsi) "🚀 ساخت تانل ترکیبی و اتصال فوری" else "🚀 Activate Fusion & Connect",
+                ) { _, _ ->
+                    activityScope.launch {
+                        val subTitle = if (isFarsi) {
+                            "⚡ تانل ترکیبی موازی (${bundle.totalProxiesFused} کانفیگ)"
+                        } else {
+                            "⚡ Fused Multi-Tunnel (${bundle.totalProxiesFused} nodes)"
+                        }
+                        val saved = withContext(Dispatchers.IO) {
+                            val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("⚡ تانل ترکیبی") || it.name.startsWith("⚡ Fused") }
+                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, bundle.yaml)
+                            else userSubscriptionManager.add(subTitle, bundle.yaml)
+                        }
+                        userSubscriptionManager.select(saved.id)
+                        val curAether = aetherPreferenceStore.read()
+                        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                        orbotEnginePreferenceStore.setEnabled(false)
+                        renderSubscriptions()
+                        onSubscriptionSelected()
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    /**
+     * 🕵️ Live Whitelist TLS Camouflage Cloner Dialog:
+     * Probes real Iranian & international whitelist domains (`ebanksepah.ir`, `shaparak.ir`,
+     * `bale.ai`, `aparat.com`, `digikala.com`, `pypi.org`, `github.githubassets.com`) live on
+     * the user's ISP, extracts the X.509 certificate Subject CN, Issuer, SHA-256 pin & TLS
+     * cipher suite, and clones that exact TLS identity onto the user's VLESS/Trojan configs.
+     */
+    private fun showLiveWhitelistTlsClonerDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val targets = LocalSniSpoofProxy.LIVE_CLONE_WHITELIST_TARGETS
+        val labels = targets.map { it.second }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🕵️ کلون‌ساز زندهٔ اثرانگشت TLS سایت‌های سفید"
+                else "🕵️ Live Whitelist TLS Camouflage Cloner",
+            )
+            .setItems(labels) { _, which ->
+                val pickedHost = targets[which].first
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "⏳ در حال استخراج زندهٔ گواهی و اثرانگشت TLS از $pickedHost…"
+                    else "⏳ Extracting live TLS certificate & fingerprint from $pickedHost…",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                activityScope.launch {
+                    val report = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.cloneLiveWhitelistTlsProfile(pickedHost, timeoutMs = 2600)
+                    }
+                    val rawSubs = userSubscriptionManager.list().map { it.input }.toMutableList()
+                    runCatching {
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()?.trim().orEmpty()
+                        if (clip.isNotBlank()) rawSubs.add(0, clip)
+                    }
+                    val clonedLinks = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.buildClonedWhitelistCamouflageConfigs(rawSubs, report)
+                    }
+                    val detailMsg = if (isFarsi) {
+                        buildString {
+                            appendLine(report.statusSummaryFa)
+                            appendLine("• دامنه هدف سفید: ${report.targetHost}")
+                            appendLine("• نسخه TLS و سایفر: ${report.tlsProtocol} (${report.cipherSuite})")
+                            appendLine("• صادرکننده گواهی: ${report.issuerCn}")
+                            if (report.sha256PinHex.isNotBlank()) {
+                                appendLine("• اثرانگشت SHA-256 گواهی: ${report.sha256PinHex.take(24)}…")
+                            }
+                            appendLine("• کانفیگ‌های آمادهٔ استتار: ${clonedLinks.size} عدد (مجهز به Decoy SNI + Serverless-v52)")
+                        }
+                    } else {
+                        buildString {
+                            appendLine(report.statusSummaryFa)
+                            appendLine("• Target Whitelist Host: ${report.targetHost}")
+                            appendLine("• TLS & Cipher: ${report.tlsProtocol} (${report.cipherSuite})")
+                            appendLine("• Certificate Issuer: ${report.issuerCn}")
+                            appendLine("• Camouflaged Configs Ready: ${clonedLinks.size}")
+                        }
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("🕵️ ${report.targetHost}")
+                        .setMessage(detailMsg.trimEnd())
+                        .setPositiveButton(
+                            if (isFarsi) "🚀 اعمال استتار روی کانفیگ‌ها و اتصال" else "🚀 Apply Camouflage & Connect",
+                        ) { _, _ ->
+                            if (clonedLinks.isEmpty()) {
+                                LocalSniSpoofProxy.currentDecoySni = report.targetHost
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "✅ دامنهٔ استتار ${report.targetHost} روی موتور ضد-DPI فعال شد!"
+                                    else "✅ Set ${report.targetHost} as active Anti-DPI decoy!",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                return@setPositiveButton
+                            }
+                            activityScope.launch {
+                                val subTitle = if (isFarsi) "🕵️ استتار سفید (${report.targetHost})" else "🕵️ Cloned (${report.targetHost})"
+                                val joined = clonedLinks.joinToString("\n")
+                                val saved = withContext(Dispatchers.IO) {
+                                    val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("🕵️") }
+                                    if (existing != null) userSubscriptionManager.update(existing.id, subTitle, joined)
+                                    else userSubscriptionManager.add(subTitle, joined)
+                                }
+                                userSubscriptionManager.select(saved.id)
+                                renderSubscriptions()
+                                onSubscriptionSelected()
+                                openScreen(SCREEN_HOME)
+                                if (currentVpnServiceState == VpnState.Started) {
+                                    reconnectForConnectionOptionChange()
+                                } else {
+                                    beginConnectFlow(Actions.CONNECT)
+                                }
+                            }
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create()
+                        .showCatClientDialog()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .create()
             .showCatClientDialog()
     }

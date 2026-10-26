@@ -1172,15 +1172,84 @@ internal object WhiteDnsSmartScanner {
 
     val SUPPORTED_TUNNEL_SCHEMES = setOf(
         "cottendns", "stormdns", "masterdns", "soar", "dnstt", "gasrelay", "masque",
-        "dnst", "slipnet", "slipnet-enc", "vaydns", "noizdns", "slipstream",
-        "qstunnel", "qqtunnel", "spooftunnel", "s3bypass",
+        "dnst", "slipnet", "slipnet-enc", "slipnet-bundle-enc", "vaydns", "noizdns", "slipstream",
+        "qstunnel", "qqtunnel", "spooftunnel", "s3bypass", "phantun", "nm",
     )
 
     /**
+     * If a `slipnet://` (v1..v28+ pipe-delimited) URI actually encapsulates a direct VLESS, SSH,
+     * SOCKS5, or NaiveProxy profile (introduced in SlipNet v6..v28), extracts the equivalent
+     * standard URI (`vless://`, `ssh://`, `socks5://`, `https://`) so `SubConvConverter` can
+     * run it natively on the Mihomo core at full speed.
+     */
+    fun extractEmbeddedSlipNetDirectUri(rawUri: String): String? {
+        val trimmed = rawUri.trim()
+        val lower = trimmed.lowercase()
+        if (!lower.startsWith("slipnet://") && !lower.startsWith("slipnet-enc://")) return null
+        val payload = trimmed.substringAfter("://").substringBefore('#').substringBefore('?').trim()
+        val decoded = decodeBase64UrlOrStandard(payload) ?: return null
+        if ('|' !in decoded) return null
+        val fields = decoded.split('|')
+        if (fields.size < 11) return null
+        val tType = fields[1].trim().lowercase()
+        val name = fields.getOrNull(2)?.trim()?.ifBlank { "SlipNet-$tType" } ?: "SlipNet"
+        val encRemark = runCatching { java.net.URLEncoder.encode(name, "UTF-8") }.getOrDefault(name)
+        return when (tType) {
+            "vless" -> {
+                val wsHost = fields.getOrNull(3)?.trim().orEmpty()
+                val uuid = fields.getOrNull(62)?.trim().orEmpty()
+                if (uuid.isBlank() || wsHost.isBlank()) return null
+                val sec = fields.getOrNull(63)?.trim()?.ifBlank { "tls" } ?: "tls"
+                val net = fields.getOrNull(64)?.trim()?.ifBlank { "ws" } ?: "ws"
+                val wsPath = fields.getOrNull(65)?.trim()?.ifBlank { "/" } ?: "/"
+                val cdnIp = fields.getOrNull(66)?.trim()?.ifBlank { wsHost } ?: wsHost
+                val cdnPort = fields.getOrNull(67)?.trim()?.toIntOrNull() ?: 443
+                val sni = fields.getOrNull(78)?.trim()?.ifBlank {
+                    fields.getOrNull(71)?.trim().orEmpty()
+                }?.ifBlank { wsHost } ?: wsHost
+                val encPath = runCatching { java.net.URLEncoder.encode(wsPath, "UTF-8") }.getOrDefault(wsPath)
+                "vless://$uuid@$cdnIp:$cdnPort?encryption=none&security=$sec&type=$net&host=$wsHost&sni=$sni&path=$encPath&fp=chrome#$encRemark"
+            }
+            "ssh" -> {
+                val domain = fields.getOrNull(3)?.trim().orEmpty()
+                val sshUser = fields.getOrNull(15)?.trim().orEmpty()
+                val sshPass = fields.getOrNull(16)?.trim().orEmpty()
+                val sshPort = fields.getOrNull(17)?.trim()?.toIntOrNull() ?: 22
+                val sshHost = fields.getOrNull(19)?.trim()?.ifBlank { domain } ?: domain
+                if (sshHost.isBlank() || sshUser.isBlank()) return null
+                val encUser = runCatching { java.net.URLEncoder.encode(sshUser, "UTF-8") }.getOrDefault(sshUser)
+                val encPass = runCatching { java.net.URLEncoder.encode(sshPass, "UTF-8") }.getOrDefault(sshPass)
+                "ssh://$encUser:$encPass@$sshHost:$sshPort#$encRemark"
+            }
+            "socks5" -> {
+                val host = fields.getOrNull(9)?.trim()?.ifBlank { fields.getOrNull(3)?.trim().orEmpty() }.orEmpty()
+                val port = fields.getOrNull(8)?.trim()?.toIntOrNull() ?: 1080
+                val user = fields.getOrNull(12)?.trim().orEmpty()
+                val pass = fields.getOrNull(13)?.trim().orEmpty()
+                if (host.isBlank()) return null
+                val auth = if (user.isNotBlank()) "$user:$pass@" else ""
+                "socks5://$auth$host:$port#$encRemark"
+            }
+            "naive", "naive_ssh" -> {
+                val domain = fields.getOrNull(3)?.trim().orEmpty()
+                val naivePort = fields.getOrNull(28)?.trim()?.toIntOrNull() ?: 443
+                val naiveUser = fields.getOrNull(29)?.trim().orEmpty()
+                val naivePassB64 = fields.getOrNull(30)?.trim().orEmpty()
+                val naivePass = decodeBase64UrlOrStandard(naivePassB64) ?: naivePassB64
+                if (domain.isBlank()) return null
+                val auth = if (naiveUser.isNotBlank()) "$naiveUser:$naivePass@" else ""
+                "https://${auth}$domain:$naivePort#$encRemark"
+            }
+            else -> null
+        }
+    }
+
+    /**
      * Parses `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, `dnstt://`, `dnst://` (both
-     * Human-Readable and Base64-JSON per `net2share/dnst-url-spec` v1.0), `slipnet://`, `vaydns://`,
+     * Human-Readable and Base64-JSON per `net2share/dnst-url-spec` v1.0), `slipnet://` (official
+     * SlipNet v1..v28+ pipe-delimited format, Base64-JSON, and URL format), `vaydns://`,
      * `noizdns://`, `slipstream://`, `qstunnel://`, `qqtunnel://`, `spooftunnel://`, `s3bypass://`,
-     * and `gasrelay://` URIs into a structured [WhiteDnsParsedTunnelUri].
+     * `phantun://`, `nm://`, and `gasrelay://` URIs into a structured [WhiteDnsParsedTunnelUri].
      */
     fun parseTunnelUri(rawUri: String): WhiteDnsParsedTunnelUri? {
         val trimmed = rawUri.trim()
@@ -1190,66 +1259,32 @@ internal object WhiteDnsSmartScanner {
         if (scheme !in SUPPORTED_TUNNEL_SCHEMES) return null
         val rest = trimmed.substring(schemeSep + 3)
 
-        // Special handling for `dnst://` Base64-JSON form (`net2share/dnst-url-spec` §2.2: no '/' after scheme)
-        if (scheme == "dnst" && '/' !in rest.substringBefore('#')) {
-            val b64Part = rest.substringBefore('#').trim()
-            val decodedJson = decodeBase64UrlOrStandard(b64Part) ?: return null
-            return runCatching {
-                val root = org.json.JSONObject(decodedJson)
-                val tag = root.optString("tag", "dnst-json").trim()
-                val trObj = root.optJSONObject("transport") ?: org.json.JSONObject()
-                val bkObj = root.optJSONObject("backend") ?: org.json.JSONObject()
-                val trType = trObj.optString("type", "dnstt").lowercase()
-                val dom = trObj.optString("domain", "t.example.com").trim()
-                val pub = trObj.optString("pubkey", trObj.optString("mkey", "")).trim()
-                val resIp = trObj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
-                val recType = trObj.optString("record-type", "txt").uppercase()
-                val recMode = when (recType) {
-                    "CNAME" -> WhiteDnsRecordMode.TXT_CNAME
-                    "AAAA" -> WhiteDnsRecordMode.TXT_AAAA
-                    "NULL" -> WhiteDnsRecordMode.NULL_EDNS0
-                    else -> WhiteDnsRecordMode.TXT_ONLY
-                }
-                val eng = when (trType) {
-                    "vaydns" -> WhiteDnsTunnelEngine.VAY_DNS
-                    "slipstream" -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
-                    "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
-                    else -> WhiteDnsTunnelEngine.DNST_STANDARD
-                }
-                WhiteDnsParsedTunnelUri(
-                    rawUri = trimmed,
-                    scheme = scheme,
-                    engine = eng,
-                    resolverIp = resIp,
-                    resolverPort = 53,
-                    tunnelDomain = dom,
-                    publicKeyHex = pub,
-                    recordMode = recMode,
-                    presetId = "iran-fast-low-mtu",
-                    mtu = 101,
-                    remark = tag.ifBlank { "${eng.titleEn} ($dom)" },
-                    backendType = bkObj.optString("type", "socks"),
-                )
-            }.getOrNull()
-        }
-
-        // Special handling for `slipnet://` or `slipnet-enc://` Base64 profile payload (when no '/' before '?')
-        if ((scheme == "slipnet" || scheme == "slipnet-enc") && '/' !in rest.substringBefore('?').substringBefore('#')) {
-            val payload = rest.substringBefore('#').substringBefore('?').trim()
-            val decoded = decodeBase64UrlOrStandard(payload)
-            if (decoded != null && decoded.trimStart().startsWith("{")) {
+        // Special handling for `dnst://` Base64-JSON form (`net2share/dnst-url-spec` §2.2)
+        if (scheme == "dnst") {
+            val b64Candidate = rest.substringBefore('#').substringBefore('?').trim()
+            val decodedJson = decodeBase64UrlOrStandard(b64Candidate)
+            if (decodedJson != null && decodedJson.trimStart().startsWith("{")) {
                 return runCatching {
-                    val obj = org.json.JSONObject(decoded)
-                    val dom = obj.optString("domain", "t.example.com").trim()
-                    val resIp = obj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
-                    val pub = obj.optString("pubkey", "").trim()
-                    val tType = obj.optString("tunnelType", "noizdns").lowercase()
-                    val name = obj.optString("name", "SlipNet-${tType.uppercase()}").trim()
-                    val eng = when {
-                        tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
-                        tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
-                        tType.contains("noizdns") -> WhiteDnsTunnelEngine.NOIZ_DNS
-                        else -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
+                    val root = org.json.JSONObject(decodedJson)
+                    val tag = root.optString("tag", "dnst-json").trim()
+                    val trObj = root.optJSONObject("transport") ?: org.json.JSONObject()
+                    val bkObj = root.optJSONObject("backend") ?: org.json.JSONObject()
+                    val trType = trObj.optString("type", "dnstt").lowercase()
+                    val dom = trObj.optString("domain", "t.example.com").trim()
+                    val pub = trObj.optString("pubkey", trObj.optString("mkey", "")).trim()
+                    val resIp = trObj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
+                    val recType = trObj.optString("record-type", "txt").uppercase()
+                    val recMode = when (recType) {
+                        "CNAME" -> WhiteDnsRecordMode.TXT_CNAME
+                        "AAAA" -> WhiteDnsRecordMode.TXT_AAAA
+                        "NULL" -> WhiteDnsRecordMode.NULL_EDNS0
+                        else -> WhiteDnsRecordMode.TXT_ONLY
+                    }
+                    val eng = when (trType) {
+                        "vaydns" -> WhiteDnsTunnelEngine.VAY_DNS
+                        "slipstream" -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+                        "masterdns" -> WhiteDnsTunnelEngine.MASTER_DNS
+                        else -> WhiteDnsTunnelEngine.DNST_STANDARD
                     }
                     WhiteDnsParsedTunnelUri(
                         rawUri = trimmed,
@@ -1259,13 +1294,118 @@ internal object WhiteDnsSmartScanner {
                         resolverPort = 53,
                         tunnelDomain = dom,
                         publicKeyHex = pub,
-                        recordMode = WhiteDnsRecordMode.TXT_ONLY,
-                        presetId = "iran-compact-fixed",
-                        mtu = obj.optInt("maxQuerySize", 60).coerceIn(48, 1400),
-                        remark = name,
-                        backendType = if (obj.optBoolean("sshChain", false)) "ssh" else "socks",
+                        recordMode = recMode,
+                        presetId = "iran-fast-low-mtu",
+                        mtu = 101,
+                        remark = tag.ifBlank { "${eng.titleEn} ($dom)" },
+                        backendType = bkObj.optString("type", "socks"),
                     )
                 }.getOrNull()
+            }
+        }
+
+        // Special handling for `slipnet://`, `slipnet-enc://`, and `slipnet-bundle-enc://` Base64 payloads
+        // Supports:
+        //   1. Official SlipNet v1..v28+ Pipe-Delimited profiles (`1..28|tunnelType|name|domain|resolvers|...`)
+        //   2. Base64-encoded JSON profiles (`{"domain": ..., "resolver": ...}`)
+        if (scheme == "slipnet" || scheme == "slipnet-enc" || scheme == "slipnet-bundle-enc") {
+            val payload = rest.substringBefore('#').substringBefore('?').trim()
+            val decoded = decodeBase64UrlOrStandard(payload)
+            if (decoded != null) {
+                val trimmedDecoded = decoded.trim()
+                // Format 1: Official SlipNet Pipe-Delimited v1..v28+ (`18|sayedns_ssh|Name|t.domain.com|178.22.122.100:53:0|...`)
+                if ('|' in trimmedDecoded && !trimmedDecoded.startsWith("{")) {
+                    val fields = trimmedDecoded.split('|')
+                    val verRaw = fields.firstOrNull()?.trim()?.removePrefix("v")?.removePrefix("V") ?: ""
+                    if (fields.size >= 11 && verRaw.toIntOrNull() != null) {
+                        val tType = fields.getOrNull(1)?.trim()?.lowercase().orEmpty()
+                        val profName = fields.getOrNull(2)?.trim()?.ifBlank { "SlipNet-$tType" } ?: "SlipNet"
+                        val dom = fields.getOrNull(3)?.trim()?.ifBlank { "t.example.com" } ?: "t.example.com"
+                        // In v17+, position 36 is `resolversHidden` ("1") and position 37 is `hiddenResolvers`
+                        val resolversHidden = fields.getOrNull(36)?.trim() == "1"
+                        val hiddenResolversStr = fields.getOrNull(37)?.trim().orEmpty()
+                        val rawResolversStr = if (resolversHidden && hiddenResolversStr.isNotBlank()) {
+                            hiddenResolversStr
+                        } else {
+                            fields.getOrNull(4)?.trim().orEmpty()
+                        }
+                        // Each resolver entry is `host:port:authoritative`, comma-separated
+                        val firstResolver = rawResolversStr.split(',').firstOrNull()?.trim().orEmpty()
+                        val resParts = firstResolver.split(':')
+                        val resIp = resParts.getOrNull(0)?.trim()?.ifBlank { "178.22.122.100" } ?: "178.22.122.100"
+                        val resPort = resParts.getOrNull(1)?.trim()?.toIntOrNull()?.coerceIn(1, 65535) ?: 53
+                        val pubKey = fields.getOrNull(11)?.trim().orEmpty()
+                        val sshEnabled = fields.getOrNull(14)?.trim() == "1" || tType.endsWith("_ssh") || tType == "ssh"
+                        val dohUrl = fields.getOrNull(21)?.trim().orEmpty()
+                        val dnsPayloadSize = fields.getOrNull(39)?.trim()?.toIntOrNull() ?: 0
+                        val vayMaxQname = fields.getOrNull(43)?.trim()?.toIntOrNull() ?: 101
+                        val vayRecType = fields.getOrNull(42)?.trim()?.uppercase().orEmpty()
+                        val effectiveMtu = when {
+                            dnsPayloadSize in 48..1400 -> dnsPayloadSize
+                            vayMaxQname in 48..1400 -> vayMaxQname
+                            else -> 96
+                        }
+                        val recMode = when (vayRecType) {
+                            "CNAME" -> WhiteDnsRecordMode.TXT_CNAME
+                            "AAAA" -> WhiteDnsRecordMode.TXT_AAAA
+                            "NULL" -> WhiteDnsRecordMode.NULL_EDNS0
+                            else -> WhiteDnsRecordMode.TXT_ONLY
+                        }
+                        val eng = when {
+                            tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
+                            tType == "ss" || tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+                            tType.contains("sayedns") || tType.contains("noizdns") -> WhiteDnsTunnelEngine.NOIZ_DNS
+                            tType.contains("dnstt") -> WhiteDnsTunnelEngine.DNSTT_COMPAT
+                            else -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
+                        }
+                        return WhiteDnsParsedTunnelUri(
+                            rawUri = trimmed,
+                            scheme = scheme,
+                            engine = eng,
+                            resolverIp = resIp,
+                            resolverPort = resPort,
+                            tunnelDomain = dom,
+                            publicKeyHex = pubKey,
+                            recordMode = recMode,
+                            presetId = "iran-compact-fixed",
+                            mtu = effectiveMtu,
+                            remark = "$profName [SlipNet v$verRaw]",
+                            scriptUrl = dohUrl,
+                            backendType = if (sshEnabled) "ssh" else "socks",
+                        )
+                    }
+                }
+                // Format 2: Base64-JSON SlipNet profile
+                if (trimmedDecoded.startsWith("{")) {
+                    return runCatching {
+                        val obj = org.json.JSONObject(trimmedDecoded)
+                        val dom = obj.optString("domain", "t.example.com").trim()
+                        val resIp = obj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
+                        val pub = obj.optString("pubkey", "").trim()
+                        val tType = obj.optString("tunnelType", "noizdns").lowercase()
+                        val name = obj.optString("name", "SlipNet-${tType.uppercase()}").trim()
+                        val eng = when {
+                            tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
+                            tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
+                            tType.contains("noizdns") || tType.contains("sayedns") -> WhiteDnsTunnelEngine.NOIZ_DNS
+                            else -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
+                        }
+                        WhiteDnsParsedTunnelUri(
+                            rawUri = trimmed,
+                            scheme = scheme,
+                            engine = eng,
+                            resolverIp = resIp,
+                            resolverPort = 53,
+                            tunnelDomain = dom,
+                            publicKeyHex = pub,
+                            recordMode = WhiteDnsRecordMode.TXT_ONLY,
+                            presetId = "iran-compact-fixed",
+                            mtu = obj.optInt("maxQuerySize", 60).coerceIn(48, 1400),
+                            remark = name,
+                            backendType = if (obj.optBoolean("sshChain", false)) "ssh" else "socks",
+                        )
+                    }.getOrNull()
+                }
             }
         }
 

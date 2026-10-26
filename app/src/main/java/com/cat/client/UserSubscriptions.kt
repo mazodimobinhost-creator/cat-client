@@ -64,6 +64,13 @@ internal fun scannedSubscriptionName(source: String): String? {
     }.getOrNull()
     if (uriName != null) return uriName
 
+    if (source.startsWith("slipnet://", ignoreCase = true) ||
+        source.startsWith("slipnet-enc://", ignoreCase = true) ||
+        source.startsWith("dnst://", ignoreCase = true)
+    ) {
+        WhiteDnsSmartScanner.parseTunnelUri(source)?.remark?.let(::clean)?.let { return it }
+    }
+
     val jsonSource = if (source.startsWith("vmess://")) {
         SubConvConverter.decodeBase64Text(source.removePrefix("vmess://")) ?: return null
     } else {

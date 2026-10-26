@@ -31,17 +31,82 @@ object SubConvConverter {
 
     private val EXTRACTABLE_SCHEMES = listOf(
         "vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hy2://",
-        "socks://", "socks5://", "ss://", "wireguard://", "wg://", "awg://", "amneziawg://",
+        "socks://", "socks5://", "ss://", "ssr://", "tuic://", "juicity://",
+        "wireguard://", "wg://", "awg://", "amneziawg://",
+        "ssh://", "snell://", "mieru://", "naive+https://", "naive+quic://",
+        "warp://", "psiphon://", "tor://", "gool://",
         "fenix://", "firefoxvpn://", "paqet://", "paqetng://", "patth://", "patthng://",
-        "dnstt://", "slipstream://", "slipnet://", "doh://", "aether://", "masque://",
+        "dnstt://", "dnst://", "slipstream://", "slipnet://", "slipnet-enc://", "slipnet-bundle-enc://",
+        "vaydns://", "noizdns://", "cottendns://", "stormdns://", "masterdns://", "soar://",
+        "qstunnel://", "qqtunnel://", "spooftunnel://", "s3bypass://", "phantun://", "nm://",
+        "doh://", "aether://", "masque://",
     )
+
+    data class UniversalConfigItemSummary(
+        val index: Int,
+        val detectedFormat: String,
+        val proxyName: String,
+        val serverSummary: String,
+        val normalizedShareUri: String,
+    )
+
+    data class UniversalConfigInspection(
+        val totalCount: Int,
+        val formatCounts: Map<String, Int>,
+        val items: List<UniversalConfigItemSummary>,
+        val normalizedSubscriptionText: String,
+    )
+
+    /**
+     * Converts raw Tor/SlipNet `dnstt` bridge lines (e.g.
+     * `dnstt 192.0.2.4:1 ... doh=https://... pubkey=0123... domain=t.example.com`)
+     * that lack `://` into a standard `dnstt://` share URI.
+     */
+    private fun normalizeRawBridgeOrProxyLine(trimmed: String): String? {
+        val cleaned = trimmed.removePrefix("Bridge ").removePrefix("bridge ").trim()
+        if (cleaned.startsWith("dnstt ", ignoreCase = true) && "://" !in cleaned.substringBefore(' ')) {
+            val tokens = cleaned.split(Regex("\\s+"))
+            var pubkey = ""
+            var domain = ""
+            var resolver = "178.22.122.100:53"
+            var doh = ""
+            for (tok in tokens.drop(1)) {
+                val lower = tok.lowercase()
+                when {
+                    lower.startsWith("pubkey=") -> pubkey = tok.substringAfter('=').trim()
+                    lower.startsWith("domain=") -> domain = tok.substringAfter('=').trim()
+                    lower.startsWith("udp=") || lower.startsWith("resolver=") -> resolver = tok.substringAfter('=').trim()
+                    lower.startsWith("doh=") -> doh = tok.substringAfter('=').trim()
+                    tok.length == 64 && tok.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' } -> pubkey = tok
+                }
+            }
+            if (domain.isNotBlank()) {
+                val resPart = if (':' in resolver) resolver else "$resolver:53"
+                val dohParam = if (doh.isNotBlank()) "&doh=${URLEncoder.encode(doh, "UTF-8")}" else ""
+                return "dnstt://$resPart/$domain?pubkey=$pubkey$dohParam#DNSTT-$domain"
+            }
+        }
+        return null
+    }
 
     private fun extractShareUriFromLine(raw: String): String? {
         val trimmed = raw.trim().trimStart('\uFEFF')
         if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("//")) return null
+        normalizeRawBridgeOrProxyLine(trimmed)?.let { return it }
         if ("://" !in trimmed) return null
         val firstSchemeBefore = trimmed.substringBefore("://")
         if (firstSchemeBefore.all { it.isLetterOrDigit() || it == '+' || it == '-' || it == '.' }) {
+            val lowerScheme = firstSchemeBefore.lowercase()
+            if (lowerScheme == "http" || lowerScheme == "https") {
+                val afterScheme = trimmed.substringAfter("://").substringBefore('#').substringBefore('?')
+                val hostPart = afterScheme.substringAfter('@').substringBefore('/')
+                val hasAuth = '@' in afterScheme.substringBefore('/')
+                val hasExplicitPort = ':' in hostPart && hostPart.substringAfterLast(':').toIntOrNull() != null
+                val lowerHost = hostPart.substringBefore(':').lowercase()
+                val isWebLink = lowerHost.endsWith("t.me") || lowerHost.endsWith("github.com") ||
+                    lowerHost.endsWith("google.com") || lowerHost.endsWith("youtube.com")
+                if (isWebLink || (!hasAuth && !hasExplicitPort)) return null
+            }
             return trimmed
         }
         // Extract embedded link when user copied Telegram caption text before the URI
@@ -72,10 +137,16 @@ object SubConvConverter {
                     "trojan" -> parseTrojan(line, names)
                     "anytls" -> parseAnyTls(line, names)
                     "hysteria2", "hy2" -> parseHysteria2(line, names)
+                    "tuic", "juicity" -> parseTuic(line, names)
                     "socks", "socks5" -> parseSocks(line, names)
+                    "http", "https", "naive+https", "naive+quic" -> parseHttpProxy(line, names)
+                    "ssh" -> parseSsh(line, names)
                     "ss" -> parseShadowsocks(line, names)
+                    "ssr" -> parseShadowsocksR(line, names)
+                    "snell", "mieru" -> parseSnellOrMieru(line, names)
                     "wireguard", "wg", "awg", "amneziawg" -> parseWireGuard(line, names)
                     "aether", "masque" -> parseAether(line, names)
+                    "warp", "psiphon", "tor", "gool" -> parseWarpOrPsiphonUri(line, names)
                     "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
                     in PaqetEngine.SUPPORTED_SCHEMES -> parsePaqet(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
@@ -86,6 +157,8 @@ object SubConvConverter {
             }
         }.toList()
         if (proxies.isEmpty()) {
+            val structured = parseRawJsonOrTomlConfigs(data, names)
+            if (structured.isNotEmpty()) return structured
             PaqetEngine.parsePaqetFileOrUri(data)?.let { paqetCfg ->
                 val obj = PaqetEngine.toMihomoProxyJson(paqetCfg)
                 obj.put("name", names.register(obj.optString("name", "PaqetNG")))
@@ -363,7 +436,224 @@ object SubConvConverter {
         return proxy
     }
 
+    private fun parseTuic(line: String, names: NameRegistry): JSONObject {
+        val uri = parseUri(line)
+        val endpoint = endpoint(uri)
+        if (endpoint.userInfo.isBlank()) throw ParseError()
+        val sep = endpoint.userInfo.indexOf(':')
+        val uuid = if (sep > 0) endpoint.userInfo.substring(0, sep) else endpoint.userInfo
+        val pass = if (sep > 0) endpoint.userInfo.substring(sep + 1) else ""
+        val query = parseQuery(uri.rawQuery)
+        val sni = (query["sni"] ?: query["servername"]).orEmpty()
+        val cc = (query["congestion_control"] ?: query["congestion-controller"] ?: query["cc"]).orEmpty().ifBlank { "bbr" }
+        val udpMode = (query["udp_relay_mode"] ?: query["udp-relay-mode"]).orEmpty().ifBlank { "native" }
+        return JSONObject()
+            .put("name", names.register(name(uri).ifBlank { "TUIC-${endpoint.host}" }))
+            .put("type", "tuic")
+            .put("server", endpoint.host)
+            .put("port", endpoint.port)
+            .put("uuid", uuid)
+            .put("password", pass)
+            .put("udp", true)
+            .put("skip-cert-verify", false)
+            .put("congestion-controller", cc)
+            .put("udp-relay-mode", udpMode)
+            .apply {
+                sni.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", JSONArray(it.split(','))) }
+            }
+    }
+
+    private fun parseHttpProxy(line: String, names: NameRegistry): JSONObject {
+        val normalizedLine = line
+            .replaceFirst(Regex("^naive\\+https://", RegexOption.IGNORE_CASE), "https://")
+            .replaceFirst(Regex("^naive\\+quic://", RegexOption.IGNORE_CASE), "https://")
+        val uri = parseUri(normalizedLine)
+        val authority = uri.rawAuthority ?: throw ParseError()
+        val at = authority.lastIndexOf('@')
+        val endpoint = parseHostPort(authority.substring(at + 1)) ?: throw ParseError()
+        val query = parseQuery(uri.rawQuery)
+        val isTls = normalizedLine.startsWith("https://", ignoreCase = true) ||
+            query["security"].equals("tls", ignoreCase = true)
+        val proxyName = runCatching { name(uri) }.getOrDefault("")
+            .ifBlank { "${if (isTls) "HTTPS" else "HTTP"}-${endpoint.host}:${endpoint.port}" }
+        val proxy = JSONObject()
+            .put("name", names.register(proxyName))
+            .put("type", "http")
+            .put("server", endpoint.host)
+            .put("port", endpoint.port)
+            .put("tls", isTls)
+            .put("skip-cert-verify", false)
+        if (at >= 0) {
+            val (username, password) = socksCredentials(authority.substring(0, at))
+            proxy.put("username", username)
+            password?.let { proxy.put("password", it) }
+        }
+        (query["sni"] ?: query["servername"])?.takeIf(String::isNotBlank)?.let { proxy.put("sni", it) }
+        return proxy
+    }
+
+    private fun parseSsh(line: String, names: NameRegistry): JSONObject {
+        val uri = parseUri(line)
+        val authority = uri.rawAuthority ?: throw ParseError()
+        val at = authority.lastIndexOf('@')
+        val hostPart = authority.substring(at + 1).substringBefore('/')
+        val endpoint = parseHostPort(hostPart)
+            ?: HostPort(hostPart.substringBefore(':'), hostPart.substringAfter(':', "22").toIntOrNull() ?: 22)
+        if (endpoint.host.isBlank()) throw ParseError()
+        val (username, password) = if (at >= 0) {
+            socksCredentials(authority.substring(0, at))
+        } else {
+            "root" to ""
+        }
+        val proxyName = runCatching { name(uri) }.getOrDefault("")
+            .ifBlank { "SSH-${endpoint.host}:${endpoint.port}" }
+        return JSONObject()
+            .put("name", names.register(proxyName))
+            .put("type", "ssh")
+            .put("server", endpoint.host)
+            .put("port", endpoint.port)
+            .put("username", username)
+            .apply {
+                password?.takeIf(String::isNotBlank)?.let { put("password", it) }
+            }
+    }
+
+    private fun parseShadowsocksR(line: String, names: NameRegistry): JSONObject {
+        val rawBody = line.substringAfter("://").substringBefore('#').trim()
+        val decoded = decodeBase64Text(rawBody) ?: throw ParseError()
+        val mainAndParams = decoded.split("/?", limit = 2)
+        val parts = mainAndParams[0].split(':')
+        if (parts.size < 6) throw ParseError()
+        val host = parts[0].trim()
+        val port = parts[1].trim().toIntOrNull() ?: throw ParseError()
+        val protocol = parts[2].trim().ifBlank { "origin" }
+        val cipher = parts[3].trim().ifBlank { "aes-256-cfb" }
+        val obfs = parts[4].trim().ifBlank { "plain" }
+        val passB64 = parts.drop(5).joinToString(":").trim()
+        val password = decodeBase64Text(passB64) ?: passB64
+        val params = parseQuery(mainAndParams.getOrNull(1))
+        val remark = params["remarks"]?.let { decodeBase64Text(it) ?: it }
+            ?: line.substringAfter('#', "").let { decode(it) }
+        val obfsParam = params["obfsparam"]?.let { decodeBase64Text(it) ?: it }.orEmpty()
+        val protoParam = params["protoparam"]?.let { decodeBase64Text(it) ?: it }.orEmpty()
+        return JSONObject()
+            .put("name", names.register(remark.ifBlank { "SSR-$host:$port" }))
+            .put("type", "ssr")
+            .put("server", host)
+            .put("port", port)
+            .put("cipher", cipher)
+            .put("password", password)
+            .put("obfs", obfs)
+            .put("protocol", protocol)
+            .put("udp", true)
+            .apply {
+                obfsParam.takeIf(String::isNotBlank)?.let { put("obfs-param", it) }
+                protoParam.takeIf(String::isNotBlank)?.let { put("protocol-param", it) }
+            }
+    }
+
+    private fun parseSnellOrMieru(line: String, names: NameRegistry): JSONObject {
+        val scheme = line.substringBefore("://").lowercase()
+        val uri = parseUri(line)
+        val endpoint = endpoint(uri)
+        val query = parseQuery(uri.rawQuery)
+        return if (scheme == "snell") {
+            JSONObject()
+                .put("name", names.register(name(uri).ifBlank { "Snell-${endpoint.host}" }))
+                .put("type", "snell")
+                .put("server", endpoint.host)
+                .put("port", endpoint.port)
+                .put("psk", endpoint.userInfo)
+                .put("version", query["version"]?.toIntOrNull() ?: 4)
+                .put("udp", true)
+                .apply {
+                    val obfsMode = query["obfs"].orEmpty()
+                    if (obfsMode.isNotBlank()) {
+                        put("obfs-opts", JSONObject().apply {
+                            put("mode", obfsMode)
+                            (query["obfs-host"] ?: query["sni"])?.takeIf(String::isNotBlank)?.let { put("host", it) }
+                        })
+                    }
+                }
+        } else {
+            val (user, pass) = socksCredentials(endpoint.userInfo.ifBlank { "user:pass" })
+            JSONObject()
+                .put("name", names.register(name(uri).ifBlank { "Mieru-${endpoint.host}" }))
+                .put("type", "mieru")
+                .put("server", endpoint.host)
+                .put("port", endpoint.port)
+                .put("username", user)
+                .put("password", pass.orEmpty())
+                .put("transport", (query["transport"] ?: query["network"]).orEmpty().uppercase().ifBlank { "TCP" })
+                .put("udp", true)
+        }
+    }
+
+    private fun parseWarpOrPsiphonUri(line: String, names: NameRegistry): JSONObject {
+        val scheme = line.substringBefore("://").lowercase()
+        val rest = line.substringAfter("://")
+        val remark = rest.substringAfter('#', "").let { decode(it) }.trim()
+        val beforeHash = rest.substringBefore('#')
+        val query = parseQuery(beforeHash.substringAfter('?', ""))
+        val hostPart = beforeHash.substringBefore('?').substringAfter('@').trim('/')
+        val sel = when (scheme) {
+            "psiphon" -> {
+                val region = hostPart.uppercase().takeIf { it.length == 2 } ?: query["country"]?.uppercase() ?: ""
+                AetherSelection(
+                    mode = AetherMode.MasqueInMasque,
+                    chainTarget = "psiphon",
+                    psiphonRegion = region,
+                    profileName = remark.ifBlank { "Psiphon (${region.ifBlank { "Auto" }})" },
+                )
+            }
+            "tor" -> {
+                AetherSelection(
+                    mode = AetherMode.MasqueInMasque,
+                    chainTarget = "tor",
+                    profileName = remark.ifBlank { "Aether + Tor Bridge" },
+                )
+            }
+            "gool" -> {
+                AetherSelection(
+                    mode = AetherMode.WarpInWarp,
+                    endpoint = hostPart.takeIf { ':' in it && !it.equals("auto", ignoreCase = true) },
+                    profileName = remark.ifBlank { "WARP-in-WARP (Gool)" },
+                )
+            }
+            else -> {
+                val ep = hostPart.takeIf { ':' in it && !it.equals("auto", ignoreCase = true) }
+                val det = query["detour"]?.lowercase()
+                AetherSelection(
+                    mode = if (det == "warp" || query["gool"] == "1") AetherMode.WarpInWarp else AetherMode.WireGuard,
+                    endpoint = ep,
+                    chainTarget = if (det == "psiphon") "psiphon" else "none",
+                    profileName = remark.ifBlank { "Cloudflare WARP (${ep ?: "Auto"})" },
+                )
+            }
+        }
+        return JSONObject()
+            .put("name", names.register(sel.profileName))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", 1819)
+            .put("udp", true)
+            .put("aether-uri", sel.toAetherUri())
+    }
+
     private fun parseWhiteDnsTunnel(line: String, names: NameRegistry): JSONObject {
+        // First check if a `slipnet://` v6..v28 pipe-delimited URI actually wraps a direct VLESS/SSH/SOCKS5/Naive config
+        WhiteDnsSmartScanner.extractEmbeddedSlipNetDirectUri(line)?.let { directUri ->
+            val directScheme = directUri.substringBefore("://").lowercase()
+            runCatching {
+                when (directScheme) {
+                    "vless" -> return parseVless(directUri, names)
+                    "ssh" -> return parseSsh(directUri, names)
+                    "socks5", "socks" -> return parseSocks(directUri, names)
+                    "https", "http" -> return parseHttpProxy(directUri, names)
+                }
+            }
+        }
         val parsed = WhiteDnsSmartScanner.parseTunnelUri(line) ?: throw ParseError()
         val localPort = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = false)
         return JSONObject()
@@ -373,6 +663,326 @@ object SubConvConverter {
             .put("port", localPort)
             .put("udp", true)
             .put("whitedns-uri", parsed.rawUri)
+    }
+
+    /**
+     * Parses raw Xray / v2rayNG / Sing-box JSON files (`{"outbounds": [...]}` or `[{"outbounds": ...}]`)
+     * AND raw CottenDNS / CottenMax / MasterDnsVPN TOML files (`DOMAINS = [...]`, `TUNNEL_MODE = ...`)
+     * directly into Mihomo proxy objects so users can paste any raw config file into the app.
+     */
+    private fun parseRawJsonOrTomlConfigs(rawText: String, names: NameRegistry): List<JSONObject> {
+        val trimmed = rawText.trim().trimStart('\uFEFF')
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            val out = mutableListOf<JSONObject>()
+            runCatching {
+                val roots = if (trimmed.startsWith("[")) {
+                    val arr = JSONArray(trimmed)
+                    (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                } else {
+                    listOf(JSONObject(trimmed))
+                }
+                for (root in roots) {
+                    // Case 1: Single Mihomo/Clash proxy object (`{"name": ..., "type": ..., "server": ...}`)
+                    if (root.has("type") && root.has("server") && root.has("port")) {
+                        val copy = JSONObject(root.toString())
+                        copy.put("name", names.register(copy.optString("name", copy.optString("type", "proxy"))))
+                        out.add(copy)
+                        continue
+                    }
+                    // Case 2: Xray / Sing-box `outbounds` array
+                    val outbounds = root.optJSONArray("outbounds") ?: continue
+                    val rootRemark = root.optString("remarks", root.optString("name", "")).trim()
+                    for (i in 0 until outbounds.length()) {
+                        val ob = outbounds.optJSONObject(i) ?: continue
+                        val proto = ob.optString("protocol", ob.optString("type", "")).lowercase()
+                        val tag = ob.optString("tag", "").trim()
+                        if (proto in setOf("direct", "block", "dns", "blackhole", "freedom")) continue
+                        convertXrayOrSingBoxOutbound(ob, proto, rootRemark.ifBlank { tag }, names)?.let { out.add(it) }
+                    }
+                }
+            }
+            if (out.isNotEmpty()) return out
+        }
+
+        // Case 3: Raw CottenDNS / CottenMax / MasterDnsVPN TOML config (`DOMAINS = [...]`, `RESOLVERS = [...]`)
+        if ("DOMAINS" in trimmed || "TUNNEL_MODE" in trimmed || "SHARED_KEY" in trimmed || "ENCRYPTION_KEY" in trimmed) {
+            val domainRegex = Regex("""DOMAINS\s*=\s*\[\s*"([^"]+)"""")
+            val resolverRegex = Regex("""(?:RESOLVERS|RESOLVER)\s*=\s*\[?\s*"([^"]+)"""")
+            val keyRegex = Regex("""(?:SHARED_KEY|ENCRYPTION_KEY|PUBLIC_KEY)\s*=\s*"([^"]+)"""")
+            val modeRegex = Regex("""TUNNEL_MODE\s*=\s*"([^"]+)"""")
+            val domain = domainRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            if (domain.isNotBlank()) {
+                val resolver = resolverRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim()
+                    ?.substringBefore(':')?.ifBlank { "178.22.122.100" } ?: "178.22.122.100"
+                val key = keyRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                val mode = modeRegex.find(trimmed)?.groupValues?.getOrNull(1)?.trim()?.lowercase().orEmpty()
+                val scheme = when {
+                    mode.contains("master") -> "masterdns"
+                    mode.contains("storm") -> "stormdns"
+                    else -> "cottendns"
+                }
+                val syntheticUri = "$scheme://$resolver:53/$domain?pubkey=$key#TOML-${scheme.uppercase()}-$domain"
+                return runCatching { listOf(parseWhiteDnsTunnel(syntheticUri, names)) }.getOrDefault(emptyList())
+            }
+        }
+        return emptyList()
+    }
+
+    private fun convertXrayOrSingBoxOutbound(
+        ob: JSONObject,
+        proto: String,
+        remarkHint: String,
+        names: NameRegistry,
+    ): JSONObject? {
+        // Sing-box flat outbound format (`{"type":"vless","server":"...","server_port":443,"uuid":"..."}`)
+        if (ob.has("server") && (ob.has("server_port") || ob.has("port"))) {
+            val server = ob.optString("server").trim()
+            val port = ob.optInt("server_port", ob.optInt("port", 443))
+            if (server.isBlank() || port !in 1..65535) return null
+            val tlsObj = ob.optJSONObject("tls")
+            val tlsEnabled = tlsObj?.optBoolean("enabled", false) ?: ob.optBoolean("tls", false)
+            val sni = tlsObj?.optString("server_name", "")?.ifBlank { ob.optString("sni", "") }.orEmpty()
+            val trObj = ob.optJSONObject("transport")
+            val netType = trObj?.optString("type", "")?.lowercase().orEmpty()
+            val proxy = JSONObject()
+                .put("name", names.register(remarkHint.ifBlank { "${proto.uppercase()}-$server:$port" }))
+                .put("server", server)
+                .put("port", port)
+                .put("udp", true)
+            when (proto) {
+                "vless" -> {
+                    proxy.put("type", "vless")
+                    proxy.put("uuid", ob.optString("uuid"))
+                    ob.optString("flow").takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
+                }
+                "vmess" -> {
+                    proxy.put("type", "vmess")
+                    proxy.put("uuid", ob.optString("uuid"))
+                    proxy.put("alterId", ob.optInt("alter_id", 0))
+                    proxy.put("cipher", ob.optString("security", "auto").ifBlank { "auto" })
+                }
+                "trojan" -> {
+                    proxy.put("type", "trojan")
+                    proxy.put("password", ob.optString("password"))
+                }
+                "shadowsocks", "ss" -> {
+                    proxy.put("type", "ss")
+                    proxy.put("cipher", ob.optString("method", ob.optString("cipher", "aes-256-gcm")))
+                    proxy.put("password", ob.optString("password"))
+                }
+                "hysteria2", "hy2" -> {
+                    proxy.put("type", "hysteria2")
+                    proxy.put("password", ob.optString("password"))
+                }
+                "tuic" -> {
+                    proxy.put("type", "tuic")
+                    proxy.put("uuid", ob.optString("uuid"))
+                    proxy.put("password", ob.optString("password"))
+                    proxy.put("congestion-controller", ob.optString("congestion_control", "bbr"))
+                }
+                "socks" -> {
+                    proxy.put("type", "socks5")
+                    ob.optString("username").takeIf(String::isNotBlank)?.let { proxy.put("username", it) }
+                    ob.optString("password").takeIf(String::isNotBlank)?.let { proxy.put("password", it) }
+                }
+                else -> return null
+            }
+            if (tlsEnabled) {
+                proxy.put("tls", true)
+                proxy.put("skip-cert-verify", false)
+                sni.takeIf(String::isNotBlank)?.let {
+                    proxy.put(if (proto == "trojan" || proto == "tuic" || proto == "hysteria2") "sni" else "servername", it)
+                }
+            }
+            if (netType == "ws") {
+                proxy.put("network", "ws")
+                val wsPath = trObj?.optString("path", "/") ?: "/"
+                val wsHost = trObj?.optJSONObject("headers")?.optString("Host", sni).orEmpty()
+                proxy.put("ws-opts", JSONObject().put("path", wsPath).put("headers", JSONObject().put("Host", wsHost)))
+            }
+            return proxy
+        }
+
+        // Xray `settings.vnext` or `settings.servers` format
+        val settings = ob.optJSONObject("settings") ?: return null
+        val stream = ob.optJSONObject("streamSettings")
+        val net = stream?.optString("network", "tcp")?.lowercase().orEmpty().ifBlank { "tcp" }
+        val sec = stream?.optString("security", "none")?.lowercase().orEmpty()
+        val tlsSettings = stream?.optJSONObject("tlsSettings") ?: stream?.optJSONObject("realitySettings")
+        val sni = tlsSettings?.optString("serverName", "").orEmpty()
+        val fp = tlsSettings?.optString("fingerprint", "chrome").orEmpty().ifBlank { "chrome" }
+        val wsSettings = stream?.optJSONObject("wsSettings")
+        val wsPath = wsSettings?.optString("path", "/").orEmpty().ifBlank { "/" }
+        val wsHost = wsSettings?.optJSONObject("headers")?.optString("Host", "")
+            ?.ifBlank { wsSettings.optString("host", sni) }.orEmpty()
+
+        val vnext = settings.optJSONArray("vnext")?.optJSONObject(0)
+        if (vnext != null && (proto == "vless" || proto == "vmess")) {
+            val addr = vnext.optString("address").trim()
+            val port = vnext.optInt("port", 443)
+            val user = vnext.optJSONArray("users")?.optJSONObject(0) ?: return null
+            val uuid = user.optString("id").trim()
+            if (addr.isBlank() || uuid.isBlank()) return null
+            return JSONObject()
+                .put("name", names.register(remarkHint.ifBlank { "${proto.uppercase()}-$addr:$port" }))
+                .put("type", proto)
+                .put("server", addr)
+                .put("port", port)
+                .put("uuid", uuid)
+                .put("udp", true)
+                .put("network", net)
+                .apply {
+                    if (proto == "vmess") {
+                        put("alterId", user.optInt("alterId", 0))
+                        put("cipher", user.optString("security", "auto").ifBlank { "auto" })
+                    } else {
+                        user.optString("flow").takeIf(String::isNotBlank)?.let { put("flow", it) }
+                    }
+                    if (sec == "tls" || sec == "reality") {
+                        put("tls", true)
+                        put("skip-cert-verify", false)
+                        put("client-fingerprint", fp)
+                        sni.takeIf(String::isNotBlank)?.let { put("servername", it) }
+                    }
+                    if (net == "ws" || net == "httpupgrade") {
+                        put("ws-opts", JSONObject().put("path", wsPath).put("headers", JSONObject().put("Host", wsHost)))
+                    }
+                }
+        }
+
+        val srv = settings.optJSONArray("servers")?.optJSONObject(0)
+        if (srv != null && (proto == "trojan" || proto == "shadowsocks" || proto == "socks")) {
+            val addr = srv.optString("address").trim()
+            val port = srv.optInt("port", 443)
+            if (addr.isBlank()) return null
+            return when (proto) {
+                "trojan" -> JSONObject()
+                    .put("name", names.register(remarkHint.ifBlank { "Trojan-$addr:$port" }))
+                    .put("type", "trojan")
+                    .put("server", addr)
+                    .put("port", port)
+                    .put("password", srv.optString("password"))
+                    .put("udp", true)
+                    .put("skip-cert-verify", false)
+                    .apply {
+                        sni.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                        if (net == "ws") {
+                            put("network", "ws")
+                            put("ws-opts", JSONObject().put("path", wsPath).put("headers", JSONObject().put("Host", wsHost)))
+                        }
+                    }
+                "shadowsocks" -> JSONObject()
+                    .put("name", names.register(remarkHint.ifBlank { "SS-$addr:$port" }))
+                    .put("type", "ss")
+                    .put("server", addr)
+                    .put("port", port)
+                    .put("cipher", srv.optString("method", "aes-256-gcm"))
+                    .put("password", srv.optString("password"))
+                    .put("udp", true)
+                else -> JSONObject()
+                    .put("name", names.register(remarkHint.ifBlank { "SOCKS-$addr:$port" }))
+                    .put("type", "socks5")
+                    .put("server", addr)
+                    .put("port", port)
+                    .put("udp", true)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Universal Omni-Config Inspector:
+     * Analyzes any raw text (SlipNet v1..v28, dnst://, PaqetNG, Firefox VPN, TUIC, SSR, SSH,
+     * WARP/Psiphon, Xray/Sing-box raw JSON, CottenMax TOML, or mixed Telegram posts) and returns
+     * a structured breakdown + normalized subscription text ready for instant import & connection.
+     */
+    fun inspectUniversalConfigInput(input: String): UniversalConfigInspection {
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) {
+            return UniversalConfigInspection(0, emptyMap(), emptyList(), "")
+        }
+        val decoded = decodeBase64Text(trimmed) ?: trimmed
+        val items = mutableListOf<UniversalConfigItemSummary>()
+        val counts = linkedMapOf<String, Int>()
+        val normalizedLines = mutableListOf<String>()
+        val names = NameRegistry()
+
+        for (rawLine in decoded.lineSequence()) {
+            val shareUri = extractShareUriFromLine(rawLine) ?: continue
+            val scheme = shareUri.substringBefore("://").lowercase()
+            val proxyObj = runCatching { convert(shareUri).firstOrNull() }.getOrNull() ?: continue
+            val pName = proxyObj.optString("name", scheme.uppercase())
+            val srv = proxyObj.optString("server", "127.0.0.1")
+            val prt = proxyObj.optInt("port", 0)
+            val formatLabel = when (scheme) {
+                "slipnet", "slipnet-enc", "slipnet-bundle-enc" -> "SlipNet (v1..v28)"
+                "dnst", "dnstt", "vaydns", "noizdns", "slipstream" -> "DNS Tunnel ($scheme)"
+                "cottendns", "stormdns", "masterdns", "soar", "qstunnel", "qqtunnel" -> "Multi-DNS ($scheme)"
+                "paqet", "paqetng", "patth", "patthng" -> "Paqet / PaqetNG"
+                "fenix", "firefoxvpn" -> "Firefox VPN (FENIX)"
+                "aether", "masque", "warp", "psiphon", "tor", "gool" -> "Aether / WARP / Psiphon"
+                else -> scheme.uppercase()
+            }
+            counts[formatLabel] = (counts[formatLabel] ?: 0) + 1
+            val effectiveUri = WhiteDnsSmartScanner.extractEmbeddedSlipNetDirectUri(shareUri) ?: shareUri
+            normalizedLines.add(effectiveUri)
+            items.add(
+                UniversalConfigItemSummary(
+                    index = items.size + 1,
+                    detectedFormat = formatLabel,
+                    proxyName = pName,
+                    serverSummary = "$srv:$prt",
+                    normalizedShareUri = effectiveUri,
+                ),
+            )
+        }
+
+        if (items.isEmpty()) {
+            val structuredProxies = parseRawJsonOrTomlConfigs(decoded, names)
+            for (p in structuredProxies) {
+                val pType = p.optString("type", "proxy").uppercase()
+                val pName = p.optString("name", pType)
+                val srv = p.optString("server", "127.0.0.1")
+                val prt = p.optInt("port", 443)
+                val fmt = if (p.has("whitedns-uri")) "TOML DNS Tunnel" else "Raw JSON ($pType)"
+                counts[fmt] = (counts[fmt] ?: 0) + 1
+                val synthUri = when {
+                    p.has("whitedns-uri") -> p.optString("whitedns-uri")
+                    p.optString("type") == "vless" -> {
+                        val uuid = p.optString("uuid")
+                        val net = p.optString("network", "tcp")
+                        val sni = p.optString("servername", srv)
+                        val wsOpts = p.optJSONObject("ws-opts")
+                        val path = wsOpts?.optString("path", "/") ?: "/"
+                        val host = wsOpts?.optJSONObject("headers")?.optString("Host", sni) ?: sni
+                        "vless://$uuid@$srv:$prt?encryption=none&security=tls&type=$net&host=$host&sni=$sni&path=${encode(path)}#${encode(pName)}"
+                    }
+                    p.optString("type") == "trojan" -> {
+                        val pass = p.optString("password")
+                        val sni = p.optString("sni", srv)
+                        "trojan://$pass@$srv:$prt?security=tls&sni=$sni#${encode(pName)}"
+                    }
+                    else -> "socks5://$srv:$prt#${encode(pName)}"
+                }
+                normalizedLines.add(synthUri)
+                items.add(
+                    UniversalConfigItemSummary(
+                        index = items.size + 1,
+                        detectedFormat = fmt,
+                        proxyName = pName,
+                        serverSummary = "$srv:$prt",
+                        normalizedShareUri = synthUri,
+                    ),
+                )
+            }
+        }
+
+        return UniversalConfigInspection(
+            totalCount = items.size,
+            formatCounts = counts,
+            items = items,
+            normalizedSubscriptionText = normalizedLines.joinToString("\n"),
+        )
     }
 
     private fun parseAether(line: String, names: NameRegistry): JSONObject {

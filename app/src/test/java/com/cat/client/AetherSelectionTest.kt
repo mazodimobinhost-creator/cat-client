@@ -380,5 +380,69 @@ class AetherSelectionTest {
         org.junit.Assert.assertTrue(injected[0].contains("@185.143.232.1:2053?"))
         org.junit.Assert.assertTrue(injected[0].contains("host=my.panel.workers.dev"))
         org.junit.Assert.assertTrue(injected[1].contains("@[2a06:98c1:3101::6812:202f]:8443?"))
+
+        // Test official SlipNet v18 pipe-delimited profile parsing & conversion
+        val slipPipePayload = "18|sayedns_ssh|IranNoizServer|t.noiz.example.com|178.22.122.100:53:0,8.8.8.8:53:0|0|3000|bbr|1080|127.0.0.1|0|0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef|||1|sshuser|sshpass|22|0|t.noiz.example.com"
+        val slipB64 = java.util.Base64.getEncoder().encodeToString(slipPipePayload.toByteArray(Charsets.UTF_8))
+        val slipUri = "slipnet://$slipB64"
+        val parsedSlip = WhiteDnsSmartScanner.parseTunnelUri(slipUri)
+        org.junit.Assert.assertNotNull(parsedSlip)
+        assertEquals("t.noiz.example.com", parsedSlip!!.tunnelDomain)
+        assertEquals("178.22.122.100", parsedSlip.resolverIp)
+        assertEquals("ssh", parsedSlip.backendType)
+        assertEquals(WhiteDnsSmartScanner.WhiteDnsTunnelEngine.NOIZ_DNS, parsedSlip.engine)
+
+        // Test Universal Omni-Config conversion (SlipNet + TUIC + SSH + WARP + Raw dnstt line + Xray JSON + CottenMax TOML)
+        val multiInput = """
+            $slipUri
+            tuic://a1b2c3d4-e5f6-4789-abcd-ef0123456789:secretpass@198.51.100.10:8443?congestion_control=bbr&alpn=h3&sni=cdn.example.com#MyTUIC
+            ssh://root:mypass@203.0.113.5:2222#MySSH
+            warp://162.159.192.1:2408?detour=psiphon#MyWarpPsiphon
+            dnstt 192.0.2.4:1 9001A pubkey=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef domain=t.bridge.example.com
+        """.trimIndent()
+        val convertedMulti = SubConvConverter.convert(multiInput)
+        assertEquals(5, convertedMulti.size)
+        assertEquals("tuic", convertedMulti[1].optString("type"))
+        assertEquals("ssh", convertedMulti[2].optString("type"))
+        org.junit.Assert.assertTrue(convertedMulti[3].has("aether-uri"))
+        org.junit.Assert.assertTrue(convertedMulti[4].has("whitedns-uri"))
+
+        // Test raw Xray JSON config conversion
+        val rawXrayJson = """
+            {
+              "remarks": "Serverless-Direct-Test",
+              "outbounds": [
+                {
+                  "protocol": "vless",
+                  "settings": {
+                    "vnext": [
+                      {
+                        "address": "185.143.232.5",
+                        "port": 443,
+                        "users": [{ "id": "a1b2c3d4-e5f6-4789-abcd-ef0123456789", "encryption": "none" }]
+                      }
+                    ]
+                  },
+                  "streamSettings": {
+                    "network": "ws",
+                    "security": "tls",
+                    "tlsSettings": { "serverName": "worker.example.com", "fingerprint": "chrome" },
+                    "wsSettings": { "path": "/vless", "headers": { "Host": "worker.example.com" } }
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val xrayConverted = SubConvConverter.convert(rawXrayJson)
+        assertEquals(1, xrayConverted.size)
+        assertEquals("vless", xrayConverted[0].optString("type"))
+        assertEquals("185.143.232.5", xrayConverted[0].optString("server"))
+
+        // Test Multi-Tunnel Parallel Speed Fusion YAML generation
+        val fused = LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(listOf(multiInput, rawXrayJson), maxProxies = 10)
+        org.junit.Assert.assertNotNull(fused)
+        org.junit.Assert.assertTrue(fused!!.totalProxiesFused >= 5)
+        org.junit.Assert.assertTrue(fused.yaml.contains("type: load-balance"))
+        org.junit.Assert.assertTrue(fused.yaml.contains("type: fallback"))
     }
 }

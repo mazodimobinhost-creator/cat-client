@@ -3017,4 +3017,238 @@ RESOLVERS = [$resolversList]
             }
         }
     }
+
+    // =========================================================================
+    // Exclusive 2026 Innovation 1: Live Whitelist TLS Camouflage Cloner
+    // =========================================================================
+
+    data class LiveTlsCloneReport(
+        val targetHost: String,
+        val reachable: Boolean,
+        val handshakeMs: Long,
+        val tlsProtocol: String,
+        val cipherSuite: String,
+        val subjectCn: String,
+        val issuerCn: String,
+        val sha256PinHex: String,
+        val statusSummaryFa: String,
+    )
+
+    val LIVE_CLONE_WHITELIST_TARGETS: List<Pair<String, String>> = listOf(
+        "ebanksepah.ir" to "🏦 بانک سپه (ebanksepah.ir — اولویت ۱ نت ملی)",
+        "shaparak.ir" to "💳 شبکه شاپرک (shaparak.ir — تراکنش بانکی)",
+        "bale.ai" to "💬 پیام‌رسان بله (bale.ai — وایت‌لیست دائمی)",
+        "aparat.com" to "🎬 آپارات (aparat.com — پهنای باند بالا)",
+        "digikala.com" to "🛒 دیجی‌کالا (digikala.com — تجارت الکترونیک)",
+        "pypi.org" to "🐍 مخزن پایتون (pypi.org — Fastly CDN سفید)",
+        "github.githubassets.com" to "🐙 گیت‌هاب استاتیک (githubassets.com — سفید بین‌الملل)",
+    )
+
+    /**
+     * Connects live to [targetHost]:443 on the user's current ISP, extracts the real X.509
+     * leaf certificate Subject CN, Issuer, SHA-256 fingerprint pin, TLS version, and negotiated
+     * CipherSuite so the user can clone that exact whitelist TLS identity onto their configs.
+     */
+    fun cloneLiveWhitelistTlsProfile(
+        targetHost: String,
+        timeoutMs: Int = 2500,
+    ): LiveTlsCloneReport {
+        val cleanHost = targetHost.trim().substringBefore(':').removePrefix("https://").removePrefix("http://").trim('/')
+        val startNs = System.nanoTime()
+        return runCatching {
+            val trustAll = arrayOf<javax.net.ssl.TrustManager>(
+                object : javax.net.ssl.X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) = Unit
+                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) = Unit
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                },
+            )
+            val sslCtx = javax.net.ssl.SSLContext.getInstance("TLS")
+            sslCtx.init(null, trustAll, java.security.SecureRandom())
+            Socket().use { raw ->
+                protectOutboundSocket(raw)
+                raw.soTimeout = timeoutMs
+                raw.connect(InetSocketAddress(cleanHost, 443), timeoutMs)
+                (sslCtx.socketFactory.createSocket(raw, cleanHost, 443, true) as javax.net.ssl.SSLSocket).use { ssl ->
+                    ssl.soTimeout = timeoutMs
+                    ssl.startHandshake()
+                    val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                    val session = ssl.session
+                    val certs = session.peerCertificates
+                    val x509 = certs.firstOrNull() as? java.security.cert.X509Certificate
+                    val sha256Pin = if (x509 != null) {
+                        val md = java.security.MessageDigest.getInstance("SHA-256")
+                        md.digest(x509.encoded).joinToString("") { "%02x".format(it) }
+                    } else ""
+                    val subj = x509?.subjectX500Principal?.name?.substringAfter("CN=", "")?.substringBefore(',')?.trim().orEmpty().ifBlank { cleanHost }
+                    val iss = x509?.issuerX500Principal?.name?.substringAfter("CN=", "")?.substringBefore(',')?.trim().orEmpty().ifBlank { "CA" }
+                    LiveTlsCloneReport(
+                        targetHost = cleanHost,
+                        reachable = true,
+                        handshakeMs = elapsedMs,
+                        tlsProtocol = session.protocol ?: "TLSv1.3",
+                        cipherSuite = session.cipherSuite ?: "TLS_AES_128_GCM_SHA256",
+                        subjectCn = subj,
+                        issuerCn = iss,
+                        sha256PinHex = sha256Pin,
+                        statusSummaryFa = "✅ کلون زنده موفق (${elapsedMs}ms) • گواهی: $subj ($iss)",
+                    )
+                }
+            }
+        }.getOrElse { err ->
+            LiveTlsCloneReport(
+                targetHost = cleanHost,
+                reachable = false,
+                handshakeMs = -1L,
+                tlsProtocol = "-",
+                cipherSuite = "-",
+                subjectCn = cleanHost,
+                issuerCn = "-",
+                sha256PinHex = "",
+                statusSummaryFa = "⚠️ عدم پاسخ مستقیم از $cleanHost (${err.javaClass.simpleName}) — استفاده از پروفایل استتار آفلاین",
+            )
+        }
+    }
+
+    /**
+     * Applies the cloned whitelist TLS identity ([report]) onto the user's real VLESS/Trojan
+     * configs using Local TCP Decoy Spoofing (`LOW_TTL_DECOY` with `report.targetHost` as decoy SNI)
+     * plus Serverless-v52 dual-slice fragmentation so the ISP DPI sees the whitelist domain handshake.
+     */
+    fun buildClonedWhitelistCamouflageConfigs(
+        rawSubscriptionTexts: List<String>,
+        report: LiveTlsCloneReport,
+    ): List<String> {
+        val templates = extractRealConfigTemplates(rawSubscriptionTexts)
+        if (templates.isEmpty()) return emptyList()
+        currentDecoySni = report.targetHost
+        currentStrategy = SpoofStrategy.LOW_TTL_DECOY
+        val fmEncoded = java.net.URLEncoder.encode(buildServerlessV52FinalMaskJson("fragA"), "UTF-8")
+        val out = mutableListOf<String>()
+        for ((idx, tpl) in templates.take(6).withIndex()) {
+            val localPort = ensureDedicatedForwarderPort(
+                remoteHost = tpl.remoteHost,
+                remotePort = tpl.remotePort,
+                decoySni = report.targetHost,
+                strategy = SpoofStrategy.LOW_TTL_DECOY,
+            )
+            val realSni = tpl.originalSni.ifBlank { tpl.hostHeader.ifBlank { tpl.remoteHost } }
+            val realHost = tpl.hostHeader.ifBlank { realSni }
+            val encPath = java.net.URLEncoder.encode(tpl.path, "UTF-8")
+            val remark = java.net.URLEncoder.encode(
+                "🕵️ کلون ${report.targetHost} #${idx + 1} (${tpl.remark.take(18)})",
+                "UTF-8",
+            )
+            val uri = if (tpl.scheme == "trojan") {
+                "trojan://${tpl.uuidOrPass}@127.0.0.1:$localPort?security=tls&type=${tpl.network}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded#$remark"
+            } else {
+                "vless://${tpl.uuidOrPass}@127.0.0.1:$localPort?encryption=none&security=tls&type=${tpl.network}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded#$remark"
+            }
+            out.add(uri)
+        }
+        return out
+    }
+
+    // =========================================================================
+    // Exclusive 2026 Innovation 2: Multi-Config Parallel Speed Fusion & Zero-Drop Autopilot YAML
+    // =========================================================================
+
+    data class FusedMultiTunnelBundle(
+        val yaml: String,
+        val totalProxiesFused: Int,
+        val protocolSummary: String,
+        val proxyNames: List<String>,
+    )
+
+    /**
+     * Builds a unified Mihomo YAML configuration that fuses up to [maxProxies] heterogeneous
+     * configs (VLESS, Trojan, SlipNet, DNSTT, CottenMax, PaqetNG, Firefox VPN, TUIC, WireGuard)
+     * into 3 simultaneous smart groups:
+     *   1. `⚡ ترکیب موازی سرعت (Multi-Tunnel Fusion)` (`type: load-balance`, `strategy: round-robin`)
+     *   2. `🤖 خلبان خودکار ضدقطع (Zero-Drop Failover)` (`type: fallback`, 15s healthcheck)
+     *   3. `🚀 سریع‌ترین پینگ زنده (Fastest Auto)` (`type: url-test`, tolerance 50ms)
+     */
+    fun buildFusedMultiTunnelSubscription(
+        rawSubscriptionTexts: List<String>,
+        maxProxies: Int = 12,
+    ): FusedMultiTunnelBundle? {
+        val allProxies = mutableListOf<org.json.JSONObject>()
+        val seenNames = mutableSetOf<String>()
+        val protoCounts = linkedMapOf<String, Int>()
+
+        for (raw in rawSubscriptionTexts) {
+            val converted = runCatching { SubConvConverter.convert(raw) }.getOrNull() ?: continue
+            for (p in converted) {
+                if (allProxies.size >= maxProxies) break
+                val baseName = p.optString("name", "Proxy").replace("'", "").trim()
+                val uniqueName = if (seenNames.add(baseName)) baseName else "$baseName-${allProxies.size + 1}"
+                val copy = org.json.JSONObject(p.toString())
+                copy.put("name", uniqueName)
+                allProxies.add(copy)
+                val pKind = when {
+                    copy.has("whitedns-uri") -> "SlipNet/DNS"
+                    copy.has("paqet-uri") -> "PaqetNG"
+                    copy.has("fenix-uri") -> "FirefoxVPN"
+                    copy.has("aether-uri") -> "Aether/WARP"
+                    else -> copy.optString("type", "proxy").uppercase()
+                }
+                protoCounts[pKind] = (protoCounts[pKind] ?: 0) + 1
+            }
+            if (allProxies.size >= maxProxies) break
+        }
+
+        if (allProxies.isEmpty()) return null
+
+        val baseYaml = MihomoLinkConfigBuilder.build(allProxies)
+        val proxiesBlock = baseYaml.substringBefore("\nproxy-groups:").trimEnd()
+        val pNames = allProxies.map { it.optString("name") }
+        fun q(v: String) = "'${v.replace("'", "''")}'"
+
+        val fusionGroup = "⚡ ترکیب موازی سرعت (Multi-Tunnel Fusion)"
+        val failoverGroup = "🤖 خلبان خودکار ضدقطع (Zero-Drop Failover)"
+        val fastestGroup = "🚀 سریع‌ترین پینگ زنده (Fastest Auto)"
+        val selectGroup = MihomoLinkConfigBuilder.SELECT_GROUP
+
+        val fusedYaml = buildString {
+            appendLine(proxiesBlock)
+            appendLine("proxy-groups:")
+            appendLine("  - name: ${q(selectGroup)}")
+            appendLine("    type: select")
+            appendLine("    proxies:")
+            appendLine("      - ${q(fusionGroup)}")
+            appendLine("      - ${q(failoverGroup)}")
+            appendLine("      - ${q(fastestGroup)}")
+            pNames.forEach { appendLine("      - ${q(it)}") }
+            appendLine("  - name: ${q(fusionGroup)}")
+            appendLine("    type: load-balance")
+            appendLine("    strategy: round-robin")
+            appendLine("    url: 'https://connectivitycheck.gstatic.com/generate_204'")
+            appendLine("    interval: 60")
+            appendLine("    proxies:")
+            pNames.forEach { appendLine("      - ${q(it)}") }
+            appendLine("  - name: ${q(failoverGroup)}")
+            appendLine("    type: fallback")
+            appendLine("    url: 'https://connectivitycheck.gstatic.com/generate_204'")
+            appendLine("    interval: 15")
+            appendLine("    proxies:")
+            pNames.forEach { appendLine("      - ${q(it)}") }
+            appendLine("  - name: ${q(fastestGroup)}")
+            appendLine("    type: url-test")
+            appendLine("    url: 'https://connectivitycheck.gstatic.com/generate_204'")
+            appendLine("    interval: 45")
+            appendLine("    tolerance: 50")
+            appendLine("    proxies:")
+            pNames.forEach { appendLine("      - ${q(it)}") }
+            appendLine("rules:")
+            appendLine("  - ${q("MATCH,$selectGroup")}")
+        }
+
+        val summary = protoCounts.entries.joinToString(" + ") { "${it.value}× ${it.key}" }
+        return FusedMultiTunnelBundle(
+            yaml = fusedYaml,
+            totalProxiesFused = allProxies.size,
+            protocolSummary = summary,
+            proxyNames = pNames,
+        )
+    }
 }
