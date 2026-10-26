@@ -1,12 +1,9 @@
-# Android failure report (1e24f14)
+# Android failure report (1ae1c57)
 
 
 ## files with compile errors
-     10 app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt
-      8 app/src/main/java/com/cat/client/MainActivity.kt
-      5 app/src/main/java/com/cat/client/PaqetEngine.kt
-      3 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
-      1 app/src/main/java/com/cat/client/CatClientVpnService.kt
+      1 app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt
+      1 app/src/main/java/com/cat/client/FirefoxVpnEngine.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -41,7 +38,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3260) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3274) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -59,7 +56,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3275) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3289) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -69,7 +66,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3294) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3308) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -102,7 +99,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3306) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3321) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -169,38 +166,13 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
 
 > Task :app:processDebugManifest
-> Task :app:javaPreCompileDebug
 > Task :app:processDebugManifestForPackage
+> Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
 
 > Task :app:compileDebugKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/CatClientVpnService.kt:3953:51 Unresolved reference 'startLocalBridge'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2941:35 Unresolved reference 'setEnabled'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2942:13 Unresolved reference 'renderAetherSummary'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14061:51 Unresolved reference 'setEnabled'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14062:29 Unresolved reference 'renderAetherSummary'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14066:29 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:14066:76 Unresolved reference 'startLocalBridge'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:22009:35 Unresolved reference 'setEnabled'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:22010:13 Unresolved reference 'renderAetherSummary'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:951:37 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:957:65 No parameter with name 'countryCode' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:957:85 No value passed for parameter 'country'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:970:28 Unresolved reference 'fetchAndProbeOutlineNodes'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:976:55 Unresolved reference 'label'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:976:74 Unresolved reference 'rttMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:977:38 Unresolved reference 'rttMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:980:71 Unresolved reference 'it'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:988:37 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:1093:49 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/PaqetEngine.kt:548:37 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/PaqetEngine.kt:570:37 Unresolved reference 'protectOutboundDatagramSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/PaqetEngine.kt:779:37 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/PaqetEngine.kt:815:33 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/PaqetEngine.kt:826:37 Unresolved reference 'protectOutboundDatagramSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:740:37 Unresolved reference 'protectOutboundDatagramSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:765:37 Unresolved reference 'protectOutboundSocket'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1618:41 Unresolved reference 'protectOutboundSocket'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/FirefoxVpnEngine.kt:2397:37 Unresolved reference 'proxyPass'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:957:46 Unresolved reference 'DEFAULT_COUNTRIES'.
 
 FAILURE: Build failed with an exception.
 
@@ -215,5 +187,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 24s
+BUILD FAILED in 1m 10s
 16 actionable tasks: 16 executed
