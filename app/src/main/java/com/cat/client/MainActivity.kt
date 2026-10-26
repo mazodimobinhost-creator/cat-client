@@ -325,6 +325,7 @@ class MainActivity : Activity() {
     private var homeExtrasSection: View? = null
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
+    private var lastShownConnectionFault: String? = null
     private lateinit var downloadBarFill: ZedWavyProgressView
     private lateinit var uploadBarFill: ZedWavyProgressView
     private lateinit var downloadTotalText: TextView
@@ -24051,6 +24052,12 @@ class MainActivity : Activity() {
         if (state != VpnState.Starting) {
             connectFlowPending = false
         }
+        if (state is VpnState.Error && previousState == VpnState.Starting && state.message.isNotBlank() &&
+            state.message != lastShownConnectionFault
+        ) {
+            lastShownConnectionFault = state.message
+            window.decorView.post { showConnectionFaultDialog(state.message) }
+        }
         if (state == VpnState.Started && previousState != VpnState.Started) {
             refreshLocationOptions()
         }
@@ -28081,6 +28088,37 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isPersianUi(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
+
+    /** ZedSecure-style fault card: a failed connect keeps its reason on screen instead of looking
+     * like a normal disconnect, with a plain-language "what to do" hint and the raw detail. */
+    private fun showConnectionFaultDialog(raw: String) {
+        if (isFinishing || isDestroyed) return
+        val fa = isPersianUi()
+        val fault = ConnectionFaultExplainer.explain(raw)
+        val body = buildString {
+            append(fault.hint(fa))
+            append("\n\n")
+            append(if (fa) "جزئیات فنی:\n" else "Technical detail:\n")
+            append(fault.raw.take(400))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("⚠️ " + fault.title(fa))
+            .setMessage(body)
+            .setPositiveButton(if (fa) "تلاش دوباره" else "Try again") { _, _ ->
+                if (buttonModel.state !is VpnState.Starting && buttonModel.state != VpnState.Started) {
+                    connectActionButton.performClick()
+                }
+            }
+            .setNeutralButton(if (fa) "کپی جزئیات" else "Copy details") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cat Client error", "${fault.title(false)}: ${fault.raw}"))
+                Toast.makeText(this, if (fa) "کپی شد" else "Copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(if (fa) "بستن" else "Close", null)
+            .show()
+    }
+
     private fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
         if (state == VpnState.Started && lastHapticState != null && lastHapticState != VpnState.Started && connectHapticEnabled()) connectHaptic()
@@ -28092,7 +28130,19 @@ class MainActivity : Activity() {
             connectionBlob.setVpnState(state)
             if (state != VpnState.Started) connectionBlob.setCenterText("C")
         }
-        if (::heroStateText.isInitialized) heroStateText.text = getString(presentation.titleRes)
+        if (::heroStateText.isInitialized) {
+            if (state is VpnState.Error && state.message.isNotBlank()) {
+                val fault = ConnectionFaultExplainer.explain(state.message)
+                heroStateText.text = getString(presentation.titleRes)
+                heroStateText.contentDescription = fault.title(isPersianUi())
+                heroStateText.setOnClickListener { showConnectionFaultDialog(state.message) }
+            } else {
+                heroStateText.text = getString(presentation.titleRes)
+                heroStateText.contentDescription = null
+                heroStateText.setOnClickListener(null)
+                heroStateText.isClickable = false
+            }
+        }
         if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         if (::heroPingAction.isInitialized) heroPingAction.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         applyHomeBackdrop(state)

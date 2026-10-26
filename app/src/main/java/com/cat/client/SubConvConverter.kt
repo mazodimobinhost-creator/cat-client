@@ -250,8 +250,14 @@ object SubConvConverter {
     }
 
     private fun parseVmess(line: String, names: NameRegistry): JSONObject {
-        val body = line.removePrefix("vmess://")
-        val decoded = decodeBase64Text(body)
+        // Some exporters append a name: vmess://<base64-json>#Name. '#' is not base64, so the
+        // whole link used to fail to decode and the config was dropped.
+        val fullBody = line.removePrefix("vmess://")
+        val body = fullBody.substringBefore('#')
+        val fragmentName = fullBody.substringAfter('#', "")
+            .let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
+            .trim()
+        val decoded = decodeBase64Text(body)?.takeIf { it.trimStart().startsWith("{") }
         if (decoded == null) return parseVmessAead(line, names)
         val values = try {
             JSONObject(decoded)
@@ -264,7 +270,7 @@ object SubConvConverter {
         if (server.isBlank() || uuid.isBlank() || port !in 1..65535) throw ParseError()
 
         val proxy = JSONObject()
-            .put("name", names.register(values.optString("ps")))
+            .put("name", names.register(fragmentName.ifBlank { values.optString("ps") }))
             .put("type", "vmess")
             .put("server", server)
             .put("port", port)
@@ -1215,8 +1221,14 @@ object SubConvConverter {
         query: Map<String, String>,
         defaultAmnezia: Boolean = false,
     ): JSONObject? = JSONObject().apply {
-        listOf("version", "jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4").forEach { key ->
-            query[key]?.toIntOrNull()?.let { put(key, it) }
+        listOf("version", "jc", "jmin", "jmax", "s1", "s2", "s3", "s4").forEach { key ->
+            query[key]?.trim()?.toIntOrNull()?.let { put(key, it) }
+        }
+        // H1-H4 are uint32 (often > Int.MAX_VALUE) and AmneziaWG 2.0 allows ranges ("a-b").
+        // Parsing them as Int silently dropped real values: the handshake then used the
+        // default headers and the tunnel "connected" but carried no data.
+        listOf("h1", "h2", "h3", "h4").forEach { key ->
+            AmneziaHeaders.value(query[key])?.let { put(key, it) }
         }
         if (defaultAmnezia && !has("jc")) {
             put("jc", 5)

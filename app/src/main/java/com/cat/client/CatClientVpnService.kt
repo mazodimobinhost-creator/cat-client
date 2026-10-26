@@ -4920,7 +4920,7 @@ class CatClientVpnService : VpnService() {
             )
             return
         }
-        publishState(VpnState.Error(error.message ?: "Unable to start VPN"))
+        publishState(VpnState.Error(ConnectionFaultExplainer.describeChain(error).ifBlank { "Unable to start VPN" }))
         stopSelf()
     }
 

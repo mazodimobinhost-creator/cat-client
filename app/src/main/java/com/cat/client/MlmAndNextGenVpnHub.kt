@@ -375,7 +375,7 @@ internal object MlmAndNextGenVpnHub {
         val tagEnc = URLEncoder.encode("🛡️ $defaultName ($endpoint)", "UTF-8")
 
         val extraAmnezia = buildString {
-            listOf("h1", "h2", "h3", "h4", "i1", "i2").forEach { k ->
+            listOf("s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5").forEach { k ->
                 props[k]?.let { v -> append("&$k=").append(URLEncoder.encode(v, "UTF-8")) }
             }
             props["presharedkey"]?.let { psk ->

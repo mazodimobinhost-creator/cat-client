@@ -6,6 +6,10 @@ ZedSecure by CluvexStudio (https://github.com/CluvexStudio/ZedSecure), licensed
 under the GNU Affero General Public License v3.0. The ported pieces
 (WorldMap.kt, ZedWorldMapView.kt, ZedMotion.kt, ZedBlobView.kt) remain available
 under AGPL-3.0 alongside this project's GPL-3.0 licence.
+The connection-fault explanation idea (ConnectionFaultExplainer.kt) and the
+AmneziaWG H1-H4 / named-vmess import fixes follow ZedSecure 3.1.6 behaviour; the
+code and texts are written independently for Cat Client and are offered under
+AGPL-3.0 as well.
 
 The DNS-tunnel engine packaged as lib/<abi>/libslipnet.so is the SlipNet CLI by
 anonvector (https://github.com/anonvector/SlipNet, directory cli/), licensed under
