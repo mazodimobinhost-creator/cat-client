@@ -3119,34 +3119,31 @@ RESOLVERS = [$resolversList]
         rawSubscriptionTexts: List<String>,
         report: LiveTlsCloneReport,
     ): List<String> {
-        val templates = extractRealConfigTemplates(rawSubscriptionTexts)
-        if (templates.isEmpty()) return emptyList()
-        currentDecoySni = report.targetHost
-        currentStrategy = SpoofStrategy.LOW_TTL_DECOY
-        val fmEncoded = java.net.URLEncoder.encode(buildServerlessV52FinalMaskJson("fragA"), "UTF-8")
-        val out = mutableListOf<String>()
-        for ((idx, tpl) in templates.take(6).withIndex()) {
-            val localPort = ensureDedicatedForwarderPort(
-                remoteHost = tpl.remoteHost,
-                remotePort = tpl.remotePort,
-                decoySni = report.targetHost,
-                strategy = SpoofStrategy.LOW_TTL_DECOY,
-            )
-            val realSni = tpl.originalSni.ifBlank { tpl.hostHeader.ifBlank { tpl.remoteHost } }
-            val realHost = tpl.hostHeader.ifBlank { realSni }
-            val encPath = java.net.URLEncoder.encode(tpl.path, "UTF-8")
-            val remark = java.net.URLEncoder.encode(
-                "🕵️ کلون ${report.targetHost} #${idx + 1} (${tpl.remark.take(18)})",
-                "UTF-8",
-            )
-            val uri = if (tpl.scheme == "trojan") {
-                "trojan://${tpl.uuidOrPass}@127.0.0.1:$localPort?security=tls&type=${tpl.network}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded#$remark"
-            } else {
-                "vless://${tpl.uuidOrPass}@127.0.0.1:$localPort?encryption=none&security=tls&type=${tpl.network}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded#$remark"
-            }
-            out.add(uri)
+        val allLines = rawSubscriptionTexts.flatMap { it.lines() }
+        val tpl = extractRealConfigTemplate(allLines) ?: return emptyList()
+        updateDecoySni(report.targetHost)
+        currentActiveStrategy = SpoofStrategy.LOW_TTL_DECOY
+        val fmJson = """{"fragment":{"packets":"tlshello","length":"6,98,1","interval":"1","maxSplit":"3"}}"""
+        val fmEncoded = java.net.URLEncoder.encode(fmJson, "UTF-8")
+        val localPort = startDirectTcpSpoofForwarder(
+            remoteHost = tpl.remoteHost,
+            remotePort = tpl.remotePort,
+            strategy = SpoofStrategy.LOW_TTL_DECOY,
+            decoySni = report.targetHost,
+        )
+        val realSni = tpl.sni.ifBlank { tpl.hostHeader.ifBlank { tpl.remoteHost } }
+        val realHost = tpl.hostHeader.ifBlank { realSni }
+        val encPath = java.net.URLEncoder.encode(tpl.path, "UTF-8")
+        val remark = java.net.URLEncoder.encode(
+            "🕵️ کلون ${report.targetHost} (${tpl.remark.take(18)})",
+            "UTF-8",
+        )
+        val uri = if (tpl.scheme == "trojan") {
+            "trojan://${tpl.uuidOrPass}@127.0.0.1:$localPort?security=tls&type=${tpl.networkType}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded&sni_fwd_target=${tpl.remoteHost}:${tpl.remotePort}#$remark"
+        } else {
+            "vless://${tpl.uuidOrPass}@127.0.0.1:$localPort?encryption=none&security=tls&type=${tpl.networkType}&host=$realHost&sni=$realSni&path=$encPath&fp=chrome&alpn=h2,http/1.1&fm=$fmEncoded&sni_fwd_target=${tpl.remoteHost}:${tpl.remotePort}#$remark"
         }
-        return out
+        return listOf(uri)
     }
 
     // =========================================================================
@@ -3207,7 +3204,7 @@ RESOLVERS = [$resolversList]
         val fusionGroup = "⚡ ترکیب موازی سرعت (Multi-Tunnel Fusion)"
         val failoverGroup = "🤖 خلبان خودکار ضدقطع (Zero-Drop Failover)"
         val fastestGroup = "🚀 سریع‌ترین پینگ زنده (Fastest Auto)"
-        val selectGroup = MihomoLinkConfigBuilder.SELECT_GROUP
+        val selectGroup = "CatClient Proxy"
 
         val fusedYaml = buildString {
             appendLine(proxiesBlock)

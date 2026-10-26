@@ -17276,7 +17276,7 @@ class MainActivity : Activity() {
                             if (isFarsi) "🚀 اعمال استتار روی کانفیگ‌ها و اتصال" else "🚀 Apply Camouflage & Connect",
                         ) { _, _ ->
                             if (clonedLinks.isEmpty()) {
-                                LocalSniSpoofProxy.currentDecoySni = report.targetHost
+                                LocalSniSpoofProxy.updateDecoySni(report.targetHost)
                                 Toast.makeText(
                                     this@MainActivity,
                                     if (isFarsi) "✅ دامنهٔ استتار ${report.targetHost} روی موتور ضد-DPI فعال شد!"

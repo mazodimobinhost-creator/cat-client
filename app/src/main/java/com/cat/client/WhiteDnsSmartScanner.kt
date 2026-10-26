@@ -1355,7 +1355,7 @@ internal object WhiteDnsSmartScanner {
                             tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
                             tType == "ss" || tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
                             tType.contains("sayedns") || tType.contains("noizdns") -> WhiteDnsTunnelEngine.NOIZ_DNS
-                            tType.contains("dnstt") -> WhiteDnsTunnelEngine.DNSTT_COMPAT
+                            tType.contains("dnstt") -> WhiteDnsTunnelEngine.DNST_STANDARD
                             else -> WhiteDnsTunnelEngine.SLIPNET_BUNDLE
                         }
                         return WhiteDnsParsedTunnelUri(
