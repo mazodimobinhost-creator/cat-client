@@ -2326,15 +2326,18 @@ internal object LocalSniSpoofProxy {
 
         val cutPoints = sortedSetOf<Int>()
         if (fragVariant.equals("fragB", ignoreCase = true)) {
-            if (104 < payload.size) cutPoints.add(104)
-            if (105 < payload.size) cutPoints.add(105)
+            val primaryCut = if (104 < payload.size) 104 else (payload.size / 2).coerceAtLeast(4)
+            cutPoints.add(primaryCut)
+            if (primaryCut + 1 < payload.size) cutPoints.add(primaryCut + 1)
+            if (primaryCut + 5 < payload.size) cutPoints.add(primaryCut + 5)
         } else {
             if (6 < payload.size) cutPoints.add(6)
-            if (104 < payload.size) cutPoints.add(104)
-            if (105 < payload.size) cutPoints.add(105)
+            val secondCut = if (104 < payload.size) 104 else (payload.size / 2).coerceAtLeast(10)
+            if (secondCut < payload.size) cutPoints.add(secondCut)
+            if (secondCut + 1 < payload.size) cutPoints.add(secondCut + 1)
         }
         // Stage 2: 114, 1 up to maxSplit=11
-        var cursor = 114
+        var cursor = if (114 < payload.size) 114 else (payload.size * 2 / 3).coerceAtLeast(14)
         var splits = 0
         while (cursor < payload.size && splits < 11) {
             cutPoints.add(cursor)
