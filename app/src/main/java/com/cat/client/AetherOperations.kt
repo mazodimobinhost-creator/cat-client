@@ -34,13 +34,19 @@ internal data class AetherExitTrace(
 internal data class AetherTwoHopProbeReport(
     val outerPeer: String,
     val outerReachable: Boolean,
-    val outerRttMs: Long,
+    val outerRttMs: Long?,
     val innerPeer: String?,
     val innerReachable: Boolean,
-    val innerRttMs: Long,
+    val innerRttMs: Long?,
     val exitTrace: AetherExitTrace?,
     val sanctionFree: Boolean,
-)
+) {
+    val outerEndpoint: String get() = outerPeer
+    val innerEndpoint: String get() = innerPeer.orEmpty()
+    val exitIp: String get() = exitTrace?.ip.orEmpty()
+    val exitLoc: String get() = exitTrace?.countryCode.orEmpty()
+    val exitColo: String get() = exitTrace?.colo.orEmpty()
+}
 
 /** Explicit foreground operations only; callers own coroutine/lifecycle cancellation. */
 internal object AetherOperations {
@@ -490,10 +496,10 @@ internal object AetherOperations {
         return AetherTwoHopProbeReport(
             outerPeer = outer,
             outerReachable = outerRtt != null,
-            outerRttMs = outerRtt ?: -1L,
+            outerRttMs = outerRtt,
             innerPeer = inner,
             innerReachable = inner == null || innerRtt != null,
-            innerRttMs = innerRtt ?: -1L,
+            innerRttMs = innerRtt,
             exitTrace = trace,
             sanctionFree = !sanctioned && (trace == null || !trace.isIranIp),
         )
@@ -501,10 +507,11 @@ internal object AetherOperations {
 
     internal fun probePeerSocketRttMs(peer: String, useTcp: Boolean, timeoutMs: Int = 2_200): Long? {
         val ep = connectionChainEndpointOrNull(peer.trim()) ?: return null
+        val port = ep.port ?: 443
         val t0 = System.nanoTime()
         return runCatching {
             val addr = InetAddress.getByName(ep.ip)
-            val sockAddr = java.net.InetSocketAddress(addr, ep.port)
+            val sockAddr = java.net.InetSocketAddress(addr, port)
             if (useTcp) {
                 java.net.Socket().use { sock ->
                     sock.connect(sockAddr, timeoutMs)

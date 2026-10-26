@@ -1367,22 +1367,30 @@ class CatClientVpnService : VpnService() {
                 scheme in PaqetEngine.SUPPORTED_SCHEMES -> {
                     val cfg = PaqetEngine.parsePaqetUri(rawShare)
                     if (cfg != null) {
-                        PaqetEngine.probeEndpointLatencyMs(cfg.serverHost, cfg.serverPort, timeoutMs)?.toInt()
-                    } else null
-                }
-                scheme == "fenix" || scheme == "firefoxvpn" -> {
-                    FirefoxVpnEngine.probeBestProxyRttMs(timeoutMs)?.toInt()
-                }
-                scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> {
-                    val parsed = WhiteDnsSmartScanner.parseTunnelUri(rawShare)
-                    if (parsed != null) {
-                        val useTcp = parsed.protocol in setOf("doh", "slipstream")
                         AetherOperations.probePeerSocketRttMs(
-                            "${parsed.resolverHost}:${parsed.resolverPort}",
-                            useTcp = useTcp,
+                            "${cfg.serverHost}:${cfg.serverPort}",
+                            useTcp = true,
                             timeoutMs = timeoutMs,
                         )?.toInt()
                     } else null
+                }
+                scheme == "fenix" || scheme == "firefoxvpn" -> {
+                    AetherOperations.probePeerSocketRttMs(
+                        "151.101.1.91:443",
+                        useTcp = true,
+                        timeoutMs = timeoutMs,
+                    )?.toInt()
+                }
+                scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> {
+                    val afterScheme = rawShare.substringAfter("://", "")
+                    val authority = afterScheme.substringBefore("?").substringBefore("#").substringAfterLast("@").trim()
+                    val peer = if (":" in authority) authority else "$authority:53"
+                    val useTcp = scheme in setOf("doh", "slipstream")
+                    AetherOperations.probePeerSocketRttMs(
+                        peer,
+                        useTcp = useTcp,
+                        timeoutMs = timeoutMs,
+                    )?.toInt()
                 }
                 else -> null
             }

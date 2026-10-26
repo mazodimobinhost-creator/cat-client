@@ -21,7 +21,21 @@ data class AetherSavedProfile(
     val innerEndpoint: String = "",
     val scanMode: String = "balanced",
     val noizePreset: String = "auto",
+    val fingerprint: String = "",
+    val fragmentEnabled: Boolean = true,
+    val fragmentSize: String = "16-32",
+    val fragmentDelay: String = "2-10",
+    val masqueSni: String = "",
+    val echEnabled: Boolean = false,
+    val echDns: String = "https://1.1.1.1/dns-query",
+    val echDomain: String = "cloudflare-ech.com",
     val psiphonMode: String = "auto",
+    val psiphonCdnIps: String = "",
+    val psiphonCdnSni: String = "",
+    val psiphonBundled: Boolean = true,
+    val torBridgesMode: String = "auto",
+    val torCustomBridges: String = "",
+    val torRelaysMode: String = "auto",
 )
 
 data class AetherSmartHint(
@@ -398,6 +412,7 @@ data class AetherSelection(
         val VALID_FINGERPRINTS = setOf("chrome", "chrome-120", "firefox", "semi-python", "go")
         val VALID_PSIPHON_MODES = setOf("auto", "cdn", "direct")
         val VALID_TOR_BRIDGES_MODES = setOf("auto", "first", "never", "own")
+        val VALID_TOR_BRIDGES = VALID_TOR_BRIDGES_MODES
         val VALID_TOR_RELAYS_MODES = setOf("auto", "only", "off")
 
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
