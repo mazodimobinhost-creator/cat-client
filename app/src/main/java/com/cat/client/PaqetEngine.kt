@@ -1,7 +1,6 @@
 package com.cat.client
 
 import android.content.Context
-import android.net.Uri
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -13,6 +12,7 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -393,31 +393,34 @@ internal object PaqetEngine {
         }.getOrNull()
     }
 
+    private fun urlEncode(value: String): String =
+        runCatching { URLEncoder.encode(value, "UTF-8").replace("+", "%20") }.getOrDefault(value)
+
     fun buildPaqetUri(config: PaqetConfig): String {
         val scheme = config.variant.id
-        val encodedKey = Uri.encode(config.secretKey)
+        val encodedKey = urlEncode(config.secretKey)
         val hostPart = if (':' in config.serverHost && !config.serverHost.startsWith("[")) {
             "[${config.serverHost}]"
         } else {
             config.serverHost
         }
         val query = buildList {
-            add("variant=${Uri.encode(config.variant.id)}")
-            add("mode=${Uri.encode(config.kcpMode.id)}")
+            add("variant=${urlEncode(config.variant.id)}")
+            add("mode=${urlEncode(config.kcpMode.id)}")
             add("mtu=${config.mtu}")
             add("conn=${config.connections}")
             add("obfs=${if (config.tlsObfuscation) "1" else "0"}")
-            if (config.sniHost.isNotBlank()) add("sni=${Uri.encode(config.sniHost)}")
+            if (config.sniHost.isNotBlank()) add("sni=${urlEncode(config.sniHost)}")
             if (config.hasPortHopping) add("hop=${config.portHopStart}-${config.portHopEnd}")
             add("padmin=${config.paddingMin}")
             add("padmax=${config.paddingMax}")
-            if (config.networkInterface.isNotBlank()) add("iface=${Uri.encode(config.networkInterface)}")
-            if (config.dnsControlDomain.isNotBlank()) add("dns_domain=${Uri.encode(config.dnsControlDomain)}")
-            if (config.dnsResolver.isNotBlank()) add("resolver=${Uri.encode(config.dnsResolver)}")
+            if (config.networkInterface.isNotBlank()) add("iface=${urlEncode(config.networkInterface)}")
+            if (config.dnsControlDomain.isNotBlank()) add("dns_domain=${urlEncode(config.dnsControlDomain)}")
+            if (config.dnsResolver.isNotBlank()) add("resolver=${urlEncode(config.dnsResolver)}")
             if (config.upstreamEntrySocks) add("entry_socks=1")
-            if (config.splitTunnelMode.isNotBlank()) add("split=${Uri.encode(config.splitTunnelMode)}")
+            if (config.splitTunnelMode.isNotBlank()) add("split=${urlEncode(config.splitTunnelMode)}")
         }.joinToString("&")
-        val remarkPart = Uri.encode(config.remark.ifBlank { "PaqetNG ${config.serverHost}:${config.serverPort}" })
+        val remarkPart = urlEncode(config.remark.ifBlank { "PaqetNG ${config.serverHost}:${config.serverPort}" })
         return "$scheme://$encodedKey@$hostPart:${config.serverPort}?$query#$remarkPart"
     }
 
