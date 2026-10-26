@@ -254,7 +254,7 @@ let user;
   // has to be dropped before switching sides (a test-only artefact).
   T.kvCacheClear();
   const raw = await (await req('/api/backup?includeSecrets=1', { headers: auth })).json();
-  check('?includeSecrets=1 ships the real hash', /^[0-9a-f]{64}$/.test(String(raw.settings.passwordHash || '')), String(raw.settings.passwordHash).slice(0, 24));
+  check('?includeSecrets=1 ships the real hash', /^(?:[0-9a-f]{64}|s1\$[0-9a-f]{32}\$[0-9a-f]{64})$/.test(String(raw.settings.passwordHash || '')), String(raw.settings.passwordHash).slice(0, 24));
   const KV3 = new FakeKV(); const env3 = { CAT_KV: KV3, UUID: MASTER }; T.kvCacheClear();
   const rs3 = await req('/api/backup', { method:'POST', headers:{ authorization:'Bearer admin' }, body: raw, env: env3 }); check('raw restore accepted', (await rs3.json()).ok);
   const lu3 = await req('/api/users', { headers:{ authorization:'Bearer s3cret' }, env: env3 });
@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.36', T.CAT_PANEL_VERSION === '6.69.36');
+  check('panel version is 6.69.37', T.CAT_PANEL_VERSION === '6.69.37');
   check('non-CF whitelist targets & 5 CF spoof methods & MasterDNS/VayDNS catalogs exist', Array.isArray(T.NON_CF_WHITELIST_TARGETS) && T.NON_CF_WHITELIST_TARGETS.length >= 10 && Array.isArray(T.CF_SPOOF_5_METHODS) && T.CF_SPOOF_5_METHODS.length === 5 && T.MASTERDNS_BALANCERS_0_8.length === 9 && T.VAYDNS_RECORD_TYPES.length === 9);
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the

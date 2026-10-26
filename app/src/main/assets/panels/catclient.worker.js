@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.36';
+const CAT_PANEL_VERSION = '6.69.37';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1072,6 +1072,7 @@ function normalizeSettings(raw) {
   const s = Object.assign({}, d, raw && typeof raw === 'object' ? raw : {});
   s.title = String(s.title || '').slice(0, 60);
   s.passwordHash = String(s.passwordHash || '');
+  s.totpSecret = /^[A-Z2-7]{16,64}$/.test(String(s.totpSecret || '')) ? String(s.totpSecret) : '';
   s.lang = s.lang === 'en' ? 'en' : 'fa';
   // Cosmetic only: an unknown id (hand-edited JSON, older panel) falls back to the default skin.
   s.uiTheme = PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME;
@@ -1216,6 +1217,12 @@ function normalizeUser(raw) {
     createdAt: Number(u.createdAt) || Date.now(),
     expiresAt: Number(u.expiresAt) || 0,  // 0 → never
     note: String(u.note || '').slice(0, 200),
+    // Traffic quota in bytes (0 → unlimited). Only users WITH a quota are metered,
+    // and the meter flushes to KV at most once per USAGE_FLUSH_MS per user.
+    quotaBytes: Math.max(0, Math.round(Number(u.quotaBytes) || (Number(u.quotaGB) > 0 ? Number(u.quotaGB) * 1073741824 : 0))) || 0,
+    // Simultaneous client IPs (0 → unlimited), counted over USER_IP_WINDOW_MS.
+    maxIps: Math.max(0, Math.min(50, Math.floor(Number(u.maxIps) || 0))),
+    usageResetAt: Number(u.usageResetAt) || 0,
     protocols: {[PROTO_VLESS]: !(u.protocols && u.protocols[PROTO_VLESS] === false),[TROJAN_KEY]: !(u.protocols && u.protocols[TROJAN_KEY] === false) },
   };
 }
@@ -1231,11 +1238,114 @@ async function writeUsers(env, users) {
   return { users: list, persisted };
 }
 
-function userBlockedReason(user) {
+function userBlockedReason(user, traffic) {
   if (!user) return 'unknown';
   if (!user.enabled) return 'disabled';
   if (user.expiresAt && Date.now() > user.expiresAt) return 'expired';
+  if (traffic && user.quotaBytes > 0 && (Number(traffic.up) || 0) + (Number(traffic.down) || 0) >= user.quotaBytes) return 'quota';
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* per-user traffic meter (KV-safe)                                     */
+/* The old always-on meter wrote KV on every connection and burned the  */
+/* free write quota. This one: (1) meters ONLY users with a quota,      */
+/* (2) sums bytes in the isolate, (3) writes one KV key per user at     */
+/* most every USAGE_FLUSH_MS (or when ≥64 MB are pending). Totals are   */
+/* therefore approximate (an evicted isolate loses its last minutes).   */
+/* ------------------------------------------------------------------ */
+const USAGE_FLUSH_MS = 10 * 60 * 1000;
+const USAGE_FLUSH_BYTES = 64 * 1024 * 1024;
+const USAGE_READ_TTL_MS = 60 * 1000;
+const trafficPending = new Map(); // id → { up, down, since }
+const trafficCache = new Map();   // id → { value, at }
+
+function trafficKey(id) { return 'traffic:' + id; }
+
+async function readTraffic(env, id, fresh) {
+  const now = Date.now();
+  const hit = trafficCache.get(id);
+  let stored;
+  if (!fresh && hit && now - hit.at < USAGE_READ_TTL_MS) stored = hit.value;
+  else {
+    stored = { up: 0, down: 0, since: 0 };
+    try {
+      const kv = kvBinding(env);
+      const raw = kv ? await kv.get(trafficKey(id)) : null;
+      if (raw) { const j = JSON.parse(raw); stored = { up: Number(j.up) || 0, down: Number(j.down) || 0, since: Number(j.since) || 0 }; }
+    } catch (e) { /* best effort */ }
+    trafficCache.set(id, { value: stored, at: now });
+  }
+  const pending = trafficPending.get(id);
+  return pending ? { up: stored.up + pending.up, down: stored.down + pending.down, since: stored.since } : stored;
+}
+
+async function flushTraffic(env, id) {
+  const pending = trafficPending.get(id);
+  if (!pending || (!pending.up && !pending.down)) return;
+  trafficPending.delete(id);
+  try {
+    const kv = kvBinding(env);
+    if (!kv) return;
+    const base = await readTraffic(env, id, true);
+    const next = { up: base.up + pending.up, down: base.down + pending.down, since: base.since || Date.now(), at: Date.now() };
+    await kv.put(trafficKey(id), JSON.stringify(next));
+    trafficCache.set(id, { value: { up: next.up, down: next.down, since: next.since }, at: Date.now() });
+  } catch (e) {
+    // put the bytes back so the next flush retries them
+    const again = trafficPending.get(id) || { up: 0, down: 0, since: Date.now() };
+    again.up += pending.up; again.down += pending.down;
+    trafficPending.set(id, again);
+  }
+}
+
+async function addTraffic(env, id, up, down) {
+  if (!id || (!up && !down)) return;
+  const cur = trafficPending.get(id) || { up: 0, down: 0, since: Date.now() };
+  cur.up += up || 0; cur.down += down || 0;
+  trafficPending.set(id, cur);
+  if (Date.now() - cur.since >= USAGE_FLUSH_MS || cur.up + cur.down >= USAGE_FLUSH_BYTES) await flushTraffic(env, id);
+}
+
+async function resetTraffic(env, id) {
+  trafficPending.delete(id);
+  const zero = { up: 0, down: 0, since: Date.now(), at: Date.now() };
+  trafficCache.set(id, { value: zero, at: Date.now() });
+  const kv = kvBinding(env);
+  if (kv) await kv.put(trafficKey(id), JSON.stringify(zero));
+}
+
+/* Device / IP limit: remember the client IPs of a limited user for a window. */
+const USER_IP_WINDOW_MS = 10 * 60 * 1000;
+const userIpCache = new Map(); // id → { ips: {ip: lastMs}, at, wrote }
+
+async function admitUserIp(env, user, ip) {
+  if (!user || !(user.maxIps > 0) || !ip) return true;
+  const now = Date.now();
+  const kv = kvBinding(env);
+  let entry = userIpCache.get(user.id);
+  if (!entry || now - entry.at > 60 * 1000) {
+    let ips = {};
+    try { const raw = kv ? await kv.get('uips:' + user.id) : null; if (raw) ips = JSON.parse(raw) || {}; } catch (e) { ips = {}; }
+    entry = { ips: Object.assign({}, ips, entry ? entry.ips : {}), at: now, wrote: entry ? entry.wrote : 0 };
+    userIpCache.set(user.id, entry);
+  }
+  for (const k of Object.keys(entry.ips)) if (now - Number(entry.ips[k]) > USER_IP_WINDOW_MS) delete entry.ips[k];
+  const known = Object.prototype.hasOwnProperty.call(entry.ips, ip);
+  if (!known && Object.keys(entry.ips).length >= user.maxIps) return false;
+  entry.ips[ip] = now;
+  if (kv && (!known || now - entry.wrote > 5 * 60 * 1000)) {
+    entry.wrote = now;
+    try { await kv.put('uips:' + user.id, JSON.stringify(entry.ips), { expirationTtl: 3600 }); } catch (e) { /* best effort */ }
+  }
+  return true;
+}
+
+function activeIpCount(user) {
+  const entry = user ? userIpCache.get(user.id) : null;
+  if (!entry) return 0;
+  const now = Date.now();
+  return Object.values(entry.ips).filter((t) => now - Number(t) <= USER_IP_WINDOW_MS).length;
 }
 
 function findUser(users, id) {
@@ -1321,15 +1431,114 @@ async function isOwner(request, env, settings, masterUuid) {
   const auth = request.headers.get('authorization') || '';
   const key = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : (request.headers.get('x-cat-key') || '').trim();
   if (!key) return false;
+  // With 2FA on, the bare password is not enough — Bearer access needs a session.
+  if (settings.totpSecret) return false;
   const pass = await panelPassword(env, settings, masterUuid);
-  return safeEqualHex(await sha256Hex(key), pass.hash);
+  return verifyPanelPassword(key, pass.hash);
 }
 
 async function checkLogin(env, settings, masterUuid, username, password) {
   const wantUser = panelUsername(env);
   if (String(username || '').trim() !== wantUser) return false;
   const pass = await panelPassword(env, settings, masterUuid);
-  return safeEqualHex(await sha256Hex(String(password || '')), pass.hash);
+  return verifyPanelPassword(password, pass.hash);
+}
+
+/* Salted password hash: "s1$<salt hex>$sha256(salt:password)". Legacy unsalted
+ * sha256 hashes keep working and are upgraded the next time the owner saves a
+ * password. (PBKDF2 would exceed the free plan's 10 ms CPU budget per request.) */
+async function hashPanelPassword(password) {
+  const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+  return 's1$' + salt + '$' + await sha256Hex(salt + ':' + String(password));
+}
+
+async function verifyPanelPassword(password, stored) {
+  const s = String(stored || '');
+  if (s.startsWith('s1$')) {
+    const parts = s.split('$');
+    if (parts.length !== 3) return false;
+    return safeEqualHex(await sha256Hex(parts[1] + ':' + String(password || '')), parts[2]);
+  }
+  return safeEqualHex(await sha256Hex(String(password || '')), s);
+}
+
+/* ---- TOTP (RFC 6238, SHA-1, 6 digits, 30 s) ---- */
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(bytes) {
+  let bits = 0, value = 0, out = '';
+  for (const b of bytes) { value = (value << 8) | b; bits += 8; while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(text) {
+  const clean = String(text || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0; const out = [];
+  for (const ch of clean) { value = (value << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; } }
+  return new Uint8Array(out);
+}
+async function totpCode(secretB32, counter) {
+  const key = await crypto.subtle.importKey('raw', base32Decode(secretB32), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+  const msg = new Uint8Array(8);
+  let c = counter;
+  for (let i = 7; i >= 0; i--) { msg[i] = c & 255; c = Math.floor(c / 256); }
+  const h = new Uint8Array(await crypto.subtle.sign('HMAC', key, msg));
+  const off = h[h.length - 1] & 15;
+  const bin = ((h[off] & 127) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+async function verifyTotp(secretB32, code, nowMs) {
+  const want = String(code || '').replace(/\s+/g, '');
+  if (!/^[0-9]{6}$/.test(want) || !secretB32) return false;
+  const step = Math.floor((nowMs || Date.now()) / 30000);
+  for (const d of [0, -1, 1]) { if ((await totpCode(secretB32, step + d)) === want) return true; }
+  return false;
+}
+
+/* ---- login guard: per-IP lockout + audit log ---- */
+const LOGIN_FAIL_LIMIT = 5;
+const LOGIN_LOCK_BASE_MS = 60 * 1000;
+const LOGIN_LOCK_MAX_MS = 30 * 60 * 1000;
+const loginFails = new Map(); // ip → { fails, until }
+function loginLockMs(fails) {
+  if (fails < LOGIN_FAIL_LIMIT) return 0;
+  return Math.min(LOGIN_LOCK_MAX_MS, LOGIN_LOCK_BASE_MS * Math.pow(2, fails - LOGIN_FAIL_LIMIT));
+}
+async function loginState(env, ip) {
+  const now = Date.now();
+  let st = loginFails.get(ip);
+  if (!st) {
+    st = { fails: 0, until: 0 };
+    try { const kv = kvBinding(env); const raw = kv ? await kv.get('lf:' + ip) : null; if (raw) { const j = JSON.parse(raw); st = { fails: Number(j.fails) || 0, until: Number(j.until) || 0 }; } } catch (e) { /* ignore */ }
+    loginFails.set(ip, st);
+  }
+  if (st.until && now > st.until + LOGIN_LOCK_MAX_MS) { st.fails = 0; st.until = 0; }
+  return st;
+}
+async function recordLoginResult(env, ip, ok, st) {
+  if (ok) {
+    loginFails.delete(ip);
+    try { const kv = kvBinding(env); if (kv && st && st.fails) await kv.delete('lf:' + ip); } catch (e) { /* ignore */ }
+    return;
+  }
+  st.fails += 1;
+  const lock = loginLockMs(st.fails);
+  st.until = lock ? Date.now() + lock : 0;
+  loginFails.set(ip, st);
+  try { const kv = kvBinding(env); if (kv && st.fails >= 2) await kv.put('lf:' + ip, JSON.stringify(st), { expirationTtl: 3600 }); } catch (e) { /* ignore */ }
+}
+const LOGIN_AUDIT_KEY = 'cat:v6:loginaudit';
+async function auditLogin(env, request, ok, reason) {
+  try {
+    const kv = kvBinding(env);
+    if (!kv) return;
+    const cf = request.cf || {};
+    const entry = { at: Date.now(), ok: !!ok, reason: String(reason || '').slice(0, 24), ip: String(request.headers.get('cf-connecting-ip') || '').slice(0, 64), cc: String(cf.country || '').slice(0, 2), asn: Number(cf.asn) || 0, ua: String(request.headers.get('user-agent') || '').slice(0, 120) };
+    let list = [];
+    try { list = JSON.parse((await kv.get(LOGIN_AUDIT_KEY)) || '[]'); } catch (e) { list = []; }
+    if (!Array.isArray(list)) list = [];
+    list.unshift(entry);
+    await kv.put(LOGIN_AUDIT_KEY, JSON.stringify(list.slice(0, 50)));
+  } catch (e) { /* best effort */ }
 }
 
 function sessionCookieHeader(token) {
@@ -2711,7 +2920,7 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
  * downstream is a tight read loop that only prefixes the protocol response
  * to the first chunk. Nothing is counted — that was the CPU hog in v5.
  */
-async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) {
+async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, meter) {
   // Activity-reset idle timeout: unlike the proposed fixed ten-minute lifetime,
   // every real byte in either direction rearms the timer, so healthy long-lived
   // tunnels stay alive while abandoned sockets release their resources.
@@ -2725,7 +2934,7 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
   };
   touch();
   const activityMeter = new TransformStream({
-    transform(chunk, controller) { touch(); controller.enqueue(chunk); },
+    transform(chunk, controller) { touch(); if (meter && chunk) meter.up += chunk.byteLength || 0; controller.enqueue(chunk); },
   });
   const upstream = clientReadable.pipeThrough(activityMeter).pipeTo(socket.writable, { preventAbort: false }).catch(() => {});
   // Downstream grain bundling (adopted from ZEUS): coalesce small reads into
@@ -2738,6 +2947,7 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
     let header = responseHeader;
     try {
       if (leftover && leftover.byteLength && ws.readyState === WS_OPEN) {
+        if (meter) meter.down += leftover.byteLength;
         ws.send(header ? concatBytes(header, leftover) : leftover);
         header = null;
       }
@@ -2755,6 +2965,7 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
         if (chunk.done) break;
         if (!chunk.value || !chunk.value.byteLength) continue;
         touch();
+        if (meter) meter.down += chunk.value.byteLength;
         if (ws.readyState !== WS_OPEN) break;
         if (header) { ws.send(concatBytes(header, chunk.value)); header = null; continue; }
         if (!grain) { grain = chunk.value; } else { grain = concatBytes(grain, chunk.value); }
@@ -2778,7 +2989,8 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover) 
 /* Trojan hash → uuid map, rebuilt only when the user list changes. */
 let trojanMapCache = { key: '', map: null };
 async function trojanCandidates(env, masterUuid, users) {
-  const key = masterUuid + '|' + (env.TROJAN_PASS || '') + '|' + users.map((u) => u.id).join(',');
+  // The key carries every field the gate reads, so an edited / disabled user is never served from a stale map.
+  const key = masterUuid + '|' + (env.TROJAN_PASS || '') + '|' + users.map((u) => [u.id, u.enabled, u.expiresAt, u.quotaBytes, u.maxIps, JSON.stringify(u.protocols)].join(':')).join(',');
   if (trojanMapCache.key === key && trojanMapCache.map) return trojanMapCache.map;
   const map = new Map();
   if (env.TROJAN_PASS) map.set(await trojanHash(env.TROJAN_PASS), { uuid: masterUuid, master: true });
@@ -2859,11 +3071,14 @@ async function handleTunnelConnection(ws, env, options = {}) {
   let firstPayload = null;
   let responseHeader = null;
   let isDns = false;
+  let meteredUser = null;
 
   const vless = parseVlessHeader(bytes);
   if (vless) {
     const auth = await tunnelAuth(env, vless.uuid, masterUuid);
     if (!auth.ok) { log('vless rejected (' + auth.error + ')'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
+    if (auth.user && !(await admitLimitedUser(env, auth.user, options.clientIp, ws, log))) return;
+    meteredUser = auth.user && auth.user.quotaBytes > 0 ? auth.user : null;
     markSeen(env, auth.user ? auth.user.id : masterUuid);
     if (auth.user && auth.user.protocols && auth.user.protocols[PROTO_VLESS] === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     if (vless.command === 2) {
@@ -2881,6 +3096,8 @@ async function handleTunnelConnection(ws, env, options = {}) {
     const match = candidates.get(trojan.password);
     const blocked = match && match.user ? userBlockedReason(match.user) : null;
     if (!match || blocked) { log('trojan rejected'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
+    if (match.user && !(await admitLimitedUser(env, match.user, options.clientIp, ws, log))) return;
+    meteredUser = match.user && match.user.quotaBytes > 0 ? match.user : null;
     markSeen(env, match.user ? match.user.id : masterUuid);
     if (match.user && match.user.protocols && match.user.protocols[TROJAN_KEY] === false) { safeCloseWs(ws, 1008, 'protocol disabled'); return; }
     const request = parseTrojanRequest(trojan.rest);
@@ -2943,13 +3160,27 @@ async function handleTunnelConnection(ws, env, options = {}) {
     cancel() { try { reader.cancel(); } catch (e) { /* ignore */ } },
   });
 
+  const meter = meteredUser ? { up: 0, down: 0 } : null;
   try {
-    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader, dialed.leftover);
+    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader, dialed.leftover, meter);
   } catch (e) {
     log('tunnel error');
   } finally {
     safeCloseWs(ws, 1000, 'done');
+    if (meter && meteredUser) await addTraffic(env, meteredUser.id, meter.up, meter.down).catch(() => {});
   }
+}
+
+/** Quota + simultaneous-IP gate for a panel user (master UUID is never limited). */
+async function admitLimitedUser(env, user, clientIp, ws, log) {
+  if (user.quotaBytes > 0) {
+    const traffic = await readTraffic(env, user.id).catch(() => null);
+    if (userBlockedReason(user, traffic) === 'quota') { log('quota reached'); safeCloseWs(ws, 1008, 'quota'); return false; }
+  }
+  if (user.maxIps > 0 && !(await admitUserIp(env, user, String(clientIp || '').slice(0, 64)))) {
+    log('ip limit'); safeCloseWs(ws, 1008, 'ip limit'); return false;
+  }
+  return true;
 }
 
 function tunnelPaths(env) {
@@ -4176,12 +4407,15 @@ function applyFirewallBypassPreset(settings, q) {
   return { settings: nextSettings, q: nextQ };
 }
 
-function subscriptionHeaders(user, title, webUrl) {
+function subscriptionHeaders(user, title, webUrl, traffic) {
   const expire = user && user.expiresAt ? Math.floor(user.expiresAt / 1000) : 0;
+  const up = traffic ? Math.max(0, Math.round(Number(traffic.up) || 0)) : 0;
+  const down = traffic ? Math.max(0, Math.round(Number(traffic.down) || 0)) : 0;
+  const total = user && user.quotaBytes > 0 ? user.quotaBytes : 0;
   const headers = {
     'profile-title': 'base64:' + b64encode(title),
     'profile-update-interval': '12',
-    'subscription-userinfo': 'upload=0; download=0; total=0' + (expire ? '; expire=' + expire : ''),
+    'subscription-userinfo': 'upload=' + up + '; download=' + down + '; total=' + total + (expire ? '; expire=' + expire : ''),
   };
   if (webUrl) headers['profile-web-page-url'] = webUrl;
   return headers;
@@ -4642,7 +4876,8 @@ async function readJsonBody(request, maxBytes = 256 * 1024) {
 
 async function subResponse(kind, host, env, settings, uuid, user, url, request) {
   const title = panelTitle(env, settings) + (user ? ' · ' + user.name : '');
-  const headers = subscriptionHeaders(user, title, url && url.origin ? url.origin + '/info/' + uuid : '');
+  const traffic = user && user.quotaBytes > 0 ? await readTraffic(env, user.id).catch(() => null) : null;
+  const headers = subscriptionHeaders(user, title, url && url.origin ? url.origin + '/info/' + uuid : '', traffic);
   let q = subQuery(url);
   ({ settings, q } = applyFirewallBypassPreset(settings, q));
   // BlueKnight-compatible firewall presets are Xray-only: returning a partial
@@ -5233,8 +5468,29 @@ async function handleApi(request, url, env, ctx) {
   if (path === '/api/login') {
     if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
     const body = (await readJsonBody(request)) || {};
+    // Cloudflare always sets cf-connecting-ip in production; without it (local
+    // workerd / tests) there is no client identity to lock, so no guard.
+    const ip = String(request.headers.get('cf-connecting-ip') || '').slice(0, 64);
+    const st = ip ? await loginState(env, ip) : { fails: 0, until: 0 };
+    if (ip && st.until && Date.now() < st.until) {
+      return json({ ok: false, error: 'locked', retryAfterMs: st.until - Date.now() }, 429, { 'retry-after': String(Math.ceil((st.until - Date.now()) / 1000)) });
+    }
     const ok = await checkLogin(env, settings, masterUuid, body.username, body.password);
-    if (!ok) return json({ ok: false, error: 'invalid' }, 401);
+    if (!ok) {
+      if (ip) await recordLoginResult(env, ip, false, st);
+      await auditLogin(env, request, false, 'password');
+      return json({ ok: false, error: 'invalid', remaining: Math.max(0, LOGIN_FAIL_LIMIT - st.fails) }, 401);
+    }
+    if (settings.totpSecret) {
+      if (!body.otp) return json({ ok: false, error: 'otp_required' }, 401);
+      if (!(await verifyTotp(settings.totpSecret, body.otp))) {
+        if (ip) await recordLoginResult(env, ip, false, st);
+        await auditLogin(env, request, false, 'otp');
+        return json({ ok: false, error: 'otp_invalid', otp: true, remaining: Math.max(0, LOGIN_FAIL_LIMIT - st.fails) }, 401);
+      }
+    }
+    if (ip) await recordLoginResult(env, ip, true, st);
+    await auditLogin(env, request, true, settings.totpSecret ? 'password+otp' : 'password');
     const token = await makeSession(env, settings, masterUuid);
     return json({ ok: true }, 200, { 'set-cookie': sessionCookieHeader(token) });
   }
@@ -5409,7 +5665,7 @@ async function handleApi(request, url, env, ctx) {
         kv: !!kvBinding(env),
         open: panelIsOpen(env, settings),
         passwordSource: (await panelPassword(env, settings, masterUuid)).source,
-        settings: Object.assign({}, settings, { passwordHash: undefined, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
+        settings: Object.assign({}, settings, { passwordHash: undefined, totpSecret: undefined, totpEnabled: !!settings.totpSecret, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
         telegram: { configured: !!tgConfig(env, settings) },
         defaults: { addresses: DEFAULT_CLEAN_ADDRESSES,[PXIPS_KEY]: DEFAULT_PROXY_IPS, tlsPorts: TLS_PORTS, plainPorts: PLAIN_PORTS },
         // subKeyOf, not masterUuid: after a token rotation the UUID path 404s.
@@ -5435,10 +5691,11 @@ async function handleApi(request, url, env, ctx) {
       const body = (await readJsonBody(request)) || {};
       const patch = Object.assign({}, body);
       delete patch.passwordHash;
+      delete patch.totpSecret;
       if (typeof patch.tgToken === 'string' && /^•/.test(patch.tgToken)) delete patch.tgToken;
       if (typeof patch.ghPat === 'string' && /^•/.test(patch.ghPat)) delete patch.ghPat;
       if (typeof body.password === 'string') {
-        patch.passwordHash = body.password.trim() ? await sha256Hex(body.password.trim()) : '';
+        patch.passwordHash = body.password.trim() ? await hashPanelPassword(body.password.trim()) : '';
       }
       delete patch.password;
       // What the owner typed in the Proxy IP box but the panel cannot use — reported, never silent.
@@ -5452,7 +5709,7 @@ async function handleApi(request, url, env, ctx) {
         extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid));
       }
       await pushEvent(env, 'settings', 'update');
-      return json({ ok: true, persisted: saved.persisted, ignored: pxIgnored, capped: pxCapped, settings: Object.assign({}, saved.settings, { passwordHash: undefined, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '', ghPat: saved.settings.ghPat ? '••••' + saved.settings.ghPat.slice(-4) : '' }) }, 200, extra);
+      return json({ ok: true, persisted: saved.persisted, ignored: pxIgnored, capped: pxCapped, settings: Object.assign({}, saved.settings, { passwordHash: undefined, totpSecret: undefined, totpEnabled: !!saved.settings.totpSecret, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '', ghPat: saved.settings.ghPat ? '••••' + saved.settings.ghPat.slice(-4) : '' }) }, 200, extra);
     }
     return json({ ok: false, error: 'method' }, 405);
   }
@@ -5677,14 +5934,47 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, changed, persisted, survive: origin + '/sub/' + masterUuid + '?survive=1' });
   }
 
+  if (path === '/api/login-audit') {
+    if (method !== 'GET') return json({ ok: false, error: 'method' }, 405);
+    let list = [];
+    try { const kv = kvBinding(env); list = kv ? JSON.parse((await kv.get(LOGIN_AUDIT_KEY)) || '[]') : []; } catch (e) { list = []; }
+    return json({ ok: true, entries: Array.isArray(list) ? list : [] });
+  }
+  if (path === '/api/2fa/setup') {
+    if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
+    const secret = base32Encode(crypto.getRandomValues(new Uint8Array(20)));
+    const label = encodeURIComponent((panelTitle(env, settings) || 'Cat Panel') + ':' + panelUsername(env));
+    return json({ ok: true, secret, uri: 'otpauth://totp/' + label + '?secret=' + secret + '&issuer=' + encodeURIComponent('Cat Panel') + '&digits=6&period=30' });
+  }
+  if (path === '/api/2fa/enable') {
+    if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
+    const body = (await readJsonBody(request)) || {};
+    const secret = String(body.secret || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+    if (secret.length < 16) return json({ ok: false, error: 'secret' }, 400);
+    if (!(await verifyTotp(secret, body.code))) return json({ ok: false, error: 'code' }, 400);
+    const saved = await writeSettings(env, { totpSecret: secret });
+    await pushEvent(env, '2fa-on', '');
+    // The session survives: sessions are signed with the password hash, not the TOTP secret.
+    return json({ ok: true, persisted: saved.persisted });
+  }
+  if (path === '/api/2fa/disable') {
+    if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
+    const body = (await readJsonBody(request)) || {};
+    if (settings.totpSecret && !(await verifyTotp(settings.totpSecret, body.code))) return json({ ok: false, error: 'code' }, 400);
+    const saved = await writeSettings(env, { totpSecret: '' });
+    await pushEvent(env, '2fa-off', '');
+    return json({ ok: true, persisted: saved.persisted });
+  }
+
   if (path === '/api/users' || path.startsWith('/api/users/')) {
     const users = await readUsers(env);
     const id = path.split('/')[3] ? decodeURIComponent(path.split('/')[3]).toLowerCase() : '';
     const action = path.split('/')[4] || '';
-    const decorate = (u, lastOnline) => Object.assign({}, u, { status: userBlockedReason(u) || 'active', lastOnline: lastOnline || 0, links: subLinks(origin, masterUuid, u) });
+    const decorate = (u, lastOnline, traffic) => Object.assign({}, u, { status: userBlockedReason(u, traffic) || 'active', lastOnline: lastOnline || 0, traffic: traffic || null, activeIps: activeIpCount(u), links: subLinks(origin, masterUuid, u) });
     if (method === 'GET' && !id) {
       const seen = await mapBounded(users, 4, (u) => readSeen(env, u.id).catch(() => 0));
-      return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i])) });
+      const traffic = await mapBounded(users, 4, (u) => (u.quotaBytes > 0 ? readTraffic(env, u.id).catch(() => null) : Promise.resolve(null)));
+      return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i], traffic[i])) });
     }
     if (method === 'POST' && !id) {
       const body = (await readJsonBody(request)) || {};
@@ -5695,6 +5985,9 @@ async function handleApi(request, url, env, ctx) {
         enabled: body.enabled,
         protocols: body.protocols,
         expiresAt: body.days ? Date.now() + Number(body.days) * 86400000 : (Number(body.expiresAt) || 0),
+        quotaGB: body.quotaGB,
+        quotaBytes: body.quotaBytes,
+        maxIps: body.maxIps,
       });
       if (findUser(users, user.id)) return json({ ok: false, error: 'exists' }, 409);
       const saved = await writeUsers(env, users.concat([user]));
@@ -5720,7 +6013,14 @@ async function handleApi(request, url, env, ctx) {
         next.enabled = true;
       } else if (action === 'toggle') {
         next.enabled = !existing.enabled;
+      } else if (action === 'reset-usage') {
+        await resetTraffic(env, existing.id);
+        next.usageResetAt = Date.now();
+        await pushEvent(env, 'user-reset', existing.name || existing.id);
       } else {
+        if (body.quotaGB !== undefined) next.quotaBytes = Math.max(0, Math.round((Number(body.quotaGB) || 0) * 1073741824));
+        else if (body.quotaBytes !== undefined) next.quotaBytes = Math.max(0, Number(body.quotaBytes) || 0);
+        if (body.maxIps !== undefined) next.maxIps = Number(body.maxIps) || 0;
         if (typeof body.name === 'string') next.name = body.name;
         if (typeof body.note === 'string') next.note = body.note;
         if (typeof body.enabled === 'boolean') next.enabled = body.enabled;
@@ -5730,7 +6030,8 @@ async function handleApi(request, url, env, ctx) {
       }
       next = normalizeUser(next);
       const saved = await writeUsers(env, users.map((u) => (u.id === id ? next : u)));
-      return json({ ok: true, persisted: saved.persisted, user: decorate(next) });
+      const traffic = next.quotaBytes > 0 ? await readTraffic(env, next.id).catch(() => null) : null;
+      return json({ ok: true, persisted: saved.persisted, user: decorate(next, existing.lastOnline, traffic) });
     }
     return json({ ok: false, error: 'method' }, 405);
   }
@@ -5747,7 +6048,7 @@ async function handleApi(request, url, env, ctx) {
       // real secret. ?includeSecrets=1 keeps the raw values (the owner may have to
       // re-enter them one by one otherwise) and the response warns loudly.
       const includeSecrets = url.searchParams.get('includeSecrets') === '1';
-      const SECRET_KEYS = ['chain', 'tgToken', 'ghPat', 'passwordHash'];
+      const SECRET_KEYS = ['chain', 'tgToken', 'ghPat', 'passwordHash', 'totpSecret'];
       const MASK = '***MASKED-BY-CAT-PANEL***';
       const outSettings = Object.assign({}, settings);
       const masked = [];
@@ -6074,6 +6375,7 @@ async function handleRequest(request, env, ctx) {
     server.accept();
     const job = handleTunnelConnection(server, env, {
       earlyDataHeader: request.headers.get('sec-websocket-protocol') || '',
+      clientIp: request.headers.get('cf-connecting-ip') || '',
       masterUuid,
       settings,
       path: url.pathname + (url.search || ''),
@@ -6470,6 +6772,7 @@ ${stale ? `<div class="note w" style="margin-bottom:14px;text-align:start">
 </div>` : ''}
 ${needsUser ? `<label>${fa ? 'نام کاربری' : 'Username'}</label><input id="u" autocomplete="username">` : ''}
 <label>${fa ? 'رمز عبور' : 'Password'}</label><input id="p" type="password" autocomplete="current-password" autofocus>
+<div id="otpBox" style="display:none"><label>${fa ? 'کد ۶ رقمی برنامهٔ احراز هویت' : '6-digit authenticator code'}</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr"></div>
 <div class="err" id="e"></div>
 <button class="btn p" style="width:100%;margin-top:6px" type="submit">${fa ? 'ورود' : 'Sign in'}</button>
 ${fresh ? `
@@ -6484,8 +6787,11 @@ ${fresh ? `
 </form></div>
 <script>
 document.getElementById('f').addEventListener('submit',function(ev){ev.preventDefault();var e=document.getElementById('e');e.textContent='';
-var u=document.getElementById('u');fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value,username:u?u.value:''})})
-.then(function(r){return r.json()}).then(function(j){if(j.ok)location.href=location.pathname+location.search;else e.textContent=${JSON.stringify(fa ? 'رمز اشتباه است' : 'Wrong password')}}).catch(function(){e.textContent='network'})});
+var u=document.getElementById('u');var ob=document.getElementById('otpBox'),oi=document.getElementById('otp');fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value,username:u?u.value:'',otp:(ob.style.display!=='none'&&oi.value)?oi.value.trim():undefined})})
+.then(function(r){return r.json()}).then(function(j){if(j.ok){location.href=location.pathname+location.search;return}
+ if(j.error==='otp_required'||j.error==='otp_invalid'){ob.style.display='block';oi.focus();e.textContent=j.error==='otp_invalid'?${JSON.stringify(fa ? 'کد اشتباه است' : 'Wrong code')}:${JSON.stringify(fa ? 'کد ۶ رقمی را وارد کن' : 'Enter the 6-digit code')};return}
+ if(j.error==='locked'){e.textContent=${JSON.stringify(fa ? 'تلاش‌های زیاد — این IP موقتاً قفل شد. بعد از (ثانیه): ' : 'Too many attempts — this IP is locked. Retry in (s): ')}+Math.ceil((j.retryAfterMs||0)/1000);return}
+ e.textContent=${JSON.stringify(fa ? 'رمز اشتباه است' : 'Wrong password')}+(typeof j.remaining==='number'&&j.remaining<3?' ('+j.remaining+')':'')}).catch(function(){e.textContent='network'})});
 /* The stale flag is only a note for this render — keep it out of the URL. */
 try{var _sp=new URLSearchParams(location.search);if(_sp.has('stale')){_sp.delete('stale');var _q=_sp.toString();history.replaceState(null,'',location.pathname+(_q?'?'+_q:''))}}catch(e){}
 </script>
@@ -7569,6 +7875,14 @@ ${(() => {
   <label data-i="s_stealth"></label>
   <div class="row"><input name="panelPath" class="mono" dir="ltr" spellcheck="false" data-ph="s_stealth_ph" style="flex:1"><button type="button" class="btn sm" id="btnPathRnd">🎲 <span data-i="s_path_random"></span></button></div>
   <div class="small dim" data-i="s_stealth_hint"></div>
+  <div id="tfaCard" style="margin-top:16px;border-top:1px solid var(--line,rgba(255,255,255,.08));padding-top:12px">
+  <h3>🛡️ <span data-i="tfa_title"></span> <span class="chip" id="tfaState"></span></h3>
+  <div class="small dim" data-i="tfa_hint" style="line-height:1.9"></div>
+  <div id="tfaSetup" style="display:none;margin-top:10px;text-align:center"><div class="qrbox" id="tfaQr"></div><div class="mono small" id="tfaSecret" dir="ltr" style="word-break:break-all;margin-top:6px"></div></div>
+  <div class="row" style="margin-top:10px"><input id="tfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" data-ph="tfa_code_ph" style="flex:1;display:none"><button type="button" class="btn sm p" id="tfaBtn"></button></div>
+  <h3 style="margin-top:18px">🧾 <span data-i="audit_title"></span></h3>
+  <div id="auditList" class="small"></div>
+  </div>
   </div>
  <div class="card sec">
   <h2>🔌 <span data-i="g_conn"></span></h2>
@@ -7780,6 +8094,10 @@ ${(() => {
   <label data-i="u_days"></label>
   <input name="days" type="number" min="0" placeholder="0">
   <div class="pick" id="pickDays"></div>
+  <label data-i="u_quota"></label>
+  <input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr">
+  <label data-i="u_maxips"></label>
+  <input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr">
   <label data-i="u_note"></label>
   <input name="note" maxlength="200">
   <div class="row" style="margin-top:10px"><span class="sw on" id="swEnabled"></span><span class="small" data-i="u_enabled"></span></div>
@@ -7827,7 +8145,7 @@ limits:'چرا این نسخه بن نمی‌شود؟',limits_text:'کلودفل
 about_text:'پنل تک‌فایلی Cat برای Cloudflare Worker. نسخهٔ lean: بدون حسابداری ترافیک، بدون اسکن سمت سرور، رلهٔ کم‌مصرف. مجوز GPL — سورس در گیت‌هاب.',
 n_about:'درباره',al_close:'بستن',al_logout:'خروج',al_menu:'منو',al_lang:'زبان',al_update:'به‌روزرسانی',al_fixip:'آی‌پی ثابت',al_build:'سازندهٔ کانفیگ',al_spoof:'SNI و ProxyIP',al_theme:'تم پنل',diag_title:'تشخیص (فقط مالک)',diag_hint:'همان چیزی که با curl می‌دیدی، اینجا داخل پنل: وضعیت KV، بایندینگ‌ها، نسخه، مصرف درخواست و آخرین خطاها. هیچ UUID یا رمزی نمایش داده نمی‌شود.',diag_run:'به‌روزرسانی',diag_copy:'کپی گزارش',diag_copied:'گزارش کپی شد',diag_copy_fail:'کپی نشد — دستی انتخاب کن',sec_title:'کلیدهای دسترسی (UUID و توکن ساب)',sec_hint:'توکنِ ساب از UUID جداست: می‌توانی بدون تغییر رمز پنل همهٔ لینک‌های قدیمی ساب را از کار بیندازی. پس از چرخش، ساب را در همهٔ کلاینت‌ها دوباره ایمپورت کن.',sec_tok_rot:'چرخش توکن ساب',sec_tok_rev:'ابطال توکن (برگشت به UUID)',sec_uuid_rot:'چرخش UUID',sec_tok_confirm:'مطمئنی؟ با این کار همهٔ لینک‌های سابِ قبلی (و لینک‌های قدیمی ?p=) از کار می‌افتند.',sec_tok_revoked:'توکن ابطال شد؛ لینک‌ها حالا از UUID استفاده می‌کنند.',sec_uuid_done:'UUID عوض شد. ساب‌ها و لینک‌های ?p= قبلی بی‌اعتبار شدند.',sec_uuid_confirm:'مطمئنی؟ UUID جدید ساخته می‌شود و همهٔ ساب‌ها و لینک‌های ?p=<uuid> قدیمی از کار می‌افتند. (برای این کار باید رمز پنل تنظیم شده باشد.)',pw_title:'🔐 رمز پنل را تنظیم کن',pw_body:'ورود اولیه با admin / admin انجام شده است. برای امنیت، همین حالا یک رمز تازه بگذار.',ver_title:'🧩 نسخهٔ اپ و پنل یکی نیست',ver_body:'اپی که همین حالا این پنل را باز کرده، خودش پنل نسخهٔ دیگری را همراه دارد. کانفیگ‌ها و ساب‌ها کار می‌کنند و چیزی خراب نشده؛ فقط ممکن است دکمه‌های اپ (اسکنر، دیپلوی، تست) با نسخهٔ نصب‌شده روی این ورکر هم‌خوان نباشند. برای هم‌ترازشدن: در اپ بخش «دیپلوی‌های من» → «به‌روزرسانی پنل» را بزن، یا اپ را آپدیت کن — هر کدام که جدیدتر است.',ver_dismiss:'فهمیدم (تا باز شدن بعدی)',pw_body_uuid:'ورود پیش‌فرض admin / admin عمومی است. پیش از ادامه، همین حالا یک رمز تازه و اختصاصی بگذار.',pw_body_env:'رمز از متغیر PANEL_PASSWORD می‌آید؛ برای مدیریت از پنل، اینجا رمز جدید بگذار.',pw_body_open:'پنل «باز» است (OPEN_PANEL=true). با گذاشتن رمز، ورود اجباری می‌شود.',pw_ph:'رمز جدید (حداقل ۶ کاراکتر)',pw_save:'ذخیرهٔ رمز',pw_done:'رمز ذخیره شد ✓',pw_short:'رمز باید حداقل ۶ کاراکتر باشد',n_dash:'داشبورد',n_scan:'اسکنر IP',n_nodes:'نودها',n_manage:'مدیریت',no_ips:'هنوز IP تمیز اختصاصی نداری — اگر فهرست مؤثر خالی باشد، ساب به آدرس‌های پیش‌فرض و دامنهٔ ورکر برمی‌گردد. افزودن IPهای فید عمومی به ساب جداست و فقط با روشن‌کردن «افزودن خودکار از مخزن‌ها» انجام می‌شود. IPهای تست‌شده را اضافه کن تا اول ساب بیایند:',n_set:'تنظیمات',n_settings:'تنظیمات',n_backup:'پشتیبان‌گیری',s_backup:'پشتیبان‌گیری و بازیابی پنل',n_bak:'پشتیبان',
 d_new:'کاربر جدید',d_edit:'ویرایش کاربر',d_sub:'نام، پروتکل‌ها و مدت اعتبار',u_name:'نام کاربری',u_rand:'تصادفی',u_protocols:'پروتکل‌های مجاز',u_days:'مدت اعتبار (روز) — ۰ یعنی نامحدود',u_note:'یادداشت',u_enabled:'فعال',
-u_noquota:'این نسخه حجم مصرفی را نمی‌شمارد (شمارش حجم همان چیزی بود که KV را پر و ورکر را بن می‌کرد). محدودیت فقط زمانی است.',
+u_noquota:'سهمیهٔ حجم و محدودیت IP فقط برای کاربرانی شمرده می‌شود که مقدار دارند (۰ یعنی نامحدود). مصرف داخل ورکر جمع و حداکثر هر ۱۰ دقیقه یک بار در KV ذخیره می‌شود، پس عدد تقریبی است و KV پر نمی‌شود.',u_quota:'سهمیهٔ حجم (گیگابایت) — ۰ یعنی نامحدود',u_maxips:'حداکثر IP همزمان (تعداد دستگاه) — ۰ یعنی نامحدود',quota:'حجم تمام شد',reset_usage:'ریست مصرف',confirm_reset:'مصرف این کاربر صفر شود؟',used:'مصرف',tfa_title:'ورود دومرحله‌ای (2FA)',tfa_on:'روشن',tfa_off:'خاموش',tfa_enable:'روشن کردن 2FA',tfa_confirm:'تأیید کد و روشن کردن',tfa_disable:'خاموش کردن 2FA (کد لازم است)',tfa_code_ph:'کد ۶ رقمی',tfa_bad:'کد اشتباه است',tfa_hint:'با برنامهٔ Google Authenticator / Aegis / 2FAS کد QR را اسکن کن و کد ۶ رقمی را بزن. بعد از روشن شدن، ورود به پنل رمز + کد می‌خواهد و ورود با Bearer / x-cat-key بسته می‌شود؛ مدیریت پنل از داخل برنامهٔ Cat Client (که فقط رمز می‌فرستد) تا وقتی 2FA روشن است کار نمی‌کند. ورود پشت‌سرهم اشتباه (۵ بار) آن IP را موقتاً قفل می‌کند.',audit_title:'آخرین تلاش‌های ورود به پنل',audit_empty:'هنوز ورودی ثبت نشده',
 unlimited:'نامحدود',days:'روز',left:'مانده',expired:'منقضی',disabled:'غیرفعال',active:'فعال',copied:'کپی شد',deleted:'حذف شد',confirm_del:'این کاربر حذف شود؟',ask_cancel:'انصراف',d_dash:'وضعیت لحظه‌ای: کاربرها، سرویس و سلامت اتصال',d_clients:'ساخت کاربر و لینک ساب هر کس',d_inbounds:'پورت‌ها و مسیرهای اتصال (vless/trojan)',d_scan:'پیدا کردن IP تمیز کلودفلر با تست سرعت',d_build:'ساخت کانفیگ و ساب با فرمت دلخواه',d_nodes:'لیست IPهای تمیز و مدیریت آن‌ها',d_spoof:'SNI و ProxyIP — عبور از فیلتر SNI',d_settings:'تنظیمات کلی، زنجیرهٔ خروجی و ربات',d_backup:'بکاپ و بازگردانی کل تنظیمات پنل',d_about:'نسخه، آپدیت و کلاینت‌های پیشنهادی',ip_clear_confirm:'همهٔ آی‌پی‌های لیست پاک شوند؟',rec_title:'اگر خطای 1101 دیدی',rec_hint:'طبق مستندات Cloudflare، خطای 1101 معمولاً یعنی Worker هنگام اجرا استثنای JavaScript داده است؛ به‌تنهایی بن‌شدن را ثابت نمی‌کند. در Workers & Pages ← Worker ← Logs/Observability متن خطا و stack trace را بررسی کن.',rec_steps:'۱) نسخهٔ پاسخ /api/version و زمان درخواست را ثبت کن؛ ۲) همان درخواست را در Logs یا wrangler tail پیدا کن؛ ۳) متن exception/stack trace و تنظیمات همان نسخه را بررسی کن؛ ۴) پس از اصلاح، /health و مسیر خطادار را دوباره آزمایش کن. اگر داشبورد صراحتاً پیام تعلیق یا سیاست نشان می‌دهد، همان اعلان رسمی را پیگیری کن.',ech_has:'⚡ ECH دارد — خودکار داخل ساب اعمال می‌شود',ech_absent:'این SNI فعلاً ECH ندارد (خاموش)',ccq_title:'کیفیت خروجی کشورها',ccq_hint:'نمونه‌گیری شبانه (۸ کشور در هر شب، چرخشی) از لیست آی‌پی‌های خودت — P50/P95 به ms؛ سبز = سریع',ccq_btn:'به‌روزرسانی',ccq_empty:'هنوز داده‌ای نیست — بعد از cron شبانه بیا',v6p_title:'مخزن IPv6 داخلی',v6p_hint:'۱۱ آدرس anycast کلادفلر — روی هر شبکهٔ v6داری جواب می‌دهند؛ با «اول تست» پنل می‌توانی زنده بودن‌شان را هم چک کنی',v6p_btn:'افزودن ۱۱ آدرس v6',dom_title:'دامنهٔ اختصاصی',dom_hint:'چک می‌کند دامنه‌ات روی کلادفلر است یا نه — بدون هیچ توکنی',dom_ph:'panel.example.com',dom_check:'چک',dom_need:'دامنه را بنویس',dom_yes:'روی کلادفلر است — آمادهٔ Workers Custom Domain ✓',dom_no:'روی کلادفلر نیست — اول دامنه را به یک اکانت کلادفلر اضافه کن',dom_steps:'مسیر: کلادفلر ← Workers & Pages ← ورکر تو ← Settings ← Domains & Routes ← Add ← Custom domain — بعد از چند دقیقه با همین چک سبز می‌شود',ai_title:'اثبات سرویس‌ها',ai_hint:'اتصال ورکر به سرویس‌های AI — ۴۰۳/۴۰۴ یعنی مسیر باز است (احراز بعداً در اپ انجام می‌شود)، ۲۰۰ یعنی کامل باز.',ai_btn:'تست سرویس‌ها',ai_ok:'پذیرفته',ai_pre:'پیش‌پروفه',ai_fail:'ناموفق',g_ident:'هویت و نمایش',g_sec:'امنیت و دسترسی',g_conn:'اتصال: پروتکل و پورت',g_sni:'SNI و اثر انگشت',g_route:'مسیریابی و قوانین',g_frag:'فرگمنت و TLS پیشرفته',tune_title:'پیشنهاد پریست فرگمنت برای اپ (به تفکیک اپراتور)',tune_hint:'اپ خودش جدول داخلی دارد و آفلاین هم کار می‌کند؛ اینجا فقط می‌توانی برای هر اپراتور پریست بهتری تعیین کنی — بدون آپدیت اپ اعمال می‌شود.',tune_auto:'خودکار (پیش‌فرض اپ)',tune_save:'ذخیره پیشنهاد',tune_saved:'ذخیره شد ✓ — اپ در اتصال بعدی می‌خواند',tune_fail:'ذخیره نشد ✗',tune_mci:'همراه اول',tune_irancell:'ایرانسل',tune_rightel:'رایتل',tune_tci:'مخابرات',dpi_preset_default:'پیش‌فرض',dpi_preset_mci:'همراه اول',dpi_preset_irancell:'ایرانسل',dpi_preset_rightel:'رایتل',dpi_preset_tci:'مخابرات',dpi_preset_gaming:'گیمینگ',dpi_preset_pattn:'پترن‌ایها',g_chain:'خروجی ثابت (زنجیره)',g_tg:'ربات تلگرام',g_gh:'دیپلوی خودکار',g_save:'ذخیره و خروجی',set_export:'خروجی تنظیمات (فایل)',set_import:'بازگردانی تنظیمات',set_import_choose:'فایل تنظیمات را انتخاب کن',set_import_bad:'فایل معتبر نیست',clients_title:'کلاینت‌های پیشنهادی',clients_hint:'لینک ساب پنل در همهٔ این اپ‌ها کار می‌کند — صفحهٔ رسمی دانلود:',chain_exit:'خروجی',renew:'تمدید ۳۰ روز',toggle:'فعال/غیرفعال',edit:'ویرایش',del:'حذف',qr:'QR',info:'صفحهٔ کاربر',
 kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره نمی‌شوند!',pass_uuid:'رمز پیش‌فرض admin (فوراً تغییر بده!)',pass_env:'رمز از ENV',pass_set:'رمز تنظیم شده',pass_open:'پنل باز است — رمز بگذار!',
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
@@ -7849,7 +8167,7 @@ limits:'Why this version does not get banned',limits_text:'Cloudflare free tier:
 about_text:'Single-file Cat panel for Cloudflare Workers. Lean edition: no traffic accounting, no server-side scanning, low-CPU relay. GPL — source on GitHub.',
 n_about:'About',al_close:'Close',al_logout:'Log out',al_menu:'Menu',al_lang:'Language',al_update:'Update',al_fixip:'Fixed IP',al_build:'Config builder',al_spoof:'SNI & ProxyIP',al_theme:'Panel theme',diag_title:'Diagnostics (owner only)',diag_hint:'What curl would show you, rendered in the panel: KV state, bindings, version, request usage and the last crashes. No UUID or password is ever displayed.',diag_run:'Refresh',diag_copy:'Copy report',diag_copied:'Report copied',diag_copy_fail:'Copy failed — select it manually',sec_title:'Access keys (UUID and sub token)',sec_hint:'The subscription token is independent of the UUID: you can kill every old subscription link without touching the panel password. Re-import the subscription in every client afterwards.',sec_tok_rot:'Rotate sub token',sec_tok_rev:'Revoke token (back to UUID)',sec_uuid_rot:'Rotate UUID',sec_tok_confirm:'Sure? Every previous subscription link (and old ?p= link) stops working and must be re-imported in every client.',sec_tok_revoked:'Token revoked; links use the master UUID again.',sec_uuid_done:'UUID rotated. Old subscriptions and ?p= links are invalid now.',sec_uuid_confirm:'Sure? A new UUID is generated and every old subscription and ?p=<uuid> link stops working. (A panel password must be set first.)',pw_title:'🔐 Set a panel password',pw_body:'You signed in with the admin / admin bootstrap login. Set a new password now.',ver_title:'🧩 App and panel versions differ',ver_body:'The app that just opened this panel ships a different panel version. Configs and subscriptions still work — nothing is broken — but the app’s buttons (scanner, deploy, tests) may not match the version installed on this Worker. To line them up: in the app open My deployments → Refresh panel, or update the app — whichever is newer.',ver_dismiss:'Got it (until next open)',pw_body_uuid:'The default admin / admin login is public. Set a unique password now before continuing.',pw_body_env:'The password comes from the PANEL_PASSWORD variable. Set one here to manage it from the panel.',pw_body_open:'The panel is OPEN (OPEN_PANEL=true). Setting a password turns the login on for everyone.',pw_ph:'New password (at least 6 characters)',pw_save:'Save password',pw_done:'Password saved ✓',pw_short:'Use at least 6 characters',n_dash:'Dashboard',n_scan:'IP Scanner',n_nodes:'Nodes',n_manage:'Manage',no_ips:'No custom clean IPs yet — if the effective list is empty, the subscription falls back to built-in addresses + the worker host. Public feed IPs are appended only when «Auto-add from repositories» is enabled. Add tested IPs to put them first:',n_set:'Settings',n_settings:'Settings',n_backup:'Backup',s_backup:'Panel backup & restore',n_bak:'Backup',
 d_new:'New user',d_edit:'Edit user',d_sub:'Name, protocols and validity',u_name:'Username',u_rand:'random',u_protocols:'Allowed protocols',u_days:'Validity (days) — 0 = unlimited',u_note:'Note',u_enabled:'Enabled',
-u_noquota:'This version does not meter traffic (traffic metering is what filled KV and got workers throttled). Limits are time-based only.',
+u_noquota:'Traffic quota and the IP limit are only metered for users that have a value (0 = unlimited). Usage is summed inside the worker and written to KV at most every 10 minutes, so totals are approximate and KV is not flooded.',u_quota:'Traffic quota (GB) — 0 = unlimited',u_maxips:'Max simultaneous IPs (devices) — 0 = unlimited',quota:'quota used up',reset_usage:'Reset usage',confirm_reset:'Reset this user usage to zero?',used:'used',tfa_title:'Two-factor sign-in (2FA)',tfa_on:'on',tfa_off:'off',tfa_enable:'Turn on 2FA',tfa_confirm:'Confirm code and turn on',tfa_disable:'Turn off 2FA (code required)',tfa_code_ph:'6-digit code',tfa_bad:'Wrong code',tfa_hint:'Scan the QR with Google Authenticator / Aegis / 2FAS and type the 6-digit code. Once on, signing in needs password + code and Bearer / x-cat-key access is closed; managing the panel from inside the Cat Client app (which only sends the password) does not work while 2FA is on. 5 wrong sign-ins in a row lock that IP for a while.',audit_title:'Recent panel sign-in attempts',audit_empty:'No sign-ins recorded yet',
 unlimited:'unlimited',days:'days',left:'left',expired:'expired',disabled:'disabled',active:'active',copied:'Copied',deleted:'Deleted',confirm_del:'Delete this user?',ask_cancel:'Cancel',d_dash:'Live status: users, service, connection health',d_clients:'Create users & their sub links',d_inbounds:'Ports & connection paths (vless/trojan)',d_scan:'Find clean Cloudflare IPs with speed test',d_build:'Build configs & subs in any format',d_nodes:'Clean IP list & management',d_spoof:'SNI & ProxyIP — slip past SNI filtering',d_settings:'General, chain exit & Telegram bot',d_backup:'Backup & restore the whole panel',d_about:'Version, update & supported clients',ip_clear_confirm:'Clear every IP from the list?',rec_title:'Seeing Error 1101?',rec_hint:'Cloudflare documents Error 1101 as a Worker JavaScript runtime exception; it does not by itself prove a ban. Check Workers & Pages → your Worker → Logs/Observability for the exception and stack trace.',rec_steps:'1) Note the /api/version response and request time; 2) find that request in Logs or wrangler tail; 3) inspect the exception/stack trace and that deployment’s bindings; 4) after fixing it, retest /health and the failing route. If the dashboard explicitly shows a suspension or policy notice, follow that official notice.',ech_has:'⚡ ECH available — applied into subs automatically',ech_absent:'This SNI has no ECH yet (off)',ccq_title:'Per-country exit quality',ccq_hint:'Nightly worker samples (8 countries per night, rotating) of YOUR IP list — P50/P95 in ms; green = fast',ccq_btn:'Refresh',ccq_empty:'No data yet — comes after the nightly cron',v6p_title:'Built-in IPv6 pool',v6p_hint:'11 Cloudflare anycast addresses — answer on any v6-capable network; use “test first” to verify them live',v6p_btn:'Add 11 v6 addresses',dom_title:'Custom domain',dom_hint:'Checks whether your domain is on Cloudflare — no tokens involved',dom_ph:'panel.example.com',dom_check:'Check',dom_need:'Type the domain first',dom_yes:'On Cloudflare — ready for a Workers Custom Domain ✓',dom_no:'Not on Cloudflare — add the domain to a Cloudflare account first',dom_steps:'Path: Cloudflare ← Workers & Pages ← your worker ← Settings ← Domains & Routes ← Add ← Custom domain — the check above turns green a few minutes later',ai_title:'Service proofs',ai_hint:'Worker → AI services reachability — 403/404 means the route is open (auth happens in the app), 200 means fully served.',ai_btn:'Test services',ai_ok:'accepted',ai_pre:'preflight',ai_fail:'failed',g_ident:'Identity & display',g_sec:'Security & access',g_conn:'Connection: protocols & ports',g_sni:'SNI & fingerprint',g_route:'Routing & rules',g_frag:'Fragment & advanced TLS',tune_title:'Fragment preset recommendation for the app (per carrier)',tune_hint:'The app ships its own table and works offline; this only overrides it per carrier and takes effect on the next connect — no app update needed.',tune_auto:'Automatic (app default)',tune_save:'Save recommendation',tune_saved:'Saved ✓ — the app reads it on the next connect',tune_fail:'Save failed ✗',tune_mci:'MCI',tune_irancell:'Irancell',tune_rightel:'Rightel',tune_tci:'TCI',dpi_preset_default:'Default',dpi_preset_mci:'MCI',dpi_preset_irancell:'Irancell',dpi_preset_rightel:'Rightel',dpi_preset_tci:'TCI',dpi_preset_gaming:'Gaming',dpi_preset_pattn:'PattN-style',g_chain:'Fixed exit (chain)',g_tg:'Telegram bot',g_gh:'Auto-deploy',g_save:'Save & export',set_export:'Export settings (file)',set_import:'Import settings',set_import_choose:'Choose the settings file',set_import_bad:'Invalid file',clients_title:'Supported clients',clients_hint:'The panel sub link works in all of these — official download pages:',chain_exit:'exit',renew:'Renew 30 days',toggle:'Enable/disable',edit:'Edit',del:'Delete',qr:'QR',info:'User page',
 kv_on:'KV bound',kv_off:'KV NOT bound — nothing persists!',pass_uuid:'default password admin (change now!)',pass_env:'password from ENV',pass_set:'password set',pass_open:'panel is OPEN — set a password!',
 self_wait:'loading…',browser_note:'Tested from YOUR network (browser): domains via /cdn-cgi/trace and raw IPs via a TLS connection attempt — a fast answer = alive on your line, timeout = ✗ dead on your line. Plain (non-TLS) ports cannot be probed in a browser (⊘). Test ProxyIPs with the worker test instead — their path goes through the worker.',scan_prune:'Prune dead IPs from my list',scan_prune_confirm:'Remove %1 dead IPs (as seen from your line) from the list?',scan_prune_none:'Run “Test from my network” first — nothing to prune yet',scan_sum_alive:'IPs alive on your line',scan_sum_dead:'dead',scan_sum_skip:'plain-port',ws_test:'Real connection test (domains)',ws_note:'Opens a real WebSocket to the tunnel path (/ws) for each domain — the exact route a config takes: if it opens, configs really connect on your line. Your panel’s own address is always tested first (baseline). Raw IPs have no “real test” in a browser (it cannot send the Host header); a domain that is not routed to your worker fails too.',ws_base:'baseline — the panel itself',ws_ok:'config route opened',ws_fail:'no connection — dead on your line, or not routed to the worker',ws_sum:'domains verified with a real tunnel handshake',ws_noway:'This browser has no WebSocket',surv_title:'Survival pack — more fallbacks, not a guarantee',surv_hint:'One click enables daily rotation, both protocols, default addresses plus the worker host, ports 80/8080 as fallbacks, and ordering by scanner ping reported within 7 days. SNI stays on the worker hostname: fake/rotating SNI can make Cloudflare itself return 403. Fragment is supported only by Xray/sing-box. None of this guarantees 100% across carriers or clients; test the link on each real mobile/Wi-Fi network and client. Ping is from the scanner sender’s line, not every user.',surv_apply:'Apply survival pack',surv_done:'🛡 Survival pack applied',surv_applied:'Applied',surv_changed:'settings changed',surv_already:'Survival pack already active',surv_link:'Survive link',surv_formats:'Copy the format your client expects:',ov_seen:'Authenticated user attempts:',ov_seen_24:'connected in the last 24h',ov_seen_never:'no connection recorded yet (the user may simply not have used it)',ov_seen_hint:'Counts only tunnel attempts with a valid identity, not successful access to a destination. Cloudflare hides which clean-IP entry was used, so this cannot prove full connectivity or identify dead IPs.',
@@ -7882,7 +8200,9 @@ function applyI18n(){document.documentElement.lang=lang;document.documentElement
  $$('[data-i]').forEach(function(el){el.textContent=t(el.getAttribute('data-i'))});$$('[data-ph]').forEach(function(el){el.placeholder=t(el.getAttribute('data-ph'))});$$('[data-al]').forEach(function(el){var s=t(el.getAttribute('data-al'));el.setAttribute('aria-label',s);el.setAttribute('title',s)})}
 function fmtDate(ms){if(!ms)return '';var d=new Date(ms);return d.toISOString().slice(0,10)}
 function daysLeft(u){if(!u.expiresAt)return null;return Math.ceil((u.expiresAt-Date.now())/86400000)}
-function statusOf(u){if(!u.enabled)return 'disabled';if(u.expiresAt&&Date.now()>u.expiresAt)return 'expired';return 'active'}
+function statusOf(u){if(!u.enabled)return 'disabled';if(u.expiresAt&&Date.now()>u.expiresAt)return 'expired';if(u.status==='quota')return 'quota';return 'active'}
+function fmtGB(b){b=Number(b)||0;if(b>=1073741824)return (b/1073741824).toFixed(2)+' GB';if(b>=1048576)return (b/1048576).toFixed(1)+' MB';return Math.round(b/1024)+' KB'}
+function usageLine(u){var out='';if(u.quotaBytes>0){var tr=u.traffic||{up:0,down:0};var used=(Number(tr.up)||0)+(Number(tr.down)||0);var pct=Math.min(100,Math.round(used/u.quotaBytes*100));out+='<div class="dim small" dir="ltr">📊 '+fmtGB(used)+' / '+fmtGB(u.quotaBytes)+' ('+pct+'%)</div>'}if(u.maxIps>0)out+='<div class="dim small">📱 '+(u.activeIps||0)+' / '+u.maxIps+' IP</div>';return out}
 function randName(){var a='abcdefghjkmnpqrstuvwxyz23456789',s='';for(var i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)];return 'cat-'+s}
 
 var CFG=null, USERS=[], editing=null, dirtyScan=false;
@@ -8252,7 +8572,17 @@ function saveTune(){
   if(out)out.textContent=t('tune_saved');toast(t('tune_saved'));loadTune();
  }).catch(function(){if(out)out.textContent=t('tune_fail')});
 }
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune();tfaRender();auditLoad()})}
+var tfaPending=null;
+function tfaRender(){var st=$('#tfaState');if(!st||!CFG||!CFG.settings)return;var on=!!CFG.settings.totpEnabled;st.textContent=t(on?'tfa_on':'tfa_off');st.className='chip '+(on?'ok':'bad');$('#tfaBtn').textContent=t(on?'tfa_disable':(tfaPending?'tfa_confirm':'tfa_enable'));$('#tfaCode').style.display=(on||tfaPending)?'':'none';$('#tfaSetup').style.display=(!on&&tfaPending)?'block':'none'}
+function auditLoad(){var box=$('#auditList');if(!box)return;api('/api/login-audit').then(function(j){var list=(j&&j.entries)||[];box.innerHTML=list.length?list.slice(0,20).map(function(e){return '<div class="lk" style="gap:8px;flex-wrap:wrap"><span>'+(e.ok?'✅':'❌')+'</span><span class="mono" dir="ltr">'+esc(new Date(e.at).toLocaleString())+'</span><span class="mono" dir="ltr">'+esc(e.ip||'')+'</span><span>'+esc(e.cc||'')+(e.asn?' AS'+esc(String(e.asn)):'')+'</span><span class="dim">'+esc(e.reason||'')+'</span></div>'}).join(''):'<div class="dim">'+t('audit_empty')+'</div>'}).catch(function(){})}
+(function(){var btn=$('#tfaBtn'),inp=$('#tfaCode');if(!btn||!inp)return;
+ inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();btn.click()}});
+ btn.addEventListener('click',function(){var on=!!(CFG&&CFG.settings&&CFG.settings.totpEnabled);var code=inp.value.replace(/\s+/g,'');
+  if(on){if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}api('/api/2fa/disable',{method:'POST',body:{code:code}}).then(function(j){if(!j||!j.ok){toast(t('tfa_bad'),true);return}inp.value='';toast('✓');return load()}).catch(function(){toast('error',true)});return}
+  if(!tfaPending){api('/api/2fa/setup',{method:'POST',body:{}}).then(function(j){if(!j||!j.ok)throw 0;tfaPending=j;$('#tfaQr').innerHTML='<img alt="QR" style="max-width:220px" src="/qr.svg?text='+encodeURIComponent(j.uri)+'">';$('#tfaSecret').textContent=j.secret;tfaRender();inp.focus()}).catch(function(){toast('error',true)});return}
+  if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}
+  api('/api/2fa/enable',{method:'POST',body:{secret:tfaPending.secret,code:code}}).then(function(j){if(!j||!j.ok){toast(t('tfa_bad'),true);return}tfaPending=null;inp.value='';toast('✓');return load()}).catch(function(){toast('error',true)})})})();
 /* The most confusing failure mode of all: a worker deployed WITHOUT its KV
    binding answers «saved ✓» while the value only lives in one isolate's memory.
    Clean IPs, users and settings then vanish — «the buttons don't work». Say it
@@ -8474,14 +8804,14 @@ function seenCell(u){
 }
 function timeCell(u){var d=daysLeft(u);if(d===null)return '<span class="chip">♾️ '+t('unlimited')+'</span>';var total=Math.max(1,Math.round((u.expiresAt-u.createdAt)/86400000));var pct=Math.max(0,Math.min(100,Math.round(d/total*100)));
  var cls=d<=0?'d':d<=5?'w':'';return '<div class="small">'+(d>0?d+' '+t('days')+' '+t('left'):t('expired'))+' <span class="dim">· '+fmtDate(u.expiresAt)+'</span></div><div class="bar '+cls+'" style="margin-top:4px;width:120px"><i style="width:'+pct+'%"></i></div>'}
-function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':'⛔')+' '+t(s)+'</span>'}
+function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':s==='quota'?'📦':'⛔')+' '+t(s)+'</span>'}
 function linkBtns(u){return '<div class="act"><button class="btn sm g" data-copy="'+esc(u.links.sub)+'">🔗 '+t('sub')+'</button><button class="btn sm c" data-copy="'+esc(u.links.clash)+'">'+t('clash')+'</button><button class="btn sm" data-copy="'+esc(u.links.singbox)+'">'+t('singbox')+'</button><button class="btn sm" data-copy="'+esc(u.links.xray)+'">Xray</button><button class="btn sm" data-qr="'+esc(u.links.sub)+'" data-qrl="'+esc(u.name)+'">▦</button><a class="btn sm" href="'+esc(u.links.info)+'" target="_blank" rel="noopener">↗</a></div>'}
-function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button><button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
+function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button>'+(u.quotaBytes>0?'<button class="ib" data-c="green" data-reset="'+u.id+'" title="'+t('reset_usage')+'" aria-label="'+t('reset_usage')+'">♻️</button>':'')+'<button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
- $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
+ $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
 ['input','change'].forEach(function(e){$('#q').addEventListener(e,renderUsers);$('#flt').addEventListener(e,renderUsers);$('#srt').addEventListener(e,renderUsers)});
 
 document.addEventListener('click',async function(e){var b;
@@ -8489,6 +8819,7 @@ document.addEventListener('click',async function(e){var b;
  if((b=e.target.closest('[data-qr]'))){showQr(b.getAttribute('data-qr'),b.getAttribute('data-qrl')||'');return}
  if((b=e.target.closest('[data-edit]'))){openDrawer(USERS.filter(function(u){return u.id===b.getAttribute('data-edit')})[0]);return}
  if((b=e.target.closest('[data-renew]'))){api('/api/users/'+b.getAttribute('data-renew')+'/renew',{method:'POST',body:{days:30}}).then(function(){toast('✓');return load()});return}
+ if((b=e.target.closest('[data-reset]'))){if(!(await ask(t('confirm_reset'),{ok:t('reset_usage')})))return;api('/api/users/'+b.getAttribute('data-reset')+'/reset-usage',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-toggle]'))){api('/api/users/'+b.getAttribute('data-toggle')+'/toggle',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-del]'))){if(!(await ask(t('confirm_del'),{ok:t('del')})))return;api('/api/users/'+b.getAttribute('data-del'),{method:'DELETE'}).then(function(){toast(t('deleted'));return load()});return}
  if((b=e.target.closest('[data-close]'))){closeDrawer();return}
@@ -8501,7 +8832,7 @@ function showQr(text,label){$('#qrBox').innerHTML='<img alt="QR" src="/qr.svg?te
 /* ---------- drawer ---------- */
 function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textContent=u?t('d_edit')+': '+u.name:t('d_new');f.elements.uname.value=u?u.name:randName();f.elements.note.value=u?u.note:'';
  f.elements.pv.checked=u?u.protocols.vless:true;f.elements.pt.checked=u?u.protocols.trojan:true;syncProto('#uVless','#uTrojan');
- var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
+ var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;f.elements.quota.value=u&&u.quotaBytes?+(u.quotaBytes/1073741824).toFixed(2):0;f.elements.maxips.value=u?(u.maxIps||0):0;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
  $('#dLinks').innerHTML=u?'<div class="card" style="padding:12px"><div class="small mute b" style="margin-bottom:6px">'+t('h_links')+'</div>'+[['sub',u.links.sub],['clash',u.links.clash],['singbox',u.links.singbox],['info',u.links.info]].map(function(p){return '<div class="lk"><span class="small" style="min-width:56px">'+t(p[0])+'</span><input class="mono" readonly value="'+esc(p[1])+'"><button class="btn sm" type="button" data-copy="'+esc(p[1])+'">📋</button><button class="btn sm" type="button" data-qr="'+esc(p[1])+'" data-qrl="'+esc(u.name)+'">▦</button></div>'}).join('')+'</div>':'';
  $('#drawer').classList.add('show')}
@@ -8509,7 +8840,7 @@ function closeDrawer(){$('#drawer').classList.remove('show');editing=null}
 $('#btnAdd').addEventListener('click',function(){openDrawer(null)});
 $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname.value=randName()});
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
- var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0};
+ var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0,quotaGB:Math.max(0,Number(f.elements.quota.value)||0),maxIps:Math.max(0,Math.min(50,Math.floor(Number(f.elements.maxips.value)||0)))};
  var p=editing?api('/api/users/'+editing.id,{method:'PUT',body:body}):api('/api/users',{method:'POST',body:body});
  p.then(function(j){if(!j||!j.ok){var why=j&&(j.error||j.message)||'request rejected';if(j&&j.error&&j.message)why=j.error+': '+j.message;if(j&&j._httpStatus)why='HTTP '+j._httpStatus+' · '+why;if(j&&j._contentType)why+=' · '+j._contentType;if(j&&j._cfRay)why+=' · CF-Ray '+j._cfRay;toast(t('b_user_save_error').replace('%1',safeDiag(why)),true);return}toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);closeDrawer();return load().catch(function(e){toast(t('b_user_saved_refresh_error').replace('%1',safeDiag(e&&e.message||e)),true)})}).catch(function(e){toast(t('b_user_save_error').replace('%1',safeDiag(e&&e.message||e)),true)})});
 
@@ -9342,6 +9673,8 @@ export default {
 
 export const _testing = {
   CAT_PANEL_VERSION,
+  base32Encode, base32Decode, totpCode, verifyTotp, hashPanelPassword, verifyPanelPassword, loginLockMs, LOGIN_FAIL_LIMIT,
+  subscriptionHeaders, userBlockedReason, normalizeUser, readTraffic, addTraffic, flushTraffic, resetTraffic, admitUserIp, trojanCandidates,
   NON_CF_WHITELIST_TARGETS, CF_SPOOF_5_METHODS, MASTERDNS_BALANCERS_0_8, VAYDNS_RECORD_TYPES,
   crashReport, crashReportMinimal, diagAllowed, diagFlag, safeText, safeStack, crashLocation,
   splitCsv, uniq, isUuid, b64encode, b64decode, sha256Hex, hmacHex, safeEqualHex, mapBounded, withDomMap, sniPoolOf, DEFAULT_SNI_POOL, healthProbe, relayAttempts, socksRelayList, svcProbe, SVC_TEST_HOSTS, FINAL_MASK_PROFILE, CIPHER_SUITES_DEFAULT, FIREWALL_FF_FINAL_MASK, FIREWALL_FF_CIPHER_SUITES, FIREWALL_BYPASS_PRESETS, applyFirewallBypassPreset, isCloudflareIp, DEFAULT_CLEAN_ADDRESSES, countryLatency,

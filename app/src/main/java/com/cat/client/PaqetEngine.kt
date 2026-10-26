@@ -783,7 +783,13 @@ internal object PaqetEngine {
                 s.tcpNoDelay = cfg.kcpMode.nodelay == 1
                 s.soTimeout = 20_000
                 s.connect(InetSocketAddress(serverClean, hoppedPort), 7_000)
-                if (cfg.upstreamEntrySocks) {
+                if (!cfg.upstreamEntrySocks) {
+                    // A raw TCP stream carries no destination; without the SOCKS entry handshake
+                    // the server cannot know where to forward, so treat it as unusable.
+                    s.close()
+                    return@runCatching null
+                }
+                run {
                     val sin = s.getInputStream()
                     val sout = s.getOutputStream()
                     sout.write(byteArrayOf(0x05, 0x01, 0x00))
@@ -812,15 +818,11 @@ internal object PaqetEngine {
             if (entrySock != null) return entrySock
         }
 
-        // Mode B: Protected Direct Anti-DPI Socket to target
-        return runCatching {
-            val s = Socket()
-            protectOutboundSocket(s)
-            s.tcpNoDelay = true
-            s.soTimeout = 20_000
-            s.connect(InetSocketAddress(targetHost, targetPort), 8_000)
-            s
-        }.getOrNull()
+        // No silent direct fallback any more. The real paqet protocol crafts raw TCP packets
+        // (pcap / raw sockets) and needs root on the client; without root the only honest path is
+        // a SOCKS5 entry point exposed by the paqet server. Dialling the destination directly
+        // looked "connected" but carried no tunnel at all, so blocked sites never opened.
+        return null
     }
 
     private fun queryDnsTxtRecords(domain: String, resolverIp: String, timeoutMs: Int): List<String> {

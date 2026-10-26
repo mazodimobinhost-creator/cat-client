@@ -125,6 +125,77 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="aether" />
             </intent-filter>
+            <!-- Config share links opened from Telegram / browser (vless://, slipnet://, …) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vless" />
+                <data android:scheme="vmess" />
+                <data android:scheme="trojan" />
+                <data android:scheme="ss" />
+                <data android:scheme="ssr" />
+                <data android:scheme="hysteria" />
+                <data android:scheme="hysteria2" />
+                <data android:scheme="hy2" />
+                <data android:scheme="tuic" />
+                <data android:scheme="wireguard" />
+                <data android:scheme="wg" />
+                <data android:scheme="awg" />
+                <data android:scheme="amneziawg" />
+                <data android:scheme="anytls" />
+                <data android:scheme="socks" />
+                <data android:scheme="socks5" />
+                <data android:scheme="slipnet" />
+                <data android:scheme="dnstt" />
+                <data android:scheme="dnst" />
+                <data android:scheme="noizdns" />
+                <data android:scheme="vaydns" />
+                <data android:scheme="catfusion" />
+                <data android:scheme="paqet" />
+                <data android:scheme="fenix" />
+                <data android:scheme="juicity" />
+                <data android:scheme="mieru" />
+            </intent-filter>
+            <!-- One-tap subscription import links of other clients (clash://install-config?url=…) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="clash" />
+                <data android:scheme="clashmeta" />
+                <data android:scheme="sing-box" />
+                <data android:scheme="hiddify" />
+                <data android:scheme="v2rayng" />
+            </intent-filter>
+            <!-- "Share → Cat Client" for links and config files -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/x-yaml" />
+                <data android:mimeType="application/yaml" />
+                <data android:mimeType="text/yaml" />
+                <data android:mimeType="text/x-yaml" />
+                <data android:mimeType="application/toml" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- "Open with → Cat Client" for .yaml / .json / .conf / .txt / .toml files -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/x-yaml" />
+                <data android:mimeType="application/yaml" />
+                <data android:mimeType="text/yaml" />
+                <data android:mimeType="text/x-yaml" />
+                <data android:mimeType="application/toml" />
+            </intent-filter>
         </activity>
 
         <receiver

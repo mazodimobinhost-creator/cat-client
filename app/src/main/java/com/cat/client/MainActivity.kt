@@ -132,6 +132,25 @@ class MainActivity : Activity() {
         }
     }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + activityCoroutineExceptionHandler)
+    private val appTools: AppToolsController by lazy {
+        AppToolsController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            subscriptions = { userSubscriptionManager },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            sendRangesToScanner = { ranges ->
+                saveScannerRanges(ranges)
+                if (::scannerSubnetsInput.isInitialized) scannerSubnetsInput.setText(ranges)
+                openScreen(SCREEN_SCANNER)
+            },
+            afterSubscriptionsChanged = { runCatching { renderSubscriptions() } },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+        )
+    }
     private var aetherOperationJob: Job? = null
     private var updateSettingsBadge: TextView? = null
     private val appUpdateUi by lazy {
@@ -508,8 +527,15 @@ class MainActivity : Activity() {
                 if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
             }.onFailure { DiagnosticLogger.warn(this, "activity.startupTasks.failed", error = it) }
         }
-        runCatching { handleCatClientDeepLink(intent) }
-            .onFailure { DiagnosticLogger.warn(this, "activity.deepLink.failed", error = it) }
+        runCatching {
+            SlipNetCliEngine.attach(this)
+            appTools.onCreate(coldStart = savedInstanceState == null)
+        }.onFailure { DiagnosticLogger.warn(this, "activity.appTools.failed", error = it) }
+        // Only on a fresh start: a rotation must not re-open the same shared link / file.
+        if (savedInstanceState == null) {
+            runCatching { handleCatClientDeepLink(intent) }
+                .onFailure { DiagnosticLogger.warn(this, "activity.deepLink.failed", error = it) }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -525,6 +551,18 @@ class MainActivity : Activity() {
      *   catclient://scan?sni=…&ip=<clean ip,ip,…>    → opens and applies clean IPs
      */
     private fun handleCatClientDeepLink(intent: Intent?) {
+        // Config links (vless://, slipnet://, clash://install-config?url=…), shared text and
+        // opened / shared files all land in the normal "add subscription" dialog.
+        val schemeLower = intent?.data?.scheme?.lowercase(java.util.Locale.US)
+        if (schemeLower != "catclient" && schemeLower != "aether") {
+            IncomingConfigIntents.extract(this, intent)?.let { incoming ->
+                mainHandler.post {
+                    openScreen(SCREEN_SERVERS)
+                    showAddSubscriptionDialog(incoming.content, incoming.name)
+                }
+                return
+            }
+        }
         val data = intent?.data ?: return
         if (data.scheme.equals("aether", ignoreCase = true)) {
             val parsed = AetherSelection.fromAetherUri(data.toString()) ?: return
@@ -3220,6 +3258,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        runCatching { appTools.onStart(appRootView) }
         VpnWidgetProvider.refresh(this)
         DiagnosticLogger.info(this, "activity.onStart")
         val filter = IntentFilter().apply {
@@ -3270,6 +3309,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        runCatching { appTools.onStop() }
         aetherOperationJob?.cancel(CancellationException("Aether page left foreground"))
         aetherOperationJob = null
         AetherOperations.cancel()
@@ -3353,6 +3393,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Android API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (appUpdateUi.onActivityResult(requestCode)) return
+        if (appTools.handleActivityResult(requestCode, resultCode, data)) return
         val scanResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (scanResult != null) {
             normalizedSubscriptionSource(scanResult.contents)?.let { source ->
@@ -16904,6 +16945,17 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 18: Toolbox (file import · backup · app lock · auto-refresh · engine status · WhiteDNS toolkit)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🧰 ۱۸) جعبه‌ابزار: فایل کانفیگ، پشتیبان، قفل برنامه، رفرش خودکار، اسکنرهای WhiteDNS (ASN · SNI · پروکسی · DNS · کانفیگ‌ساز)"
+                else "🧰 18) Toolbox: config file, backup, app lock, auto-refresh, WhiteDNS scanners (ASN · SNI · proxy · DNS · Config Maker)",
+            ) {
+                appTools.showToolsHub()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
@@ -18664,6 +18716,21 @@ class MainActivity : Activity() {
               👈 اولویت بسته‌های صدا و بازی رو بالا می‌بره و نمی‌ذاره آنتن 4G/5G سیم‌کارت به خواب بره تا وسط کالاف/پابجی یا تماس واتس‌اپ پینگت نپره!
             • ۴) «📲 اشتراک‌گذاری با QR Code» و «🧹 حذف کانفیگ‌های سوخته» رو بزنی چی میشه؟
               👈 یک بارکد و آی‌پی بهت میده که آیفون، لپ‌تاپ، تلویزیون یا PS5 رو بدون نصب هیچ برنامه‌ای به اینترنت بدون فیلتر گوشیت وصل کنی، و با یک کلیک همهٔ کانفیگ‌های خراب رو پاک و سالم‌ها رو به ترتیب پینگ مرتب می‌کنه!
+
+            ────────────────────────
+            🧰 ۹) دکمه «۱۸) جعبه‌ابزار» (در مرکز ۲۰۲۶ و در منوی «＋ افزودن سرور»)
+            • «📂 وارد کردن از فایل» رو بزنی چی میشه؟
+              👈 فایل ‎.conf‎ وایرگارد، فایل Clash/YAML، sing-box/JSON یا یک فایل متنی پر از لینک رو از حافظهٔ گوشی انتخاب می‌کنی و مستقیم اشتراک میشه. از تلگرام هم می‌تونی روی لینک یا فایل «اشتراک‌گذاری» بزنی و Cat Client رو انتخاب کنی.
+            • «💾 پشتیبان» و «♻️ بازگردانی» رو بزنی چی میشه؟
+              👈 همهٔ اشتراک‌هات تو یک فایل ذخیره میشه؛ گوشی رو عوض کردی، همون فایل رو بازگردانی کن.
+            • «🔒 قفل برنامه» رو بزنی چی میشه؟
+              👈 یک رمز عددی (و اثر انگشت/رمز گوشی) می‌ذاری که هر کی گوشیت دستش بود نتونه کانفیگ‌هات رو ببینه.
+            • «⏰ رفرش خودکار» چیه؟
+              👈 هر ۶ ساعت اشتراک‌هات رو آپدیت می‌کنه و اگه حجمت داره تموم میشه یا ۳ روز به انقضا مونده، نوتیفیکیشن میده.
+            • اسکنرهای WhiteDNS (ASN، SNI، پروکسی HTTP/SOCKS5، سرعت و پکت‌لاس، ریزالور DNS، کانفیگ‌ساز):
+              👈 مثلاً «کانفیگ‌ساز» رو بزنی: کانفیگ خودت رو می‌دی + آی‌پی‌های تمیزی که اسکنر پیدا کرده، و برات همون کانفیگ رو با آی‌پی‌های تمیز (با همان پورت) می‌سازه.
+            • «🩺 وضعیت موتورها» چیه؟
+              👈 صادقانه میگه کدوم نوع کانفیگ واقعاً روی گوشیت کار می‌کنه: تانل DNS فقط با لینک واقعی slipnet:// (موتور SlipNet)، فایرفاکس فقط با حساب، paqet فقط با سرور واسط؛ دیگه هیچ‌کدوم بی‌صدا «مستقیم» وصل نمیشن.
             """.trimIndent()
         } else {
             """
@@ -18683,6 +18750,9 @@ class MainActivity : Activity() {
 
             5) 📡 DNS & Resolver Methods:
                Scans 52 DNS resolvers and connects via 9 DNS tunnel engines when standard ports are blocked.
+
+            6) 🧰 18) Toolbox (2026 hub and the "+ Add server" sheet):
+               Import a WireGuard .conf / Clash YAML / sing-box JSON / text file, back up and restore all subscriptions, lock the app with a PIN or fingerprint, auto-refresh subscriptions every 6 h with expiry / data-cap alerts, the WhiteDNS scanners (ASN export, SNI, HTTP/SOCKS5 proxy, speed & loss, DNS resolver, Config Maker) and an honest engine-status page that says which config types really work on this phone.
             """.trimIndent()
         }
 
@@ -23023,6 +23093,8 @@ class MainActivity : Activity() {
                 addView(item("▣", R.string.servers_add_qr) { startSubscriptionQrScan() }, LinearLayout.LayoutParams(-1, -2))
             }
             addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
+            addView(item("📂", R.string.servers_add_file) { appTools.openImportFilePicker() }, LinearLayout.LayoutParams(-1, -2))
+            addView(item("🧰", R.string.servers_add_tools) { appTools.showToolsHub() }, LinearLayout.LayoutParams(-1, -2))
             addView(wizardText(getString(R.string.servers_add_file_hint), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
         sheet.setContentView(body)

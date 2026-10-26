@@ -112,6 +112,14 @@ object UserSubscriptionImporter {
             require(count > 0) { "اتصال پشتیبانی‌شده‌ای پیدا نشد" }
             return ImportedUserSubscription(bundle.yaml, UserSubscriptionFormat.Links, count)
         }
+        // Plain WireGuard / AmneziaWG .conf text (pasted, shared or opened as a file).
+        val wgConfUris = WireGuardConfText.toUris(trimmed)
+        if (wgConfUris.isNotEmpty()) {
+            val wgYaml = MihomoLinkConfigBuilder.build(SubConvConverter.convert(wgConfUris.joinToString("\n")))
+            val wgCount = MihomoConfigParser.parse(wgYaml, nowMs).catalog.profiles.size
+            require(wgCount > 0) { "فایل WireGuard معتبر نیست (PrivateKey / PublicKey / Endpoint)" }
+            return ImportedUserSubscription(wgYaml, UserSubscriptionFormat.Links, wgCount)
+        }
         val normalized = SubConvConverter.decodeBase64Text(trimmed)
             ?.trim()
             ?.takeIf(String::isNotBlank)

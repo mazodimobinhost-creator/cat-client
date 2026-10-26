@@ -65,7 +65,9 @@ const source = readFileSync(sourcePath, 'utf8');
   ok('the asset declares the same version as the worker source',
     !!marker && marker[1] === sourceVersion, marker && marker[1] + ' vs ' + sourceVersion);
 
-  ok('raw size is in the paste range (300–600 KB)', asset.length >= 300_000 && asset.length <= 600_000, asset.length);
+  // Upper bound raised 600 000 → 640 000 for 6.69.37 (per-user quota/IP limit, TOTP 2FA,
+  // login lockout + audit — measured 600 754 B raw).
+  ok('raw size is in the paste range (300–640 KB)', asset.length >= 300_000 && asset.length <= 640_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -84,7 +86,11 @@ const source = readFileSync(sourcePath, 'utf8');
   // routes and CoreForge/V2Box/Karing deep-links in userInfoPage — measured 168 992 B,
   // ~1.0 KB gzip). Keep modest headroom for the installer/update UI while still catching a
   // sudden return to the much larger obfuscated artifact.
-  ok('gzip stays under the 172 KB regression budget', gz < 172_000, gz);
+  // Raised from 172 000 to 180 000 for 6.69.37: per-user traffic quota with a KV-safe
+  // meter, simultaneous-IP limit, real subscription-userinfo, RFC 6238 TOTP 2FA, per-IP
+  // login lockout + sign-in audit log and their two UI blocks (bilingual) — measured
+  // 177 139 B, i.e. ~6.5 KB gzip over 6.69.36.
+  ok('gzip stays under the 180 KB regression budget', gz < 180_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

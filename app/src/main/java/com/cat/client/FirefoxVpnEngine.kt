@@ -2165,15 +2165,10 @@ internal object FirefoxVpnEngine {
         val sniHost = activeUpstreamHost
         var pass = ensureValidProxyPass()
         if (pass.isBlank()) {
-            // Zero-account Anti-DPI fallback: when the user hasn't signed in to a Firefox Account yet,
-            // seamlessly open a direct SNI-fragmented socket to the target so FENIX still connects and bypasses DPI!
-            return openSocketWithOptionalSniFragment(
-                connectHost = targetHost,
-                connectPort = targetPort,
-                sniHost = targetHost,
-                fragmentTls = true,
-                timeoutMs = 8_500,
-            )
+            // Honest failure: without a signed-in Firefox Account there is no Mozilla proxy pass, so
+            // there is no tunnel. Earlier builds silently dialled the target directly here, which
+            // looked connected but never changed the IP or opened blocked sites.
+            throw IOException("Firefox VPN needs a signed-in Firefox Account (no ProxyPass)")
         }
 
         // Candidate Fastly endpoints: primary port (443), alternate Fastly port (2499), and clean Fastly edge IP
@@ -2249,18 +2244,8 @@ internal object FirefoxVpnEngine {
                 lastError = e
             }
         }
-        // Fallback to direct Anti-DPI SNI-fragmented socket if Fastly edge is unreachable on the current ISP
-        return runCatching {
-            openSocketWithOptionalSniFragment(
-                connectHost = targetHost,
-                connectPort = targetPort,
-                sniHost = targetHost,
-                fragmentTls = true,
-                timeoutMs = 8_500,
-            )
-        }.getOrElse {
-            throw (lastError ?: it)
-        }
+        // No direct fallback: if every Fastly edge failed, the tunnel is down and mihomo must know.
+        throw (lastError ?: IOException("All Firefox VPN (Fastly) edges failed"))
     }
 
     /**

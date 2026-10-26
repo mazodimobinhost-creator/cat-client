@@ -28,6 +28,8 @@ class CatClientApplication : Application() {
             return
         }
         initializeWorkManager()
+        SlipNetCliEngine.attach(this)
+        runCatching { SubscriptionAutoRefresh.sync(this) }
         initializeCatClientTypefaces(this)
         File(filesDir, "mihomo").mkdirs()
         File(cacheDir, "mihomo").mkdirs()

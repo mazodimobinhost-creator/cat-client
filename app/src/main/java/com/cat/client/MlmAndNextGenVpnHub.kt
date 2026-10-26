@@ -328,11 +328,14 @@ internal object MlmAndNextGenVpnHub {
     // 3. AmneziaWG 2.0, Proton VPN WireGuard & Hysteria2 Hub
     // =========================================================================
 
+    // All four entries are Cloudflare WARP (anycast) endpoints. `auto` is replaced at connect time
+    // by a really registered WARP account (WarpRegistration). WARP runs vanilla WireGuard, so only
+    // junk packets (jc/jmin/jmax) are safe — s1/s2 handshake padding would break the handshake.
     val BUILTIN_AWG_AND_HY2_URIS: List<String> = listOf(
-        "awg://auto@162.159.192.1:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&s1=32&s2=56&wnoisecount=5&wpayloadsize=40-120#🛡️%20AmneziaWG-2.0-DE-Fast",
-        "awg://auto@188.114.98.0:500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=6&jmin=64&jmax=960&s1=40&s2=60&wnoisecount=6&wpayloadsize=48-128#🛡️%20AmneziaWG-2.0-NL-Irancell",
-        "awg://auto@[2606:4700:d0::a29f:c001]:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=4&wpayloadsize=40-100#🛡️%20AmneziaWG-2.0-IPv6-MCI",
-        "awg://auto@162.159.195.1:1701?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20Proton-Stealth-AWG-US",
+        "awg://auto@162.159.192.1:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20Anycast%202408",
+        "awg://auto@188.114.98.0:500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=6&jmin=64&jmax=960&wnoisecount=6&wpayloadsize=48-128#🛡️%20WARP-AWG%20Irancell%20500",
+        "awg://auto@[2606:4700:d0::a29f:c001]:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=4&wpayloadsize=40-100#🛡️%20WARP-AWG%20IPv6%20(MCI)",
+        "awg://auto@162.159.195.1:1701?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20Port%201701",
     )
 
     /**
@@ -361,8 +364,10 @@ internal object MlmAndNextGenVpnHub {
         val jc = props["jc"] ?: "5"
         val jmin = props["jmin"] ?: "50"
         val jmax = props["jmax"] ?: "1000"
-        val s1 = props["s1"] ?: "32"
-        val s2 = props["s2"] ?: "56"
+        // s1/s2 (handshake padding) must match the server. Injecting defaults into a vanilla
+        // WireGuard/Proton config broke every handshake, so only keep values the file defines.
+        val s1 = props["s1"]
+        val s2 = props["s2"]
 
         val privEnc = URLEncoder.encode(privateKey, "UTF-8")
         val pubEnc = URLEncoder.encode(publicKey, "UTF-8")
@@ -378,7 +383,7 @@ internal object MlmAndNextGenVpnHub {
             }
         }
 
-        return "awg://$privEnc@$endpoint?address=$addrEnc&publickey=$pubEnc&mtu=$mtu&keepalive=$keepAlive&jc=$jc&jmin=$jmin&jmax=$jmax&s1=$s1&s2=$s2&wnoisecount=5&wpayloadsize=40-120$extraAmnezia#$tagEnc"
+        return "awg://$privEnc@$endpoint?address=$addrEnc&publickey=$pubEnc&mtu=$mtu&keepalive=$keepAlive&jc=$jc&jmin=$jmin&jmax=$jmax${s1?.let { "&s1=$it" }.orEmpty()}${s2?.let { "&s2=$it" }.orEmpty()}&wnoisecount=5&wpayloadsize=40-120$extraAmnezia#$tagEnc"
     }
 
     fun fetchAndScanAmneziaAndProtonConfigs(): List<VerifiedProxyNode> {

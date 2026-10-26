@@ -18,3 +18,9 @@
   - Cat Client Lite Worker Generator (`buildLiteWorkerScript` with zero-KV quota, Irancell F&F, MCI IPv6, and explicit-port ProxyIP).
   - Independent Auto-Reconnect on Drop, Auto-Connect on Boot/Update (both default off), and Universal Kill Switch (`VpnRuntimeStateStore`, `showConnectionResilienceAndKillSwitchDialog`).
   - Step-by-Step Live Connection Progress (`VpnRuntimeStateStore.saveLiveConnectStep` in `CatClientVpnService.kt`).
+- **2026-10-26 (Real engines + Toolbox + panel limits/2FA — `v1.10.0-beta174` / `6.69.37`):**
+  - DNS tunnels: fake probe-then-direct bridge replaced by the real SlipNet CLI engine (`SlipNetCliEngine.kt`, built from source in CI, AGPL-3.0, `NOTICE`); unsupported tunnel types now fail loudly (toast + `whitedns.engine.unavailable`).
+  - Paqet / Fenix: silent direct-connection fallbacks removed (honest failure). WARP-AWG `auto`: real WARP registration (`WarpRegistration.kt`, X25519) instead of a fake key; s1/s2 no longer injected into vanilla WG / Proton `.conf`.
+  - Deep links for every config scheme, `ACTION_SEND`, "open with" files (`ConfigFileImport.kt`, manifest); SAF file import, backup/restore, app lock (PIN + device credential, `AppLock.kt`), 6-hourly background subscription refresh + expiry/data-cap notifications (`SubscriptionAutoRefresh.kt`).
+  - WhiteDNS-style toolkit (`WhiteDnsToolkit.kt` + `AppToolsController.kt`, hub button 18): ASN export (RIPEstat), CIDR→IP, SNI scanner, 3-wave HTTP/SOCKS5 open-proxy scan, speed & loss rank, DNS resolver/tunnel-readiness scan, Config Maker (exact-port rewrite / endpoint extract).
+  - Panel 6.69.37: per-user traffic quota with a KV-safe meter (only quota users, ≤1 write/10 min/user), simultaneous-IP limit, real `subscription-userinfo`, salted password hash, per-IP login lockout, sign-in audit log, TOTP 2FA, trojan auth map keyed on user state. New suite `scripts/panels/panel-security.test.mjs`; paste budget raised with justification.

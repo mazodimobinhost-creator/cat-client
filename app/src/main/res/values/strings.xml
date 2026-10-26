@@ -1007,7 +1007,7 @@
     <string name="servers_add_clipboard">Import from clipboard</string>
     <string name="servers_add_qr">Scan QR from camera</string>
     <string name="servers_add_manual">Add manually (paste a link or subscription)</string>
-    <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links as well as subscription URLs.</string>
+    <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links, subscription URLs, WireGuard .conf files and Clash / sing-box files. You can also share a link or file to Cat Client from any app.</string>
     <string name="accent_setting_title">Theme preset</string>
     <string name="accent_lavender">Lavender</string>
     <string name="accent_lime">Lime</string>
@@ -1273,4 +1273,6 @@
     <string name="subscription_optimize_title">Optimize subscription: %1$s</string>
     <string name="subscription_optimize_apply">Apply &amp; save backup</string>
     <string name="tab_aether">Aether</string>
+    <string name="servers_add_file">Import from file (.yaml / .json / .conf / .txt)</string>
+    <string name="servers_add_tools">Backup · restore · toolbox</string>
 </resources>

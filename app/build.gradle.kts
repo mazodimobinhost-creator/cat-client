@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 240
-        versionName = "1.10.0-beta173"
+        versionCode = 241
+        versionName = "1.10.0-beta174"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
@@ -145,6 +145,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // libslipnet.so is a static Go executable (the real DNS-tunnel engine), not a JNI
+            // library; it is already built with -s -w, so skip NDK strip on it.
+            keepDebugSymbols += "**/libslipnet.so"
         }
     }
 

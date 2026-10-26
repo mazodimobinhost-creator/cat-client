@@ -4013,6 +4013,9 @@ class CatClientVpnService : VpnService() {
         DiagnosticLogger.info(this, "mihomo.core.started", "config=${paths.runtimeConfigYaml.absolutePath}")
     }
 
+    @Volatile
+    private var childProcessEngineActive = false
+
     private fun ensureEmbeddedLocalBridgesForRuntimeFile(runtimeYamlFile: File) {
         if (!runtimeYamlFile.isFile) return
         runCatching {
@@ -4021,11 +4024,57 @@ class CatClientVpnService : VpnService() {
 
             // 1. WhiteDNS / DNSTT / Slipstream / SlipNet / DoH local SOCKS5 bridges
             val wdnsRegex = Regex("""whitedns-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
-            wdnsRegex.findAll(yaml).forEach { match ->
+            SlipNetCliEngine.attach(applicationContext)
+            childProcessEngineActive = false
+            wdnsRegex.findAll(yaml).toList().forEach { match ->
                 val uri = match.groupValues[1].trim()
                 val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri)
                 if (parsed != null) {
-                    WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                    val activePort = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+                    val result = WhiteDnsSmartScanner.lastEngineResult(parsed)
+                    if (result is SlipNetCliEngine.StartResult.Ready) {
+                        childProcessEngineActive = true
+                        val updated = yaml.replace(
+                            Regex("""(port\s*:\s*)\d+(\s*\r?\n(?:.*\r?\n){0,3}\s*whitedns-uri\s*:\s*['"]?""" + Regex.escape(uri)),
+                            "$1$activePort$2",
+                        )
+                        if (updated != yaml) {
+                            yaml = updated
+                            modified = true
+                        }
+                    } else {
+                        DiagnosticLogger.warn(
+                            this,
+                            "whitedns.engine.unavailable",
+                            "engine=${parsed.engine.name} result=${result?.javaClass?.simpleName} " +
+                                ((result as? SlipNetCliEngine.StartResult.Unsupported)?.reasonEn
+                                    ?: (result as? SlipNetCliEngine.StartResult.Failed)?.reasonEn).orEmpty(),
+                        )
+                        // Tell the user WHY this DNS-tunnel config cannot carry traffic instead of
+                        // silently leaving a dead proxy in the profile.
+                        val farsi = runCatching { AppLanguagePreferenceStore(applicationContext).read() == AppLanguage.Persian }.getOrDefault(true)
+                        val reason = when (result) {
+                            is SlipNetCliEngine.StartResult.Unsupported -> if (farsi) result.reasonFa else result.reasonEn
+                            is SlipNetCliEngine.StartResult.Failed -> if (farsi) result.reasonFa else result.reasonEn
+                            else -> if (farsi) "موتور تانل DNS آماده نشد" else "DNS tunnel engine did not start"
+                        }
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            runCatching {
+                                android.widget.Toast.makeText(applicationContext, "🐢 ${parsed.scheme}: $reason", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1b. awg://auto / wireguard://auto placeholders → real Cloudflare WARP account
+            if (yaml.contains(WarpRegistration.PLACEHOLDER_PRIVATE_KEY)) {
+                val account = WarpRegistration.ensureAccount(applicationContext)
+                if (account != null) {
+                    yaml = WarpRegistration.patchYaml(yaml, account)
+                    modified = true
+                } else {
+                    DiagnosticLogger.warn(this, "warp.register.failed", "awg auto placeholders left unregistered")
                 }
             }
 
@@ -4500,10 +4549,15 @@ class CatClientVpnService : VpnService() {
         builder: Builder,
         splitTunnelPlan: SplitTunnelRuntimePlan,
     ) {
+        // A real DNS-tunnel engine runs as a child process with our UID. Its resolver traffic
+        // must not re-enter the tunnel (it would loop back into itself), so the app's own UID
+        // bypasses the VPN while that engine is active.
+        val excludeSelf = childProcessEngineActive
         when (splitTunnelPlan.mode) {
-            SplitTunnelMode.Off -> Unit
+            SplitTunnelMode.Off -> if (excludeSelf) addDisallowedApplication(builder, packageName)
             SplitTunnelMode.VpnOnlySelected -> {
-                (splitTunnelPlan.allowedPackages + packageName).distinct().forEach { packageName ->
+                val allowed = if (excludeSelf) splitTunnelPlan.allowedPackages else splitTunnelPlan.allowedPackages + packageName
+                allowed.distinct().filterNot { excludeSelf && it == packageName }.forEach { packageName ->
                     addAllowedApplication(builder, packageName)
                 }
             }
@@ -4511,6 +4565,7 @@ class CatClientVpnService : VpnService() {
                 splitTunnelPlan.disallowedPackages
                     .filterNot { it == packageName }
                     .forEach { packageName -> addDisallowedApplication(builder, packageName) }
+                if (excludeSelf) addDisallowedApplication(builder, packageName)
             }
         }
     }
@@ -4948,6 +5003,8 @@ class CatClientVpnService : VpnService() {
             MihomoCoreCleanupRequest.AlreadyIdle -> true
         }
         stopDpiBypassProxy()
+        runCatching { SlipNetCliEngine.stopAll() }
+        childProcessEngineActive = false
         return coreStopped
     }
 
@@ -5036,6 +5093,8 @@ class CatClientVpnService : VpnService() {
             MihomoCoreCleanupRequest.AlreadyIdle -> Unit
         }
         runCatching { ByeDpiProxy.stop() }
+        runCatching { SlipNetCliEngine.stopAll() }
+        childProcessEngineActive = false
         dpiBypassJob?.cancel(CancellationException("Service destroyed"))
         dpiBypassJob = null
         activeDpiBypassPort = null

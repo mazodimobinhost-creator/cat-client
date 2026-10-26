@@ -1592,41 +1592,34 @@ internal object WhiteDnsSmartScanner {
         val key = "${parsed.scheme}|${parsed.resolverIp}:${parsed.resolverPort}|${parsed.tunnelDomain}|${parsed.presetId}"
         val deterministicPort = 10853 + (kotlin.math.abs(key.hashCode()) % 45)
         val existing = activeTunnelBridges[key]
-        if (existing != null && (!startDaemon || activeTunnelSockets.containsKey(existing))) {
+        if (existing != null && (!startDaemon || SlipNetCliEngine.isListening(existing))) {
             return existing
         }
         if (!startDaemon) {
             activeTunnelBridges[key] = deterministicPort
             return deterministicPort
         }
-        return runCatching {
-            val server = try {
-                java.net.ServerSocket(deterministicPort, 32, InetAddress.getByName("127.0.0.1"))
-            } catch (_: Throwable) {
-                java.net.ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
-            }
-            val boundPort = server.localPort
-            activeTunnelBridges[key] = boundPort
-            activeTunnelSockets[boundPort] = server
-            Thread(
-                null,
-                Runnable {
-                    while (!server.isClosed) {
-                        val client = runCatching { server.accept() }.getOrNull() ?: break
-                        wdnsWorkerPool.execute {
-                            handleLocalTunnelSocksClient(client, parsed)
-                        }
-                    }
-                },
-                "wdns-socks-accept-$boundPort",
-                256 * 1024L,
-            ).apply {
-                isDaemon = true
-                start()
-            }
-            boundPort
-        }.getOrDefault(deterministicPort)
+        // Real engine only. Earlier builds started a fake SOCKS bridge here that dialled every
+        // destination directly (no tunnel at all), which is why DNS-tunnel configs "connected"
+        // but blocked sites never opened. Now: run the real SlipNet/dnstt/NoizDNS/VayDNS client,
+        // or leave the port closed so mihomo honestly marks the config as unreachable.
+        val ctx = SlipNetCliEngine.appContext
+        val result = if (ctx != null) {
+            SlipNetCliEngine.start(ctx, parsed, deterministicPort)
+        } else {
+            SlipNetCliEngine.StartResult.Failed("موتور آماده نیست", "Engine not attached", emptyList())
+        }
+        lastEngineResults[key] = result
+        val port = (result as? SlipNetCliEngine.StartResult.Ready)?.port ?: deterministicPort
+        activeTunnelBridges[key] = port
+        return port
     }
+
+    private val lastEngineResults = java.util.concurrent.ConcurrentHashMap<String, SlipNetCliEngine.StartResult>()
+
+    /** Outcome of the last real-engine start for [parsed] (null when never started). */
+    fun lastEngineResult(parsed: WhiteDnsParsedTunnelUri): SlipNetCliEngine.StartResult? =
+        lastEngineResults["${parsed.scheme}|${parsed.resolverIp}:${parsed.resolverPort}|${parsed.tunnelDomain}|${parsed.presetId}"]
 
     /**
      * Starts a local/LAN Anti-DPI SOCKS5 bridge (bound to `0.0.0.0` when `bindLan = true` so

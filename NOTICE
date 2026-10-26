@@ -6,3 +6,11 @@ ZedSecure by CluvexStudio (https://github.com/CluvexStudio/ZedSecure), licensed
 under the GNU Affero General Public License v3.0. The ported pieces
 (WorldMap.kt, ZedWorldMapView.kt, ZedMotion.kt, ZedBlobView.kt) remain available
 under AGPL-3.0 alongside this project's GPL-3.0 licence.
+
+The DNS-tunnel engine packaged as lib/<abi>/libslipnet.so is the SlipNet CLI by
+anonvector (https://github.com/anonvector/SlipNet, directory cli/), licensed under
+the GNU Affero General Public License v3.0, together with its dnstt
+(https://www.bamsoftware.com/git/dnstt.git, public domain / CC0), NoizDNS and
+VayDNS submodules. It is built unmodified from source by
+scripts/build-slipnet-cli.sh (pinned commit recorded there) and runs as a separate
+process; its complete corresponding source is available at the URLs above.

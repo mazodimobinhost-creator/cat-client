@@ -1006,7 +1006,7 @@
     <string name="servers_add_clipboard">از کلیپ‌بورد</string>
     <string name="servers_add_qr">اسکن QR با دوربین</string>
     <string name="servers_add_manual">دستی (چسباندن لینک یا اشتراک)</string>
-    <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard و همین‌طور آدرس اشتراک پشتیبانی می‌شود.</string>
+    <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard، آدرس اشتراک، فایل .conf وایرگارد و فایل Clash / sing-box پشتیبانی می‌شود. از هر برنامه‌ای هم می‌توانی لینک یا فایل را «اشتراک‌گذاری» کنی و Cat Client را انتخاب کنی.</string>
     <string name="accent_setting_title">تم رنگی</string>
     <string name="accent_lavender">بنفش روشن</string>
     <string name="accent_lime">لیمویی</string>
@@ -1272,4 +1272,6 @@
     <string name="subscription_optimize_title">بهینه‌سازی سابسکریپشن: %1$s</string>
     <string name="subscription_optimize_apply">اعمال و ذخیره نسخه پشتیبان</string>
     <string name="tab_aether">ضدسانسور</string>
+    <string name="servers_add_file">وارد کردن از فایل (.yaml / .json / .conf / .txt)</string>
+    <string name="servers_add_tools">پشتیبان · بازگردانی · جعبه‌ابزار</string>
 </resources>

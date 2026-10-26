@@ -358,6 +358,37 @@ jobs:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         run: chmod +x gradlew scripts/build-flclash-core.sh && ./scripts/build-flclash-core.sh
 
+      - name: Cache SlipNet DNS-tunnel engine
+        id: slipnet-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libslipnet.so
+            app/src/main/jniLibs/armeabi-v7a/libslipnet.so
+            app/src/main/jniLibs/x86/libslipnet.so
+            app/src/main/jniLibs/x86_64/libslipnet.so
+          key: ${{ runner.os }}-slipnet-${{ hashFiles('scripts/build-slipnet-cli.sh') }}
+
+      - name: Build SlipNet DNS-tunnel engine (real dnstt / NoizDNS / VayDNS client)
+        if: steps.slipnet-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: bash scripts/build-slipnet-cli.sh 2>&1 | tee slipnet-build.log
+
+      - name: Verify SlipNet engine packaging
+        run: |
+          missing=0
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            f="app/src/main/jniLibs/$abi/libslipnet.so"
+            if [[ -s "$f" ]]; then ls -la "$f"; file "$f" || true; else missing=1; fi
+          done
+          if [[ "$missing" == "1" ]]; then
+            grep -E "error|cannot|undefined|go: " slipnet-build.log 2>/dev/null | head -n 20 | while IFS= read -r line; do
+              printf '::warning title=SlipNet engine build::%s\n' "$line"
+            done
+            echo "::warning title=SlipNet engine::libslipnet.so missing; DNS tunnels will report 'engine not packaged'"
+          fi
+          rm -f app/src/main/jniLibs/SLIPNET-SOURCE.txt
+
       - name: Build debug APK
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
