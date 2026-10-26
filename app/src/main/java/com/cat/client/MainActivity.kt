@@ -16570,8 +16570,8 @@ class MainActivity : Activity() {
                     event.action == android.view.MotionEvent.ACTION_UP
                 ) {
                     dialogRef?.window?.clearFlags(
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
                     )
                     if (!v.hasFocus()) {
                         v.requestFocus()
@@ -16605,8 +16605,8 @@ class MainActivity : Activity() {
             typeface = CatClientBodyBoldTypeface
             setOnClickListener {
                 dialogRef?.window?.clearFlags(
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
                 )
                 val typed = quickTypeInput.text?.toString().orEmpty()
                 if (typed.isNotEmpty()) {
@@ -16762,12 +16762,12 @@ class MainActivity : Activity() {
         }
         dialogRef.showCatClientDialog {
             window?.clearFlags(
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
             )
             window?.setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED or
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED or
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
             )
         }
         webView.loadUrl("https://accounts.firefox.com/")
