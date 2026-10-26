@@ -2937,9 +2937,10 @@ class MainActivity : Activity() {
     }
 
     private fun onSubscriptionSelected() {
-        if (aetherPreferenceStore.read().enabled) {
-            aetherPreferenceStore.setEnabled(false)
-            renderAetherSummary()
+        val currentAether = aetherPreferenceStore.read()
+        if (currentAether.enabled) {
+            aetherPreferenceStore.save(currentAether.copy(enabled = false))
+            renderAdvancedControls()
         }
         locationPreferenceStore.clearSelectedCountry()
         val selectedId = SubscriptionStore(this).readSelectedSubscriptionId()
@@ -14058,8 +14059,9 @@ class MainActivity : Activity() {
                 activityScope.launch {
                     when (rec.category) {
                         "aether" -> {
-                            aetherPreferenceStore.setEnabled(true)
-                            renderAetherSummary()
+                            val curAether = aetherPreferenceStore.read()
+                            aetherPreferenceStore.save(curAether.copy(enabled = true))
+                            renderAdvancedControls()
                             beginConnectFlow(if (buttonModel.state == VpnState.Started) Actions.RECONNECT else Actions.CONNECT)
                         }
                         "fenix" -> {
@@ -22005,9 +22007,10 @@ class MainActivity : Activity() {
         profile: ConnectionProfile?,
         selectedTypes: Set<String>,
     ) {
-        if (aetherPreferenceStore.read().enabled) {
-            aetherPreferenceStore.setEnabled(false)
-            renderAetherSummary()
+        val currentAether = aetherPreferenceStore.read()
+        if (currentAether.enabled) {
+            aetherPreferenceStore.save(currentAether.copy(enabled = false))
+            renderAdvancedControls()
         }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val previous = connectionSelectionPreferenceStore.readSelectedProfile(

@@ -2381,6 +2381,25 @@ internal object FirefoxVpnEngine {
         return out
     }
 
+    fun startLocalBridge(context: Context): Int {
+        val accounts = loadAccounts(context)
+        val activeAcc = selectBestActiveAccount(accounts)
+        val selCode = readSelectedCountryCode(context)
+        val countries = getAvailableCountries(context)
+        val country = countries.firstOrNull { it.code.equals(selCode, ignoreCase = true) }
+            ?: countries.firstOrNull { it.code == "DE" }
+            ?: countries.first()
+        val cleanIp = readCleanFastlyEdgeIp(context)
+        val frag = isTlsFragmentEnabled(context)
+        return startOrUpdateLocalFenixProxy(
+            context = context,
+            country = country,
+            bearerPass = activeAcc?.proxyPass.orEmpty(),
+            cleanEdgeIp = cleanIp,
+            fragmentTls = frag,
+        )
+    }
+
     private fun countryCodeToFlagEmoji(code: String): String {
         val c = code.trim().uppercase(Locale.US)
         if (c.length != 2 || c[0] !in 'A'..'Z' || c[1] !in 'A'..'Z') return "🌐"

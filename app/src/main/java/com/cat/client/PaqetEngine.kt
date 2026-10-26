@@ -545,7 +545,7 @@ internal object PaqetEngine {
         // 1) Try protected TCP handshake with TLS Record Obfuscation probe
         val tcpOk = runCatching {
             Socket().use { sock ->
-                CatClientVpnService.protectOutboundSocket(sock)
+                protectOutboundSocket(sock)
                 sock.soTimeout = timeoutMs
                 sock.connect(InetSocketAddress(targetHost, targetPort), timeoutMs)
                 true
@@ -567,7 +567,7 @@ internal object PaqetEngine {
         // 2) Try protected UDP KCP / TLS-record obfuscated probe
         val udpOk = runCatching {
             DatagramSocket().use { udp ->
-                CatClientVpnService.protectOutboundDatagramSocket(udp)
+                protectOutboundDatagramSocket(udp)
                 udp.soTimeout = timeoutMs
                 val payload = buildObfuscatedPaqetFrame(
                     rawPayload = "PAQET-PING".toByteArray(Charsets.UTF_8),
@@ -776,7 +776,7 @@ internal object PaqetEngine {
             val hoppedPort = cfg.pickTargetPort()
             val entrySock = runCatching {
                 val s = Socket()
-                CatClientVpnService.protectOutboundSocket(s)
+                protectOutboundSocket(s)
                 s.tcpNoDelay = cfg.kcpMode.nodelay == 1
                 s.soTimeout = 20_000
                 s.connect(InetSocketAddress(serverClean, hoppedPort), 7_000)
@@ -812,7 +812,7 @@ internal object PaqetEngine {
         // Mode B: Protected Direct Anti-DPI Socket to target
         return runCatching {
             val s = Socket()
-            CatClientVpnService.protectOutboundSocket(s)
+            protectOutboundSocket(s)
             s.tcpNoDelay = true
             s.soTimeout = 20_000
             s.connect(InetSocketAddress(targetHost, targetPort), 8_000)
@@ -823,7 +823,7 @@ internal object PaqetEngine {
     private fun queryDnsTxtRecords(domain: String, resolverIp: String, timeoutMs: Int): List<String> {
         return runCatching {
             DatagramSocket().use { socket ->
-                CatClientVpnService.protectOutboundDatagramSocket(socket)
+                protectOutboundDatagramSocket(socket)
                 socket.soTimeout = timeoutMs
                 val query = buildDnsTxtQuery(domain)
                 val packet = DatagramPacket(query, query.size, InetAddress.getByName(resolverIp), 53)

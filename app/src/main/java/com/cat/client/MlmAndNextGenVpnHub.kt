@@ -948,13 +948,14 @@ internal object MlmAndNextGenVpnHub {
         val fenixProbe = runCatching {
             val t0 = System.nanoTime()
             Socket().use { s ->
-                CatClientVpnService.protectOutboundSocket(s)
+                protectOutboundSocket(s)
                 s.connect(InetSocketAddress("151.101.1.91", 443), timeoutMs)
                 ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
             }
         }.getOrNull()
         if (fenixProbe != null) {
-            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(countryCode = "DE", localPort = FirefoxVpnEngine.activeProxyPort())
+            val deCountry = FirefoxVpnEngine.DEFAULT_COUNTRIES.first()
+            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(country = deCountry, localPort = FirefoxVpnEngine.activeProxyPort())
             candidates += MlmScoutRecommendation(
                 id = "fenix_fastly",
                 titleFa = "🦊 VPN مرورگر فایرفاکس (FENIX · آلمان/هلند/آمریکا)",
@@ -967,7 +968,7 @@ internal object MlmAndNextGenVpnHub {
         }
 
         // 3. Probe MLM Quick Connect Pool / Outline & Free Nodes
-        val poolVerified = fetchAndProbeOutlineNodes(maxNodes = 8, timeoutMs = timeoutMs)
+        val poolVerified = fetchAndScanOutlineKeys(maxCandidates = 8, timeoutMs = timeoutMs)
         if (poolVerified.isNotEmpty()) {
             val bestNode = poolVerified.first()
             candidates += MlmScoutRecommendation(
@@ -977,7 +978,7 @@ internal object MlmAndNextGenVpnHub {
                 latencyMs = bestNode.rttMs,
                 isRecommended = false,
                 category = "quick_pool",
-                shareUriOrPayload = poolVerified.joinToString("\n") { it.uri },
+                shareUriOrPayload = poolVerified.joinToString("\n") { node -> node.uri },
             )
         }
 
@@ -985,7 +986,7 @@ internal object MlmAndNextGenVpnHub {
         val warpProbe = runCatching {
             val t0 = System.nanoTime()
             Socket().use { s ->
-                CatClientVpnService.protectOutboundSocket(s)
+                protectOutboundSocket(s)
                 s.connect(InetSocketAddress("188.114.98.0", 443), timeoutMs)
                 ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
             }
@@ -1090,7 +1091,7 @@ internal object MlmAndNextGenVpnHub {
                     val startNs = System.nanoTime()
                     val alive = runCatching {
                         Socket().use { sock ->
-                            CatClientVpnService.protectOutboundSocket(sock)
+                            protectOutboundSocket(sock)
                             sock.connect(InetSocketAddress(host.removePrefix("[").removeSuffix("]"), port), timeoutMs)
                             true
                         }

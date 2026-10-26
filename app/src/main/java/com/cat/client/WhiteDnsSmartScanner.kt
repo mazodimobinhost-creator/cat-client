@@ -737,7 +737,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val t0 = System.nanoTime()
             DatagramSocket().use { sock ->
-                CatClientVpnService.protectOutboundDatagramSocket(sock)
+                protectOutboundDatagramSocket(sock)
                 sock.soTimeout = timeoutMs
                 val addr = InetAddress.getByName(ip.trim())
                 sock.send(DatagramPacket(query, query.size, addr, 53))
@@ -762,7 +762,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val t0 = System.nanoTime()
             Socket().use { sock ->
-                CatClientVpnService.protectOutboundSocket(sock)
+                protectOutboundSocket(sock)
                 sock.soTimeout = timeoutMs
                 sock.connect(InetSocketAddress(InetAddress.getByName(ip.trim()), 53), timeoutMs)
                 val out = sock.getOutputStream()
@@ -1615,7 +1615,7 @@ internal object WhiteDnsSmartScanner {
 
                 val upstream = Socket()
                 try {
-                    CatClientVpnService.protectOutboundSocket(upstream)
+                    protectOutboundSocket(upstream)
                     upstream.tcpNoDelay = true
                     upstream.connect(InetSocketAddress(targetHost, targetPort), 8_000)
                     output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
