@@ -1,9 +1,10 @@
-# Android failure report (41c9dfc)
+# Android failure report (ae09e67)
 
 
 ## files with compile errors
-     12 app/src/main/java/com/cat/client/MainActivity.kt
-      2 app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt
+     24 app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt
+      1 app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt
+      1 app/src/main/java/com/cat/client/MainActivity.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -38,7 +39,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3271) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3314) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -56,7 +57,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3286) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3330) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -66,7 +67,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3305) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3349) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -99,7 +100,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3317) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3361) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -127,9 +128,6 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
-
-Welcome to Gradle 8.9!
-
 Here are the highlights of this release:
  - Enhanced Error and Warning Messages
  - IDE Integration Improvements
@@ -169,28 +167,71 @@ w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'j
 > Task :app:processDebugManifestForPackage
 > Task :app:javaPreCompileDebug
 > Task :app:processDebugResources
-
-> Task :app:compileDebugKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:861:24 Unresolved reference 'extractSupportedConfigUris'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:865:21 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
+> Task :app:compileDebugKotlin
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3122:25 Unresolved reference 'extractRealConfigTemplates'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3125:9 Unresolved reference 'currentStrategy'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3126:52 Unresolved reference 'buildServerlessV52FinalMaskJson'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3128:28 Function 'component1()' is ambiguous for this expression: 
+fun <T> Array<out T>.component1(): T
+fun ByteArray.component1(): Byte
+fun ShortArray.component1(): Short
+fun IntArray.component1(): Int
+fun LongArray.component1(): Long
+fun FloatArray.component1(): Float
+fun DoubleArray.component1(): Double
+fun BooleanArray.component1(): Boolean
+fun CharArray.component1(): Char
+fun <T> List<T>.component1(): T
+fun <K, V> Map.Entry<K, V>.component1(): K
+fun UIntArray.component1(): UInt
+fun ULongArray.component1(): ULong
+fun UByteArray.component1(): UByte
+fun UShortArray.component1(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3128:28 Function 'component2()' is ambiguous for this expression: 
+fun <T> Array<out T>.component2(): T
+fun ByteArray.component2(): Byte
+fun ShortArray.component2(): Short
+fun IntArray.component2(): Int
+fun LongArray.component2(): Long
+fun FloatArray.component2(): Float
+fun DoubleArray.component2(): Double
+fun BooleanArray.component2(): Boolean
+fun CharArray.component2(): Char
+fun <T> List<T>.component2(): T
+fun <K, V> Map.Entry<K, V>.component2(): V
+fun UIntArray.component2(): UInt
+fun ULongArray.component2(): ULong
+fun UByteArray.component2(): UByte
+fun UShortArray.component2(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3128:46 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
 fun <T> Enumeration<T>.iterator(): Iterator<T>
 fun <T> Iterator<T>.iterator(): Iterator<T>
 fun <K, V> Map<out K, V>.iterator(): Iterator<Map.Entry<K, V>>
 fun <K, V> MutableMap<K, V>.iterator(): MutableIterator<MutableMap.MutableEntry<K, V>>
 fun CharSequence.iterator(): CharIterator
 fun BufferedInputStream.iterator(): ByteIterator
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17116:26 Cannot infer type for this parameter. Specify it explicitly.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17116:56 Unresolved reference 'collectAllUserSubscriptionRawTexts'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17128:33 Unresolved reference 'uuid'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17129:59 Unresolved reference 'serverHost'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17489:33 No parameter with name 'targetHost' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17490:33 No parameter with name 'targetPort' found.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17502:55 Unresolved reference 'upload16kPassed'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17504:63 Unresolved reference 'handshakeRttMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17504:95 Unresolved reference 'downloadKbps'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17509:81 Unresolved reference 'handshakeRttMs'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17509:107 Unresolved reference 'downloadKbps'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17509:150 Unresolved reference 'upload16kPassed'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3129:29 Unresolved reference 'ensureDedicatedForwarderPort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3130:34 Unresolved reference 'remoteHost'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3131:34 Unresolved reference 'remotePort'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3135:31 Unresolved reference 'originalSni'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3135:43 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3135:57 Unresolved reference 'hostHeader'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3135:68 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3135:82 Unresolved reference 'remoteHost'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3136:32 Unresolved reference 'hostHeader'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3136:43 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3137:58 Unresolved reference 'path'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3139:67 Unresolved reference 'remark'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3142:31 Unresolved reference 'scheme'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3143:33 Unresolved reference 'uuidOrPass'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3143:90 Unresolved reference 'network'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3145:32 Unresolved reference 'uuidOrPass'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3145:105 Unresolved reference 'network'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/LocalSniSpoofProxy.kt:3210:51 Cannot access 'val SELECT_GROUP: String': it is private in 'com/cat/client/MihomoLinkConfigBuilder'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:17279:52 Cannot access 'currentDecoySni': it is private in 'com/cat/client/LocalSniSpoofProxy'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/WhiteDnsSmartScanner.kt:1358:77 Unresolved reference 'DNSTT_COMPAT'.
+
+> Task :app:compileDebugKotlin FAILED
 
 FAILURE: Build failed with an exception.
 
@@ -205,5 +246,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 29s
+BUILD FAILED in 1m 32s
 16 actionable tasks: 16 executed
