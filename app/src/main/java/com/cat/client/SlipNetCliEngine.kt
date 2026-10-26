@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * QS/QQ/Spoof tunnels, S3 bypass, Phantun without root, …) are reported as unsupported instead of
  * being faked.
  */
-object SlipNetCliEngine {
+internal object SlipNetCliEngine {
     const val BINARY_NAME = "libslipnet.so"
     private const val READY_TIMEOUT_MS = 20_000L
     private const val LOG_LINES = 80
