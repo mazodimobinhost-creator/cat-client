@@ -271,7 +271,8 @@ class AetherSelectionTest {
 
         // Malformed SS-2022 key (not 32 bytes) must be rejected so Mihomo doesn't fail the whole subscription
         val invalidSs2022 = "ss://2022-blake3-aes-256-gcm:not-a-32-byte-base64-key@206.1.100.83:25178#SS2022-Bad"
-        val badConverted = SubConvConverter.convert(invalidSs2022)
-        assertEquals(0, badConverted.size)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            SubConvConverter.convert(invalidSs2022)
+        }
     }
 }
