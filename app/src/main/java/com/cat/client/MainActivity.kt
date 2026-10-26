@@ -16537,11 +16537,12 @@ class MainActivity : Activity() {
         var completed = false
         var dialogRef: AlertDialog? = null
 
+        var lastTypedEmail = ""
         val statusBanner = TextView(this).apply {
             text = if (isFarsi) {
-                "🔒 وارد حساب فایرفاکس شوید (با ایمیل، ادامه با گوگل/جیمیل، یا ساخت حساب جدید).\nبه محض ورود، برنامه خودکار ۵۰ گیگابایت را دریافت می‌کند…"
+                "💡 برای جیمیل (@gmail.com): ایمیل خود را در کادر بالای صفحهٔ موزیلا بنویسید و دکمهٔ آبی را بزنید (روی Continue with Google نزنید تا گوگل خطا ندهد!)."
             } else {
-                "🔒 Sign in to Firefox (via Email, Continue with Google, or Sign Up).\nAs soon as you sign in, 50 GB/mo will activate automatically…"
+                "💡 Using Gmail? Enter your @gmail.com address in Mozilla's top email box and tap the blue button (avoid 'Continue with Google' to bypass Google's WebView block)."
             }
             textSize = 11.5f
             typeface = CatClientBodyBoldTypeface
@@ -16562,9 +16563,14 @@ class MainActivity : Activity() {
             settings.databaseEnabled = true
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.loadsImagesAutomatically = true
-            // Use standard Firefox Android User-Agent so Google Sign-In & Mozilla FxA both allow login
-            settings.userAgentString =
-                "Mozilla/5.0 (Android 14; Mobile; rv:138.0) Gecko/138.0 Firefox/138.0"
+            // Use the device's genuine Chromium UA stripped of '; wv' and 'Version/4.0' so
+            // navigator.userAgent matches the Blink engine & Sec-CH-UA headers (preventing mismatch blocks).
+            val rawUa = runCatching { android.webkit.WebSettings.getDefaultUserAgent(this@MainActivity) }
+                .getOrDefault("Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+            settings.userAgentString = rawUa
+                .replace("; wv)", ")")
+                .replace("; wv;", ";")
+                .replace(Regex("""Version/\d+\.\d+\s*"""), "")
             setOnTouchListener { v, event ->
                 if (event.action == android.view.MotionEvent.ACTION_DOWN ||
                     event.action == android.view.MotionEvent.ACTION_UP
@@ -16610,6 +16616,7 @@ class MainActivity : Activity() {
                 )
                 val typed = quickTypeInput.text?.toString().orEmpty()
                 if (typed.isNotEmpty()) {
+                    if (typed.contains("@")) lastTypedEmail = typed.trim()
                     val escaped = org.json.JSONObject.quote(typed)
                     webView.evaluateJavascript(
                         """
@@ -16710,9 +16717,84 @@ class MainActivity : Activity() {
             }
         }
 
+        fun injectFxaDirectEmailGuidance(prefillEmail: String = lastTypedEmail) {
+            val escapedPrefill = org.json.JSONObject.quote(prefillEmail)
+            val noteText = org.json.JSONObject.quote(
+                if (isFarsi) "⚡ جیمیل (@gmail.com) را در همین کادر بالا وارد کنید و دکمهٔ آبی را بزنید (بدون خطای گوگل)"
+                else "⚡ Enter your @gmail.com in the top box above and tap the blue button",
+            )
+            webView.evaluateJavascript(
+                """
+                (function(prefill, bannerMsg){
+                  try {
+                    Object.defineProperty(navigator, 'webdriver', { get: function(){ return false; } });
+                    // Capture any email typed by the user in any email field
+                    var emailInputs = document.querySelectorAll('input[type=email], input[name=email], input[autocomplete=username]');
+                    for (var i = 0; i < emailInputs.length; i++) {
+                      var inp = emailInputs[i];
+                      if (prefill && !inp.value && window.location.hostname.indexOf('firefox.com') !== -1) {
+                        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+                        if (setter && setter.set) { setter.set.call(inp, prefill); } else { inp.value = prefill; }
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                        inp.dispatchEvent(new Event('change', { bubbles: true }));
+                      }
+                      if (!inp.__catHooked) {
+                        inp.__catHooked = true;
+                        inp.addEventListener('input', function(ev) {
+                          try { window.sessionStorage.setItem('__cat_last_email', ev.target.value || ''); } catch(e){}
+                        });
+                      }
+                    }
+                    // On Mozilla FxA page, add a clear hint above third-party buttons so users enter Gmail directly in Mozilla's form
+                    if (window.location.hostname.indexOf('firefox.com') !== -1 && !document.getElementById('__cat_fxa_hint')) {
+                      var firstInput = emailInputs.length > 0 ? emailInputs[0] : null;
+                      if (firstInput && firstInput.parentElement) {
+                        var hint = document.createElement('div');
+                        hint.id = '__cat_fxa_hint';
+                        hint.style.cssText = 'background:#0f2922;color:#5eead4;border:1px solid #14b8a6;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px;line-height:1.4;text-align:right;direction:rtl;';
+                        hint.textContent = bannerMsg;
+                        firstInput.parentElement.insertBefore(hint, firstInput);
+                      }
+                    }
+                  } catch(e) {}
+                })($escapedPrefill, $noteText);
+                """.trimIndent(),
+                null,
+            )
+        }
+
         webView.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageStarted(view: android.webkit.WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                val currentUrl = url.orEmpty()
+                // Detect Google's embedded-WebView rejection page (/signin/rejected or disallowed_useragent)
+                // and automatically return to Mozilla's direct email sign-in/sign-up flow!
+                if (currentUrl.contains("accounts.google.com") &&
+                    (currentUrl.contains("/signin/rejected") || currentUrl.contains("disallowed_useragent") || currentUrl.contains("/v3/signin/rejected"))
+                ) {
+                    statusBanner.setTextColor(WARNING)
+                    statusBanner.text = if (isFarsi) {
+                        "⚠️ گوگل ورود OAuth داخل برنامه‌ها را محدود کرد! صفحه به فرم مستقیم موزیلا برگشت:\nجیمیل خود را در کادر بالای صفحهٔ موزیلا بنویسید و دکمهٔ آبی را بزنید (کد ۶ رقمی به جیمیلتان ارسال می‌شود)."
+                    } else {
+                        "⚠️ Google blocked embedded OAuth! Returned to Mozilla's direct email form:\nEnter your Gmail in Mozilla's top box and tap the blue button (a 6-digit code will be sent to your Gmail)."
+                    }
+                    view?.stopLoading()
+                    view?.loadUrl("https://accounts.firefox.com/")
+                    return
+                }
+                injectFxaDirectEmailGuidance()
+            }
+
             override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                val currentUrl = url.orEmpty()
+                if (currentUrl.contains("accounts.google.com") &&
+                    (currentUrl.contains("/signin/rejected") || currentUrl.contains("disallowed_useragent"))
+                ) {
+                    view?.loadUrl("https://accounts.firefox.com/")
+                    return
+                }
+                injectFxaDirectEmailGuidance()
                 checkWebViewForFxaSession()
                 view?.postDelayed({ checkWebViewForFxaSession() }, 1200L)
                 view?.postDelayed({ checkWebViewForFxaSession() }, 2800L)
