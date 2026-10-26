@@ -16128,7 +16128,6 @@ class MainActivity : Activity() {
      */
     private fun showFourPowerFeaturesCenterDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        val palette = currentPalette()
         val rootScroll = ScrollView(this)
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -16495,7 +16494,8 @@ class MainActivity : Activity() {
                 .setNegativeButton(
                     if (isFarsi) "📋 کپی آی‌پی و پورت" else "📋 Copy IP:Port",
                 ) { _, _ ->
-                    copyToClipboard("Hotspot Proxy", proxyAddress)
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Hotspot Proxy", proxyAddress))
                     Toast.makeText(
                         this@MainActivity,
                         if (isFarsi) "✅ آدرس $proxyAddress کپی شد" else "✅ Copied $proxyAddress",
@@ -16525,12 +16525,20 @@ class MainActivity : Activity() {
 
         activityScope.launch {
             val rawSources = mutableListOf<String>()
-            val clipText = readClipboardText().trim()
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipText = cm.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString().orEmpty().trim()
             if (clipText.isNotBlank()) rawSources += clipText
             val selectedId = userSubscriptionManager.selectedId()
             val subs = userSubscriptionManager.list()
             val activeSub = subs.firstOrNull { it.id == selectedId } ?: subs.firstOrNull()
-            subs.forEach { rawSources += it.raw }
+            for (sub in subs) {
+                rawSources += sub.input
+                val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
+                snap?.catalog?.profiles?.forEach { p ->
+                    val link = p.shareLink?.trim().orEmpty()
+                    if (link.isNotEmpty()) rawSources += link
+                }
+            }
 
             val report = withContext(Dispatchers.IO) {
                 LocalSniSpoofProxy.cleanAndSortRawConfigLines(rawSources, timeoutMs = 1_100)
