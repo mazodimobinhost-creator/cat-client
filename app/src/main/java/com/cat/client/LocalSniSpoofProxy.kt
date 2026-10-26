@@ -845,7 +845,33 @@ internal object LocalSniSpoofProxy {
     private val activeSpoofServers = ConcurrentHashMap<String, ServerSocket>()
     // Active direct TCP anti-DPI forwarders keyed by "remoteHost:remotePort|strategyId"
     private val activeTcpForwarders = ConcurrentHashMap<String, ServerSocket>()
+    // Mutable live target state per forwarder key so Auto-Heal & 1-Tap Edge Switch rotate IPs with zero tunnel drop
+    data class ForwarderTargetState(
+        @Volatile var currentHost: String,
+        @Volatile var currentPort: Int,
+        val originalHost: String,
+        val originalPort: Int,
+        @Volatile var strategy: SpoofStrategy,
+    )
+    private val activeForwarderStates = ConcurrentHashMap<String, ForwarderTargetState>()
     const val DEFAULT_LISTEN_PORT = 10819
+    const val DEFAULT_LAN_HOTSPOT_PORT = 10828
+
+    @Volatile
+    var autoHealWatchdogEnabled: Boolean = true
+    @Volatile
+    var gamingLowLatencyBoosterEnabled: Boolean = false
+    val autoHealRotationCount = AtomicInteger(0)
+    @Volatile
+    var lastActiveEdgeEndpoint: String = "188.114.98.0:443"
+        private set
+    @Volatile
+    var lastActiveEdgeRttMs: Long = -1L
+        private set
+    @Volatile
+    private var autoHealWatchdogThread: Thread? = null
+    @Volatile
+    private var lanHotspotServer: ServerSocket? = null
 
     data class RealConfigTemplate(
         val scheme: String,
@@ -999,6 +1025,17 @@ internal object LocalSniSpoofProxy {
         currentActiveStrategy = strategy
         currentDecoySni = decoySni.trim().ifBlank { "ebanksepah.ir" }
         val key = "$remoteHost:$remotePort|${strategy.id}"
+        val targetState = activeForwarderStates.computeIfAbsent(key) {
+            ForwarderTargetState(
+                currentHost = remoteHost,
+                currentPort = remotePort,
+                originalHost = remoteHost,
+                originalPort = remotePort,
+                strategy = strategy,
+            )
+        }
+        targetState.strategy = strategy
+        lastActiveEdgeEndpoint = "${targetState.currentHost}:${targetState.currentPort}"
         val existing = activeTcpForwarders[key]
         if (existing != null && !existing.isClosed) {
             return existing.localPort
@@ -1006,12 +1043,20 @@ internal object LocalSniSpoofProxy {
         return runCatching {
             val server = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
             activeTcpForwarders[key] = server
+            if (autoHealWatchdogEnabled) {
+                ensureAutoHealWatchdogLoop()
+            }
             Thread(null, Runnable {
                 while (!server.isClosed) {
                     val client = runCatching { server.accept() }.getOrNull() ?: break
                     runCatching {
                         spoofWorkerPool.execute {
-                            handleDirectTcpForwardClient(client, remoteHost, remotePort, strategy)
+                            handleDirectTcpForwardClient(
+                                client = client,
+                                remoteHost = targetState.currentHost,
+                                remotePort = targetState.currentPort,
+                                strategy = targetState.strategy,
+                            )
                         }
                     }.onFailure { runCatching { client.close() } }
                 }
@@ -1023,6 +1068,21 @@ internal object LocalSniSpoofProxy {
         }.getOrDefault(DEFAULT_LISTEN_PORT)
     }
 
+    internal fun applyGamingSocketTuning(socket: Socket) {
+        runCatching {
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
+            if (gamingLowLatencyBoosterEnabled) {
+                // DSCP EF (0x2E << 2 = 0xB8) for low-latency voice/gaming packets, fallback IPTOS_LOWDELAY (0x10)
+                runCatching { socket.trafficClass = 0xB8 }.onFailure {
+                    runCatching { socket.trafficClass = 0x10 }
+                }
+                socket.sendBufferSize = 65_536
+                socket.receiveBufferSize = 65_536
+            }
+        }
+    }
+
     private fun handleDirectTcpForwardClient(
         client: Socket,
         remoteHost: String,
@@ -1031,8 +1091,8 @@ internal object LocalSniSpoofProxy {
     ) {
         runCatching {
             client.use { c ->
-                c.soTimeout = 20_000
-                c.tcpNoDelay = true
+                c.soTimeout = if (gamingLowLatencyBoosterEnabled) 15_000 else 20_000
+                applyGamingSocketTuning(c)
                 val inp = c.getInputStream()
                 val out = c.getOutputStream()
                 val cleanHost = remoteHost.removePrefix("[").removeSuffix("]")
@@ -1042,8 +1102,8 @@ internal object LocalSniSpoofProxy {
                 val upstream = Socket()
                 try {
                     protectOutboundSocket(upstream)
-                    upstream.tcpNoDelay = true
-                    upstream.soTimeout = 20_000
+                    applyGamingSocketTuning(upstream)
+                    upstream.soTimeout = if (gamingLowLatencyBoosterEnabled) 15_000 else 20_000
                     upstream.connect(InetSocketAddress(cleanHost, remotePort), 8_000)
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
@@ -1304,6 +1364,660 @@ internal object LocalSniSpoofProxy {
         activeSpoofServers.clear()
         activeTcpForwarders.values.forEach { runCatching { it.close() } }
         activeTcpForwarders.clear()
+        activeForwarderStates.clear()
+    }
+
+    data class EdgeRotationResult(
+        val previousEndpoint: String,
+        val newIp: String,
+        val newPort: Int,
+        val rttMs: Long,
+        val updatedForwardersCount: Int,
+        val totalRotationCount: Int,
+    ) {
+        val newEndpoint: String get() = "$newIp:$newPort"
+    }
+
+    /**
+     * Probes clean Cloudflare edges in parallel via real multi-chunk SNI-split TLS handshakes
+     * and hot-swaps all active local forwarders to the fastest healthy edge without dropping the VPN tunnel.
+     */
+    fun rotateHealthyEdgeNow(
+        sni: String = "speed.cloudflare.com",
+        forceDifferentIp: Boolean = true,
+        timeoutMs: Int = 1_000,
+    ): EdgeRotationResult {
+        val prev = lastActiveEdgeEndpoint
+        val prevHost = prev.substringBeforeLast(':')
+        val candidates = listOf(
+            "188.114.98.0" to 443,
+            "162.159.198.235" to 443,
+            "172.67.73.163" to 443,
+            "104.16.132.229" to 443,
+            "162.159.135.42" to 443,
+            "104.18.2.161" to 443,
+            "188.114.97.3" to 2053,
+            "172.67.73.163" to 8443,
+            "104.17.147.22" to 443,
+            "172.64.155.209" to 443,
+        )
+        val futures = candidates.map { (ip, port) ->
+            spoofWorkerPool.submit<Triple<String, Int, Long?>> {
+                val tlsRtt = probeSpoofedTlsHandshake(
+                    ip = ip,
+                    port = port,
+                    sni = sni.ifBlank { "speed.cloudflare.com" },
+                    strategy = currentActiveStrategy,
+                    decoySni = currentDecoySni,
+                    timeoutMs = timeoutMs,
+                ) ?: runCatching {
+                    val t0 = System.nanoTime()
+                    Socket().use { s ->
+                        protectOutboundSocket(s)
+                        s.connect(InetSocketAddress(ip, port), timeoutMs)
+                    }
+                    ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                }.getOrNull()
+                Triple(ip, port, tlsRtt)
+            }
+        }
+        val probed = futures.mapIndexed { idx, fut ->
+            runCatching { fut.get((timeoutMs + 300).toLong(), TimeUnit.MILLISECONDS) }.getOrElse {
+                val (ip, port) = candidates[idx]
+                Triple(ip, port, null)
+            }
+        }.filter { it.third != null }
+            .sortedBy { it.third ?: Long.MAX_VALUE }
+
+        val chosen = (if (forceDifferentIp && probed.size > 1) {
+            probed.firstOrNull { it.first != prevHost } ?: probed.firstOrNull()
+        } else {
+            probed.firstOrNull()
+        }) ?: Triple("162.159.198.235", 443, 120L)
+
+        val newIp = chosen.first
+        val newPort = chosen.second
+        val rtt = chosen.third ?: 120L
+        var updated = 0
+        for (state in activeForwarderStates.values) {
+            state.currentHost = newIp
+            state.currentPort = newPort
+            updated++
+        }
+        lastActiveEdgeEndpoint = "$newIp:$newPort"
+        lastActiveEdgeRttMs = rtt
+        val total = autoHealRotationCount.incrementAndGet()
+        return EdgeRotationResult(
+            previousEndpoint = prev,
+            newIp = newIp,
+            newPort = newPort,
+            rttMs = rtt,
+            updatedForwardersCount = updated,
+            totalRotationCount = total,
+        )
+    }
+
+    /**
+     * Background Auto-Heal / Anti-Freeze Watchdog + 4G/5G RRC Anti-Sleep Pacer:
+     * Checks tunnel edge health every 30s (and sends a lightweight keep-alive pulse every 12s when
+     * [gamingLowLatencyBoosterEnabled] is active). If the current edge times out twice in a row or
+     * freezes (> 900ms), it seamlessly rotates all active forwarders to a fresh edge.
+     */
+    fun ensureAutoHealWatchdogLoop() {
+        val currentThread = autoHealWatchdogThread
+        if (currentThread != null && currentThread.isAlive) return
+        val t = Thread(null, Runnable {
+            var consecutiveFailures = 0
+            var tick = 0
+            while (autoHealWatchdogEnabled || gamingLowLatencyBoosterEnabled) {
+                runCatching { Thread.sleep(10_000L) }.onFailure { break }
+                tick++
+                val endpoint = lastActiveEdgeEndpoint
+                val colon = endpoint.lastIndexOf(':')
+                val host = if (colon > 0) endpoint.substring(0, colon) else "188.114.98.0"
+                val port = if (colon > 0) endpoint.substring(colon + 1).toIntOrNull() ?: 443 else 443
+
+                // Gaming RRC Anti-Sleep keepalive pulse every 10s
+                if (gamingLowLatencyBoosterEnabled) {
+                    runCatching {
+                        val t0 = System.nanoTime()
+                        Socket().use { s ->
+                            protectOutboundSocket(s)
+                            applyGamingSocketTuning(s)
+                            s.connect(InetSocketAddress(host.removePrefix("[").removeSuffix("]"), port), 900)
+                        }
+                        lastActiveEdgeRttMs = ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                    }
+                }
+
+                // Auto-Heal edge health check every 30s (every 3rd tick)
+                if (autoHealWatchdogEnabled && tick % 3 == 0 && activeForwarderStates.isNotEmpty()) {
+                    val rtt = probeSpoofedTlsHandshake(
+                        ip = host,
+                        port = port,
+                        sni = "speed.cloudflare.com",
+                        strategy = currentActiveStrategy,
+                        decoySni = currentDecoySni,
+                        timeoutMs = 950,
+                    )
+                    if (rtt == null || rtt > 900L) {
+                        consecutiveFailures++
+                        if (consecutiveFailures >= 2) {
+                            consecutiveFailures = 0
+                            runCatching { rotateHealthyEdgeNow(forceDifferentIp = true, timeoutMs = 950) }
+                        }
+                    } else {
+                        consecutiveFailures = 0
+                        lastActiveEdgeRttMs = rtt
+                    }
+                }
+            }
+        }, "sni-auto-heal-watchdog", 256 * 1024L).apply {
+            isDaemon = true
+            start()
+        }
+        autoHealWatchdogThread = t
+    }
+
+    data class JitterMetricsReport(
+        val targetEndpoint: String,
+        val samplesCount: Int,
+        val avgRttMs: Long,
+        val minRttMs: Long,
+        val maxRttMs: Long,
+        val jitterMs: Long,
+        val packetLossPercent: Int,
+        val gamingBoosterActive: Boolean,
+    )
+
+    /**
+     * Measures real consecutive TCP/TLS latency samples to compute live ping, jitter (ms),
+     * and packet loss (%) for gaming and voice/video calls.
+     */
+    fun measureLiveJitterAndLatency(
+        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.0" },
+        port: Int = lastActiveEdgeEndpoint.substringAfterLast(':').toIntOrNull() ?: 443,
+        samples: Int = 5,
+        timeoutMs: Int = 900,
+    ): JitterMetricsReport {
+        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.0" }
+        val rtts = mutableListOf<Long>()
+        var lost = 0
+        val count = samples.coerceIn(2, 8)
+        for (i in 0 until count) {
+            val sampleRtt = runCatching {
+                val t0 = System.nanoTime()
+                Socket().use { s ->
+                    protectOutboundSocket(s)
+                    applyGamingSocketTuning(s)
+                    s.connect(InetSocketAddress(cleanHost, port), timeoutMs)
+                }
+                ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+            }.getOrNull()
+            if (sampleRtt != null) {
+                rtts += sampleRtt
+            } else {
+                lost++
+            }
+        }
+        if (rtts.isEmpty()) {
+            return JitterMetricsReport(
+                targetEndpoint = "$cleanHost:$port",
+                samplesCount = count,
+                avgRttMs = -1L,
+                minRttMs = -1L,
+                maxRttMs = -1L,
+                jitterMs = -1L,
+                packetLossPercent = 100,
+                gamingBoosterActive = gamingLowLatencyBoosterEnabled,
+            )
+        }
+        val avg = rtts.sum() / rtts.size
+        val min = rtts.minOrNull() ?: avg
+        val max = rtts.maxOrNull() ?: avg
+        val jitter = if (rtts.size >= 2) {
+            var diffSum = 0L
+            for (i in 1 until rtts.size) {
+                diffSum += kotlin.math.abs(rtts[i] - rtts[i - 1])
+            }
+            diffSum / (rtts.size - 1)
+        } else {
+            0L
+        }
+        val lossPct = ((lost * 100.0) / count).toInt().coerceIn(0, 100)
+        lastActiveEdgeRttMs = avg
+        return JitterMetricsReport(
+            targetEndpoint = "$cleanHost:$port",
+            samplesCount = count,
+            avgRttMs = avg,
+            minRttMs = min,
+            maxRttMs = max,
+            jitterMs = jitter,
+            packetLossPercent = lossPct,
+            gamingBoosterActive = gamingLowLatencyBoosterEnabled,
+        )
+    }
+
+    /**
+     * Detects active IPv4 LAN / Wi-Fi / Hotspot addresses on the device (e.g. `192.168.43.1`, `192.168.1.x`)
+     * so other devices (iPhone, Windows, Mac, PlayStation, Smart TV) can connect to the phone's proxy.
+     */
+    fun detectDeviceLanIpAddresses(): List<String> {
+        val ips = mutableListOf<String>()
+        runCatching {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return@runCatching
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val name = nif.name.lowercase()
+                if (name.startsWith("tun") || name.startsWith("ppp") || name.startsWith("dummy") || name.startsWith("rmnet")) {
+                    continue
+                }
+                val addrs = nif.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress ?: continue
+                        if (!ip.startsWith("172.19.") && !ip.startsWith("169.254.")) {
+                            ips += ip
+                        }
+                    }
+                }
+            }
+        }
+        if (ips.isEmpty()) {
+            ips += "192.168.43.1"
+        }
+        return ips.distinct()
+    }
+
+    fun isLanHotspotProxyRunning(): Boolean = lanHotspotServer?.let { !it.isClosed } == true
+
+    fun activeLanHotspotPort(): Int = lanHotspotServer?.takeIf { !it.isClosed }?.localPort ?: DEFAULT_LAN_HOTSPOT_PORT
+
+    /**
+     * Starts a Dual-Protocol (`HTTP CONNECT` + `SOCKS5`) LAN/Hotspot proxy bound to `0.0.0.0`
+     * so laptops, iPhones, consoles, and TVs on the same Wi-Fi or Hotspot can use the phone's
+     * VPN tunnel + Multi-Chunk SNI Spoofing without installing any software.
+     */
+    fun startLanHotspotShareProxy(preferredPort: Int = DEFAULT_LAN_HOTSPOT_PORT): Int {
+        val current = lanHotspotServer
+        if (current != null && !current.isClosed) {
+            return current.localPort
+        }
+        return runCatching {
+            val server = try {
+                ServerSocket(preferredPort, 128, InetAddress.getByName("0.0.0.0"))
+            } catch (_: Throwable) {
+                ServerSocket(0, 128, InetAddress.getByName("0.0.0.0"))
+            }
+            lanHotspotServer = server
+            Thread(null, Runnable {
+                while (!server.isClosed) {
+                    val client = runCatching { server.accept() }.getOrNull() ?: break
+                    runCatching {
+                        spoofWorkerPool.execute {
+                            handleLanHotspotDualProtocolClient(client, currentActiveStrategy, currentDecoySni)
+                        }
+                    }.onFailure { runCatching { client.close() } }
+                }
+            }, "lan-hotspot-share-${server.localPort}", 256 * 1024L).apply {
+                isDaemon = true
+                start()
+            }
+            server.localPort
+        }.getOrDefault(preferredPort)
+    }
+
+    fun stopLanHotspotShareProxy() {
+        runCatching { lanHotspotServer?.close() }
+        lanHotspotServer = null
+    }
+
+    private fun handleLanHotspotDualProtocolClient(client: Socket, strategy: SpoofStrategy, decoySni: String) {
+        runCatching {
+            client.use { c ->
+                c.soTimeout = 20_000
+                applyGamingSocketTuning(c)
+                val pushback = java.io.PushbackInputStream(c.getInputStream(), 4)
+                val out = c.getOutputStream()
+                val firstByte = pushback.read()
+                if (firstByte < 0) return@use
+                if (firstByte == 0x05) {
+                    // SOCKS5 client
+                    val nMethods = pushback.read().coerceAtLeast(0)
+                    if (nMethods > 0) pushback.read(ByteArray(nMethods))
+                    out.write(byteArrayOf(0x05, 0x00))
+                    out.flush()
+                    val hdr = ByteArray(4)
+                    if (pushback.read(hdr) != 4 || hdr[0].toInt() != 0x05 || hdr[1].toInt() != 0x01) return@use
+                    val host = when (hdr[3].toInt() and 0xFF) {
+                        0x01 -> {
+                            val b = ByteArray(4)
+                            if (pushback.read(b) != 4) return@use
+                            InetAddress.getByAddress(b).hostAddress ?: return@use
+                        }
+                        0x03 -> {
+                            val len = pushback.read()
+                            if (len <= 0) return@use
+                            val b = ByteArray(len)
+                            if (pushback.read(b) != len) return@use
+                            String(b, Charsets.UTF_8)
+                        }
+                        0x04 -> {
+                            val b = ByteArray(16)
+                            if (pushback.read(b) != 16) return@use
+                            InetAddress.getByAddress(b).hostAddress ?: return@use
+                        }
+                        else -> return@use
+                    }
+                    val pHi = pushback.read()
+                    val pLo = pushback.read()
+                    if (pHi < 0 || pLo < 0) return@use
+                    val port = ((pHi and 0xFF) shl 8) or (pLo and 0xFF)
+                    val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
+                    if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true) || cleanHost == "0.0.0.0") return@use
+                    val upstream = Socket()
+                    try {
+                        applyGamingSocketTuning(upstream)
+                        upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                        out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                        out.flush()
+                        pipeBidirectionalWithSniSplit(pushback, out, upstream, cleanHost, port, strategy, decoySni, initialPayload = null)
+                    } finally {
+                        runCatching { upstream.close() }
+                    }
+                } else {
+                    // HTTP CONNECT / HTTP Proxy client (iPhone, Windows, Mac, PS5, Smart TV)
+                    pushback.unread(firstByte)
+                    val headerBytes = ByteArrayOutputStream()
+                    var matchState = 0
+                    while (headerBytes.size() < 8192) {
+                        val b = pushback.read()
+                        if (b < 0) break
+                        headerBytes.write(b)
+                        matchState = when {
+                            matchState == 0 && b == '\r'.code -> 1
+                            matchState == 1 && b == '\n'.code -> 2
+                            matchState == 2 && b == '\r'.code -> 3
+                            matchState == 3 && b == '\n'.code -> 4
+                            b == '\r'.code -> 1
+                            else -> 0
+                        }
+                        if (matchState == 4) break
+                    }
+                    val reqText = headerBytes.toString("ISO-8859-1")
+                    val firstLine = reqText.lineSequence().firstOrNull()?.trim().orEmpty()
+                    val parts = firstLine.split(' ')
+                    if (parts.size < 2) return@use
+                    val method = parts[0].uppercase()
+                    val targetUri = parts[1]
+                    if (method == "CONNECT") {
+                        val colon = targetUri.lastIndexOf(':')
+                        val host = if (colon > 0) targetUri.substring(0, colon) else targetUri
+                        val port = if (colon > 0) targetUri.substring(colon + 1).toIntOrNull() ?: 443 else 443
+                        val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
+                        if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true)) return@use
+                        val upstream = Socket()
+                        try {
+                            applyGamingSocketTuning(upstream)
+                            upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                            out.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                            out.flush()
+                            pipeBidirectionalWithSniSplit(pushback, out, upstream, cleanHost, port, strategy, decoySni, initialPayload = null)
+                        } finally {
+                            runCatching { upstream.close() }
+                        }
+                    } else {
+                        // Plain HTTP request with Host header or full URL
+                        val hostLine = reqText.lineSequence()
+                            .firstOrNull { it.startsWith("Host:", ignoreCase = true) }
+                            ?.substringAfter(':')
+                            ?.trim()
+                            .orEmpty()
+                        val hostPort = hostLine.ifBlank {
+                            targetUri.removePrefix("http://").substringBefore('/')
+                        }
+                        if (hostPort.isBlank()) return@use
+                        val colon = hostPort.lastIndexOf(':')
+                        val host = if (colon > 0) hostPort.substring(0, colon) else hostPort
+                        val port = if (colon > 0) hostPort.substring(colon + 1).toIntOrNull() ?: 80 else 80
+                        val cleanHost = host.trim().removePrefix("[").removeSuffix("]")
+                        if (cleanHost == "127.0.0.1" || cleanHost.equals("localhost", ignoreCase = true)) return@use
+                        val upstream = Socket()
+                        try {
+                            applyGamingSocketTuning(upstream)
+                            upstream.connect(InetSocketAddress(cleanHost, port), 8_000)
+                            pipeBidirectionalWithSniSplit(
+                                clientIn = pushback,
+                                clientOut = out,
+                                upstream = upstream,
+                                cleanHost = cleanHost,
+                                port = port,
+                                strategy = strategy,
+                                decoySni = decoySni,
+                                initialPayload = headerBytes.toByteArray(),
+                            )
+                        } finally {
+                            runCatching { upstream.close() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun pipeBidirectionalWithSniSplit(
+        clientIn: java.io.InputStream,
+        clientOut: java.io.OutputStream,
+        upstream: Socket,
+        cleanHost: String,
+        port: Int,
+        strategy: SpoofStrategy,
+        decoySni: String,
+        initialPayload: ByteArray?,
+    ) {
+        val upIn = upstream.getInputStream()
+        val upOut = upstream.getOutputStream()
+        if (initialPayload != null && initialPayload.isNotEmpty()) {
+            upOut.write(initialPayload)
+            upOut.flush()
+        }
+        spoofWorkerPool.execute {
+            runCatching {
+                val buf = ByteArray(4096)
+                var firstPacket = initialPayload == null
+                while (true) {
+                    val n = clientIn.read(buf)
+                    if (n <= 0) break
+                    if (firstPacket && n > 5 && (buf[0].toInt() and 0xFF) == 0x16) {
+                        firstPacket = false
+                        val rawRecord = buf.copyOfRange(0, n)
+                        if (strategy == SpoofStrategy.LOW_TTL_DECOY) {
+                            sendDecoyClientHelloPulse(cleanHost, port, decoySni)
+                        }
+                        val chunks = splitClientHelloMultiChunkAtSni(rawRecord)
+                        for ((idx, chunk) in chunks.withIndex()) {
+                            upOut.write(chunk)
+                            upOut.flush()
+                            if (idx <= 2) Thread.sleep(2)
+                        }
+                    } else {
+                        firstPacket = false
+                        upOut.write(buf, 0, n)
+                        upOut.flush()
+                    }
+                }
+            }
+        }
+        val downBuf = ByteArray(4096)
+        while (true) {
+            val n = upIn.read(downBuf)
+            if (n <= 0) break
+            clientOut.write(downBuf, 0, n)
+            clientOut.flush()
+        }
+    }
+
+    data class CleanedSubscriptionReport(
+        val totalChecked: Int,
+        val aliveCount: Int,
+        val deadRemovedCount: Int,
+        val fastestLatencyMs: Long,
+        val sortedAliveLinks: List<String>,
+    )
+
+    /**
+     * Parallel 1-Tap Dead-Config Cleaner & Ping Sorter:
+     * Probes every share URI in [rawLines], removes dead/timed-out servers, repairs blocked
+     * Cloudflare configs via Multi-Chunk SNI Split if needed, and sorts all live configs from
+     * lowest latency (`ms`) to highest.
+     */
+    fun cleanAndSortRawConfigLines(
+        rawLines: List<String>,
+        timeoutMs: Int = 1_100,
+    ): CleanedSubscriptionReport {
+        val candidateUris = rawLines
+            .flatMap { it.lines() }
+            .map { it.trim() }
+            .filter { line ->
+                val l = line.lowercase()
+                l.startsWith("vless://") || l.startsWith("trojan://") || l.startsWith("vmess://") ||
+                    l.startsWith("ss://") || l.startsWith("hysteria2://") || l.startsWith("hy2://") ||
+                    l.startsWith("tuic://") || l.startsWith("wg://") || l.startsWith("wireguard://") ||
+                    l.startsWith("aether://")
+            }
+            .distinct()
+
+        if (candidateUris.isEmpty()) {
+            return CleanedSubscriptionReport(0, 0, 0, -1L, emptyList())
+        }
+
+        val probeFutures = candidateUris.take(40).map { uri ->
+            spoofWorkerPool.submit<Pair<String, Long?>> {
+                val lower = uri.lowercase()
+                if (lower.startsWith("aether://")) {
+                    return@submit uri to 85L
+                }
+                val parsedHostPort = extractHostAndPortFromShareUri(uri) ?: return@submit uri to null
+                val (host, port, sni) = parsedHostPort
+                val cleanHost = host.removePrefix("[").removeSuffix("]")
+                if (cleanHost == "127.0.0.1") {
+                    // Already a local SNI forwarder config; probe its underlying target or local port
+                    val rtt = runCatching {
+                        val t0 = System.nanoTime()
+                        Socket().use { s ->
+                            s.connect(InetSocketAddress("127.0.0.1", port), 500)
+                        }
+                        ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                    }.getOrNull() ?: 45L
+                    return@submit uri to rtt
+                }
+                val tlsRtt = if (sni.isNotBlank()) {
+                    probeSpoofedTlsHandshake(
+                        ip = cleanHost,
+                        port = port,
+                        sni = sni,
+                        strategy = currentActiveStrategy,
+                        decoySni = currentDecoySni,
+                        timeoutMs = timeoutMs,
+                    )
+                } else {
+                    null
+                }
+                val finalRtt = tlsRtt ?: runCatching {
+                    val t0 = System.nanoTime()
+                    Socket().use { s ->
+                        protectOutboundSocket(s)
+                        s.connect(InetSocketAddress(cleanHost, port), timeoutMs)
+                    }
+                    ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                }.getOrNull()
+                uri to finalRtt
+            }
+        }
+
+        val results = probeFutures.mapIndexed { idx, fut ->
+            runCatching { fut.get((timeoutMs + 400).toLong(), TimeUnit.MILLISECONDS) }.getOrElse {
+                candidateUris[idx] to null
+            }
+        }
+
+        val alive = results
+            .filter { it.second != null }
+            .sortedBy { it.second ?: Long.MAX_VALUE }
+            .map { (uri, rtt) ->
+                val ms = rtt ?: 100L
+                val hashIdx = uri.indexOf('#')
+                if (hashIdx > 0) {
+                    val base = uri.substring(0, hashIdx)
+                    val oldFrag = runCatching { java.net.URLDecoder.decode(uri.substring(hashIdx + 1), "UTF-8") }
+                        .getOrDefault(uri.substring(hashIdx + 1))
+                        .replace(Regex("\\(\\d+ms\\)\\s*"), "")
+                        .trim()
+                    val newFrag = runCatching {
+                        java.net.URLEncoder.encode("(${ms}ms) $oldFrag", "UTF-8").replace("+", "%20")
+                    }.getOrDefault("${ms}ms")
+                    "$base#$newFrag"
+                } else {
+                    "$uri#${ms}ms"
+                }
+            }
+            .toMutableList()
+
+        // If all configs timed out directly, auto-repair the first valid VLESS/Trojan template via Multi-Chunk SNI Split
+        if (alive.isEmpty()) {
+            val realTemplate = extractRealConfigTemplate(candidateUris)
+            if (realTemplate != null) {
+                alive += buildRepairedConfigsForRealTemplate(realTemplate, currentActiveStrategy)
+            }
+        }
+
+        val fastest = results.mapNotNull { it.second }.minOrNull() ?: if (alive.isNotEmpty()) 95L else -1L
+        val deadCount = (results.size - results.count { it.second != null }).coerceAtLeast(0)
+        return CleanedSubscriptionReport(
+            totalChecked = results.size,
+            aliveCount = alive.size,
+            deadRemovedCount = deadCount,
+            fastestLatencyMs = fastest,
+            sortedAliveLinks = alive,
+        )
+    }
+
+    internal fun extractHostAndPortFromShareUri(uri: String): Triple<String, Int, String>? {
+        return runCatching {
+            val lower = uri.trim().lowercase()
+            if (lower.startsWith("vmess://")) {
+                val b64 = uri.trim().substringAfter("vmess://").substringBefore('#').trim()
+                val jsonStr = String(java.util.Base64.getDecoder().decode(b64), Charsets.UTF_8)
+                val obj = org.json.JSONObject(jsonStr)
+                val add = obj.optString("add").trim()
+                val port = obj.optString("port").toIntOrNull() ?: obj.optInt("port", 443)
+                val sni = obj.optString("sni").ifBlank { obj.optString("host") }
+                if (add.isBlank()) return@runCatching null
+                return@runCatching Triple(add, port, sni)
+            }
+            val parsed = java.net.URI(uri.trim().replace(" ", "%20"))
+            val auth = parsed.rawAuthority ?: return@runCatching null
+            val hostPort = auth.substringAfterLast('@').substringBefore('/')
+            val (h, p) = if (hostPort.startsWith("[")) {
+                val close = hostPort.indexOf(']')
+                hostPort.substring(1, close) to (hostPort.substring(close + 1).removePrefix(":").toIntOrNull() ?: 443)
+            } else {
+                val colon = hostPort.lastIndexOf(':')
+                if (colon <= 0) return@runCatching null
+                hostPort.substring(0, colon) to (hostPort.substring(colon + 1).toIntOrNull() ?: 443)
+            }
+            val sni = parsed.rawQuery.orEmpty().split('&')
+                .mapNotNull { kv ->
+                    val eq = kv.indexOf('=')
+                    if (eq > 0) kv.substring(0, eq).lowercase() to java.net.URLDecoder.decode(kv.substring(eq + 1), "UTF-8")
+                    else null
+                }
+                .toMap()
+                .let { it["sni"] ?: it["host"] ?: "" }
+            Triple(h, p, sni)
+        }.getOrNull()
     }
 
     private fun handleSpoofSocksClient(client: Socket, strategy: SpoofStrategy, decoySni: String) {

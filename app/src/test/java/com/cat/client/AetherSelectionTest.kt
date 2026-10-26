@@ -298,4 +298,22 @@ class AetherSelectionTest {
         assertEquals(2053, tpl.remotePort)
         assertEquals("my.worker.dev", tpl.hostHeader)
     }
+
+    @Test fun fourPowerFeaturesHotspotCleanerAndGamingBooster() {
+        val parsed = LocalSniSpoofProxy.extractHostAndPortFromShareUri(
+            "vless://a1b2c3d4-e5f6-4789-abcd-ef0123456789@188.114.98.0:2053?security=tls&sni=speed.cloudflare.com#Test",
+        )!!
+        assertEquals("188.114.98.0", parsed.first)
+        assertEquals(2053, parsed.second)
+        assertEquals("speed.cloudflare.com", parsed.third)
+
+        val lanIps = LocalSniSpoofProxy.detectDeviceLanIpAddresses()
+        org.junit.Assert.assertTrue(lanIps.isNotEmpty())
+
+        val port = LocalSniSpoofProxy.startLanHotspotShareProxy(0)
+        org.junit.Assert.assertTrue(port > 0)
+        org.junit.Assert.assertTrue(LocalSniSpoofProxy.isLanHotspotProxyRunning())
+        LocalSniSpoofProxy.stopLanHotspotShareProxy()
+        org.junit.Assert.assertFalse(LocalSniSpoofProxy.isLanHotspotProxyRunning())
+    }
 }

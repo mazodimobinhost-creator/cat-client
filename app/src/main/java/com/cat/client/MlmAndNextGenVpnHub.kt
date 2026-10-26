@@ -718,11 +718,22 @@ internal object MlmAndNextGenVpnHub {
                     "cab.snapp.passenger",
                     "ir.tap30.passenger",
                     "ir.divar",
+                    "com.sheypoor.mobile",
                     "ir.bale.messenger",
                     "ir.resaneh1.iptv",
                     "ir.eitaa.messenger",
+                    "mobi.mmdt.ottplus",
+                    "ir.medu.shad",
                     "com.myirancell",
                     "ir.mci.ecareapp",
+                    "com.sibche.aspardproject.app",
+                    "com.samanpr.blu",
+                    "com.asanpardakht.android",
+                    "ir.sep.sesoot",
+                    "org.rajman.neshan.traffic.tehran.navigator",
+                    "ir.balad",
+                    "com.digikala",
+                    "ir.torob",
                 ),
             )
         }
@@ -733,6 +744,93 @@ internal object MlmAndNextGenVpnHub {
             ),
         )
         return mergedPackages.size to detectedIranApps
+    }
+
+    private val KNOWN_FOREIGN_SOCIAL_AND_AI_PACKAGES: List<String> = listOf(
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "org.telegram.plus",
+        "tw.nekomimi.nekogram",
+        "org.forkgram.messenger",
+        "ir.ilmili.telegraph",
+        "com.iMe.android",
+        "uz.unnarsx.cherrygram",
+        "com.instagram.android",
+        "com.instagram.barcelona",
+        "com.google.android.youtube",
+        "app.revanced.android.youtube",
+        "com.google.android.apps.youtube.music",
+        "com.whatsapp",
+        "com.whatsapp.w4b",
+        "com.twitter.android",
+        "com.discord",
+        "com.spotify.music",
+        "com.soundcloud.android",
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill",
+        "com.openai.chatgpt",
+        "com.google.android.apps.bard",
+        "com.anthropic.claude",
+        "com.android.chrome",
+        "org.mozilla.firefox",
+        "com.brave.browser",
+        "com.opera.browser",
+        "com.microsoft.emmx",
+        "com.pinterest",
+        "com.reddit.frontpage",
+        "com.linkedin.android",
+    )
+
+    /**
+     * Enables `SplitTunnelMode.VpnOnlySelected` for Telegram, Instagram, YouTube, WhatsApp, X/Twitter,
+     * Discord, Spotify, AI apps, and browsers so all other apps on the phone use direct domestic internet.
+     */
+    fun enableSocialAndForeignOnlySplitTunnel(context: Context): Pair<Int, List<SplitTunnelInstalledApp>> {
+        val store = SplitTunnelPreferenceStore(context)
+        val allInstalled = InstalledAppRepository(context).loadLaunchableApps()
+        val foreignSet = KNOWN_FOREIGN_SOCIAL_AND_AI_PACKAGES.map { it.lowercase(Locale.US) }.toSet()
+        val detectedApps = allInstalled.filter { app ->
+            val pkg = app.packageName.lowercase(Locale.US)
+            val lbl = app.label.lowercase(Locale.getDefault())
+            pkg in foreignSet ||
+                pkg.contains("telegram") ||
+                pkg.contains("instagram") ||
+                pkg.contains("youtube") ||
+                pkg.contains("whatsapp") ||
+                pkg.contains("twitter") ||
+                pkg.contains("discord") ||
+                pkg.contains("spotify") ||
+                pkg.contains("chatgpt") ||
+                lbl.contains("تلگرام") ||
+                lbl.contains("اینستاگرام") ||
+                lbl.contains("یوتیوب") ||
+                lbl.contains("واتساپ")
+        }
+        val selectedPkgs = buildSet {
+            detectedApps.forEach { add(it.packageName) }
+            addAll(KNOWN_FOREIGN_SOCIAL_AND_AI_PACKAGES)
+        }
+        store.saveSettings(
+            SplitTunnelSettings(
+                mode = SplitTunnelMode.VpnOnlySelected,
+                selectedPackages = selectedPkgs,
+            ),
+        )
+        return selectedPkgs.size to detectedApps
+    }
+
+    /**
+     * Resets Split Tunneling to `SplitTunnelMode.Off` so all apps route through the VPN.
+     */
+    fun disableSplitTunnelAllApps(context: Context) {
+        val store = SplitTunnelPreferenceStore(context)
+        val current = store.readSettings()
+        store.saveSettings(
+            SplitTunnelSettings(
+                mode = SplitTunnelMode.Off,
+                selectedPackages = current.selectedPackages,
+            ),
+        )
     }
 
     // =========================================================================

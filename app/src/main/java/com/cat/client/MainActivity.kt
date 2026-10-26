@@ -15144,6 +15144,26 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
+                    "🚀 مرکز ۴ قابلیت طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات QR و تعویض آی‌پی)"
+                } else {
+                    "🚀 4 Power Features Hub (Auto-Heal · Smart Split · Gaming Booster · QR Hotspot & IP Switch)"
+                }
+                isAllCaps = false
+                textSize = 12.5f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(46)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(12)
+                backgroundTintList = ColorStateList.valueOf(TEAL)
+                setTextColor(BACKGROUND)
+                setOnClickListener { showFourPowerFeaturesCenterDialog() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        card.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsi) {
                     "🌐 مرکز همهٔ VPNهای ۲۰۲۶ (Outline · آمنزیا · PaqetNG · سپر بانک)"
                 } else {
                     "🌐 All-in-One 2026 VPN Hub (Outline · Amnezia · PaqetNG · Bank Shield)"
@@ -16085,12 +16105,514 @@ class MainActivity : Activity() {
                     else "🏦 Smart Iran Banking & Domestic App Shield",
                 )
                 .setMessage(msg)
+                .setNeutralButton(
+                    if (isFarsi) "🚀 مرکز ۴ قابلیت طلایی" else "🚀 4 Power Features",
+                ) { _, _ ->
+                    showFourPowerFeaturesCenterDialog()
+                }
                 .setPositiveButton(android.R.string.ok, null)
                 .create()
                 .showCatClientDialog()
             if (currentVpnServiceState == VpnState.Started) {
                 reconnectForConnectionOptionChange()
             }
+        }
+    }
+
+    /**
+     * Interactive hub for all 4 requested Power Features:
+     * 1) 🔄 Background Auto-Heal / Anti-Freeze Watchdog + 1-Tap Live Edge IP Switch without dropping VPN
+     * 2) 📱 1-Click Smart Split Tunneling (Bypass Iranian Banks/Apps vs. Only Telegram/Instagram/YouTube/AI vs. All Apps)
+     * 3) 🎮 Gaming & Voice/Video Call Low-Latency Anti-Jitter Booster (DSCP EF QoS + 4G/5G RRC Anti-Sleep Pacer + Live Jitter Meter)
+     * 4) 📊 Live Tunnel Status Bar + 📲 1-Click Hotspot/Wi-Fi Share with QR Code + 🧹 1-Click Dead Config Cleaner & Sorter
+     */
+    private fun showFourPowerFeaturesCenterDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val palette = currentPalette()
+        val rootScroll = ScrollView(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(14), dp(18), dp(10))
+        }
+        rootScroll.addView(container)
+
+        val liveStatusView = TextView(this).apply {
+            textSize = 12.5f
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(0f, 1.2f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(withAlpha(TEAL, if (palette.isDark) 32 else 20))
+                setStroke(dp(1), TEAL)
+            }
+        }
+        container.addView(liveStatusView, LinearLayout.LayoutParams(-1, -2))
+
+        fun refreshLiveStatusText(extraNote: String = "") {
+            val splitMode = splitTunnelPreferenceStore.readSettings().mode
+            val splitLabel = when (splitMode) {
+                SplitTunnelMode.BypassSelected -> if (isFarsi) "🏦 عبور مستقیم بانک‌ها و اپ‌های ایرانی" else "🏦 Bypass Iranian Banks & Apps"
+                SplitTunnelMode.VpnOnlySelected -> if (isFarsi) "🎯 فقط تلگرام/اینستاگرام/یوتیوب روی VPN" else "🎯 Only Social/Foreign on VPN"
+                SplitTunnelMode.Off -> if (isFarsi) "🌐 همهٔ برنامه‌ها روی VPN" else "🌐 All Apps on VPN"
+            }
+            val edge = LocalSniSpoofProxy.lastActiveEdgeEndpoint
+            val rtt = LocalSniSpoofProxy.lastActiveEdgeRttMs
+            val rttText = if (rtt > 0) "${rtt}ms" else if (isFarsi) "آماده تست" else "Ready"
+            val autoHealOn = LocalSniSpoofProxy.autoHealWatchdogEnabled
+            val gamingOn = LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled
+            val hotspotOn = LocalSniSpoofProxy.isLanHotspotProxyRunning()
+            val rotCount = LocalSniSpoofProxy.autoHealRotationCount.get()
+            liveStatusView.text = if (isFarsi) {
+                buildString {
+                    appendLine("📊 وضعیت زندهٔ تانل و ۴ قابلیت طلایی:")
+                    appendLine("• لبه/آی‌پی فعال فعلی: $edge (پینگ: $rttText)")
+                    appendLine("• ۱) پایشگر خودکار ضد-فریز: ${if (autoHealOn) "🟢 روشن (تعویض بدون قطعی: $rotCount بار)" else "⚪ خاموش"}")
+                    appendLine("• ۲) تفکیک هوشمند برنامه‌ها: $splitLabel")
+                    appendLine("• ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس: ${if (gamingOn) "🟢 روشن (DSCP EF + ضد خواب 4G/5G)" else "⚪ خاموش"}")
+                    append("• ۴) هات‌اسپات پروکسی شبکه‌ای: ${if (hotspotOn) "🟢 روشن روی پورت ${LocalSniSpoofProxy.activeLanHotspotPort()}" else "⚪ آماده اشتراک‌گذاری"}")
+                    if (extraNote.isNotBlank()) {
+                        appendLine()
+                        append(extraNote)
+                    }
+                }
+            } else {
+                buildString {
+                    appendLine("📊 Live Tunnel & 4 Power Features Status:")
+                    appendLine("• Active Clean Edge: $edge (Ping: $rttText)")
+                    appendLine("• 1) Auto-Heal Watchdog: ${if (autoHealOn) "🟢 ON (Rotations: $rotCount)" else "⚪ OFF"}")
+                    appendLine("• 2) Smart Split Tunnel: $splitLabel")
+                    appendLine("• 3) Gaming & Call Booster: ${if (gamingOn) "🟢 ON (DSCP EF + 4G/5G Anti-Sleep)" else "⚪ OFF"}")
+                    append("• 4) LAN Hotspot Proxy: ${if (hotspotOn) "🟢 ON (Port ${LocalSniSpoofProxy.activeLanHotspotPort()})" else "⚪ Ready"}")
+                    if (extraNote.isNotBlank()) {
+                        appendLine()
+                        append(extraNote)
+                    }
+                }
+            }
+        }
+        refreshLiveStatusText()
+
+        fun makeActionButton(label: String, filled: Boolean = false, onClick: () -> Unit): MaterialButton {
+            return MaterialButton(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                minHeight = dp(44)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(10)
+                if (filled) {
+                    backgroundTintList = ColorStateList.valueOf(TEAL)
+                    setTextColor(BACKGROUND)
+                } else {
+                    backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 38 else 24))
+                    strokeWidth = dp(1)
+                    strokeColor = ColorStateList.valueOf(TEAL)
+                    setTextColor(TEAL)
+                }
+                setOnClickListener { onClick() }
+            }
+        }
+
+        // Quick 1-Tap Edge IP Switch + Auto-Heal Watchdog Toggle
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "⚡ تعویض فوری آی‌پی/لبهٔ تمیز بدون قطع شدن VPN (۱-کلیکی)"
+                else "⚡ 1-Tap Instant Clean Edge IP Switch (Zero VPN Drop)",
+                filled = true,
+            ) {
+                refreshLiveStatusText(if (isFarsi) "⏳ در حال اسکن موازی لبه‌های کلودفلر و سوییچ بدون قطعی…" else "⏳ Probing clean edges & hot-swapping…")
+                activityScope.launch {
+                    val rot = withContext(Dispatchers.IO) {
+                        LocalSniSpoofProxy.rotateHealthyEdgeNow(forceDifferentIp = true, timeoutMs = 950)
+                    }
+                    val curAether = aetherPreferenceStore.read()
+                    if (curAether.enabled) {
+                        aetherPreferenceStore.save(
+                            curAether.copy(
+                                endpoint = "${rot.newIp}:${rot.newPort}",
+                                endpointScannedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                    refreshLiveStatusText(
+                        if (isFarsi) "✅ آی‌پی تانل بدون قطعی از ${rot.previousEndpoint} به ${rot.newEndpoint} (${rot.rttMs}ms) منتقل شد!"
+                        else "✅ Seamlessly switched from ${rot.previousEndpoint} to ${rot.newEndpoint} (${rot.rttMs}ms)!",
+                    )
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+
+        val autoHealBtn = makeActionButton(
+            label = if (isFarsi) {
+                if (LocalSniSpoofProxy.autoHealWatchdogEnabled) "🔄 ۱) پایشگر خودکار ضد-فریز در پس‌زمینه: 🟢 روشن (ضربه برای خاموش)"
+                else "🔄 ۱) پایشگر خودکار ضد-فریز در پس‌زمینه: ⚪ خاموش (ضربه برای روشن)"
+            } else {
+                if (LocalSniSpoofProxy.autoHealWatchdogEnabled) "🔄 1) Background Auto-Heal Watchdog: 🟢 ON (Tap to Disable)"
+                else "🔄 1) Background Auto-Heal Watchdog: ⚪ OFF (Tap to Enable)"
+            },
+        ) {}
+        autoHealBtn.setOnClickListener {
+            val next = !LocalSniSpoofProxy.autoHealWatchdogEnabled
+            LocalSniSpoofProxy.autoHealWatchdogEnabled = next
+            if (next) LocalSniSpoofProxy.ensureAutoHealWatchdogLoop()
+            autoHealBtn.text = if (isFarsi) {
+                if (next) "🔄 ۱) پایشگر خودکار ضد-فریز در پس‌زمینه: 🟢 روشن (ضربه برای خاموش)"
+                else "🔄 ۱) پایشگر خودکار ضد-فریز در پس‌زمینه: ⚪ خاموش (ضربه برای روشن)"
+            } else {
+                if (next) "🔄 1) Background Auto-Heal Watchdog: 🟢 ON (Tap to Disable)"
+                else "🔄 1) Background Auto-Heal Watchdog: ⚪ OFF (Tap to Enable)"
+            }
+            refreshLiveStatusText(
+                if (isFarsi) {
+                    if (next) "✅ پایشگر ضد-فریز فعال شد؛ در صورت افت پینگ، آی‌پی خودکار در پس‌زمینه عوض می‌شود."
+                    else "ℹ️ پایشگر خودکار پس‌زمینه غیرفعال شد."
+                } else {
+                    if (next) "✅ Auto-Heal Watchdog enabled." else "ℹ️ Auto-Heal Watchdog disabled."
+                },
+            )
+        }
+        container.addView(autoHealBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Feature 2: 1-Click Smart Split Tunneling presets
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🏦 ۲-الف) عبور مستقیم بانک‌ها، اسنپ، تپسی، دیوار و اپ‌های ایرانی (پیشنهادی)"
+                else "🏦 2A) Bypass Iranian Banks, Snapp, Tapsi & Domestic Apps (Recommended)",
+            ) {
+                activityScope.launch {
+                    val (count, _) = withContext(Dispatchers.IO) {
+                        MlmAndNextGenVpnHub.enableSmartIranBankingAppShield(this@MainActivity)
+                    }
+                    refreshLiveStatusText(
+                        if (isFarsi) "✅ $count برنامهٔ بانکی و ایرانی از VPN مستثنا شدند (بدون خطای خاموش کردن فیلترشکن)."
+                        else "✅ $count Iranian banking & domestic apps now bypass the VPN.",
+                    )
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🎯 ۲-ب) فقط تلگرام، اینستاگرام، یوتیوب، واتس‌اپ و هوش مصنوعی روی VPN"
+                else "🎯 2B) Route ONLY Telegram, Instagram, YouTube, WhatsApp & AI via VPN",
+            ) {
+                activityScope.launch {
+                    val (count, _) = withContext(Dispatchers.IO) {
+                        MlmAndNextGenVpnHub.enableSocialAndForeignOnlySplitTunnel(this@MainActivity)
+                    }
+                    refreshLiveStatusText(
+                        if (isFarsi) "✅ حالت «فقط برنامه‌های خارجی منتخب ($count برنامه) روی VPN» فعال شد!"
+                        else "✅ Enabled VPN-only routing for $count social/foreign apps!",
+                    )
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🌐 ۲-ج) عبور همهٔ برنامه‌های گوشی از تونل VPN (لغو تفکیک)"
+                else "🌐 2C) Route All Phone Apps Through VPN (Disable Split Tunnel)",
+            ) {
+                MlmAndNextGenVpnHub.disableSplitTunnelAllApps(this)
+                refreshLiveStatusText(
+                    if (isFarsi) "✅ همهٔ برنامه‌های گوشی اکنون از تونل VPN عبور می‌کنند."
+                    else "✅ All apps now route through the VPN tunnel.",
+                )
+                if (currentVpnServiceState == VpnState.Started) {
+                    reconnectForConnectionOptionChange()
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 3: Gaming & Call Low-Latency Anti-Jitter Booster
+        val gamingBtn = makeActionButton(
+            label = if (isFarsi) {
+                if (LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled) "🎮 ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس: 🟢 روشن (ضربه برای خاموش)"
+                else "🎮 ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس (کالاف/پابجی/واتس‌اپ): ⚪ خاموش (فعال‌سازی)"
+            } else {
+                if (LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled) "🎮 3) Gaming & Call Anti-Jitter Booster: 🟢 ON"
+                else "🎮 3) Gaming & Call Anti-Jitter Booster: ⚪ OFF (Tap to Enable)"
+            },
+        ) {}
+        gamingBtn.setOnClickListener {
+            val next = !LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled
+            LocalSniSpoofProxy.gamingLowLatencyBoosterEnabled = next
+            if (next) LocalSniSpoofProxy.ensureAutoHealWatchdogLoop()
+            gamingBtn.text = if (isFarsi) {
+                if (next) "🎮 ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس: 🟢 روشن (ضربه برای خاموش)"
+                else "🎮 ۳) بوستر گیمینگ و تماس ضد-پکت‌لاس (کالاف/پابجی/واتس‌اپ): ⚪ خاموش (فعال‌سازی)"
+            } else {
+                if (next) "🎮 3) Gaming & Call Anti-Jitter Booster: 🟢 ON"
+                else "🎮 3) Gaming & Call Anti-Jitter Booster: ⚪ OFF (Tap to Enable)"
+            }
+            activityScope.launch {
+                val metrics = withContext(Dispatchers.IO) {
+                    LocalSniSpoofProxy.measureLiveJitterAndLatency(samples = 4, timeoutMs = 850)
+                }
+                val jText = if (metrics.avgRttMs > 0) {
+                    if (isFarsi) "پینگ میانگین: ${metrics.avgRttMs}ms · نوسان (Jitter): ${metrics.jitterMs}ms · پکت‌لاس: ${metrics.packetLossPercent}%"
+                    else "Avg Ping: ${metrics.avgRttMs}ms · Jitter: ${metrics.jitterMs}ms · Loss: ${metrics.packetLossPercent}%"
+                } else {
+                    if (isFarsi) "آماده در اولین اتصال" else "Ready on connect"
+                }
+                refreshLiveStatusText("🎯 $jText")
+            }
+        }
+        container.addView(gamingBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // Feature 4A: 1-Click Hotspot / Wi-Fi Share with QR Code
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "📲 ۴-الف) اشتراک‌گذاری اینترنت VPN به آیفون، لپ‌تاپ، PS5 و تلویزیون با QR Code"
+                else "📲 4A) Share VPN over Wi-Fi / Hotspot to iPhone, PC, PS5 & TV (with QR Code)",
+                filled = true,
+            ) {
+                showEasyHotspotShareWithQrDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 4B: 1-Click Dead Config Cleaner & Sorter
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🧹 ۴-ب) تست موازی، حذف کانفیگ‌های سوخته و مرتب‌سازی بر اساس سریع‌ترین پینگ"
+                else "🧹 4B) Parallel Dead-Config Cleaner & Fastest-Ping Sorter (1-Click)",
+            ) {
+                runOneClickCleanAndSortConfigsDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🚀 مرکز ۴ قابلیت طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات و پالایش)"
+                else "🚀 4 Power Features Center (Auto-Heal · Smart Split · Gaming · Hotspot & Cleaner)",
+            )
+            .setView(rootScroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    /**
+     * 1-Click Hotspot / Wi-Fi Proxy Share with live QR Code (`HTTP CONNECT` + `SOCKS5` dual-protocol server):
+     * Lets iPhones, Windows/Mac laptops, PlayStation/Xbox consoles, and Smart TVs on the same Wi-Fi or Hotspot
+     * share the phone's VPN internet without installing any app.
+     */
+    private fun showEasyHotspotShareWithQrDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            val (port, lanIps) = withContext(Dispatchers.IO) {
+                val p = LocalSniSpoofProxy.startLanHotspotShareProxy(LocalSniSpoofProxy.DEFAULT_LAN_HOTSPOT_PORT)
+                val ips = LocalSniSpoofProxy.detectDeviceLanIpAddresses()
+                p to ips
+            }
+            val primaryIp = lanIps.firstOrNull() ?: "192.168.43.1"
+            val proxyAddress = "$primaryIp:$port"
+            val allIpsText = lanIps.joinToString(" ، ") { "$it:$port" }
+            val qrPayload = "socks5://$primaryIp:$port#CatClient-Hotspot-VPN"
+            val qrBitmap = withContext(Dispatchers.Default) {
+                QrCodes.bitmap(qrPayload, sizePx = dp(210))
+            }
+
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(20), dp(14), dp(20), dp(8))
+            }
+
+            if (qrBitmap != null) {
+                val qrView = ImageView(this@MainActivity).apply {
+                    setImageBitmap(qrBitmap)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                }
+                box.addView(qrView, LinearLayout.LayoutParams(dp(200), dp(200)).apply { bottomMargin = dp(10) })
+            }
+
+            val infoView = TextView(this@MainActivity).apply {
+                textSize = 13f
+                setTextColor(TEXT_PRIMARY)
+                setLineSpacing(0f, 1.25f)
+                text = if (isFarsi) {
+                    buildString {
+                        appendLine("🟢 پروکسی دوگانهٔ هات‌اسپات و وای‌فای فعال شد!")
+                        appendLine()
+                        appendLine("📌 آدرس سرور (IP):  $primaryIp")
+                        appendLine("📌 پورت (Port):      $port")
+                        if (lanIps.size > 1) {
+                            appendLine("📌 سایر آدرس‌های شبکه شما: $allIpsText")
+                        }
+                        appendLine()
+                        appendLine("💡 چطور روی دستگاه‌های دیگر وصل شوم؟ (بدون نصب هیچ برنامه‌ای):")
+                        appendLine("• 🍎 آیفون و آیپد: وارد Settings -> Wi-Fi شوید، روی ⓘ جلوی وای‌فای بزنید، پایین صفحه Configure Proxy را روی Manual بگذارید و Server = $primaryIp و Port = $port را وارد کنید.")
+                        appendLine("• 💻 ویندوز و مک: در تنظیمات Proxy سیستم، آدرس $primaryIp و پورت $port را وارد کنید.")
+                        appendLine("• 🎮 پلی‌استیشن / تلویزیون / تلگرام: هم از پروکسی HTTP و هم از پروکسی SOCKS5 روی همین آدرس $proxyAddress پشتیبانی می‌کند!")
+                    }
+                } else {
+                    buildString {
+                        appendLine("🟢 Dual-Protocol (HTTP + SOCKS5) Wi-Fi/Hotspot Proxy is LIVE!")
+                        appendLine()
+                        appendLine("📌 Server IP:   $primaryIp")
+                        appendLine("📌 Port:        $port")
+                        appendLine()
+                        appendLine("• iPhone / iPad: Settings -> Wi-Fi -> (i) -> Configure Proxy -> Manual -> Server: $primaryIp, Port: $port")
+                        appendLine("• Windows / Mac / PS5 / Telegram: Supports both HTTP Proxy and SOCKS5 on $proxyAddress.")
+                    }
+                }
+            }
+            box.addView(infoView, LinearLayout.LayoutParams(-1, -2))
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "📲 اشتراک‌گذاری اینترنت VPN با بارکد QR (هات‌اسپات و وای‌فای)"
+                    else "📲 Share VPN over Wi-Fi / Hotspot with QR Code",
+                )
+                .setView(box)
+                .setNeutralButton(
+                    if (isFarsi) "⏹ توقف اشتراک‌گذاری" else "⏹ Stop Proxy",
+                ) { _, _ ->
+                    LocalSniSpoofProxy.stopLanHotspotShareProxy()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "پروکسی اشتراک‌گذاری هات‌اسپات متوقف شد" else "Hotspot proxy stopped",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .setNegativeButton(
+                    if (isFarsi) "📋 کپی آی‌پی و پورت" else "📋 Copy IP:Port",
+                ) { _, _ ->
+                    copyToClipboard("Hotspot Proxy", proxyAddress)
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ آدرس $proxyAddress کپی شد" else "✅ Copied $proxyAddress",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    /**
+     * 1-Click Parallel Dead-Config Cleaner & Fastest-Ping Sorter:
+     * Tests all configs in the user's current subscription (plus clipboard if present),
+     * removes dead/timed-out servers, auto-repairs blocked Cloudflare configs via Multi-Chunk SNI Split,
+     * sorts by real ping (`ms`), and saves + connects immediately.
+     */
+    private fun runOneClickCleanAndSortConfigsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🧹 در حال تست موازی کانفیگ‌ها، حذف سرورهای سوخته و مرتب‌سازی بر اساس سریع‌ترین پینگ…"
+            else "🧹 Probing configs in parallel, removing dead servers & sorting by fastest ping…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val rawSources = mutableListOf<String>()
+            val clipText = readClipboardText().trim()
+            if (clipText.isNotBlank()) rawSources += clipText
+            val selectedId = userSubscriptionManager.selectedId()
+            val subs = userSubscriptionManager.list()
+            val activeSub = subs.firstOrNull { it.id == selectedId } ?: subs.firstOrNull()
+            subs.forEach { rawSources += it.raw }
+
+            val report = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.cleanAndSortRawConfigLines(rawSources, timeoutMs = 1_100)
+            }
+
+            if (report.sortedAliveLinks.isEmpty()) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "⚠️ هیچ کانفیگ شخصی در اشتراک یا کلیپ‌بورد یافت نشد؛ در حال اتصال با موتور پیشنهادی…"
+                    else "⚠️ No personal configs found; launching recommended connection wizard…",
+                    Toast.LENGTH_LONG,
+                ).show()
+                showRecommendedOneClickConnectWizardDialog()
+                return@launch
+            }
+
+            val summary = if (isFarsi) {
+                buildString {
+                    appendLine("✅ پالایش و مرتب‌سازی کانفیگ‌ها کامل شد!")
+                    appendLine()
+                    appendLine("• کل کانفیگ‌های بررسی‌شده: ${report.totalChecked}")
+                    appendLine("• کانفیگ‌های سالم و فعال: ${report.aliveCount}")
+                    appendLine("• کانفیگ‌های سوختهٔ حذف‌شده: ${report.deadRemovedCount}")
+                    appendLine("• سریع‌ترین پینگ ثبت‌شده: ${if (report.fastestLatencyMs > 0) "${report.fastestLatencyMs} میلی‌ثانیه" else "آماده"}")
+                    appendLine()
+                    appendLine("📋 ۵ کانفیگ برتر آماده اتصال:")
+                    report.sortedAliveLinks.take(5).forEachIndexed { idx, uri ->
+                        val remark = uri.substringAfter('#', "Server-${idx + 1}").let {
+                            runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)
+                        }
+                        appendLine("${idx + 1}. $remark")
+                    }
+                }
+            } else {
+                buildString {
+                    appendLine("✅ Subscription Cleaned & Sorted by Ping!")
+                    appendLine()
+                    appendLine("• Total Checked: ${report.totalChecked}")
+                    appendLine("• Alive & Ready: ${report.aliveCount}")
+                    appendLine("• Dead Removed: ${report.deadRemovedCount}")
+                    appendLine("• Fastest Ping: ${report.fastestLatencyMs} ms")
+                }
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🧹 نتیجهٔ پالایش و مرتب‌سازی کانفیگ‌ها"
+                    else "🧹 Dead-Config Cleaner & Ping Sorter Result",
+                )
+                .setMessage(summary)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "🚀 ذخیرهٔ کانفیگ‌های سالم و اتصال فوری"
+                    else "🚀 Save Sorted Configs & Connect Now",
+                ) { _, _ ->
+                    activityScope.launch {
+                        val subTitle = activeSub?.name ?: if (isFarsi) "⚡ کانفیگ‌های پالایش‌شده (بر اساس پینگ)" else "⚡ Cleaned & Sorted Configs"
+                        val rawJoined = report.sortedAliveLinks.joinToString("\n")
+                        val saved = withContext(Dispatchers.IO) {
+                            if (activeSub != null) {
+                                userSubscriptionManager.update(activeSub.id, subTitle, rawJoined)
+                            } else {
+                                userSubscriptionManager.add(subTitle, rawJoined)
+                            }
+                        }
+                        userSubscriptionManager.select(saved.id)
+                        val curAether = aetherPreferenceStore.read()
+                        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                        orbotEnginePreferenceStore.setEnabled(false)
+                        renderSubscriptions()
+                        onSubscriptionSelected()
+                        renderAdvancedControls()
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                }
+                .create()
+                .showCatClientDialog()
         }
     }
 
@@ -16149,6 +16671,17 @@ class MainActivity : Activity() {
             🧦 ۷) دکمه «بخش اختصاصی ساکس۵ (SOCKS5)»
             • اینو بزنی چی میشه؟
               👈 از ۷ منبع زنده دنیا پروکسی‌های سالم رو می‌گیره، پینگ می‌گیره و هم برای تلگرام و هم برای کل گوشی وصلشون می‌کنه.
+
+            ────────────────────────
+            🚀 ۸) دکمه «مرکز ۴ قابلیت طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات QR و تعویض آی‌پی)»
+            • ۱) «⚡ تعویض فوری آی‌پی/لبهٔ تمیز» و «🔄 پایشگر خودکار ضد-فریز» رو بزنی چی میشه؟
+              👈 بدون اینکه VPN قطع بشه، در زیر ۱ ثانیه آی‌پی کلودفلر رو عوض می‌کنه! و اگر روشنش بذاری، هر وقت مخابرات بعد از چند دقیقه اینترنت رو فریز کرد، خودش اتوماتیک تو پس‌زمینه آی‌پی رو عوض می‌کنه تا تلگرام و یوتیوبت قطع نشه!
+            • ۲) «🏦 عبور مستقیم بانک‌ها، اسنپ، تپسی» یا «🎯 فقط تلگرام، اینستاگرام و یوتیوب روی VPN» رو بزنی چی میشه؟
+              👈 با یک کلیک همراه بانک‌ها و اسنپ رو از فیلترشکن جدا می‌کنه تا دیگه هیچ‌وقت خطای «فیلترشکن را خاموش کنید» ندن، یا فقط تلگرام/اینستاگرام/یوتیوب رو روی VPN می‌ذاره تا حجمت نسوزه!
+            • ۳) «🎮 بوستر گیمینگ و تماس ضد-پکت‌لاس» رو بزنی چی میشه؟
+              👈 اولویت بسته‌های صدا و بازی رو بالا می‌بره و نمی‌ذاره آنتن 4G/5G سیم‌کارت به خواب بره تا وسط کالاف/پابجی یا تماس واتس‌اپ پینگت نپره!
+            • ۴) «📲 اشتراک‌گذاری با QR Code» و «🧹 حذف کانفیگ‌های سوخته» رو بزنی چی میشه؟
+              👈 یک بارکد و آی‌پی بهت میده که آیفون، لپ‌تاپ، تلویزیون یا PS5 رو بدون نصب هیچ برنامه‌ای به اینترنت بدون فیلتر گوشیت وصل کنی، و با یک کلیک همهٔ کانفیگ‌های خراب رو پاک و سالم‌ها رو به ترتیب پینگ مرتب می‌کنه!
             """.trimIndent()
         } else {
             """
