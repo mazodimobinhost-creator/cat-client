@@ -50,7 +50,14 @@ object SubConvConverter {
             .map { scheme -> lower.indexOf(scheme) }
             .filter { it >= 0 }
             .minOrNull() ?: return null
-        return trimmed.substring(matchIdx).trim().split(Regex("\\s+")).firstOrNull()
+        val candidate = trimmed.substring(matchIdx).trim()
+        return if ('#' in candidate) {
+            val beforeHash = candidate.substringBefore('#').trim().split(Regex("\\s+")).firstOrNull() ?: return null
+            val afterHash = candidate.substringAfter('#').trim()
+            if (afterHash.isNotEmpty()) "$beforeHash#$afterHash" else beforeHash
+        } else {
+            candidate.split(Regex("\\s+")).firstOrNull()
+        }
     }
 
     fun convert(input: String): List<JSONObject> {
