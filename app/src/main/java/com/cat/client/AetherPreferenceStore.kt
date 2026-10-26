@@ -389,6 +389,13 @@ data class AetherSelection(
             }
             params += "tor_relays=$effTorRelays"
         }
+        val effTorBridgesAlways = torBridgesMode.takeIf { it in VALID_TOR_BRIDGES_MODES } ?: "auto"
+        if (chainTarget !in setOf("tor", "tor-reverse") && effTorBridgesAlways != "auto") {
+            params += "tor_bridges=$effTorBridgesAlways"
+            if (effTorBridgesAlways == "own" && torCustomBridges.isNotBlank()) {
+                params += "bridges=${java.net.URLEncoder.encode(torCustomBridges.trim(), "UTF-8")}"
+            }
+        }
         val labelBase = profileName.trim().ifEmpty {
             when (proto) {
                 "mim" -> if (chainTarget.startsWith("psiphon")) "PattNG-MIM-Psiphon" else "Aether-MIM-H2"

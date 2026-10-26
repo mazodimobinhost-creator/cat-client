@@ -117,6 +117,9 @@ data class AetherRuntimeConfig(
             .put("transport", resolvedNativeTransport())
             .put("ipScan", ipScan)
             .put("scanMode", scanMode)
+            .put("scan", scanMode)
+            .put("noize", noizePreset)
+            .put("fingerprint", effectiveFp)
             .put("scanBudgetMillis", scanBudgetMillis)
             .put("validationEnabled", true)
             .put("autoReprovision", false)
@@ -131,7 +134,9 @@ data class AetherRuntimeConfig(
             .put("tlsKeyShares", tlsGroups)
             .put("tlsCertCompression", "brotli")
             .put("enableGreaseSigalgs", !disableGrease)
+            .put("enable_grease_sigalgs", !disableGrease)
             .put("enableEchGrease", !disableGrease)
+            .put("enable_ech_grease", !disableGrease)
             .apply {
                 if (noizePreset != "auto" && noizePreset.isNotBlank()) {
                     put("noizePreset", noizePreset)
