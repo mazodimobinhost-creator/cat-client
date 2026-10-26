@@ -14,6 +14,10 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 
+private const val KIND_CIRCLE = 0
+private const val KIND_WAVE = 1
+private const val KIND_SUPER = 2
+
 /**
  * Material 3 Expressive-style shapes (cookie, burst, clover, sunny...) for plain Android Views.
  *
@@ -98,9 +102,6 @@ internal enum class ZedShape(
     }
 
     private companion object {
-        const val KIND_CIRCLE = 0
-        const val KIND_WAVE = 1
-        const val KIND_SUPER = 2
         const val STEPS = 144
         const val TAU = (2.0 * Math.PI).toFloat()
         const val SUPER_NORMALISE = 0.84f
