@@ -1,9 +1,7 @@
-# Android failure report (1ae1c57)
+# Android failure report (c2509af)
 
 
 ## files with compile errors
-      1 app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt
-      1 app/src/main/java/com/cat/client/FirefoxVpnEngine.kt
 ## log tail
 ### step18.log
 ✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
@@ -38,7 +36,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3274) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3486) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -56,7 +54,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3289) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3501) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -66,7 +64,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3308) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3520) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -99,7 +97,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3321) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3533) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -127,59 +125,118 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
-
-Welcome to Gradle 8.9!
-
-Here are the highlights of this release:
- - Enhanced Error and Warning Messages
- - IDE Integration Improvements
- - Daemon JVM Information
-
-For more details see https://docs.gradle.org/8.9/release-notes.html
-
-Starting a Gradle Daemon (subsequent builds will be faster)
-Daemon JVM discovery is an incubating feature.
-
-> Configure project :app
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:41: Unnecessary non-null assertion (!!) on a non-null receiver of type String
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:84: Unnecessary non-null assertion (!!) on a non-null receiver of type String
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'jvmTarget: String' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
-
-> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :app:preBuild UP-TO-DATE
-> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:generateDebugBuildConfig
-> Task :app:generateDebugResValues
-> Task :app:checkDebugAarMetadata
-> Task :app:mapDebugSourceSetPaths
-> Task :app:generateDebugResources
-> Task :app:packageDebugResources
-> Task :app:mergeDebugResources
-> Task :app:createDebugCompatibleScreenManifests
-> Task :app:extractDeepLinksDebug
-> Task :app:parseDebugLocalResources
-
-> Task :app:processDebugMainManifest
-/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-172:19 Warning:
-	application@android:allowBackup was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
-/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-172:19 Warning:
-	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
-
-> Task :app:processDebugManifest
-> Task :app:processDebugManifestForPackage
-> Task :app:javaPreCompileDebug
-> Task :app:processDebugResources
-
-> Task :app:compileDebugKotlin FAILED
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/FirefoxVpnEngine.kt:2397:37 Unresolved reference 'proxyPass'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MlmAndNextGenVpnHub.kt:957:46 Unresolved reference 'DEFAULT_COUNTRIES'.
-
-FAILURE: Build failed with an exception.
-
-* What went wrong:
-Execution failed for task ':app:compileDebugKotlin'.
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+         > Could not get resource 'https://plugins.gradle.org/m2/org/apache/httpcomponents/httpclient/4.5.14/httpclient-4.5.14.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.14/httpclient-4.5.14.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve net.java.dev.jna:jna-platform:5.6.0.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.analytics-library:shared:31.7.3
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools:sdk-common:31.7.3 > com.android.tools:common:31.7.3
+      > Could not resolve net.java.dev.jna:jna-platform:5.6.0.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/net/java/dev/jna/jna-platform/5.6.0/jna-platform-5.6.0.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/net/java/dev/jna/jna-platform/5.6.0/jna-platform-5.6.0.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve net.java.dev.jna:jna-platform:5.6.0.
+         > Could not get resource 'https://plugins.gradle.org/m2/net/java/dev/jna/jna-platform/5.6.0/jna-platform-5.6.0.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/net/java/dev/jna/jna-platform/5.6.0/jna-platform-5.6.0.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.googlecode.juniversalchardet:juniversalchardet:1.0.3.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > androidx.databinding:databinding-compiler-common:8.7.3
+      > Could not resolve com.googlecode.juniversalchardet:juniversalchardet:1.0.3.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/googlecode/juniversalchardet/juniversalchardet/1.0.3/juniversalchardet-1.0.3.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/googlecode/juniversalchardet/juniversalchardet/1.0.3/juniversalchardet-1.0.3.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.googlecode.juniversalchardet:juniversalchardet:1.0.3.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/googlecode/juniversalchardet/juniversalchardet/1.0.3/juniversalchardet-1.0.3.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/googlecode/juniversalchardet/juniversalchardet/1.0.3/juniversalchardet-1.0.3.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve javax.annotation:javax.annotation-api:1.3.2.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.utp:android-test-plugin-result-listener-gradle-proto:31.7.3
+      > Could not resolve javax.annotation:javax.annotation-api:1.3.2.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve javax.annotation:javax.annotation-api:1.3.2.
+         > Could not get resource 'https://plugins.gradle.org/m2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/javax/annotation/javax.annotation-api/1.3.2/javax.annotation-api-1.3.2.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.google.auto.value:auto-value-annotations:1.6.2.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:bundletool:1.17.1
+      > Could not resolve com.google.auto.value:auto-value-annotations:1.6.2.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/google/auto/value/auto-value-annotations/1.6.2/auto-value-annotations-1.6.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/auto/value/auto-value-annotations/1.6.2/auto-value-annotations-1.6.2.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.google.auto.value:auto-value-annotations:1.6.2.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/google/auto/value/auto-value-annotations/1.6.2/auto-value-annotations-1.6.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/auto/value/auto-value-annotations/1.6.2/auto-value-annotations-1.6.2.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.google.errorprone:error_prone_annotations:2.3.1.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:bundletool:1.17.1
+      > Could not resolve com.google.errorprone:error_prone_annotations:2.3.1.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.3.1/error_prone_annotations-2.3.1.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.3.1/error_prone_annotations-2.3.1.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.google.errorprone:error_prone_annotations:2.3.1.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/google/errorprone/error_prone_annotations/2.3.1/error_prone_annotations-2.3.1.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.3.1/error_prone_annotations-2.3.1.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.google.dagger:dagger:2.28.3.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:bundletool:1.17.1
+      > Could not resolve com.google.dagger:dagger:2.28.3.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/google/dagger/dagger/2.28.3/dagger-2.28.3.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/dagger/dagger/2.28.3/dagger-2.28.3.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.google.dagger:dagger:2.28.3.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/google/dagger/dagger/2.28.3/dagger-2.28.3.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/dagger/dagger/2.28.3/dagger-2.28.3.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve org.bitbucket.b_c:jose4j:0.9.5.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:bundletool:1.17.1
+      > Could not resolve org.bitbucket.b_c:jose4j:0.9.5.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/org/bitbucket/b_c/jose4j/0.9.5/jose4j-0.9.5.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/bitbucket/b_c/jose4j/0.9.5/jose4j-0.9.5.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve org.bitbucket.b_c:jose4j:0.9.5.
+         > Could not get resource 'https://plugins.gradle.org/m2/org/bitbucket/b_c/jose4j/0.9.5/jose4j-0.9.5.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/bitbucket/b_c/jose4j/0.9.5/jose4j-0.9.5.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve org.slf4j:slf4j-api:1.7.30.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:bundletool:1.17.1
+      > Could not resolve org.slf4j:slf4j-api:1.7.30.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve org.slf4j:slf4j-api:1.7.30.
+         > Could not get resource 'https://plugins.gradle.org/m2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve org.jdom:jdom2:2.0.6.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10
+      > Could not resolve org.jdom:jdom2:2.0.6.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/org/jdom/jdom2/2.0.6/jdom2-2.0.6.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/jdom/jdom2/2.0.6/jdom2-2.0.6.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve org.jdom:jdom2:2.0.6.
+         > Could not get resource 'https://plugins.gradle.org/m2/org/jdom/jdom2/2.0.6/jdom2-2.0.6.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/org/jdom/jdom2/2.0.6/jdom2-2.0.6.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve commons-codec:commons-codec:1.10.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:builder:8.7.3
+      > Could not resolve commons-codec:commons-codec:1.10.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/commons-codec/commons-codec/1.10/commons-codec-1.10.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/commons-codec/commons-codec/1.10/commons-codec-1.10.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve commons-codec:commons-codec:1.10.
+         > Could not get resource 'https://plugins.gradle.org/m2/commons-codec/commons-codec/1.10/commons-codec-1.10.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/commons-codec/commons-codec/1.10/commons-codec-1.10.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.squareup:javawriter:2.5.0.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:builder:8.7.3
+      > Could not resolve com.squareup:javawriter:2.5.0.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/squareup/javawriter/2.5.0/javawriter-2.5.0.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/squareup/javawriter/2.5.0/javawriter-2.5.0.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.squareup:javawriter:2.5.0.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/squareup/javawriter/2.5.0/javawriter-2.5.0.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/squareup/javawriter/2.5.0/javawriter-2.5.0.pom'. Received status code 403 from server: Forbidden
+   > Could not resolve com.google.code.findbugs:jsr305:3.0.2.
+     Required by:
+         project : > com.android.application:com.android.application.gradle.plugin:8.7.3 > com.android.tools.build:gradle:8.7.3 > com.android.tools.build:builder:8.7.3 > com.android.tools.build:apkzlib:8.7.3
+      > Could not resolve com.google.code.findbugs:jsr305:3.0.2.
+         > Could not get resource 'https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom'. Received status code 403 from server: Forbidden
+      > Could not resolve com.google.code.findbugs:jsr305:3.0.2.
+         > Could not get resource 'https://plugins.gradle.org/m2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom'.
+            > Could not GET 'https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom'. Received status code 403 from server: Forbidden
+> There are 14 more failures with identical causes.
 
 * Try:
 > Run with --stacktrace option to get the stack trace.
@@ -187,5 +244,4 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 10s
-16 actionable tasks: 16 executed
+BUILD FAILED in 3s
