@@ -17113,7 +17113,23 @@ class MainActivity : Activity() {
         }
         val topAuthorities = verified.map { it.authority }.distinct().take(6)
         activityScope.launch {
-            val allRaw = withContext(Dispatchers.IO) { collectAllUserSubscriptionRawTexts() }
+            val allRaw = withContext(Dispatchers.IO) {
+                val lines = mutableListOf<String>()
+                for (sub in userSubscriptionManager.list()) {
+                    val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
+                    snap?.catalog?.profiles?.forEach { p ->
+                        val link = p.shareLink?.trim().orEmpty()
+                        if (link.isNotEmpty()) lines += link
+                    }
+                    sub.input.lines().forEach { l ->
+                        val t = l.trim()
+                        if (t.startsWith("vless://", ignoreCase = true) || t.startsWith("trojan://", ignoreCase = true)) {
+                            lines += t
+                        }
+                    }
+                }
+                lines.distinct().joinToString("\n")
+            }
             val injected = withContext(Dispatchers.IO) {
                 LocalSniSpoofProxy.injectVerifiedCleanIpsIntoConfigs(
                     rawConfigsText = allRaw,
@@ -17125,8 +17141,8 @@ class MainActivity : Activity() {
                 injected
             } else {
                 val tpl = resolveUserRealConfigTemplate()
-                val uuid = tpl?.uuid ?: "11111111-2222-4333-8444-555555555555"
-                val host = tpl?.hostHeader?.ifBlank { tpl.serverHost } ?: scannerSniPreference().ifBlank { "speed.cloudflare.com" }
+                val uuid = tpl?.uuidOrPass ?: "11111111-2222-4333-8444-555555555555"
+                val host = tpl?.hostHeader?.ifBlank { tpl.remoteHost } ?: scannerSniPreference().ifBlank { "speed.cloudflare.com" }
                 val path = tpl?.path ?: "/ws?ed=2048"
                 topAuthorities.mapIndexed { idx, ep ->
                     val encPath = runCatching { java.net.URLEncoder.encode(path, "UTF-8") }.getOrDefault("%2Fws")
@@ -17486,8 +17502,8 @@ class MainActivity : Activity() {
                     val lines = withContext(Dispatchers.IO) {
                         pool.map { r ->
                             val rep = LocalSniSpoofProxy.probeTunnelSpeedAndUploadFreeze(
-                                targetHost = r.ip,
-                                targetPort = r.port,
+                                host = r.ip,
+                                port = r.port,
                                 sni = r.sni.ifBlank { "speed.cloudflare.com" },
                                 timeoutMs = 2_400,
                             )
@@ -17499,14 +17515,14 @@ class MainActivity : Activity() {
                             appendLine("🧪 نتیجهٔ تست واقعی سرعت و ضد-فریز ۱۶ کیلوبایت:")
                             appendLine("────────────────────────────")
                             lines.forEachIndexed { idx, (r, rep) ->
-                                val upBadge = if (rep.upload16kPassed) "🟢 بدون قفل آپلود 16KB" else "🟠 حساس به آپلود (نیازمند برش v52)"
+                                val upBadge = if (rep.uploadBurstHealthy) "🟢 بدون قفل آپلود 16KB" else "🟠 حساس به آپلود (نیازمند برش v52)"
                                 appendLine("${idx + 1}. ${r.authority} (${r.countryName ?: "Edge"})")
-                                appendLine("   👈 پینگ: ${rep.handshakeRttMs}ms | سرعت: ${rep.downloadKbps} Kbps | $upBadge")
+                                appendLine("   👈 پینگ: ${rep.pingMs}ms | دانلود: ${rep.downloadSpeedMbps} Mbps | آپلود: ${rep.uploadBurstSpeedMbps} Mbps | $upBadge")
                             }
                         } else {
                             appendLine("🧪 Speed & 16KB Upload-Freeze Results:")
                             lines.forEachIndexed { idx, (r, rep) ->
-                                appendLine("${idx + 1}. ${r.authority} -> ${rep.handshakeRttMs}ms | ${rep.downloadKbps} Kbps | 16KB Upload OK: ${rep.upload16kPassed}")
+                                appendLine("${idx + 1}. ${r.authority} -> ${rep.pingMs}ms | Down: ${rep.downloadSpeedMbps} Mbps | 16KB Upload OK: ${rep.uploadBurstHealthy}")
                             }
                         }
                     }

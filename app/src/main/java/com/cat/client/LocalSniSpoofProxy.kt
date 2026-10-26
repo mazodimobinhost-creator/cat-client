@@ -858,7 +858,10 @@ internal object LocalSniSpoofProxy {
             .take(maxVariantsPerConfig.coerceIn(1, 10))
         if (cleanEndpoints.isEmpty()) return emptyList()
 
-        val rawLines = extractSupportedConfigUris(rawConfigsText)
+        val rawLines = rawConfigsText.lineSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("vless://", ignoreCase = true) || it.startsWith("trojan://", ignoreCase = true) }
+            .toList()
         val out = LinkedHashSet<String>()
         val uriRegex = Regex("""^(vless|trojan)://([^@]+)@([^/?#]+)(\?[^#]*)?(#.*)?$""", RegexOption.IGNORE_CASE)
 
