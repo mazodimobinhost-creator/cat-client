@@ -330,5 +330,29 @@ class AetherSelectionTest {
         org.junit.Assert.assertTrue(LocalSniSpoofProxy.isLanHotspotProxyRunning())
         LocalSniSpoofProxy.stopLanHotspotShareProxy()
         org.junit.Assert.assertFalse(LocalSniSpoofProxy.isLanHotspotProxyRunning())
+
+        // Test Serverless-v52 fragA & fragB 2-stage ClientHello record splitting byte fidelity
+        val ch = LocalSniSpoofProxy.buildFakeClientHelloRecord("challenges.cloudflare.com")
+        val origPayload = ch.copyOfRange(5, ch.size)
+        for (variant in listOf("fragA", "fragB")) {
+            val v52Chunks = LocalSniSpoofProxy.splitClientHelloServerlessV52(ch, variant)
+            org.junit.Assert.assertTrue(v52Chunks.size >= 3)
+            val reassembled = java.io.ByteArrayOutputStream()
+            for (rec in v52Chunks) {
+                assertEquals(0x16, rec[0].toInt() and 0xFF)
+                val len = ((rec[3].toInt() and 0xFF) shl 8) or (rec[4].toInt() and 0xFF)
+                assertEquals(rec.size - 5, len)
+                reassembled.write(rec, 5, len)
+            }
+            org.junit.Assert.assertArrayEquals(origPayload, reassembled.toByteArray())
+        }
+
+        val v52Json = LocalSniSpoofProxy.buildServerlessV52ConfigJson("fragA")
+        org.junit.Assert.assertTrue(v52Json.contains("Serverless-v52-fragA"))
+        org.junit.Assert.assertTrue(v52Json.contains("challenges.cloudflare.com"))
+
+        val cottenToml = LocalSniSpoofProxy.buildCottenMaxClientConfigToml("t.whitedns.ir", "0123456789abcdef", emptyList())
+        org.junit.Assert.assertTrue(cottenToml.contains("TUNNEL_MODE = \"cottenmax\""))
+        org.junit.Assert.assertTrue(cottenToml.contains("RESOLVER_TRANSPORT = \"auto\""))
     }
 }

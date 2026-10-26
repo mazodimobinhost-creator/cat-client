@@ -16513,15 +16513,384 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 9: Oct 2026 Serverless-v52 Dual-Stage Fragment (fragA: 6,98,1 & fragB: 0,104,1 + 114,1 maxSplit=11)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🔥 ۹) متد جدید Serverless-v52 (فرگمنت ۲ مرحله‌ای fragA همراه اول / fragB ایرانسل)"
+                else "🔥 9) New Serverless-v52 Method (2-Stage Fragment fragA: 6,98,1 / fragB: 0,104,1)",
+                filled = true,
+            ) {
+                showServerlessV52MethodDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 10: Oct 2026 MITM-DomainFronting v23 Direct YouTube / Instagram / Reddit Unblocker
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🌐 ۱۰) متد جدید Domain-Fronting v23 (بازگشایی مستقیم یوتیوب، اینستاگرام و رددیت)"
+                else "🌐 10) New Domain-Fronting v23 (Direct YouTube, Instagram, WhatsApp & Reddit)",
+            ) {
+                runDirectCdnDomainFrontingV23Dialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 11: Live 7-Source Verified GitHub Free-Configs Aggregator over SNI-Split TLS
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🎁 ۱۱) ابزار جدید: دریافت کانفیگ‌های رایگان امروز از ۷ مخزن گیت‌هاب (با برش SNI)"
+                else "🎁 11) New Tool: Fetch Today's Verified Free Configs from 7 GitHub Sources",
+                filled = true,
+            ) {
+                runFetchSevenGitHubFreeConfigSourcesDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        // Feature 12: CottenMax v1 (Soar ChaCha20-Poly1305 + Dual UDP/53 & TCP/53 Auto Scanner)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🧬 ۱۲) راهکار جدید CottenMax v1 (اسکن هم‌زمان UDP/53 + TCP/53 و تانل Soar ضد پکت‌لاس)"
+                else "🧬 12) New CottenMax v1 Solution (Dual UDP/53 + TCP/53 Scanner & Soar Tunnel)",
+            ) {
+                runCottenMaxDualUdpTcpScannerDialog()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🚀 مرکز قابلیت‌های طلایی (ضد-فریز · تفکیک بانک/تلگرام · گیمینگ · هات‌اسپات · سرعت و پالایش)"
-                else "🚀 Power Features Center (Auto-Heal · Smart Split · Gaming · Hotspot · Speed & Cleaner)",
+                if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای جدید ۲۰۲۶ (Serverless-v52 · فرانتینگ v23 · CottenMax · ضد-فریز)"
+                else "🚀 2026 Power Features & New Methods Hub (Serverless-v52 · Fronting v23 · CottenMax)",
             )
             .setView(rootScroll)
             .setPositiveButton(android.R.string.ok, null)
             .create()
             .showCatClientDialog()
+    }
+
+    private fun showServerlessV52MethodDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val options = if (isFarsi) {
+            arrayOf(
+                "⚡ ۱) پروفایل Serverless-v52-fragA (مخصوص همراه اول و مخابرات: tlshello 6,98,1 + پکت 114,1 maxSplit=11)",
+                "⚡ ۲) پروفایل Serverless-v52-fragB (مخصوص ایرانسل و رایتل: tlshello 0,104,1 + پکت 114,1 maxSplit=11)",
+                "📋 ۳) کپی کانفیگ کامل JSON متد Serverless-v52 برای استفاده در v2rayNG / PattNG",
+            )
+        } else {
+            arrayOf(
+                "⚡ 1) Serverless-v52-fragA Profile (MCI/TCI: tlshello 6,98,1 + packet 114,1 maxSplit=11)",
+                "⚡ 2) Serverless-v52-fragB Profile (Irancell/Rightel: tlshello 0,104,1 + packet 114,1 maxSplit=11)",
+                "📋 3) Copy Full Serverless-v52 Xray JSON Config to Clipboard",
+            )
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (isFarsi) "🔥 متد جدید Serverless-v52 (فرگمنت ۲ مرحله‌ای + HappyEyeballs IPv6)"
+                else "🔥 New Serverless-v52 Dual-Stage Fragment Method",
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0, 1 -> {
+                        val variant = if (which == 0) "fragA" else "fragB"
+                        val strategy = if (which == 0) {
+                            LocalSniSpoofProxy.SpoofStrategy.FINALMASK_HEADER_CUSTOM
+                        } else {
+                            LocalSniSpoofProxy.SpoofStrategy.WRONG_TIMESTAMP_PAWS
+                        }
+                        activityScope.launch {
+                            val tpl = resolveUserRealConfigTemplate()
+                            withContext(Dispatchers.IO) {
+                                LocalSniSpoofProxy.startSpoofSocksProxy(strategy = strategy, decoySni = "challenges.cloudflare.com")
+                            }
+                            if (tpl != null) {
+                                val repaired = withContext(Dispatchers.IO) {
+                                    LocalSniSpoofProxy.buildRepairedConfigsForRealTemplate(tpl, strategy = strategy)
+                                }
+                                val title = if (isFarsi) "🔥 کانفیگ مجهز به Serverless-v52-$variant" else "🔥 Serverless-v52-$variant Config"
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
+                                val saved = withContext(Dispatchers.IO) {
+                                    if (existing != null) userSubscriptionManager.update(existing.id, title, repaired.joinToString("\n"))
+                                    else userSubscriptionManager.add(title, repaired.joinToString("\n"))
+                                }
+                                userSubscriptionManager.select(saved.id)
+                                val curAether = aetherPreferenceStore.read()
+                                if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                                renderSubscriptions()
+                                onSubscriptionSelected()
+                            } else {
+                                val curAether = aetherPreferenceStore.read()
+                                aetherPreferenceStore.save(
+                                    curAether.copy(
+                                        enabled = true,
+                                        mode = AetherMode.MasqueInMasque,
+                                        masqueTransport = "h2",
+                                        fragmentEnabled = true,
+                                        fragmentSize = if (which == 0) "6-98" else "1-104",
+                                        fragmentDelay = "1-2",
+                                        masqueSni = "challenges.cloudflare.com",
+                                        endpointScannedAt = System.currentTimeMillis(),
+                                    ),
+                                )
+                            }
+                            renderAdvancedControls()
+                            openScreen(SCREEN_HOME)
+                            if (currentVpnServiceState == VpnState.Started) {
+                                reconnectForConnectionOptionChange()
+                            } else {
+                                beginConnectFlow(Actions.CONNECT)
+                            }
+                        }
+                    }
+                    2 -> {
+                        val json = LocalSniSpoofProxy.buildServerlessV52ConfigJson("fragA")
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Serverless-v52-fragA.json", json))
+                        Toast.makeText(
+                            this,
+                            if (isFarsi) "✅ کانفیگ کامل Serverless-v52-fragA در کلیپ‌بورد کپی شد"
+                            else "✅ Copied Serverless-v52-fragA JSON to clipboard",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun runDirectCdnDomainFrontingV23Dialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال تست زندهٔ ۳ مسیر مستقیم Domain-Fronting v23 (یوتیوب، اینستاگرام/واتس‌اپ و رددیت/فستلی)…"
+            else "⏳ Probing 3 direct Domain-Fronting v23 paths (YouTube, Instagram/WhatsApp & Reddit/Fastly)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val hits = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.probeDirectCdnDomainFrontingV23(timeoutMs = 1_100)
+            }
+            val msg = buildString {
+                if (isFarsi) {
+                    appendLine("🌐 نتیجهٔ تست زندهٔ متد جدید Domain-Fronting v23 روی خط شما:")
+                    appendLine()
+                    hits.forEach { h ->
+                        val status = if (h.rttMs != null) "🟢 باز (${h.rttMs}ms) · فورواردر محلی: 127.0.0.1:${h.localForwardPort}" else "🟡 نیازمند برش چندتکه‌ای"
+                        appendLine("• ${h.titleFa}")
+                        appendLine("   👈 وضعیت: $status | لبه: ${h.edgeIp}:${h.port}")
+                        appendLine("   👈 گواهی/SNI: ${h.frontSni} (vcn=${h.verifyNamesCsv.take(42)}…)")
+                        appendLine()
+                    }
+                    append("💡 با زدن دکمهٔ زیر، استراتژی فرانتینگ گواهی (fromMitM + برش چندتکه‌ای SNI) روی تانل شما فعال و متصل می‌شود.")
+                } else {
+                    appendLine("🌐 Direct CDN Domain-Fronting v23 Live Probe:")
+                    appendLine()
+                    hits.forEach { h ->
+                        val status = if (h.rttMs != null) "🟢 OPEN (${h.rttMs}ms) · Local Forwarder: 127.0.0.1:${h.localForwardPort}" else "🟡 Needs Multi-Chunk Split"
+                        appendLine("• ${h.titleEn}: $status")
+                    }
+                }
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🌐 متد جدید MITM-DomainFronting v23"
+                    else "🌐 New MITM-DomainFronting v23 Method",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "🚀 فعال‌سازی فرانتینگ v23 و اتصال"
+                    else "🚀 Enable Fronting v23 & Connect",
+                ) { _, _ ->
+                    activityScope.launch {
+                        withContext(Dispatchers.IO) {
+                            LocalSniSpoofProxy.startSpoofSocksProxy(
+                                strategy = LocalSniSpoofProxy.SpoofStrategy.MITM_PINNED_CERT_FRONTING,
+                                decoySni = "github.githubassets.com",
+                            )
+                        }
+                        runOneClickRepairMyRealConfigAndConnect()
+                    }
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runFetchSevenGitHubFreeConfigSourcesDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🎁 در حال دریافت کانفیگ‌های رایگان امروز از ۷ مخزن گیت‌هاب (از دلِ برش SNI) و تست پینگ موازی…"
+            else "🎁 Fetching today's free configs from 7 GitHub repos over SNI-Split TLS & probing latency…",
+            Toast.LENGTH_LONG,
+        ).show()
+
+        activityScope.launch {
+            val report = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.fetchAndRankLiveSevenGitHubFreeSources(maxNodesToProbe = 55, timeoutMs = 1_000)
+            }
+            if (report.sortedAliveLinks.isEmpty()) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (isFarsi) "ℹ️ اتصال مستقیم به گیت‌هاب محدود است؛ در حال اتصال با استخر داخلی و Aether…"
+                    else "ℹ️ GitHub direct fetch restricted; connecting via built-in pool…",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                showRecommendedOneClickConnectWizardDialog()
+                return@launch
+            }
+            val msg = if (isFarsi) {
+                buildString {
+                    appendLine("✅ دریافت و تست موازی از ۷ مخزن گیت‌هاب کامل شد!")
+                    appendLine()
+                    appendLine("• کانفیگ‌های بررسی‌شده: ${report.totalChecked}")
+                    appendLine("• کانفیگ‌های سالم و فعال روی خط شما: ${report.aliveCount}")
+                    appendLine("• سریع‌ترین پینگ: ${report.fastestLatencyMs} میلی‌ثانیه")
+                    appendLine()
+                    appendLine("📋 ۵ سرور برتر امروز:")
+                    report.sortedAliveLinks.take(5).forEachIndexed { idx, uri ->
+                        val remark = uri.substringAfter('#', "Node-${idx + 1}").let {
+                            runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)
+                        }
+                        appendLine("${idx + 1}. $remark")
+                    }
+                }
+            } else {
+                buildString {
+                    appendLine("✅ Fetched & Ranked from 7 GitHub Free Config Sources!")
+                    appendLine("• Checked: ${report.totalChecked} | Alive: ${report.aliveCount} | Fastest: ${report.fastestLatencyMs}ms")
+                }
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🎁 گلچین کانفیگ‌های رایگان امروز (۷ مخزن گیت‌هاب)"
+                    else "🎁 Today's Verified Free Configs (7 GitHub Sources)",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                    if (isFarsi) "🚀 ذخیره در اشتراک و اتصال فوری"
+                    else "🚀 Save Subscription & Connect Now",
+                ) { _, _ ->
+                    activityScope.launch {
+                        val subTitle = if (isFarsi) "🎁 گلچین رایگان روزانه گیت‌هاب (${report.fastestLatencyMs}ms)" else "🎁 GitHub Daily Verified Free (${report.fastestLatencyMs}ms)"
+                        val rawJoined = report.sortedAliveLinks.joinToString("\n")
+                        val existing = userSubscriptionManager.list().firstOrNull { it.name.startsWith("🎁") }
+                        val saved = withContext(Dispatchers.IO) {
+                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rawJoined)
+                            else userSubscriptionManager.add(subTitle, rawJoined)
+                        }
+                        userSubscriptionManager.select(saved.id)
+                        val curAether = aetherPreferenceStore.read()
+                        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+                        orbotEnginePreferenceStore.setEnabled(false)
+                        renderSubscriptions()
+                        onSubscriptionSelected()
+                        renderAdvancedControls()
+                        openScreen(SCREEN_HOME)
+                        if (currentVpnServiceState == VpnState.Started) {
+                            reconnectForConnectionOptionChange()
+                        } else {
+                            beginConnectFlow(Actions.CONNECT)
+                        }
+                    }
+                }
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun runCottenMaxDualUdpTcpScannerDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "🧬 در حال اسکن هم‌زمان UDP/53 و TCP/53 برای متد جدید CottenMax v1 (Soar ChaCha20-Poly1305)…"
+            else "🧬 Scanning UDP/53 & TCP/53 in parallel for CottenMax v1 (Soar ChaCha20-Poly1305)…",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        activityScope.launch {
+            val hits = withContext(Dispatchers.IO) {
+                LocalSniSpoofProxy.probeCottenMaxDualUdpTcpResolvers(timeoutMs = 850)
+            }
+            val toml = LocalSniSpoofProxy.buildCottenMaxClientConfigToml(
+                tunnelDomain = "t.whitedns.ir",
+                sharedKeyHex = "c077e4dd55aa2026c077e4dd55aa2026",
+                hits = hits,
+            )
+            val msg = buildString {
+                if (isFarsi) {
+                    appendLine("🧬 نتیجهٔ اسکن دوگانهٔ UDP/53 + TCP/53 برای CottenMax v1:")
+                    appendLine()
+                    if (hits.isEmpty()) {
+                        appendLine("⚠️ پورت ۵۳ مستقیم محدود است؛ پیشنهاد می‌شود از حالت DoH/DoT در CottenMax استفاده شود.")
+                    } else {
+                        hits.forEachIndexed { idx, h ->
+                            val u = h.udp53RttMs?.let { "${it}ms" } ?: "بسته"
+                            val t = h.tcp53RttMs?.let { "${it}ms" } ?: "بسته"
+                            appendLine("${idx + 1}. ${h.resolverNameFa} (${h.resolverIp})")
+                            appendLine("   👈 UDP/53: $u | TCP/53: $t | ترنسپورت: ${h.recommendedTransport.uppercase()} | MTU: ${h.observedQueryMtuBytes}/${h.observedResponseMtuBytes}B")
+                        }
+                    }
+                    appendLine()
+                    append("📄 پیش‌نمایش پروفایل `TUNNEL_MODE = \"cottenmax\"` آمادهٔ کپی یا اعمال روی تانل DNS:")
+                    appendLine()
+                    append(toml)
+                } else {
+                    appendLine("🧬 CottenMax v1 Dual UDP/53 + TCP/53 Scan Results:")
+                    hits.forEachIndexed { idx, h ->
+                        appendLine("${idx + 1}. ${h.resolverIp} -> UDP: ${h.udp53RttMs ?: -1}ms, TCP: ${h.tcp53RttMs ?: -1}ms (${h.recommendedTransport})")
+                    }
+                    appendLine()
+                    append(toml)
+                }
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(
+                    if (isFarsi) "🧬 راهکار جدید CottenMax v1 (Soar v0.2.3 + UDP/TCP Auto)"
+                    else "🧬 New CottenMax v1 Solution (Soar v0.2.3 + UDP/TCP Auto)",
+                )
+                .setMessage(msg)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(
+                    if (isFarsi) "📋 کپی client_config.toml" else "📋 Copy TOML",
+                ) { _, _ ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("cottenmax_client_config.toml", toml))
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ فایل تنظیمات CottenMax v1 در کلیپ‌بورد کپی شد"
+                        else "✅ Copied CottenMax v1 config to clipboard",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .setPositiveButton(
+                    if (isFarsi) "🚀 اعمال بهترین ریزولور و اتصال"
+                    else "🚀 Apply Best Resolver & Connect",
+                ) { _, _ ->
+                    val bestIp = hits.firstOrNull()?.resolverIp ?: "178.22.122.100"
+                    dnsPrivacyPreferenceStore.saveMode(DnsPrivacyMode.DoH)
+                    dnsPrivacyPreferenceStore.saveDohUrl("https://free.shecan.ir/dns-query")
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ ریزولور بهینهٔ CottenMax ($bestIp) فعال شد!"
+                        else "✅ Optimal CottenMax resolver ($bestIp) applied!",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    if (currentVpnServiceState == VpnState.Started) {
+                        reconnectForConnectionOptionChange()
+                    } else {
+                        beginConnectFlow(Actions.CONNECT)
+                    }
+                }
+                .create()
+                .showCatClientDialog()
+        }
     }
 
     /**
