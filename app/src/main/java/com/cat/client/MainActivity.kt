@@ -326,6 +326,15 @@ class MainActivity : Activity() {
     private lateinit var serversCountText: TextView
     private lateinit var heroStateText: TextView
     private var lastShownConnectionFault: String? = null
+    /** ZedSecure 3.1.6 App design (Pixel / Portal / Old) and Material 3 roles derived from the palette. */
+    private val appDesign: AppDesign by lazy { AppDesignPreferenceStore(this).design() }
+    private val zedScheme: ZedScheme by lazy { ZedScheme.from(palette) }
+    private var portalView: ZedPortalView? = null
+    private var pixelCore: ZedPortalView? = null
+    private var pixelCard: LinearLayout? = null
+    private var pixelCardColor: Int = 0
+    private var homeHintText: TextView? = null
+    private var flowBadges: List<Pair<ZedShapeIconView, Boolean>> = emptyList()
     private lateinit var downloadBarFill: ZedWavyProgressView
     private lateinit var uploadBarFill: ZedWavyProgressView
     private lateinit var downloadTotalText: TextView
@@ -841,8 +850,10 @@ class MainActivity : Activity() {
     private var dockExpanded = false
     private var dockActiveIndex = 0
 
-    private fun setDockExpanded(expanded: Boolean) {
+    private fun setDockExpanded(requested: Boolean) {
         if (!::appTabsPending.isInitialized) return
+        // Pixel/Portal (ZedSecure 3.1.6): the active tab always carries its label, the bar never jumps.
+        val expanded = requested || appDesign != AppDesign.Old
         if (dockExpanded == expanded) return
         dockExpanded = expanded
         appTabsPending.let { bar ->
@@ -861,7 +872,9 @@ class MainActivity : Activity() {
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(24).toFloat()
-        if (selected) {
+        if (selected && appDesign != AppDesign.Old) {
+            setColor(palette.teal)
+        } else if (selected) {
             // iOS-flavored capsule: accent gradient instead of a flat fill
             orientation = GradientDrawable.Orientation.TL_BR
             colors = intArrayOf(palette.tealGradientStart, palette.secondary)
@@ -1058,7 +1071,14 @@ class MainActivity : Activity() {
                     null,
                 )
                 setOnClickListener { runPingAll(autoConnect = true) }
-                addView(
+                if (appDesign != AppDesign.Old) {
+                    // ZedSecure 3.1.6 Auto card: bolt on a cookie, tonal container
+                    background = zedCardBackground(zedScheme.surfaceContainer, ripple = true)
+                    addView(
+                        ZedShapeIconView(this@MainActivity, ZedShape.Cookie9, zedScheme.primaryContainer, R.drawable.ic_zed_bolt, zedScheme.onPrimaryContainer, 0f, 0.48f),
+                        LinearLayout.LayoutParams(dp(50), dp(50)),
+                    )
+                } else addView(
                     TextView(this@MainActivity).apply {
                         text = "⚡"
                         textSize = 18f
@@ -3448,6 +3468,230 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Big value · small unit, as in ZedSecure's flow meter (Pixel/Portal designs). */
+    private fun setSpeedText(view: TextView, bytesPerSecond: Long) {
+        val raw = formatTransferSpeed(bytesPerSecond)
+        if (appDesign == AppDesign.Old) {
+            view.text = raw
+            return
+        }
+        val cut = raw.lastIndexOf(' ')
+        if (cut <= 0) {
+            view.text = raw
+            return
+        }
+        val spannable = android.text.SpannableString(raw)
+        spannable.setSpan(android.text.style.RelativeSizeSpan(0.52f), cut, raw.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spannable.setSpan(
+            android.text.style.ForegroundColorSpan(zedScheme.onSurfaceVariant),
+            cut,
+            raw.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        view.text = spannable
+    }
+
+    /** ZedSecure FlowMeter: two tonal halves with asymmetric corners and a cookie badge. */
+    private fun buildFlowMeterRow(): LinearLayout {
+        val s = zedScheme
+        val rtl = resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val badges = ArrayList<Pair<ZedShapeIconView, Boolean>>()
+        fun half(labelRes: Int, iconRes: Int, value: TextView, total: TextView, download: Boolean): LinearLayout {
+            val badge = ZedShapeIconView(
+                this,
+                ZedShape.Cookie4,
+                if (download) s.primaryContainer else s.tertiaryContainer,
+                iconRes,
+                if (download) s.onPrimaryContainer else s.onTertiaryContainer,
+                0f,
+                0.5f,
+            )
+            badges += badge to download
+            value.textSize = 24f
+            value.setTextColor(s.onSurface)
+            value.gravity = Gravity.START
+            value.typeface = CatClientDisplayTypeface
+            total.textSize = 11f
+            total.setTextColor(s.onSurfaceVariant)
+            val big = dp(26).toFloat()
+            val small = dp(6).toFloat()
+            // the outer edge of the row is round, the edges that meet in the middle are tight
+            val outerIsLeft = download != rtl
+            val radii = if (outerIsLeft) {
+                floatArrayOf(big, big, small, small, small, small, big, big)
+            } else {
+                floatArrayOf(small, small, big, big, big, big, small, small)
+            }
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER_VERTICAL
+                setPaddingRelative(dp(14), dp(14), dp(12), dp(14))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadii = radii
+                    setColor(s.surfaceContainerHigh)
+                }
+                addView(badge, LinearLayout.LayoutParams(dp(38), dp(38)))
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                setText(labelRes)
+                                textSize = 12f
+                                typeface = CatClientBodyBoldTypeface
+                                setTextColor(s.onSurfaceVariant)
+                                includeFontPadding = false
+                            },
+                            LinearLayout.LayoutParams(-1, -2),
+                        )
+                        addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                        addView(total, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                    },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
+                )
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            addView(
+                half(R.string.metric_download, R.drawable.ic_zed_download, downloadSpeedText, downloadTotalText, true),
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            addView(
+                half(R.string.metric_upload, R.drawable.ic_zed_upload, uploadSpeedText, uploadTotalText, false),
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(3) },
+            )
+        }
+        flowBadges = badges
+        setSpeedText(downloadSpeedText, 0L)
+        setSpeedText(uploadSpeedText, 0L)
+        return row
+    }
+
+    /** ZedSecure ticket card: shape badge · server · "Tap to change server" · round chevron. */
+    private fun buildZedTicket(): LinearLayout {
+        val s = zedScheme
+        val portal = appDesign == AppDesign.Portal
+        val container = if (portal) s.primaryContainer else s.surfaceContainerHigh
+        val ink = if (portal) s.onPrimaryContainer else s.onSurface
+        val sub = if (portal) withAlpha(s.onPrimaryContainer, 190) else s.onSurfaceVariant
+        activeConfigTitle.setTextColor(ink)
+        activeConfigTitle.textSize = 17f
+        val badge = ZedShapeIconView(
+            this,
+            if (portal) ZedShape.Cookie9 else ZedShape.Cookie4,
+            if (portal) s.primary else s.primaryContainer,
+            R.drawable.ic_zed_public,
+            if (portal) s.onPrimary else s.onPrimaryContainer,
+            0f,
+            0.48f,
+        )
+        val chevron = ImageView(this).apply {
+            setImageResource(R.drawable.ic_zed_chevron_right)
+            imageTintList = ColorStateList.valueOf(ink)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) scaleX = -1f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(withAlpha(ink, 22))
+            }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(14), dp(14), dp(14), dp(14))
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(ink, 36)),
+                GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(30).toFloat()
+                    setColor(container)
+                },
+                null,
+            )
+            setOnClickListener {
+                badge.animate().rotationBy(45f).setDuration(380L).start()
+                if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else openScreen(SCREEN_SERVERS)
+            }
+            addView(badge, LinearLayout.LayoutParams(dp(54), dp(54)))
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(activeConfigTitle, LinearLayout.LayoutParams(-1, -2))
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.home_tap_change_server)
+                        textSize = 13f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(sub)
+                        includeFontPadding = false
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+            )
+            addView(chevron, LinearLayout.LayoutParams(dp(40), dp(40)))
+        }
+    }
+
+    /** Mirrors the VPN state into the Pixel/Portal home (title tint, Pixel card tone, connect hint). */
+    private fun applyZedHomeState(state: VpnState) {
+        if (appDesign == AppDesign.Old || !::heroStateText.isInitialized) return
+        val s = zedScheme
+        val live = state == VpnState.Started
+        homeHintText?.visibility = if (state == VpnState.Stopped) View.VISIBLE else View.GONE
+        val title = heroStateText
+        title.paint.shader = null
+        when (appDesign) {
+            AppDesign.Pixel -> {
+                val target = if (live) s.primaryContainer else s.surfaceContainer
+                val card = pixelCard
+                if (card != null && target != pixelCardColor) {
+                    val from = pixelCardColor
+                    pixelCardColor = target
+                    val bg = card.background as? GradientDrawable
+                    android.animation.ValueAnimator.ofObject(android.animation.ArgbEvaluator(), from, target).apply {
+                        duration = 420L
+                        addUpdateListener { bg?.setColor(it.animatedValue as Int) }
+                        start()
+                    }
+                }
+                title.setTextColor(
+                    when {
+                        state is VpnState.Error -> s.error
+                        live -> s.onPrimaryContainer
+                        else -> s.onSurface
+                    },
+                )
+                homeHintText?.setTextColor(s.primary)
+            }
+            AppDesign.Portal -> {
+                title.setTextColor(if (state is VpnState.Error) s.error else s.onSurface)
+                if (live) {
+                    title.post {
+                        val textWidth = title.paint.measureText(title.text.toString())
+                        val start = ((title.width - textWidth) / 2f).coerceAtLeast(0f)
+                        title.paint.shader = android.graphics.LinearGradient(
+                            start, 0f, start + textWidth.coerceAtLeast(1f), 0f,
+                            s.primary, s.tertiary, android.graphics.Shader.TileMode.CLAMP,
+                        )
+                        title.invalidate()
+                    }
+                } else {
+                    title.invalidate()
+                }
+            }
+            AppDesign.Old -> Unit
+        }
+    }
+
     private fun buildDashboard(): View {
         val scrollView = ScrollView(this).apply {
             isFillViewport = true
@@ -3903,12 +4147,96 @@ class MainActivity : Activity() {
             }
             addView(heroCluster, heroClusterParams)
         }
+        homeHintText = TextView(this).apply {
+            setText(R.string.portal_hint)
+            textSize = 14f
+            typeface = CatClientBodyBoldTypeface
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setTextColor(zedScheme.primary)
+            includeFontPadding = false
+            visibility = View.GONE
+        }
+        when (appDesign) {
+            AppDesign.Portal -> {
+                // ZedSecure Portal: the wall-of-light stage fills the hero; the door is the only connect action.
+                connectionBlob.visibility = View.GONE
+                portalView = ZedPortalView(this).apply {
+                    contentDescription = getString(R.string.connect_action_connect)
+                    setOnClickListener { handleButtonClick() }
+                    setOnLongClickListener {
+                        copyDiagnosticsToClipboard()
+                        true
+                    }
+                }
+                heroFrame.addView(portalView, 0, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
+                heroStateText.textSize = 40f
+                heroStateText.layoutParams = FrameLayout.LayoutParams(-1, -2).apply {
+                    gravity = Gravity.BOTTOM
+                    bottomMargin = dp(6)
+                }
+                heroClusterParams?.let { params ->
+                    params.gravity = Gravity.END or Gravity.BOTTOM
+                    params.topMargin = 0
+                    params.bottomMargin = dp(92)
+                    heroCluster.layoutParams = params
+                }
+            }
+            AppDesign.Pixel -> {
+                // ZedSecure Pixel: one big tonal card; the core in the middle is the only connect button.
+                connectionBlob.visibility = View.GONE
+                heroFrame.removeView(heroStateText)
+                heroFrame.removeView(heroCluster)
+                pixelCore = ZedPortalView(this, pixelMode = true).apply {
+                    contentDescription = getString(R.string.connect_action_connect)
+                    setOnClickListener { handleButtonClick() }
+                    setOnLongClickListener {
+                        copyDiagnosticsToClipboard()
+                        true
+                    }
+                }
+                heroStateText.textSize = 30f
+                pixelCardColor = zedScheme.surfaceContainer
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    setPadding(dp(18), dp(20), dp(18), dp(20))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(44).toFloat()
+                        setColor(pixelCardColor)
+                    }
+                    addView(pixelCore, LinearLayout.LayoutParams(dp(200), dp(200)))
+                    addView(heroStateText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+                    addView(homeHintText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+                }
+                pixelCard = card
+                heroFrame.addView(card, FrameLayout.LayoutParams(-1, -1))
+                heroCluster.scaleX = 0.82f
+                heroCluster.scaleY = 0.82f
+                heroFrame.addView(heroCluster, FrameLayout.LayoutParams(-2, -2).apply {
+                    gravity = Gravity.TOP or Gravity.END
+                    topMargin = dp(8)
+                    marginEnd = dp(8)
+                })
+            }
+            AppDesign.Old -> Unit
+        }
         val signalSection = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
             clipToPadding = false
-            addView(heroFrame, LinearLayout.LayoutParams(-1, dp(350)))
+            val heroHeight = when (appDesign) {
+                AppDesign.Portal -> dp(450)
+                AppDesign.Pixel -> dp(430)
+                AppDesign.Old -> dp(350)
+            }
+            addView(heroFrame, LinearLayout.LayoutParams(-1, heroHeight))
+            if (appDesign == AppDesign.Portal) {
+                addView(homeHintText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            }
             addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
             addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
@@ -4030,7 +4358,7 @@ class MainActivity : Activity() {
         uploadBarFill = barFill(palette.secondary)
         downloadTotalText = totalText()
         uploadTotalText = totalText()
-        val trafficRow = LinearLayout(this).apply {
+        val trafficRow = if (appDesign != AppDesign.Old) buildFlowMeterRow() else LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
@@ -4157,7 +4485,7 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
         }
-        val activeConfigCard = LinearLayout(this).apply {
+        val activeConfigCard = if (appDesign != AppDesign.Old) buildZedTicket() else LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER_VERTICAL
@@ -4215,13 +4543,46 @@ class MainActivity : Activity() {
         homeLocationPill = locationPill
         locationPill.visibility = View.GONE
         connectActionButton.visibility = View.GONE // Zed: the blob itself is the switch
-        dashboardContent.apply {
-            addView(headerBlock, contentParams(dp(12)))
-            addView(locationPill, contentParams(dp(14)))
-            addView(signalSection, contentParams(dp(4)))
-            addView(trafficRow, contentParams(dp(18)))
-            addView(activeConfigCard, contentParams(dp(14)))
-            addView(connectActionButton, contentParams(dp(14)))
+        when (appDesign) {
+            AppDesign.Portal -> {
+                locationPill.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(28).toFloat()
+                    setColor(zedScheme.surfaceContainerHigh)
+                }
+                dashboardContent.apply {
+                    addView(headerBlock, contentParams(dp(12)))
+                    addView(signalSection, contentParams(dp(0)))
+                    addView(locationPill, contentParams(dp(14)))
+                    addView(trafficRow, contentParams(dp(14)))
+                    addView(activeConfigCard, contentParams(dp(8)))
+                    addView(connectActionButton, contentParams(dp(14)))
+                }
+            }
+            AppDesign.Pixel -> {
+                // facts live inside the Pixel card: place · IP · ping as a soft chip
+                locationPill.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(22).toFloat()
+                    setColor(withAlpha(zedScheme.onPrimaryContainer, 24))
+                }
+                pixelCard?.addView(locationPill, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+                dashboardContent.apply {
+                    addView(headerBlock, contentParams(dp(12)))
+                    addView(signalSection, contentParams(dp(8)))
+                    addView(activeConfigCard, contentParams(dp(10)))
+                    addView(trafficRow, contentParams(dp(3)))
+                    addView(connectActionButton, contentParams(dp(14)))
+                }
+            }
+            AppDesign.Old -> dashboardContent.apply {
+                addView(headerBlock, contentParams(dp(12)))
+                addView(locationPill, contentParams(dp(14)))
+                addView(signalSection, contentParams(dp(4)))
+                addView(trafficRow, contentParams(dp(18)))
+                addView(activeConfigCard, contentParams(dp(14)))
+                addView(connectActionButton, contentParams(dp(14)))
+            }
         }
         // Cat-specific controls (routing rows, VPN/Proxy mode, quota graph) move to the Servers screen.
         homeExtrasSection = LinearLayout(this).apply {
@@ -4248,6 +4609,482 @@ class MainActivity : Activity() {
         )
 
         return scrollView
+    }
+
+    /* ====================== ZedSecure 3.1.6 Settings pieces (Pixel/Portal) ====================== */
+
+    /** Tonal container + ink for a hue, the way each Zed settings row gets its own colour. */
+    private fun zedTone(hue: Float): Pair<Int, Int> {
+        val dark = palette.isDark
+        val container = androidx.core.graphics.ColorUtils.HSLToColor(floatArrayOf(hue, if (dark) 0.42f else 0.62f, if (dark) 0.30f else 0.86f))
+        val ink = androidx.core.graphics.ColorUtils.HSLToColor(floatArrayOf(hue, if (dark) 0.75f else 0.70f, if (dark) 0.82f else 0.28f))
+        return container to ink
+    }
+
+    private fun zedSectionLabel(@StringRes labelRes: Int): TextView = TextView(this).apply {
+        setText(labelRes)
+        textSize = 14f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(zedScheme.primary)
+        includeFontPadding = false
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        textDirection = View.TEXT_DIRECTION_LOCALE
+        setPaddingRelative(dp(26), dp(26), dp(16), dp(12))
+    }
+
+    /** Zed grouped list: 28 dp outer corners, 6 dp inner corners, 3 dp gaps. */
+    private fun zedApplyGroupCorners(group: LinearLayout) {
+        val items = (0 until group.childCount).map { group.getChildAt(it) }.filter { it.visibility != View.GONE }
+        val big = dp(28).toFloat()
+        val small = dp(6).toFloat()
+        items.forEachIndexed { index, item ->
+            val top = if (index == 0) big else small
+            val bottom = if (index == items.lastIndex) big else small
+            val radii = floatArrayOf(top, top, top, top, bottom, bottom, bottom, bottom)
+            when (val bg = item.background) {
+                is RippleDrawable -> (bg.getDrawable(0) as? GradientDrawable)?.cornerRadii = radii
+                is GradientDrawable -> bg.cornerRadii = radii
+            }
+            (item.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.topMargin = if (index == 0) 0 else dp(3)
+                item.layoutParams = it
+            }
+        }
+    }
+
+    private fun zedCardBackground(color: Int = zedScheme.surfaceContainer, ripple: Boolean = false): android.graphics.drawable.Drawable {
+        val shape = GradientDrawable().apply {
+            this.shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(28).toFloat()
+            setColor(color)
+        }
+        return if (ripple) RippleDrawable(ColorStateList.valueOf(withAlpha(zedScheme.onSurface, 28)), shape, null) else shape
+    }
+
+    private fun zedChevron(tint: Int = zedScheme.onSurfaceVariant): ImageView = ImageView(this).apply {
+        setImageResource(R.drawable.ic_zed_chevron_right)
+        imageTintList = ColorStateList.valueOf(tint)
+        if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) scaleX = -1f
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    /** ZedSecure SettingsItem: shape badge · title · detail · chevron. */
+    private fun zedSettingsItem(
+        title: CharSequence,
+        detail: CharSequence?,
+        shape: ZedShape,
+        hue: Float,
+        @DrawableRes iconRes: Int,
+        badge: View? = null,
+        danger: Boolean = false,
+        onClick: () -> Unit,
+    ): LinearLayout {
+        val (container, ink) = if (danger) zedScheme.errorContainer to zedScheme.onErrorContainer else zedTone(hue)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(78)
+            setPaddingRelative(dp(16), dp(14), dp(14), dp(14))
+            isClickable = true
+            isFocusable = true
+            contentDescription = title
+            background = zedCardBackground(ripple = true)
+            val icon = ZedShapeIconView(this@MainActivity, shape, container, iconRes, ink, 0f, 0.48f)
+            setOnClickListener {
+                icon.animate().rotationBy(30f).setDuration(320L).start()
+                onClick()
+            }
+            addView(icon, LinearLayout.LayoutParams(dp(48), dp(48)))
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(TextView(this@MainActivity).apply {
+                        text = title
+                        textSize = 17f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(if (danger) zedScheme.error else zedScheme.onSurface)
+                        includeFontPadding = false
+                    })
+                    if (!detail.isNullOrBlank()) {
+                        addView(TextView(this@MainActivity).apply {
+                            text = detail
+                            textSize = 13.5f
+                            typeface = CatClientBodyTypeface
+                            setTextColor(zedScheme.onSurfaceVariant)
+                            includeFontPadding = false
+                            setLineSpacing(dp(2).toFloat(), 1f)
+                            maxLines = 3
+                        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+                    }
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) },
+            )
+            badge?.let {
+                (it.parent as? ViewGroup)?.removeView(it)
+                addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+            }
+            addView(zedChevron(), LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(10) })
+        }
+    }
+
+    /** Big page title with the Zed art in the corner ("Settings · Make it yours", "Interface"). */
+    private fun zedPageHero(title: CharSequence, subtitle: CharSequence, art: View, titleSize: Float = 40f): FrameLayout =
+        FrameLayout(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            clipChildren = false
+            addView(art, FrameLayout.LayoutParams(dp(150), dp(150)).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL })
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                    addView(TextView(this@MainActivity).apply {
+                        text = title
+                        textSize = titleSize
+                        typeface = CatClientDisplayTypeface
+                        setTextColor(zedScheme.onSurface)
+                        includeFontPadding = false
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = subtitle
+                        textSize = 15f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(zedScheme.onSurfaceVariant)
+                        includeFontPadding = false
+                        maxLines = 2
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+                },
+                FrameLayout.LayoutParams(-1, -2).apply {
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    marginEnd = dp(140)
+                },
+            )
+            minimumHeight = dp(160)
+        }
+
+    /** Gradient banner (Zed "Support the project" slot) — here it opens the plain-language guide. */
+    private fun zedGuideCard(): LinearLayout {
+        val s = zedScheme
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative(dp(18), dp(20), dp(18), dp(20))
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.settings_guide_title)
+            val ltr = resources.configuration.layoutDirection != View.LAYOUT_DIRECTION_RTL
+            background = RippleDrawable(
+                ColorStateList.valueOf(withAlpha(s.onPrimaryContainer, 30)),
+                GradientDrawable(
+                    if (ltr) GradientDrawable.Orientation.LEFT_RIGHT else GradientDrawable.Orientation.RIGHT_LEFT,
+                    intArrayOf(s.tertiaryContainer, s.primaryContainer),
+                ).apply { cornerRadius = dp(34).toFloat() },
+                null,
+            )
+            setOnClickListener { showPlainLanguageFullGuideDialog() }
+            addView(
+                ZedShapeIconView(this@MainActivity, ZedShape.Cookie4, withAlpha(s.onPrimaryContainer, 40), R.drawable.ic_zed_help, s.onPrimaryContainer, 0f, 0.5f),
+                LinearLayout.LayoutParams(dp(54), dp(54)),
+            )
+            addView(
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.settings_guide_title)
+                        textSize = 18f
+                        typeface = CatClientBodyBoldTypeface
+                        setTextColor(s.onPrimaryContainer)
+                        includeFontPadding = false
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.settings_guide_detail)
+                        textSize = 14f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(withAlpha(s.onPrimaryContainer, 210))
+                        includeFontPadding = false
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+                },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) },
+            )
+            addView(zedChevron(s.onPrimaryContainer), LinearLayout.LayoutParams(dp(22), dp(22)))
+        }
+    }
+
+    /** Material 3 connected button group (Theme: System · Light · Dark, Contrast: …). */
+    private fun zedSegmented(options: List<Pair<String, Int>>, selectedIndex: Int, onPick: (Int) -> Unit): LinearLayout {
+        val s = zedScheme
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            options.forEachIndexed { index, (label, iconRes) ->
+                val selected = index == selectedIndex
+                val ink = if (selected) s.onPrimaryContainer else s.onSurface
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER
+                        isClickable = true
+                        isFocusable = true
+                        contentDescription = if (selected) getString(R.string.design_selected_description, label) else label
+                        setPadding(dp(8), 0, dp(8), 0)
+                        background = RippleDrawable(
+                            ColorStateList.valueOf(withAlpha(s.primary, 40)),
+                            GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dp(if (selected) 28 else 14).toFloat()
+                                if (selected) setColor(s.primaryContainer) else {
+                                    setColor(Color.TRANSPARENT)
+                                    setStroke(dp(1), s.outlineVariant)
+                                }
+                            },
+                            null,
+                        )
+                        setOnClickListener { if (!selected) onPick(index) }
+                        if (iconRes != 0) {
+                            addView(ImageView(this@MainActivity).apply {
+                                setImageResource(iconRes)
+                                imageTintList = ColorStateList.valueOf(ink)
+                            }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(8) })
+                        }
+                        addView(TextView(this@MainActivity).apply {
+                            text = label
+                            textSize = 15f
+                            typeface = if (selected) CatClientBodyBoldTypeface else CatClientBodyTypeface
+                            setTextColor(ink)
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                            includeFontPadding = false
+                        })
+                    },
+                    LinearLayout.LayoutParams(0, dp(54), 1f).apply { if (index > 0) marginStart = dp(4) },
+                )
+            }
+        }
+    }
+
+    private fun zedTitledCard(@StringRes titleRes: Int, @StringRes detailRes: Int, body: View?): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            background = zedCardBackground()
+            addView(TextView(this@MainActivity).apply {
+                setText(titleRes)
+                textSize = 18f
+                typeface = CatClientBodyTypeface
+                setTextColor(zedScheme.onSurface)
+                includeFontPadding = false
+            })
+            if (detailRes != 0) {
+                addView(TextView(this@MainActivity).apply {
+                    setText(detailRes)
+                    textSize = 14f
+                    typeface = CatClientBodyTypeface
+                    setTextColor(zedScheme.onSurfaceVariant)
+                    includeFontPadding = false
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            }
+            body?.let { addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) }) }
+        }
+
+    /** Selectable preview tile with a label underneath and a ✓ badge on the chosen one. */
+    private fun zedPickTile(preview: View, label: String, selected: Boolean, tileColor: Int, heightDp: Int, onPick: () -> Unit): LinearLayout {
+        val s = zedScheme
+        val frame = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(26).toFloat()
+                setColor(tileColor)
+                setStroke(dp(if (selected) 3 else 1), if (selected) s.primary else s.outlineVariant)
+            }
+            clipToOutline = true
+            val inset = dp(if (selected) 3 else 1)
+            addView(preview, FrameLayout.LayoutParams(-1, -1).apply { setMargins(inset, inset, inset, inset) })
+            if (selected) {
+                addView(
+                    ZedShapeIconView(this@MainActivity, ZedShape.Circle, s.primaryContainer, R.drawable.ic_zed_check, s.onPrimaryContainer, 0f, 0.56f),
+                    FrameLayout.LayoutParams(dp(30), dp(30)).apply {
+                        gravity = Gravity.TOP or Gravity.END
+                        topMargin = dp(8)
+                        marginEnd = dp(8)
+                    },
+                )
+            }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (selected) getString(R.string.design_selected_description, label) else label
+            setOnClickListener { if (!selected) onPick() }
+            ZedIosMotion.press(this)
+            addView(frame, LinearLayout.LayoutParams(-1, dp(heightDp)))
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 15f
+                gravity = Gravity.CENTER
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                typeface = if (selected) CatClientBodyBoldTypeface else CatClientBodyTypeface
+                setTextColor(if (selected) s.primary else s.onSurfaceVariant)
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }
+    }
+
+    /**
+     * ZedSecure 3.1.6 "Interface": App design picker (Pixel · Portal · Old), Theme, dynamic colour,
+     * colour style and contrast. Shown in every design so the user can always switch back.
+     */
+    private fun buildInterfaceDesignBlock(): LinearLayout {
+        val s = zedScheme
+        val designStore = AppDesignPreferenceStore(this)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        column.addView(
+            zedPageHero(
+                getString(R.string.settings_category_appearance),
+                getString(R.string.settings_category_appearance_detail),
+                ZedShapeIconView(this, ZedShape.Flower, zedTone(255f).first, R.drawable.ic_zed_palette, zedTone(255f).second, 0f, 0.42f),
+                titleSize = 34f,
+            ),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        // ---- App design
+        val current = designStore.design()
+        val designRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            AppDesign.entries.forEachIndexed { index, design ->
+                addView(
+                    zedPickTile(DesignPreviewView(this@MainActivity, design, s), getString(design.labelRes), design == current, BACKGROUND, 176) {
+                        designStore.saveDesign(design)
+                        recreate()
+                    },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply { if (index > 0) marginStart = dp(8) },
+                )
+            }
+        }
+        val designGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        designGroup.addView(zedTitledCard(R.string.app_design_title, R.string.app_design_detail, designRow), LinearLayout.LayoutParams(-1, -2))
+        designGroup.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(20), dp(18), dp(20), dp(18))
+                background = zedCardBackground()
+                val (container, ink) = zedTone(165f)
+                addView(ZedShapeIconView(this@MainActivity, ZedShape.Circle, container, R.drawable.ic_zed_info, ink, 0f, 0.5f), LinearLayout.LayoutParams(dp(44), dp(44)))
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.app_design_note_title)
+                        textSize = 15f
+                        typeface = CatClientBodyBoldTypeface
+                        setTextColor(s.onSurface)
+                        includeFontPadding = false
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        setText(R.string.app_design_note)
+                        textSize = 13f
+                        typeface = CatClientBodyTypeface
+                        setTextColor(s.onSurfaceVariant)
+                        includeFontPadding = false
+                        setLineSpacing(dp(3).toFloat(), 1f)
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) })
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        zedApplyGroupCorners(designGroup)
+        column.addView(designGroup, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+
+        // ---- Colors
+        column.addView(zedSectionLabel(R.string.colors_section), LinearLayout.LayoutParams(-1, -2))
+        val colorsGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val themeModes = listOf(AppThemeMode.System, AppThemeMode.Light, AppThemeMode.Dark)
+        val themeIcons = listOf(R.drawable.ic_zed_auto, R.drawable.ic_zed_light, R.drawable.ic_zed_dark)
+        val currentTheme = appThemePreferenceStore.read()
+        colorsGroup.addView(
+            zedTitledCard(
+                R.string.theme_section_title,
+                0,
+                zedSegmented(themeModes.mapIndexed { i, mode -> getString(mode.labelRes) to themeIcons[i] }, themeModes.indexOf(currentTheme)) { picked ->
+                    appThemePreferenceStore.save(themeModes[picked])
+                    recreate()
+                },
+            ),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        val dynamicSwitch = MaterialSwitch(this).apply {
+            isChecked = designStore.dynamicColor()
+            isEnabled = dynamicColorAvailable()
+            setOnCheckedChangeListener { _, checked ->
+                designStore.saveDynamicColor(checked)
+                recreate()
+            }
+        }
+        colorsGroup.addView(
+            advancedToggleRow(getString(R.string.dynamic_color_title), getString(R.string.dynamic_color_detail), dynamicSwitch).apply {
+                background = zedCardBackground()
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        val currentStyle = designStore.colorStyle()
+        val night = palette.isDark
+        val styleStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            ColorStyle.entries.forEachIndexed { index, style ->
+                val stylePalette = CatClientDesignTokens.forStyle(this@MainActivity, style, night)
+                val styleScheme = ZedScheme.from(stylePalette)
+                addView(
+                    zedPickTile(
+                        ColorStylePreviewView(this@MainActivity, styleScheme, if (index % 2 == 0) 14f else -10f),
+                        getString(style.labelRes),
+                        style == currentStyle,
+                        stylePalette.background,
+                        120,
+                    ) {
+                        designStore.saveColorStyle(style)
+                        recreate()
+                    },
+                    LinearLayout.LayoutParams(dp(116), -2).apply { if (index > 0) marginStart = dp(8) },
+                )
+            }
+        }
+        val styleScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            addView(styleStrip, ViewGroup.LayoutParams(-2, -2))
+            post {
+                val chosen = styleStrip.getChildAt(ColorStyle.entries.indexOf(currentStyle).coerceAtLeast(0))
+                if (chosen != null) smoothScrollTo((chosen.left - dp(24)).coerceAtLeast(0), 0)
+            }
+        }
+        colorsGroup.addView(zedTitledCard(R.string.color_style_title, R.string.color_style_detail, styleScroll), LinearLayout.LayoutParams(-1, -2))
+        val contrasts = ColorContrast.entries
+        colorsGroup.addView(
+            zedTitledCard(
+                R.string.contrast_title,
+                R.string.contrast_detail,
+                zedSegmented(contrasts.map { getString(it.labelRes) to 0 }, contrasts.indexOf(designStore.contrast())) { picked ->
+                    designStore.saveContrast(contrasts[picked])
+                    recreate()
+                },
+            ),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        zedApplyGroupCorners(colorsGroup)
+        column.addView(colorsGroup, LinearLayout.LayoutParams(-1, -2))
+        return column
     }
 
     private fun buildAdvancedScreen(): View {
@@ -4587,8 +5424,11 @@ class MainActivity : Activity() {
             }
         }
         val hapticRow = advancedToggleRow(getString(R.string.haptic_connect_title), getString(R.string.haptic_connect_detail), hapticSwitch)
+        // Theme now lives in the Interface block's segmented "Theme" control (ZedSecure 3.1.6).
+        themeSelectorRow.visibility = View.GONE
+        appearanceSettings.addView(buildInterfaceDesignBlock(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        appearanceSettings.addView(zedSectionLabel(R.string.accent_setting_title), LinearLayout.LayoutParams(-1, -2))
         listOf<View>(
-            themeSelectorRow,
             surfaceStyleSelectorRow,
             accentSelectorRow,
             swatchStrip,
@@ -4603,7 +5443,7 @@ class MainActivity : Activity() {
             }
             appearancePanel.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
-        appearanceSettings.addView(appearancePanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+        appearanceSettings.addView(appearancePanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(0) })
 
         val appPreferencesPanel = advancedSettingsPanel()
         listOf(settingsSubscriptionSelectorRow)
@@ -5900,7 +6740,18 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             maxWidthPx = dp(520)
             setPadding(dp(24), dp(34), dp(24), dp(104))
-            addView(
+            if (appDesign != AppDesign.Old) {
+                setPadding(dp(16), dp(20), dp(16), dp(104))
+                addView(
+                    zedPageHero(
+                        getString(R.string.settings_title),
+                        getString(R.string.settings_hero_subtitle),
+                        ZedHeroArtView(this@MainActivity, zedScheme),
+                    ).apply { setPaddingRelative(dp(10), 0, 0, 0) },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+                addView(zedGuideCard(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
+            } else addView(
                 TextView(this@MainActivity).apply {
                     setText(R.string.settings_title)
                     textSize = 30f
@@ -5909,7 +6760,7 @@ class MainActivity : Activity() {
                     includeFontPadding = false
                 },
             )
-            addView(
+            if (appDesign == AppDesign.Old) addView(
                 TextView(this@MainActivity).apply {
                     setText(R.string.settings_categories_description)
                     textSize = 14f
@@ -5974,6 +6825,8 @@ class MainActivity : Activity() {
                             includeFontPadding = false
                             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
                             textDirection = View.TEXT_DIRECTION_LOCALE
+                            // the Interface page carries its own big Zed title + art
+                            if (titleRes == R.string.settings_category_appearance) visibility = View.INVISIBLE
                         },
                         LinearLayout.LayoutParams(0, -2, 1f),
                     )
@@ -5995,6 +6848,10 @@ class MainActivity : Activity() {
         }
 
         val categoriesPanel = advancedSettingsPanel()
+        // ZedSecure 3.1.6 Settings: grouped expressive lists under small section labels.
+        val zedPersonalizeGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val zedConnectionGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val zedSystemGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun addCategory(
             @StringRes titleRes: Int,
             @StringRes detailRes: Int,
@@ -6006,6 +6863,29 @@ class MainActivity : Activity() {
             settingsCategoryOpeners[titleRes] = {
                 showCategory(titleRes, content)
                 onOpen?.invoke()
+            }
+            if (appDesign != AppDesign.Old) {
+                data class ZedSpec(val group: LinearLayout, val shape: ZedShape, val hue: Float, val icon: Int)
+                val spec = when (titleRes) {
+                    R.string.settings_category_appearance -> ZedSpec(zedPersonalizeGroup, ZedShape.Flower, 255f, R.drawable.ic_zed_palette)
+                    R.string.settings_category_app_preferences -> ZedSpec(zedPersonalizeGroup, ZedShape.Puffy, 24f, R.drawable.ic_zed_tune)
+                    R.string.settings_category_testing -> ZedSpec(zedPersonalizeGroup, ZedShape.Cookie9, 58f, R.drawable.ic_speedometer)
+                    R.string.settings_category_connections -> ZedSpec(zedConnectionGroup, ZedShape.Burst, 150f, R.drawable.ic_zed_swap)
+                    R.string.connection_chain_title -> ZedSpec(zedConnectionGroup, ZedShape.Gem, 195f, R.drawable.ic_zed_link)
+                    R.string.split_tunnel_label -> ZedSpec(zedConnectionGroup, ZedShape.Diamond, 62f, R.drawable.ic_zed_split)
+                    R.string.settings_category_sharing -> ZedSpec(zedSystemGroup, ZedShape.Clover4, 285f, R.drawable.ic_zed_share)
+                    R.string.settings_category_system -> ZedSpec(zedSystemGroup, ZedShape.Cookie12, 215f, R.drawable.ic_advanced_tab)
+                    R.string.update_settings_title -> ZedSpec(zedSystemGroup, ZedShape.Sunny, 120f, R.drawable.ic_zed_download)
+                    else -> ZedSpec(zedSystemGroup, ZedShape.Pentagon, 330f, R.drawable.ic_zed_description)
+                }
+                spec.group.addView(
+                    zedSettingsItem(getString(titleRes), getString(detailRes), spec.shape, spec.hue, spec.icon, badge) {
+                        showCategory(titleRes, content)
+                        onOpen?.invoke()
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+                return
             }
             categoriesPanel.addView(
                 LinearLayout(this).apply {
@@ -6152,7 +7032,7 @@ class MainActivity : Activity() {
             R.string.settings_category_system_detail,
             systemSettings,
         )
-        categoriesPanel.addView(
+        if (appDesign == AppDesign.Old) categoriesPanel.addView(
             MaterialButton(this).apply {
                 setText(R.string.settings_reset)
                 setAllCaps(false)
@@ -6172,7 +7052,7 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, dp(64)),
         )
-        categoriesPanel.addView(
+        if (appDesign == AppDesign.Old) categoriesPanel.addView(
             View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
             LinearLayout.LayoutParams(-1, dp(1)).apply {
                 marginStart = dp(16)
@@ -6195,10 +7075,29 @@ class MainActivity : Activity() {
             addDivider = false,
             badge = updateSettingsBadge,
         )
-        indexBody.addView(
-            categoriesPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
-        )
+        if (appDesign == AppDesign.Old) {
+            indexBody.addView(
+                categoriesPanel,
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
+            )
+        } else {
+            zedSystemGroup.addView(
+                zedSettingsItem(getString(R.string.settings_reset), null, ZedShape.Pentagon, 0f, R.drawable.ic_zed_restore, danger = true) {
+                    showResetSettingsDialog()
+                },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+            listOf(
+                R.string.settings_section_personalize to zedPersonalizeGroup,
+                R.string.settings_section_connection to zedConnectionGroup,
+                R.string.settings_section_system to zedSystemGroup,
+            ).forEach { (labelRes, group) ->
+                if (group.childCount == 0) return@forEach
+                zedApplyGroupCorners(group)
+                indexBody.addView(zedSectionLabel(labelRes), LinearLayout.LayoutParams(-1, -2))
+                indexBody.addView(group, LinearLayout.LayoutParams(-1, -2))
+            }
+        }
         val footerCopyrightText = TextView(this).apply {
             gravity = Gravity.CENTER
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -28126,6 +29025,12 @@ class MainActivity : Activity() {
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
+        portalView?.setVpnState(state)
+        pixelCore?.setVpnState(state)
+        if (state != VpnState.Started) {
+            portalView?.setCenterText("")
+            pixelCore?.setCenterText("")
+        }
         if (::connectionBlob.isInitialized) {
             connectionBlob.setVpnState(state)
             if (state != VpnState.Started) connectionBlob.setCenterText("C")
@@ -28145,6 +29050,7 @@ class MainActivity : Activity() {
         }
         if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
         if (::heroPingAction.isInitialized) heroPingAction.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        applyZedHomeState(state)
         applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
@@ -28309,6 +29215,11 @@ class MainActivity : Activity() {
         if (::connectionBlob.isInitialized && buttonModel.state == VpnState.Started) {
             connectionBlob.setCenterText(formatDuration(elapsedMs).removePrefix("00:"))
         }
+        if (buttonModel.state == VpnState.Started && sessionStartedAtElapsedMs > 0L) {
+            val clock = formatDuration(elapsedMs).removePrefix("00:")
+            portalView?.setCenterText(clock)
+            pixelCore?.setCenterText(clock)
+        }
     }
 
     private fun toggleAppTheme() {
@@ -28336,16 +29247,16 @@ class MainActivity : Activity() {
             val elapsedMs = nowElapsedMs - lastTransferSampleElapsedMs
             val rx = bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs)
             val tx = bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs)
-            downloadSpeedText.text = formatTransferSpeed(rx)
-            uploadSpeedText.text = formatTransferSpeed(tx)
+            setSpeedText(downloadSpeedText, rx)
+            setSpeedText(uploadSpeedText, tx)
             renderTrafficBars(rx, tx)
         } else {
             if (sessionRxStartBytes < 0L) {
                 sessionRxStartBytes = rxBytes
                 sessionTxStartBytes = txBytes
             }
-            downloadSpeedText.text = formatTransferSpeed(0L)
-            uploadSpeedText.text = formatTransferSpeed(0L)
+            setSpeedText(downloadSpeedText, 0L)
+            setSpeedText(uploadSpeedText, 0L)
         }
         lastTransferRxBytes = rxBytes
         lastTransferTxBytes = txBytes
@@ -28362,6 +29273,13 @@ class MainActivity : Activity() {
 
     /** Bar length grows logarithmically with the rate (ZedSecure rateFraction): 1 KB/s → ~0, 10 MB/s → full. */
     private fun renderTrafficBars(rxPerSecond: Long, txPerSecond: Long) {
+        portalView?.setRates(rxPerSecond, txPerSecond)
+        pixelCore?.setRates(rxPerSecond, txPerSecond)
+        for ((badge, download) in flowBadges) {
+            val rate = if (download) rxPerSecond else txPerSecond
+            // Zed FlowMeter: the badge turns while data is moving through that direction
+            if (rate > 2_048L) badge.animate().rotationBy(30f).setDuration(900L).start()
+        }
         if (!::downloadBarFill.isInitialized) return
         val live = currentVpnStateIsStarted()
         downloadBarFill.setRate(rxPerSecond, live)
@@ -28412,6 +29330,13 @@ class MainActivity : Activity() {
 
     /** Zed paints the Home gradient edge to edge — behind the status bar and under the floating dock. */
     private fun syncShellBackdrop() {
+        if (appDesign != AppDesign.Old) {
+            // Pixel/Portal keep a calm, flat page — the stage itself carries the colour.
+            homeBackdrop?.background = null
+            liveBackdrop?.stop()
+            appRootView?.let { root -> if (root.background !is ColorDrawable) root.setBackgroundColor(BACKGROUND) }
+            return
+        }
         val root = appRootView
         val drawable = liveBackdrop
         if (root == null || drawable == null) { homeBackdrop?.background = drawable; return }
@@ -28437,8 +29362,8 @@ class MainActivity : Activity() {
             uploadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
         }
         if (::downloadSpeedText.isInitialized) {
-            downloadSpeedText.text = formatTransferSpeed(0L)
-            uploadSpeedText.text = formatTransferSpeed(0L)
+            setSpeedText(downloadSpeedText, 0L)
+            setSpeedText(uploadSpeedText, 0L)
         }
     }
 

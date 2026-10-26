@@ -162,8 +162,34 @@ object CatClientDesignTokens {
         )
         val night = nightMode == Configuration.UI_MODE_NIGHT_YES
         val surfaceStyle = AppSurfaceStylePreferenceStore(context).read()
-        return themed(palette(night), AppAccentPreferenceStore(context).read(), night, surfaceStyle)
+        val preset = AppAccentPreferenceStore(context).read()
+        val design = AppDesignPreferenceStore(context)
+        val presetRoles = rolesOf(preset, night)
+        val sourceRoles = if (design.dynamicColor()) CatColorStyles.dynamicRoles(context, night) ?: presetRoles else presetRoles
+        val roles = CatColorStyles.transform(sourceRoles, design.colorStyle(), night)
+        val themedPalette = themedRaw(palette(night), roles, night, surfaceStyle, forceAmoled = preset == AppAccent.AmoledNeon)
+        return CatColorStyles.applyContrast(themedPalette, design.contrast())
     }
+
+    /** Same pipeline as [forContext] but with a different colour style — used by the style picker previews. */
+    internal fun forStyle(context: Context, style: ColorStyle, night: Boolean): CatClientPalette {
+        val surfaceStyle = AppSurfaceStylePreferenceStore(context).read()
+        val preset = AppAccentPreferenceStore(context).read()
+        val design = AppDesignPreferenceStore(context)
+        val presetRoles = rolesOf(preset, night)
+        val sourceRoles = if (design.dynamicColor()) CatColorStyles.dynamicRoles(context, night) ?: presetRoles else presetRoles
+        val roles = CatColorStyles.transform(sourceRoles, style, night)
+        val themedPalette = themedRaw(palette(night), roles, night, surfaceStyle, forceAmoled = preset == AppAccent.AmoledNeon)
+        return CatColorStyles.applyContrast(themedPalette, design.contrast())
+    }
+
+    internal fun rolesOf(preset: AppAccent, night: Boolean): AccentRoles = AccentRoles(
+        tone = if (night) preset.dark else preset.light,
+        onTone = if (night) preset.onDark else preset.onLight,
+        secondary = if (night) preset.secondaryDark else preset.secondaryLight,
+        tint = if (night) preset.surfaceTintDark else preset.surfaceTintLight,
+        tintStrength = preset.tintStrength,
+    )
 
     /**
      * Zed "Theme presets": one preset re-colours the whole scheme — primary, secondary, the tonal
@@ -174,14 +200,22 @@ object CatClientDesignTokens {
         preset: AppAccent,
         night: Boolean,
         surfaceStyle: AppSurfaceStyle = AppSurfaceStyle.Glass,
+    ): CatClientPalette = themedRaw(base, rolesOf(preset, night), night, surfaceStyle, forceAmoled = preset == AppAccent.AmoledNeon)
+
+    internal fun themedRaw(
+        base: CatClientPalette,
+        roles: AccentRoles,
+        night: Boolean,
+        surfaceStyle: AppSurfaceStyle = AppSurfaceStyle.Glass,
+        forceAmoled: Boolean = false,
     ): CatClientPalette {
-        val tone = if (night) preset.dark else preset.light
-        val onTone = if (night) preset.onDark else preset.onLight
-        val secondary = if (night) preset.secondaryDark else preset.secondaryLight
-        val tint = if (night) preset.surfaceTintDark else preset.surfaceTintLight
-        val k = preset.tintStrength
+        val tone = roles.tone
+        val onTone = roles.onTone
+        val secondary = roles.secondary
+        val tint = roles.tint
+        val k = roles.tintStrength
         fun mix(c: Int, amount: Float = k) = androidx.core.graphics.ColorUtils.blendARGB(c, tint, amount)
-        val isAmoled = night && (surfaceStyle == AppSurfaceStyle.Amoled || preset == AppAccent.AmoledNeon)
+        val isAmoled = night && (surfaceStyle == AppSurfaceStyle.Amoled || forceAmoled)
         val isNeon = surfaceStyle == AppSurfaceStyle.Neon
         val bgColor = if (isAmoled) 0xFF000000.toInt() else mix(base.background)
         val surfColor = if (isAmoled) mix(0xFF07070B.toInt(), 0.14f) else mix(base.surface)

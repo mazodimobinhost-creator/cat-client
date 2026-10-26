@@ -10,6 +10,13 @@ The connection-fault explanation idea (ConnectionFaultExplainer.kt) and the
 AmneziaWG H1-H4 / named-vmess import fixes follow ZedSecure 3.1.6 behaviour; the
 code and texts are written independently for Cat Client and are offered under
 AGPL-3.0 as well.
+The ZedSecure 3.1.6 Material 3 Expressive design (App design picker Pixel /
+Portal / Old, Portal home stage, Pixel home card, colour styles and contrast,
+expressive settings list and shapes) is ported to Android Views in
+ZedShapes.kt, AppDesign.kt, ZedPortalView.kt and ZedSettingsViews.kt from
+ZedSecure's PortalHome.kt, PixelHome.kt, AppDesignPicker.kt, ColorStylePicker.kt,
+Shape.kt and SettingsItem.kt / SettingsHero.kt; these files remain available under
+AGPL-3.0. Icon paths in res/drawable/ic_zed_*.xml are Material Symbols (Apache-2.0).
 
 The DNS-tunnel engine packaged as lib/<abi>/libslipnet.so is the SlipNet CLI by
 anonvector (https://github.com/anonvector/SlipNet, directory cli/), licensed under
