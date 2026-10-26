@@ -119,7 +119,7 @@ data class AetherRuntimeConfig(
             .put("scanMode", scanMode)
             .put("scan", scanMode)
             .put("noize", noizePreset)
-            .put("fingerprint", effectiveFp)
+            .put("fingerprint", fingerprint.ifBlank { "semi-python" })
             .put("scanBudgetMillis", scanBudgetMillis)
             .put("validationEnabled", true)
             .put("autoReprovision", false)
