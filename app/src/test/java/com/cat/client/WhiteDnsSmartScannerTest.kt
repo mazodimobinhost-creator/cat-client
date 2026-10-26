@@ -523,7 +523,7 @@ class WhiteDnsSmartScannerTest {
     }
 
     @Test fun mlmAndNextGenVpnHubOutlineAmneziaProtonIpv6AndBankShieldWork() {
-        assertEquals(7, MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.size)
+        assertEquals(9, MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.size)
 
         // 1. Outline JSON -> ss:// -> SubConvConverter
         val outlineJson = """{"server":"188.114.98.0","server_port":443,"password":"secretOutlinePassword","method":"chacha20-ietf-poly1305"}"""
