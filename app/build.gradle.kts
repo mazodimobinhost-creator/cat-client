@@ -186,7 +186,7 @@ dependencies {
     implementation("com.caverock:androidsvg-aar:1.4")
     // Isolated-process carrier for Aether → MASQUE → Psiphon. Pinned because
     // this artifact contains a native Go runtime and is part of the VPN TCB.
-    implementation("ca.psiphon:psiphontunnel:2.0.41")
+    implementation("ca.psiphon:psiphontunnel:2.0.42")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
