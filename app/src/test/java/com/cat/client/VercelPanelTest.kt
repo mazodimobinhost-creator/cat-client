@@ -161,13 +161,15 @@ class VercelPanelTest {
     }
 
     @Test
-    fun candidatesCoverEveryVercelNetwork() {
-        val quick = VercelIpScanner.candidates(false, java.util.Random(1))
-        val deep = VercelIpScanner.candidates(true, java.util.Random(1))
-        assertTrue(quick.size in 100..120)
-        assertTrue(deep.size > 350)
-        VercelIpScanner.NETS_24.forEach { net -> assertTrue(net, quick.any { it.startsWith("$net.") }) }
-        assertTrue(quick.contains("76.76.21.21") || quick.contains("76.76.21.65"))
-        assertTrue((quick + deep).all { ip -> ip.split('.').size == 4 && ip.split('.').all { it.toInt() in 0..255 } })
+    fun candidatesAreTheMappedLiveEdgeAddresses() {
+        val quick = VercelIpScanner.candidates(false)
+        val deep = VercelIpScanner.candidates(true)
+        assertEquals(60, quick.size)
+        assertEquals(167, deep.size)
+        assertTrue(deep.containsAll(quick))
+        VercelIpScanner.NETS_24.forEach { net -> assertTrue(net, quick.containsAll(listOf("$net.1", "$net.65", "$net.129", "$net.193"))) }
+        assertTrue(quick.containsAll(listOf("76.76.21.21", "76.76.21.93", "76.76.21.164", "66.33.60.65", "216.198.79.65", "64.29.17.65")))
+        assertFalse(deep.any { it.startsWith("143.13.") || it.startsWith("155.121.") || it.endsWith(".229") })
+        assertTrue(deep.all { ip -> ip.split('.').size == 4 && ip.split('.').all { it.toInt() in 0..255 } })
     }
 }

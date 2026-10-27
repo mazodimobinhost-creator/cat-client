@@ -321,12 +321,21 @@ internal data class VercelScanHit(val ip: String, val port: Int, val tlsMillis: 
  * Only stage-2 winners become configs, on exactly the port that was tested.
  */
 internal object VercelIpScanner {
+    /**
+     * Newer Vercel /24s: only the first three hosts of each /26 answer (.1–3, .65–67, .129–131,
+     * .193–195). Mapped from inside Vercel (iad1, 2026-10-27) with TLS + Host = a real project.
+     */
     val NETS_24 = listOf(
-        "76.76.21", "66.33.60", "64.29.17", "216.198.79", "216.150.1", "216.150.16",
-        "216.230.84", "216.230.86", "64.239.109", "64.239.123", "198.169.1", "198.169.2",
+        "216.198.79", "64.29.17", "216.150.1", "216.150.16", "216.230.84", "216.230.86",
+        "64.239.109", "64.239.123", "198.169.1", "198.169.2",
     )
-    val NETS_16 = listOf("143.13", "155.121")
-    private val QUICK_OFFSETS = listOf(1, 21, 65, 93, 129, 164, 193, 229)
+    private val NEW_OFFSETS = listOf(1, 65, 129, 193, 2, 66, 130, 194, 3, 67, 131, 195)
+
+    /** Legacy ranges (`cname.vercel-dns.com` / `*.vercel.app`): live hosts are scattered, so they are listed. */
+    val LEGACY = mapOf(
+        "76.76.21" to listOf(21, 93, 164, 9, 61, 75, 98, 123, 142, 200, 241, 22, 100, 104, 108, 112, 116, 201, 101, 102, 103, 105, 106, 107, 109, 110, 111, 113, 114, 115, 117, 202, 203),
+        "66.33.60" to listOf(65, 129, 193, 34, 224, 242, 35, 66, 67, 130, 194, 225, 226, 227),
+    )
 
     fun target(link: String): VercelScanTarget? {
         val source = VercelRelayPlanner.parse(link) ?: return null
@@ -351,15 +360,13 @@ internal object VercelIpScanner {
         return if (query.isEmpty()) base else base + "?" + query.joinToString("&")
     }
 
-    fun candidates(deep: Boolean, random: java.util.Random = SecureRandom()): List<String> {
+    /** Quick ≈ 60 addresses (4 per network), full = every known live edge address (≈ 167). */
+    fun candidates(deep: Boolean): List<String> {
         val out = LinkedHashSet<String>()
-        NETS_24.forEach { net ->
-            QUICK_OFFSETS.forEach { out += "$net.$it" }
-            if (deep) repeat(24) { out += "$net.${1 + random.nextInt(254)}" }
-        }
-        NETS_16.forEach { net ->
-            repeat(if (deep) 32 else 6) { out += "$net.${random.nextInt(256)}.${1 + random.nextInt(254)}" }
-        }
+        val perNew = if (deep) NEW_OFFSETS.size else 4
+        val perLegacy = if (deep) Int.MAX_VALUE else 10
+        LEGACY.forEach { (net, hosts) -> hosts.take(perLegacy).forEach { out += "$net.$it" } }
+        NETS_24.forEach { net -> NEW_OFFSETS.take(perNew).forEach { out += "$net.$it" } }
         return out.toList()
     }
 

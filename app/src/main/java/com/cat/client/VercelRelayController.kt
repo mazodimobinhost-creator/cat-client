@@ -1007,7 +1007,9 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         step(t("۳/۸ آماده کردن فایل‌های پنل…", "3/8 Preparing the panel files…"))
         val files = panelFiles()
         step(t("۴/۸ حافظهٔ دائمی پنل (Vercel Blob)…", "4/8 Permanent panel storage (Vercel Blob)…"))
-        val region = project.optJSONObject("resourceConfig")?.optString("functionDefaultRegions")?.takeIf { it.length == 4 } ?: "fra1"
+        // Vercel returns this as an array (["iad1"]); keep the panel in the region it already runs in.
+        val region = project.optJSONObject("resourceConfig")?.optJSONArray("functionDefaultRegions")?.optString(0)
+            ?.takeIf { it.length == 4 } ?: "fra1"
         ensureStorage(api, projectId, name, region, env, step)
         val host = publishPanel(api, projectId, name, region, files, step, 5)
         val links = testPanel(host, uuid, trojanPass.ifBlank { uuid }, name, step, 7)
@@ -1151,11 +1153,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         val modeGroup = RadioGroup(activity).apply { orientation = RadioGroup.VERTICAL }
         val quick = RadioButton(activity).apply {
             id = View.generateViewId(); isChecked = true; setTextColor(palette.textPrimary)
-            text = t("سریع: حدود ۱۱۰ آی‌پی (۱ تا ۲ دقیقه)", "Quick: about 110 IPs (1–2 minutes)")
+            text = t("سریع: ۶۰ آی‌پی (کمتر از ۱ دقیقه)", "Quick: 60 IPs (under a minute)")
         }
         val deep = RadioButton(activity).apply {
             id = View.generateViewId(); setTextColor(palette.textPrimary)
-            text = t("کامل: حدود ۴۵۰ آی‌پی (۳ تا ۶ دقیقه)", "Full: about 450 IPs (3–6 minutes)")
+            text = t("کامل: همهٔ ۱۶۷ آی‌پی زندهٔ Vercel (۱ تا ۳ دقیقه)", "Full: all 167 live Vercel IPs (1–3 minutes)")
         }
         modeGroup.addView(quick); modeGroup.addView(deep)
         box.addView(modeGroup)
