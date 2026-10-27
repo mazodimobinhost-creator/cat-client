@@ -25,9 +25,42 @@ import javax.net.ssl.SSLSocketFactory
  *   package.json      type module, node 24.x, ws, @vercel/blob (panel storage)
  * Project env: UUID, TROJAN_PASS, DATA_PLANE_ENABLED=true (+ optional PANEL_PASSWORD).
  */
+/**
+ * What `/api/version` of a deployed Cat panel says, compared with the panel this APK would deploy.
+ * A panel without permanent storage (`"kv":false`) is the cause of «subscription shows 0 configs»
+ * in other clients (ZedSecure, v2rayNG…): users made in the panel exist only in one instance.
+ */
+internal sealed class VercelPanelHealth {
+    /** Up to date and storing users permanently. */
+    data class Ok(val version: String) : VercelPanelHealth()
+    /** Answers, but has no permanent storage — panel-made user subscriptions come back empty. */
+    data class NoStorage(val version: String, val outdated: Boolean) : VercelPanelHealth()
+    /** Has storage but runs an older panel than the one in this APK. */
+    data class Outdated(val version: String, val bundled: String) : VercelPanelHealth()
+    /** Not a Cat panel answer (deleted project, paused account, blocked network…). */
+    data class Unreachable(val code: Int, val detail: String) : VercelPanelHealth()
+
+    val needsUpdate: Boolean get() = this is NoStorage || this is Outdated
+}
+
 internal object VercelPanelPlanner {
     const val ADAPTER_ASSET = "vercel/panel-adapter.mjs"
     const val PANEL_ASSET = "panels/catpanel.min.js"
+
+    /** Reads a panel's `/api/version` answer (status [code], [body]) against the [bundled] version. */
+    fun health(code: Int, body: String, bundled: String, detail: String = ""): VercelPanelHealth {
+        if (code != 200 || !Regex(""""panel"\s*:\s*"cat-panel"""").containsMatchIn(body)) {
+            return VercelPanelHealth.Unreachable(code, detail.ifBlank { if (code > 0) "HTTP $code" else "no answer" })
+        }
+        val version = Regex(""""version"\s*:\s*"([0-9]+(?:\.[0-9]+)+)"""").find(body)?.groupValues?.get(1).orEmpty()
+        val storage = Regex(""""kv"\s*:\s*true""").containsMatchIn(body)
+        val outdated = bundled.isNotBlank() && (version.isBlank() || AppUpdatePolicy.isNewer(bundled, version))
+        return when {
+            !storage -> VercelPanelHealth.NoStorage(version, outdated)
+            outdated -> VercelPanelHealth.Outdated(version, bundled)
+            else -> VercelPanelHealth.Ok(version)
+        }
+    }
 
     /** Vercel anycast addresses that answered for the project with SNI = Host = project domain. */
     val EDGE_ADDRESSES = listOf("vercel.com", "76.76.21.21", "64.29.17.65", "216.198.79.65")

@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta182] — 2026-10-27 (Panel 6.69.39)
+
+### Added
+- **Panel health in «My projects» (`VercelPanelPlanner.health`, `VercelPanelHealth`):** opening a Cat panel on Vercel now reads its live `/api/version` and says in plain words what state it is in — ✅ healthy (version + permanent storage), ⚠️ **no permanent storage** (the reason panel-made user links show “0 configs” in ZedSecure / v2rayNG), 🆕 older than the panel in this APK, or ❌ not answering (deleted / paused / network blocks Vercel). When an update is needed a highlighted «🔧 Fix it now» button opens the update flow (UUID and passwords kept). The in-app guide explains it. Unit-tested with the exact answer the live test panel gave (`6.69.38`, `kv:false`).
+
+### Verified
+- ZedSecure 3.1.6 subscription fetch (read from its AGPL source): it asks with `v2rayNG/…`, then `ZedSecure/…`, then `SFA/1.14.0`. The panel's master subscription answers all three with 10 configs (plain links / sing-box JSON), so “0” comes only from panel-made users on a panel without storage.
+
 ## [1.10.0-beta181] — 2026-10-27 (Panel 6.69.39)
 
 ### Fixed

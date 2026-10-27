@@ -172,4 +172,26 @@ class VercelPanelTest {
         assertFalse(deep.any { it.startsWith("143.13.") || it.startsWith("155.121.") || it.endsWith(".229") })
         assertTrue(deep.all { ip -> ip.split('.').size == 4 && ip.split('.').all { it.toInt() in 0..255 } })
     }
+
+    @Test
+    fun panelHealthReadsTheLiveVersionAnswer() {
+        val bundled = PanelUpdate.parseVersion(asset(VercelPanelPlanner.PANEL_ASSET).readText())!!
+        // exactly what cat-panel-v7k2m answered on 2026-10-27 (6.69.38, no storage → «0 configs»)
+        val live = """{"ok":true,"panel":"cat-panel","version":"6.69.38","needsUser":true,"kv":false,"open":false}"""
+        val noStorage = VercelPanelPlanner.health(200, live, bundled)
+        assertTrue(noStorage is VercelPanelHealth.NoStorage)
+        assertEquals("6.69.38", (noStorage as VercelPanelHealth.NoStorage).version)
+        assertTrue(noStorage.needsUpdate)
+
+        val ok = VercelPanelPlanner.health(200, """{"ok":true,"panel":"cat-panel","version":"$bundled","kv":true}""", bundled)
+        assertEquals(VercelPanelHealth.Ok(bundled), ok)
+        assertFalse(ok.needsUpdate)
+
+        val old = VercelPanelPlanner.health(200, """{"panel":"cat-panel","version":"6.60.1","kv":true}""", bundled)
+        assertEquals(VercelPanelHealth.Outdated("6.60.1", bundled), old)
+
+        assertTrue(VercelPanelPlanner.health(404, "The deployment could not be found", bundled, "DEPLOYMENT_NOT_FOUND") is VercelPanelHealth.Unreachable)
+        assertTrue(VercelPanelPlanner.health(200, "<html>login</html>", bundled) is VercelPanelHealth.Unreachable)
+        assertTrue(VercelPanelPlanner.health(0, "", bundled) is VercelPanelHealth.Unreachable)
+    }
 }

@@ -666,11 +666,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             "«🚀 ساخت پنل» را بزنی ← پروژه + حافظهٔ دائمی ساخته و منتشر می‌شود و کانفیگ‌ها تست می‌شوند.\n" +
                 "«🔎 اسکنر آی‌پی» را بزنی ← آی‌پی‌های Vercel که روی خط تو کار می‌کنند پیدا و کانفیگ می‌شوند.\n" +
                 "«🔧 به‌روزرسانی» را بزنی ← پنل قبلی‌ات نسخهٔ جدید + حافظهٔ دائمی می‌گیرد (کاربرهای پنل دیگر پاک نمی‌شوند).\n" +
-                "«پروژه‌های من» را بزنی ← پنل‌ها و واسطه‌های قبلی را می‌بینی، دوباره اضافه یا پاکشان می‌کنی.",
+                "«پروژه‌های من» را بزنی و روی یک پنل بزنی ← اول وضعیتش را می‌گوید (✅ سالم / ⚠️ بدون حافظه = علت «۰ کانفیگ» / 🆕 قدیمی) و اگر لازم باشد دکمهٔ «🔧 همین حالا درستش کن» می‌آید؛ بعد می‌توانی دوباره اضافه یا پاکش کنی.",
             "Tap “🚀 Build panel” → project + permanent storage are created, published and tested.\n" +
                 "Tap “🔎 IP scanner” → Vercel IPs that work on your line are found and turned into configs.\n" +
                 "Tap “🔧 Update” → your earlier panel gets the new version + permanent storage (panel users are kept).\n" +
-                "Tap “My projects” → see earlier panels/relays, add them again or delete them.",
+                "Tap “My projects” and pick a panel → it first shows its state (✅ healthy / ⚠️ no storage = the “0 configs” cause / 🆕 outdated) and, when needed, a “🔧 Fix it now” button; then add it again or delete it.",
         ), 12f, palette.textSecondary, 8))
         val tools = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         tools.addView(button(t("🔎 اسکنر آی‌پی", "🔎 IP scanner")) { showIpScanner() }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1369,32 +1369,85 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
     }
 
     private fun showPanelActions(item: SavedVercelRelay) {
-        val options = arrayOf(
-            t("🌐 باز کردن پنل", "🌐 Open the panel"),
-            t("➕ افزودن دوبارهٔ کانفیگ‌ها به برنامه", "➕ Add the configs to the app again"),
-            t("🔁 افزودن لینک اشتراک", "🔁 Add the subscription link"),
-            t("📋 کپی لینک اشتراک", "📋 Copy the subscription link"),
-            t("🔎 اسکنر آی‌پی Vercel برای این پنل", "🔎 Vercel IP scanner for this panel"),
-            t("🔧 به‌روزرسانی پنل (+ حافظهٔ دائمی)", "🔧 Update the panel (+ permanent storage)"),
-            t("🗑️ پاک کردن پروژه از حساب Vercel", "🗑️ Delete the project from Vercel"),
-        )
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(4), dp(18), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val status = label(t("⏳ در حال بررسی وضعیت پنل…", "⏳ Checking the panel…"), 12.5f, palette.textPrimary, 0)
+        box.addView(status)
+        // shown only when the check says the panel is old / has no storage (the «0 configs» cause)
+        val fixRow = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        box.addView(fixRow)
         val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle("🐱 " + item.projectName)
-            .setItems(options) { d, which ->
-                d.dismiss()
-                when (which) {
-                    0 -> runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(VercelPanelPlanner.panelUrl(item.host)))) }
-                    1 -> addSubscription(item.links.joinToString("\n"), "Vercel Panel · ${item.projectName}")
-                    2 -> addSubscription(item.sourceName, "Vercel Panel · ${item.projectName}")
-                    3 -> copy(item.sourceName)
-                    4 -> showIpScanner(item.links.firstOrNull { VercelIpScanner.target(it) != null } ?: item.sourceName)
-                    5 -> showUpdatePanel(item.projectName)
-                    6 -> confirmDelete(item)
-                }
-            }
+            .setView(ScrollView(activity).apply { addView(box) })
             .setNegativeButton(android.R.string.cancel, null)
             .create()
+        fun action(text: String, filled: Boolean = false, run: () -> Unit) =
+            button(text, filled) { dialog.dismiss(); run() }
+        fixRow.addView(action(t("🔧 همین حالا درستش کن: به‌روزرسانی پنل + حافظهٔ دائمی", "🔧 Fix it now: update the panel + permanent storage"), true) {
+            showUpdatePanel(item.projectName)
+        }, lp(6))
+        val actions: List<Pair<String, () -> Unit>> = listOf(
+            t("🌐 باز کردن پنل", "🌐 Open the panel") to {
+                runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(VercelPanelPlanner.panelUrl(item.host)))) }; Unit
+            },
+            t("➕ افزودن دوبارهٔ کانفیگ‌ها به برنامه", "➕ Add the configs to the app again") to {
+                addSubscription(item.links.joinToString("\n"), "Vercel Panel · ${item.projectName}")
+            },
+            t("🔁 افزودن لینک اشتراک", "🔁 Add the subscription link") to {
+                addSubscription(item.sourceName, "Vercel Panel · ${item.projectName}")
+            },
+            t("📋 کپی لینک اشتراک", "📋 Copy the subscription link") to { copy(item.sourceName) },
+            t("🔎 اسکنر آی‌پی Vercel برای این پنل", "🔎 Vercel IP scanner for this panel") to {
+                showIpScanner(item.links.firstOrNull { VercelIpScanner.target(it) != null } ?: item.sourceName)
+            },
+            t("🔧 به‌روزرسانی پنل (+ حافظهٔ دائمی)", "🔧 Update the panel (+ permanent storage)") to { showUpdatePanel(item.projectName) },
+            t("🗑️ پاک کردن پروژه از حساب Vercel", "🗑️ Delete the project from Vercel") to { confirmDelete(item) },
+        )
+        actions.forEach { (text, run) -> box.addView(action(text, run = run), lp(6)) }
         showDialog(dialog)
+
+        val bundled = runCatching {
+            PanelUpdate.parseVersion(activity.assets.open(VercelPanelPlanner.PANEL_ASSET).bufferedReader().use { it.readText() })
+        }.getOrNull().orEmpty()
+        scope.launch {
+            val probe = withContext(Dispatchers.IO) { httpGet("https://${item.host}/api/version", 15_000) }
+            val health = VercelPanelPlanner.health(probe.code, probe.body, bundled, probe.vercelError.ifBlank { probe.error })
+            if (!dialog.isShowing) return@launch
+            status.text = healthText(health)
+            status.setTextColor(
+                when (health) {
+                    is VercelPanelHealth.Ok -> palette.teal
+                    is VercelPanelHealth.Unreachable -> palette.red
+                    else -> palette.amber
+                },
+            )
+            fixRow.visibility = if (health.needsUpdate) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** Plain-language status line for a deployed panel: what it means and what to press. */
+    private fun healthText(health: VercelPanelHealth): String = when (health) {
+        is VercelPanelHealth.Ok -> t(
+            "✅ پنل سالم است · نسخهٔ ${health.version} · حافظهٔ دائمی دارد؛ کاربرهایی که در پنل می‌سازی در همهٔ برنامه‌ها کانفیگ می‌گیرند.",
+            "✅ Panel is healthy · version ${health.version} · permanent storage on; users you create get configs in every app.",
+        )
+        is VercelPanelHealth.NoStorage -> t(
+            "⚠️ این پنل حافظهٔ دائمی ندارد (نسخهٔ ${health.version.ifBlank { "?" }}). برای همین لینک کاربرهایی که در پنل ساخته‌ای در ZedSecure / v2rayNG «۰ کانفیگ» نشان می‌دهد. " +
+                "دکمهٔ «🔧 همین حالا درستش کن» را بزن؛ UUID و رمزها عوض نمی‌شوند. بعدش یک کاربر تازه بساز و لینک همان را وارد کن.",
+            "⚠️ This panel has no permanent storage (version ${health.version.ifBlank { "?" }}), so links of users made in the panel show “0 configs” in ZedSecure / v2rayNG. " +
+                "Tap “🔧 Fix it now”; UUID and passwords stay the same. Then create a new user and import that user's link.",
+        )
+        is VercelPanelHealth.Outdated -> t(
+            "🆕 نسخهٔ پنل ${health.version.ifBlank { "?" }} است و این برنامه ${health.bundled} را دارد. «🔧 همین حالا درستش کن» را بزن تا تازه شود؛ UUID و رمزها و کاربرها می‌مانند.",
+            "🆕 The panel runs ${health.version.ifBlank { "?" }}; this app ships ${health.bundled}. Tap “🔧 Fix it now” to update it; UUID, passwords and users are kept.",
+        )
+        is VercelPanelHealth.Unreachable -> t(
+            "❌ پنل جواب نداد (${health.detail}). شاید پروژه پاک یا متوقف شده، یا اینترنت فعلی Vercel را باز نمی‌کند؛ با VPN روشن یا خط دیگر دوباره امتحان کن.",
+            "❌ The panel did not answer (${health.detail}). The project may be deleted or paused, or this network blocks Vercel; try again with the VPN on or another line.",
+        )
     }
 
     private fun confirmDelete(item: SavedVercelRelay) {
