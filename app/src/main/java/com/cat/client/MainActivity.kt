@@ -151,6 +151,20 @@ class MainActivity : Activity() {
             showDialog = { dialog -> dialog.showCatClientDialog() },
         )
     }
+    private val vercelRelay: VercelRelayController by lazy {
+        VercelRelayController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            subscriptions = { userSubscriptionManager },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            showQr = { links, title -> showConfigQrCodes(links, title) },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+        )
+    }
     private var aetherOperationJob: Job? = null
     private var updateSettingsBadge: TextView? = null
     private val appUpdateUi by lazy {
@@ -10862,6 +10876,34 @@ class MainActivity : Activity() {
         )
         body.addView(setupWizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+        // Vercel XHTTP relay card: deploys into the user's own Vercel account with their token.
+        val vercelCard = advancedSettingsPanel()
+        vercelCard.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_vercel_title)
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        vercelCard.addView(
+            TextView(this).apply {
+                setText(R.string.cloud_vercel_desc)
+                textSize = 12.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        vercelCard.addView(
+            cloudActionButton(R.string.cloud_vercel_start, R.drawable.ic_cloud_tab, accent = true) { vercelRelay.show() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
         body.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
@@ -17856,6 +17898,17 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 19: XHTTP relay on the user's own Vercel account (auto deploy + ready configs)
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🔺 ۱۹) کانفیگ روی Vercel: کانفیگ XHTTP فیلترشده یا سرور شخصی را با یک دکمه از پشت Vercel رد کن"
+                else "🔺 19) Config on Vercel: put a filtered XHTTP config or your VPS behind Vercel with one tap",
+            ) {
+                vercelRelay.show()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
@@ -23995,6 +24048,7 @@ class MainActivity : Activity() {
             addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
             addView(item("📂", R.string.servers_add_file) { appTools.openImportFilePicker() }, LinearLayout.LayoutParams(-1, -2))
             addView(item("🧰", R.string.servers_add_tools) { appTools.showToolsHub() }, LinearLayout.LayoutParams(-1, -2))
+            addView(item("🔺", R.string.servers_add_vercel) { vercelRelay.show() }, LinearLayout.LayoutParams(-1, -2))
             addView(wizardText(getString(R.string.servers_add_file_hint), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
         sheet.setContentView(body)

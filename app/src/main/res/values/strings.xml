@@ -1275,6 +1275,10 @@
     <string name="tab_aether">Aether</string>
     <string name="servers_add_file">Import from file (.yaml / .json / .conf / .txt)</string>
     <string name="servers_add_tools">Backup · restore · toolbox</string>
+    <string name="servers_add_vercel">Config on Vercel (XHTTP relay)</string>
+    <string name="cloud_vercel_title">🔺 Config on Vercel</string>
+    <string name="cloud_vercel_desc">Put a filtered XHTTP config or your own server behind Vercel: the app deploys a small relay into your Vercel account with your token, tests it and adds ready configs.</string>
+    <string name="cloud_vercel_start">Build on Vercel</string>
     <string name="design_pixel">Pixel</string>
     <string name="design_portal">Portal</string>
     <string name="design_old">Old</string>

@@ -25,3 +25,11 @@ the GNU Affero General Public License v3.0, together with its dnstt
 VayDNS submodules. It is built unmodified from source by
 scripts/build-slipnet-cli.sh (pinned commit recorded there) and runs as a separate
 process; its complete corresponding source is available at the URLs above.
+
+Vercel XHTTP relay (VercelRelay.kt, VercelRelayController.kt, assets/vercel/*)
+-----------------------------------------------------------------------------
+The idea of relaying Xray XHTTP traffic through a Vercel function comes from the public
+projects B3hnamR/XHTTPRelayECO, alirezaparvas/vercel-xhttp-relay, SNI-XHTTP and
+Maahdima/Vercel-XHTTP (guides and YouTube walkthroughs). Those repositories publish no licence,
+so no code was copied: the relay scripts, the deployment client and the UI were written
+independently for Cat Client (GPL-3.0).

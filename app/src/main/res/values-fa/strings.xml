@@ -1274,6 +1274,10 @@
     <string name="tab_aether">ضدسانسور</string>
     <string name="servers_add_file">وارد کردن از فایل (.yaml / .json / .conf / .txt)</string>
     <string name="servers_add_tools">پشتیبان · بازگردانی · جعبه‌ابزار</string>
+    <string name="servers_add_vercel">کانفیگ روی Vercel (واسطهٔ XHTTP)</string>
+    <string name="cloud_vercel_title">🔺 کانفیگ روی Vercel</string>
+    <string name="cloud_vercel_desc">کانفیگ XHTTP فیلترشده یا سرور شخصی‌تان را از پشت Vercel رد کنید: برنامه با توکن خودتان یک واسطهٔ کوچک در حساب Vercel شما می‌سازد، تست می‌گیرد و کانفیگ آماده اضافه می‌کند.</string>
+    <string name="cloud_vercel_start">ساخت روی Vercel</string>
     <string name="design_pixel">پیکسل</string>
     <string name="design_portal">پورتال</string>
     <string name="design_old">قدیمی</string>

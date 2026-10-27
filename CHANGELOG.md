@@ -4,6 +4,11 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta177] — 2026-10-27 (Panel 6.69.37)
+
+### Added
+- **Config on Vercel (`VercelRelay.kt`, `VercelRelayController.kt`, `assets/vercel/relay-*.js`):** deploys an XHTTP relay into the user's own Vercel account (token, confirmation, project, files, production deploy, readiness polling, build-error events, real probe) and builds ready configs (vercel.com front, project domain, Vercel anycast IPs). Node runtime (IP + separate SNI/Host, self-signed allowed) or Edge runtime; path guard so the project is not an open proxy; "My projects" with re-add/delete; VPS helper that generates an Xray VLESS+XHTTP inbound. Entry points: Add server sheet, Cloud tab card, 2026 hub option 19.
+
 ## [1.10.0-beta154] — 2026-10-25 (Panel 6.69.31)
 
 ### Changed
