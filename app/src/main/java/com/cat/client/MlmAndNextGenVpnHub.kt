@@ -1052,6 +1052,8 @@ internal object MlmAndNextGenVpnHub {
     fun runMlmScoutRecommendations(
         userShareLinks: List<String>,
         timeoutMs: Int = 1200,
+        /** FENIX only works with a signed-in Firefox account; without one it must not be offered as connectable. */
+        fenixSignedIn: Boolean = true,
     ): List<MlmScoutRecommendation> {
         val candidates = mutableListOf<MlmScoutRecommendation>()
 
@@ -1071,22 +1073,22 @@ internal object MlmAndNextGenVpnHub {
             }
         }
 
-        // 2. Probe Firefox Browser VPN (FENIX / Fastly Edge)
-        val fenixProbe = runCatching {
+        // 2. Probe Firefox Browser VPN (FENIX): the real Mozilla recommended node, not a generic Fastly IP
+        val fenixProbe = if (!fenixSignedIn) null else runCatching {
             val t0 = System.nanoTime()
             Socket().use { s ->
                 protectOutboundSocket(s)
-                s.connect(InetSocketAddress("151.101.1.91", 443), timeoutMs)
+                s.connect(InetSocketAddress(FirefoxVpnEngine.RECOMMENDED_NODE_HOST, FirefoxVpnEngine.FASTLY_MASQUE_PORT), timeoutMs.coerceAtLeast(1_500))
                 ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
             }
         }.getOrNull()
         if (fenixProbe != null) {
-            val deCountry = FirefoxVpnEngine.BUILTIN_COUNTRIES.first()
-            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(country = deCountry, localPort = FirefoxVpnEngine.activeProxyPort())
+            val recCountry = FirefoxVpnEngine.BUILTIN_COUNTRIES.first()
+            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(country = recCountry, localPort = FirefoxVpnEngine.activeProxyPort())
             candidates += MlmScoutRecommendation(
                 id = "fenix_fastly",
-                titleFa = "🦊 VPN مرورگر فایرفاکس (FENIX · آلمان/هلند/آمریکا)",
-                subtitleFa = "پینگ لبهٔ Fastly: ${fenixProbe}ms · بدون نیاز به سرور شخصی · ضد-DPI خودکار",
+                titleFa = "🦊 VPN مرورگر فایرفاکس (FENIX · نزدیک‌ترین سرور موزیلا)",
+                subtitleFa = "پینگ واقعی سرور موزیلا: ${fenixProbe}ms · با حساب فایرفاکس شما · بدون سرور شخصی",
                 latencyMs = fenixProbe,
                 isRecommended = false,
                 category = "fenix",

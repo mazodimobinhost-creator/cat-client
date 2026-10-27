@@ -1812,21 +1812,52 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Scans [CLEAN_FASTLY_EDGE_IPS] on ports 443 and 2499 in parallel to find the fastest unblocked Fastly edge IP on the user's ISP.
+     * Finds the fastest IP that REALLY serves the Mozilla node on this network: TCP to `IP:2499` plus a full TLS
+     * handshake with SNI `p.m1.fastly-masque.net` and certificate hostname verification. Candidates are the DNS answers
+     * of the recommended node plus [CLEAN_FASTLY_EDGE_IPS]. A plain port-443 ping of a generic Fastly IP proves nothing
+     * for FENIX, so it is no longer counted. Returns null when nothing passes; callers must then keep "auto" (no IP).
      */
     fun findBestCleanFastlyEdgeIp(timeoutMs: Int = 900): Pair<String, Long>? {
-        val effectiveTimeout = timeoutMs.coerceAtLeast(1_000)
-        val tasks = CLEAN_FASTLY_EDGE_IPS.mapNotNull { ip ->
-            runCatching { fenixWorkerPool.submit<Pair<String, Long>?> {
-                val rtt443 = probeTcpLatency(ip, 443, effectiveTimeout)
-                val rtt = rtt443 ?: probeTcpLatency(ip, 2499, effectiveTimeout)
-                if (rtt != null) ip to rtt else null
-            } }.getOrNull()
+        val effectiveTimeout = timeoutMs.coerceAtLeast(2_500)
+        val resolved = runCatching {
+            java.net.InetAddress.getAllByName(RECOMMENDED_NODE_HOST).mapNotNull { it.hostAddress }
+        }.getOrDefault(emptyList())
+        val candidates = (resolved + CLEAN_FASTLY_EDGE_IPS).distinct().take(24)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
+            Thread(null, r, "fenix-edge", 128 * 1024L).apply { isDaemon = true }
         }
-        return tasks.mapNotNull { fut ->
-            runCatching { fut.get(effectiveTimeout.toLong() + 300L, TimeUnit.MILLISECONDS) }.getOrNull()
-        }.minByOrNull { it.second }
+        return try {
+            candidates.map { ip ->
+                pool.submit<Pair<String, Long>?> {
+                    probeNodeTlsLatency(ip, RECOMMENDED_NODE_HOST, effectiveTimeout)?.let { ip to it }
+                }
+            }.mapNotNull { fut ->
+                runCatching { fut.get(effectiveTimeout.toLong() * 2 + 1_000L, TimeUnit.MILLISECONDS) }.getOrNull()
+            }.minByOrNull { it.second }
+        } finally {
+            pool.shutdownNow()
+        }
     }
+
+    /** TCP + verified TLS handshake to `ip:2499` presenting [sni]; returns total ms or null. */
+    internal fun probeNodeTlsLatency(ip: String, sni: String, timeoutMs: Int): Long? = runCatching {
+        val t0 = System.nanoTime()
+        Socket().use { raw ->
+            protectOutboundSocket(raw)
+            raw.tcpNoDelay = true
+            raw.connect(InetSocketAddress(ip, FASTLY_MASQUE_PORT), timeoutMs)
+            raw.soTimeout = timeoutMs
+            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            (sslFactory.createSocket(raw, sni, FASTLY_MASQUE_PORT, false) as SSLSocket).use { ssl ->
+                val params = ssl.sslParameters
+                params.serverNames = listOf(SNIHostName(sni))
+                params.endpointIdentificationAlgorithm = "HTTPS"
+                ssl.sslParameters = params
+                ssl.startHandshake()
+            }
+        }
+        ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+    }.getOrNull()
 
     private fun probeTcpLatency(host: String, port: Int, timeoutMs: Int): Long? {
         return runCatching {
@@ -1874,7 +1905,7 @@ internal object FirefoxVpnEngine {
     private val activeTunnelSemaphore = Semaphore(MAX_FENIX_TUNNELS)
 
     @Volatile
-    private var activeUpstreamHost: String = "proxy-de.fpn.mozilla.net"
+    private var activeUpstreamHost: String = RECOMMENDED_NODE_HOST
     @Volatile
     private var activeUpstreamPort: Int = 2499
     @Volatile
@@ -2185,6 +2216,9 @@ internal object FirefoxVpnEngine {
             } catch (e: Throwable) {
                 lastError = e
                 if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
+                // A saved "clean IP" that cannot even complete TLS for the node (e.g. the old generic 151.101.1.195
+                // default) would add a 10 s stall to every new connection; skip it for the rest of this session.
+                if (connectHost == activeCleanEdgeIp) activeCleanEdgeIp = ""
             }
         }
         // No direct fallback: if every Fastly edge failed, the tunnel is down and mihomo must know.

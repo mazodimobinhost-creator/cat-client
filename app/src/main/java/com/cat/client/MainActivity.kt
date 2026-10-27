@@ -16656,7 +16656,13 @@ class MainActivity : Activity() {
                 }
             }
             val recommendations = withContext(Dispatchers.IO) {
-                MlmAndNextGenVpnHub.runMlmScoutRecommendations(userLinks, timeoutMs = 1100)
+                MlmAndNextGenVpnHub.runMlmScoutRecommendations(
+                    userLinks,
+                    timeoutMs = 1100,
+                    fenixSignedIn = FirefoxVpnEngine.loadAccounts(this@MainActivity).any {
+                        it.enabled && (it.refreshToken.isNotBlank() || it.hasUnexpiredProxyPass())
+                    },
+                )
             }
             if (recommendations.isEmpty()) return@launch
 
@@ -19940,6 +19946,9 @@ class MainActivity : Activity() {
                     }
                     append("🌍 کشور خروجی: $countryLabel\n")
                     append("🛡️ ضد فیلترینگ: ${if (fragOn) "برش TLS SNI روشن ✅" else "عادی"} · لبه Fastly: $cleanIp")
+                    FirefoxVpnEngine.lastTunnelError.takeIf { it.isNotBlank() }?.let {
+                        append("\n⚠️ آخرین خطای تونل: ${it.take(160)}")
+                    }
                 }
             } else {
                 buildString {
@@ -19951,6 +19960,9 @@ class MainActivity : Activity() {
                     }
                     append("🌍 Exit Country: $countryLabel\n")
                     append("🛡️ Anti-DPI: ${if (fragOn) "TLS SNI Split ON ✅" else "Standard"} · Fastly Edge: $cleanIp")
+                    FirefoxVpnEngine.lastTunnelError.takeIf { it.isNotBlank() }?.let {
+                        append("\n⚠️ Last tunnel error: ${it.take(160)}")
+                    }
                 }
             }
         }
@@ -20849,7 +20861,7 @@ class MainActivity : Activity() {
                     4 -> {
                         Toast.makeText(
                             this,
-                            if (isFarsi) "⏳ در حال اسکن آی‌پی‌های لبه تمیز Fastly (151.101.* / 146.75.*) روی اینترنت شما…"
+                            if (isFarsi) "⏳ تست واقعی آی‌پی‌های Fastly (اتصال + TLS سرور موزیلا روی پورت 2499) روی اینترنت شما…"
                             else "⏳ Scanning clean Fastly Anycast edge IPs on your ISP…",
                             Toast.LENGTH_SHORT,
                         ).show()
@@ -20867,13 +20879,14 @@ class MainActivity : Activity() {
                                     Toast.LENGTH_LONG,
                                 ).show()
                             } else {
-                                FirefoxVpnEngine.saveCleanFastlyEdgeIp(this@MainActivity, "151.101.1.195")
+                                // Nothing passed a real TLS test: keep "auto" (direct node by name), never a guessed IP.
+                                FirefoxVpnEngine.saveCleanFastlyEdgeIp(this@MainActivity, "")
                                 onChanged()
                                 Toast.makeText(
                                     this@MainActivity,
-                                    if (isFarsi) "⚡ لبه پیش‌فرض Fastly (151.101.1.195) تنظیم شد"
-                                    else "⚡ Default Fastly Edge (151.101.1.195) configured",
-                                    Toast.LENGTH_SHORT,
+                                    if (isFarsi) "⚠️ هیچ آی‌پی‌ای تست واقعی (اتصال + TLS سرور موزیلا روی پورت 2499) را رد نکرد؛ حالت خودکار ماند"
+                                    else "⚠️ No IP passed the real test (connect + TLS to the Mozilla node on 2499); kept Auto",
+                                    Toast.LENGTH_LONG,
                                 ).show()
                             }
                         }

@@ -1375,11 +1375,20 @@ class CatClientVpnService : VpnService() {
                     } else null
                 }
                 scheme == "fenix" || scheme == "firefoxvpn" -> {
-                    AetherOperations.probePeerSocketRttMs(
-                        "151.101.1.91:443",
-                        useTcp = true,
-                        timeoutMs = timeoutMs,
-                    )?.toInt()
+                    // Real node of the config's country (fenix://…?country=DE), not a generic Fastly IP.
+                    val code = rawShare.substringAfter('?', "").split('&')
+                        .firstOrNull { it.startsWith("country=", ignoreCase = true) }
+                        ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US).orEmpty()
+                    val node = FirefoxVpnEngine.getAvailableCountries(applicationContext)
+                        .let { list -> list.firstOrNull { it.code == code } ?: list.first() }
+                    runCatching {
+                        val t0 = System.nanoTime()
+                        java.net.Socket().use { s ->
+                            protectOutboundSocket(s)
+                            s.connect(java.net.InetSocketAddress(node.proxyHost, node.proxyPort), timeoutMs)
+                        }
+                        ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
+                    }.getOrNull()
                 }
                 scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> {
                     val afterScheme = rawShare.substringAfter("://", "")
