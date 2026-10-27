@@ -290,6 +290,224 @@ class NodeHostController(
     }
 
     // ------------------------------------------------------------------------------------
+    // 🧭 start from zero: account → server/token → key → install, one screen per step
+    // ------------------------------------------------------------------------------------
+
+    private class Step(val title: String, val text: String, val actions: List<Pair<String, () -> Unit>>)
+
+    /** «Step n of N» pages with ◀ / ▶ and the step's own buttons (each opens exactly the right page). */
+    private fun wizard(title: String, steps: List<Step>, startAt: Int = 0) {
+        var index = startAt.coerceIn(0, steps.size - 1)
+        val body = column()
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(title)
+            .setView(scroll(body))
+            .setNegativeButton(t("بستن", "Close"), null)
+            .create()
+        fun render() {
+            body.removeAllViews()
+            val step = steps[index]
+            body.addView(label(t("قدم ", "Step ") + (index + 1) + t(" از ", " of ") + steps.size, 12f, palette.teal, 2))
+            body.addView(label(step.title, 16f, palette.textPrimary, 4))
+            body.addView(label(step.text, 13.5f, palette.textPrimary, 8).apply { setTextIsSelectable(true) })
+            step.actions.forEachIndexed { i, (text, action) ->
+                body.addView(button(text, filled = i == 0) { action() }, lp(if (i == 0) 12 else 6))
+            }
+            val nav = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            }
+            val half = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4); marginStart = dp(4) }
+            if (index > 0) nav.addView(button(t("▶ قبلی", "◀ Back")) { index--; render() }, half)
+            if (index < steps.size - 1) nav.addView(button(t("انجام دادم، بعدی ◀", "Done, next ▶"), filled = true) { index++; render() }, half)
+            body.addView(nav, lp(16))
+        }
+        render()
+        showDialog(dialog)
+    }
+
+    private fun githubSteps(kind: String): List<Step> = listOf(
+        Step(
+            t("ساخت حساب GitHub (اگر ندارید)", "Create a GitHub account (if you have none)"),
+            t(
+                name(kind) + " برنامه را از GitHub برمی‌دارد، پس اول یک حساب GitHub لازم است (رایگان).\n\n" +
+                    "1) «🌐 ثبت‌نام GitHub» را بزنید.\n" +
+                    "2) ایمیل واقعی ← Continue ← یک رمز (حداقل ۸ حرف با عدد) ← Continue ← یک نام کاربری انگلیسی ← Continue.\n" +
+                    "3) پازل «تأیید انسان بودن» را حل کنید ← Create account.\n" +
+                    "4) GitHub یک کد ۸ رقمی به ایمیلتان می‌فرستد (Spam را هم ببینید) ← کد را وارد کنید.\n" +
+                    "5) سؤال‌های خوشامدگویی را می‌توانید Skip کنید.\n\n" +
+                    "حساب GitHub دارید؟ «انجام دادم، بعدی» را بزنید.",
+                name(kind) + " takes the app from GitHub, so a (free) GitHub account comes first.\n\n" +
+                    "1) Tap «🌐 GitHub sign-up».\n" +
+                    "2) A real e-mail → Continue → a password (8+ characters with a number) → Continue → a username → Continue.\n" +
+                    "3) Solve the «verify you are human» puzzle → Create account.\n" +
+                    "4) GitHub e-mails an 8-digit code (check Spam too) → type it in.\n" +
+                    "5) You can Skip the welcome questions.\n\n" +
+                    "Already have GitHub? Tap «Done, next».",
+            ),
+            listOf(t("🌐 ثبت‌نام GitHub", "🌐 GitHub sign-up") to { open(NodeHostPanel.GITHUB_SIGNUP) }),
+        ),
+        Step(
+            t("ساخت توکن GitHub", "Create a GitHub token"),
+            t(
+                "توکن یعنی اجازه‌ای که برنامه با آن فقط یک مخزن خصوصی برای شما بسازد.\n\n" +
+                    "1) «🔑 باز کردن صفحهٔ توکن» را بزنید (اگر خواست وارد GitHub شوید). صفحه آماده باز می‌شود: نام Cat Client panel و تیک repo زده شده.\n" +
+                    "2) Expiration: مثلاً 90 days (یا No expiration).\n" +
+                    "3) پایین صفحه دکمهٔ سبز Generate token.\n" +
+                    "4) متنی که با ghp_ شروع می‌شود فقط همین یک بار نشان داده می‌شود ← کنارش دکمهٔ کپی را بزنید.",
+                "A token is a permission the app uses only to create one private repository for you.\n\n" +
+                    "1) Tap «🔑 Open the token page» (sign in to GitHub if asked). It opens pre-filled: name Cat Client panel, repo ticked.\n" +
+                    "2) Expiration: e.g. 90 days (or No expiration).\n" +
+                    "3) The green Generate token button at the bottom.\n" +
+                    "4) The text starting with ghp_ is shown only this once → tap the copy icon next to it.",
+            ),
+            listOf(t("🔑 باز کردن صفحهٔ توکن", "🔑 Open the token page") to { open(NodeHostPanel.GITHUB_TOKEN_URL) }),
+        ),
+        Step(
+            t("ساخت مخزن با برنامه", "Let the app create the repository"),
+            t(
+                "«⚡ ساخت خودکار» را بزنید ← «📋 چسباندن» ← ادامه ← بساز. برنامه یک مخزن خصوصی به نام cat-node-panel-xxxxx با ۴ فایل پنل می‌سازد و نامش را نشان می‌دهد.\n\nبعد اینجا برگردید و «انجام دادم، بعدی».",
+                "Tap «⚡ Build automatically» → «📋 Paste» → Continue → Create. The app creates a private repository named cat-node-panel-xxxxx with the 4 panel files and shows its name.\n\nThen come back here and tap «Done, next».",
+            ),
+            listOf(t("⚡ ساخت خودکار", "⚡ Build automatically") to { askGithubToken(kind) }),
+        ),
+        if (kind == NodeHostPanel.LUCITY) Step(
+            t("ساخت حساب Lucity", "Create a Lucity account"),
+            t(
+                "1) «🌐 باز کردن Lucity» ← Login with GitHub ← Authorize (اجازه بدهید).\n" +
+                    "2) وقتی خواست «Lucity GitHub App» را نصب کند: Only select repositories ← همان cat-node-panel-xxxxx ← Install.\n" +
+                    "3) Lucity ۱۴ روز (۵ یورو اعتبار) رایگان است؛ بعد پولی می‌شود.",
+                "1) «🌐 Open Lucity» → Login with GitHub → Authorize.\n" +
+                    "2) When it asks to install the «Lucity GitHub App»: Only select repositories → that cat-node-panel-xxxxx → Install.\n" +
+                    "3) Lucity is free for 14 days (5 EUR credit), then paid.",
+            ),
+            listOf(t("🌐 باز کردن Lucity", "🌐 Open Lucity") to { open(NodeHostPanel.LUCITY_LOGIN) }),
+        ) else Step(
+            t("ساخت حساب Shiprr", "Create a Shiprr account"),
+            t(
+                "1) «🌐 ثبت‌نام Shiprr» ← نام، ایمیل و رمز ← ثبت‌نام. (۵ یورو اعتبار هدیه)\n" +
+                    "2) ایمیل تأیید را باز کنید و روی لینکش بزنید (Spam را هم ببینید) ← وارد شوید.\n" +
+                    "3) وقتی Shiprr خواست GitHub را وصل کنید، Authorize/Install بزنید و دسترسی به همان cat-node-panel-xxxxx را بدهید.",
+                "1) «🌐 Shiprr sign-up» → name, e-mail and password → sign up. (5 EUR gift credit)\n" +
+                    "2) Open the confirmation e-mail and tap its link (check Spam) → sign in.\n" +
+                    "3) When Shiprr asks to connect GitHub, tap Authorize/Install and allow that cat-node-panel-xxxxx.",
+            ),
+            listOf(t("🌐 ثبت‌نام Shiprr", "🌐 Shiprr sign-up") to { open(NodeHostPanel.SHIPRR_SIGNUP) }),
+        ),
+        if (kind == NodeHostPanel.LUCITY) Step(
+            t("ساخت برنامه در Lucity و افزودن پنل", "Create the app on Lucity and add the panel"),
+            t(
+                "1) New ← GitHub Repository ← cat-node-panel-xxxxx ← ساخت. پورت را لازم نیست بنویسید؛ Lucity خودش می‌دهد.\n" +
+                    "2) Settings ← Platform Domain ← Generate Domain (بدون این آدرس ندارید).\n" +
+                    "3) صبر کنید تا ساخت (Build) سبز شود ← آدرس را کپی کنید.\n" +
+                    "4) «✍️ پنلم را اضافه کن» ← آدرس را بچسبانید ← تست و اضافه.",
+                "1) New → GitHub Repository → cat-node-panel-xxxxx → create. No port needed; Lucity provides it.\n" +
+                    "2) Settings → Platform Domain → Generate Domain (without it there is no address).\n" +
+                    "3) Wait until the build is green → copy the address.\n" +
+                    "4) «✍️ Add my panel» → paste the address → Test and add.",
+            ),
+            listOf(t("✍️ پنلم را اضافه کن", "✍️ Add my panel") to { registerManual(kind) }, t("🌐 باز کردن Lucity", "🌐 Open Lucity") to { open(NodeHostPanel.LUCITY_LOGIN) }),
+        ) else Step(
+            t("ساخت برنامه در Shiprr و افزودن پنل", "Create the app on Shiprr and add the panel"),
+            t(
+                "1) Apps ← New app ← یک نام انگلیسی (مثلاً mycat) ← مخزن cat-node-panel-xxxxx ← منطقه Europe ← ساخت.\n" +
+                    "2) صبر کنید تا بالا بیاید. آدرس می‌شود https://همان-نام.shiprr.dev\n" +
+                    "3) «✍️ پنلم را اضافه کن» ← آدرس ← تست و اضافه. برنامه واقعاً تست می‌کند WebSocket از Shiprr رد می‌شود یا نه.",
+                "1) Apps → New app → a name (e.g. mycat) → repository cat-node-panel-xxxxx → region Europe → create.\n" +
+                    "2) Wait until it is up. The address is https://that-name.shiprr.dev\n" +
+                    "3) «✍️ Add my panel» → the address → Test and add. The app really tests whether WebSocket passes through Shiprr.",
+            ),
+            listOf(t("✍️ پنلم را اضافه کن", "✍️ Add my panel") to { registerManual(kind) }, t("🌐 باز کردن Shiprr", "🌐 Open Shiprr") to { open("https://shiprr.app") }),
+        ),
+    )
+
+    private fun kataBumpSteps(): List<Step> = listOf(
+        Step(
+            t("ساخت حساب KataBump", "Create a KataBump account"),
+            t(
+                "1) «🌐 باز کردن صفحهٔ ثبت‌نام» را بزنید.\n" +
+                    "2) First name (نام)، Last name (نام خانوادگی)، یک ایمیل واقعی و یک رمز بنویسید ← Create account. (حساب Discord دارید؟ دکمهٔ Discord هم کار می‌کند.)\n" +
+                    "3) ایمیلتان را باز کنید (پوشهٔ Spam را هم ببینید) و روی لینک تأیید بزنید.\n" +
+                    "4) با همان ایمیل و رمز وارد شوید (Login).\n\n" +
+                    "⚠️ فقط یک حساب بسازید: KataBump به هر نفر و هر خانه یک سرور رایگان می‌دهد؛ چند حساب یا عوض کردن VPN برای حساب دوم = مسدود شدن.\n" +
+                    "🌐 اگر سایت باز نشد یا خطا داد، اول VPN/کانفیگ را وصل کنید.",
+                "1) Tap «🌐 Open the sign-up page».\n" +
+                    "2) First name, Last name, a real e-mail and a password → Create account. (Have Discord? The Discord button works too.)\n" +
+                    "3) Open your e-mail (check Spam too) and tap the confirmation link.\n" +
+                    "4) Log in with that e-mail and password.\n\n" +
+                    "⚠️ Create only one account: KataBump gives one free server per person and household; several accounts, or a VPN to make a second one = ban.\n" +
+                    "🌐 If the site does not open or errors, connect a VPN/config first.",
+            ),
+            listOf(
+                t("🌐 باز کردن صفحهٔ ثبت‌نام", "🌐 Open the sign-up page") to { open(NodeHostPanel.KATABUMP_REGISTER) },
+                t("حساب دارم — صفحهٔ ورود", "I have an account — log in") to { open(NodeHostPanel.KATABUMP_DASHBOARD) },
+            ),
+        ),
+        Step(
+            t("ساخت سرور رایگان Node.js", "Create the free Node.js server"),
+            t(
+                "1) «🌐 باز کردن داشبورد» ← وارد شوید.\n" +
+                    "2) «Create a server» را بزنید (اگر نمی‌بینید، از منوی کنار: Servers یا Order).\n" +
+                    "3) Node.js را انتخاب کنید ← پلن Free ← یک نام انگلیسی (مثلاً cat) ← Create.\n" +
+                    "4) ۲ تا ۵ دقیقه طول می‌کشد تا سرور ساخته شود؛ صفحه را تازه کنید تا در فهرست بیاید.\n\n" +
+                    "نسخهٔ Node را لازم نیست انتخاب کنید؛ برنامه موقع نصب خودش آن را 20 یا بالاتر می‌کند.",
+                "1) «🌐 Open the dashboard» → log in.\n" +
+                    "2) Tap «Create a server» (not visible? use the side menu: Servers or Order).\n" +
+                    "3) Pick Node.js → the Free plan → a name (e.g. cat) → Create.\n" +
+                    "4) It takes 2–5 minutes; refresh until the server shows up in the list.\n\n" +
+                    "You do not need to pick a Node version; the app moves it to 20 or newer during the install.",
+            ),
+            listOf(t("🌐 باز کردن داشبورد", "🌐 Open the dashboard") to { open(NodeHostPanel.KATABUMP_DASHBOARD) }),
+        ),
+        Step(
+            t("ورود به پنل کنترل (رمز جدا دارد)", "Log in to the control panel (its own password)"),
+            t(
+                "سرور را در سایت دومی مدیریت می‌کنند: control.katabump.com. نام کاربری و رمز آن را داشبورد می‌دهد:\n\n" +
+                    "1) «🌐 باز کردن داشبورد» ← کنار سرورتان See more ← Access server.\n" +
+                    "2) Identifier و Current password را کپی کنید.\n" +
+                    "3) «🌐 باز کردن پنل کنترل» ← با همین دو مورد وارد شوید. باید سرورتان را آنجا ببینید.",
+                "The server is managed on a second site: control.katabump.com. The dashboard gives its username and password:\n\n" +
+                    "1) «🌐 Open the dashboard» → next to your server See more → Access server.\n" +
+                    "2) Copy the Identifier and the Current password.\n" +
+                    "3) «🌐 Open the control panel» → log in with those two. You should see your server there.",
+            ),
+            listOf(
+                t("🌐 باز کردن داشبورد", "🌐 Open the dashboard") to { open(NodeHostPanel.KATABUMP_DASHBOARD) },
+                t("🌐 باز کردن پنل کنترل", "🌐 Open the control panel") to { open(NodeHostPanel.KATABUMP_CONTROL_LOGIN) },
+            ),
+        ),
+        Step(
+            t("ساخت کلید API", "Create the API key"),
+            t(
+                "1) «🔑 باز کردن صفحهٔ کلید» (در پنل کنترل: آیکن حساب بالای صفحه ← API Credentials).\n" +
+                    "2) Description: هر چیزی، مثلاً cat. کادر Allowed IPs را خالی بگذارید.\n" +
+                    "3) Create ← کلیدی که با ptlc_ شروع می‌شود فقط همین یک بار نشان داده می‌شود؛ همان لحظه کپی کنید.",
+                "1) «🔑 Open the key page» (in the control panel: account icon at the top → API Credentials).\n" +
+                    "2) Description: anything, e.g. cat. Leave Allowed IPs empty.\n" +
+                    "3) Create → the key starting with ptlc_ is shown only this once; copy it right away.",
+            ),
+            listOf(t("🔑 باز کردن صفحهٔ کلید", "🔑 Open the key page") to { open(NodeHostPanel.KATABUMP_API_KEYS) }),
+        ),
+        Step(
+            t("نصب خودکار", "Automatic install"),
+            t(
+                "«⚡ نصب خودکار» را بزنید ← تیک قوانین ← کلید را بچسبانید ← سرور ← نصب کن.\n" +
+                    "اگر سرور هنوز ساخته نشده باشد، برنامه تا ۶ دقیقه صبر می‌کند تا پیدا شود.\n\n" +
+                    "🔁 بعد از نصب: هر ۴ روز یک بار در داشبورد Renew بزنید (فقط در ۲ روز آخر دکمه‌اش فعال است). برنامه روز سوم یادآوری می‌کند.",
+                "Tap «⚡ Install automatically» → tick the rules → paste the key → server → Install.\n" +
+                    "If the server is not ready yet, the app waits up to 6 minutes for it.\n\n" +
+                    "🔁 After the install: press Renew on the dashboard every 4 days (it only works in the last 2 days). The app reminds you on day 3.",
+            ),
+            listOf(t("⚡ نصب خودکار", "⚡ Install automatically") to { autoInstall(NodeHostPanel.KATABUMP) }),
+        ),
+    )
+
+    fun showStart(kind: String, startAt: Int = 0) {
+        val steps = if (kind == NodeHostPanel.KATABUMP) kataBumpSteps() else githubSteps(kind)
+        wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps, startAt)
+    }
+
+    // ------------------------------------------------------------------------------------
     // KataBump rules — a required tick before anything is installed
     // ------------------------------------------------------------------------------------
 
@@ -430,6 +648,7 @@ class NodeHostController(
         box.addView(field, lp(8))
         box.addView(button(t("🔑 باز کردن صفحهٔ کلید", "🔑 Open the key page")) { open(NodeHostPanel.KATABUMP_API_KEYS) }, lp(8))
         box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        box.addView(button(t("🧭 حساب یا سرور ندارم — قدم‌به‌قدم", "🧭 No account or server yet — step by step")) { showStart(NodeHostPanel.KATABUMP) }, lp(6))
         showDialog(
             MaterialAlertDialogBuilder(activity)
                 .setTitle(t("⚡ نصب خودکار روی KataBump", "⚡ Automatic install on KataBump"))
@@ -457,29 +676,75 @@ class NodeHostController(
     }
 
     private fun loadServers(key: String) {
-        runSteps<List<NodeHostApi.PteroServer>>(t("KataBump", "KataBump"), { step ->
+        runSteps<List<NodeHostApi.PteroServer>>("KataBump", { step ->
             step(t("گرفتن فهرست سرورهای شما…", "Reading your servers…"))
             NodeHostApi.pteroServers(key)
-        }) { servers, _ ->
-            when {
-                servers.isEmpty() -> message(
-                    t("سروری نیست", "No server yet"),
-                    t(
-                        "در حساب شما سروری نیست. katabump.com ← داشبورد ← ساخت سرور رایگان Node.js ← بعد دوباره «⚡ نصب خودکار».",
-                        "Your account has no server. katabump.com → dashboard → create a free Node.js server → then «⚡ Install automatically» again.",
-                    ),
-                )
-                servers.size == 1 -> confirmInstall(key, servers.first())
-                else -> showDialog(
+        }) { servers, _ -> handleServers(key, servers) }
+    }
+
+    /** The server takes 2–5 minutes after «Create a server»: poll every 15 s for up to 6 minutes. */
+    private fun waitForServer(key: String) {
+        runSteps<List<NodeHostApi.PteroServer>>(t("⏳ صبر برای سرور", "⏳ Waiting for the server"), { step ->
+            var found = emptyList<NodeHostApi.PteroServer>()
+            var round = 0
+            while (found.isEmpty() && round < 24) {
+                round++
+                found = NodeHostApi.pteroServers(key)
+                if (found.isEmpty()) {
+                    step(t("هنوز نیست… ", "Not yet… ") + (round * 15) + t(" ثانیه", " s"))
+                    delay(15_000)
+                }
+            }
+            found
+        }) { servers, _ -> handleServers(key, servers) }
+    }
+
+    private fun handleServers(key: String, servers: List<NodeHostApi.PteroServer>) {
+        when {
+            servers.isEmpty() -> {
+                val box = column()
+                box.addView(label(t(
+                    "✅ کلید درست است و به حساب شما وصل شدیم، ولی هنوز سروری در این حساب نیست.
+
+" +
+                        "یکی از این دو حالت است:
+" +
+                        "• هنوز سرور نساخته‌اید → «🧭 قدم‌به‌قدم: ساخت سرور» را بزنید.
+" +
+                        "• همین الان ساختید → ۲ تا ۵ دقیقه طول می‌کشد؛ «⏳ صبر کن تا سرورم ساخته شود» را بزنید تا برنامه خودش هر ۱۵ ثانیه نگاه کند.",
+                    "✅ The key is right and we reached your account, but it has no server yet.
+
+" +
+                        "One of two things:
+" +
+                        "• You have not created a server → tap «🧭 Step by step: create the server».
+" +
+                        "• You just created it → it takes 2–5 minutes; tap «⏳ Wait until my server is ready» and the app checks every 15 seconds.",
+                ), 13.5f, palette.textPrimary, 2))
+                box.addView(button(t("🧭 قدم‌به‌قدم: ساخت سرور", "🧭 Step by step: create the server"), filled = true) {
+                    showStart(NodeHostPanel.KATABUMP, 1)
+                }, lp(12))
+                box.addView(button(t("⏳ صبر کن تا سرورم ساخته شود", "⏳ Wait until my server is ready")) { waitForServer(key) }, lp(6))
+                box.addView(button(t("🔄 دوباره نگاه کن", "🔄 Check again")) { loadServers(key) }, lp(6))
+                box.addView(button(t("🌐 باز کردن داشبورد KataBump", "🌐 Open the KataBump dashboard")) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(6))
+                showDialog(
                     MaterialAlertDialogBuilder(activity)
-                        .setTitle(t("کدام سرور؟", "Which server?"))
-                        .setItems(servers.map { s -> s.name + "  ·  " + (s.host ?: "?") + ":" + (s.port ?: "?") }.toTypedArray()) { _, i ->
-                            confirmInstall(key, servers[i])
-                        }
-                        .setNegativeButton(android.R.string.cancel, null)
+                        .setTitle(t("سروری نیست", "No server yet"))
+                        .setView(scroll(box))
+                        .setNegativeButton(t("بستن", "Close"), null)
                         .create(),
                 )
             }
+            servers.size == 1 -> confirmInstall(key, servers.first())
+            else -> showDialog(
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(t("کدام سرور؟", "Which server?"))
+                    .setItems(servers.map { s -> s.name + "  ·  " + (s.host ?: "?") + ":" + (s.port ?: "?") }.toTypedArray()) { _, i ->
+                        confirmInstall(key, servers[i])
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .create(),
+            )
         }
     }
 
@@ -773,6 +1038,7 @@ class NodeHostController(
         box.addView(button(t("🆕 ثبت‌نام GitHub", "🆕 GitHub sign-up")) { open(NodeHostPanel.GITHUB_SIGNUP) }, lp(8))
         box.addView(button(t("🔑 ساخت توکن", "🔑 Create a token")) { open(NodeHostPanel.GITHUB_TOKEN_URL) }, lp(6))
         box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        box.addView(button(t("🧭 قدم‌به‌قدم از صفر", "🧭 Step by step from zero")) { showStart(kind) }, lp(6))
         showDialog(
             MaterialAlertDialogBuilder(activity)
                 .setTitle(t("⚡ ساخت خودکار برای ", "⚡ Automatic build for ") + name(kind))
