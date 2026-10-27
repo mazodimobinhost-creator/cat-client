@@ -69,7 +69,9 @@ function connect(address, options = {}) {
   let sock;
   let opened;
   if (mode === 'on') {
-    sock = tls.connect({ host, port, lookup: cachedLookup, servername: net.isIP(host) ? undefined : host, ALPNProtocols: ['http/1.1'] });
+    // options.servername (Node-only, 6.69.43): the panel's Vercel scanner dials an edge IP with a chosen SNI.
+    const sn = typeof options.servername === 'string' && options.servername ? options.servername : (net.isIP(host) ? undefined : host);
+    sock = tls.connect({ host, port, lookup: cachedLookup, servername: sn, ALPNProtocols: ['http/1.1'] });
     opened = new Promise((res, rej) => { sock.once('secureConnect', () => res({ remoteAddress: sock.remoteAddress })); sock.once('error', rej); });
   } else {
     sock = net.connect({ host, port, lookup: cachedLookup });
@@ -337,6 +339,9 @@ function buildEnv() {
   for (const [k, v] of Object.entries(process.env)) if (!ENV_SKIP.test(k) && /^[A-Z][A-Z0-9_]*$/.test(k)) env[k] = v;
   if (CAT_KV) env.CAT_KV = CAT_KV;
   env.CAT_PLATFORM = 'vercel';
+  // Vercel's shortest production domain: a custom domain the owner attached in the dashboard shows up here,
+  // and the panel then serves it (Host = SNI = that domain) without any extra setting.
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) env.CAT_VERCEL_PROD_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   env.CAT_STORAGE = KV_KIND;
   return env;
 }

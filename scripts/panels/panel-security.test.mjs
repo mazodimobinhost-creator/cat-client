@@ -1,5 +1,5 @@
 /**
- * PANEL SECURITY + PER-USER LIMITS (panel 6.69.42)
+ * PANEL SECURITY + PER-USER LIMITS (panel 6.69.43)
  *
  * Pins: salted password hash (legacy sha256 still accepted), RFC 6238 TOTP,
  * login lockout per IP + audit log, 2FA-gated login, per-user traffic quota

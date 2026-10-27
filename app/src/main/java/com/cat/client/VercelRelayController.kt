@@ -1257,6 +1257,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                     // 3) stage 2: real tunnel through each TLS winner (fastest first)
                     val ordered = tlsOk.sortedBy { it.third }.take(60)
                     val hits = java.util.Collections.synchronizedList(mutableListOf<VercelScanHit>())
+                    val fails = java.util.Collections.synchronizedList(mutableListOf<String>())
                     val done2 = java.util.concurrent.atomic.AtomicInteger()
                     val gate2 = kotlinx.coroutines.sync.Semaphore(8)
                     kotlinx.coroutines.coroutineScope {
@@ -1266,7 +1267,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                                 try {
                                     if (hits.size >= keep * 2) return@launch
                                     val r = VercelPanelProbe.tunnel(ip, target.port, sni, target.host, target.path, 9_000) { http -> VercelIpScanner.firstRequest(target, http) }
-                                    if (r.ok) hits += VercelScanHit(ip, target.port, tlsMs, r.millis, sni)
+                                    if (r.ok) hits += VercelScanHit(ip, target.port, tlsMs, r.millis, sni) else fails += r.detail
                                 } finally {
                                     gate2.release()
                                     val n2 = done2.incrementAndGet()
@@ -1278,7 +1279,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                             }
                         }.forEach { it.join() }
                     }
-                    ScanOutcome(target, candidates.size, tlsOk.size, hits.sortedBy { it.tunnelMillis }.take(keep), sniReport, anchors.size)
+                    ScanOutcome(target, candidates.size, tlsOk.size, hits.sortedBy { it.tunnelMillis }.take(keep), sniReport, anchors.size, fails.toList())
                 }
             }
             runCatching { progress.dismiss() }
@@ -1302,6 +1303,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         val hits: List<VercelScanHit>,
         val sniReport: List<Pair<String, Int>>,
         val anchors: Int,
+        val failures: List<String> = emptyList(),
     )
 
     private fun showScanResult(o: ScanOutcome) {
@@ -1326,6 +1328,12 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             ), 11.5f, palette.textSecondary, 4))
         }
         if (hits.isEmpty()) {
+            // 6.69.43: say WHY in plain words (SNI block / TLS cut / Vercel 421 / 403 / 404 / no tunnel answer)
+            val cause = VercelScanDiagnosis.cause(o.tlsCount, o.sniReport.count { it.second > 0 }, 0, o.failures)
+            box.addView(label(VercelScanDiagnosis.explain(cause, isFarsi()), 12.5f, palette.textPrimary, 8))
+            o.failures.groupingBy { it.take(60) }.eachCount().entries.sortedByDescending { it.value }.take(3).takeIf { it.isNotEmpty() }?.let { top ->
+                box.addView(label(top.joinToString("\n") { "· " + it.key + " ×" + it.value }, 11.5f, palette.textSecondary, 4).apply { setTextIsSelectable(true) })
+            }
             box.addView(label(t(
                 "هیچ آی‌پی Vercel روی خط شما تونل را رد نکرد. «کامل» را امتحان کنید، یا خط/اپراتور دیگری. اگر مرحلهٔ TLS هم صفر بود، Vercel روی این خط کامل بسته است.",
                 "No Vercel IP carried the tunnel on your line. Try “Full”, or another line/operator. If the TLS stage was also zero, Vercel is fully blocked on this line.",

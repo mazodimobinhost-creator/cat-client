@@ -90,7 +90,11 @@ const source = readFileSync(sourcePath, 'utf8');
   // meter, simultaneous-IP limit, real subscription-userinfo, RFC 6238 TOTP 2FA, per-IP
   // login lockout + sign-in audit log and their two UI blocks (bilingual) — measured
   // 177 139 B, i.e. ~6.5 KB gzip over 6.69.36.
-  ok('gzip stays under the 180 KB regression budget', gz < 180_000, gz);
+  // Raised from 180 000 to 186 000 for 6.69.43: the Vercel scanner (/api/vercel-doctor + the
+  // 🔬 card with its server check, my-internet check, custom-domain field and a bilingual
+  // plain-words guide) and the ✂️ Frag / random-SNI / custom-domain subscription groups —
+  // measured 183 081 B, i.e. ~5.2 KB gzip over 6.69.42 (177 856 B).
+  ok('gzip stays under the 186 KB regression budget', gz < 186_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

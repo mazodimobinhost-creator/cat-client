@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.42';
+const CAT_PANEL_VERSION = '6.69.43';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1152,6 +1152,8 @@ function normalizeSettings(raw) {
     return list.includes(v) ? v : '';
   })();
   s.proxyAutoSwap = s.proxyAutoSwap !== false;
+  // 6.69.43: a custom domain the owner attached to the Vercel project (Host = SNI = it on every edge IP).
+  s.vercelDomain = vercelCustomDomain(null, { vercelDomain: s.vercelDomain });
   // v6.54: SNI spoofing (a DIFFERENT customer's domain in the SNI while Host stays the worker) is rejected by
   // Cloudflare — an early, unlogged 403 — so it is strictly opt-in. Absent in older data ⇒ false.
   s.sniFront = s.sniFront === true;
@@ -4007,7 +4009,9 @@ function scanSniOf(env, settings) {
  * Cloudflare clean IPs, Cloudflare's alternate ports, plain :80 links, CF ECH and CF-only DNS
  * pinning are meaningless there. Live-tested: dialing vercel.com or a Vercel anycast IP with
  * SNI = Host = the project domain reaches the project; SNI ≠ Host is refused (HTTP 421). */
-const VERCEL_EDGE_ADDRESSES = ['vercel.com', '76.76.21.21', '64.29.17.65', '216.198.79.65'];
+// 6.69.43: «vercel.com» left the defaults — it only resolved to the same 76.76.21.x edge (10 duplicate lines).
+const VERCEL_EDGE_ADDRESSES = ['76.76.21.21', '216.198.79.65', '64.29.17.65'];
+const VERCEL_EDGE_NAMES = VERCEL_EDGE_ADDRESSES.concat(['vercel.com']);
 function isVercelPlatform(env) { return String((env && env.CAT_PLATFORM) || '').toLowerCase() === 'vercel'; }
 // Vercel's own IPv4 edge networks (AS922). A Cloudflare clean IP can never reach a Vercel project,
 // so on Vercel the owner's IP list keeps only these (plus domains, e.g. a custom domain on Vercel).
@@ -4024,6 +4028,71 @@ function vercelLinkSettings(settings) {
     repoAuto: false, domToIp: false, domMap: null, sniFront: false, sniRotate: false, extraSnis: [],
     echList: '', fmLinks: false, finalMaskProfile: '', finalMaskCipherSuites: '', cipherSuites: '',
   });
+}
+
+/* 6.69.43 — why «no Vercel config pings» and what actually gets through (live-mapped from iad1, 2026-10-27):
+ * Vercel's edge only checks that the certificate chosen by the SNI also covers the Host. So for a *.vercel.app
+ * project ANY vercel.app name is a valid SNI (made-up ones too → WebSocket 101), a custom domain with its own
+ * certificate passes with its own name, and nextjs.org / react.dev / vercel.com get 421 (they front only
+ * Vercel's own and enterprise hosts — that trick does not exist for an ordinary project).
+ * Iranian DPI reads the SNI, so the subscription now also carries: ✂️ lines whose ClientHello is split by the
+ * client (Xray finalmask; other clients ignore the parameter), a random-name SNI that never appears in any
+ * blocklist, and — when the owner adds one — a custom domain, the strongest option. */
+const VERCEL_FRAG_MASK = JSON.stringify({ tcp: [{ type: 'fragment', settings: { packets: 'tlshello', lengths: ['1-6', '100-140', '1-3'], delays: ['1-3'], maxSplit: '8' } }] });
+function vercelRandomSni(host, uuid) {
+  // Stable per project+identity (subscriptions refresh without changing it) but unrelated to the project name.
+  let out = '';
+  for (let k = 0; k < 2; k++) {
+    let h = 2166136261 ^ k;
+    for (const c of String(host) + '|' + String(uuid)) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+    out += h.toString(36);
+  }
+  return 'w' + out.replace(/[^a-z0-9]/g, '').slice(0, 11) + '.vercel.app';
+}
+function vercelCustomDomain(env, settings) {
+  const c = String((settings && settings.vercelDomain) || (env && (env.CAT_VERCEL_DOMAIN || env.CAT_VERCEL_PROD_URL)) || '')
+    .trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/:].*$/, '');
+  return c && sniHostnameOk(c) && !/(^|\.)vercel\.(app|com)$/.test(c) ? c : '';
+}
+// The SNI groups the server-side scanner checks, in subscription order (frag shares the bare SNI on the wire).
+function vercelSniPlan(host, env, settings, uuid) {
+  const h = String(host || '').toLowerCase();
+  const custom = vercelCustomDomain(env, settings);
+  const plan = [];
+  if (custom && custom !== h) plan.push({ id: 'custom', sni: custom, host: custom });
+  if (/\.vercel\.app$/.test(h)) {
+    plan.push({ id: 'bare', sni: 'vercel.app', host: h });
+    plan.push({ id: 'rnd', sni: vercelRandomSni(h, uuid), host: h });
+    plan.push({ id: 'mixed', sni: h.replace(/[a-z]/g, (c, i) => (i % 2 ? c.toUpperCase() : c)), host: h });
+  }
+  plan.push({ id: 'project', sni: h, host: h });
+  plan.push({ id: 'front', sni: 'nextjs.org', host: h }); // control: shows why the «react.dev/nextjs.org SNI» trick fails
+  return plan;
+}
+/** One real check from inside Vercel: TLS to an edge IP with this SNI, then a WebSocket upgrade with this Host. */
+async function vercelEdgeProbe(sockets, c, wsPath) {
+  const t0 = Date.now();
+  let sock = null;
+  const limit = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  try {
+    sock = sockets.connect({ hostname: c.ip || '76.76.21.21', port: 443 }, { secureTransport: 'on', allowHalfOpen: false, servername: c.sni });
+    await limit(sock.opened, 6000);
+    const w = sock.writable.getWriter();
+    await w.write(new TextEncoder().encode('GET ' + wsPath + ' HTTP/1.1\r\nHost: ' + c.host + '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: Y2F0LXZlcmNlbC1kb2N0b3I=\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Mozilla/5.0\r\n\r\n'));
+    const r = sock.readable.getReader();
+    let head = '';
+    while (head.length < 4096 && head.indexOf('\r\n\r\n') < 0) {
+      const { value, done } = await limit(r.read(), 6000);
+      if (done) break;
+      head += new TextDecoder().decode(value, { stream: true });
+    }
+    const status = Number((head.match(/^HTTP\/1\.[01] (\d{3})/) || [])[1] || 0);
+    return Object.assign({}, c, { status, ok: status === 101, ms: Date.now() - t0 });
+  } catch (e) {
+    return Object.assign({}, c, { status: 0, ok: false, ms: Date.now() - t0, err: String((e && e.message) || e).slice(0, 60) });
+  } finally {
+    try { if (sock) sock.close(); } catch (e) { /* best-effort */ }
+  }
 }
 
 function addressList(host, env, settings) {
@@ -4044,7 +4113,7 @@ function configName(proto, addr, port, tls, cc, host, index) {
   // flag (when known) still leads the name so clients can group by country.
   const protoName = proto === 'vless' ? 'VLESS' : 'TROJAN';
   const isWorker = !!host && String(addr).toLowerCase().replace(/^\[/, '').replace(/\]$/, '') === String(host).toLowerCase();
-  const isVercelEdge = !isWorker && VERCEL_EDGE_ADDRESSES.includes(String(addr).toLowerCase());
+  const isVercelEdge = !isWorker && VERCEL_EDGE_NAMES.includes(String(addr).toLowerCase());
   const label = (isWorker ? 'WorkerOnly' : (isVercelEdge ? 'Vercel Edge' : 'Clean IP')) + (tls ? ' TLS' : '');
   const n = index ? index + '. ' : '';
   return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : '💦 ')) + n + protoName + ' - ' + label + ' : ' + port;
@@ -4071,7 +4140,7 @@ function vlessLink(ctx, addr, port, tls, cc, opts) {
   const path = (opts && opts.path) || ctx.paths[PROTO_VLESS + 'Path'];
   const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return PROTO_VLESS + '://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
-    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 function trojanLink(ctx, addr, port, tls, cc, opts) {
@@ -4079,7 +4148,7 @@ function trojanLink(ctx, addr, port, tls, cc, opts) {
   const path = (opts && opts.path) || ctx.paths[TROJAN_KEY + 'Path'];
   const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return 'trojan://' + encodeURIComponent(ctx[TROJAN_KEY + 'Pass']) + '@' + formatAddr(addr) + ':' + port + '?' +
-    wsParams(ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 /** Link context for one identity (master or a panel user). */
@@ -4113,6 +4182,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // SNI rotation (beta46): TLS configs cycle through the pool instead of all
   // sharing one SNI. ?sni=<host> pins a single SNI and disables rotation.
   if (q.sni) ctx.sni = q.sni;
+  // ?sni=<custom domain> (the scanner's recommendation) — that certificate only covers its own name, so Host follows.
+  if (q.sni && isVercelPlatform(env) && q.sni === vercelCustomDomain(env, settings)) ctx.hostHeader = q.sni;
   const sniPool = q.sni ? [] : ((settings.sniFront === true && settings.sniRotate !== false) ? sniPoolOf(host, env, settings) : []);
   const sniFor = (i) => sniPool.length ? sniPool[i % sniPool.length] : ctx.sni;
   const sniSuffix = (sni) => (sniPool.length && sni !== ctx.sni) ? ' · ' + sni : '';
@@ -4418,16 +4489,25 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     }
   }
 
-  // 6.69.41 Vercel SNI variants (live-tested end-to-end, VLESS + Trojan, with/without early data): for a
-  // *.vercel.app project the edge accepts ANY vercel.app name as SNI — the bare «vercel.app» (its own valid
-  // cert) and a mixed-case project name too — while vercel.com, other domains and no-SNI all get 421.
-  // Mobile ISPs that choke «<project>.vercel.app» therefore get two extra SNIs per address, tried first.
-  if (isVercelPlatform(env) && /\.vercel\.app$/.test(ctx.host) && !q.sni && !(limited && q.limit <= PIN_LIMIT)) {
-    const mixed = ctx.host.replace(/[a-z]/g, (c, i) => (i % 2 ? c.toUpperCase() : c));
+  // 6.69.41/43 Vercel SNI variants (live-tested end-to-end from iad1). Order = most likely to pass Iranian DPI first:
+  // custom domain (own certificate, never in a blocklist) → ✂️ split ClientHello → bare vercel.app → a random
+  // vercel.app name → mixed-case project → the project name itself. Each group repeats the same addresses.
+  if (isVercelPlatform(env) && !q.sni && !(limited && q.limit <= PIN_LIMIT)) {
     const base = entries.splice(0);
-    for (const [sni, tag] of [['vercel.app', 'SNI vercel.app'], [mixed, 'SNI Aa']]) {
-      for (const e of base) { const nm = e.name + ' · ' + tag; entries.push(Object.assign({}, e, { sni, name: nm, link: (e.proto === 'vless' ? vlessLink : trojanLink)(Object.assign({}, ctx, { sni }), e.addr, e.port, e.tls, e.cc, { name: nm }) })); }
+    const remake = (e, over, tag, fm) => {
+      const nm = e.name + ' · ' + tag;
+      const c2 = Object.assign({}, ctx, over, fm ? { settings: Object.assign({}, ctx.settings, { fmLinks: true, finalMaskProfile: fm, finalMaskCipherSuites: '' }) } : {});
+      return Object.assign({}, e, { sni: c2.sni, hostHeader: c2.hostHeader || '', name: nm, link: (e.proto === 'vless' ? vlessLink : trojanLink)(c2, e.addr, e.port, e.tls, e.cc, { name: nm }) });
+    };
+    const groups = [];
+    for (const g of vercelSniPlan(ctx.host, env, settings, ctx.uuid)) {
+      if (g.id === 'custom') groups.push([{ sni: g.sni, hostHeader: g.host }, 'Domain', '']);
+      else if (g.id === 'bare') groups.push([{ sni: g.sni }, '✂️ Frag', VERCEL_FRAG_MASK], [{ sni: g.sni }, 'SNI vercel.app', '']);
+      else if (g.id === 'rnd') groups.push([{ sni: g.sni }, 'SNI rnd', '']);
+      else if (g.id === 'mixed') groups.push([{ sni: g.sni }, 'SNI Aa', '']);
     }
+    if (!/\.vercel\.app$/.test(ctx.host)) groups.push([{}, '✂️ Frag', VERCEL_FRAG_MASK]);
+    for (const [over, tag, fm] of groups) for (const e of base) entries.push(remake(e, over, tag, fm));
     for (const e of base) entries.push(e);
     if (limited) entries.length = Math.min(entries.length, q.limit);
   }
@@ -4545,7 +4625,7 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
       '    ws-opts:',
       '      path: ' + yamlStr(e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path'])),
       '      headers:',
-      '        Host: ' + yamlStr(ctx.host),
+      '        Host: ' + yamlStr(e.hostHeader || ctx.hostHeader || ctx.host),
     ];
     if (e.tls) {
       const entrySni = e.sni || ctx.sni;
@@ -4639,7 +4719,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
       tag: e.name,
       server: e.addr.replace(/^\[|\]$/g, ''),
       server_port: e.port,
-      transport: { type: 'ws', path: e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), headers: { Host: ctx.host } },
+      transport: { type: 'ws', path: e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), headers: { Host: e.hostHeader || ctx.hostHeader || ctx.host } },
     };
     if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx[TROJAN_KEY + 'Pass'];
     if (e.tls) {
@@ -4733,7 +4813,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
     const stream = {
       network: 'ws',
       security: e.tls ? 'tls' : 'none',
-      wsSettings: { path: e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), headers: { Host: ctx.host } },
+      wsSettings: { path: e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), headers: { Host: e.hostHeader || ctx.hostHeader || ctx.host } },
       sockopt: (function () { const so = { tcpKeepAliveIdle: 100, tcpNoDelay: true }; const dial = warpOut.length ? 'warp' : (fragOn ? 'fragment' : undefined); if (dial) so.dialerProxy = dial; return so; })(),
     };
     if (e.tls) {
@@ -6307,6 +6387,22 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, results });
   }
 
+  if (path === '/api/vercel-doctor' && method === 'POST') {
+    /* 🔬 Vercel scanner, server half (6.69.43): every SNI group of the subscription, checked from inside Vercel
+     * with a real TLS + WebSocket upgrade on an edge IP. 101 = Vercel accepts it (if it still does not ping, the
+     * block is on the user's line — the page's second half tests that); 421 = Vercel itself refuses that SNI
+     * for this Host, so such a line can never work. Owner-only, click-only. */
+    const owner = await isOwner(request, env, settings, masterUuid);
+    if (!owner) return json({ ok: false, error: 'auth' }, 401);
+    if (!isVercelPlatform(env)) return json({ ok: false, error: 'vercel only' }, 400);
+    const sockets = await loadSockets();
+    if (!sockets) return json({ ok: false, error: 'sockets unavailable' }, 501);
+    const wsPath = tunnelPaths(env)[PROTO_VLESS + 'Path'];
+    const plan = vercelSniPlan(host, env, settings, masterUuid);
+    const results = await mapBounded(plan, 4, (c) => vercelEdgeProbe(sockets, c, wsPath));
+    return json({ ok: true, custom: vercelCustomDomain(env, settings), results });
+  }
+
   if (path === '/api/proxy-test' && method === 'POST') {
     /* 🌍 Measure every outbound relay (6.67.5) — the «تست پروکسی» button.
      *
@@ -6948,8 +7044,26 @@ function panelPage(env, settings, host, masterUuid) {
   // 6.69.41: on Vercel, say plainly what the three SNIs are and where the REAL per-line scanner lives (a browser
   // cannot dial an IP with a chosen SNI, so an honest IP scan from the user's own line needs the app).
   const vNote = isVercelPlatform(env) ? '<div class="note i vnote" style="margin:10px 0">' + (fa
-    ? '▲ <b>پنل روی Vercel:</b> هر آدرس در اشتراک سه بار آمده با سه SNI: <b>vercel.app</b>، نام پروژه با حروف درهم (<b>Aa</b>) و خود نام پروژه. اگر اپراتور شما نام پروژه را ببندد (همهٔ کانفیگ‌ها -1)، دوتای اول هنوز می‌توانند کار کنند: اشتراک را به‌روزرسانی و دوباره تست کنید.<br>🔎 <b>اسکنر واقعی روی اینترنت خودتان:</b> برنامهٔ Cat Client → Vercel → «🔎 اسکنر آی‌پی Vercel». همهٔ آی‌پی‌های Vercel و هر سه SNI را روی خط شما امتحان می‌کند و فقط کانفیگ‌هایی را می‌سازد که تونل واقعی‌شان تا example.com وصل شد. اسکن این صفحه از سرور است، نه از خط شما.'
-    : '▲ <b>Panel on Vercel:</b> every address appears three times with three SNIs: <b>vercel.app</b>, the project name in mixed case (<b>Aa</b>) and the project name itself. If your operator blocks the project name (all configs -1), the first two can still work: update the subscription and test again.<br>🔎 <b>Real scanner on your own internet:</b> Cat Client app → Vercel → “🔎 Vercel IP scanner”. It tries every Vercel IP and all three SNIs on your line and only builds configs whose real tunnel reached example.com. This page\'s scan runs from the server, not your line.') + '</div>' : '';
+    ? '▲ <b>پنل روی Vercel:</b> هر آدرس در اشتراک با چند SNI آمده: <b>Domain</b> (اگر دامنهٔ شخصی وصل کرده باشی)، <b>✂️ Frag</b> (همان vercel.app با ClientHello تکه‌تکه)، <b>vercel.app</b>، یک نام تصادفی (<b>rnd</b>)، نام پروژه با حروف درهم (<b>Aa</b>) و خود نام پروژه. اگر اپراتور نام پروژه را ببندد (همهٔ کانفیگ‌ها -1)، بقیه هنوز می‌توانند کار کنند: اشتراک را به‌روزرسانی و دوباره تست کنید.<br>🔎 <b>اسکنر واقعی روی اینترنت خودتان:</b> برنامهٔ Cat Client → Vercel → «🔎 اسکنر آی‌پی Vercel»؛ و کارت «🔬 اسکنر Vercel» در بخش اسکن همین پنل.'
+    : '▲ <b>Panel on Vercel:</b> every address appears with several SNIs: <b>Domain</b> (if you attached a custom domain), <b>✂️ Frag</b> (vercel.app with a split ClientHello), <b>vercel.app</b>, a random name (<b>rnd</b>), the project name in mixed case (<b>Aa</b>) and the project name itself. If your operator blocks the project name (all configs -1), the others can still work: update the subscription and test again.<br>🔎 <b>Real scanner on your own internet:</b> Cat Client app → Vercel → “🔎 Vercel IP scanner”, plus the “🔬 Vercel scanner” card in this panel\'s scan section.') + '</div>' : '';
+  // 6.69.43 🔬 Vercel scanner card (scanner tab, Vercel only). Server half: /api/vercel-doctor dials an edge IP
+  // with every SNI group and reports Vercel's own answer. Network half: the browser opens each name from the
+  // user's line (VPN off) — a failure there is the operator's block, the thing a server can never see.
+  const vDoctor = isVercelPlatform(env) ? (() => {
+    const t = fa ? {"ok": "✅ Vercel این SNI را قبول می‌کند. اگر روی گوشی پینگ نمی‌دهد، اپراتور شما این نام را بسته — دکمهٔ «📶 اینترنت خودم» را بزن.", "e421": "❌ خود Vercel رد می‌کند (421): گواهیِ این SNI نام پروژه را پوشش نمی‌دهد. این خط هرگز کار نمی‌کند.", "c421": "❌ دامنهٔ شخصی هنوز آماده نیست (421): رکورد DNS را به Vercel وصل کن و صبر کن تا در Vercel → Domains «Valid Configuration» بیاید، بعد Redeploy.", "front": "کنترل: SNI = nextjs.org → 421. یعنی ترفند «SNI react.dev / nextjs.org» برای پروژهٔ شخصی کار نمی‌کند (فقط برای سایت‌های خود Vercel).", "e403": "⛔ 403: محافظ DDoS ورسل درخواست را رد کرد.", "e404": "⚠️ 404: مسیر تونل پیدا نشد — پنل را Redeploy کن.", "e0": "❌ اتصال TLS برقرار نشد", "wait": "در حال تست…", "col_g": "گروه", "col_r": "نتیجه", "g_custom": "🌐 دامنهٔ شخصی", "g_bare": "vercel.app (+ ✂️ Frag)", "g_rnd": "🎲 نام تصادفی", "g_mixed": "Aa حروف درهم", "g_project": "نام پروژه", "g_front": "کنترل nextjs.org", "rec": "⭐ پیشنهاد برای اینترنت شما: SNI", "frag": "روی اپ‌های Xray (v2rayNG، Cat Client) خطوط «✂️ Frag» همین SNI را با ClientHello تکه‌تکه می‌فرستند؛ اول آن‌ها را امتحان کن.", "copy": "📋 کپی لینک اشتراک فقط با همین SNI", "copied": "کپی شد", "none": "هیچ SNI روی هر دو تست باز نبود. راه قطعی: دامنهٔ شخصی (پایین همین کارت) یا خطوط ✂️ Frag در اپ.", "saved": "ذخیره شد — اشتراک را به‌روزرسانی کن", "bad": "نام دامنه معتبر نیست (vercel.app/vercel.com قبول نیست)", "nokv": "پنل حافظهٔ دائمی ندارد و این تنظیم بعداً پاک می‌شود. راه دائمی: دامنه را در Vercel → Settings → Domains اضافه و Redeploy کنید (پنل خودش آن را می‌شناسد)، یا متغیر CAT_VERCEL_DOMAIN را بگذارید."} : {"ok": "✅ Vercel accepts this SNI. If it still does not ping on your phone, your operator blocks this name — press “📶 My internet”.", "e421": "❌ Vercel itself refuses (421): this SNI’s certificate does not cover the project name. Such a line can never work.", "c421": "❌ Custom domain not ready (421): point its DNS at Vercel and wait for “Valid Configuration” in Vercel → Domains, then Redeploy.", "front": "Control: SNI = nextjs.org → 421. The “SNI react.dev / nextjs.org” trick does not work for a personal project (only for Vercel’s own sites).", "e403": "⛔ 403: Vercel’s DDoS shield refused the request.", "e404": "⚠️ 404: tunnel path not found — redeploy the panel.", "e0": "❌ TLS connection failed", "wait": "Testing…", "col_g": "Group", "col_r": "Result", "g_custom": "🌐 Custom domain", "g_bare": "vercel.app (+ ✂️ Frag)", "g_rnd": "🎲 Random name", "g_mixed": "Aa mixed case", "g_project": "Project name", "g_front": "nextjs.org control", "rec": "⭐ Recommended for your internet: SNI", "frag": "In Xray apps (v2rayNG, Cat Client) the “✂️ Frag” lines send this SNI with a split ClientHello — try them first.", "copy": "📋 Copy a subscription with only this SNI", "copied": "Copied", "none": "No SNI passed both checks. The sure way: a custom domain (below) or the ✂️ Frag lines in the app.", "saved": "Saved — update the subscription", "bad": "Not a valid domain (vercel.app/vercel.com are not accepted)", "nokv": "This panel has no permanent storage, so the setting will be lost. Permanent way: add the domain in Vercel → Settings → Domains and redeploy (the panel detects it), or set the CAT_VERCEL_DOMAIN variable."};
+    const cfg = JSON.stringify({ u: masterUuid, plan: vercelSniPlan(host, env, settings, masterUuid), t }).replace(/</g, '\\u003c');
+    const how = fa
+      ? '<b>چرا کانفیگ Vercel در ایران پینگ نمی‌دهد؟</b> فیلترینگ نامِ داخل SNI را می‌خواند؛ خودِ آی‌پی‌های Vercel باز هستند. پنل حالا برای هر آدرس این گروه‌ها را می‌سازد: <b>Domain</b> (اگر دامنه داری) ← <b>✂️ Frag</b> (ClientHello تکه‌تکه) ← <b>SNI vercel.app</b> ← <b>SNI rnd</b> (یک نام تصادفی ‎*.vercel.app که در هیچ لیست سیاهی نیست) ← <b>Aa</b> ← نام پروژه.<br><b>مطمئن‌ترین راه (احتمالاً راه دوستت): دامنهٔ شخصی.</b> ۱) یک دامنه بگیر. ۲) Vercel ← پروژه ← Settings ← Domains ← Add. ۳) در DNS دامنه رکورد <b>A</b> به <code>76.76.21.21</code> بساز (در Cloudflare ابر خاکستری / DNS only). ۴) وقتی Vercel نوشت Valid Configuration، یک Redeploy بزن — خطوط «Domain» خودکار ساخته می‌شوند (یا نام را همین پایین ذخیره کن).<br><b>📶 تست اینترنت خودم:</b> این صفحه را باز نگه دار، VPN را خاموش کن، بعد دکمه را بزن.'
+      : '<b>Why do Vercel configs not ping in Iran?</b> The filter reads the name inside the SNI; Vercel’s IPs themselves are open. The panel now builds these groups for every address: <b>Domain</b> (if you have one) → <b>✂️ Frag</b> (split ClientHello) → <b>SNI vercel.app</b> → <b>SNI rnd</b> (a random *.vercel.app name that is on no blocklist) → <b>Aa</b> → the project name.<br><b>The surest way (probably your friend’s): a custom domain.</b> 1) Get a domain. 2) Vercel → project → Settings → Domains → Add. 3) In its DNS create an <b>A</b> record to <code>76.76.21.21</code> (grey cloud / DNS only on Cloudflare). 4) When Vercel says Valid Configuration, Redeploy — the “Domain” lines appear by themselves (or save the name below).<br><b>📶 My-internet test:</b> keep this page open, turn the VPN off, then press the button.';
+    return '<div class="card sec" id="vDoctor"><h2><span class="ic">🔬</span><span>' + (fa ? 'اسکنر Vercel — کدام کانفیگ پینگ می‌دهد؟' : 'Vercel scanner — which config pings?') + '</span></h2>'
+      + '<div class="small" style="line-height:1.9;margin-bottom:10px">' + how + '</div>'
+      + '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="vdSrv">' + (fa ? '🔬 تست از سمت Vercel' : '🔬 Check on Vercel') + '</button>'
+      + '<button class="btn sm" type="button" id="vdNet">' + (fa ? '📶 تست اینترنت خودم (VPN خاموش)' : '📶 My internet (VPN off)') + '</button></div>'
+      + '<div id="vdMsg" class="small" style="margin-top:6px"></div><div id="vdOut" style="margin-top:10px;overflow-x:auto"></div><div id="vdRec" style="margin-top:8px"></div>'
+      + '<label style="margin-top:12px">' + (fa ? '🌐 دامنهٔ شخصی وصل‌شده به این پروژه (اختیاری)' : '🌐 Custom domain attached to this project (optional)') + '</label>'
+      + '<div class="row" style="gap:8px"><input id="vdDom" dir="ltr" placeholder="vpn.example.com" value="' + escapeHtml(vercelCustomDomain(env, settings)) + '"><button class="btn sm" type="button" id="vdSave">' + (fa ? 'ذخیره' : 'Save') + '</button></div>'
+      + '<script>window.__VD=' + cfg + ';' + "(function(){var C=window.__VD,last={},net={};function g(i){return document.getElementById(i)}\nfunction say(m,bad){var e=g('vdMsg');e.textContent=m||'';e.style.color=bad?'var(--red,#f44)':''}\nfunction call(p,m,b){return fetch(p,{method:m,credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){if(r.status===401){location.href='/';throw new Error('401')}return r.json()})}\nfunction esc(s){return String(s==null?'':s).replace(/[&<>\"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]})}\nfunction why(r){if(r.ok)return C.t.ok;if(r.id==='custom')return C.t.c421;if(r.status===421)return r.id==='front'?C.t.front:r.id==='custom'?C.t.c421:C.t.e421;if(r.status===403)return C.t.e403;if(r.status===404)return C.t.e404;if(!r.status)return C.t.e0+(r.err?' ('+esc(r.err)+')':'');return 'HTTP '+r.status}\nfunction row(a,b,c,d){return '<tr><td>'+a+'</td><td style=\"direction:ltr;font-family:monospace;font-size:12px\">'+b+'</td><td>'+c+'</td><td class=\"small\">'+d+'</td></tr>'}\nfunction draw(){var ids=['custom','bare','rnd','mixed','project','front'],h='';ids.forEach(function(id){var r=last[id],n=net[id];if(!r&&!n)return;var s=r?(r.ok?'✅ 101':(r.status?'❌ '+r.status:'❌ —'))+' · '+r.ms+'ms':'…';var m=n?(n.ok?' · 📶 ✅ '+n.ms+'ms':' · 📶 ❌'):'';h+=row(esc(C.t['g_'+id]),esc((r||n).sni),s+m,r?why(r):'')});\n g('vdOut').innerHTML=h?'<table class=\"tbl\" style=\"width:100%;font-size:12px\"><tr><th>'+esc(C.t.col_g)+'</th><th>SNI</th><th>'+esc(C.t.col_r)+'</th><th></th></tr>'+h+'</table>':'';\n var pick=null;['custom','bare','rnd','project'].some(function(id){var r=last[id],n=net[id];if((r&&r.ok||!r&&n)&&(!n||n.ok)&&(r||n)){pick=(r||n);return true}return false});\n var box=g('vdRec');if(!pick){box.innerHTML=(Object.keys(last).length||Object.keys(net).length)?'<div class=\"note w\">'+esc(C.t.none)+'</div>':'';return}\n var link=location.origin+'/sub/'+C.u+'?sni='+encodeURIComponent(pick.sni);box.innerHTML='<div class=\"note g\">'+esc(C.t.rec)+' <b style=\"direction:ltr;display:inline-block\">'+esc(pick.sni)+'</b>'+(pick.id==='bare'?' — '+esc(C.t.frag):'')+'<br><code style=\"direction:ltr;display:block;word-break:break-all;margin:6px 0\">'+esc(link)+'</code><button class=\"btn sm\" type=\"button\" id=\"vdCopy\">'+esc(C.t.copy)+'</button></div>';\n g('vdCopy').onclick=function(){try{navigator.clipboard.writeText(link);say(C.t.copied)}catch(e){prompt('',link)}}}\ng('vdSrv').onclick=function(){var b=this;b.disabled=true;g('vdOut').innerHTML='<div class=\"small\">⏳ '+esc(C.t.wait)+'</div>';\n say('');call('/api/vercel-doctor','POST').then(function(j){last={};((j&&j.results)||[]).forEach(function(r){last[r.id]=r});if(!j||!j.ok)say((j&&j.error)||'error',true);draw()}).catch(function(e){g('vdOut').innerHTML='';say(String(e&&e.message||e),true)}).then(function(){b.disabled=false})};\ng('vdNet').onclick=function(){var b=this;b.disabled=true;var plan=C.plan.filter(function(p){return p.id!=='mixed'&&p.id!=='front'});net={};g('vdOut').innerHTML='<div class=\"small\">⏳ '+esc(C.t.wait)+'</div>';\n Promise.all(plan.map(function(p){var ac=new AbortController(),t0=Date.now(),tm=setTimeout(function(){ac.abort()},6000);\n  return fetch('https://'+p.sni.toLowerCase()+'/?cat-scan='+t0,{mode:'no-cors',cache:'no-store',redirect:'manual',credentials:'omit',signal:ac.signal}).then(function(){net[p.id]={id:p.id,sni:p.sni,ok:true,ms:Date.now()-t0}},function(){net[p.id]={id:p.id,sni:p.sni,ok:false}}).then(function(){clearTimeout(tm)})})).then(function(){b.disabled=false;draw()})};\ng('vdSave').onclick=function(){var v=g('vdDom').value.trim();call('/api/settings','PUT',{vercelDomain:v}).then(function(j){var d=j&&j.settings?j.settings.vercelDomain:'';say(v&&!d?C.t.bad:(j&&j.persisted===false?C.t.nokv:C.t.saved),(v&&!d)||(j&&j.persisted===false));if(j&&j.ok){C.plan=C.plan.filter(function(p){return p.id!=='custom'});if(d)C.plan.unshift({id:'custom',sni:d,host:d})}}).catch(function(e){say(String(e&&e.message||e),true)})};\n})();" + '</script></div>';
+  })() : '';
   const firewallPresetUi = Object.fromEntries(Object.entries(FIREWALL_BYPASS_PRESETS).map(([id, p]) => [id, { address: p.address, fingerprint: p.fingerprint, ech: !!p.echList, note: p.note, finalMask: !!p.finalMask }]));
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(catLogo('f'))}">
@@ -7591,6 +7705,7 @@ ${(() => {
 <section class="view" id="v-scan" data-sec="addr">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
 ${vNote}
+${vDoctor}
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
   <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>

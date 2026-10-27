@@ -292,6 +292,7 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/survival.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-platform.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-doctor-ui.test.mjs
             node scripts/panels/vercel-storage.test.mjs
             # the real Vercel adapter + the shipped panel over WebSocket; the Vercel sub stays ws-only
             # (Vercel's edge drops raw httpupgrade bytes after 101 — measured live)

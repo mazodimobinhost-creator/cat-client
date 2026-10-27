@@ -102,7 +102,7 @@ const parsed = lines.map(parse);
 check('vercel sub answers with links', subRes.status === 200 && lines.length >= 4, subRes.status + ' / ' + lines.length);
 check('every Vercel line is WebSocket (the only transport the edge forwards)', parsed.length > 0 && parsed.every((p) => p.q.get('type') === 'ws'), [...new Set(parsed.map((p) => p.q.get('type')))].join(','));
 // 6.69.41: SNI is the project, the bare «vercel.app» or the mixed-case project (Vercel accepts all three, live-tested)
-const sniOk = (sni) => sni === 'vercel.app' || String(sni || '').toLowerCase() === HOST;
+const sniOk = (sni) => /(^|\.)vercel\.app$/i.test(String(sni || '')); // 6.69.43: + random *.vercel.app names (edge accepts any)
 check('Vercel lines: :443, TLS, host == project, SNI in the vercel.app family, alpn http/1.1', parsed.every((p) => p.port === 443 && p.q.get('security') === 'tls' && sniOk(p.q.get('sni')) && p.q.get('host') === HOST && p.q.get('alpn') === 'http/1.1'), JSON.stringify(parsed[0] && Object.fromEntries(parsed[0].q)));
 check('Vercel sub serves all three SNIs', ['vercel.app', HOST].every((x) => parsed.some((p) => p.q.get('sni') === x)) && parsed.some((p) => p.q.get('sni') !== HOST && sniOk(p.q.get('sni')) && p.q.get('sni') !== 'vercel.app'));
 check('Vercel names are unique', new Set(parsed.map((p) => p.name)).size === parsed.length);

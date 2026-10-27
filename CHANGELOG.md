@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta187] — 2026-10-27 (Panel 6.69.43)
+
+### Why Vercel configs do not ping from Iran (measured live from Vercel's edge, iad1)
+- Vercel's edge only requires that **the certificate chosen by the SNI also covers the Host**. For a `*.vercel.app` project **any** vercel.app name works as SNI — even a made-up one (WebSocket 101) — and a custom domain works with its own name once Vercel has issued its certificate. `nextjs.org`, `react.dev`, `vercel.com`, `cursor.com` and every other foreign SNI get **421** for an ordinary project: the "react.dev / nextjs.org SNI" fronting trick from public configs only reaches Vercel's own and enterprise sites, never a personal panel. A custom domain without DNS/certificate also gets 421 with every SNI.
+- So the blocks Iranian users hit are on the name: DPI on the vercel.app SNI, DNS poisoning of the project name, and (for some national-gateway IPs) Vercel's own DDoS shield answering 403 — which no config can bypass on a Hobby plan.
+
+### Added
+- **Vercel subscription groups (panel 6.69.43), most likely to pass first:** `Domain` (a custom domain attached to the project: Host = SNI = the domain; auto-detected from Vercel's production URL after a redeploy, or set in the panel / `CAT_VERCEL_DOMAIN`) → `✂️ Frag` (SNI vercel.app with an Xray finalmask that splits only the TLS ClientHello; clients without finalmask ignore the parameter) → `SNI vercel.app` → `SNI rnd` (a stable random `w….vercel.app` name that is on no blocklist and does not reveal the project name) → `SNI Aa` → the project name. Links, Clash/mihomo, sing-box and Xray JSON all carry the right Host per group; `?sni=<custom domain>` pins Host too.
+- **🔬 Vercel scanner in the panel (scan tab, Vercel only):** "Check on Vercel" (`POST /api/vercel-doctor`, owner-only) dials a Vercel edge IP with every SNI group and a real WebSocket upgrade and shows Vercel's own answer with a plain-words reason (101 accepted / 421 Vercel refuses / 403 DDoS shield / 404 path); a `nextjs.org` control row shows why the fronting trick fails. "My internet (VPN off)" opens each name from the user's own line, so operator blocks become visible. The card recommends the SNI that passed both checks with a copyable `/sub/<uuid>?sni=…` link, and has a custom-domain field plus a step-by-step guide (Vercel → Settings → Domains, A record 76.76.21.21, redeploy).
+- **App Vercel IP scanner:** stage 0 also tries two random `*.vercel.app` names; when nothing passes, the result says **why** in plain words (all vercel.app SNIs blocked → ✂️ Frag lines / custom domain; TLS cut mid-way; timeouts; Vercel 421 / 403 / 404; 101 but no answer through the tunnel) with the three most common raw errors (`VercelScanDiagnosis`, unit-tested). The app's fallback configs gain the random-SNI group; its sub check accepts random vercel.app SNIs and `Domain` lines.
+- Vercel adapter: `connect()` honours an explicit `servername` (used by the scanner) and passes `VERCEL_PROJECT_PRODUCTION_URL` to the panel.
+
+### Removed
+- `vercel.com` as a default Vercel address: it only resolved to the same 76.76.21.x edge as `76.76.21.21` (10 duplicate lines). The sub is now 5 groups × (3 edge IPs + the project domain) × VLESS/Trojan = 40 lines (48 with a custom domain) instead of 30 lines with only 3 SNIs.
+
+### Tests
+- `vercel-platform.test.mjs` (51 checks: groups, frag mask, stable random SNI, custom domain in every format, settings sanitising, the doctor endpoint with a fake socket layer); new jsdom suite `vercel-doctor-ui.test.mjs` (card, both checks, recommendation, custom-domain save) on the source and the minified artifact; the last checks of `vercel-platform` were previously after the exit gate and now count. Gzip budget 180 000 → 186 000 B (measured 183 491 B).
+
 ## [1.10.0-beta186] — 2026-10-27 (Panel 6.69.42)
 
 ### Fixed

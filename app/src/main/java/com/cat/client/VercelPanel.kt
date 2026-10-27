@@ -128,11 +128,23 @@ internal object VercelPanelPlanner {
             if (k.isBlank()) null else k to runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
         }.toMap()
         val authority = link.substringAfter("://").substringAfter('@').substringBefore('?')
-        authority.endsWith(":443") && params["security"] == "tls" && params["host"] == host && sniFitsVercel(params["sni"].orEmpty(), host)
+        val lineHost = params["host"].orEmpty()
+        authority.endsWith(":443") && params["security"] == "tls" &&
+            ((lineHost == host && sniFitsVercel(params["sni"].orEmpty(), host)) ||
+                // 6.69.43 «Domain» lines: a custom domain attached to the project — its own certificate, Host = SNI.
+                (lineHost == params["sni"] && isCustomDomain(lineHost)))
     }
 
+    /** 6.69.43: ANY *.vercel.app name is a valid SNI for a *.vercel.app project (live-tested, made-up names too). */
     fun sniFitsVercel(sni: String, host: String): Boolean =
-        sni == host || (host.lowercase().endsWith(".vercel.app") && (sni == "vercel.app" || sni.lowercase() == host.lowercase()))
+        sni == host || (host.lowercase().endsWith(".vercel.app") && sni.lowercase().let { it == "vercel.app" || it.endsWith(".vercel.app") })
+
+    /** A domain the owner attached to the project (not a vercel.app / vercel.com name). */
+    fun isCustomDomain(value: String): Boolean {
+        val v = value.lowercase()
+        return v.length in 4..253 && v.contains('.') && v.all { it.isLetterOrDigit() || it == '.' || it == '-' } &&
+            !v.endsWith(".vercel.app") && v != "vercel.app" && !v.endsWith("vercel.com")
+    }
 
     /**
      * Configs the app builds itself when the phone cannot read the panel's subscription yet (for
@@ -142,7 +154,7 @@ internal object VercelPanelPlanner {
     fun fallbackLinks(uuid: String, trojanPass: String, host: String, name: String): List<VercelRelayLink> {
         val enc = VercelRelayPlanner::encode
         // Same three SNIs the panel serves (bare vercel.app and mixed-case first: some ISPs choke the project name).
-        val snis = if (host.lowercase().endsWith(".vercel.app")) listOf("vercel.app", VercelIpScanner.mixedCase(host), host) else listOf(host)
+        val snis = if (host.lowercase().endsWith(".vercel.app")) listOf("vercel.app", VercelIpScanner.stableRandomSni(host + "|" + uuid), VercelIpScanner.mixedCase(host), host) else listOf(host)
         val targets = listOf(host) + EDGE_ADDRESSES
         val out = mutableListOf<VercelRelayLink>()
         for (sni in snis) targets.forEach { address ->
@@ -398,13 +410,26 @@ internal object VercelIpScanner {
      * HTTP 421. Some mobile ISPs choke «<project>.vercel.app», so the scanner finds which of these passes
      * on the user's own line. A custom domain keeps its own SNI only.
      */
-    fun sniCandidates(target: VercelScanTarget): List<String> {
+    fun sniCandidates(target: VercelScanTarget, random: kotlin.random.Random = kotlin.random.Random.Default): List<String> {
         val host = target.host.lowercase()
         if (!host.endsWith(".vercel.app")) return listOf(target.sni)
-        val list = mutableListOf("vercel.app", mixedCase(host), host)
+        // 6.69.43: plus two made-up names — on no blocklist, so they beat exact-name DPI lists (not suffix blocks)
+        val list = mutableListOf("vercel.app", randomSni(random), randomSni(random), mixedCase(host), host)
         if (list.none { it == target.sni } && target.sni.lowercase().let { it == "vercel.app" || it.endsWith(".vercel.app") }) list += target.sni
         return list.distinct()
     }
+
+    /** A made-up «w…….vercel.app» name; Vercel's wildcard certificate covers it and the edge routes by Host. */
+    fun randomSni(random: kotlin.random.Random = kotlin.random.Random.Default): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return "w" + (1..11).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("") + ".vercel.app"
+    }
+
+    /** Same idea, but stable for one seed (configs the app builds keep their SNI across rebuilds). */
+    fun stableRandomSni(seed: String): String = randomSni(kotlin.random.Random(seed.hashCode().toLong() * 31 + seed.length))
+
+    fun isRandomSni(sni: String, host: String): Boolean =
+        sni.lowercase().let { it.endsWith(".vercel.app") && it != host.lowercase() && Regex("^w[a-z0-9]{6,}\\.vercel\\.app$").matches(it) }
 
     /** Same mixed-case spelling the panel emits («cAt-PaNeL…»): every odd index upper-cased. */
     fun mixedCase(host: String): String =
@@ -413,6 +438,7 @@ internal object VercelIpScanner {
     /** Short user-facing label for an SNI candidate. */
     fun sniLabel(sni: String, host: String): String = when {
         sni == "vercel.app" -> "vercel.app"
+        isRandomSni(sni, host) -> "🎲 " + sni.take(8) + "…"
         sni != host.lowercase() && sni.lowercase() == host.lowercase() -> "Aa (" + sni.take(12) + "…)"
         else -> sni
     }
@@ -472,4 +498,53 @@ internal object VercelIpScanner {
     fun firstRequest(target: VercelScanTarget, payload: ByteArray): ByteArray =
         if (target.scheme == "trojan") VercelPanelProbe.trojanRequest(target.credential, "example.com", 80, payload)
         else VercelPanelProbe.vlessRequest(target.credential, "example.com", 80, payload)
+}
+
+/**
+ * 6.69.43 — why a Vercel scan found nothing, in plain words. Pure (unit-tested): the controller collects the
+ * stage-2 failure details («HTTP/1.1 421 …», «SSLHandshakeException», …) and shows the most common cause with
+ * what to do about it. Every branch maps to a cause seen live from Iran or from the edge itself.
+ */
+object VercelScanDiagnosis {
+    enum class Cause { NONE, SNI_BLOCKED, TLS_RESET, TIMEOUT, VERCEL_421, VERCEL_403, PATH_404, NO_TUNNEL, OTHER }
+
+    fun classify(detail: String): Cause {
+        val d = detail.lowercase()
+        return when {
+            Regex("http/1\\.[01] 421").containsMatchIn(d) -> Cause.VERCEL_421
+            Regex("http/1\\.[01] 403").containsMatchIn(d) -> Cause.VERCEL_403
+            Regex("http/1\\.[01] 404").containsMatchIn(d) -> Cause.PATH_404
+            d.contains("no answer through the tunnel") -> Cause.NO_TUNNEL
+            d.contains("timeout") -> Cause.TIMEOUT
+            d.contains("ssl") || d.contains("reset") || d.contains("eof") || d.contains("broken pipe") || d.contains("socketexception") || d.contains("certificate") -> Cause.TLS_RESET
+            else -> Cause.OTHER
+        }
+    }
+
+    /** Most common cause: no SNI passed stage 0 / no TLS at all → SNI block; otherwise the dominant stage-2 failure. */
+    fun cause(tlsCount: Int, sniPassed: Int, hits: Int, failures: List<String>): Cause = when {
+        hits > 0 -> Cause.NONE
+        sniPassed == 0 && tlsCount == 0 -> Cause.SNI_BLOCKED
+        failures.isEmpty() -> if (tlsCount == 0) Cause.SNI_BLOCKED else Cause.OTHER
+        else -> failures.groupingBy(::classify).eachCount().maxByOrNull { it.value }!!.key
+    }
+
+    fun explain(cause: Cause, fa: Boolean): String = when (cause) {
+        Cause.NONE -> ""
+        Cause.SNI_BLOCKED -> if (fa) "🔒 اپراتور شما همهٔ نام‌های vercel.app را در SNI می‌بندد (حتی نام‌های تصادفی). راه حل: ۱) خطوط «✂️ Frag» اشتراک را در v2rayNG / همین برنامه امتحان کنید (ClientHello تکه‌تکه). ۲) مطمئن‌ترین: یک دامنهٔ شخصی به پروژه وصل کنید (Vercel → Settings → Domains، رکورد A به 76.76.21.21) و Redeploy کنید؛ پنل خطوط «Domain» می‌سازد."
+            else "🔒 Your operator blocks every vercel.app name in the SNI (even random ones). Fix: 1) try the subscription’s “✂️ Frag” lines in v2rayNG / this app (split ClientHello). 2) Surest: attach a custom domain to the project (Vercel → Settings → Domains, A record to 76.76.21.21) and redeploy; the panel builds “Domain” lines."
+        Cause.TLS_RESET -> if (fa) "✂️ اتصال TLS وسط راه قطع شد (فیلترینگ روی نام SNI). خطوط «✂️ Frag» یا دامنهٔ شخصی را امتحان کنید."
+            else "✂️ The TLS connection was cut mid-way (SNI filtering). Try the “✂️ Frag” lines or a custom domain."
+        Cause.TIMEOUT -> if (fa) "🐢 اتصال‌ها تا ته نرسیدند (کندسازی/اختلال روی خط). چند دقیقه بعد یا روی اپراتور دیگر دوباره اسکن کنید؛ «کامل» آی‌پی‌های بیشتری را امتحان می‌کند."
+            else "🐢 Connections never finished (throttling on the line). Scan again later or on another operator; “Full” tries more IPs."
+        Cause.VERCEL_421 -> if (fa) "↩️ خود Vercel جواب 421 داد: SNI با Host این کانفیگ جور نیست (مثلاً SNI غیر vercel.app، یا دامنهٔ شخصی‌ای که هنوز گواهی ندارد). اشتراک را از پنل دوباره بگیرید."
+            else "↩️ Vercel itself answered 421: the SNI does not match this config’s Host (a non-vercel.app SNI, or a custom domain without a certificate yet). Re-fetch the subscription from the panel."
+        Cause.VERCEL_403 -> if (fa) "⛔ Vercel جواب 403 داد: محافظ DDoS ورسل آی‌پی شما را رد کرد (برای ترافیکی که از درگاه‌های ملی می‌آید رایج است). از اپراتور/اینترنت دیگر امتحان کنید؛ این را با تغییر کانفیگ نمی‌شود دور زد."
+            else "⛔ Vercel answered 403: its DDoS shield refused your IP (common for traffic leaving through national gateways). Try another operator/network; no config change can bypass it."
+        Cause.PATH_404 -> if (fa) "🧭 مسیر تونل پیدا نشد (404): پنل قدیمی است یا کانفیگ مال پنل دیگری است. «🔧 به‌روزرسانی پنل» را بزنید."
+            else "🧭 Tunnel path not found (404): the panel is outdated or the config is from another panel. Run “🔧 Update panel”."
+        Cause.NO_TUNNEL -> if (fa) "🔌 Vercel وصل شد (101) ولی از داخل تونل جوابی نیامد: UUID/رمز اشتباه است، کاربر غیرفعال/منقضی است، یا پنل به اینترنت نرسید."
+            else "🔌 Vercel connected (101) but nothing came back through the tunnel: wrong UUID/password, a disabled/expired user, or the panel could not reach the internet."
+        Cause.OTHER -> if (fa) "❔ علت مشخص نشد؛ جزئیات خطا در پایین آمده." else "❔ Unclear cause; the error details are below."
+    }
 }

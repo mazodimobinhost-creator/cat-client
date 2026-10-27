@@ -83,7 +83,10 @@ class VercelPanelTest {
     @Test
     fun fallbackLinksUseOnly443WithProjectSni() {
         val links = VercelPanelPlanner.fallbackLinks(uuid, "pw+1", host, "notes-ab12c").map { it.link }
-        assertEquals((1 + VercelPanelPlanner.EDGE_ADDRESSES.size) * 2 * 3, links.size)
+        assertEquals((1 + VercelPanelPlanner.EDGE_ADDRESSES.size) * 2 * 4, links.size)
+        val rnd = VercelIpScanner.stableRandomSni(host + "|" + uuid)
+        assertTrue(links.any { it.contains("sni=$rnd&") })
+        assertEquals(rnd, VercelIpScanner.stableRandomSni(host + "|" + uuid))
         assertTrue(links.first().contains("sni=vercel.app"))
         assertTrue(links.any { it.contains("sni=" + VercelIpScanner.mixedCase(host) + "&") })
         assertTrue(links.any { it.contains("sni=$host&") })
@@ -164,8 +167,12 @@ class VercelPanelTest {
     @Test
     fun sniCandidatesCoverTheVercelAppFamilyOnly() {
         val ws = "vless://$uuid@vercel.com:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host#a"
-        val c = VercelIpScanner.sniCandidates(VercelIpScanner.target(ws)!!)
-        assertEquals(listOf("vercel.app", VercelIpScanner.mixedCase(host), host), c)
+        val c = VercelIpScanner.sniCandidates(VercelIpScanner.target(ws)!!, kotlin.random.Random(7))
+        assertEquals(5, c.size)
+        assertEquals("vercel.app", c[0])
+        assertEquals(listOf(VercelIpScanner.mixedCase(host), host), c.takeLast(2))
+        assertTrue(c.subList(1, 3).all { VercelIpScanner.isRandomSni(it, host) && !it.contains("cat-") })
+        assertTrue(c.all { VercelPanelPlanner.sniFitsVercel(it, host) })
         assertTrue(c.none { it.endsWith("vercel.com") })
         assertEquals(host.lowercase(), VercelIpScanner.mixedCase(host).lowercase())
         assertEquals("cAt-pAnEl", VercelIpScanner.mixedCase("cat-panel"))
@@ -220,5 +227,36 @@ class VercelPanelTest {
         assertTrue(VercelPanelPlanner.health(404, "The deployment could not be found", bundled, "DEPLOYMENT_NOT_FOUND") is VercelPanelHealth.Unreachable)
         assertTrue(VercelPanelPlanner.health(200, "<html>login</html>", bundled) is VercelPanelHealth.Unreachable)
         assertTrue(VercelPanelPlanner.health(0, "", bundled) is VercelPanelHealth.Unreachable)
+    }
+
+    @Test
+    fun customDomainLinesAndRandomSnisFitVercel() {
+        val base = "vless://$uuid@76.76.21.21:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host#a"
+        val rnd = base.replace("sni=$host", "sni=wq8x2k1m0zz9.vercel.app")
+        val dom = "vless://$uuid@76.76.21.21:443?security=tls&type=ws&host=vpn.example.ir&path=%2Fws&sni=vpn.example.ir#d"
+        assertTrue(VercelPanelPlanner.linksFitVercel(listOf(dom, rnd, base), host))
+        // a custom Host with a foreign SNI is a 421 line, and vercel.com is never a custom domain
+        assertFalse(VercelPanelPlanner.linksFitVercel(listOf(dom.replace("sni=vpn.example.ir", "sni=nextjs.org")), host))
+        assertFalse(VercelPanelPlanner.linksFitVercel(listOf(dom.replace("vpn.example.ir", "vercel.com")), host))
+        assertFalse(VercelPanelPlanner.isCustomDomain("x.vercel.app"))
+        assertTrue(VercelPanelPlanner.isCustomDomain("vpn.example.ir"))
+        assertEquals("🎲 wq8x2k1m…", VercelIpScanner.sniLabel("wq8x2k1m0zz9.vercel.app", host))
+    }
+
+    @Test
+    fun scanDiagnosisNamesTheCause() {
+        val d = VercelScanDiagnosis
+        assertEquals(d.Cause.NONE, d.cause(5, 2, 1, listOf("HTTP/1.1 421")))
+        assertEquals(d.Cause.SNI_BLOCKED, d.cause(0, 0, 0, emptyList()))
+        assertEquals(d.Cause.VERCEL_421, d.cause(4, 1, 0, listOf("HTTP/1.1 421 Misdirected Request", "HTTP/1.1 421 Misdirected Request", "SSLException: reset")))
+        assertEquals(d.Cause.VERCEL_403, d.cause(4, 1, 0, listOf("HTTP/1.1 403 Forbidden")))
+        assertEquals(d.Cause.PATH_404, d.classify("HTTP/1.1 404 Not Found"))
+        assertEquals(d.Cause.NO_TUNNEL, d.classify("no answer through the tunnel"))
+        assertEquals(d.Cause.TIMEOUT, d.classify("SocketTimeoutException: Read timed out"))
+        assertEquals(d.Cause.TLS_RESET, d.classify("SSLHandshakeException: Connection reset by peer"))
+        d.Cause.values().filter { it != d.Cause.NONE }.forEach { c ->
+            assertTrue(d.explain(c, true).isNotBlank() && d.explain(c, false).isNotBlank())
+        }
+        assertTrue(d.explain(d.Cause.SNI_BLOCKED, false).contains("76.76.21.21"))
     }
 }

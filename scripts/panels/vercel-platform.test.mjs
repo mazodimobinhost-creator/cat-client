@@ -24,7 +24,7 @@ const check = (name, cond, extra) => {
 
 const UUID = '719f3599-09b0-4c6f-9f8d-bd78f0d36c57';
 const HOST = 'cat-panel-v7k2m.vercel.app';
-const VERCEL = new Set(['vercel.com', '76.76.21.21', '64.29.17.65', '216.198.79.65', HOST]);
+const VERCEL = new Set(['76.76.21.21', '64.29.17.65', '216.198.79.65', HOST]);
 
 async function subLines(env, query = '') {
   const res = await worker.fetch(new Request('https://' + HOST + '/sub/' + UUID + query), env, { waitUntil() {} });
@@ -46,16 +46,38 @@ check('every vercel line is :443', parsed.every((p) => p.port === 443), parsed.m
 check('every vercel line is TLS', parsed.every((p) => p.q.get('security') === 'tls'));
 check('every vercel address is a Vercel edge address or the project host', parsed.every((p) => VERCEL.has(p.host)), parsed.map((p) => p.host).join(','));
 check('Host == project domain on every vercel line', parsed.every((p) => p.q.get('host') === HOST));
-// 6.69.41: the edge accepts any vercel.app name as SNI (live-tested); vercel.com / other domains → 421
-check('every vercel SNI is a vercel.app name (project, bare vercel.app or mixed-case project)', parsed.every((p) => { const sni = p.q.get('sni') || ''; return sni === 'vercel.app' || sni.toLowerCase() === HOST; }), parsed.map((p) => p.q.get('sni')).join(','));
-const bareN = parsed.filter((p) => p.q.get('sni') === 'vercel.app').length, exactN = parsed.filter((p) => p.q.get('sni') === HOST).length;
+// 6.69.41/43: the edge accepts any vercel.app name as SNI (live-tested, even made-up names); vercel.com / nextjs.org → 421
+check('every vercel SNI is a *.vercel.app name', parsed.every((p) => /(^|\.)vercel\.app$/i.test(p.q.get('sni') || '')), parsed.map((p) => p.q.get('sni')).join(','));
+const fragN = parsed.filter((p) => p.q.get('sni') === 'vercel.app' && p.q.get('fm')).length;
+const bareN = parsed.filter((p) => p.q.get('sni') === 'vercel.app' && !p.q.get('fm')).length, exactN = parsed.filter((p) => p.q.get('sni') === HOST).length;
 const mixedN = parsed.filter((p) => p.q.get('sni') !== HOST && (p.q.get('sni') || '').toLowerCase() === HOST).length;
-check('vercel sub carries the three SNI variants in equal numbers', bareN > 0 && bareN === exactN && mixedN === exactN, bareN + '/' + mixedN + '/' + exactN);
-check('bare vercel.app SNI lines come first', parsed[0].q.get('sni') === 'vercel.app');
-check('SNI-variant lines are named apart', v.lines.filter((l) => /SNI%20vercel\.app/.test(l)).length === bareN && v.lines.filter((l) => /SNI%20Aa/.test(l)).length === mixedN);
+const rndSnis = [...new Set(parsed.map((p) => p.q.get('sni')).filter((x) => x !== 'vercel.app' && x.toLowerCase() !== HOST))];
+const rndN = parsed.filter((p) => rndSnis.includes(p.q.get('sni'))).length;
+check('vercel sub carries the five SNI groups in equal numbers (frag/bare/rnd/Aa/project)', exactN > 0 && [fragN, bareN, rndN, mixedN].every((n) => n === exactN), [fragN, bareN, rndN, mixedN, exactN].join('/'));
+check('vercel sub is exactly 5 groups × 3 edge addresses+project × VLESS/Trojan (40 lines)', v.lines.length === 40, v.lines.length);
+check('✂️ Frag lines come first and split only the ClientHello', parsed[0].q.get('fm') && parsed.filter((p) => p.q.get('fm')).every((p) => /tlshello/.test(p.q.get('fm')) && /fragment/.test(p.q.get('fm'))));
+check('random SNI is one stable *.vercel.app name that hides the project name', rndSnis.length === 1 && /^w[a-z0-9]{6,}\.vercel\.app$/.test(rndSnis[0]) && !rndSnis[0].includes('cat-panel'), rndSnis.join(','));
+const again = (await subLines(vercelEnv)).lines.map(parse);
+check('random SNI survives a subscription refresh', again.some((p) => p.q.get('sni') === rndSnis[0]));
+check('SNI-variant lines are named apart', v.lines.filter((l) => /SNI%20vercel\.app/.test(l)).length === bareN && v.lines.filter((l) => /SNI%20Aa/.test(l)).length === mixedN && v.lines.filter((l) => /SNI%20rnd/.test(l)).length === rndN && v.lines.filter((l) => /Frag/.test(l)).length === fragN);
 check('no vercel line uses a non-vercel.app SNI (vercel.com → 421)', !parsed.some((p) => /vercel\.com$/.test(p.q.get('sni') || '')));
+check('vercel.com is no longer a default address (it only duplicated 76.76.21.x)', !parsed.some((p) => p.host === 'vercel.com'));
+// Custom domain (the strongest option): Host = SNI = the domain, first; the other groups keep the project host.
+const domEnv = Object.assign({}, vercelEnv, { CAT_VERCEL_PROD_URL: 'vpn.example.ir' });
+const dom = (await subLines(domEnv)).lines.map(parse);
+const domLines = dom.filter((p) => p.q.get('sni') === 'vpn.example.ir');
+check('custom domain adds a Domain group first with Host = SNI = domain', dom.length === 48 && domLines.length === 8 && dom[0].q.get('sni') === 'vpn.example.ir' && domLines.every((p) => p.q.get('host') === 'vpn.example.ir' && !p.q.get('fm')), dom.length + ' / ' + domLines.length);
+check('custom domain leaves the other groups on the project host', dom.filter((p) => p.q.get('sni') !== 'vpn.example.ir').every((p) => p.q.get('host') === HOST));
+const domPinned = (await subLines(domEnv, '?sni=vpn.example.ir')).lines.map(parse);
+check('?sni=<custom domain> pins Host to it as well', domPinned.length > 0 && domPinned.every((p) => p.q.get('sni') === 'vpn.example.ir' && p.q.get('host') === 'vpn.example.ir'));
+const fakeDom = (await subLines(Object.assign({}, vercelEnv, { CAT_VERCEL_PROD_URL: 'other-project.vercel.app' }))).lines;
+check('a vercel.app production URL is not treated as a custom domain', fakeDom.length === 40, fakeDom.length);
+const clashDom = await (await worker.fetch(new Request('https://' + HOST + '/sub/' + UUID + '?target=clash'), domEnv, { waitUntil() {} })).text();
+check('clash export carries the custom Host on Domain proxies', /Host: "vpn\.example\.ir"/.test(clashDom) && /Host: "cat-panel-v7k2m\.vercel\.app"/.test(clashDom));
+const sbDom = await (await worker.fetch(new Request('https://' + HOST + '/sub/' + UUID + '?target=singbox'), domEnv, { waitUntil() {} })).text();
+check('sing-box export carries the custom Host on Domain outbounds', /"Host": "vpn\.example\.ir"/.test(sbDom) && /"server_name": "vpn\.example\.ir"/.test(sbDom));
 const pinned = (await subLines(vercelEnv, '?sni=' + HOST)).lines.map(parse);
-check('?sni= pins one SNI (no variants)', pinned.length > 0 && pinned.every((p) => p.q.get('sni') === HOST) && pinned.length === exactN, pinned.length + ' vs ' + exactN);
+check('?sni= pins one SNI (no variants)', pinned.length > 0 && pinned.every((p) => p.q.get('sni') === HOST && p.q.get('host') === HOST) && pinned.length === exactN, pinned.length + ' vs ' + exactN);
 const lim = (await subLines(vercelEnv, '?limit=6')).lines;
 check('?limit= still caps the vercel sub', lim.length > 0 && lim.length <= 6, lim.length);
 check('no ECH / cipher-suite pinning on vercel lines', parsed.every((p) => !p.q.get('ech') && !p.q.get('cs')));
@@ -92,6 +114,41 @@ check('vercel login page has no Cloudflare KV binding steps', !/Storage &amp; Da
 const cfLogin = await (await worker.fetch(new Request('https://cf.example.workers.dev/panel/', { headers: { 'accept-language': 'fa' } }), { UUID, TROJAN_PASS: 'p-cf' }, { waitUntil() {} })).text();
 check('cloudflare login page keeps the KV binding steps', /Bindings → KV namespace/.test(cfLogin) && !/Vercel Blob/.test(cfLogin));
 
+// 6.69.43 settings: vercelDomain is sanitised (scheme/path stripped, vercel.app refused).
+const putDom = async (v) => (await (await worker.fetch(new Request('https://' + HOST + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie2, origin: 'https://' + HOST }, body: JSON.stringify({ vercelDomain: v }) }), storedEnv, { waitUntil() {} })).json()).settings.vercelDomain;
+check('settings: vercelDomain keeps a real domain (scheme/path stripped)', (await putDom('https://VPN.Example.ir/panel/')) === 'vpn.example.ir');
+check('settings: vercelDomain refuses vercel.app names', (await putDom('x.vercel.app')) === '');
+check('settings: saved vercelDomain drives the Domain group', ((await putDom('cdn.example.org')) === 'cdn.example.org') && (await subLines(storedEnv)).lines.map(parse).filter((p) => p.q.get('sni') === 'cdn.example.org' && p.q.get('host') === 'cdn.example.org').length === 8);
+await putDom('');
+// 6.69.43 /api/vercel-doctor: owner-only; dials each SNI group with a WebSocket upgrade and reports Vercel's answer.
+const T0 = (await import(workerPath))._testing;
+const dialed = [];
+T0.__setSockets({ connect(addr, opts) {
+  dialed.push(opts && opts.servername);
+  const sni = String((opts && opts.servername) || '').toLowerCase();
+  let reqText = '';
+  let push;
+  const readable = new ReadableStream({ start(c) { push = c; } });
+  const writable = new WritableStream({ write(chunk) {
+    reqText += new TextDecoder().decode(chunk);
+    const hostH = ((reqText.match(/\r\nHost: ([^\r]+)/) || [])[1] || '').toLowerCase();
+    const ok = (sni.endsWith('vercel.app') && hostH.endsWith('.vercel.app')) || (sni === hostH);
+    push.enqueue(new TextEncoder().encode('HTTP/1.1 ' + (ok ? '101 Switching Protocols' : '421 Misdirected Request') + '\r\n\r\n'));
+    push.close();
+  } });
+  return { opened: Promise.resolve(), readable, writable, close() {} };
+} });
+const noAuth = await worker.fetch(new Request('https://' + HOST + '/api/vercel-doctor', { method: 'POST', headers: { origin: 'https://' + HOST } }), vercelEnv, { waitUntil() {} });
+check('vercel-doctor refuses anonymous callers', noAuth.status === 401, noAuth.status);
+const doc = await (await worker.fetch(new Request('https://' + HOST + '/api/vercel-doctor', { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: 'https://' + HOST }, body: '{}' }), vercelEnv, { waitUntil() {} })).json();
+const byId = Object.fromEntries((doc.results || []).map((r) => [r.id, r]));
+check('vercel-doctor reports 101 for vercel.app / random / mixed / project SNIs', doc.ok && ['bare', 'rnd', 'mixed', 'project'].every((id) => byId[id] && byId[id].ok && byId[id].status === 101), JSON.stringify(doc).slice(0, 300));
+check('vercel-doctor shows the nextjs.org fronting control as 421', byId.front && byId.front.status === 421 && !byId.front.ok);
+check('vercel-doctor dials with the planned SNIs', dialed.includes('vercel.app') && dialed.includes('nextjs.org'), dialed.join(','));
+const docCf = await worker.fetch(new Request('https://w.example.workers.dev/api/vercel-doctor', { method: 'POST', headers: { origin: 'https://w.example.workers.dev' } }), { UUID, TROJAN_PASS: 'p-cf' }, { waitUntil() {} });
+check('vercel-doctor is not offered on Cloudflare', docCf.status !== 200, docCf.status);
+T0.__setSockets(null);
+
 const cf = (await subLines({ UUID, TROJAN_PASS: 'p-cf-test' })).lines.map(parse);
 check('cloudflare behaviour unchanged: non-Vercel addresses still present', cf.some((p) => !VERCEL.has(p.host)));
 check('cloudflare behaviour unchanged: alternate ports still present', cf.some((p) => p.port !== 443));
@@ -104,5 +161,10 @@ check('vercel panel shows the SNI + scanner note', /class="note i vnote"/.test(v
 const T = (await import(workerPath))._testing;
 const cfPanelHtml = T.panelPage({}, { lang: 'fa' }, 'w.example.workers.dev', UUID);
 check('cloudflare panel has no Vercel note', /id="v-dash"/.test(cfPanelHtml) && !/class="note i vnote"/.test(cfPanelHtml));
+const vPage = T.panelPage({ CAT_PLATFORM: 'vercel' }, { lang: 'fa' }, HOST, UUID);
+check('vercel panel has the 🔬 Vercel scanner card (server + my-internet test + custom domain)', /id="vDoctor"/.test(vPage) && /id="vdSrv"/.test(vPage) && /id="vdNet"/.test(vPage) && /id="vdDom"/.test(vPage) && /76\.76\.21\.21/.test(vPage));
+check('cloudflare panel has no Vercel scanner card', !/id="vDoctor"/.test(cfPanelHtml));
+check('the scanner card script does not break out of its <script>', (vPage.split('id="vDoctor"')[1] || '').split('</script>')[0].indexOf('<script>window.__VD=') >= 0);
 check('vercel panelPage carries the note twice (dashboard + scanner)', (T.panelPage({ CAT_PLATFORM: 'vercel' }, { lang: 'en' }, HOST, UUID).match(/class="note i vnote"/g) || []).length === 2);
+if (failures) { console.error(failures + ' failure(s)'); process.exit(1); }
 console.log('all vercel-platform checks passed');
