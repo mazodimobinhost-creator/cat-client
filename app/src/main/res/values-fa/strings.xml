@@ -1289,6 +1289,7 @@
     <string name="cloud_vercel_start">ساخت روی Vercel</string>
     <string name="cloud_vercel_scan">🔎 اسکنر آی‌پی Vercel (آی‌پی سالم برای خط من)</string>
     <string name="cloud_vercel_cf_front">🟧 کانفیگ Vercel پینگ نمی‌دهد؟ ساخت جلوی Cloudflare</string>
+    <string name="cloud_node_host">🆓 پنل Cat روی هاست‌های رایگان (KataBump و…)</string>
     <string name="cloud_vercel_panel">🐱 سرور ندارم: پنل کامل Cat + کانفیگ روی Vercel</string>
     <string name="servers_add_vercel_panel">پنل Cat + کانفیگ روی Vercel (بدون سرور)</string>
     <string name="design_pixel">پیکسل</string>

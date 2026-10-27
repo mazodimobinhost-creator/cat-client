@@ -11,7 +11,12 @@
 //                                     BLOB_STORE_ID / BLOB_READ_WRITE_TOKEN), or Upstash Redis REST
 //                                     when KV_REST_API_URL/TOKEN exist; without either the panel runs
 //                                     memory-only and refuses to create users (they would vanish).
+// 6.69.45: the same file also runs the panel on ANY Node host (node-panel/index.js sets CAT_PLATFORM=node):
+// KataBump / Lucity / Shiprr / a VPS. There it keeps users in a JSON file under CAT_KV_DIR (a host disk),
+// and tells every request how the phone reached it (plain host port / HTTPS edge / through Cloudflare).
 import http from 'node:http';
+import fs from 'node:fs';
+import pathMod from 'node:path';
 import net from 'node:net';
 import dns from 'node:dns';
 import tls from 'node:tls';
@@ -206,6 +211,59 @@ function upstashKv(url, token) {
 }
 
 /*
+ * 6.69.45 file KV for Node hosts with a disk (KataBump, a Lucity volume, a VPS): one process owns the data,
+ * so everything lives in memory and the whole map is written atomically (tmp file + rename, mode 0600) at
+ * most every 2 s after a change, and once more on exit. Expired keys are dropped on read and on save.
+ */
+export function fileKv(dir, clock = () => Date.now()) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = pathMod.join(dir, 'cat-kv.json');
+  const map = new Map(); // key -> { v, exp }
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const [k, rec] of Object.entries(raw && raw.keys || {})) if (rec && typeof rec.v === 'string') map.set(k, { v: rec.v, exp: Number(rec.exp) || 0 });
+  } catch (e) { if (e && e.code !== 'ENOENT') console.error('cat-kv.json unreadable, starting empty (old file kept as .bad): ' + e.message); if (e && e.code !== 'ENOENT') { try { fs.renameSync(file, file + '.bad'); } catch (_) { } } }
+  let timer = null;
+  const save = () => {
+    timer = null;
+    const now = clock();
+    const keys = {};
+    for (const [k, rec] of map) if (!rec.exp || rec.exp > now) keys[k] = rec;
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, keys }), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  };
+  const schedule = () => { if (!timer) { timer = setTimeout(() => { try { save(); } catch (e) { console.error('cat-kv save failed: ' + e.message); } }, 2000); timer.unref?.(); } };
+  const flush = () => { if (timer) { clearTimeout(timer); timer = null; } try { save(); } catch (_) { } };
+  process.once('exit', flush);
+  for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { flush(); process.exit(0); });
+  const live = (k) => { const rec = map.get(k); if (!rec) return null; if (rec.exp && rec.exp <= clock()) { map.delete(k); return null; } return rec; };
+  return {
+    async get(key, type) {
+      const rec = live(key);
+      if (!rec) return null;
+      const t = typeof type === 'string' ? type : (type && type.type) || 'text';
+      if (t === 'json') { try { return JSON.parse(rec.v); } catch (_) { return null; } }
+      if (t === 'arrayBuffer') return new TextEncoder().encode(rec.v).buffer;
+      return rec.v;
+    },
+    async put(key, value, opts) {
+      const v = typeof value === 'string' ? value : value instanceof ArrayBuffer ? new TextDecoder().decode(value) : String(value);
+      const exp = opts && Number(opts.expirationTtl) > 0 ? clock() + Math.max(60, Number(opts.expirationTtl)) * 1000 : 0;
+      map.set(key, { v, exp });
+      schedule();
+    },
+    async delete(key) { if (map.delete(key)) schedule(); },
+    async list(opts = {}) {
+      const prefix = String(opts.prefix || '');
+      const names = [...map.keys()].filter((k) => k.startsWith(prefix) && live(k)).sort();
+      return { keys: names.slice(0, Math.min(1000, Number(opts.limit) || 1000)).map((name) => ({ name })), list_complete: true };
+    },
+    _flush: flush,
+  };
+}
+
+/*
  * Vercel Blob as the panel's KV. Hobby includes ~10,000 reads and ~2,000 writes a month, so keys
  * are split by value:
  *   PERSIST  settings / users / uuid: written at once (owner actions only, a handful a month).
@@ -319,9 +377,13 @@ async function vercelBlobClient() {
 const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
 const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
 const hasBlob = !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+const PLATFORM = String(process.env.CAT_PLATFORM || '').toLowerCase() === 'node' ? 'node' : 'vercel';
 let CAT_KV;
 let KV_KIND = 'memory';
 if (kvUrl && kvToken) { CAT_KV = upstashKv(kvUrl, kvToken); KV_KIND = 'upstash'; }
+else if (PLATFORM === 'node' && process.env.CAT_KV_DIR) {
+  try { CAT_KV = fileKv(process.env.CAT_KV_DIR); KV_KIND = 'file'; } catch (e) { console.error('file storage unavailable: ' + ((e && e.message) || e)); }
+}
 else if (hasBlob) {
   try { CAT_KV = blobKv(await vercelBlobClient()); KV_KIND = 'blob'; } catch (e) { console.error('blob storage unavailable: ' + ((e && e.message) || e)); }
 }
@@ -333,12 +395,13 @@ const panelModule = await import('../lib/catpanel.mjs');
 const worker = panelModule.default;
 if (panelModule._testing && typeof panelModule._testing.__setSockets === 'function') panelModule._testing.__setSockets(globalThis.__catSockets);
 
-const ENV_SKIP = /^(AWS_|LAMBDA_|NODE_|NOW_|VERCEL_|_|PATH$|HOME$|PWD$|LANG$|TZ$|KV_|UPSTASH_|REDIS_|BLOB_)/;
+const ENV_SKIP = /^(AWS_|LAMBDA_|NODE_|NOW_|VERCEL_|_|PATH$|HOME$|PWD$|LANG$|TZ$|KV_|UPSTASH_|REDIS_|BLOB_|SERVER_|P_SERVER_|STARTUP$|USER$|HOSTNAME$|CAT_KV_DIR$|CAT_NODE_)/;
 function buildEnv() {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!ENV_SKIP.test(k) && /^[A-Z][A-Z0-9_]*$/.test(k)) env[k] = v;
   if (CAT_KV) env.CAT_KV = CAT_KV;
-  env.CAT_PLATFORM = 'vercel';
+  env.CAT_PLATFORM = PLATFORM;
+  if (PLATFORM === 'node') { env.CAT_STORAGE = KV_KIND; return env; }
   // Vercel's shortest production domain: a custom domain the owner attached in the dashboard shows up here,
   // and the panel then serves it (Host = SNI = that domain) without any extra setting.
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) env.CAT_VERCEL_PROD_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL;
@@ -356,33 +419,70 @@ function waitUntilFn() {
   };
 }
 
+function firstHeader(req, name) { return String(req.headers[name] || '').split(',')[0].trim(); }
+/**
+ * Node hosts: how did this request reach us? cf-ray → through Cloudflare; an x-forwarded-proto from the
+ * host's own HTTPS edge → 'tls'; nothing in front → 'plain' (the host's own port, e.g. KataBump IP:port).
+ */
+function nodeEdgeOf(req) {
+  if (req.headers['cf-ray']) return 'cf';
+  const proto = firstHeader(req, 'x-forwarded-proto').toLowerCase();
+  if (proto === 'https' || req.socket.encrypted) return 'tls';
+  if (proto === 'http') return 'proxied-http';
+  return 'plain';
+}
 function clientIp(req) {
-  const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  if (PLATFORM === 'node') {
+    const edge = nodeEdgeOf(req);
+    // straight to our own port: forwarded headers come from the client itself and must not steer
+    // login lockouts / per-IP limits — only the socket address is real
+    if (edge === 'plain') return String(req.socket.remoteAddress || '');
+    if (edge === 'cf') return firstHeader(req, 'cf-connecting-ip') || firstHeader(req, 'x-forwarded-for') || String(req.socket.remoteAddress || '');
+  }
+  const xff = firstHeader(req, 'x-forwarded-for');
   return String(req.headers['x-real-ip'] || xff || req.socket.remoteAddress || '');
+}
+/** The URL the phone used: scheme + host[:port] as it sees them (node); Vercel is always https on its host. */
+function publicOrigin(req) {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost');
+  if (PLATFORM !== 'node') return { url: 'https://' + host, edge: '', port: 443 };
+  const edge = nodeEdgeOf(req);
+  const tls = edge === 'tls' || (edge === 'cf' && firstHeader(req, 'x-forwarded-proto').toLowerCase() !== 'http');
+  const m = /:(\d{1,5})$/.exec(host);
+  const fwdPort = Number(firstHeader(req, 'x-forwarded-port')) || 0;
+  const port = m ? Number(m[1]) : (fwdPort || (edge === 'plain' ? Number(process.env.CAT_PUBLIC_PORT || req.socket.localPort || 80) : (tls ? 443 : 80)));
+  const bare = host.replace(/:\d{1,5}$/, '');
+  const scheme = tls ? 'https' : 'http';
+  const showPort = (tls && port !== 443) || (!tls && port !== 80);
+  return { url: scheme + '://' + bare + (showPort ? ':' + port : ''), edge: edge === 'proxied-http' ? 'plain' : edge, port };
+}
+function envFor(req) {
+  if (PLATFORM !== 'node') return ENV;
+  const o = publicOrigin(req);
+  return Object.assign({}, ENV, { CAT_NODE_EDGE: o.edge, CAT_NODE_PORT: String(o.port) });
 }
 
 function toRequest(req, withBody) {
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost');
-  const url = 'https://' + host + (req.url || '/');
+  const url = publicOrigin(req).url + (req.url || '/');
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (v == null || k.startsWith(':')) continue;
     if (Array.isArray(v)) v.forEach((x) => headers.append(k, x)); else headers.set(k, String(v));
   }
   const ip = clientIp(req);
-  if (ip && !headers.has('cf-connecting-ip')) headers.set('cf-connecting-ip', ip);
+  if (ip && (PLATFORM === 'node' || !headers.has('cf-connecting-ip'))) headers.set('cf-connecting-ip', ip);
   const init = { method: req.method, headers };
   if (withBody && req.method !== 'GET' && req.method !== 'HEAD') { init.body = Readable.toWeb(req); init.duplex = 'half'; }
   const request = new Request(url, init);
   const decode = (x) => { try { return decodeURIComponent(String(x || '')); } catch (_) { return String(x || ''); } };
   const cf = {
-    country: String(req.headers['x-vercel-ip-country'] || ''),
+    country: String(req.headers['x-vercel-ip-country'] || (PLATFORM === 'node' && req.headers['cf-ray'] ? req.headers['cf-ipcountry'] || '' : '')),
     city: decode(req.headers['x-vercel-ip-city']),
     region: String(req.headers['x-vercel-ip-country-region'] || ''),
     latitude: String(req.headers['x-vercel-ip-latitude'] || ''),
     longitude: String(req.headers['x-vercel-ip-longitude'] || ''),
     timezone: String(req.headers['x-vercel-ip-timezone'] || ''),
-    colo: String(req.headers['x-vercel-id'] || '').split(':')[0] || 'vercel',
+    colo: String(req.headers['x-vercel-id'] || '').split(':')[0] || (PLATFORM === 'node' ? 'node' : 'vercel'),
     asn: 0,
   };
   try { Object.defineProperty(request, 'cf', { value: cf }); } catch (_) { }
@@ -403,7 +503,7 @@ async function writeResponse(res, response) {
 
 const server = http.createServer((req, res) => reqScope.run({ tunnel: false }, async () => {
   try {
-    const response = await worker.fetch(toRequest(req, true), ENV, { waitUntil: waitUntilFn(), passThroughOnException() {} });
+    const response = await worker.fetch(toRequest(req, true), envFor(req), { waitUntil: waitUntilFn(), passThroughOnException() {} });
     await writeResponse(res, response);
   } catch (e) {
     if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
@@ -415,7 +515,7 @@ const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxP
 server.on('upgrade', (req, socket, head) => reqScope.run({ tunnel: true }, async () => {
   socket.on('error', () => {});
   try {
-    const response = await worker.fetch(toRequest(req, false), ENV, { waitUntil: waitUntilFn(), passThroughOnException() {} });
+    const response = await worker.fetch(toRequest(req, false), envFor(req), { waitUntil: waitUntilFn(), passThroughOnException() {} });
     const pairClient = response && response.__catUpgrade;
     if (!pairClient || !pairClient.__catServer) {
       const text = response ? await response.text().catch(() => '') : '';

@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta190] — 2026-10-27 (Panel 6.69.45)
+
+### Added
+- **🆓 Cat panel on any Node.js host (KataBump free · Lucity · Shiprr · Railway · a VPS).** A 2-file launcher (`node-panel/index.js` + `package.json`, released as `cat-node-panel.zip`): on start it lists this repo's releases (prereleases included), downloads `catclient.worker.js` + `cat-panel-adapter.mjs`, **refuses anything that does not match `cat-node-panel.sha256`**, caches them in `./cat-code` (later starts and offline starts reuse the cache) and serves the panel on `SERVER_PORT` / `PORT`. Optional `CAT_PANEL_TAG`, `CAT_DATA_DIR`, `CAT_NO_DISK`, Upstash `KV_REST_API_URL`/`TOKEN`, `CAT_PANEL_SOURCE_DIR` (offline). Plain-words Persian/English steps per host in `node-panel/README.md`.
+- **Panel 6.69.45 «node» platform:** the panel follows how the phone reached it, per request:
+  - straight to the host port (KataBump `http://IP:port`) → exactly **1 VLESS + 1 Trojan** on that address and port, `security=none` — no clean IPs, no ProxyIP/SOCKS/SNI duplicates, no DNS→IP swap; `?addr=` / `?port=` cannot turn it into a Cloudflare line;
+  - the host's HTTPS edge (Lucity `*.lucity.app`, Shiprr `*.shiprr.dev`) → 1 VLESS + 1 Trojan on `host:443` TLS with SNI = Host = the host;
+  - through Cloudflare (`cf-ray`, e.g. a free `kdns.fr` subdomain on an orange cloud + an Origin Rule port + SSL Flexible) → the full Cloudflare set, as on a Worker.
+  - A panel note explains each mode in plain words; without storage, user add (panel, API, bot) is refused with a clear «give it a disk or Upstash» message instead of losing users on restart.
+- **Adapter:** file storage `fileKv` (in-memory map + atomic `cat-kv.json`, mode 0600, written ≤ 2 s after a change and on exit); real scheme/port in the request URL; on a direct connection the client IP is the socket address (a forged `X-Forwarded-For` cannot dodge the login lockout); `cf-connecting-ip` only when `cf-ray` is present. **Vercel behaviour is unchanged.**
+- **App:** Cloud tab → Vercel card → «🆓 پنل Cat روی هاست‌های رایگان»: step-by-step guide, «⬇️ Download files (zip)» from this version's release, copy link, and buttons to open KataBump / Lucity / Shiprr.
+
+### Fixed
+- The session cookie drops `Secure` only when the request itself is plain `http:` (possible only on a Node host's own port) — browsers never kept the login on `http://IP:port`. Workers, Vercel and HTTPS edges keep `Secure`.
+
+### Tests
+- `scripts/panels/node-host.test.mjs` (27 checks, source + shipped artifact): runs the launcher like a host does; the three edge modes; VLESS and Trojan tunnels through it; settings survive a restart; SHA-256 refusal; cookie flags; lockout vs forged XFF. CI also builds and lists `cat-node-panel.zip`.
+
 ## [1.10.0-beta189] — 2026-10-27 (Panel 6.69.44)
 
 ### Changed

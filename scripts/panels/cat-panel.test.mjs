@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.69.44', T.CAT_PANEL_VERSION === '6.69.44');
+  check('panel version is 6.69.45', T.CAT_PANEL_VERSION === '6.69.45');
   check('non-CF whitelist targets & 5 CF spoof methods & MasterDNS/VayDNS catalogs exist', Array.isArray(T.NON_CF_WHITELIST_TARGETS) && T.NON_CF_WHITELIST_TARGETS.length >= 10 && Array.isArray(T.CF_SPOOF_5_METHODS) && T.CF_SPOOF_5_METHODS.length === 5 && T.MASTERDNS_BALANCERS_0_8.length === 9 && T.VAYDNS_RECORD_TYPES.length === 9);
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the

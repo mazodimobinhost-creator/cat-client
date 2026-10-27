@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.44';
+const CAT_PANEL_VERSION = '6.69.45';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -980,7 +980,7 @@ const DOM_TTL_MS = 12 * 60 * 60 * 1000;
  * ?dom=1 on the sub link keeps the raw domains.
  */
 async function withDomMap(env, settings, host) {
-  if (settings.domToIp === false || isVercelPlatform(env)) return settings;
+  if (settings.domToIp === false || isVercelPlatform(env) || nodeDirect(env)) return settings;
   const kv = kvBinding(env);
   let cache = {};
   if (kv) { try { cache = JSON.parse((await kv.get(DOM_CACHE_KEY)) || '{}'); } catch (e) { cache = {}; } }
@@ -1544,8 +1544,11 @@ async function auditLogin(env, request, ok, reason) {
   } catch (e) { /* best effort */ }
 }
 
-function sessionCookieHeader(token) {
-  return SESSION_COOKIE + '=' + encodeURIComponent(token) + '; Path=/; Max-Age=' + Math.floor(SESSION_TTL_MS / 1000) + '; HttpOnly; Secure; SameSite=Lax';
+/* `Secure` cookies are dropped by browsers on plain http — which only ever happens on a Node host reached
+ * straight on its port (KataBump http://IP:port). Workers / Vercel / HTTPS edges keep `Secure`. */
+function cookieFlags(url) { return 'HttpOnly; ' + (url && url.protocol === 'http:' ? '' : 'Secure; ') + 'SameSite=Lax'; }
+function sessionCookieHeader(token, url) {
+  return SESSION_COOKIE + '=' + encodeURIComponent(token) + '; Path=/; Max-Age=' + Math.floor(SESSION_TTL_MS / 1000) + '; ' + cookieFlags(url);
 }
 
 /* QR encoder (byte mode, versions 1-40, levels L/M/Q/H)               */
@@ -4014,6 +4017,32 @@ function scanSniOf(env, settings) {
 const VERCEL_EDGE_ADDRESSES = ['76.76.21.21', '216.198.79.65', '64.29.17.65'];
 const VERCEL_EDGE_NAMES = VERCEL_EDGE_ADDRESSES.concat(['vercel.com']);
 function isVercelPlatform(env) { return String((env && env.CAT_PLATFORM) || '').toLowerCase() === 'vercel'; }
+/* 6.69.45 «node» platform: the same panel on any Node.js host (KataBump, Lucity, Shiprr, a VPS…) through
+ * node-panel/index.js + the Vercel adapter. The adapter tells EACH request how the phone reached it:
+ *   CAT_NODE_EDGE = 'plain' — straight to the host's own port without TLS (KataBump «IP:port» / *.kdns.fr:port);
+ *                   'tls'   — an HTTPS edge on 443 (Lucity *.lucity.app, Shiprr *.shiprr.dev, Railway…);
+ *                   'cf'    — through Cloudflare (cf-ray present: a kdns.fr / own domain on an orange cloud), so
+ *                             clean IPs and every Cloudflare port reach it exactly like a Worker.
+ * In the two direct modes only the host's own address and port can ever answer: no clean IPs, no ProxyIP /
+ * SOCKS / SNI-spoof duplicates (the host dials every destination itself), no DNS→IP swap. */
+function isNodePlatform(env) { return String((env && env.CAT_PLATFORM) || '').toLowerCase() === 'node'; }
+function nodeEdge(env) { const e = String((env && env.CAT_NODE_EDGE) || '').toLowerCase(); return ['plain', 'tls', 'cf'].includes(e) ? e : 'tls'; }
+function nodeDirect(env) { return isNodePlatform(env) && nodeEdge(env) !== 'cf'; }
+function nodePort(env) {
+  const p = Number(env && env.CAT_NODE_PORT);
+  return Number.isInteger(p) && p > 0 && p < 65536 ? p : (nodeEdge(env) === 'plain' ? 80 : 443);
+}
+function nodeLinkSettings(settings, env) {
+  const tls = nodeEdge(env) === 'tls';
+  const port = nodePort(env);
+  return Object.assign({}, settings, {
+    tlsPorts: tls ? [port] : [], plainPorts: tls ? [] : [port], plainEnabled: !tls, useDefaults: false, includeHost: true,
+    repoAuto: false, domToIp: false, domMap: null, sniFront: false, sniRotate: false, extraSnis: [],
+    echList: '', fmLinks: false, finalMaskProfile: '', finalMaskCipherSuites: '', cipherSuites: '',
+  });
+}
+const NODE_NO_STORE = 'No permanent storage on this host: a new user would vanish on restart. Give the host a disk (CAT_DATA_DIR on a volume) or add Upstash Redis (KV_REST_API_URL + KV_REST_API_TOKEN).';
+function noStoreError(env) { return isVercelPlatform(env) ? VERCEL_NO_STORE : NODE_NO_STORE; }
 // Vercel's own IPv4 edge networks (AS922). A Cloudflare clean IP can never reach a Vercel project,
 // so on Vercel the owner's IP list keeps only these (plus domains, e.g. a custom domain on Vercel).
 const VERCEL_NETS = ['76.76.21.', '66.33.60.', '64.29.17.', '216.198.79.', '216.150.1.', '216.150.16.', '216.230.84.', '216.230.86.', '64.239.109.', '64.239.123.', '198.169.1.', '198.169.2.', '143.13.', '155.121.'];
@@ -4112,6 +4141,7 @@ async function vercelEdgeProbe(sockets, c, wsPath) {
 }
 
 function addressList(host, env, settings) {
+  if (nodeDirect(env)) return [String(host)];
   const vercel = isVercelPlatform(env);
   const own = (settings.ips || []).filter((a) => !vercel || vercelDialable(a));
   const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter((a) => a && (!vercel || vercelDialable(a)));
@@ -4194,7 +4224,14 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     settings = vercelLinkSettings(settings);
     if (q.port && q.port.length) q = Object.assign({}, q, { port: q.port.filter((p) => Number(p) === 443) });
   }
+  if (nodeDirect(env)) {
+    // the host answers on ONE address and ONE port: link-level address/port/family picks cannot change that
+    settings = nodeLinkSettings(settings, env);
+    q = Object.assign({}, q, { port: [], addr: [], fam: '', src: '' });
+  }
   const ctx = linkContext(host, env, settings, uuid, user);
+  // an HTTPS edge (Lucity / Shiprr…) only holds a certificate for its own name: SNI = Host = the host
+  if (nodeDirect(env) && !q.sni) { ctx.sni = String(host).toLowerCase(); ctx.hostHeader = String(host).toLowerCase(); }
   // SNI rotation (beta46): TLS configs cycle through the pool instead of all
   // sharing one SNI. ?sni=<host> pins a single SNI and disables rotation.
   if (q.sni) ctx.sni = q.sni;
@@ -4445,7 +4482,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   const PIN_LIMIT = 2;
   const limited = !!q.limit;
   // Vercel dials every destination directly: 🎯 ProxyIP / 🧦 SOCKS / 🧬 SNI entries would only be duplicates.
-  if (!isVercelPlatform(env) && !(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
+  if (!isVercelPlatform(env) && !nodeDirect(env) && !(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
     const cleanCount = entries.length;
     const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
     // 🎯/🧦 ride the ports the link asked for: TLS when any TLS port is selected, else the first plain port.
@@ -5325,7 +5362,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
     case '/add': {
       if (!arg[0]) return 'usage: /add <name> [days]';
       if (byName(arg[0])) return 'exists: ' + tgEsc(arg[0]);
-      if (isVercelPlatform(env) && !kvBinding(env)) return '⚠️ ' + VERCEL_NO_STORE;
+      if ((isVercelPlatform(env) || isNodePlatform(env)) && !kvBinding(env)) return '⚠️ ' + noStoreError(env);
       const days = Number(arg[1]) || 0;
       const user = normalizeUser({ name: arg[0], expiresAt: days ? Date.now() + days * 86400000 : 0 });
       await writeUsers(env, users.concat([user]));
@@ -5663,10 +5700,10 @@ async function handleApi(request, url, env, ctx) {
     if (ip) await recordLoginResult(env, ip, true, st);
     await auditLogin(env, request, true, settings.totpSecret ? 'password+otp' : 'password');
     const token = await makeSession(env, settings, masterUuid);
-    return json({ ok: true }, 200, { 'set-cookie': sessionCookieHeader(token) });
+    return json({ ok: true }, 200, { 'set-cookie': sessionCookieHeader(token, url) });
   }
   if (path === '/api/logout') {
-    return json({ ok: true }, 200, { 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' });
+    return json({ ok: true }, 200, { 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; ' + cookieFlags(url) });
   }
 
   /* ---- everything below is owner-only ---- */
@@ -5877,7 +5914,7 @@ async function handleApi(request, url, env, ctx) {
       const extra = {};
       if (typeof body.password === 'string') {
         // Password changed → old sessions die; hand back a fresh one.
-        extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid));
+        extra['set-cookie'] = sessionCookieHeader(await makeSession(env, saved.settings, masterUuid), url);
       }
       await pushEvent(env, 'settings', 'update');
       return json({ ok: true, persisted: saved.persisted, ignored: pxIgnored, capped: pxCapped, settings: Object.assign({}, saved.settings, { passwordHash: undefined, totpSecret: undefined, totpEnabled: !!saved.settings.totpSecret, hasPassword: !!saved.settings.passwordHash, tgToken: saved.settings.tgToken ? '••••' + saved.settings.tgToken.slice(-4) : '', ghPat: saved.settings.ghPat ? '••••' + saved.settings.ghPat.slice(-4) : '' }) }, 200, extra);
@@ -6161,7 +6198,7 @@ async function handleApi(request, url, env, ctx) {
         maxIps: body.maxIps,
       });
       if (findUser(users, user.id)) return json({ ok: false, error: 'exists' }, 409);
-      if (isVercelPlatform(env) && !kvBinding(env)) return json({ ok: false, error: VERCEL_NO_STORE }, 409);
+      if ((isVercelPlatform(env) || isNodePlatform(env)) && !kvBinding(env)) return json({ ok: false, error: noStoreError(env) }, 409);
       const saved = await writeUsers(env, users.concat([user]));
       await pushEvent(env, 'user-add', user.name || user.id);
       return json({ ok: true, persisted: saved.persisted, user: decorate(user) }, 201);
@@ -6744,13 +6781,13 @@ async function handleRequest(request, env, ctx) {
     if (quick && !signedIn) rest.set('stale', '1');
     const qs = rest.toString();
     const headers = { location: '/' + pp + '/' + (qs ? '?' + qs : '') };
-    if (signedIn) headers['set-cookie'] = sessionCookieHeader(await makeSession(env, settings, masterUuid));
+    if (signedIn) headers['set-cookie'] = sessionCookieHeader(await makeSession(env, settings, masterUuid), url);
     return new Response(null, { status: 302, headers });
   }
   const panelBase = atPanel ? '/' + pp : '/';
 
   if (path === '/logout') {
-    return new Response(null, { status: 302, headers: { location: panelBase, 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' } });
+    return new Response(null, { status: 302, headers: { location: panelBase, 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; ' + cookieFlags(url) } });
   }
 
   if (path === '/' || path === '/login' || path === '/panel' || atPanel) {
@@ -6770,7 +6807,7 @@ async function handleRequest(request, env, ctx) {
       if (await checkLogin(env, settings, masterUuid, url.searchParams.get('u') || '', quick)) {
         const token = await makeSession(env, settings, masterUuid);
         const qs = rest.toString();
-        return new Response(null, { status: 302, headers: { location: target + (qs ? '?' + qs : ''), 'set-cookie': sessionCookieHeader(token) } });
+        return new Response(null, { status: 302, headers: { location: target + (qs ? '?' + qs : ''), 'set-cookie': sessionCookieHeader(token, url) } });
       }
       rest.set('stale', '1');
       return new Response(null, { status: 302, headers: { location: target + '?' + rest.toString() } });
@@ -6987,7 +7024,9 @@ ${fresh ? `
 <b>${fa ? '⚡ ورود اولیه' : '⚡ First sign-in'}</b>
 <div class="small" style="margin-top:8px;line-height:2">${fa ? 'نام کاربری:' : 'Username:'} <code>admin</code><br>${fa ? 'رمز عبور:' : 'Password:'} <code>admin</code></div>
 <div class="small" style="margin-top:8px;color:#ffab00;line-height:1.9"><b>${fa ? '⚠ بلافاصله پس از ورود، رمز عبور را در تنظیمات تغییر بده.' : '⚠ Change the password in Settings immediately after signing in.'}</b></div>
-<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${noKv && isVercelPlatform(env)
+<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${noKv && isNodePlatform(env)
+  ? (fa ? '⚠ این هاست «حافظهٔ دائمی» ندارد؛ کاربرها و تنظیمات بعد از ری‌استارت پاک می‌شوند (لینک اشتراک اصلی کار می‌کند). راه درست: یک دیسک/Volume بدهید و متغیر CAT_DATA_DIR را رویش بگذارید، یا Upstash Redis (متغیرهای KV_REST_API_URL و KV_REST_API_TOKEN). روی KataBump حافظه خودکار روشن است.' : '⚠ This host has no permanent storage; users and settings vanish on restart (the main subscription still works). Fix: give it a disk/volume and point CAT_DATA_DIR at it, or add Upstash Redis (KV_REST_API_URL + KV_REST_API_TOKEN). On KataBump storage is on automatically.')
+  : noKv && isVercelPlatform(env)
   ? (fa ? '⚠ این پنل روی Vercel است و هنوز «حافظهٔ دائمی» (Vercel Blob) به آن وصل نشده؛ پس تنظیمات و کاربرهایی که اینجا می‌سازی بعد از چند دقیقه پاک می‌شوند (لینک اشتراک اصلی کار می‌کند). ساده‌ترین راه: در برنامهٔ Cat Client → Vercel → «پروژه‌های من» → همین پروژه → «🔧 همین حالا درستش کن». یا دستی: vercel.com → همین پروژه → Storage → Create → Blob → Connect و بعد Redeploy. بعد از آن در تب تنظیمات یک رمز بگذار.' : '⚠ This panel runs on Vercel and no permanent storage (Vercel Blob) is connected yet, so settings and users you create here vanish after a few minutes (the master subscription link still works). Easiest fix: Cat Client app → Vercel → “My projects” → this project → “🔧 Fix it now”. Or by hand: vercel.com → this project → Storage → Create → Blob → Connect, then Redeploy. Then set a password in the settings tab.')
   : noKv
   ? (fa ? '⚠ ذخیره‌سازی (KV) بایند نشده و هیچ تنظیمی ذخیره نمی‌شود؛ هر کسی هم که این صفحه را باز کند می‌تواند وارد شود. برای امن‌کردن: Cloudflare → Storage &amp; Databases → KV → Create (نام: هرچه خواستی) → برگرد به ورکر → Settings → Bindings → KV namespace با نام متغیر CAT_KV → و بعد در تب تنظیمات یک رمز بگذار.' : '⚠ No KV namespace is bound, so nothing is stored — and anyone who opens this page can sign in. To secure it: Cloudflare → Storage &amp; Databases → KV → Create, then Worker → Settings → Bindings → KV namespace bound as CAT_KV, then set a password in the settings tab.')
@@ -7091,6 +7130,15 @@ function panelPage(env, settings, host, masterUuid) {
   const title = panelTitle(env, settings);
   // 6.69.41: on Vercel, say plainly what the three SNIs are and where the REAL per-line scanner lives (a browser
   // cannot dial an IP with a chosen SNI, so an honest IP scan from the user's own line needs the app).
+  const nEdge = isNodePlatform(env) ? nodeEdge(env) : '';
+  const nNote = !nEdge ? '' : '<div class="note i vnote" style="margin:10px 0">' + (nEdge === 'plain'
+    ? (fa ? '🖥️ <b>پنل روی هاست Node (مثل KataBump):</b> کانفیگ‌ها مستقیم به آدرس و پورت همین هاست (<code>' + escapeHtml(String(host)) + ':' + nodePort(env) + '</code>) و <b>بدون TLS</b> وصل می‌شوند. برای TLS و آی‌پی تمیز Cloudflare: دامنهٔ رایگان kdns.fr را به Cloudflare ببرید، رکورد A را با ابر نارنجی روی آی‌پی هاست بگذارید یک Origin Rule بسازید که پورت را به ' + nodePort(env) + ' عوض کند و SSL/TLS را روی Flexible بگذارید؛ پنل را از آن دامنه باز کنید تا خودش کانفیگ‌های Cloudflare بسازد.'
+      : '🖥️ <b>Panel on a Node host (like KataBump):</b> configs connect straight to this host\'s address and port (<code>' + escapeHtml(String(host)) + ':' + nodePort(env) + '</code>) <b>without TLS</b>. For TLS and Cloudflare clean IPs: move the free kdns.fr domain to Cloudflare, add an orange-cloud A record to the host IP an Origin Rule that rewrites the port to ' + nodePort(env) + ' and SSL/TLS set to Flexible; open the panel from that domain and it builds Cloudflare configs itself.')
+    : nEdge === 'tls'
+      ? (fa ? '🖥️ <b>پنل روی هاست با HTTPS (مثل Lucity یا Shiprr):</b> کانفیگ‌ها TLS روی پورت ' + nodePort(env) + ' با نام همین هاست (<code>' + escapeHtml(String(host)) + '</code>) هستند؛ آی‌پی تمیز Cloudflare این‌جا کار نمی‌کند.'
+        : '🖥️ <b>Panel on an HTTPS host (like Lucity or Shiprr):</b> configs are TLS on port ' + nodePort(env) + ' with this host\'s own name (<code>' + escapeHtml(String(host)) + '</code>); Cloudflare clean IPs do not apply here.')
+      : (fa ? '🟧 <b>پنل از پشت Cloudflare باز شده:</b> آی‌پی تمیز و همهٔ پورت‌های Cloudflare مثل یک Worker کار می‌کنند.'
+        : '🟧 <b>Panel reached through Cloudflare:</b> clean IPs and every Cloudflare port work as with a Worker.')) + '</div>';
   const vNote = isVercelPlatform(env) ? '<div class="note i vnote" style="margin:10px 0">' + (fa
     ? '▲ <b>پنل روی Vercel:</b> هر آدرس در اشتراک با چند SNI آمده: <b>Domain</b> (اگر دامنهٔ شخصی وصل کرده باشی)، <b>✂️ Frag</b> (همان vercel.app با ClientHello تکه‌تکه)، <b>vercel.app</b>، یک نام تصادفی (<b>rnd</b>)، نام پروژه با حروف درهم (<b>Aa</b>) و خود نام پروژه. اگر اپراتور نام پروژه را ببندد (همهٔ کانفیگ‌ها -1)، بقیه هنوز می‌توانند کار کنند: اشتراک را به‌روزرسانی و دوباره تست کنید.<br>🔎 <b>اسکنر واقعی روی اینترنت خودتان:</b> برنامهٔ Cat Client → Vercel → «🔎 اسکنر آی‌پی Vercel»؛ و کارت «🔬 اسکنر Vercel» در بخش اسکن همین پنل.'
     : '▲ <b>Panel on Vercel:</b> every address appears with several SNIs: <b>Domain</b> (if you attached a custom domain), <b>✂️ Frag</b> (vercel.app with a split ClientHello), <b>vercel.app</b>, a random name (<b>rnd</b>), the project name in mixed case (<b>Aa</b>) and the project name itself. If your operator blocks the project name (all configs -1), the others can still work: update the subscription and test again.<br>🔎 <b>Real scanner on your own internet:</b> Cat Client app → Vercel → “🔎 Vercel IP scanner”, plus the “🔬 Vercel scanner” card in this panel\'s scan section.') + '</div>' : '';
@@ -7472,7 +7520,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 <!-- ================= DASHBOARD ================= -->
 <section class="view on" id="v-dash">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><div><h1 data-i="n_dash"></h1><p data-i="d_dash"></p></div></div>
-${vNote}
+${vNote}${nNote}
  <div class="marq" aria-hidden="true"><div class="mi2"><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span></div></div>
  <div class="note w kvwarn" id="kvWarn" style="display:none">
   <b>⚠️ <span data-i="kv_warn_title"></span></b>
@@ -7758,7 +7806,7 @@ ${(() => {
 <!-- ================= CLEAN IP / SCAN ================= -->
 <section class="view" id="v-scan" data-sec="addr">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
-${vNote}
+${vNote}${nNote}
 ${vDoctor}
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>

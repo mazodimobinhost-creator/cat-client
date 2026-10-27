@@ -298,6 +298,8 @@ jobs:
             # (Vercel's edge drops raw httpupgrade bytes after 101 — measured live)
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-transport.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-cf-front.test.mjs
+            # 6.69.45 the 2-file launcher for any Node host (KataBump / Lucity / Shiprr) with the shipped panel
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/node-host.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/tunnel-grain.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
@@ -833,6 +835,16 @@ jobs:
           node --check catclient.worker.js
           test "$(wc -c < catclient.worker.js)" -lt 800000
           cp deploy-bot/worker.js cat-deploy-bot.worker.js
+          # 6.69.45 Cat Panel on any Node host: the launcher zip (index.js + package.json + README) fetches
+          # catclient.worker.js + cat-panel-adapter.mjs from this release and checks them against
+          # cat-node-panel.sha256 before running them.
+          cp app/src/main/assets/vercel/panel-adapter.mjs cat-panel-adapter.mjs
+          node --check cat-panel-adapter.mjs
+          sha256sum catclient.worker.js cat-panel-adapter.mjs > cat-node-panel.sha256
+          cat cat-node-panel.sha256
+          node --check node-panel/index.js
+          (cd node-panel && zip -q -X ../cat-node-panel.zip index.js package.json README.md)
+          unzip -l cat-node-panel.zip
           # Panel HTML snapshot generated from THIS commit's worker (6.44.0+):
           # a ready cat-panel.html rides every release for preview/backup.
           node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
@@ -844,6 +856,9 @@ jobs:
             catclient.wizard.js
             cat-deploy-bot.worker.js
             cat-panel.html
+            cat-panel-adapter.mjs
+            cat-node-panel.sha256
+            cat-node-panel.zip
           )
           # Google-Doc bundle(s), if present in this branch's docs/
           for d in docs/CatPanel-*-GoogleDoc.docx; do [[ -e "$d" ]] && release_assets+=("$d"); done

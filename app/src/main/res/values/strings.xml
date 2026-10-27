@@ -1290,6 +1290,7 @@
     <string name="cloud_vercel_start">Build on Vercel</string>
     <string name="cloud_vercel_scan">🔎 Vercel IP scanner (IPs that work on my line)</string>
     <string name="cloud_vercel_cf_front">🟧 Vercel configs do not ping? Build a Cloudflare front</string>
+    <string name="cloud_node_host">🆓 Cat panel on free hosts (KataBump, Lucity, Shiprr)</string>
     <string name="cloud_vercel_panel">🐱 No server: full Cat panel + configs on Vercel</string>
     <string name="servers_add_vercel_panel">Cat panel + configs on Vercel (no server)</string>
     <string name="design_pixel">Pixel</string>

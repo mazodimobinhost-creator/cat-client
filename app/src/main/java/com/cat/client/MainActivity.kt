@@ -10915,6 +10915,11 @@ class MainActivity : Activity() {
             cloudActionButton(R.string.cloud_vercel_cf_front, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showCfFrontStart() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
+        // 6.69.45 the same panel on free / cheap Node hosts (KataBump, Lucity, Shiprr) — guide + 2-file zip
+        vercelCard.addView(
+            cloudActionButton(R.string.cloud_node_host, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showNodeHostGuide() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         body.addView(

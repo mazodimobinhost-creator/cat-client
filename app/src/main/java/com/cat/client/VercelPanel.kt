@@ -617,3 +617,31 @@ internal object VercelCfFront {
         return link.substring(0, q) + (if (kept.isEmpty()) "" else "?" + kept.joinToString("&")) + link.substring(hash)
     }
 }
+
+/**
+ * 6.69.45 Cat panel on any Node.js host (KataBump free · Lucity · Shiprr · Railway · a VPS). The user uploads the
+ * 2-file launcher (cat-node-panel.zip from THIS app version's release: index.js + package.json + README); it fetches
+ * catclient.worker.js + cat-panel-adapter.mjs from the same release, checks them against cat-node-panel.sha256 and
+ * runs the panel. Pure helpers only — the dialog lives in VercelRelayController.showNodeHostGuide().
+ */
+object NodeHostPanel {
+    const val REPO = "mazodimobinhost-creator/cat-client"
+    const val ZIP_ASSET = "cat-node-panel.zip"
+
+    data class Host(val id: String, val name: String, val url: String, val free: Boolean)
+
+    val HOSTS: List<Host> = listOf(
+        Host("katabump", "KataBump", "https://katabump.com", free = true),
+        Host("lucity", "Lucity", "https://lucity.cloud", free = false),
+        Host("shiprr", "Shiprr", "https://shiprr.app", free = false),
+    )
+
+    /** The release tag CI makes for an app version: «v» + versionName (e.g. v1.10.0-beta190). */
+    fun releaseTag(versionName: String): String = "v" + versionName.trim().removePrefix("v")
+
+    fun zipUrl(versionName: String): String =
+        "https://github.com/$REPO/releases/download/${releaseTag(versionName)}/$ZIP_ASSET"
+
+    fun releasePage(versionName: String): String =
+        "https://github.com/$REPO/releases/tag/${releaseTag(versionName)}"
+}
