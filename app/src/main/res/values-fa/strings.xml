@@ -1278,6 +1278,7 @@
     <string name="cloud_vercel_title">🔺 کانفیگ روی Vercel</string>
     <string name="cloud_vercel_desc">سرور ندارید؟ برنامه فقط با توکن خودتان پنل کامل Cat و یک سرور VLESS/Trojan داخل حساب Vercel شما می‌سازد، از همین گوشی تستش می‌کند و کانفیگ آماده اضافه می‌کند. کانفیگ XHTTP یا سرور شخصی دارید؟ با «ساخت روی Vercel» از پشت Vercel ردش کنید.</string>
     <string name="cloud_vercel_start">ساخت روی Vercel</string>
+    <string name="cloud_vercel_scan">🔎 اسکنر آی‌پی Vercel (آی‌پی سالم برای خط من)</string>
     <string name="cloud_vercel_panel">🐱 سرور ندارم: پنل کامل Cat + کانفیگ روی Vercel</string>
     <string name="servers_add_vercel_panel">پنل Cat + کانفیگ روی Vercel (بدون سرور)</string>
     <string name="design_pixel">پیکسل</string>

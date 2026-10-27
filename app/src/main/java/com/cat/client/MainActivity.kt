@@ -10906,6 +10906,10 @@ class MainActivity : Activity() {
             cloudActionButton(R.string.cloud_vercel_start, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.show() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
+        vercelCard.addView(
+            cloudActionButton(R.string.cloud_vercel_scan, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showIpScanner() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         body.addView(

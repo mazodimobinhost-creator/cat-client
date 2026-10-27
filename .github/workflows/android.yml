@@ -292,6 +292,7 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/proxyip-feeds.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/survival.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-platform.test.mjs
+            node scripts/panels/vercel-storage.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-lab.test.mjs

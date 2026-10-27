@@ -1279,6 +1279,7 @@
     <string name="cloud_vercel_title">🔺 Config on Vercel</string>
     <string name="cloud_vercel_desc">No server? The app builds the full Cat panel with a VLESS/Trojan server inside your own Vercel account (only your token is needed), tests it from this phone and adds ready configs. Already have an XHTTP config or a VPS? Put it behind Vercel with the relay.</string>
     <string name="cloud_vercel_start">Build on Vercel</string>
+    <string name="cloud_vercel_scan">🔎 Vercel IP scanner (IPs that work on my line)</string>
     <string name="cloud_vercel_panel">🐱 No server: full Cat panel + configs on Vercel</string>
     <string name="servers_add_vercel_panel">Cat panel + configs on Vercel (no server)</string>
     <string name="design_pixel">Pixel</string>

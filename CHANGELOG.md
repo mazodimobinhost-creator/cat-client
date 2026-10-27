@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta180] — 2026-10-27 (Panel 6.69.39)
+
+### Fixed
+- **Vercel panel subscription returned 0 configs:** users created inside the panel lived only in the memory of one Vercel instance, so `/u/<token>` on another (or a woken) instance answered 404. The adapter now stores panel data in a **private Vercel Blob store** (`CAT_STORAGE=blob`, `@vercel/blob`), with hex object paths, one read retry (so a failed read can never overwrite the user list with an empty one), a 15 s / 15 min read cache and throttled counters (first write immediate) to stay inside Hobby's free operations. Upstash Redis is still supported. Proven with the real SDK against a Blob emulator: a user created on instance A is served by a cold instance B. New suite `scripts/panels/vercel-storage.test.mjs` (15 checks, in `npm test` and CI).
+- **App panel builder:** an 8-step flow with live progress (token → files → project + env → **create & connect a private Blob store** → upload/deploy → wait → real tunnel test → configs). If storage cannot be created the panel still deploys and the result says plainly that panel-made users will not persist.
+
+### Added
+- **🔧 Update panel:** takes an existing project (name or URL) + token, keeps UUID / Trojan password / panel password untouched, attaches storage if missing, redeploys the current panel version and re-tests it.
+- **🔎 Vercel IP scanner (`VercelIpScanner`, `VercelPanelProbe.tls/tunnel/trojanRequest`):** input is a Cat-on-Vercel config, a subscription URL, a saved panel or an app subscription. Candidates come from Vercel's own anycast networks (AS922: the 12 public /24s at the offsets that behave differently per ISP, plus samples from 143.13/16 and 155.121/16; quick ≈108, full ≈430). Stage 1 = TLS with the project SNI and a verified certificate (32 parallel); stage 2 = a real VLESS/Trojan-over-WebSocket request to example.com through each winner (8 parallel). Only stage-2 winners become configs: the original link with only the address and name swapped and the tested port unchanged. Add to app / copy / copy IPs / QR. Entry points: Cloud tab card, Vercel page, panel page, panel result, "My projects".
+
+### Panel 6.69.39
+- On Vercel, panel features that cannot work there are removed from the subscription: Cloudflare clean IPs, alternate ports, ProxyIP/SOCKS (🎯/🧦) and spoof (🧬) entries; owner IPs are kept only if they are inside Vercel networks. Creating users without permanent storage is refused with a clear message instead of silently producing a 404 subscription. `/api/version` reports `kv`.
+
 ## [1.10.0-beta179] — 2026-10-27 (Panel 6.69.38)
 
 ### Added

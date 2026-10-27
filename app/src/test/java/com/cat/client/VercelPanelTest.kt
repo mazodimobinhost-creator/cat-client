@@ -46,6 +46,7 @@ class VercelPanelTest {
         assertFalse(VercelPanelPlanner.vercelJson(null, 60).contains("regions"))
         val pkg = VercelPanelPlanner.packageJson("notes-ab12c")
         assertTrue(pkg.contains("\"type\":\"module\"") && pkg.contains("\"ws\"") && pkg.contains("24.x"))
+        assertTrue(pkg.contains("\"@vercel/blob\""))
     }
 
     @Test
@@ -111,5 +112,62 @@ class VercelPanelTest {
         assertEquals("abc", String(VercelPanelProbe.unmaskedPayloads(small + small).joinToString("") { String(it) }.toByteArray()).take(3))
         assertEquals(2, VercelPanelProbe.unmaskedPayloads(small + small).size)
         assertTrue(VercelPanelProbe.unmaskedPayloads(small.copyOf(4)).isEmpty())
+    }
+
+    @Test
+    fun scannerAcceptsWsTlsConfigsOnADomainOnly() {
+        val ws = "vless://$uuid@76.76.21.21:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fvl%2Fabc%3Fed%3D2560&sni=$host&fp=chrome&alpn=http%2F1.1#a"
+        val target = VercelIpScanner.target(ws)!!
+        assertEquals(host, target.sni)
+        assertEquals(host, target.host)
+        assertEquals("/vl/abc", target.path)
+        assertEquals(443, target.port)
+        assertEquals(null, VercelIpScanner.target(ws.replace("type=ws", "type=xhttp")))
+        assertEquals(null, VercelIpScanner.target(ws.replace("security=tls", "security=none")))
+        assertEquals(null, VercelIpScanner.target("vless://$uuid@1.2.3.4:443?security=tls&type=ws&sni=1.2.3.4#ip-only"))
+        val trojan = "trojan://pw@vercel.com:443?security=tls&type=ws&host=$host&path=%2Ftr%2Fx&sni=$host#t"
+        assertEquals("trojan", VercelIpScanner.target(trojan)!!.scheme)
+        val sub = Base64.getEncoder().encodeToString("ss://junk\n$trojan\n$ws".toByteArray())
+        assertEquals("trojan", VercelIpScanner.firstTarget(sub)!!.scheme)
+    }
+
+    @Test
+    fun stripsOnlyTheEarlyDataParameter() {
+        assertEquals("/vl/abc", VercelIpScanner.stripEarlyData("/vl/abc?ed=2560"))
+        assertEquals("/ws?proxyip=x", VercelIpScanner.stripEarlyData("/ws?ed=2048&proxyip=x"))
+        assertEquals("/trojan", VercelIpScanner.stripEarlyData("/trojan"))
+    }
+
+    @Test
+    fun scannedLinkSwapsOnlyAddressAndNameAndKeepsTheTestedPort() {
+        val ws = "vless://$uuid@vercel.com:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host&fp=chrome#old"
+        val target = VercelIpScanner.target(ws)!!
+        val link = VercelIpScanner.linkFor(target, VercelScanHit("216.150.16.7", 443, 40, 95), 1)
+        assertTrue(link.startsWith("vless://$uuid@216.150.16.7:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host&fp=chrome#"))
+        assertFalse(link.contains("vercel.com:443"))
+        assertTrue(link.contains("216.150.16.7") && link.contains("95%20ms"))
+    }
+
+    @Test
+    fun trojanRequestMatchesTheWireFormat() {
+        val req = VercelPanelProbe.trojanRequest("pw", "example.com", 80, "X".toByteArray())
+        val hex = String(req, 0, 56, Charsets.US_ASCII)
+        assertTrue(hex.matches(Regex("[0-9a-f]{56}")))
+        assertEquals(13, req[56].toInt()); assertEquals(10, req[57].toInt())
+        assertEquals(1, req[58].toInt()); assertEquals(3, req[59].toInt()); assertEquals(11, req[60].toInt())
+        assertEquals("example.com", String(req, 61, 11))
+        assertEquals(80, ((req[72].toInt() and 0xff) shl 8) or (req[73].toInt() and 0xff))
+        assertEquals('X'.code, req.last().toInt())
+    }
+
+    @Test
+    fun candidatesCoverEveryVercelNetwork() {
+        val quick = VercelIpScanner.candidates(false, java.util.Random(1))
+        val deep = VercelIpScanner.candidates(true, java.util.Random(1))
+        assertTrue(quick.size in 100..120)
+        assertTrue(deep.size > 350)
+        VercelIpScanner.NETS_24.forEach { net -> assertTrue(net, quick.any { it.startsWith("$net.") }) }
+        assertTrue(quick.contains("76.76.21.21") || quick.contains("76.76.21.65"))
+        assertTrue((quick + deep).all { ip -> ip.split('.').size == 4 && ip.split('.').all { it.toInt() in 0..255 } })
     }
 }

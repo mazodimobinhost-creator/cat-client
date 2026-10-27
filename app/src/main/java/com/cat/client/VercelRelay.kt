@@ -390,6 +390,41 @@ internal class VercelApi(private val token: String) {
 
     fun deployment(id: String): JSONObject = request("GET", "/v13/deployments/${enc(id)}", null)
 
+    /**
+     * Private Vercel Blob store (free on Hobby) = the panel's permanent storage. Same two calls the
+     * Vercel CLI makes for `vercel blob create-store --access private --yes` inside a linked project:
+     * create the store, then connect it (Vercel adds BLOB_STORE_ID / BLOB_READ_WRITE_TOKEN + OIDC).
+     */
+    fun createBlobStore(name: String, region: String): String {
+        ensureScope()
+        val body = JSONObject().put("name", name).put("region", region).put("access", "private")
+        val store = request("POST", "/v1/storage/stores/blob", body).optJSONObject("store")
+        return store?.optString("id").orEmpty().ifBlank { throw VercelApiException("blob store: no id") }
+    }
+
+    fun connectStore(storeId: String, projectId: String) {
+        ensureScope()
+        val body = JSONObject()
+            .put("envVarEnvironments", JSONArray().put("production").put("preview"))
+            .put("projectId", projectId)
+            .put("type", "integration")
+        request("POST", "/v1/storage/stores/${enc(storeId)}/connections", body)
+    }
+
+    fun project(idOrName: String): JSONObject = request("GET", "/v9/projects/${enc(idOrName)}", null)
+
+    /** Env vars of a project, decrypted when the token may read them: key → value. */
+    fun projectEnv(projectId: String): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val envs = request("GET", "/v10/projects/${enc(projectId)}/env?decrypt=true", null).optJSONArray("envs") ?: JSONArray()
+        for (i in 0 until envs.length()) {
+            val e = envs.optJSONObject(i) ?: continue
+            val key = e.optString("key")
+            if (key.isNotBlank() && !out.containsKey(key)) out[key] = e.optString("value")
+        }
+        return out
+    }
+
     /** Creates or overwrites one encrypted project env var (production + preview). */
     fun upsertEnv(projectId: String, key: String, value: String) {
         ensureScope()

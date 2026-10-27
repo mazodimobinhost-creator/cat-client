@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.38';
+const CAT_PANEL_VERSION = '6.69.39';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -3994,6 +3994,15 @@ function scanSniOf(env, settings) {
  * SNI = Host = the project domain reaches the project; SNI ≠ Host is refused (HTTP 421). */
 const VERCEL_EDGE_ADDRESSES = ['vercel.com', '76.76.21.21', '64.29.17.65', '216.198.79.65'];
 function isVercelPlatform(env) { return String((env && env.CAT_PLATFORM) || '').toLowerCase() === 'vercel'; }
+// Vercel's own IPv4 edge networks (AS922). A Cloudflare clean IP can never reach a Vercel project,
+// so on Vercel the owner's IP list keeps only these (plus domains, e.g. a custom domain on Vercel).
+const VERCEL_NETS = ['76.76.21.', '66.33.60.', '64.29.17.', '216.198.79.', '216.150.1.', '216.150.16.', '216.230.84.', '216.230.86.', '64.239.109.', '64.239.123.', '198.169.1.', '198.169.2.', '143.13.', '155.121.'];
+function vercelDialable(addr) {
+  const a = splitAddrTag(String(addr || '')).addr.toLowerCase();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return VERCEL_NETS.some((n) => a.startsWith(n));
+  return !!a && a.indexOf(':') < 0;
+}
+const VERCEL_NO_STORE = 'Vercel: no permanent storage, a new user would vanish. Rebuild the panel from Cat Client (it adds Vercel Blob storage).';
 function vercelLinkSettings(settings) {
   return Object.assign({}, settings, {
     tlsPorts: [443], plainPorts: [], plainEnabled: false, useDefaults: true, includeHost: true,
@@ -4003,8 +4012,9 @@ function vercelLinkSettings(settings) {
 }
 
 function addressList(host, env, settings) {
-  const own = settings.ips || [];
-  const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter(Boolean);
+  const vercel = isVercelPlatform(env);
+  const own = (settings.ips || []).filter((a) => !vercel || vercelDialable(a));
+  const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter((a) => a && (!vercel || vercelDialable(a)));
   const defaults = isVercelPlatform(env) ? VERCEL_EDGE_ADDRESSES : (settings.useDefaults ? DEFAULT_CLEAN_ADDRESSES : []);
   const list = uniq(own.concat(fromEnv, defaults));
   if (settings.includeHost && !list.some((a) => a.toLowerCase() === String(host).toLowerCase())) list.push(String(host));
@@ -4332,7 +4342,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // no-limit extra — Cloudflare rejects an SNI that differs from the Host).
   const PIN_LIMIT = 2;
   const limited = !!q.limit;
-  if (!(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
+  // Vercel dials every destination directly: 🎯 ProxyIP / 🧦 SOCKS / 🧬 SNI entries would only be duplicates.
+  if (!isVercelPlatform(env) && !(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
     const cleanCount = entries.length;
     const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
     // 🎯/🧦 ride the ports the link asked for: TLS when any TLS port is selected, else the first plain port.
@@ -5176,6 +5187,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
     case '/add': {
       if (!arg[0]) return 'usage: /add <name> [days]';
       if (byName(arg[0])) return 'exists: ' + tgEsc(arg[0]);
+      if (isVercelPlatform(env) && !kvBinding(env)) return '⚠️ ' + VERCEL_NO_STORE;
       const days = Number(arg[1]) || 0;
       const user = normalizeUser({ name: arg[0], expiresAt: days ? Date.now() + days * 86400000 : 0 });
       await writeUsers(env, users.concat([user]));
@@ -6011,6 +6023,7 @@ async function handleApi(request, url, env, ctx) {
         maxIps: body.maxIps,
       });
       if (findUser(users, user.id)) return json({ ok: false, error: 'exists' }, 409);
+      if (isVercelPlatform(env) && !kvBinding(env)) return json({ ok: false, error: VERCEL_NO_STORE }, 409);
       const saved = await writeUsers(env, users.concat([user]));
       await pushEvent(env, 'user-add', user.name || user.id);
       return json({ ok: true, persisted: saved.persisted, user: decorate(user) }, 201);

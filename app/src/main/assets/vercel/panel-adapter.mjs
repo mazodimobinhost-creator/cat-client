@@ -7,12 +7,15 @@
 //   WebSocketPair + Response(101)  -> `ws` WebSocketServer (noServer) bound to the panel's pair
 //   cloudflare:sockets connect()   -> node:net / node:tls with Web streams
 //   request.cf / cf-connecting-ip  -> Vercel x-vercel-ip-* / x-forwarded-for headers
-//   env.CAT_KV                     -> Upstash Redis REST when KV_REST_API_URL/TOKEN exist,
-//                                     otherwise in-memory (the panel already supports "no KV").
+//   env.CAT_KV                     -> Vercel Blob (private store the app creates and connects:
+//                                     BLOB_STORE_ID / BLOB_READ_WRITE_TOKEN), or Upstash Redis REST
+//                                     when KV_REST_API_URL/TOKEN exist; without either the panel runs
+//                                     memory-only and refuses to create users (they would vanish).
 import http from 'node:http';
 import net from 'node:net';
 import tls from 'node:tls';
 import { Readable, Duplex } from 'node:stream';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { WebSocketServer } from 'ws';
 
 /* ------------------------------ sockets ------------------------------ */
@@ -173,9 +176,127 @@ function upstashKv(url, token) {
     },
   };
 }
+
+/*
+ * Vercel Blob as the panel's KV. Hobby includes ~10,000 reads and ~2,000 writes a month, so keys
+ * are split by value:
+ *   PERSIST  settings / users / uuid: written at once (owner actions only, a handful a month).
+ *   THROTTLE traffic counters, last-seen, login audit: newest value kept in memory and written at
+ *            most once per interval per instance (dirty values ride along the next request).
+ *   memory   everything else (Cloudflare IP caches, rate-limit counters, event ring, monitor):
+ *            per-instance only, exactly like a cold Worker isolate.
+ * Reads are cached per instance: 15 s while serving HTTP (panel, subscriptions: a user created a
+ * moment ago on another instance is found), 15 min while serving tunnels (the bulk of requests).
+ */
+const reqScope = new AsyncLocalStorage();
+const KV_PERSIST = /^cat:v6:(settings|users|uuid|cfdeploy)$/;
+const KV_THROTTLE = [[/^traffic:/, 3 * 3600e3], [/^seen:/, 6 * 3600e3], [/^cat:v6:appseen$/, 12 * 3600e3], [/^cat:v6:loginaudit$/, 30 * 60e3], [/^cat_sni_lab_v1$/, 6 * 3600e3]];
+const KV_PREFIX = 'catkv/';
+export function blobKv(client, clock = () => Date.now()) {
+  const mem = new Map(); // key -> { value, at, exp }
+  const lastWrite = new Map();
+  const dirty = new Map();
+  const throttleOf = (key) => { for (const [re, ms] of KV_THROTTLE) if (re.test(key)) return ms; return 0; };
+  const stored = (key) => KV_PERSIST.test(key) || throttleOf(key) > 0;
+  // Hex keeps blob paths to [0-9a-f] (no %-escapes a server could decode differently) and stays
+  // prefix-preserving for list().
+  const hex = (t) => Buffer.from(String(t), 'utf8').toString('hex');
+  const path = (key) => KV_PREFIX + hex(key);
+  const ttl = () => ((reqScope.getStore() || {}).tunnel ? 15 * 60e3 : 15e3);
+  const write = async (key, value) => { lastWrite.set(key, clock()); dirty.delete(key); await client.put(path(key), value); };
+  const flushDue = async () => {
+    for (const [key, value] of [...dirty]) {
+      if (!lastWrite.has(key) || clock() - lastWrite.get(key) >= throttleOf(key)) { try { await write(key, value); } catch (_) { dirty.set(key, value); } }
+    }
+  };
+  const textOf = (t, v) => {
+    if (v == null) return null;
+    if (t === 'json') { try { return JSON.parse(v); } catch (_) { return null; } }
+    if (t === 'arrayBuffer') return new TextEncoder().encode(v).buffer;
+    return v;
+  };
+  return {
+    async get(key, type) {
+      const t = typeof type === 'string' ? type : (type && type.type) || 'text';
+      const hit = mem.get(key);
+      const now = clock();
+      if (hit && hit.exp && now > hit.exp) mem.delete(key);
+      else if (hit && (!stored(key) || dirty.has(key) || now - hit.at < ttl())) return textOf(t, hit.value);
+      if (!stored(key)) return null;
+      if (dirty.size) await flushDue();
+      // One retry: the panel treats a failed read as "no users", and a following owner save would
+      // then overwrite the real list. Errors still propagate after the retry.
+      let value;
+      try { value = await client.get(path(key)); } catch (_) { value = await client.get(path(key)); }
+      mem.set(key, { value, at: clock() });
+      return textOf(t, value);
+    },
+    async put(key, value, opts) {
+      const v = typeof value === 'string' ? value : value instanceof ArrayBuffer ? new TextDecoder().decode(value) : String(value);
+      const exp = opts && Number(opts.expirationTtl) > 0 ? clock() + Math.max(60, Number(opts.expirationTtl)) * 1000 : 0;
+      mem.set(key, { value: v, at: clock(), exp });
+      if (KV_PERSIST.test(key)) return write(key, v);
+      const every = throttleOf(key);
+      if (!every) return;
+      if (!lastWrite.has(key) || clock() - lastWrite.get(key) >= every) return write(key, v);
+      dirty.set(key, v);
+    },
+    async delete(key) {
+      mem.delete(key);
+      dirty.delete(key);
+      if (stored(key)) await client.del(path(key));
+    },
+    async list(opts = {}) {
+      const prefix = String(opts.prefix || '');
+      const names = new Set([...mem.keys()].filter((k) => k.startsWith(prefix)));
+      for (const p of await client.list(KV_PREFIX + hex(prefix))) {
+        const h = p.slice(KV_PREFIX.length);
+        if (/^([0-9a-f]{2})+$/.test(h)) names.add(Buffer.from(h, 'hex').toString('utf8'));
+      }
+      const keys = [...names].sort().slice(0, Math.min(1000, Number(opts.limit) || 1000)).map((name) => ({ name }));
+      return { keys, list_complete: true };
+    },
+    _flush: flushDue,
+  };
+}
+
+async function vercelBlobClient() {
+  const sdk = await import('@vercel/blob');
+  const auth = process.env.BLOB_READ_WRITE_TOKEN ? { token: process.env.BLOB_READ_WRITE_TOKEN } : {};
+  return {
+    async get(p) {
+      const r = await sdk.get(p, { access: 'private', useCache: false, ...auth });
+      if (!r || r.statusCode !== 200 || !r.stream) return null;
+      const chunks = [];
+      for await (const c of r.stream) chunks.push(Buffer.from(c));
+      return Buffer.concat(chunks).toString('utf8');
+    },
+    async put(p, text) {
+      await sdk.put(p, text, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json', ...auth });
+    },
+    async del(p) { await sdk.del(p, auth); },
+    async list(prefix) {
+      const out = [];
+      let cursor;
+      do {
+        const r = await sdk.list({ prefix, cursor, limit: 1000, ...auth });
+        for (const b of r.blobs || []) out.push(b.pathname);
+        cursor = r.hasMore ? r.cursor : undefined;
+      } while (cursor);
+      return out;
+    },
+  };
+}
+
 const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
 const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const CAT_KV = kvUrl && kvToken ? upstashKv(kvUrl, kvToken) : undefined;
+const hasBlob = !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+let CAT_KV;
+let KV_KIND = 'memory';
+if (kvUrl && kvToken) { CAT_KV = upstashKv(kvUrl, kvToken); KV_KIND = 'upstash'; }
+else if (hasBlob) {
+  try { CAT_KV = blobKv(await vercelBlobClient()); KV_KIND = 'blob'; } catch (e) { console.error('blob storage unavailable: ' + ((e && e.message) || e)); }
+}
 
 /* ------------------------------- panel -------------------------------- */
 // Layout written by the app: api/index.mjs (this file) + lib/catpanel.mjs (the panel with
@@ -184,12 +305,13 @@ const panelModule = await import('../lib/catpanel.mjs');
 const worker = panelModule.default;
 if (panelModule._testing && typeof panelModule._testing.__setSockets === 'function') panelModule._testing.__setSockets(globalThis.__catSockets);
 
-const ENV_SKIP = /^(AWS_|LAMBDA_|NODE_|NOW_|VERCEL_|_|PATH$|HOME$|PWD$|LANG$|TZ$|KV_|UPSTASH_|REDIS_)/;
+const ENV_SKIP = /^(AWS_|LAMBDA_|NODE_|NOW_|VERCEL_|_|PATH$|HOME$|PWD$|LANG$|TZ$|KV_|UPSTASH_|REDIS_|BLOB_)/;
 function buildEnv() {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!ENV_SKIP.test(k) && /^[A-Z][A-Z0-9_]*$/.test(k)) env[k] = v;
   if (CAT_KV) env.CAT_KV = CAT_KV;
   env.CAT_PLATFORM = 'vercel';
+  env.CAT_STORAGE = KV_KIND;
   return env;
 }
 const ENV = buildEnv();
@@ -248,7 +370,7 @@ async function writeResponse(res, response) {
   body.pipe(res);
 }
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => reqScope.run({ tunnel: false }, async () => {
   try {
     const response = await worker.fetch(toRequest(req, true), ENV, { waitUntil: waitUntilFn(), passThroughOnException() {} });
     await writeResponse(res, response);
@@ -256,10 +378,10 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
     res.end('panel error');
   }
-});
+}));
 
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => protocols.values().next().value ?? false });
-server.on('upgrade', async (req, socket, head) => {
+server.on('upgrade', (req, socket, head) => reqScope.run({ tunnel: true }, async () => {
   socket.on('error', () => {});
   try {
     const response = await worker.fetch(toRequest(req, false), ENV, { waitUntil: waitUntilFn(), passThroughOnException() {} });
@@ -273,6 +395,6 @@ server.on('upgrade', async (req, socket, head) => {
   } catch (e) {
     socket.destroy();
   }
-});
+}));
 
 export default server;
