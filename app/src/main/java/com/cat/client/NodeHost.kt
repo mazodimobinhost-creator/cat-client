@@ -258,8 +258,9 @@ object NodeHostPanel {
     fun repoName(random: SecureRandom = SecureRandom()): String = "cat-node-panel-" + randomToken(5, random)
 
     /** Body of GitHub «create or update file contents». */
-    fun githubContentBody(message: String, bytes: ByteArray): String =
-        "{\"message\":" + jsonString(message) + ",\"content\":\"" + Base64.getEncoder().encodeToString(bytes) + "\"}"
+    fun githubContentBody(message: String, bytes: ByteArray, sha: String = ""): String =
+        "{\"message\":" + jsonString(message) + ",\"content\":\"" + Base64.getEncoder().encodeToString(bytes) + "\"" +
+            (if (sha.isNotBlank()) ",\"sha\":" + jsonString(sha) else "") + "}"
 }
 
 internal data class SavedNodeHost(
@@ -489,9 +490,18 @@ internal object NodeHostApi {
         return JSONObject(request("https://api.github.com/user/repos", "POST", gh(token), body)).optString("full_name")
     }
 
+    /** Creates or replaces a file (an existing file needs its blob sha, or GitHub answers 422). */
     fun githubPut(token: String, fullName: String, path: String, bytes: ByteArray) {
-        val body = NodeHostPanel.githubContentBody("Cat panel: $path", bytes).toByteArray()
+        val sha = githubSha(token, fullName, path)
+        val body = NodeHostPanel.githubContentBody("Cat panel: $path", bytes, sha.orEmpty()).toByteArray()
         request("https://api.github.com/repos/$fullName/contents/$path", "PUT", gh(token), body)
+    }
+
+    /** Blob sha of a file in the repo; null when it does not exist yet. */
+    fun githubSha(token: String, fullName: String, path: String): String? = try {
+        JSONObject(request("https://api.github.com/repos/$fullName/contents/$path", "GET", gh(token))).optString("sha").ifBlank { null }
+    } catch (e: NodeHostApiException) {
+        if (e.code == 404) null else throw e
     }
 
     // ---------------- the panel itself ----------------

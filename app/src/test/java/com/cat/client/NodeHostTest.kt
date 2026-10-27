@@ -137,6 +137,10 @@ class NodeHostTest {
         assertEquals(0, NodeHostPanel.parseHttpResponse("garbage".toByteArray()).first)
         val gh = NodeHostPanel.githubContentBody("Cat panel: index.js", "hi".toByteArray())
         assertEquals("{\"message\":\"Cat panel: index.js\",\"content\":\"aGk=\"}", gh)
+        assertEquals(
+            "{\"message\":\"m\",\"content\":\"aGk=\",\"sha\":\"abc123\"}",
+            NodeHostPanel.githubContentBody("m", "hi".toByteArray(), "abc123"),
+        )
     }
 
     @Test
