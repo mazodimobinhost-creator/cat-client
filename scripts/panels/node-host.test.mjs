@@ -46,6 +46,22 @@ const rels = [
 check('pickRelease skips drafts and releases without the adapter', L.pickRelease(rels).tag === 'v2' && L.pickRelease(rels).urls['cat-panel-adapter.mjs'] === 'https://x/cat-panel-adapter.mjs');
 check('pickRelease takes the newest by date even if the list is out of order', L.pickRelease([rels[3], rels[2]]).tag === 'v2');
 check('pickRelease honours a pinned tag', L.pickRelease(rels, 'v1').tag === 'v1' && L.pickRelease(rels, 'nope') === null);
+{
+  const cdir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-node-cfg-'));
+  fs.writeFileSync(path.join(cdir, 'cat-config.json'), JSON.stringify({ UUID: 'u-1', TROJAN_PASS: 'p-1', PATH: '/evil', NODE_OPTIONS: '--require x', CAT_NO_DISK: 1, PANEL_PASSWORD: { x: 1 } }));
+  const env = { TROJAN_PASS: 'from-env' };
+  const used = L.applyConfigFile(cdir, env);
+  check('cat-config.json: only allowed keys, env wins, no objects', env.UUID === 'u-1' && env.TROJAN_PASS === 'from-env' && env.CAT_NO_DISK === '1' && !('PATH' in env) && !('NODE_OPTIONS' in env) && !('PANEL_PASSWORD' in env) && used.join() === 'UUID,CAT_NO_DISK', JSON.stringify(env));
+  fs.writeFileSync(path.join(cdir, 'cat-config.json'), '{broken');
+  check('cat-config.json: broken JSON is ignored, not fatal', L.applyConfigFile(cdir, {}).length === 0);
+  fs.rmSync(cdir, { recursive: true, force: true });
+}
+// the app ships the launcher in its assets (save-to-phone zip / auto-upload): must be byte-identical
+for (const f of ['index.js', 'package.json', 'README.md']) {
+  const a = fs.readFileSync(path.join(root, 'node-panel', f));
+  const b = fs.existsSync(path.join(root, 'app/src/main/assets/node-panel', f)) ? fs.readFileSync(path.join(root, 'app/src/main/assets/node-panel', f)) : Buffer.alloc(0);
+  check('app asset node-panel/' + f + ' is identical to node-panel/' + f, a.equals(b));
+}
 check('portOf: SERVER_PORT (KataBump) > PORT > 8080', L.portOf({ SERVER_PORT: '25565', PORT: '3000' }) === 25565 && L.portOf({ PORT: '3000' }) === 3000 && L.portOf({ PORT: 'x' }) === 8080);
 
 // ---- lay out what a host gets: the 2 files (+ node_modules from npm install) and a release source ----
@@ -73,11 +89,12 @@ const freePort = () => new Promise((r) => { const s = net.createServer(); s.list
 const PORT = await freePort();
 const dataDir = path.join(app, 'cat-data');
 
-function start() {
+function start(viaFile = false) {
   return new Promise((resolve, reject) => {
+    const ids = viaFile ? {} : { UUID, TROJAN_PASS: TPASS };
     const child = spawn(process.execPath, ['index.js'], {
       cwd: app,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, SERVER_PORT: String(PORT), CAT_PANEL_SOURCE_DIR: src, UUID, TROJAN_PASS: TPASS },
+      env: Object.assign({ PATH: process.env.PATH, HOME: process.env.HOME, SERVER_PORT: String(PORT), CAT_PANEL_SOURCE_DIR: src }, ids),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -172,8 +189,13 @@ const put = await send('PUT', '/api/settings', { country: 'DE' }, { cookie, orig
 check('settings save on the Node host', put.status === 200, put.status + ' ' + put.body.slice(0, 160));
 await stop(proc);
 check('storage file written to cat-data (mode 0600)', fs.existsSync(path.join(dataDir, 'cat-kv.json')) && (fs.statSync(path.join(dataDir, 'cat-kv.json')).mode & 0o077) === 0);
-proc = await start();
+// KataBump has no env editor: the restart gets its identity from cat-config.json (what the app uploads)
+fs.writeFileSync(path.join(app, 'cat-config.json'), JSON.stringify({ UUID, TROJAN_PASS: TPASS }));
+proc = await start(true);
 check('restart reuses the prepared panel', /panel local ready/.test(proc.out()));
+check('identity read from cat-config.json (names logged, values never)', /settings from cat-config\.json: UUID, TROJAN_PASS/.test(proc.out()) && !proc.out().includes(UUID), proc.out());
+const fromFile = (await subLines({})).map(parse);
+check('the sub for the UUID from cat-config.json works after the restart', fromFile.length === 2 && fromFile.every((p) => p.port === PORT));
 const login2 = await send('POST', '/api/login', { username: 'admin', password: 'admin' });
 const cookie2 = String(login2.headers['set-cookie'] || '').split(';')[0];
 const after = await get('/api/settings', { cookie: cookie2 });

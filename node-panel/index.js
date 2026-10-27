@@ -13,6 +13,10 @@
 //   KV_REST_API_URL + KV_REST_API_TOKEN   Upstash Redis instead of the disk (works everywhere)
 //   UUID / TROJAN_PASS   fixed main identity (otherwise the panel makes one and stores it)
 //   CAT_PANEL_SOURCE_DIR a folder that already holds catclient.worker.js + cat-panel-adapter.mjs (offline)
+//
+// Hosts where you cannot set environment variables (KataBump) can use a `cat-config.json` next to this file
+// instead — the Cat Client app writes one for you, e.g. {"UUID":"…","TROJAN_PASS":"…"}. Real environment
+// variables always win over the file. Keep that file private (it holds your main UUID).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -65,6 +69,28 @@ export function pickRelease(list, tag) {
 export function portOf(env) {
   for (const k of ['SERVER_PORT', 'PORT']) { const p = Number(env[k]); if (Number.isInteger(p) && p > 0 && p < 65536) return p; }
   return 8080;
+}
+
+/** Keys cat-config.json may set (never anything else — e.g. not PATH / NODE_OPTIONS). */
+export const CONFIG_KEYS = ['UUID', 'TROJAN_PASS', 'PANEL_PASSWORD', 'CAT_DATA_DIR', 'CAT_NO_DISK', 'CAT_PANEL_TAG', 'KV_REST_API_URL', 'KV_REST_API_TOKEN'];
+
+/** Copies allowed keys from <dir>/cat-config.json into env (env wins); returns the key names used. */
+export function applyConfigFile(dir, env) {
+  const file = path.join(dir, 'cat-config.json');
+  if (!fs.existsSync(file)) return [];
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { log('⚠ cat-config.json is not valid JSON — ignored'); return []; }
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return [];
+  const used = [];
+  for (const k of CONFIG_KEYS) {
+    const v = cfg[k];
+    if (v === undefined || v === null || v === '' || typeof v === 'object') continue;
+    if (env[k]) continue;
+    env[k] = String(v);
+    used.push(k);
+  }
+  if (used.length) log('settings from cat-config.json: ' + used.join(', '));
+  return used;
 }
 
 export function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
@@ -142,6 +168,7 @@ export async function main(env = process.env) {
   const major = Number(process.versions.node.split('.')[0]);
   if (major < 20) log('⚠ Node ' + process.versions.node + ' — please pick Node 20 or newer in the host settings (22 recommended).');
   if (!globalThis.crypto) globalThis.crypto = crypto.webcrypto;
+  applyConfigFile(HERE, env);
   const port = portOf(env);
   // The code cache must sit next to this file: the adapter imports `ws` from ./node_modules.
   const codeDir = path.join(HERE, 'cat-code');
