@@ -1277,8 +1277,10 @@
     <string name="servers_add_tools">Backup · restore · toolbox</string>
     <string name="servers_add_vercel">Config on Vercel (XHTTP relay)</string>
     <string name="cloud_vercel_title">🔺 Config on Vercel</string>
-    <string name="cloud_vercel_desc">Put a filtered XHTTP config or your own server behind Vercel: the app deploys a small relay into your Vercel account with your token, tests it and adds ready configs.</string>
+    <string name="cloud_vercel_desc">No server? The app builds the full Cat panel with a VLESS/Trojan server inside your own Vercel account (only your token is needed), tests it from this phone and adds ready configs. Already have an XHTTP config or a VPS? Put it behind Vercel with the relay.</string>
     <string name="cloud_vercel_start">Build on Vercel</string>
+    <string name="cloud_vercel_panel">🐱 No server: full Cat panel + configs on Vercel</string>
+    <string name="servers_add_vercel_panel">Cat panel + configs on Vercel (no server)</string>
     <string name="design_pixel">Pixel</string>
     <string name="design_portal">Portal</string>
     <string name="design_old">Old</string>

@@ -46,6 +46,7 @@ class VercelRelayController(
     private val showQr: (links: List<String>, title: String) -> Unit,
     private val showDialog: (AlertDialog) -> Unit,
 ) {
+    private companion object { const val PANEL_RUNTIME = "panel" }
     private val palette by lazy { CatClientDesignTokens.forContext(activity) }
     private val store by lazy { VercelRelayStore(activity) }
     private var job: Job? = null
@@ -131,6 +132,7 @@ class VercelRelayController(
             "Vercel acts as a clean middleman: your phone only talks to Vercel and Vercel carries the traffic to your XHTTP server. " +
                 "Useful when you have an XHTTP config whose address got filtered, or your own server (VPS).",
         ), 13f, palette.textPrimary, 0))
+        box.addView(button(t("🐱 سرور ندارم: پنل کامل Cat + کانفیگ روی Vercel بساز", "🐱 No server: build the full Cat panel + configs on Vercel"), true) { showPanel() }, lp(8))
         box.addView(button(t("❓ راهنمای ساده (هر دکمه چه می‌کند)", "❓ Simple guide (what each button does)")) { showGuide() }, lp(8))
 
         box.addView(label(t("۱) توکن Vercel", "1) Vercel token"), 14f, palette.teal, 12))
@@ -586,7 +588,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
 
     private data class Probe(val code: Int, val body: String, val vercelError: String, val timedOut: Boolean, val error: String, val location: String = "")
 
-    private fun httpGet(url: String, timeoutMs: Int): Probe = try {
+    private fun httpGet(url: String, timeoutMs: Int, maxChars: Int = 400): Probe = try {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
@@ -596,7 +598,18 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         try {
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
-            val body = runCatching { stream?.bufferedReader()?.use { r -> CharArray(400).let { buf -> val n = r.read(buf); if (n > 0) String(buf, 0, n) else "" } } }.getOrNull().orEmpty()
+            val body = runCatching {
+                stream?.bufferedReader()?.use { r ->
+                    val out = StringBuilder()
+                    val buf = CharArray(4096)
+                    while (out.length < maxChars) {
+                        val n = r.read(buf, 0, minOf(buf.size, maxChars - out.length))
+                        if (n <= 0) break
+                        out.append(buf, 0, n)
+                    }
+                    out.toString()
+                }
+            }.getOrNull().orEmpty()
             Probe(code, body, c.getHeaderField("x-vercel-error").orEmpty(), false, "", c.getHeaderField("Location").orEmpty())
         } finally {
             c.disconnect()
@@ -633,6 +646,297 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
     }
 
     // ------------------------------------------------------------------------------------
+    // Cat Panel on Vercel (no server needed)
+    // ------------------------------------------------------------------------------------
+
+    fun showPanel() {
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(6), dp(18), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        box.addView(label(t(
+            "بدون سرور شخصی: پنل کامل Cat و یک سرور VLESS/Trojan داخل حساب Vercel خودتان ساخته می‌شود. " +
+                "در پایان این‌ها را می‌گیرید: آدرس پنل (ورود admin / admin)، لینک اشتراک، و کانفیگ‌های آماده که همین گوشی قبل از تحویل واقعاً تستشان می‌کند.",
+            "No server of your own: the full Cat panel plus a VLESS/Trojan server are built inside your own Vercel account. " +
+                "You get the panel address (login admin / admin), a subscription link and ready configs that this phone really tests before handing them over.",
+        ), 13f, palette.textPrimary, 0))
+        box.addView(label(t(
+            "«🚀 ساخت پنل» را بزنی ← پروژه ساخته و منتشر می‌شود و کانفیگ‌ها تست می‌شوند.\n" +
+                "«پروژه‌های من» را بزنی ← پنل‌ها و واسطه‌های قبلی را می‌بینی، دوباره اضافه یا پاکشان می‌کنی.",
+            "Tap “🚀 Build panel” → the project is created, published and its configs are tested.\n" +
+                "Tap “My projects” → see earlier panels/relays, add them again or delete them.",
+        ), 12f, palette.textSecondary, 8))
+
+        box.addView(label(t("۱) توکن Vercel", "1) Vercel token"), 14f, palette.teal, 12))
+        val tokenInput = input(t("توکن را اینجا بچسبانید", "Paste the token here"), store.token, password = true)
+        box.addView(tokenInput, lp(2))
+        box.addView(button(t("🔑 گرفتن توکن از سایت Vercel", "🔑 Get a token on vercel.com")) {
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://vercel.com/account/tokens"))) }
+        }, lp(4))
+        box.addView(label(t(
+            "Create Token ← یک اسم دلخواه ← Scope همان حساب خودتان ← Create. توکن فقط روی همین گوشی ذخیره می‌شود.",
+            "Create Token → any name → Scope = your account → Create. The token is stored only on this phone.",
+        ), 11.5f))
+
+        box.addView(label(t("۲) منطقهٔ اجرا", "2) Region"), 14f, palette.teal, 12))
+        val regionGroup = RadioGroup(activity).apply { orientation = RadioGroup.VERTICAL }
+        val regionIds = VercelRelayPlanner.REGIONS.mapIndexed { index, (code, names) ->
+            val radio = RadioButton(activity).apply {
+                id = View.generateViewId()
+                text = t(names.first, names.second) + "  ($code)"
+                setTextColor(palette.textPrimary)
+                isChecked = index == 0
+            }
+            regionGroup.addView(radio)
+            radio.id to code
+        }.toMap()
+        box.addView(regionGroup)
+
+        box.addView(label(t("۳) رمز پنل (اختیاری)", "3) Panel password (optional)"), 14f, palette.teal, 12))
+        val passInput = input(t("خالی = همان admin / admin", "Empty = keep admin / admin"), "", password = true)
+        box.addView(passInput, lp(2))
+
+        box.addView(label(t(
+            "⚠️ پلن رایگان Vercel سقف مصرف دارد و هر بایت دو بار حساب می‌شود؛ مصرف خیلی زیاد ممکن است حساب را ۳۰ روز متوقف کند و این استفاده ممکن است با قوانین Vercel سازگار نباشد. هر اتصال حداکثر ۵ دقیقه می‌ماند و برنامه خودش دوباره وصل می‌شود. تنظیمات پنل (کاربرها، آی‌پی‌ها) بدون Upstash Redis بعد از خوابیدن سرور پاک می‌شود؛ کانفیگ‌ها همیشه کار می‌کنند چون UUID در تنظیمات پروژه ذخیره است.",
+            "⚠️ The Vercel free plan has usage limits and each byte counts twice; very heavy use can pause the account for 30 days and this use may conflict with Vercel's terms. Each connection lasts up to 5 minutes and clients reconnect by themselves. Panel settings (users, IPs) reset when the function sleeps unless Upstash Redis is attached; the configs always keep working because the UUID lives in the project settings.",
+        ), 11.5f, palette.textSecondary, 12))
+
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("🐱 پنل Cat روی Vercel", "🐱 Cat Panel on Vercel"))
+            .setView(ScrollView(activity).apply { addView(box) })
+            .setPositiveButton(t("🚀 ساخت پنل", "🚀 Build panel"), null)
+            .setNeutralButton(t("پروژه‌های من", "My projects"), null)
+            .setNegativeButton(t("بستن", "Close"), null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { showProjects() }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val token = tokenInput.text?.toString().orEmpty().trim()
+                if (token.length < 10) {
+                    toast(t("اول توکن Vercel را وارد کنید.", "Enter your Vercel token first."))
+                    return@setOnClickListener
+                }
+                val region = regionIds[regionGroup.checkedRadioButtonId] ?: "fra1"
+                val password = passInput.text?.toString().orEmpty().trim()
+                confirmPanel(token, region, password) { dialog.dismiss() }
+            }
+        }
+        showDialog(dialog)
+    }
+
+    private fun confirmPanel(token: String, region: String, password: String, onStarted: () -> Unit) {
+        val message = t(
+            "این کارها در حساب Vercel شما انجام می‌شود:\n\n" +
+                "• ساخت یک پروژهٔ جدید با اسم تصادفی\n" +
+                "• ذخیرهٔ یک UUID و رمز Trojan تازه (و رمز پنل اگر دادید) در تنظیمات همان پروژه\n" +
+                "• آپلود ۴ فایل (پنل Cat، فایل اتصال، package.json، vercel.json) و انتشار روی ‎*.vercel.app\n" +
+                "• خاموش کردن «Vercel Authentication» فقط برای همین پروژه\n\n" +
+                "منطقه: $region\nبه پروژه‌ها و تنظیمات دیگر حساب شما دست زده نمی‌شود و هر وقت بخواهید از «پروژه‌های من» پاک می‌شود.",
+            "This will happen in your Vercel account:\n\n" +
+                "• Create one new project with a random name\n" +
+                "• Store a fresh UUID and Trojan password (and your panel password, if given) in that project's settings\n" +
+                "• Upload 4 files (Cat panel, adapter, package.json, vercel.json) and publish on *.vercel.app\n" +
+                "• Turn off “Vercel Authentication” for this project only\n\n" +
+                "Region: $region\nNothing else in your account is touched; delete it any time from “My projects”.",
+        )
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("تأیید ساخت پنل روی Vercel", "Confirm panel build on Vercel"))
+            .setMessage(message)
+            .setPositiveButton(t("بله، بساز", "Yes, build")) { _, _ ->
+                onStarted()
+                deployPanel(token, region, password)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        showDialog(dialog)
+    }
+
+    private fun deployPanel(token: String, region: String, password: String) {
+        val log = label("", 12.5f, palette.textPrimary, 0).apply { setTextIsSelectable(true) }
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+            addView(log)
+        }
+        val progressDialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("⏳ در حال ساخت پنل روی Vercel…", "⏳ Building the panel on Vercel…"))
+            .setView(ScrollView(activity).apply { addView(box) })
+            .setNegativeButton(t("توقف", "Stop")) { _, _ -> job?.cancel() }
+            .setCancelable(false)
+            .create()
+        showDialog(progressDialog)
+        val lines = mutableListOf<String>()
+        fun step(text: String) = activity.runOnUiThread {
+            lines += text
+            log.text = lines.joinToString("\n")
+        }
+        job?.cancel()
+        job = scope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { runPanelDeploy(token, region, password, ::step) } }
+            runCatching { progressDialog.dismiss() }
+            result.onSuccess { saved -> showPanelResult(saved, lines) }
+                .onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) return@onFailure
+                    val dialog = MaterialAlertDialogBuilder(activity)
+                        .setTitle(t("❌ ساخت پنل انجام نشد", "❌ Panel build failed"))
+                        .setMessage((lines + "" + explainError(error)).joinToString("\n"))
+                        .setPositiveButton(android.R.string.ok, null)
+                        .create()
+                    showDialog(dialog)
+                }
+        }
+    }
+
+    private suspend fun runPanelDeploy(token: String, region: String, password: String, step: (String) -> Unit): SavedVercelRelay {
+        val api = VercelApi(token)
+        step(t("۱/۷ بررسی توکن…", "1/7 Checking the token…"))
+        val user = api.user()
+        step(t("   ✓ حساب: ", "   ✓ Account: ") + user.optString("username").ifBlank { user.optString("email") })
+        store.token = token
+
+        step(t("۲/۷ آماده کردن فایل‌های پنل…", "2/7 Preparing the panel files…"))
+        val adapter = VercelPanelPlanner.checkAdapter(activity.assets.open(VercelPanelPlanner.ADAPTER_ASSET).bufferedReader().use { it.readText() })
+        val panel = VercelPanelPlanner.patchPanel(activity.assets.open(VercelPanelPlanner.PANEL_ASSET).bufferedReader().use { it.readText() })
+        val panelBytes = panel.toByteArray(Charsets.UTF_8)
+        step("   ✓ ${panelBytes.size / 1024} KB")
+
+        step(t("۳/۷ ساخت پروژه…", "3/7 Creating the project…"))
+        var project: org.json.JSONObject? = null
+        var name = ""
+        repeat(4) {
+            if (project != null) return@repeat
+            name = VercelRelayPlanner.randomProjectName()
+            try {
+                project = api.createProject(name)
+            } catch (e: VercelApiException) {
+                if (e.status != 409 && !e.message.orEmpty().contains("exist", true)) throw e
+            }
+        }
+        val projectId = project?.optString("id").orEmpty().ifBlank { throw VercelApiException(t("پروژه ساخته نشد", "Project was not created")) }
+        step("   ✓ $name")
+        api.disableProtection(projectId)
+        val uuid = VercelRelayPlanner.randomUuid()
+        val trojanPass = VercelPanelPlanner.randomSecret()
+        VercelPanelPlanner.envVars(uuid, trojanPass, password).forEach { (k, v) -> api.upsertEnv(projectId, k, v) }
+        step(t("   ✓ UUID و رمزها در تنظیمات پروژه ذخیره شد", "   ✓ UUID and secrets stored in the project settings"))
+
+        step(t("۴/۷ آپلود پنل و انتشار…", "4/7 Uploading the panel and deploying…"))
+        val sha = api.uploadFile(panelBytes)
+        fun inlineFiles(maxDuration: Int) = linkedMapOf(
+            "package.json" to VercelPanelPlanner.packageJson(name),
+            "vercel.json" to VercelPanelPlanner.vercelJson(region, maxDuration),
+            "api/index.mjs" to adapter,
+        )
+        val uploaded = mapOf("lib/catpanel.mjs" to (sha to panelBytes.size))
+        var deployment = try {
+            api.deployMixed(projectId, name, inlineFiles(300), uploaded)
+        } catch (e: VercelApiException) {
+            if (!e.message.orEmpty().contains("duration", true)) throw e
+            step(t("   حساب شما زمان ۳۰۰ ثانیه را قبول نکرد؛ با ۶۰ ثانیه…", "   Your plan rejected 300 s; retrying with 60 s…"))
+            api.deployMixed(projectId, name, inlineFiles(60), uploaded)
+        }
+        val deploymentId = deployment.optString("id")
+
+        step(t("۵/۷ منتظر آماده شدن (معمولاً کمتر از یک دقیقه)…", "5/7 Waiting until ready (usually under a minute)…"))
+        var state = deployment.optString("readyState")
+        val started = System.currentTimeMillis()
+        while (state != "READY") {
+            if (state == "ERROR" || state == "CANCELED") {
+                val details = api.buildErrors(deploymentId)
+                throw VercelApiException(
+                    deployment.optString("errorMessage").ifBlank { t("انتشار ناموفق بود", "Deployment failed") } + if (details.isNotBlank()) "\n$details" else "",
+                )
+            }
+            if (System.currentTimeMillis() - started > 240_000) throw VercelApiException(t("آماده شدن بیش از ۴ دقیقه طول کشید؛ بعداً از «پروژه‌های من» ببینید.", "Not ready after 4 minutes; check “My projects” later."))
+            delay(3_000)
+            deployment = api.deployment(deploymentId)
+            state = deployment.optString("readyState")
+        }
+        val aliases = api.projectDomains(projectId).toMutableList()
+        deployment.optJSONArray("alias")?.let { arr -> for (i in 0 until arr.length()) aliases += arr.optString(i) }
+        deployment.optJSONArray("automaticAliases")?.let { arr -> for (i in 0 until arr.length()) aliases += arr.optString(i) }
+        val host = VercelRelayPlanner.pickProductionHost(aliases, name, deployment.optJSONObject("team")?.optString("slug")) ?: "$name.vercel.app"
+        step("   ✓ https://$host")
+
+        step(t("۶/۷ تست واقعی از همین گوشی…", "6/7 Real test from this phone…"))
+        var version = httpGet("https://$host/api/version", 25_000)
+        repeat(3) { if (version.code != 200) { delay(4_000); version = httpGet("https://$host/api/version", 25_000) } }
+        step(
+            if (version.code == 200 && version.body.contains("cat-panel")) t("   ✓ پنل جواب داد", "   ✓ Panel answered") +
+                Regex("\"version\":\"([^\"]+)\"").find(version.body)?.groupValues?.get(1)?.let { " · v$it" }.orEmpty()
+            else t("   ⚠️ پنل از این گوشی جواب نداد: ", "   ⚠️ The panel did not answer from this phone: ") +
+                (if (version.timedOut) "timeout" else version.error.ifBlank { "HTTP ${version.code}" }),
+        )
+        val sub = httpGet(VercelPanelPlanner.subUrl(host, uuid), 25_000, 512 * 1024)
+        val subLinks = if (sub.code == 200) VercelPanelPlanner.extractSubLinks(sub.body) else emptyList()
+        val tunnels = listOf(host, VercelPanelPlanner.EDGE_ADDRESSES[1]).map { address ->
+            address to VercelPanelProbe.vless(address, host, "/ws", uuid)
+        }
+        tunnels.forEach { (address, r) ->
+            step(
+                (if (r.ok) "   ✓ VLESS → example.com via $address · ${r.millis} ms" else "   ✗ VLESS via $address: ${r.detail}"),
+            )
+        }
+
+        step(t("۷/۷ ساخت کانفیگ‌ها…", "7/7 Building the configs…"))
+        val links = if (VercelPanelPlanner.linksFitVercel(subLinks, host)) {
+            step(t("   ✓ ${subLinks.size} کانفیگ از اشتراک خود پنل", "   ✓ ${subLinks.size} configs from the panel's own subscription"))
+            subLinks
+        } else {
+            val built = VercelPanelPlanner.fallbackLinks(uuid, trojanPass, host, name).map { it.link }
+            step(t("   ✓ ${built.size} کانفیگ (اشتراک پنل از این گوشی خوانده نشد؛ کانفیگ‌ها مستقیم ساخته شد)", "   ✓ ${built.size} configs (the panel subscription was unreachable from this phone; configs built directly)"))
+            built
+        }
+        if (tunnels.none { it.second.ok }) {
+            step(t(
+                "   ⚠️ تونل از این گوشی تست نشد (شاید ‎*.vercel.app روی خط شما بسته است). کانفیگ‌ها را با آی‌پی‌های Vercel امتحان کنید.",
+                "   ⚠️ The tunnel could not be tested from this phone (*.vercel.app may be blocked on your line). Try the configs with the Vercel IPs.",
+            ))
+        }
+        val saved = SavedVercelRelay(projectId, name, host, PANEL_RUNTIME, System.currentTimeMillis(), VercelPanelPlanner.subUrl(host, uuid), links)
+        store.save(saved)
+        return saved
+    }
+
+    private fun showPanelResult(saved: SavedVercelRelay, lines: List<String>) {
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(6), dp(18), dp(8))
+        }
+        val panelUrl = VercelPanelPlanner.panelUrl(saved.host)
+        val subUrl = saved.sourceName
+        box.addView(label(lines.joinToString("\n"), 12f, palette.textSecondary, 0))
+        box.addView(label(t("پنل: ", "Panel: ") + panelUrl + t("\nورود: admin / admin (یا رمزی که دادید)", "\nLogin: admin / admin (or the password you set)") +
+            t("\nلینک اشتراک: ", "\nSubscription: ") + subUrl, 12.5f, palette.textPrimary, 10).apply { setTextIsSelectable(true) })
+        var dialog: AlertDialog? = null
+        box.addView(button(t("➕ افزودن ${saved.links.size} کانفیگ به برنامه", "➕ Add ${saved.links.size} configs to the app"), true) {
+            dialog?.dismiss()
+            addSubscription(saved.links.joinToString("\n"), "Vercel Panel · ${saved.projectName}")
+        }, lp(10))
+        box.addView(button(t("🔁 افزودن لینک اشتراک (خودکار به‌روز می‌شود)", "🔁 Add the subscription link (auto-updates)")) {
+            dialog?.dismiss()
+            addSubscription(subUrl, "Vercel Panel · ${saved.projectName}")
+        }, lp(6))
+        box.addView(button(t("🌐 باز کردن پنل", "🌐 Open the panel")) {
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(panelUrl))) }
+        }, lp(6))
+        box.addView(button(t("📋 کپی همهٔ کانفیگ‌ها", "📋 Copy all configs")) { copy(saved.links.joinToString("\n")) }, lp(6))
+        box.addView(button(t("📋 کپی لینک اشتراک", "📋 Copy the subscription link")) { copy(subUrl) }, lp(6))
+        box.addView(button(t("🔳 نمایش QR", "🔳 Show QR")) { showQr(saved.links, "Vercel Panel · ${saved.projectName}") }, lp(6))
+        box.addView(label(t(
+            "همهٔ کانفیگ‌ها روی پورت 443 با SNI دامنهٔ پروژه‌اند و فقط آدرس ورودشان فرق دارد (آی‌پی‌های Vercel، vercel.com، خود دامنه). بعد از افزودن، «تست پینگ» نشان می‌دهد کدام روی خط شما باز است.",
+            "Every config uses port 443 with the project domain as SNI; only the entry address differs (Vercel IPs, vercel.com, the domain itself). After adding, the ping test shows which are open on your line.",
+        ), 11.5f, palette.textSecondary, 10))
+        dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("✅ پنل Cat روی Vercel آماده است", "✅ Cat Panel on Vercel is ready"))
+            .setView(ScrollView(activity).apply { addView(box) })
+            .setPositiveButton(t("بستن", "Close"), null)
+            .create()
+        showDialog(dialog)
+    }
+
+    // ------------------------------------------------------------------------------------
     // My projects
     // ------------------------------------------------------------------------------------
 
@@ -656,6 +960,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
     }
 
     private fun showProjectActions(item: SavedVercelRelay) {
+        if (item.runtime == PANEL_RUNTIME) { showPanelActions(item); return }
         val options = arrayOf(
             t("➕ افزودن دوبارهٔ کانفیگ‌ها به برنامه", "➕ Add the configs to the app again"),
             t("📋 کپی کانفیگ‌ها", "📋 Copy the configs"),
@@ -671,6 +976,31 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                     1 -> copy(item.links.joinToString("\n"))
                     2 -> runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://vercel.com/dashboard"))) }
                     3 -> confirmDelete(item)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        showDialog(dialog)
+    }
+
+    private fun showPanelActions(item: SavedVercelRelay) {
+        val options = arrayOf(
+            t("🌐 باز کردن پنل", "🌐 Open the panel"),
+            t("➕ افزودن دوبارهٔ کانفیگ‌ها به برنامه", "➕ Add the configs to the app again"),
+            t("🔁 افزودن لینک اشتراک", "🔁 Add the subscription link"),
+            t("📋 کپی لینک اشتراک", "📋 Copy the subscription link"),
+            t("🗑️ پاک کردن پروژه از حساب Vercel", "🗑️ Delete the project from Vercel"),
+        )
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle("🐱 " + item.projectName)
+            .setItems(options) { d, which ->
+                d.dismiss()
+                when (which) {
+                    0 -> runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(VercelPanelPlanner.panelUrl(item.host)))) }
+                    1 -> addSubscription(item.links.joinToString("\n"), "Vercel Panel · ${item.projectName}")
+                    2 -> addSubscription(item.sourceName, "Vercel Panel · ${item.projectName}")
+                    3 -> copy(item.sourceName)
+                    4 -> confirmDelete(item)
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)

@@ -10899,8 +10899,12 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
         )
         vercelCard.addView(
-            cloudActionButton(R.string.cloud_vercel_start, R.drawable.ic_cloud_tab, accent = true) { vercelRelay.show() },
+            cloudActionButton(R.string.cloud_vercel_panel, R.drawable.ic_cloud_tab, accent = true) { vercelRelay.showPanel() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+        )
+        vercelCard.addView(
+            cloudActionButton(R.string.cloud_vercel_start, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.show() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
         body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
@@ -17909,6 +17913,17 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
 
+        // Feature 20: the whole Cat panel (VLESS/Trojan server included) on the user's own Vercel account
+        container.addView(
+            makeActionButton(
+                label = if (isFarsi) "🐱 ۲۰) پنل Cat روی Vercel: سرور ندارم؛ فقط با توکن Vercel پنل و کانفیگ آماده بساز"
+                else "🐱 20) Cat panel on Vercel: no server needed — just a Vercel token for a panel and ready configs",
+            ) {
+                vercelRelay.showPanel()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
@@ -24048,6 +24063,7 @@ class MainActivity : Activity() {
             addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
             addView(item("📂", R.string.servers_add_file) { appTools.openImportFilePicker() }, LinearLayout.LayoutParams(-1, -2))
             addView(item("🧰", R.string.servers_add_tools) { appTools.showToolsHub() }, LinearLayout.LayoutParams(-1, -2))
+            addView(item("🐱", R.string.servers_add_vercel_panel) { vercelRelay.showPanel() }, LinearLayout.LayoutParams(-1, -2))
             addView(item("🔺", R.string.servers_add_vercel) { vercelRelay.show() }, LinearLayout.LayoutParams(-1, -2))
             addView(wizardText(getString(R.string.servers_add_file_hint), secondary = true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }

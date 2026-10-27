@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta179] — 2026-10-27 (Panel 6.69.38)
+
+### Added
+- **Cat Panel on Vercel — no server needed (`VercelPanel.kt`, `VercelRelayController.showPanel`, `assets/vercel/panel-adapter.mjs`):** with only a Vercel token the app creates a project in the user's own account, stores a fresh UUID / Trojan password (optional panel password; `admin/admin` stays the default) as encrypted project env vars, uploads the 600 KB panel through `/v2/files` by SHA-1, deploys `api/index.mjs` + `lib/catpanel.mjs` with `includeFiles`, picks the public `<project>.vercel.app` host, then really tests it from the phone: `/api/version`, the panel's own subscription and a VLESS-over-WSS tunnel to `example.com` (certificate name verified) through the project domain and 76.76.21.21. If the subscription is unreachable from the phone, ready configs are built directly (port 443, project SNI). Result: panel URL, subscription link (auto-updating), add configs, copy, QR; "My projects" can reopen, re-add or delete it. Region picker, a confirmation that lists every change, and a plain-language warning about Hobby limits.
+- Entry points: Cloud tab card ("No server: full Cat panel + configs on Vercel"), Add-server sheet, 2026 hub option 20, and the top of the Vercel page.
+
+### Panel 6.69.38
+- **Vercel mode:** when `CAT_PLATFORM=vercel` the subscription only emits port-443 TLS links with SNI/Host = project host, `fp=chrome`, `alpn=http/1.1`, entry addresses = project host, 216.198.79.65, vercel.com, 64.29.17.65, 76.76.21.21 (Cloudflare clean IPs and alternate ports are skipped because they cannot reach Vercel). Live-tested on a real Vercel account: 32/32 tunnels (early-data + plain) and 16/16 with the exact app layout; login, subscription and wrong-UUID rejection verified.
+
 ## [1.10.0-beta178] — 2026-10-27 (Panel 6.69.37)
 
 ### Fixed (after a live test on a real Vercel Hobby account)

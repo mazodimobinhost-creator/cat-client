@@ -33,3 +33,12 @@ projects B3hnamR/XHTTPRelayECO, alirezaparvas/vercel-xhttp-relay, SNI-XHTTP and
 Maahdima/Vercel-XHTTP (guides and YouTube walkthroughs). Those repositories publish no licence,
 so no code was copied: the relay scripts, the deployment client and the UI were written
 independently for Cat Client (GPL-3.0).
+
+Cat Panel on Vercel (VercelPanel.kt, assets/vercel/panel-adapter.mjs)
+---------------------------------------------------------------------
+The approach of serving VLESS-over-WebSocket from a Vercel Node function
+(`http.createServer` + the `ws` package, a `cloudflare:sockets`-style connect()
+shim on top of `node:net`) follows ludas114343/vercel-vless-proxy
+(https://github.com/ludas114343/vercel-vless-proxy), MIT License,
+Copyright (c) ludas114343. The adapter in Cat Client was written independently
+around the existing Cat Panel worker; the MIT notice above is kept as attribution.

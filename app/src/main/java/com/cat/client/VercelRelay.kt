@@ -390,6 +390,44 @@ internal class VercelApi(private val token: String) {
 
     fun deployment(id: String): JSONObject = request("GET", "/v13/deployments/${enc(id)}", null)
 
+    /** Creates or overwrites one encrypted project env var (production + preview). */
+    fun upsertEnv(projectId: String, key: String, value: String) {
+        ensureScope()
+        val body = JSONObject()
+            .put("key", key)
+            .put("value", value)
+            .put("type", "encrypted")
+            .put("target", JSONArray().put("production").put("preview"))
+        request("POST", "/v10/projects/${enc(projectId)}/env?upsert=true", body)
+    }
+
+    /** Uploads one file by content hash (how the Vercel CLI ships big files); returns its sha1. */
+    fun uploadFile(bytes: ByteArray): String {
+        ensureScope()
+        val sha = VercelPanelPlanner.sha1Hex(bytes)
+        requestRaw("POST", "/v2/files", null, rawBody = bytes, extraHeaders = mapOf("x-vercel-digest" to sha, "Content-Type" to "application/octet-stream"))
+        return sha
+    }
+
+    /**
+     * Deploys a mix of inline files and uploaded ones: [inline] path → text, [uploaded] path → (sha1, size).
+     */
+    fun deployMixed(projectId: String, projectName: String, inline: Map<String, String>, uploaded: Map<String, Pair<String, Int>>): JSONObject {
+        ensureScope()
+        val list = JSONArray()
+        inline.forEach { (path, content) ->
+            list.put(JSONObject().put("file", path).put("data", Base64.getEncoder().encodeToString(content.toByteArray(Charsets.UTF_8))).put("encoding", "base64"))
+        }
+        uploaded.forEach { (path, ref) -> list.put(JSONObject().put("file", path).put("sha", ref.first).put("size", ref.second)) }
+        val body = JSONObject()
+            .put("name", projectName)
+            .put("project", projectId)
+            .put("target", "production")
+            .put("files", list)
+            .put("projectSettings", JSONObject().put("framework", JSONObject.NULL))
+        return request("POST", "/v13/deployments?skipAutoDetectionConfirmation=1&forceNew=1", body)
+    }
+
     fun buildErrors(id: String): String = runCatching {
         val text = requestRaw("GET", "/v3/deployments/${enc(id)}/events?builds=1&limit=60", null)
         val arr = runCatching { JSONArray(text) }.getOrNull() ?: return@runCatching ""
@@ -418,7 +456,14 @@ internal class VercelApi(private val token: String) {
         return if (text.isBlank()) JSONObject() else runCatching { JSONObject(text) }.getOrElse { JSONObject() }
     }
 
-    private fun requestRaw(method: String, path: String, body: JSONObject?, scoped: Boolean = true): String {
+    private fun requestRaw(
+        method: String,
+        path: String,
+        body: JSONObject?,
+        scoped: Boolean = true,
+        rawBody: ByteArray? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): String {
         val team = teamId
         val full = if (scoped && !team.isNullOrBlank()) {
             path + (if (path.contains('?')) "&" else "?") + "teamId=" + enc(team)
@@ -439,9 +484,14 @@ internal class VercelApi(private val token: String) {
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "CatClient-VercelRelay")
+            extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
         }
         try {
-            if (body != null) {
+            if (rawBody != null) {
+                connection.doOutput = true
+                connection.setFixedLengthStreamingMode(rawBody.size)
+                connection.outputStream.use { it.write(rawBody) }
+            } else if (body != null) {
                 val bytes = body.toString().toByteArray(Charsets.UTF_8)
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
