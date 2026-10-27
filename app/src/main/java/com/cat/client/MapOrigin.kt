@@ -26,9 +26,15 @@ object MapOrigin {
     }.getOrNull()
 
     /** Localised country name («ایران» / «Iran»); the code itself when the platform has no name. */
-    fun countryName(code: String, locale: Locale): String =
-        runCatching { Locale("", code).getDisplayCountry(locale) }.getOrNull()
-            ?.takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) } ?: code
+    fun countryName(code: String, locale: Locale): String {
+        val cc = code.trim().uppercase(Locale.ROOT)
+        // Only real ISO countries get a name — the platform calls anything else «Unknown Region».
+        if (cc !in isoCountries) return cc
+        return runCatching { Locale("", cc).getDisplayCountry(locale) }.getOrNull()
+            ?.takeIf { it.isNotBlank() && !it.equals(cc, ignoreCase = true) } ?: cc
+    }
+
+    private val isoCountries: Set<String> by lazy { Locale.getISOCountries().toHashSet() }
 
     /** A lookup is usable as an origin only with a real two-letter country code. */
     fun usableCode(code: String?): String? =
