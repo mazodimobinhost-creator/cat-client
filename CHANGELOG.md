@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta194] — 2026-10-28 (Panel 6.69.45)
+
+### Fixed
+- **Aether gave an Iranian IP although a foreign country (e.g. Germany) was chosen.**
+  - Psiphon only had 18–22 s (+12 s retry) to reach a server; when it was late the traffic silently fell back to single-hop WARP, whose exit from Iran is geolocated in Iran. Psiphon now gets 75 s for the chosen country, then 45 s on Auto, then two-hop WARP (exit outside Iran); if the exit is still Iranian the connection is stopped instead of pretending.
+  - The country picked in the UI now wins over the country written inside an older `aether://` list link, and the Psiphon carrier really receives the exit country.
+  - After connecting, the real exit (IP + country) is measured through the tunnel and shown as «Last exit»; ⚠️ is shown if it is Iran. The connect steps are shown live in Persian.
+  - Tor path: uses Orbot when it is running, otherwise two-hop WARP instead of single-hop WARP.
+- **Firefox VPN (FENIX) configs did not work at all.**
+  - The built-in server list had invented `proxy-xx.fpn.mozilla.net:443` hosts that do not exist. It now has the 34 real Mozilla nodes (`<node>.m1.fastly-masque.net:2499`, from Mozilla's public `vpn-serverlist`), with «Recommended» first; old cached lists are cleaned automatically and the remote sync no longer re-adds fake entries.
+  - Local bridge deadlock: the worker pool had 4 threads and a queue, while every tunnel needs 2 threads, so from the 3rd parallel connection pages hung forever. Now each tunnel gets its threads immediately (up to 64 tunnels).
+  - Idle tunnels were cut after 20 s; SOCKS requests were read byte-by-byte without error replies and UDP was announced although only TCP works. Fixed (exact reads, proper SOCKS/HTTP error codes, `udp: false`).
+  - The `country=` of the config is now used (fallback: Recommended, then Germany); the node certificate is verified before the account pass is sent; the CONNECT reply is parsed strictly.
+  - Country ping now measures the real node of each country (it used generic Fastly IPs plus a made-up per-country delay). «Clean IP» scan now requires a verified TLS handshake with the Mozilla node on port 2499 and never saves a guessed IP (an old saved IP that fails is skipped automatically). The last tunnel error is shown on the FENIX screen; FENIX is only suggested when a Firefox account is signed in.
+
 ## [1.10.0-beta193] — 2026-10-27 (Panel 6.69.45)
 
 ### Added
