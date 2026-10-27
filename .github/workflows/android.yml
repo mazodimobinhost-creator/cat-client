@@ -296,6 +296,7 @@ jobs:
             # the real Vercel adapter + the shipped panel over WebSocket; the Vercel sub stays ws-only
             # (Vercel's edge drops raw httpupgrade bytes after 101 — measured live)
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-transport.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/tunnel-grain.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/sni-lab.test.mjs

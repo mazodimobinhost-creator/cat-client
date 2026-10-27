@@ -13,6 +13,7 @@
 //                                     memory-only and refuses to create users (they would vanish).
 import http from 'node:http';
 import net from 'node:net';
+import dns from 'node:dns';
 import tls from 'node:tls';
 import { Readable, Duplex } from 'node:stream';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -44,6 +45,23 @@ function webSocketFromNode(sock, opened) {
   };
 }
 
+// 5-minute DNS cache for outgoing tunnels (each new connection used to resolve again).
+const dnsCache = new Map();
+function cachedLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  const opts = typeof options === 'number' ? { family: options } : (options || {});
+  const key = hostname + '|' + (opts.family || 0);
+  const reply = (list) => (opts.all ? callback(null, list) : callback(null, list[0].address, list[0].family));
+  const hit = dnsCache.get(key);
+  if (hit && hit.exp > Date.now()) { reply(hit.list); return; }
+  dns.lookup(hostname, { family: opts.family || 0, hints: opts.hints, all: true }, (err, list) => {
+    if (err || !list || !list.length) { callback(err || Object.assign(new Error('ENOTFOUND ' + hostname), { code: 'ENOTFOUND' })); return; }
+    if (dnsCache.size >= 1024) dnsCache.clear();
+    dnsCache.set(key, { list, exp: Date.now() + 300_000 });
+    reply(list);
+  });
+}
+
 function connect(address, options = {}) {
   const host = typeof address === 'string' ? address.replace(/:\d+$/, '').replace(/^\[|\]$/g, '') : String(address.hostname).replace(/^\[|\]$/g, '');
   const port = typeof address === 'string' ? Number((address.match(/:(\d+)$/) || [])[1] || 443) : Number(address.port);
@@ -51,13 +69,14 @@ function connect(address, options = {}) {
   let sock;
   let opened;
   if (mode === 'on') {
-    sock = tls.connect({ host, port, servername: net.isIP(host) ? undefined : host, ALPNProtocols: ['http/1.1'] });
+    sock = tls.connect({ host, port, lookup: cachedLookup, servername: net.isIP(host) ? undefined : host, ALPNProtocols: ['http/1.1'] });
     opened = new Promise((res, rej) => { sock.once('secureConnect', () => res({ remoteAddress: sock.remoteAddress })); sock.once('error', rej); });
   } else {
-    sock = net.connect({ host, port });
+    sock = net.connect({ host, port, lookup: cachedLookup });
     opened = new Promise((res, rej) => { sock.once('connect', () => res({ remoteAddress: sock.remoteAddress })); sock.once('error', rej); });
   }
   sock.setNoDelay(true);
+  sock.setKeepAlive(true, 20_000);
   sock.setTimeout(330_000, () => sock.destroy());
   sock.__catHost = host;
   opened.catch(() => {});
@@ -81,8 +100,15 @@ function safeCode(code) {
 class ServerSide extends EventTarget {
   constructor() { super(); this.readyState = 0; this.ws = null; this.queue = []; this.closedEarly = null; }
   accept() { if (this.readyState === 0) this.readyState = 1; }
+  // Bytes accepted but not yet written to the client — the panel pauses the remote above 2 MB.
+  get bufferedAmount() { return this.ws ? this.ws.bufferedAmount : this.queue.reduce((n, c) => n + (c.length || 0), 0); }
   bind(ws) {
     this.ws = ws;
+    // WebSocket ping every 25 s: keeps mobile-carrier NAT from dropping a quiet tunnel. Every client
+    // (Xray, sing-box, mihomo) answers pings itself; no pong is required, so nothing is cut.
+    const beat = setInterval(() => { try { if (ws.readyState === 1) ws.ping(); } catch (_) { } }, 25_000);
+    beat.unref?.();
+    ws.once('close', () => clearInterval(beat));
     ws.on('message', (data, isBinary) => {
       const ev = new Event('message');
       ev.data = isBinary ? toArrayBuffer(data) : Buffer.from(toArrayBuffer(data)).toString('utf8');

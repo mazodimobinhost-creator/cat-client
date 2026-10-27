@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.41';
+const CAT_PANEL_VERSION = '6.69.42';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -2953,15 +2953,30 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, 
       }
       let grain = null;
       const flushGrain = () => { if (grain && ws.readyState === WS_OPEN) { ws.send(grain); grain = null; } };
+      // ONE outstanding read is kept across the silence race: a lost race must not orphan it (that
+      // dropped the next chunk mid-stream — 6.41.0–6.69.41).
+      let pending = null;
+      // Backpressure: where the runtime reports ws.bufferedAmount (Node/Vercel; Workers has none) stop
+      // reading the remote while > 2 MB waits for a slow client, instead of buffering a whole
+      // download in the function's memory. Progress keeps the idle timer alive.
+      const drain = async () => {
+        for (let last = Infinity, b; (b = ws.bufferedAmount || 0) > 2097152 && ws.readyState === WS_OPEN; last = b) {
+          if (b < last) touch();
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      };
       for (;;) {
         let chunk;
+        if (!pending) await drain();
+        pending ||= reader.read();
         if (grain) {
           // Pending small bytes: race the next read against a 1ms silence timer.
-          chunk = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r(null), SILENT_MS))]);
+          chunk = await Promise.race([pending, new Promise((r) => setTimeout(() => r(null), SILENT_MS))]);
           if (!chunk) { flushGrain(); continue; }
         } else {
-          chunk = await reader.read();
+          chunk = await pending;
         }
+        pending = null;
         if (chunk.done) break;
         if (!chunk.value || !chunk.value.byteLength) continue;
         touch();

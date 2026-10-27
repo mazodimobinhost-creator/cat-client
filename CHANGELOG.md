@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta186] — 2026-10-27 (Panel 6.69.42)
+
+### Fixed
+- **Panel 6.69.42 — downloads losing bytes inside the tunnel (every panel since 6.41.0, Cloudflare and Vercel):** the downstream "grain bundling" loop raced each `reader.read()` against a 1 ms silence timer and threw the read away whenever the timer won; the next chunk then landed in that orphaned read and was lost. Whenever the site's packets arrived more than 1 ms apart — most real traffic — bytes vanished mid-stream: broken TLS, pages that stall half-loaded, videos and speed tests that die, configs that look "connected but nothing opens". Short answers (the old tests and pings) still passed, which is why it hid so long. The loop now keeps one outstanding read across the race. New regression test `tunnel-grain.test.mjs` drives the real `pumpTunnel` (also on the minified artifact in CI): before the fix 281,402 of 420,002 bytes arrived (gapped) and 54,052 of 105,842 (slow trickle); after it, every byte arrives in order.
+
+### Added
+- **Backpressure for slow clients (Vercel / Node):** while more than 2 MB is waiting for a slow phone (`ws.bufferedAmount`), the panel stops reading the site instead of buffering the whole download in the function's memory (one big download on a slow line could fill the instance and drop every connection on it). Cloudflare Workers report no `bufferedAmount`, so nothing changes there. Tested.
+- **Vercel adapter, ideas from public Vercel panels found on GitHub (Behnam1323/Vercelfinal v4.6, LabourHour/deploy-vercel), written independently:** TCP keepalive on outgoing tunnels, a 5-minute DNS cache for tunnel destinations, a WebSocket ping every 25 s so mobile carriers do not drop a quiet tunnel (no pong is required, so nothing is cut), and `bufferedAmount` exposed to the panel for the backpressure above. `perMessageDeflate:false`, `TCP_NODELAY` and the pre-bind send queue were already in place.
+
 ## [1.10.0-beta185] — 2026-10-27 (Panel 6.69.41, unchanged)
 
 ### Fixed
