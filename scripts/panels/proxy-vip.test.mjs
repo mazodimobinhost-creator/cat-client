@@ -46,6 +46,13 @@ const memKv = () => {
   };
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Wait for a condition instead of a fixed sleep: CI runs test files two at a time on a 2-core
+// runner, and a fixed 120-200 ms window let a late «saved ✓» overwrite the summary line.
+const until = async (cond, ms = 5000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { try { if (cond()) return true; } catch (e) { /* not yet */ } await sleep(20); }
+  return false;
+};
 
 async function panel(patch = {}) {
   const kv = memKv();
@@ -212,7 +219,8 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
   });
   const { window } = dom;
   const { document } = window;
-  await sleep(350);
+  await until(() => document.querySelectorAll('#vipList > div').length === 3);
+  await sleep(50);
 
   ok('the page loads with no JS error', errors.length === 0, errors.join(' | ').slice(0, 200));
   ok('the card renders one row per relay from the panel payload',
@@ -231,14 +239,18 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
 
   // star → PUT proxyVip with the relay that was clicked
   document.querySelector('#vipList [data-vip="' + NL + '"]').click();
-  await sleep(120);
+  await until(() => writes.some((w) => w && typeof w === 'object' && 'proxyVip' in w));
+  // let the save round-trip finish (its «saved ✓» lands in #vipOut) before the next step
+  await until(() => /✓/.test(document.querySelector('#vipOut').textContent), 2000);
+  await sleep(50);
   const starWrite = writes.find((w) => w && typeof w === 'object' && 'proxyVip' in w);
   ok('clicking ☆ saves that relay as the preference',
     !!starWrite && starWrite.proxyVip === NL, JSON.stringify(writes));
 
   // test-all → the ms from the server lands in the rows (before any pinning, so all 3 are listed)
   document.querySelector('#vipTest').click();
-  await sleep(200);
+  await until(() => /2\s*از\s*3|2 of 3/.test(document.querySelector('#vipOut').textContent)
+    && document.querySelector('#vipList').textContent.includes('90ms'));
   let list = document.querySelector('#vipList').textContent;
   ok('the latency table prints ms for the healthy relays', list.includes('42ms') && list.includes('90ms'), list.slice(0, 160));
   ok('…and marks the dead relay instead of printing a fake number',
@@ -249,7 +261,8 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
   // auto-swap switch → PUT proxyAutoSwap false, and the worker must then dial ONLY the star
   const before = writes.length;
   document.querySelector('#swAutoSwap').click();
-  await sleep(150);
+  await until(() => writes.slice(before).some((w) => w && typeof w === 'object' && 'proxyAutoSwap' in w));
+  await sleep(50);
   const swapWrite = writes.slice(before).find((w) => w && typeof w === 'object' && 'proxyAutoSwap' in w);
   ok('clicking the auto-swap switch saves the new value (false = pinned)',
     !!swapWrite && swapWrite.proxyAutoSwap === false, JSON.stringify(writes.slice(before)));
