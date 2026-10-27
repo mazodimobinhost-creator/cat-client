@@ -13,15 +13,19 @@ class ConnectionSelectionPreferenceStore(context: Context) {
         return profiles.firstOrNull { it.fingerprint == fingerprint }
     }
 
-    fun saveSelectedProfile(subscriptionId: String, profile: ConnectionProfile?) {
+    fun saveSelectedProfile(subscriptionId: String, profile: ConnectionProfile?, userPick: Boolean = false) {
         prefs.edit().apply {
             if (profile == null) {
                 remove(key(subscriptionId))
             } else {
                 putString(key(subscriptionId), profile.fingerprint)
             }
+            if (userPick) putLong(KEY_LAST_PICK_AT, System.currentTimeMillis())
         }.apply()
     }
+
+    /** When the user last picked (or cleared) a list entry; newer UI exit choices override older list links. */
+    fun readLastProfilePickAt(): Long = prefs.getLong(KEY_LAST_PICK_AT, 0L)
 
     fun hasSelectedProfile(subscriptionId: String): Boolean = prefs.contains(key(subscriptionId))
 
@@ -74,6 +78,7 @@ class ConnectionSelectionPreferenceStore(context: Context) {
 
     private companion object {
         const val PREFS_NAME = "cat_client_connection_selection"
+        private const val KEY_LAST_PICK_AT = "last_profile_pick_at"
         const val KEY_PREFIX = "profile:"
         const val TYPES_KEY_PREFIX = "types:"
         const val SORT_KEY_PREFIX = "delay-sort:"

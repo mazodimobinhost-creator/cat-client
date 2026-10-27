@@ -25,6 +25,8 @@ internal class AetherProxyCarrier(
     private val ipScan: String = "both",
     private val masqueTransport: String = "h2",
     private val innerEndpoint: String? = null,
+    /** `auto` = carrier only (Psiphon/Tor decides the exit); `foreign` = two-hop WARP so the carrier itself exits abroad. */
+    private val exitLocation: String = "auto",
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var job: Job? = null
@@ -47,6 +49,7 @@ internal class AetherProxyCarrier(
             listenPort = port,
             ipScan = ipScan,
             masqueTransport = masqueTransport,
+            exitLocation = exitLocation,
         )
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)

@@ -2254,6 +2254,8 @@ class MainActivity : Activity() {
                 }
                 if (activateAetherEngine) {
                     userSubscriptionManager.select(saved.id)
+                    // The new link is put first; drop an older picked entry so connect really uses the config just built.
+                    connectionSelectionPreferenceStore.saveSelectedProfile(saved.id, null, userPick = true)
                     aetherPreferenceStore.save(selection.copy(enabled = true))
                     renderSubscriptions()
                     renderConnectionDetails(buttonModel.state)
@@ -5270,19 +5272,47 @@ class MainActivity : Activity() {
                         .setItems(labels) { _, index ->
                             val pickedRegion = regions[index]
                             val current = aetherPreferenceStore.read()
-                            aetherPreferenceStore.save(
-                                current.copy(
-                                    psiphonRegion = pickedRegion,
-                                    chainTarget = if (pickedRegion.isNotEmpty() && current.chainTarget == "none") "psiphon" else current.chainTarget,
-                                    exitLocation = if (pickedRegion.isNotEmpty()) "foreign" else current.exitLocation,
-                                ),
+                            val pickedSelection = current.copy(
+                                psiphonRegion = pickedRegion,
+                                chainTarget = if (pickedRegion.isNotEmpty() && current.chainTarget in setOf("none", "tor", "tor-reverse")) "psiphon" else current.chainTarget,
+                                exitLocation = if (pickedRegion.isNotEmpty()) "foreign" else current.exitLocation,
                             )
+                            aetherPreferenceStore.save(pickedSelection)
+                            aetherPreferenceStore.saveExitChoice(pickedSelection.exitLocation, pickedSelection.chainTarget, pickedRegion)
                             recreate()
                         }
                         .setNegativeButton(android.R.string.cancel, null)
                         .create()
                         .showCatClientDialog()
                 }.apply { isEnabled = currentVpnServiceState == VpnState.Stopped },
+                LinearLayout.LayoutParams(-1, -2),
+            )
+        }
+        aetherPreferenceStore.readLastExit()?.let { last ->
+            val time = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(last.atMs))
+            val viaLabel = when (last.via) {
+                "psiphon" -> if (isFarsiAether) "سایفون" else "Psiphon"
+                "psiphon-auto" -> if (isFarsiAether) "سایفون (کشور خودکار)" else "Psiphon (auto country)"
+                "warp-2hop" -> if (isFarsiAether) "WARP دولایه (سایفون وصل نشد)" else "two-hop WARP (Psiphon failed)"
+                "tor" -> "Tor"
+                else -> if (isFarsiAether) "مستقیم" else "direct"
+            }
+            val lastValue = when {
+                !last.measured -> if (isFarsiAether) "❔ اندازه‌گیری نشد · $viaLabel · $time" else "❔ not measured · $viaLabel · $time"
+                last.wrongIran -> if (isFarsiAether) {
+                    "⚠️ ایران (${last.ip}) با اینکه خارج خواسته بودید · $viaLabel · $time\nیک کشور سایفون دیگر یا «خارج (WARP دولایه)» را امتحان کنید."
+                } else {
+                    "⚠️ Iran (${last.ip}) although foreign was requested · $viaLabel · $time\nTry another Psiphon country or Foreign (two-hop WARP)."
+                }
+                last.otherCountry -> if (isFarsiAether) {
+                    "ℹ️ ${last.countryCode} (خواسته: ${last.requested}؛ سرور آن کشور در دسترس نبود) · $viaLabel · $time"
+                } else {
+                    "ℹ️ ${last.countryCode} (requested ${last.requested}; no server there was reachable) · $viaLabel · $time"
+                }
+                else -> "✅ ${last.countryCode} · ${last.ip} · $viaLabel · $time"
+            }
+            aetherPanel.addView(
+                appPreferenceRow(R.string.aether_last_exit, lastValue) { }.apply { isClickable = false },
                 LinearLayout.LayoutParams(-1, -2),
             )
         }
@@ -12260,6 +12290,7 @@ class MainActivity : Activity() {
                                 mode = AetherSelection.simplifyModeForChain(current.mode, "psiphon"),
                             )
                             aetherPreferenceStore.save(updated)
+                            aetherPreferenceStore.saveExitChoice("foreign", "psiphon", picked)
                             refreshEngineSummary()
                             renderAdvancedControls()
                             val countryLabel = PsiphonCarrierConfig.regionShortLabel(picked, isFarsi)
@@ -12517,6 +12548,7 @@ class MainActivity : Activity() {
                     )
                 }
                 aetherPreferenceStore.save(updated)
+                aetherPreferenceStore.saveExitChoice(updated.exitLocation, updated.chainTarget, updated.psiphonRegion)
                 activityScope.launch {
                     val tomlFile = java.io.File(filesDir, "aether.toml")
                     val proxy = if (currentVpnServiceState == VpnState.Started) {
@@ -27202,7 +27234,7 @@ class MainActivity : Activity() {
             selectedTypes,
             connectionProfiles,
         )
-        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile)
+        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile, userPick = true)
         val pickedShareLink = profile?.shareLink.orEmpty()
         if (pickedShareLink.startsWith("aether://", ignoreCase = true) || pickedShareLink.startsWith("masque://", ignoreCase = true)) {
             AetherSelection.fromAetherUri(pickedShareLink)?.let { parsed ->
@@ -29100,7 +29132,7 @@ class MainActivity : Activity() {
                 if (bestProfile == null) {
                     Toast.makeText(this@MainActivity, R.string.ping_all_none, Toast.LENGTH_LONG).show()
                 } else if (autoConnect) {
-                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, bestProfile)
+                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, bestProfile, userPick = true)
                     Toast.makeText(
                         this@MainActivity,
                         getString(R.string.ping_all_connecting, bestProfile.displayTag, best?.delayMs ?: 0),

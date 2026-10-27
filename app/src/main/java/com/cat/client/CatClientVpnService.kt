@@ -1545,8 +1545,20 @@ class CatClientVpnService : VpnService() {
             if (link.startsWith("aether://", ignoreCase = true) || link.startsWith("masque://", ignoreCase = true)) {
                 val parsedAether = AetherSelection.fromAetherUri(link)
                 if (parsedAether != null) {
-                    aetherPreferenceStore.save(parsedAether.copy(enabled = true))
-                    runAetherStartup(eventPrefix, parsedAether.copy(enabled = true))
+                    // A country / Iran-vs-foreign picked in the Aether UI after the list entry was chosen wins over the
+                    // link's own (often empty) region; otherwise "Germany" silently became single-hop WARP (IR IP).
+                    val choice = aetherPreferenceStore.readExitChoice()
+                        ?.takeIf { it.atMs > connectionSelectionPreferenceStore.readLastProfilePickAt() }
+                    val mergedAether = AetherSelection.applyExitChoice(parsedAether, choice).copy(enabled = true)
+                    if (choice != null) {
+                        DiagnosticLogger.info(
+                            this,
+                            "$eventPrefix.aether.exitChoice",
+                            "exit=${mergedAether.exitLocation} chain=${mergedAether.chainTarget} region=${mergedAether.psiphonRegion.ifEmpty { "auto" }}",
+                        )
+                    }
+                    aetherPreferenceStore.save(mergedAether)
+                    runAetherStartup(eventPrefix, mergedAether)
                     return
                 }
             }
@@ -4312,7 +4324,7 @@ class CatClientVpnService : VpnService() {
             innerEndpoint = effectiveSelection.innerEndpoint,
             upstreamProxy = reverseTorProxy,
             ipScan = effectiveSelection.ipScan,
-            exitLocation = effectiveSelection.exitLocation,
+            exitLocation = effectiveSelection.effectiveExitLocation(),
             masqueTransport = effectiveSelection.masqueTransport,
             scanMode = effectiveSelection.scanMode,
             noizePreset = effectiveSelection.noizePreset,
@@ -4334,6 +4346,12 @@ class CatClientVpnService : VpnService() {
         )
         val watchdogJob = scope.launch(Dispatchers.IO) {
             var consecutiveFailures = 0
+            val readyDeadline = System.currentTimeMillis() + 240_000L
+            while (isActive && state != VpnState.Started && System.currentTimeMillis() < readyDeadline) delay(500L)
+            if (isActive && state == VpnState.Started) {
+                delay(2_500L)
+                recordAetherExit(effectiveSelection, via = "direct", trace = AetherOperations.probeExitTrace(6_000).getOrNull())
+            }
             while (isActive && state == VpnState.Started) {
                 delay(45_000L)
                 if (state != VpnState.Started) break
@@ -4400,9 +4418,24 @@ class CatClientVpnService : VpnService() {
             masqueTransport = selection.masqueTransport,
             innerEndpoint = selection.innerEndpoint,
         ).also { aetherPsiphonChain = it }
-        DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.start", "carrier=${carrierMode.wireName}")
+        DiagnosticLogger.info(
+            this,
+            "$eventPrefix.aetherPsiphon.start",
+            "carrier=${carrierMode.wireName} region=${selection.psiphonRegion.ifEmpty { "auto" }}",
+        )
         try {
-            val carrier = chain.start(selection.psiphonRegion)
+            val regionFa = PsiphonCarrierConfig.regionShortLabel(selection.psiphonRegion, true).ifBlank { "خودکار" }
+            val carrier = chain.start(selection.psiphonRegion) { step ->
+                val text = when {
+                    step == "WARP" -> "۳/۴: اتصال لایه WARP برای سایفون"
+                    step == "Psiphon Auto" && selection.psiphonRegion.isNotEmpty() ->
+                        "۳/۴: سایفون به $regionFa وصل نشد؛ تلاش با سریع‌ترین کشور خارجی"
+                    step.startsWith("Psiphon") -> "۳/۴: اتصال سایفون ($regionFa) — تا ۷۵ ثانیه صبر کنید"
+                    else -> "۳/۴: سایفون وصل نشد؛ WARP دولایه (خروجی خارج) و بررسی کشور خروجی"
+                }
+                VpnRuntimeStateStore.saveLiveConnectStep(this, text)
+                DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.step", step)
+            }
             val dns = DnsRuntimeSettings(
                 mode = dnsPrivacyPreferenceStore.readMode(),
                 dohUrl = dnsPrivacyPreferenceStore.readDohUrl(),
@@ -4418,7 +4451,12 @@ class CatClientVpnService : VpnService() {
             setupCoreRuntime(paths)
             startCoreTun(paths, splitPlan)
             activeRuntimePaths = paths
-            DiagnosticLogger.info(this, "$eventPrefix.aetherPsiphon.ready", "region=automatic")
+            DiagnosticLogger.info(
+                this,
+                "$eventPrefix.aetherPsiphon.ready",
+                "requested=${selection.psiphonRegion.ifEmpty { "auto" }} via=${carrier.via} exit=${carrier.exit?.countryCode ?: "unmeasured"}",
+            )
+            recordAetherExit(selection, via = carrier.via, trace = carrier.exit)
             publishState(VpnState.Started)
         } catch (error: Throwable) {
             runCatching { chain.close() }
@@ -4427,11 +4465,41 @@ class CatClientVpnService : VpnService() {
         }
     }
 
+    /** Stores and logs the real exit Cloudflare sees, so the Aether panel can show it and warn on an IR exit. */
+    private fun recordAetherExit(selection: AetherSelection, via: String, trace: AetherExitTrace?) {
+        val requested = when {
+            selection.effectiveExitLocation() == "iran" -> "IR"
+            selection.chainTarget.startsWith("psiphon") && selection.psiphonRegion.matches(Regex("[A-Z]{2}")) -> selection.psiphonRegion
+            else -> "!IR"
+        }
+        val status = AetherExitStatus(
+            requested = requested,
+            countryCode = trace?.countryCode.orEmpty(),
+            ip = trace?.ip.orEmpty(),
+            via = via,
+            atMs = System.currentTimeMillis(),
+        )
+        runCatching { aetherPreferenceStore.saveLastExit(status) }
+        val detail = "requested=$requested exit=${status.countryCode.ifEmpty { "unmeasured" }} ip=${status.ip.ifEmpty { "-" }} via=$via"
+        if (status.wrongIran) {
+            DiagnosticLogger.warn(this, "aether.exit.iran", detail)
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "⚠️ خروجی ایران است با اینکه خارج انتخاب شده ($detail)")
+        } else {
+            DiagnosticLogger.info(this, "aether.exit", detail)
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "✅ وصل شد — کشور خروجی واقعی: ${status.countryCode.ifEmpty { "نامشخص" }}")
+        }
+    }
+
     private suspend fun runAetherTorStartup(eventPrefix: String, selection: AetherSelection) {
         runCatching { aetherTorCarrier?.close() }
         aetherTorCarrier = null
         val splitPlan = resolveSplitTunnelRuntimePlan()
         val carrierMode = selection.effectiveCarrierMode()
+        val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
+        val torReachable = withContext(Dispatchers.IO) {
+            runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
+        }
+        // Without Orbot the WARP carrier is the exit itself: use two-hop WARP so it is never an Iranian single-hop IP.
         val carrier = AetherProxyCarrier(
             scope = scope,
             identityFile = File(filesDir, "aether.toml"),
@@ -4442,13 +4510,19 @@ class CatClientVpnService : VpnService() {
             ipScan = selection.ipScan,
             masqueTransport = selection.masqueTransport,
             innerEndpoint = selection.innerEndpoint,
+            exitLocation = if (torReachable) "auto" else "foreign",
         ).also { aetherTorCarrier = it }
-        DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName}")
+        DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName} torReachable=$torReachable")
+        if (!torReachable) {
+            VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: Orbot (تور) در دسترس نیست؛ WARP دولایه با خروجی خارج")
+        }
         try {
             carrier.start()
-            val orbotPort = runCatching { orbotEnginePreferenceStore.readPort() }.getOrDefault(OrbotEnginePolicy.DEFAULT_PORT)
-            val torReachable = withContext(Dispatchers.IO) {
-                runCatching { OrbotProbe.probe(OrbotEnginePolicy.DEFAULT_HOST, orbotPort).reachable }.getOrDefault(false)
+            val torExit = withContext(Dispatchers.IO) {
+                AetherOperations.probeExitTraceViaSocks(if (torReachable) orbotPort else carrier.port)
+            }
+            if (!torReachable && torExit?.isIranIp == true) {
+                throw IOException("Orbot (Tor) is not running and the two-hop WARP fallback still exits in Iran (${torExit.ip}). Start Orbot or pick a Psiphon country.")
             }
             val dns = DnsRuntimeSettings(
                 mode = dnsPrivacyPreferenceStore.readMode(),
@@ -4470,6 +4544,7 @@ class CatClientVpnService : VpnService() {
             startCoreTun(paths, splitPlan)
             activeRuntimePaths = paths
             DiagnosticLogger.info(this, "$eventPrefix.aetherTor.ready", "torReachable=$torReachable")
+            recordAetherExit(selection, via = if (torReachable) "tor" else "warp-2hop", trace = torExit)
             publishState(VpnState.Started)
         } catch (error: Throwable) {
             runCatching { carrier.close() }

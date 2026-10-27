@@ -445,4 +445,41 @@ class AetherSelectionTest {
         org.junit.Assert.assertTrue(fused.yaml.contains("type: load-balance"))
         org.junit.Assert.assertTrue(fused.yaml.contains("type: fallback"))
     }
+
+    @Test fun uiExitChoiceOverridesOlderListLinkRegion() {
+        // An old list entry without a Psiphon country: the user later picked Germany in the Aether panel.
+        val parsed = AetherSelection.fromAetherUri("aether://162.159.198.1:443?protocol=masque&ip=v4#Old")!!
+        org.junit.Assert.assertEquals("iran", parsed.effectiveExitLocation())
+        val germany = AetherExitChoice(exitLocation = "foreign", chainTarget = "psiphon", psiphonRegion = "DE", atMs = 10L)
+        val merged = AetherSelection.applyExitChoice(parsed, germany)
+        assertEquals("psiphon", merged.chainTarget)
+        assertEquals("DE", merged.psiphonRegion)
+        assertEquals("foreign", merged.effectiveExitLocation())
+
+        // A Psiphon link with region NL, user later switched to "foreign two-hop WARP" without Psiphon.
+        val nl = AetherSelection.fromAetherUri("aether://?protocol=wg&psiphon=chain&region=NL#NL")!!
+        val twoHop = AetherSelection.applyExitChoice(nl, AetherExitChoice("foreign", "none", "", 11L))
+        assertEquals("none", twoHop.chainTarget)
+        assertEquals("foreign", twoHop.effectiveExitLocation())
+        assertEquals("wiw", AetherRuntimeConfig(mode = twoHop.mode, identityFile = java.io.File("/tmp/a.toml"), exitLocation = twoHop.effectiveExitLocation()).resolvedNativeTransport())
+
+        // Explicit Iran choice turns a two-hop link into single-hop, no chain.
+        val mim = AetherSelection.fromAetherUri("aether://?protocol=mim&outer=162.159.198.1:443&psiphon=chain&region=DE#M")!!
+        val iran = AetherSelection.applyExitChoice(mim, AetherExitChoice("iran", "none", "", 12L))
+        assertEquals("iran", iran.effectiveExitLocation())
+        assertEquals("none", iran.chainTarget)
+        assertEquals(AetherMode.MasqueHttp2, iran.mode)
+
+        // No choice: link stays authoritative.
+        assertEquals(nl, AetherSelection.applyExitChoice(nl, null))
+    }
+
+    @Test fun exitStatusFlagsIranianExitWhenForeignWasRequested() {
+        org.junit.Assert.assertTrue(AetherExitStatus("DE", "IR", "5.1.2.3", "warp-2hop", 1L).wrongIran)
+        org.junit.Assert.assertTrue(AetherExitStatus("!IR", "IR", "5.1.2.3", "direct", 1L).wrongIran)
+        org.junit.Assert.assertFalse(AetherExitStatus("IR", "IR", "5.1.2.3", "direct", 1L).wrongIran)
+        org.junit.Assert.assertTrue(AetherExitStatus("DE", "NL", "1.2.3.4", "psiphon-auto", 1L).otherCountry)
+        org.junit.Assert.assertFalse(AetherExitStatus("DE", "DE", "1.2.3.4", "psiphon", 1L).otherCountry)
+        org.junit.Assert.assertFalse(AetherExitStatus("!IR", "", "", "direct", 1L).measured)
+    }
 }

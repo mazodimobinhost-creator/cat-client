@@ -422,6 +422,42 @@ data class AetherSelection(
         val VALID_TOR_BRIDGES = VALID_TOR_BRIDGES_MODES
         val VALID_TOR_RELAYS_MODES = setOf("auto", "only", "off")
 
+        /**
+         * Applies the exit the user picked in the UI on top of a saved `aether://` link. Without this, connecting
+         * from an older list entry replaced e.g. "Germany" with the link's own (often empty) region and the user
+         * ended up on a single-hop WARP with an Iranian IP.
+         */
+        internal fun applyExitChoice(parsed: AetherSelection, choice: AetherExitChoice?): AetherSelection {
+            if (choice == null) return parsed
+            val region = choice.psiphonRegion.takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+            return when (choice.exitLocation) {
+                "iran" -> parsed.copy(
+                    exitLocation = "iran",
+                    chainTarget = "none",
+                    mode = when (parsed.mode) {
+                        AetherMode.MasqueInMasque, AetherMode.WireGuardOverMasque, AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
+                        AetherMode.WarpInWarp -> AetherMode.WireGuard
+                        else -> parsed.mode
+                    },
+                    innerEndpoint = null,
+                )
+                "foreign" -> {
+                    val chain = when {
+                        region.isNotEmpty() && choice.chainTarget !in setOf("psiphon", "psiphon-reverse") -> "psiphon"
+                        choice.chainTarget in VALID_CHAIN_TARGETS -> choice.chainTarget
+                        else -> "none"
+                    }
+                    parsed.copy(
+                        exitLocation = "foreign",
+                        chainTarget = chain,
+                        psiphonRegion = if (chain.startsWith("psiphon") || chain == "auto-psiphon") region else parsed.psiphonRegion,
+                        mode = simplifyModeForChain(parsed.mode, chain),
+                    )
+                }
+                else -> parsed
+            }
+        }
+
         fun simplifyModeForChain(mode: AetherMode, chainTarget: String): AetherMode {
             if (chainTarget !in setOf("psiphon", "psiphon-reverse", "tor", "tor-reverse", "auto-psiphon")) return mode
             return when (mode) {
@@ -551,8 +587,78 @@ data class AetherSelection(
     }
 }
 
+/** What the user picked in the UI for the Aether exit. */
+internal data class AetherExitChoice(
+    val exitLocation: String,
+    val chainTarget: String,
+    val psiphonRegion: String,
+    val atMs: Long,
+)
+
+/**
+ * A measured Aether exit. [requested] is `IR`, `!IR` or a Psiphon country code; [countryCode] is empty when the
+ * exit could not be measured. [via] is `direct`, `psiphon`, `psiphon-auto`, `warp-2hop` or `tor`.
+ */
+internal data class AetherExitStatus(
+    val requested: String,
+    val countryCode: String,
+    val ip: String,
+    val via: String,
+    val atMs: Long,
+) {
+    val measured: Boolean get() = countryCode.matches(Regex("[A-Z]{2}"))
+    /** True when a foreign exit (or a specific country) was requested but Cloudflare sees an Iranian IP. */
+    val wrongIran: Boolean get() = requested != "IR" && countryCode == "IR"
+    /** True when a specific Psiphon country was requested and the measured exit is another country. */
+    val otherCountry: Boolean get() = requested.matches(Regex("[A-Z]{2}")) && requested != "IR" && measured && countryCode != requested
+}
+
 class AetherPreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("cat_client_aether", Context.MODE_PRIVATE)
+
+    /** Remembers the exit the user picked in the UI (Iran / foreign / Psiphon country) so a saved list link cannot silently override it. */
+    fun saveExitChoice(exitLocation: String, chainTarget: String, psiphonRegion: String) {
+        prefs.edit()
+            .putString("exit_choice_loc", exitLocation)
+            .putString("exit_choice_chain", chainTarget)
+            .putString("exit_choice_region", psiphonRegion.uppercase(java.util.Locale.US).takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty())
+            .putLong("exit_choice_at", System.currentTimeMillis())
+            .apply()
+    }
+
+    internal fun readExitChoice(): AetherExitChoice? {
+        val at = prefs.getLong("exit_choice_at", 0L)
+        if (at <= 0L) return null
+        return AetherExitChoice(
+            exitLocation = prefs.getString("exit_choice_loc", "auto").orEmpty(),
+            chainTarget = prefs.getString("exit_choice_chain", "none").orEmpty(),
+            psiphonRegion = prefs.getString("exit_choice_region", "").orEmpty(),
+            atMs = at,
+        )
+    }
+
+    /** Last really measured exit of an Aether connection (Cloudflare trace), shown in the Aether panel. */
+    internal fun saveLastExit(status: AetherExitStatus) {
+        prefs.edit()
+            .putString("last_exit_requested", status.requested)
+            .putString("last_exit_loc", status.countryCode)
+            .putString("last_exit_ip", status.ip)
+            .putString("last_exit_via", status.via)
+            .putLong("last_exit_at", status.atMs)
+            .apply()
+    }
+
+    internal fun readLastExit(): AetherExitStatus? {
+        val at = prefs.getLong("last_exit_at", 0L)
+        if (at <= 0L) return null
+        return AetherExitStatus(
+            requested = prefs.getString("last_exit_requested", "").orEmpty(),
+            countryCode = prefs.getString("last_exit_loc", "").orEmpty(),
+            ip = prefs.getString("last_exit_ip", "").orEmpty(),
+            via = prefs.getString("last_exit_via", "").orEmpty(),
+            atMs = at,
+        )
+    }
 
     fun read(): AetherSelection {
         val enabled = prefs.getBoolean("enabled", false)

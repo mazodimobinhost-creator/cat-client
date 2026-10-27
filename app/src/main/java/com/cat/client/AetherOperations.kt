@@ -101,6 +101,43 @@ internal object AetherOperations {
         }
         throw (lastError ?: IllegalStateException("Could not determine exit IP location"))
     }
+    /**
+     * Measures the real exit (Cloudflare `cdn-cgi/trace`) of a local SOCKS5 port, e.g. the Psiphon
+     * SOCKS port or the Aether carrier, before the TUN is attached. Returns null when it cannot be measured.
+     */
+    fun probeExitTraceViaSocks(socksPort: Int, timeoutMs: Int = 8_000, attempts: Int = 2): AetherExitTrace? {
+        if (socksPort !in 1..65535) return null
+        val proxy = java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", socksPort))
+        val urls = listOf(
+            "https://1.1.1.1/cdn-cgi/trace",
+            "https://www.cloudflare.com/cdn-cgi/trace",
+            "https://speed.cloudflare.com/cdn-cgi/trace",
+        )
+        repeat(attempts.coerceIn(1, 4)) { round ->
+            for (rawUrl in urls) {
+                val parsed = runCatching {
+                    val conn = (java.net.URL(rawUrl).openConnection(proxy) as java.net.HttpURLConnection).apply {
+                        connectTimeout = timeoutMs
+                        readTimeout = timeoutMs
+                        instanceFollowRedirects = true
+                        useCaches = false
+                        setRequestProperty("User-Agent", "CatClient/1.10")
+                    }
+                    try {
+                        if (conn.responseCode in 200..299) {
+                            parseExitTrace(conn.inputStream.bufferedReader().use { it.readText() })
+                        } else null
+                    } finally {
+                        conn.disconnect()
+                    }
+                }.getOrNull()
+                if (parsed != null) return parsed
+            }
+            if (round + 1 < attempts) runCatching { Thread.sleep(1_500L) }
+        }
+        return null
+    }
+
     fun enforceMasqueHttp2EnvNow(enabled: Boolean) {
         runCatching {
             if (enabled) {
