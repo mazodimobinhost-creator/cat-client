@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta184] — 2026-10-27 (Panel 6.69.41)
+
+### Fixed
+- **Vercel configs all showing -1 on Iranian mobile networks:** every Vercel line used the project name (`<project>.vercel.app`) as SNI, the exact name some mobile operators choke. Live tests from inside Vercel (real VLESS **and** Trojan WebSocket tunnels to `example.com`, with and without early data, on 76.76.21.21 / 216.198.79.65 / 64.29.17.65) show the edge also accepts the bare **`vercel.app`** (its own valid certificate) and a **mixed-case** project name as SNI for a `*.vercel.app` project, while `vercel.com`, other domains and no SNI get HTTP 421. Panel 6.69.41 therefore serves each Vercel address three times — SNI `vercel.app` first, then mixed-case (`Aa`), then the project name — in links, Clash/mihomo and sing-box. `?sni=` still pins one SNI; `?limit=` still caps the list. The app's own fallback configs (`VercelPanelPlanner.fallbackLinks`) and its sub check (`linksFitVercel`) follow the same rule.
+
+### Added
+- **The Vercel IP scanner now finds the SNI that passes on your own line:** stage 0 tries each SNI (bare `vercel.app`, mixed-case, project name) on three main Vercel IPs and shows ✅/❌ per SNI; stage 1 tries every Vercel IP with the SNIs in that order; stage 2 runs the real tunnel with the SNI that passed. Each built config carries exactly the SNI and port that were tested. A custom domain keeps its own SNI.
+- **Panel note on Vercel (dashboard + scanner tab):** says in plain words what the three SNIs are, that a blocked project name is why every config shows -1, and that the real per-line scanner is in the app (the panel's own scan runs from the server).
+
+### Verified (live)
+- XHTTP on Vercel without an outside server is not possible: request bodies are buffered until they end (no `stream-one` / `stream-up`), and `packet-up` requests land on different instances (2–5 of 12 POSTs reached the instance holding the download). The old SNI-XHTTP trick (`sni=vercel.com`, host = project) now gets HTTP 421 on h2 too. WebSocket stays the only Vercel transport.
+
 ## [1.10.0-beta183] — 2026-10-27 (Panel 6.69.40)
 
 ### Fixed

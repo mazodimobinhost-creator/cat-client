@@ -45,7 +45,19 @@ const parsed = v.lines.map(parse);
 check('every vercel line is :443', parsed.every((p) => p.port === 443), parsed.map((p) => p.port).join(','));
 check('every vercel line is TLS', parsed.every((p) => p.q.get('security') === 'tls'));
 check('every vercel address is a Vercel edge address or the project host', parsed.every((p) => VERCEL.has(p.host)), parsed.map((p) => p.host).join(','));
-check('SNI == Host == project domain on every vercel line', parsed.every((p) => p.q.get('sni') === HOST && p.q.get('host') === HOST));
+check('Host == project domain on every vercel line', parsed.every((p) => p.q.get('host') === HOST));
+// 6.69.41: the edge accepts any vercel.app name as SNI (live-tested); vercel.com / other domains → 421
+check('every vercel SNI is a vercel.app name (project, bare vercel.app or mixed-case project)', parsed.every((p) => { const sni = p.q.get('sni') || ''; return sni === 'vercel.app' || sni.toLowerCase() === HOST; }), parsed.map((p) => p.q.get('sni')).join(','));
+const bareN = parsed.filter((p) => p.q.get('sni') === 'vercel.app').length, exactN = parsed.filter((p) => p.q.get('sni') === HOST).length;
+const mixedN = parsed.filter((p) => p.q.get('sni') !== HOST && (p.q.get('sni') || '').toLowerCase() === HOST).length;
+check('vercel sub carries the three SNI variants in equal numbers', bareN > 0 && bareN === exactN && mixedN === exactN, bareN + '/' + mixedN + '/' + exactN);
+check('bare vercel.app SNI lines come first', parsed[0].q.get('sni') === 'vercel.app');
+check('SNI-variant lines are named apart', v.lines.filter((l) => /SNI%20vercel\.app/.test(l)).length === bareN && v.lines.filter((l) => /SNI%20Aa/.test(l)).length === mixedN);
+check('no vercel line uses a non-vercel.app SNI (vercel.com → 421)', !parsed.some((p) => /vercel\.com$/.test(p.q.get('sni') || '')));
+const pinned = (await subLines(vercelEnv, '?sni=' + HOST)).lines.map(parse);
+check('?sni= pins one SNI (no variants)', pinned.length > 0 && pinned.every((p) => p.q.get('sni') === HOST) && pinned.length === exactN, pinned.length + ' vs ' + exactN);
+const lim = (await subLines(vercelEnv, '?limit=6')).lines;
+check('?limit= still caps the vercel sub', lim.length > 0 && lim.length <= 6, lim.length);
 check('no ECH / cipher-suite pinning on vercel lines', parsed.every((p) => !p.q.get('ech') && !p.q.get('cs')));
 check('vercel sub carries the project host itself', parsed.some((p) => p.host === HOST));
 check('vercel sub carries both VLESS and Trojan', v.lines.some((l) => l.startsWith('vless://')) && v.lines.some((l) => l.startsWith('trojan://')));
@@ -85,4 +97,12 @@ check('cloudflare behaviour unchanged: non-Vercel addresses still present', cf.s
 check('cloudflare behaviour unchanged: alternate ports still present', cf.some((p) => p.port !== 443));
 
 if (failures) { console.error(failures + ' failure(s)'); process.exit(1); }
+// 6.69.41: the panel itself explains the three SNIs and points to the app's real per-line scanner — on Vercel only.
+const vPanel = await worker.fetch(new Request('https://' + HOST + '/panel/', { headers: { cookie } }), vercelEnv, { waitUntil() {} });
+const vHtml = await vPanel.text();
+check('vercel panel shows the SNI + scanner note', /class="note i vnote"/.test(vHtml) && /vercel\.app/.test(vHtml) && /(اسکنر آی‌پی Vercel|Vercel IP scanner)/.test(vHtml), vPanel.status + ' ' + vHtml.slice(0, 80));
+const T = (await import(workerPath))._testing;
+const cfPanelHtml = T.panelPage({}, { lang: 'fa' }, 'w.example.workers.dev', UUID);
+check('cloudflare panel has no Vercel note', /id="v-dash"/.test(cfPanelHtml) && !/class="note i vnote"/.test(cfPanelHtml));
+check('vercel panelPage carries the note twice (dashboard + scanner)', (T.panelPage({ CAT_PLATFORM: 'vercel' }, { lang: 'en' }, HOST, UUID).match(/class="note i vnote"/g) || []).length === 2);
 console.log('all vercel-platform checks passed');

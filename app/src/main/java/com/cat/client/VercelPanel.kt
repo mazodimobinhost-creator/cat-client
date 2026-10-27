@@ -115,7 +115,11 @@ internal object VercelPanelPlanner {
         return plain.lines().map(String::trim).filter { it.startsWith("vless://") || it.startsWith("trojan://") }
     }
 
-    /** True when every line is TLS :443 with SNI == Host == the project domain (what Vercel accepts). */
+    /**
+     * True when every line is TLS :443 with Host == the project domain and an SNI Vercel accepts for it:
+     * the project domain itself, or — for a *.vercel.app project — the bare «vercel.app» or a mixed-case
+     * project name (panel 6.69.41+, live-tested). vercel.com or any other SNI is refused by Vercel (421).
+     */
     fun linksFitVercel(links: List<String>, host: String): Boolean = links.isNotEmpty() && links.all { link ->
         val query = link.substringAfter('?', "").substringBefore('#')
         val params = query.split('&').mapNotNull { part ->
@@ -124,8 +128,11 @@ internal object VercelPanelPlanner {
             if (k.isBlank()) null else k to runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
         }.toMap()
         val authority = link.substringAfter("://").substringAfter('@').substringBefore('?')
-        authority.endsWith(":443") && params["security"] == "tls" && params["sni"] == host && params["host"] == host
+        authority.endsWith(":443") && params["security"] == "tls" && params["host"] == host && sniFitsVercel(params["sni"].orEmpty(), host)
     }
+
+    fun sniFitsVercel(sni: String, host: String): Boolean =
+        sni == host || (host.lowercase().endsWith(".vercel.app") && (sni == "vercel.app" || sni.lowercase() == host.lowercase()))
 
     /**
      * Configs the app builds itself when the phone cannot read the panel's subscription yet (for
@@ -134,11 +141,14 @@ internal object VercelPanelPlanner {
      */
     fun fallbackLinks(uuid: String, trojanPass: String, host: String, name: String): List<VercelRelayLink> {
         val enc = VercelRelayPlanner::encode
-        val common = "security=tls&sni=$host&host=$host&fp=chrome&alpn=http%2F1.1&type=ws"
+        // Same three SNIs the panel serves (bare vercel.app and mixed-case first: some ISPs choke the project name).
+        val snis = if (host.lowercase().endsWith(".vercel.app")) listOf("vercel.app", VercelIpScanner.mixedCase(host), host) else listOf(host)
         val targets = listOf(host) + EDGE_ADDRESSES
         val out = mutableListOf<VercelRelayLink>()
-        targets.forEach { address ->
-            val tag = if (address == host) "domain" else address
+        for (sni in snis) targets.forEach { address ->
+            val common = "security=tls&sni=${enc(sni)}&host=$host&fp=chrome&alpn=http%2F1.1&type=ws"
+            val sniTag = when (sni) { host -> ""; "vercel.app" -> " · SNI vercel.app"; else -> " · SNI Aa" }
+            val tag = (if (address == host) "domain" else address) + sniTag
             out += VercelRelayLink(
                 "VLESS · $tag",
                 "VLESS · $tag",
@@ -343,7 +353,8 @@ internal data class VercelScanTarget(
     val link: String,
 )
 
-internal data class VercelScanHit(val ip: String, val port: Int, val tlsMillis: Long, val tunnelMillis: Long)
+/** One scanner winner: the IP, the tested port and the SNI that actually passed on the user's line. */
+internal data class VercelScanHit(val ip: String, val port: Int, val tlsMillis: Long, val tunnelMillis: Long, val sni: String = "")
 
 /**
  * Vercel edge IP scanner. Cloudflare clean IPs cannot reach a Vercel project, but Vercel itself
@@ -380,6 +391,32 @@ internal object VercelIpScanner {
         return VercelScanTarget(source.scheme, source.credential, sni, host, stripEarlyData(source.params["path"].orEmpty().ifBlank { "/" }), source.port, link.trim())
     }
 
+    /**
+     * SNIs worth trying for [target] (live-tested from Vercel, 2026-10-27, real VLESS + Trojan tunnels):
+     * a *.vercel.app project answers ANY vercel.app name as SNI — the bare «vercel.app» (its own valid
+     * certificate) and a mixed-case project name too — while vercel.com, other domains and no SNI get
+     * HTTP 421. Some mobile ISPs choke «<project>.vercel.app», so the scanner finds which of these passes
+     * on the user's own line. A custom domain keeps its own SNI only.
+     */
+    fun sniCandidates(target: VercelScanTarget): List<String> {
+        val host = target.host.lowercase()
+        if (!host.endsWith(".vercel.app")) return listOf(target.sni)
+        val list = mutableListOf("vercel.app", mixedCase(host), host)
+        if (list.none { it == target.sni } && target.sni.lowercase().let { it == "vercel.app" || it.endsWith(".vercel.app") }) list += target.sni
+        return list.distinct()
+    }
+
+    /** Same mixed-case spelling the panel emits («cAt-PaNeL…»): every odd index upper-cased. */
+    fun mixedCase(host: String): String =
+        host.mapIndexed { i, c -> if (i % 2 == 1 && c in 'a'..'z') c.uppercaseChar() else c }.joinToString("")
+
+    /** Short user-facing label for an SNI candidate. */
+    fun sniLabel(sni: String, host: String): String = when {
+        sni == "vercel.app" -> "vercel.app"
+        sni != host.lowercase() && sni.lowercase() == host.lowercase() -> "Aa (" + sni.take(12) + "…)"
+        else -> sni
+    }
+
     /** First config in [text] (links, base64 subscription body) the scanner can use. */
     fun firstTarget(text: String): VercelScanTarget? =
         VercelPanelPlanner.extractSubLinks(text).firstNotNullOfOrNull(::target)
@@ -408,9 +445,28 @@ internal object VercelIpScanner {
         val raw = target.link
         val at = raw.indexOf('@')
         val endOfAuthority = listOf(raw.indexOf('?', at), raw.indexOf('#', at), raw.indexOf('/', at)).filter { it > at }.minOrNull() ?: raw.length
-        val name = "▲ $index · Vercel ${hit.ip} · ${hit.tunnelMillis} ms"
-        val body = raw.substring(0, at + 1) + hit.ip + ":" + hit.port + raw.substring(endOfAuthority).substringBefore('#')
+        val sniTag = if (hit.sni.isNotBlank() && hit.sni != target.sni) " · SNI " + sniLabel(hit.sni, target.host) else ""
+        val name = "▲ $index · Vercel ${hit.ip}$sniTag · ${hit.tunnelMillis} ms"
+        var body = raw.substring(0, at + 1) + hit.ip + ":" + hit.port + raw.substring(endOfAuthority).substringBefore('#')
+        if (hit.sni.isNotBlank() && hit.sni != target.sni) body = withParam(body, "sni", hit.sni)
         return body + "#" + VercelRelayPlanner.encode(name)
+    }
+
+    /** Replaces (or adds) one query parameter, keeping every other parameter and its order. */
+    fun withParam(link: String, key: String, value: String): String {
+        val q = link.indexOf('?')
+        val pair = key + "=" + VercelRelayPlanner.encode(value)
+        if (q < 0) return "$link?$pair"
+        val out = mutableListOf<String>()
+        var replaced = false
+        for (part in link.substring(q + 1).split('&')) {
+            if (part.isEmpty()) continue
+            if (part.substringBefore('=').equals(key, ignoreCase = true)) {
+                if (!replaced) { out += pair; replaced = true } // first occurrence replaced, duplicates dropped
+            } else out += part
+        }
+        if (!replaced) out += pair
+        return link.substring(0, q) + "?" + out.joinToString("&")
     }
 
     fun firstRequest(target: VercelScanTarget, payload: ByteArray): ByteArray =

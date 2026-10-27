@@ -101,13 +101,18 @@ const parse = (l) => { const u = new URL(l.replace(/^(vless|trojan):\/\//, 'http
 const parsed = lines.map(parse);
 check('vercel sub answers with links', subRes.status === 200 && lines.length >= 4, subRes.status + ' / ' + lines.length);
 check('every Vercel line is WebSocket (the only transport the edge forwards)', parsed.length > 0 && parsed.every((p) => p.q.get('type') === 'ws'), [...new Set(parsed.map((p) => p.q.get('type')))].join(','));
-check('Vercel lines: :443, TLS, SNI == host == project, alpn http/1.1', parsed.every((p) => p.port === 443 && p.q.get('security') === 'tls' && p.q.get('sni') === HOST && p.q.get('host') === HOST && p.q.get('alpn') === 'http/1.1'), JSON.stringify(parsed[0] && Object.fromEntries(parsed[0].q)));
+// 6.69.41: SNI is the project, the bare «vercel.app» or the mixed-case project (Vercel accepts all three, live-tested)
+const sniOk = (sni) => sni === 'vercel.app' || String(sni || '').toLowerCase() === HOST;
+check('Vercel lines: :443, TLS, host == project, SNI in the vercel.app family, alpn http/1.1', parsed.every((p) => p.port === 443 && p.q.get('security') === 'tls' && sniOk(p.q.get('sni')) && p.q.get('host') === HOST && p.q.get('alpn') === 'http/1.1'), JSON.stringify(parsed[0] && Object.fromEntries(parsed[0].q)));
+check('Vercel sub serves all three SNIs', ['vercel.app', HOST].every((x) => parsed.some((p) => p.q.get('sni') === x)) && parsed.some((p) => p.q.get('sni') !== HOST && sniOk(p.q.get('sni')) && p.q.get('sni') !== 'vercel.app'));
 check('Vercel names are unique', new Set(parsed.map((p) => p.name)).size === parsed.length);
 check('both VLESS and Trojan are served', parsed.some((p) => p.scheme === 'vless') && parsed.some((p) => p.scheme === 'trojan'));
 const clash = await (await fetch('http://127.0.0.1:' + PORT + '/clash/' + UUID, { headers: { 'x-forwarded-host': HOST } })).text();
 check('Clash/mihomo: no httpupgrade proxies on Vercel', /network: ws/.test(clash) && !/v2ray-http-upgrade|network: httpupgrade/.test(clash));
+check('Clash/mihomo carries the bare vercel.app SNI too', /(servername|sni): "?vercel\.app"?/.test(clash), (clash.match(/(servername|sni): .*/) || [''])[0]);
 const sb = JSON.parse(await (await fetch('http://127.0.0.1:' + PORT + '/singbox/' + UUID, { headers: { 'x-forwarded-host': HOST } })).text());
 const sbTypes = new Set((sb.outbounds || []).filter((o) => o.transport).map((o) => o.transport.type));
+check('sing-box carries the bare vercel.app SNI too', (sb.outbounds || []).some((o) => o.tls && o.tls.server_name === 'vercel.app'), JSON.stringify((sb.outbounds || []).map((o) => o.tls && o.tls.server_name).filter(Boolean).slice(0, 4)));
 check('sing-box: Vercel outbounds use ws only', sbTypes.size === 1 && sbTypes.has('ws'), [...sbTypes].join(','));
 
 // ---- data plane over the real adapter ----

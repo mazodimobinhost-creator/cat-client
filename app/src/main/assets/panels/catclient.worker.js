@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.40';
+const CAT_PANEL_VERSION = '6.69.41';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -4403,6 +4403,20 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     }
   }
 
+  // 6.69.41 Vercel SNI variants (live-tested end-to-end, VLESS + Trojan, with/without early data): for a
+  // *.vercel.app project the edge accepts ANY vercel.app name as SNI — the bare «vercel.app» (its own valid
+  // cert) and a mixed-case project name too — while vercel.com, other domains and no-SNI all get 421.
+  // Mobile ISPs that choke «<project>.vercel.app» therefore get two extra SNIs per address, tried first.
+  if (isVercelPlatform(env) && /\.vercel\.app$/.test(ctx.host) && !q.sni && !(limited && q.limit <= PIN_LIMIT)) {
+    const mixed = ctx.host.replace(/[a-z]/g, (c, i) => (i % 2 ? c.toUpperCase() : c));
+    const base = entries.splice(0);
+    for (const [sni, tag] of [['vercel.app', 'SNI vercel.app'], [mixed, 'SNI Aa']]) {
+      for (const e of base) { const nm = e.name + ' · ' + tag; entries.push(Object.assign({}, e, { sni, name: nm, link: (e.proto === 'vless' ? vlessLink : trojanLink)(Object.assign({}, ctx, { sni }), e.addr, e.port, e.tls, e.cc, { name: nm }) })); }
+    }
+    for (const e of base) entries.push(e);
+    if (limited) entries.length = Math.min(entries.length, q.limit);
+  }
+
   // ?fam=v4|v6 — strict address-family filter over the FINAL entry list, so the
   // always-on worker-host anchor and domain defaults are dropped too: the link
   // then means exactly "only raw IPs of this family".
@@ -6916,6 +6930,11 @@ function panelPage(env, settings, host, masterUuid) {
   // Cosmetic only: a bad id can never break the page, it just falls back to the default skin.
   const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
   const title = panelTitle(env, settings);
+  // 6.69.41: on Vercel, say plainly what the three SNIs are and where the REAL per-line scanner lives (a browser
+  // cannot dial an IP with a chosen SNI, so an honest IP scan from the user's own line needs the app).
+  const vNote = isVercelPlatform(env) ? '<div class="note i vnote" style="margin:10px 0">' + (fa
+    ? '▲ <b>پنل روی Vercel:</b> هر آدرس در اشتراک سه بار آمده با سه SNI: <b>vercel.app</b>، نام پروژه با حروف درهم (<b>Aa</b>) و خود نام پروژه. اگر اپراتور شما نام پروژه را ببندد (همهٔ کانفیگ‌ها -1)، دوتای اول هنوز می‌توانند کار کنند: اشتراک را به‌روزرسانی و دوباره تست کنید.<br>🔎 <b>اسکنر واقعی روی اینترنت خودتان:</b> برنامهٔ Cat Client → Vercel → «🔎 اسکنر آی‌پی Vercel». همهٔ آی‌پی‌های Vercel و هر سه SNI را روی خط شما امتحان می‌کند و فقط کانفیگ‌هایی را می‌سازد که تونل واقعی‌شان تا example.com وصل شد. اسکن این صفحه از سرور است، نه از خط شما.'
+    : '▲ <b>Panel on Vercel:</b> every address appears three times with three SNIs: <b>vercel.app</b>, the project name in mixed case (<b>Aa</b>) and the project name itself. If your operator blocks the project name (all configs -1), the first two can still work: update the subscription and test again.<br>🔎 <b>Real scanner on your own internet:</b> Cat Client app → Vercel → “🔎 Vercel IP scanner”. It tries every Vercel IP and all three SNIs on your line and only builds configs whose real tunnel reached example.com. This page\'s scan runs from the server, not your line.') + '</div>' : '';
   const firewallPresetUi = Object.fromEntries(Object.entries(FIREWALL_BYPASS_PRESETS).map(([id, p]) => [id, { address: p.address, fingerprint: p.fingerprint, ech: !!p.echList, note: p.note, finalMask: !!p.finalMask }]));
   return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}" data-theme="${uiTheme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>${escapeHtml(title)}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(catLogo('f'))}">
@@ -7270,6 +7289,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 <!-- ================= DASHBOARD ================= -->
 <section class="view on" id="v-dash">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><div><h1 data-i="n_dash"></h1><p data-i="d_dash"></p></div></div>
+${vNote}
  <div class="marq" aria-hidden="true"><div class="mi2"><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span><span>${(fa ? '🧦 Cat Panel ✦ خروجی ثابت ✦ IP تمیز ✦ ضد فیلتر ✦ زنجیرهٔ پایدار ✦ ساب همیشه‌زنده ✦' : '🧦 Cat Panel ✦ Fixed exit ✦ Clean IPs ✦ Anti-censor ✦ Stable chain ✦ Live subs ✦').repeat(4)}</span></div></div>
  <div class="note w kvwarn" id="kvWarn" style="display:none">
   <b>⚠️ <span data-i="kv_warn_title"></span></b>
@@ -7555,6 +7575,7 @@ ${(() => {
 <!-- ================= CLEAN IP / SCAN ================= -->
 <section class="view" id="v-scan" data-sec="addr">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
+${vNote}
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
   <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>

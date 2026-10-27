@@ -24,6 +24,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1085,8 +1087,8 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         box.addView(button(t("📋 کپی لینک اشتراک", "📋 Copy the subscription link")) { copy(subUrl) }, lp(6))
         box.addView(button(t("🔳 نمایش QR", "🔳 Show QR")) { showQr(saved.links, "Vercel Panel · ${saved.projectName}") }, lp(6))
         box.addView(label(t(
-            "همهٔ کانفیگ‌ها روی پورت 443 با SNI دامنهٔ پروژه‌اند و فقط آدرس ورودشان فرق دارد (آی‌پی‌های Vercel، vercel.com، خود دامنه). بعد از افزودن، «تست پینگ» نشان می‌دهد کدام روی خط شما باز است.",
-            "Every config uses port 443 with the project domain as SNI; only the entry address differs (Vercel IPs, vercel.com, the domain itself). After adding, the ping test shows which are open on your line.",
+            "همهٔ کانفیگ‌ها روی پورت 443 هستند. هر آدرس سه بار آمده، با سه SNI متفاوت: «vercel.app» خالی، نام پروژه با حروف درهم (Aa) و خود نام پروژه. بعضی اپراتورها نام پروژه را می‌بندند ولی بقیه را نه. بعد از افزودن، «تست پینگ» نشان می‌دهد کدام روی خط شما باز است؛ «🔎 اسکنر» همین را روی همهٔ آی‌پی‌های Vercel پیدا می‌کند.",
+            "Every config is on port 443. Each address appears three times with three SNIs: bare «vercel.app», the project name in mixed case (Aa) and the project name itself. Some operators block the project name but not the others. After adding, the ping test shows which are open on your line; the 🔎 scanner finds the same across all Vercel IPs.",
         ), 11.5f, palette.textSecondary, 10))
         dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("✅ پنل Cat روی Vercel آماده است", "✅ Cat Panel on Vercel is ready"))
@@ -1217,9 +1219,19 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                             "کانفیگ قابل اسکن پیدا نشد. باید VLESS یا Trojan با WS و TLS روی یک دامنه باشد (مثل کانفیگ‌های پنل Cat روی Vercel).",
                             "No scannable config found. It must be VLESS or Trojan over WS + TLS on a domain (like the Cat panel's Vercel configs).",
                         ))
-                    // 2) stage 1: TLS with the project SNI (fast, wide)
+                    // 2) stage 0: which SNI passes on THIS line? (bare vercel.app / mixed-case / project name,
+                    //    each tried on three known edge IPs — Iranian mobile ISPs choke some of them)
+                    val sniAll = VercelIpScanner.sniCandidates(target)
+                    val anchors = listOf("76.76.21.21", "216.198.79.65", "64.29.17.65")
+                    say(t("بررسی SNIها روی خط شما…", "Checking SNIs on your line…"))
+                    val sniReport = kotlinx.coroutines.coroutineScope {
+                        sniAll.map { sni -> async { sni to anchors.map { ip -> async { VercelPanelProbe.tls(ip, target.port, sni) } }.awaitAll().count { it.ok } } }.awaitAll()
+                    }
+                    // SNIs that passed go first; the others are still tried (an anchor may be dead while other IPs live)
+                    val sniOrder = sniReport.sortedByDescending { it.second }.map { it.first }
+                    // 3) stage 1: TLS handshake per IP, first SNI that passes wins (fast, wide)
                     val candidates = VercelIpScanner.candidates(deep)
-                    val tlsOk = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Long>>())
+                    val tlsOk = java.util.Collections.synchronizedList(mutableListOf<Triple<String, String, Long>>())
                     val done = java.util.concurrent.atomic.AtomicInteger()
                     val gate = kotlinx.coroutines.sync.Semaphore(32)
                     kotlinx.coroutines.coroutineScope {
@@ -1227,32 +1239,34 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                             launch {
                                 gate.acquire()
                                 try {
-                                    val r = VercelPanelProbe.tls(ip, target.port, target.sni)
-                                    if (r.ok) tlsOk += ip to r.millis
+                                    for (sni in sniOrder) {
+                                        val r = VercelPanelProbe.tls(ip, target.port, sni)
+                                        if (r.ok) { tlsOk += Triple(ip, sni, r.millis); break }
+                                    }
                                 } finally {
                                     gate.release()
                                     val n = done.incrementAndGet()
                                     if (n % 4 == 0 || n == candidates.size) say(t(
-                                        "مرحلهٔ ۱ از ۲ (دست‌دادن TLS با ${target.sni}): $n از ${candidates.size} · جواب داد: ${tlsOk.size}",
-                                        "Stage 1 of 2 (TLS with ${target.sni}): $n of ${candidates.size} · answered: ${tlsOk.size}",
+                                        "مرحلهٔ ۱ از ۲ (دست‌دادن TLS با ${sniOrder.size} SNI): $n از ${candidates.size} · جواب داد: ${tlsOk.size}",
+                                        "Stage 1 of 2 (TLS with ${sniOrder.size} SNIs): $n of ${candidates.size} · answered: ${tlsOk.size}",
                                     ))
                                 }
                             }
                         }.forEach { it.join() }
                     }
                     // 3) stage 2: real tunnel through each TLS winner (fastest first)
-                    val ordered = tlsOk.sortedBy { it.second }.take(60)
+                    val ordered = tlsOk.sortedBy { it.third }.take(60)
                     val hits = java.util.Collections.synchronizedList(mutableListOf<VercelScanHit>())
                     val done2 = java.util.concurrent.atomic.AtomicInteger()
                     val gate2 = kotlinx.coroutines.sync.Semaphore(8)
                     kotlinx.coroutines.coroutineScope {
-                        ordered.map { (ip, tlsMs) ->
+                        ordered.map { (ip, sni, tlsMs) ->
                             launch {
                                 gate2.acquire()
                                 try {
                                     if (hits.size >= keep * 2) return@launch
-                                    val r = VercelPanelProbe.tunnel(ip, target.port, target.sni, target.host, target.path, 9_000) { http -> VercelIpScanner.firstRequest(target, http) }
-                                    if (r.ok) hits += VercelScanHit(ip, target.port, tlsMs, r.millis)
+                                    val r = VercelPanelProbe.tunnel(ip, target.port, sni, target.host, target.path, 9_000) { http -> VercelIpScanner.firstRequest(target, http) }
+                                    if (r.ok) hits += VercelScanHit(ip, target.port, tlsMs, r.millis, sni)
                                 } finally {
                                     gate2.release()
                                     val n2 = done2.incrementAndGet()
@@ -1264,11 +1278,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
                             }
                         }.forEach { it.join() }
                     }
-                    Triple(target, candidates.size to tlsOk.size, hits.sortedBy { it.tunnelMillis }.take(keep))
+                    ScanOutcome(target, candidates.size, tlsOk.size, hits.sortedBy { it.tunnelMillis }.take(keep), sniReport, anchors.size)
                 }
             }
             runCatching { progress.dismiss() }
-            outcome.onSuccess { (target, counts, hits) -> showScanResult(target, counts.first, counts.second, hits) }
+            outcome.onSuccess { o -> showScanResult(o) }
                 .onFailure { error ->
                     if (error is kotlinx.coroutines.CancellationException) return@onFailure
                     val d = MaterialAlertDialogBuilder(activity)
@@ -1281,22 +1295,43 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         }
     }
 
-    private fun showScanResult(target: VercelScanTarget, tried: Int, tlsCount: Int, hits: List<VercelScanHit>) {
+    private class ScanOutcome(
+        val target: VercelScanTarget,
+        val tried: Int,
+        val tlsCount: Int,
+        val hits: List<VercelScanHit>,
+        val sniReport: List<Pair<String, Int>>,
+        val anchors: Int,
+    )
+
+    private fun showScanResult(o: ScanOutcome) {
+        val target = o.target
+        val hits = o.hits
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(6), dp(18), dp(8))
         }
         box.addView(label(t(
-            "$tried آی‌پی امتحان شد · $tlsCount دست‌دادن TLS موفق · ${hits.size} آی‌پی با تونل واقعی سالم بود.",
-            "$tried IPs tried · $tlsCount TLS handshakes OK · ${hits.size} IPs passed the real tunnel test.",
+            "${o.tried} آی‌پی امتحان شد · ${o.tlsCount} دست‌دادن TLS موفق · ${hits.size} آی‌پی با تونل واقعی سالم بود.",
+            "${o.tried} IPs tried · ${o.tlsCount} TLS handshakes OK · ${hits.size} IPs passed the real tunnel test.",
         ), 13f, palette.textPrimary, 0))
+        if (o.sniReport.size > 1) {
+            val rows = o.sniReport.joinToString("\n") { (sni, ok) ->
+                (if (ok > 0) "✅ " else "❌ ") + VercelIpScanner.sniLabel(sni, target.host) + " · $ok/${o.anchors}"
+            }
+            box.addView(label(t("SNI روی خط شما (دست‌دادن TLS با ${o.anchors} آی‌پی اصلی Vercel):", "SNI on your line (TLS with ${o.anchors} main Vercel IPs):") + "\n" + rows, 12f, palette.textPrimary, 8))
+            box.addView(label(t(
+                "هر کانفیگ پایین با همان SNI ساخته شده که روی خط شما رد شد. ❌ یعنی اپراتور شما آن نام را می‌بندد.",
+                "Every config below uses exactly the SNI that passed on your line. ❌ means your operator blocks that name.",
+            ), 11.5f, palette.textSecondary, 4))
+        }
         if (hits.isEmpty()) {
             box.addView(label(t(
                 "هیچ آی‌پی Vercel روی خط شما تونل را رد نکرد. «کامل» را امتحان کنید، یا خط/اپراتور دیگری. اگر مرحلهٔ TLS هم صفر بود، Vercel روی این خط کامل بسته است.",
                 "No Vercel IP carried the tunnel on your line. Try “Full”, or another line/operator. If the TLS stage was also zero, Vercel is fully blocked on this line.",
             ), 12f, palette.textSecondary, 8))
         } else {
-            box.addView(label(hits.joinToString("\n") { "▲ ${it.ip}:${it.port} · ${it.tunnelMillis} ms" }, 12.5f, palette.textPrimary, 8).apply { setTextIsSelectable(true) })
+            box.addView(label(hits.joinToString("\n") { "▲ ${it.ip}:${it.port} · SNI ${VercelIpScanner.sniLabel(it.sni.ifBlank { target.sni }, target.host)} · ${it.tunnelMillis} ms" }, 12.5f, palette.textPrimary, 8).apply { setTextIsSelectable(true) })
         }
         val links = hits.mapIndexed { i, hit -> VercelIpScanner.linkFor(target, hit, i + 1) }
         var dialog: AlertDialog? = null

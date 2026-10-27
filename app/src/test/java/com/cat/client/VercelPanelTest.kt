@@ -73,12 +73,20 @@ class VercelPanelTest {
         // A Cloudflare-style line (alt port / other SNI) must not be accepted as a Vercel sub.
         assertFalse(VercelPanelPlanner.linksFitVercel(links + "vless://$uuid@104.17.25.14:2053?security=tls&sni=$host&host=$host#c", host))
         assertFalse(VercelPanelPlanner.linksFitVercel(emptyList(), host))
+        // 6.69.41: bare vercel.app and mixed-case project SNIs are accepted by Vercel (live-tested) — vercel.com is not.
+        val variants = links + lines[0].replace("sni=$host", "sni=vercel.app") + lines[1].replace("sni=$host", "sni=" + VercelIpScanner.mixedCase(host))
+        assertTrue(VercelPanelPlanner.linksFitVercel(variants, host))
+        assertFalse(VercelPanelPlanner.linksFitVercel(links + lines[0].replace("sni=$host", "sni=vercel.com"), host))
+        assertFalse(VercelPanelPlanner.linksFitVercel(links + lines[0].replace("host=$host", "host=vercel.app"), host))
     }
 
     @Test
     fun fallbackLinksUseOnly443WithProjectSni() {
         val links = VercelPanelPlanner.fallbackLinks(uuid, "pw+1", host, "notes-ab12c").map { it.link }
-        assertEquals((1 + VercelPanelPlanner.EDGE_ADDRESSES.size) * 2, links.size)
+        assertEquals((1 + VercelPanelPlanner.EDGE_ADDRESSES.size) * 2 * 3, links.size)
+        assertTrue(links.first().contains("sni=vercel.app"))
+        assertTrue(links.any { it.contains("sni=" + VercelIpScanner.mixedCase(host) + "&") })
+        assertTrue(links.any { it.contains("sni=$host&") })
         assertTrue(VercelPanelPlanner.linksFitVercel(links, host))
         assertTrue(links.any { it.startsWith("vless://$uuid@76.76.21.21:443?") && it.contains("path=%2Fws") })
         assertTrue(links.any { it.startsWith("trojan://pw%2B1@vercel.com:443?") && it.contains("path=%2Ftrojan") })
@@ -146,6 +154,25 @@ class VercelPanelTest {
         assertTrue(link.startsWith("vless://$uuid@216.150.16.7:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host&fp=chrome#"))
         assertFalse(link.contains("vercel.com:443"))
         assertTrue(link.contains("216.150.16.7") && link.contains("95%20ms"))
+        // a hit found with another SNI carries exactly that SNI (and nothing else changes)
+        val bare = VercelIpScanner.linkFor(target, VercelScanHit("76.76.21.93", 443, 30, 80, "vercel.app"), 2)
+        assertTrue(bare.startsWith("vless://$uuid@76.76.21.93:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=vercel.app&fp=chrome#"))
+        assertTrue(bare.contains("SNI%20vercel.app"))
+        assertEquals(1, Regex("[?&]sni=").findAll(bare).count())
+    }
+
+    @Test
+    fun sniCandidatesCoverTheVercelAppFamilyOnly() {
+        val ws = "vless://$uuid@vercel.com:443?encryption=none&security=tls&type=ws&host=$host&path=%2Fws&sni=$host#a"
+        val c = VercelIpScanner.sniCandidates(VercelIpScanner.target(ws)!!)
+        assertEquals(listOf("vercel.app", VercelIpScanner.mixedCase(host), host), c)
+        assertTrue(c.none { it.endsWith("vercel.com") })
+        assertEquals(host.lowercase(), VercelIpScanner.mixedCase(host).lowercase())
+        assertEquals("cAt-pAnEl", VercelIpScanner.mixedCase("cat-panel"))
+        val custom = "vless://$uuid@76.76.21.21:443?security=tls&type=ws&host=vpn.example.org&sni=vpn.example.org#c"
+        assertEquals(listOf("vpn.example.org"), VercelIpScanner.sniCandidates(VercelIpScanner.target(custom)!!))
+        assertEquals("a=1&sni=x&b=2", VercelIpScanner.withParam("v://h?a=1&sni=old&b=2&sni=dup", "sni", "x").substringAfter('?'))
+        assertEquals("v://h?a=1&sni=x", VercelIpScanner.withParam("v://h?a=1", "sni", "x"))
     }
 
     @Test
