@@ -17535,6 +17535,8 @@ class MainActivity : Activity() {
 
     private val amneziaSubscriptionPrefix = "🔐 Amnezia"
 
+    private class AmneziaPreview(val links: Int, val server: String, val ok: List<String>, val bad: List<String>, val problem: String?)
+
     private fun showAmneziaSectionDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         fun t(fa: String, en: String) = if (isFarsi) fa else en
@@ -17641,12 +17643,11 @@ class MainActivity : Activity() {
         val text = rawText.trim()
         if (text.isBlank()) return
         activityScope.launch {
-            data class Preview(val links: Int, val server: String, val ok: List<String>, val bad: List<String>, val problem: String?)
-            val preview = withContext(Dispatchers.IO) {
+            val preview: AmneziaPreview = withContext(Dispatchers.IO) {
                 val keys = AmneziaVpnKey.extractKeys(text)
                 if (keys.isNotEmpty()) {
                     val results = keys.mapNotNull { AmneziaVpnKey.decode(it) }
-                    Preview(
+                    AmneziaPreview(
                         links = results.sumOf { it.links.size },
                         server = results.firstOrNull()?.serverName ?: "Amnezia",
                         ok = results.flatMap { it.protocols }.distinct(),
@@ -17657,7 +17658,7 @@ class MainActivity : Activity() {
                 } else {
                     val uris = WireGuardConfText.toUris(text)
                     val endpoint = uris.firstOrNull()?.substringAfter('@')?.substringBefore('?').orEmpty()
-                    Preview(
+                    AmneziaPreview(
                         links = uris.size,
                         server = endpoint.ifBlank { "WireGuard" },
                         ok = uris.map { if (it.startsWith("awg://")) "AmneziaWG" else "WireGuard" }.distinct(),
