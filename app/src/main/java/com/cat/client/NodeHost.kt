@@ -305,7 +305,7 @@ internal class NodeHostStore(context: Context) {
     }
 
     fun list(): List<SavedNodeHost> = runCatching {
-        val arr = JSONArray(prefs.getString("hosts", "[]"))
+        val arr = JSONArray(prefs.getString("hosts", null) ?: "[]")
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             SavedNodeHost(
