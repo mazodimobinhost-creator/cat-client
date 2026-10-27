@@ -328,6 +328,18 @@ class SubscriptionStore(private val context: Context) {
     private fun readDelayRecords(): List<ConnectionDelayRecord> {
         val file = delaysFile()
         if (!file.exists() || file.length() == 0L) return emptyList()
+        // Parsed once per file version: this is read on every server-list render and the
+        // cache can hold thousands of records, so re-parsing it froze the UI on tab switches.
+        val stamp = file.length() to file.lastModified()
+        synchronized(listMemoLock) {
+            delaysMemo?.takeIf { it.first == file.path && it.second == stamp }?.let { return it.third }
+        }
+        return parseDelayRecords(file).also { parsed ->
+            synchronized(listMemoLock) { delaysMemo = Triple(file.path, stamp, parsed) }
+        }
+    }
+
+    private fun parseDelayRecords(file: File): List<ConnectionDelayRecord> {
         return runCatching {
             val items = JSONArray(file.readText())
             buildList {
@@ -395,7 +407,9 @@ class SubscriptionStore(private val context: Context) {
                     .put("testedAt", record.testedAt),
             )
         }
+        synchronized(listMemoLock) { delaysMemo = null }
         writeTextAtomically(delaysFile(), items.toString())
+        synchronized(listMemoLock) { delaysMemo = null }
     }
 
     private fun catalogFile(subscriptionId: String): File = File(
@@ -451,6 +465,7 @@ class SubscriptionStore(private val context: Context) {
         private var listMemoStamp: Pair<Long, Long>? = null
         private var listMemo: List<UserSubscription>? = null
         private val catalogMemo = HashMap<String, Pair<Pair<Long, Long>, SubscriptionCatalog>>()
+        private var delaysMemo: Triple<String, Pair<Long, Long>, List<ConnectionDelayRecord>>? = null
 
         const val PRIVATE_SUBSCRIPTION_ID = "catclient-private"
         const val PUBLIC_SUBSCRIPTION_ID = "catclient"

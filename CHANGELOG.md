@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta195] — 2026-10-28 (Panel 6.69.45)
+
+### Added
+- **🔐 Amnezia section** (Add menu → «🔐 Amnezia key», the anti-censorship tab, and the finder).
+  - Reads AmneziaVPN `vpn://` keys directly (the Amnezia app is not needed): AmneziaWG / AWG 1.5 / WireGuard, and Xray VLESS-Reality / VMess / Trojan / Shadowsocks inside the key; also old field-only keys and IPv6 endpoints. The key MTU is kept.
+  - Shows what is inside before saving (server, what runs here, what cannot run — OpenVPN, Cloak, IKEv2 — and why, e.g. Premium/Free subscription keys or admin keys), then «Add & connect» / «Add only».
+  - «My Amnezia configs» (connect / delete); a plain help page (where keys come from, what works); copying a `vpn://` key and tapping «Add from clipboard» now goes straight to this preview; `vpn://` links open the app.
+- **🧭 «What are you looking for?» finder** at the top of the Servers, Settings, Cloud, Scanner and anti-censorship tabs (not on Home): ~37 tools, each with one plain sentence («tap this → this happens»), Persian/English search that tolerates ی/ي, ک/ك and half-spaces, and one tap opens the tool.
+
+### Changed
+- The «Add» menu is shorter and in plain words: clipboard, type/paste a link, QR, from a file, Amnezia key; the two expert entries are labelled «⚙️ Advanced».
+- Psiphon tunnel-core **2.0.41 → 2.0.42** (fixes hung in-proxy session waiters and missing-lock race conditions; API-compatible).
+- Native core Go toolchain **1.26.8 → 1.26.10** (crypto/tls ECH validation, bundled HTTP/2 vulnerability fixes, `net/http` CONNECT pool fixes, x509 intermediate distrust). Mihomo stays on v1.19.30: v1.19.33 is out, but our WireGuard/AmneziaWG patch conflicts with its new lazy-init WireGuard code and needs a careful port, not a blind bump.
+
+### Fixed
+- **Freezes when opening some sections / switching tabs.** Subscription snapshots, the user-subscription list, catalogs and the ping cache were re-read and re-parsed from disk on the main thread on every render; they are now parsed once per file version (in-memory, invalidated on write) and pre-warmed in the background on resume. Clipboard checks, «config fusion», the dead-config cleaner and the Vercel panel-version read moved off the main thread.
+- **AmneziaWG `.conf` files with I1–I5 / J1–J3 values were corrupted on import:** the spaces inside `<r 2><b 0x…>` were dropped, so the handshake signature was wrong and the server never answered. Spaces are now kept; J1–J3 and `itime` (AWG 1.5) are passed to the core.
+
 ## [1.10.0-beta194] — 2026-10-28 (Panel 6.69.45)
 
 ### Fixed
