@@ -1044,7 +1044,8 @@ object SubConvConverter {
             .put("type", "socks5")
             .put("server", "127.0.0.1")
             .put("port", rawPort)
-            .put("udp", true)
+            // Mozilla's proxy only does HTTP CONNECT (TCP); declaring UDP made mihomo send UDP ASSOCIATE that always failed.
+            .put("udp", false)
             .put("fenix-uri", line.trim())
     }
 

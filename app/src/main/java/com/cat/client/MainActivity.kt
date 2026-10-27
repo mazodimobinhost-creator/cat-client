@@ -20969,9 +20969,11 @@ class MainActivity : Activity() {
                     val allCountries = FirefoxVpnEngine.getAvailableCountries(this@MainActivity)
                     val country = if (selCode == FirefoxVpnEngine.COUNTRY_FASTEST) {
                         val pings = FirefoxVpnEngine.pingCountries(this@MainActivity, maxCountries = 8, timeoutMs = 700)
-                        pings.firstOrNull { it.reachable }?.country ?: allCountries[1] // DE fallback
+                        pings.firstOrNull { it.reachable }?.country
+                            ?: allCountries.firstOrNull { it.code == FirefoxVpnEngine.COUNTRY_RECOMMENDED } ?: allCountries.first()
                     } else {
-                        allCountries.firstOrNull { it.code.equals(selCode, ignoreCase = true) } ?: allCountries[1]
+                        allCountries.firstOrNull { it.code.equals(selCode, ignoreCase = true) }
+                            ?: allCountries.firstOrNull { it.code == FirefoxVpnEngine.COUNTRY_RECOMMENDED } ?: allCountries.first()
                     }
                     val cleanEdge = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@MainActivity)
                     val frag = FirefoxVpnEngine.isTlsFragmentEnabled(this@MainActivity)

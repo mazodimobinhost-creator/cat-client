@@ -123,18 +123,6 @@ internal object FirefoxVpnEngine {
         "199.232.213.194",
     )
 
-    /**
-     * Fallback Anti-DPI Anycast edges when an ISP completely blackholes Fastly's AS54113 ranges.
-     */
-    private val FALLBACK_ANTI_DPI_EDGES: List<String> = listOf(
-        "162.159.198.235",
-        "104.16.132.229",
-        "172.67.73.163",
-        "188.114.98.0",
-        "1.1.1.1",
-        "8.8.8.8",
-    )
-
     // Shared cookie store for Fastly anti-bot challenge cookies (`_fs_ch_*`)
     private val fastlyCookieStore = ConcurrentHashMap<String, String>()
     private val challengeSolveLock = Any()
@@ -207,7 +195,7 @@ internal object FirefoxVpnEngine {
         val nameEn: String,
         val cityName: String,
         val proxyHost: String,
-        val proxyPort: Int = 443,
+        val proxyPort: Int = 2499,
         val masqueTemplate: String = "",
     ) {
         val exactEndpoint: String get() = "$proxyHost:$proxyPort"
@@ -234,45 +222,46 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Complete 35-country Mozilla IP Protection (Fastly Edge) server catalog.
-     * Merged with live Mozilla Remote Settings records when online.
+     * Real Firefox built-in VPN (IP Protection) egress nodes, from Mozilla Remote Settings `vpn-serverlist`
+     * (snapshot 2026-10-28). Every node is a Fastly MASQUE/HTTP-CONNECT proxy on port 2499 with SNI = hostname.
+     * [syncRemoteSettingsCountries] refreshes this list live. Earlier builds shipped invented
+     * `proxy-xx.fpn.mozilla.net:443` hosts that do not exist, so no FENIX config could ever connect.
      */
     val BUILTIN_COUNTRIES: List<FirefoxVpnCountry> = listOf(
-        FirefoxVpnCountry("REC", "⭐", "پیشنهاد هوشمند موزیلا (Anycast)", "Mozilla Recommended (Anycast)", "Anycast", "proxy-rec.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("DE", "🇩🇪", "آلمان (فرانکفورت — پینگ عالی در ایران)", "Germany (Frankfurt)", "Frankfurt", "proxy-de.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("NL", "🇳🇱", "هلند (آمستردام — سرعت بالا)", "Netherlands (Amsterdam)", "Amsterdam", "proxy-nl.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("GB", "🇬🇧", "انگلستان (لندن)", "United Kingdom (London)", "London", "proxy-gb.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("US", "🇺🇸", "آمریکا (نیویورک / واشنگتن — باز کردن Gemini)", "United States (New York)", "New York", "proxy-us.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("FR", "🇫🇷", "فرانسه (پاریس)", "France (Paris)", "Paris", "proxy-fr.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("CH", "🇨🇭", "سوئیس (زوریخ)", "Switzerland (Zurich)", "Zurich", "proxy-ch.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("SE", "🇸🇪", "سوئد (استکهلم)", "Sweden (Stockholm)", "Stockholm", "proxy-se.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("AT", "🇦🇹", "اتریش (وین)", "Austria (Vienna)", "Vienna", "proxy-at.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("FI", "🇫🇮", "فنلاند (هلسینکی)", "Finland (Helsinki)", "Helsinki", "proxy-fi.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("CA", "🇨🇦", "کانادا (تورنتو)", "Canada (Toronto)", "Toronto", "proxy-ca.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("SG", "🇸🇬", "سنگاپور", "Singapore", "Singapore", "proxy-sg.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("JP", "🇯🇵", "ژاپن (توکیو)", "Japan (Tokyo)", "Tokyo", "proxy-jp.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("IT", "🇮🇹", "ایتالیا (میلان)", "Italy (Milan)", "Milan", "proxy-it.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("ES", "🇪🇸", "اسپانیا (مادرید)", "Spain (Madrid)", "Madrid", "proxy-es.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("BE", "🇧🇪", "بلژیک (بروکسل)", "Belgium (Brussels)", "Brussels", "proxy-be.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("DK", "🇩🇰", "دانمارک (کپنهاگ)", "Denmark (Copenhagen)", "Copenhagen", "proxy-dk.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("NO", "🇳🇴", "نروژ (اسلو)", "Norway (Oslo)", "Oslo", "proxy-no.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("PL", "🇵🇱", "لهستان (ورشو)", "Poland (Warsaw)", "Warsaw", "proxy-pl.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("CZ", "🇨🇿", "جمهوری چک (پراگ)", "Czechia (Prague)", "Prague", "proxy-cz.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("IE", "🇮🇪", "ایرلند (دوبلین)", "Ireland (Dublin)", "Dublin", "proxy-ie.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("RO", "🇷🇴", "رومانی (بخارست)", "Romania (Bucharest)", "Bucharest", "proxy-ro.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("BG", "🇧🇬", "بلغارستان (صوفیه)", "Bulgaria (Sofia)", "Sofia", "proxy-bg.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("HU", "🇭🇺", "مجارستان (بوداپست)", "Hungary (Budapest)", "Budapest", "proxy-hu.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("PT", "🇵🇹", "پرتغال (لیسبون)", "Portugal (Lisbon)", "Lisbon", "proxy-pt.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("GR", "🇬🇷", "یونان (آتن)", "Greece (Athens)", "Athens", "proxy-gr.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("EE", "🇪🇪", "استونی (تالین)", "Estonia (Tallinn)", "Tallinn", "proxy-ee.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("LV", "🇱🇻", "لتونی (ریگا)", "Latvia (Riga)", "Riga", "proxy-lv.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("LU", "🇱🇺", "لوکزامبورگ", "Luxembourg", "Luxembourg", "proxy-lu.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("SI", "🇸🇮", "اسلوونی (لیوبلیانا)", "Slovenia (Ljubljana)", "Ljubljana", "proxy-si.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("SK", "🇸🇰", "اسلواکی (براتیسلاوا)", "Slovakia (Bratislava)", "Bratislava", "proxy-sk.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("HR", "🇭🇷", "کرواسی (زاگرب)", "Croatia (Zagreb)", "Zagreb", "proxy-hr.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("RS", "🇷🇸", "صربستان (بلگراد)", "Serbia (Belgrade)", "Belgrade", "proxy-rs.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("UA", "🇺🇦", "اوکراین (کی‌یف)", "Ukraine (Kyiv)", "Kyiv", "proxy-ua.fpn.mozilla.net", 443),
-        FirefoxVpnCountry("AU", "🇦🇺", "استرالیا (سیدنی)", "Australia (Sydney)", "Sydney", "proxy-au.fpn.mozilla.net", 443),
+        FirefoxVpnCountry("REC", "⭐", "پیشنهاد خود موزیلا (Anycast — نزدیک‌ترین سرور)", "Mozilla Recommended (Anycast)", "Anycast", "p.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("DE", "🇩🇪", "آلمان (مونیخ)", "Germany (Munich)", "Munich", "muc139.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("NL", "🇳🇱", "هلند (آمستردام — سرعت بالا)", "Netherlands (Amsterdam)", "Amsterdam", "ehrd229.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("GB", "🇬🇧", "انگلستان (لندن)", "United Kingdom (London)", "London", "eglc860.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("US", "🇺🇸", "آمریکا (نیویورک / واشنگتن — باز کردن Gemini)", "United States (New York)", "New York", "us.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("FR", "🇫🇷", "فرانسه (پاریس)", "France (Paris)", "Paris", "lfpb115.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("SE", "🇸🇪", "سوئد (استکهلم)", "Sweden (Stockholm)", "Stockholm", "essb127.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("AT", "🇦🇹", "اتریش (وین)", "Austria (Vienna)", "Vienna", "vie63.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("FI", "🇫🇮", "فنلاند (هلسینکی)", "Finland (Helsinki)", "Helsinki", "hel141.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("CA", "🇨🇦", "کانادا (تورنتو)", "Canada (Toronto)", "Toronto", "ca.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("SG", "🇸🇬", "سنگاپور", "Singapore", "Singapore", "wsat188.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("JP", "🇯🇵", "ژاپن (توکیو)", "Japan (Tokyo)", "Tokyo", "rjtf770.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("IT", "🇮🇹", "ایتالیا (میلان)", "Italy (Milan)", "Milan", "mxp69.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("ES", "🇪🇸", "اسپانیا (مادرید)", "Spain (Madrid)", "Madrid", "leto235.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("BE", "🇧🇪", "بلژیک (بروکسل)", "Belgium (Brussels)", "Brussels", "bru148.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("DK", "🇩🇰", "دانمارک (کپنهاگ)", "Denmark (Copenhagen)", "Copenhagen", "cph232.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("NO", "🇳🇴", "نروژ (اسلو)", "Norway (Oslo)", "Oslo", "osl65.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("IE", "🇮🇪", "ایرلند (دوبلین)", "Ireland (Dublin)", "Dublin", "dub43.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("BG", "🇧🇬", "بلغارستان (صوفیه)", "Bulgaria (Sofia)", "Sofia", "sof151.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("PT", "🇵🇹", "پرتغال (لیسبون)", "Portugal (Lisbon)", "Lisbon", "lis149.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("AU", "🇦🇺", "استرالیا (سیدنی)", "Australia (Sydney)", "Sydney", "ysbk106.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("NZ", "🇳🇿", "نیوزیلند (اوکلند)", "New Zealand (Auckland)", "Auckland", "akl103.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("MX", "🇲🇽", "مکزیک", "Mexico", "Querétaro", "mmqt107.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("BR", "🇧🇷", "برزیل (سائوپائولو)", "Brazil (São Paulo)", "São Paulo", "sbsp209.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("AR", "🇦🇷", "آرژانتین (بوئنوس‌آیرس)", "Argentina (Buenos Aires)", "Buenos Aires", "eze223.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("CL", "🇨🇱", "شیلی (سانتیاگو)", "Chile (Santiago)", "Santiago", "scl222.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("CO", "🇨🇴", "کلمبیا (بوگوتا)", "Colombia (Bogotá)", "Bogotá", "skbo234.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("PE", "🇵🇪", "پرو (لیما)", "Peru (Lima)", "Lima", "spjc128.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("ZA", "🇿🇦", "آفریقای جنوبی (ژوهانسبورگ)", "South Africa (Johannesburg)", "Johannesburg", "faor73.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("GH", "🇬🇭", "غنا (آکرا)", "Ghana (Accra)", "Accra", "acc96.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("KR", "🇰🇷", "کره جنوبی (سئول)", "South Korea (Seoul)", "Seoul", "icn145.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("MY", "🇲🇾", "مالزی (کوالالامپور)", "Malaysia (Kuala Lumpur)", "Kuala Lumpur", "kul98.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("PH", "🇵🇭", "فیلیپین (مانیل)", "Philippines (Manila)", "Manila", "mnl215.m1.fastly-masque.net", 2499),
+        FirefoxVpnCountry("TH", "🇹🇭", "تایلند (بانکوک)", "Thailand (Bangkok)", "Bangkok", "bkk228.m1.fastly-masque.net", 2499),
     )
 
     // =========================================================================
@@ -1688,12 +1677,30 @@ internal object FirefoxVpnEngine {
                     nameEn = o.optString("nameEn"),
                     cityName = o.optString("cityName"),
                     proxyHost = o.optString("proxyHost"),
-                    proxyPort = o.optInt("proxyPort", 443),
+                    proxyPort = o.optInt("proxyPort", 2499),
                     masqueTemplate = o.optString("masqueTemplate"),
                 )
             }
-            if (remoteList.isEmpty()) BUILTIN_COUNTRIES else remoteList
+            sanitizeCountries(remoteList)
         }.getOrDefault(BUILTIN_COUNTRIES)
+    }
+
+    /**
+     * Drops invented hosts cached by older builds (`proxy-xx.fpn.mozilla.net`, port 443), replacing them with the
+     * real node of the same country when known, and keeps one entry per country (REC first).
+     */
+    internal fun sanitizeCountries(list: List<FirefoxVpnCountry>): List<FirefoxVpnCountry> {
+        val builtinByCode = BUILTIN_COUNTRIES.associateBy { it.code.uppercase(Locale.US) }
+        val seen = HashSet<String>()
+        val cleaned = list.mapNotNull { c ->
+            val code = c.code.trim().uppercase(Locale.US)
+            if (code.isEmpty() || !seen.add(code)) return@mapNotNull null
+            val fake = c.proxyHost.isBlank() || c.proxyHost.endsWith(".fpn.mozilla.net", ignoreCase = true)
+            if (fake) builtinByCode[code] else c
+        }
+        if (cleaned.none { it.code != "REC" }) return BUILTIN_COUNTRIES
+        val rec = cleaned.firstOrNull { it.code == "REC" } ?: BUILTIN_COUNTRIES.first()
+        return listOf(rec) + cleaned.filter { it.code != "REC" }
     }
 
     /**
@@ -1713,22 +1720,30 @@ internal object FirefoxVpnEngine {
             val dataArr = root.optJSONArray("data") ?: return@runCatching BUILTIN_COUNTRIES
             val builtinByCode = BUILTIN_COUNTRIES.associateBy { it.code.uppercase(Locale.US) }
             val result = mutableListOf<FirefoxVpnCountry>()
-            result += BUILTIN_COUNTRIES.first() // Keep REC at index 0
+            result += BUILTIN_COUNTRIES.first() // Keep REC at index 0 (host replaced below when the record exists)
 
             for (i in 0 until dataArr.length()) {
                 val rec = dataArr.optJSONObject(i) ?: continue
                 val code = rec.optString("code").trim().uppercase(Locale.US)
-                if (code.isBlank() || code == "REC") continue
+                if (code.isBlank()) continue
+                if (code == "REC") {
+                    val recSrv = rec.optJSONArray("cities")?.optJSONObject(0)?.optJSONArray("servers")?.optJSONObject(0)
+                    val recHost = recSrv?.optString("hostname").orEmpty()
+                    if (recHost.isNotBlank()) {
+                        result[0] = result[0].copy(proxyHost = recHost, proxyPort = recSrv?.optInt("port", 2499)?.takeIf { it > 0 } ?: 2499)
+                    }
+                    continue
+                }
+                // The list can carry two records for one code (version-filtered); the first one is the current node.
+                if (result.any { it.code == code }) continue
                 val nameEn = rec.optString("name").ifBlank { code }
                 val cities = rec.optJSONArray("cities")
                 val firstCity = cities?.optJSONObject(0)
                 val cityName = firstCity?.optString("name").orEmpty()
                 val servers = firstCity?.optJSONArray("servers")
                 val firstSrv = servers?.optJSONObject(0)
-                val host = firstSrv?.optString("hostname")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "proxy-${code.lowercase(Locale.US)}.fpn.mozilla.net"
-                val port = firstSrv?.optInt("port", 443)?.takeIf { it > 0 } ?: 443
+                val host = firstSrv?.optString("hostname")?.takeIf { it.isNotBlank() } ?: continue
+                val port = firstSrv?.optInt("port", 2499)?.takeIf { it > 0 } ?: 2499
                 val existing = builtinByCode[code]
                 result += FirefoxVpnCountry(
                     code = code,
@@ -1740,11 +1755,8 @@ internal object FirefoxVpnEngine {
                     proxyPort = port,
                 )
             }
-            BUILTIN_COUNTRIES.forEach { b ->
-                if (result.none { it.code.equals(b.code, ignoreCase = true) }) {
-                    result += b
-                }
-            }
+            // Countries missing from the live list are not offered by Mozilla any more: do not re-add them.
+            if (result.size <= 1) return@runCatching BUILTIN_COUNTRIES
             val saveArr = JSONArray()
             result.forEach { c ->
                 saveArr.put(
@@ -1769,127 +1781,34 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Relative backbone relay hop delta (in ms) from European Anycast entry to each Mozilla exit country
-     * so country rankings reflect real geographical exit routing when entering via an Anycast edge IP.
-     */
-    private fun countryBackboneDeltaMs(code: String): Long = when (code.uppercase(Locale.US)) {
-        "REC" -> 0L
-        "DE" -> 2L
-        "NL" -> 6L
-        "AT" -> 9L
-        "CH" -> 10L
-        "CZ" -> 11L
-        "FR" -> 13L
-        "BE" -> 12L
-        "IT" -> 14L
-        "GB" -> 16L
-        "DK" -> 17L
-        "PL" -> 18L
-        "HU" -> 19L
-        "SE" -> 22L
-        "NO" -> 25L
-        "FI" -> 27L
-        "ES" -> 26L
-        "RO" -> 24L
-        "BG" -> 26L
-        "IE" -> 24L
-        "PT" -> 32L
-        "GR" -> 30L
-        "US" -> 76L
-        "CA" -> 84L
-        "SG" -> 132L
-        "JP" -> 164L
-        "AU" -> 185L
-        else -> 20L
-    }
-
-    /**
-     * Pings Firefox VPN country endpoints (and clean Fastly edge IPs / Anti-DPI fallback edges)
-     * in parallel to rank countries by live latency without blocking on poisoned ISP DNS for `*.fpn.mozilla.net`.
+     * Measures each country's REAL Mozilla node (`<node>.m1.fastly-masque.net:2499`): TCP connect time from this
+     * network, with a protected socket. Earlier builds pinged generic Fastly IPs and added a made-up per-country
+     * delay, so the list looked healthy even when no node was reachable.
      */
     fun pingCountries(
         context: Context,
         maxCountries: Int = 12,
         timeoutMs: Int = 900,
     ): List<CountryPingResult> {
-        val countries = getAvailableCountries(context).take(maxCountries)
+        val countries = getAvailableCountries(context).take(maxCountries.coerceAtLeast(1))
         val effectiveTimeout = timeoutMs.coerceAtLeast(1_100)
-
-        // Step 1: Check saved clean Fastly IP or discover the fastest open Fastly / Anti-DPI edge in parallel
-        var edgeIp = readCleanFastlyEdgeIp(context)
-        var baseEdgeRtt: Long? = if (edgeIp.isNotBlank()) {
-            probeTcpLatency(edgeIp, 443, effectiveTimeout) ?: probeTcpLatency(edgeIp, 2499, effectiveTimeout)
-        } else {
-            null
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
+            Thread(null, r, "fenix-ping", 128 * 1024L).apply { isDaemon = true }
         }
-        if (baseEdgeRtt == null) {
-            val discoveredFastly = findBestCleanFastlyEdgeIp(effectiveTimeout)
-            if (discoveredFastly != null) {
-                edgeIp = discoveredFastly.first
-                baseEdgeRtt = discoveredFastly.second
-                saveCleanFastlyEdgeIp(context, edgeIp)
-            } else {
-                // Fastly AS54113 is blocked on this ISP -> probe fallback Anti-DPI edges in parallel
-                val fallbackFutures = FALLBACK_ANTI_DPI_EDGES.map { candidate ->
-                    fenixWorkerPool.submit<Pair<String, Long>?> {
-                        val r = probeTcpLatency(candidate, 443, effectiveTimeout)
-                        if (r != null) candidate to r else null
-                    }
-                }
-                val bestFallback = fallbackFutures.mapNotNull {
-                    runCatching { it.get(effectiveTimeout.toLong() + 300L, TimeUnit.MILLISECONDS) }.getOrNull()
-                }.minByOrNull { it.second }
-                if (bestFallback != null) {
-                    edgeIp = bestFallback.first
-                    baseEdgeRtt = bestFallback.second
+        return try {
+            val futures = countries.map { country ->
+                pool.submit<CountryPingResult> {
+                    val rtt = probeTcpLatency(country.proxyHost, country.proxyPort, effectiveTimeout)
+                    CountryPingResult(country = country, rttMs = rtt ?: 9_999L, reachable = rtt != null)
                 }
             }
+            futures.mapIndexed { idx, fut ->
+                runCatching { fut.get(effectiveTimeout.toLong() + 2_000L, TimeUnit.MILLISECONDS) }
+                    .getOrElse { CountryPingResult(country = countries[idx], rttMs = 9_999L, reachable = false) }
+            }.sortedWith(compareByDescending<CountryPingResult> { it.reachable }.thenBy { it.rttMs })
+        } finally {
+            pool.shutdownNow()
         }
-
-        // Step 2: Probe each country in parallel (using distinct Fastly edge candidates or base edge + backbone delta)
-        val futures = countries.mapIndexed { idx, country ->
-            fenixWorkerPool.submit<CountryPingResult> {
-                val candidateIp = CLEAN_FASTLY_EDGE_IPS.getOrElse(idx % CLEAN_FASTLY_EDGE_IPS.size) { edgeIp }
-                val directRtt = if (candidateIp.isNotBlank()) {
-                    probeTcpLatency(candidateIp, country.proxyPort, effectiveTimeout)
-                        ?: probeTcpLatency(candidateIp, 2499, effectiveTimeout)
-                } else {
-                    null
-                }
-                val rawRtt = directRtt
-                    ?: (if (edgeIp.isNotBlank()) probeTcpLatency(edgeIp, 443, effectiveTimeout) else null)
-                    ?: baseEdgeRtt
-                val finalRtt = if (rawRtt != null) {
-                    (rawRtt + countryBackboneDeltaMs(country.code)).coerceAtLeast(1L)
-                } else {
-                    null
-                }
-                CountryPingResult(
-                    country = country,
-                    rttMs = finalRtt ?: 9_999L,
-                    reachable = finalRtt != null,
-                )
-            }
-        }
-
-        val results = futures.mapIndexed { idx, fut ->
-            runCatching {
-                fut.get(effectiveTimeout.toLong() + 500L, TimeUnit.MILLISECONDS)
-            }.getOrElse {
-                val c = countries[idx]
-                val fallbackRtt = baseEdgeRtt?.let { it + countryBackboneDeltaMs(c.code) }
-                CountryPingResult(
-                    country = c,
-                    rttMs = fallbackRtt ?: 9_999L,
-                    reachable = fallbackRtt != null,
-                )
-            }
-        }
-
-        return results.sortedWith(
-            compareByDescending<CountryPingResult> { it.reachable }
-                .thenBy { it.rttMs },
-        )
     }
 
     /**
@@ -1897,12 +1816,12 @@ internal object FirefoxVpnEngine {
      */
     fun findBestCleanFastlyEdgeIp(timeoutMs: Int = 900): Pair<String, Long>? {
         val effectiveTimeout = timeoutMs.coerceAtLeast(1_000)
-        val tasks = CLEAN_FASTLY_EDGE_IPS.map { ip ->
-            fenixWorkerPool.submit<Pair<String, Long>?> {
+        val tasks = CLEAN_FASTLY_EDGE_IPS.mapNotNull { ip ->
+            runCatching { fenixWorkerPool.submit<Pair<String, Long>?> {
                 val rtt443 = probeTcpLatency(ip, 443, effectiveTimeout)
                 val rtt = rtt443 ?: probeTcpLatency(ip, 2499, effectiveTimeout)
                 if (rtt != null) ip to rtt else null
-            }
+            } }.getOrNull()
         }
         return tasks.mapNotNull { fut ->
             runCatching { fut.get(effectiveTimeout.toLong() + 300L, TimeUnit.MILLISECONDS) }.getOrNull()
@@ -1933,27 +1852,31 @@ internal object FirefoxVpnEngine {
 
     // Bounded thread pool with small 256KB stacks so pthread_create can NEVER exhaust memory
     private val fenixPoolSeq = AtomicInteger(0)
+    // Every tunnel needs TWO threads (handler + client->upstream pipe). The old pool (core 4 + bounded queue) only
+    // grew past 4 threads once 64 tasks were queued, so from the 3rd parallel connection the pipe task sat in the
+    // queue, the request never reached Fastly and every page hung: "FENIX configs do not work at all".
+    // A SynchronousQueue hands each task to a thread immediately (bounded by maxPoolSize and the semaphore).
     private val fenixWorkerPool: ThreadPoolExecutor = ThreadPoolExecutor(
-        4,
-        40,
+        0,
+        MAX_FENIX_THREADS,
         30L,
         TimeUnit.SECONDS,
-        LinkedBlockingQueue(64),
+        java.util.concurrent.SynchronousQueue(),
         ThreadFactory { runnable ->
             Thread(null, runnable, "fenix-pool-${fenixPoolSeq.incrementAndGet()}", 256 * 1024L).apply {
                 isDaemon = true
             }
         },
-        ThreadPoolExecutor.DiscardPolicy(),
-    ).apply { allowCoreThreadTimeOut(true) }
+        ThreadPoolExecutor.AbortPolicy(),
+    )
 
-    // Hard cap on concurrent upstream tunnels
-    private val activeTunnelSemaphore = Semaphore(24)
+    // Hard cap on concurrent upstream tunnels (2 threads each, see MAX_FENIX_THREADS)
+    private val activeTunnelSemaphore = Semaphore(MAX_FENIX_TUNNELS)
 
     @Volatile
     private var activeUpstreamHost: String = "proxy-de.fpn.mozilla.net"
     @Volatile
-    private var activeUpstreamPort: Int = 443
+    private var activeUpstreamPort: Int = 2499
     @Volatile
     private var activeCleanEdgeIp: String = ""
     @Volatile
@@ -2066,36 +1989,30 @@ internal object FirefoxVpnEngine {
 
                     if (isSocks5) {
                         val nMethods = inp.read().coerceAtLeast(0)
-                        if (nMethods > 0) inp.read(ByteArray(nMethods))
+                        if (nMethods > 0) readExactly(inp, nMethods) ?: return@use
                         out.write(byteArrayOf(0x05, 0x00))
                         out.flush()
 
-                        val hdr = ByteArray(4)
-                        if (inp.read(hdr) != 4 || hdr[0].toInt() != 0x05 || hdr[1].toInt() != 0x01) return@use
+                        val hdr = readExactly(inp, 4) ?: return@use
+                        if (hdr[0].toInt() != 0x05) return@use
+                        if (hdr[1].toInt() != 0x01) {
+                            // Only CONNECT exists on Mozilla's proxy (no UDP ASSOCIATE / BIND): say so instead of hanging up.
+                            out.write(byteArrayOf(0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                            out.flush()
+                            return@use
+                        }
                         targetHost = when (hdr[3].toInt() and 0xFF) {
-                            0x01 -> {
-                                val b = ByteArray(4)
-                                if (inp.read(b) != 4) return@use
-                                InetAddress.getByAddress(b).hostAddress ?: return@use
-                            }
+                            0x01 -> InetAddress.getByAddress(readExactly(inp, 4) ?: return@use).hostAddress ?: return@use
                             0x03 -> {
                                 val len = inp.read()
                                 if (len <= 0) return@use
-                                val b = ByteArray(len)
-                                if (inp.read(b) != len) return@use
-                                String(b, StandardCharsets.UTF_8)
+                                String(readExactly(inp, len) ?: return@use, StandardCharsets.UTF_8)
                             }
-                            0x04 -> {
-                                val b = ByteArray(16)
-                                if (inp.read(b) != 16) return@use
-                                InetAddress.getByAddress(b).hostAddress ?: return@use
-                            }
+                            0x04 -> InetAddress.getByAddress(readExactly(inp, 16) ?: return@use).hostAddress ?: return@use
                             else -> return@use
                         }
-                        val pHi = inp.read()
-                        val pLo = inp.read()
-                        if (pHi < 0 || pLo < 0) return@use
-                        targetPort = ((pHi and 0xFF) shl 8) or (pLo and 0xFF)
+                        val portBytes = readExactly(inp, 2) ?: return@use
+                        targetPort = ((portBytes[0].toInt() and 0xFF) shl 8) or (portBytes[1].toInt() and 0xFF)
                     } else {
                         inp.reset()
                         val reqLine = readAsciiLine(inp) ?: return@use
@@ -2122,7 +2039,26 @@ internal object FirefoxVpnEngine {
                         return@use
                     }
 
-                    val upstreamStream = openUpstreamTunnelStream(targetHost, targetPort)
+                    val upstreamStream = try {
+                        openUpstreamTunnelStream(targetHost, targetPort)
+                    } catch (error: Throwable) {
+                        val reason = error.message.orEmpty().take(200).ifEmpty { error.javaClass.simpleName }
+                        if (reason != lastTunnelError) {
+                            appContextRef?.let { ctx -> runCatching { DiagnosticLogger.warn(ctx, "fenix.tunnel.fail", reason) } }
+                        }
+                        lastTunnelError = reason
+                        runCatching {
+                            if (isSocks5) out.write(byteArrayOf(0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                            else out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+                            out.flush()
+                        }
+                        return@use
+                    }
+                    // The 20 s timeout is for the handshake only; an idle but alive tunnel (push, long poll,
+                    // WebSocket, a slow download pause) must not be killed after 20 s.
+                    c.soTimeout = 0
+                    runCatching { upstreamStream.soTimeout = 0 }
+                    lastTunnelError = ""
                     try {
                         if (isSocks5) {
                             out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
@@ -2171,33 +2107,36 @@ internal object FirefoxVpnEngine {
             throw IOException("Firefox VPN needs a signed-in Firefox Account (no ProxyPass)")
         }
 
-        // Candidate Fastly endpoints: primary port (443), alternate Fastly port (2499), and clean Fastly edge IP
+        // Candidate Fastly MASQUE nodes, all on the real port (2499): the last node that worked, an optional
+        // user-picked clean IP for the selected node, the selected country's node, then Mozilla's own
+        // recommended anycast node (also used when a country is locked for the account: HTTP 403).
+        val upstreamPort = activeUpstreamPort.takeIf { it in 1..65535 } ?: FASTLY_MASQUE_PORT
         val candidateEndpoints = buildList {
-            val primaryHost = activeCleanEdgeIp.ifBlank { activeUpstreamHost }
-            add(primaryHost to activeUpstreamPort)
-            if (activeUpstreamPort != 2499) {
-                add(primaryHost to 2499)
-            }
-            if (activeCleanEdgeIp.isBlank()) {
-                add(CLEAN_FASTLY_EDGE_IPS.first() to 443)
+            lastGoodEndpoint?.takeIf { lastGoodFor == sniHost }?.let { add(it) }
+            if (activeCleanEdgeIp.isNotBlank()) add(Triple(activeCleanEdgeIp, upstreamPort, sniHost))
+            add(Triple(sniHost, upstreamPort, sniHost))
+            if (!sniHost.equals(RECOMMENDED_NODE_HOST, ignoreCase = true)) {
+                add(Triple(RECOMMENDED_NODE_HOST, FASTLY_MASQUE_PORT, RECOMMENDED_NODE_HOST))
             }
         }.distinct()
 
         var lastError: Throwable? = null
-        for ((connectHost, connectPort) in candidateEndpoints) {
+        for ((connectHost, connectPort, nodeSni) in candidateEndpoints) {
             try {
                 val raw = openSocketWithOptionalSniFragment(
                     connectHost = connectHost,
                     connectPort = connectPort,
-                    sniHost = sniHost,
+                    sniHost = nodeSni,
                     fragmentTls = activeFragmentTls,
                     timeoutMs = 10_000,
                 )
                 val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-                val ssl = (sslFactory.createSocket(raw, sniHost, connectPort, true) as SSLSocket).apply {
+                val ssl = (sslFactory.createSocket(raw, nodeSni, connectPort, true) as SSLSocket).apply {
                     soTimeout = 20_000
                     val params = sslParameters
-                    params.serverNames = listOf(SNIHostName(sniHost))
+                    params.serverNames = listOf(SNIHostName(nodeSni))
+                    // Verify the node certificate (*.m1.fastly-masque.net) so the proxy pass is never sent to an impostor.
+                    params.endpointIdentificationAlgorithm = "HTTPS"
                     // CRITICAL: Must only offer http/1.1 because we send an HTTP/1.1 CONNECT line!
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         params.applicationProtocols = arrayOf("http/1.1")
@@ -2231,10 +2170,13 @@ internal object FirefoxVpnEngine {
                     val hdr = readAsciiLine(sslIn) ?: break
                     if (hdr.isEmpty()) break
                 }
-                if (statusLine.contains(" 200 ")) {
+                if (CONNECT_OK.containsMatchIn(statusLine)) {
+                    lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
+                    lastGoodFor = sniHost
                     return ssl
                 }
                 ssl.close()
+                if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
                 // If 401/407/429, rotate or refresh account pass once
                 if (statusLine.contains(" 401 ") || statusLine.contains(" 407 ") || statusLine.contains(" 429 ")) {
                     pass = rotateOrRefreshAccountPassOnFailure()
@@ -2242,6 +2184,7 @@ internal object FirefoxVpnEngine {
                 lastError = IOException("Fastly node $connectHost:$connectPort returned $statusLine")
             } catch (e: Throwable) {
                 lastError = e
+                if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
             }
         }
         // No direct fallback: if every Fastly edge failed, the tunnel is down and mihomo must know.
@@ -2343,6 +2286,34 @@ internal object FirefoxVpnEngine {
             }
         }
     }
+
+    /** Reads exactly [n] bytes (a stream read may return fewer), or null on EOF. */
+    private fun readExactly(inp: InputStream, n: Int): ByteArray? {
+        val buf = ByteArray(n)
+        var off = 0
+        while (off < n) {
+            val r = inp.read(buf, off, n - off)
+            if (r < 0) return null
+            off += r
+        }
+        return buf
+    }
+
+    /** Last upstream failure (empty after a working tunnel), for the in-app status/diagnostics. */
+    @Volatile
+    var lastTunnelError: String = ""
+        private set
+
+    @Volatile
+    private var lastGoodEndpoint: Triple<String, Int, String>? = null
+    @Volatile
+    private var lastGoodFor: String = ""
+
+    private val CONNECT_OK = Regex("""^HTTP/\d(?:\.\d)?\s+200(?:\s|$)""")
+    const val FASTLY_MASQUE_PORT = 2499
+    const val RECOMMENDED_NODE_HOST = "p.m1.fastly-masque.net"
+    private const val MAX_FENIX_TUNNELS = 64
+    private const val MAX_FENIX_THREADS = MAX_FENIX_TUNNELS * 2 + 8
 
     private fun pipeBytesWithAccounting(inp: InputStream, out: OutputStream) {
         val buf = ByteArray(16_384)
@@ -2509,12 +2480,14 @@ internal object FirefoxVpnEngine {
         return out
     }
 
-    fun startLocalBridge(context: Context): Int {
+    fun startLocalBridge(context: Context, preferredCountryCode: String? = null): Int {
         val accounts = loadAccounts(context)
         val activeAcc = selectBestActiveAccount(accounts)
-        val selCode = readSelectedCountryCode(context)
+        val selCode = preferredCountryCode?.trim()?.uppercase(Locale.US)?.takeIf { it.matches(Regex("[A-Z]{2,3}")) }
+            ?: readSelectedCountryCode(context)
         val countries = getAvailableCountries(context)
         val country = countries.firstOrNull { it.code.equals(selCode, ignoreCase = true) }
+            ?: countries.firstOrNull { it.code == COUNTRY_RECOMMENDED }
             ?: countries.firstOrNull { it.code == "DE" }
             ?: countries.first()
         val cleanIp = readCleanFastlyEdgeIp(context)

@@ -470,8 +470,21 @@ class WhiteDnsSmartScannerTest {
         assertTrue(hawk.startsWith("""Hawk id="$tokenId", ts="1700000000", nonce="abc123", mac=""""))
         assertTrue(hawk.contains("""hash=""""))
 
-        // 2. Verify 35-country Fastly catalog and multi-account 95% auto-failover
-        assertEquals(35, FirefoxVpnEngine.BUILTIN_COUNTRIES.size)
+        // 2. Verify the real Mozilla node catalog (REC + 33 countries, Fastly MASQUE on 2499) and 95% auto-failover
+        assertEquals(34, FirefoxVpnEngine.BUILTIN_COUNTRIES.size)
+        assertEquals("REC", FirefoxVpnEngine.BUILTIN_COUNTRIES.first().code)
+        assertTrue(FirefoxVpnEngine.BUILTIN_COUNTRIES.all { it.proxyHost.endsWith(".m1.fastly-masque.net") && it.proxyPort == 2499 })
+        assertEquals(FirefoxVpnEngine.BUILTIN_COUNTRIES.size, FirefoxVpnEngine.BUILTIN_COUNTRIES.map { it.code }.toSet().size)
+        // Invented hosts cached by older builds are replaced by the real node (or dropped when the country is gone).
+        val staleCache = listOf(
+            FirefoxVpnEngine.FirefoxVpnCountry("DE", "🇩🇪", "آلمان", "Germany", "Frankfurt", "proxy-de.fpn.mozilla.net", 443),
+            FirefoxVpnEngine.FirefoxVpnCountry("CH", "🇨🇭", "سوئیس", "Switzerland", "Zurich", "proxy-ch.fpn.mozilla.net", 443),
+            FirefoxVpnEngine.FirefoxVpnCountry("DE", "🇩🇪", "آلمان", "Germany", "Munich", "dup.m1.fastly-masque.net", 2499),
+        )
+        val sanitized = FirefoxVpnEngine.sanitizeCountries(staleCache)
+        assertEquals(listOf("REC", "DE"), sanitized.map { it.code })
+        assertEquals("muc139.m1.fastly-masque.net", sanitized[1].proxyHost)
+        assertEquals(2499, sanitized[1].proxyPort)
         val nearlyFullAcc = FirefoxVpnEngine.FirefoxVpnAccount(
             email = "acc1@mozilla.org",
             quotaLimitBytes = FirefoxVpnEngine.DEFAULT_MONTHLY_QUOTA_BYTES,

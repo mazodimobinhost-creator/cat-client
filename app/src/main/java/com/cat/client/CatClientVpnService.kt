@@ -4094,7 +4094,11 @@ class CatClientVpnService : VpnService() {
             val fenixRegex = Regex("""fenix-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
             val fenixMatches = fenixRegex.findAll(yaml).toList()
             if (fenixMatches.isNotEmpty()) {
-                val activePort = FirefoxVpnEngine.startLocalBridge(applicationContext)
+                // Use the country written in the config itself (fenix://…?country=DE); it used to be ignored.
+                val fenixCountry = fenixMatches.first().groupValues[1].substringAfter('?', "")
+                    .split('&').firstOrNull { it.startsWith("country=", ignoreCase = true) }
+                    ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US)
+                val activePort = FirefoxVpnEngine.startLocalBridge(applicationContext, fenixCountry)
                 if (activePort in 1..65535) {
                     val updated = yaml.replace(
                         Regex("""(server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*)\d+(\s*\r?\n(?:.*\r?\n){0,3}\s*fenix-uri\s*:)"""),
