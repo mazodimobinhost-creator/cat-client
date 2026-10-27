@@ -704,21 +704,13 @@ class NodeHostController(
             servers.isEmpty() -> {
                 val box = column()
                 box.addView(label(t(
-                    "✅ کلید درست است و به حساب شما وصل شدیم، ولی هنوز سروری در این حساب نیست.
-
-" +
-                        "یکی از این دو حالت است:
-" +
-                        "• هنوز سرور نساخته‌اید → «🧭 قدم‌به‌قدم: ساخت سرور» را بزنید.
-" +
+                    "✅ کلید درست است و به حساب شما وصل شدیم، ولی هنوز سروری در این حساب نیست.\n\n" +
+                        "یکی از این دو حالت است:\n" +
+                        "• هنوز سرور نساخته‌اید → «🧭 قدم‌به‌قدم: ساخت سرور» را بزنید.\n" +
                         "• همین الان ساختید → ۲ تا ۵ دقیقه طول می‌کشد؛ «⏳ صبر کن تا سرورم ساخته شود» را بزنید تا برنامه خودش هر ۱۵ ثانیه نگاه کند.",
-                    "✅ The key is right and we reached your account, but it has no server yet.
-
-" +
-                        "One of two things:
-" +
-                        "• You have not created a server → tap «🧭 Step by step: create the server».
-" +
+                    "✅ The key is right and we reached your account, but it has no server yet.\n\n" +
+                        "One of two things:\n" +
+                        "• You have not created a server → tap «🧭 Step by step: create the server».\n" +
                         "• You just created it → it takes 2–5 minutes; tap «⏳ Wait until my server is ready» and the app checks every 15 seconds.",
                 ), 13.5f, palette.textPrimary, 2))
                 box.addView(button(t("🧭 قدم‌به‌قدم: ساخت سرور", "🧭 Step by step: create the server"), filled = true) {
@@ -1154,6 +1146,8 @@ class NodeHostController(
         return when {
             left == null -> t("⏳ زمان تمدید معلوم نیست", "⏳ Renewal time unknown")
             left <= 0 -> t("⛔ مهلت گذشته — فوراً تمدید کنید (KataBump یک روز بعد پاک می‌کند)", "⛔ Overdue — renew now (KataBump deletes one day later)")
+            left > 2.0 -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز مانده — هنوز زود است؛ دکمهٔ Renew از ", " days left — too early; Renew opens in ") +
+                String.format(java.util.Locale.US, "%.1f", left - 2.0) + t(" روز دیگر فعال می‌شود", " days")
             else -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز تا تمدید", " days until renewal")
         }
     }
@@ -1163,9 +1157,9 @@ class NodeHostController(
         box.addView(label(item.name + "\n" + countdown(item), 14f, palette.textPrimary, 2))
         box.addView(label(t(
             "تمدید KataBump کپچا دارد («من ربات نیستم»)، پس هیچ برنامه‌ای نمی‌تواند بی‌خطر به‌جای شما بزند. کار شما ۲۰ ثانیه است:\n" +
-                "1) «🔁 باز کردن صفحهٔ تمدید» ← سرورتان ← Renew ← کپچا.\n2) برگردید ← «✅ تمدید کردم». برنامه ۳ روز بعد دوباره یادآوری می‌کند.",
+                "1) «🔁 باز کردن صفحهٔ تمدید» ← وارد شوید ← سرورتان ← نوار «Renewal required» ← Renew now ← کپچا ← تأیید.\n2) برگردید ← «✅ تمدید کردم». برنامه ۳ روز بعد دوباره یادآوری می‌کند.\n\nتمدید فقط در ۲ روز آخر ممکن است؛ زودتر دکمه‌اش نمی‌آید. اگر فراموش شود، سرور یک روز معلق و بعد پاک می‌شود.",
             "KataBump's renewal has a captcha («I am not a robot»), so no app can safely press it for you. It takes you 20 seconds:\n" +
-                "1) «🔁 Open the renew page» → your server → Renew → captcha.\n2) Come back → «✅ I renewed». The app reminds you again in 3 days.",
+                "1) «🔁 Open the renew page» → log in → your server → the «Renewal required» banner → Renew now → captcha → confirm.\n2) Come back → «✅ I renewed». The app reminds you again in 3 days.\n\nRenewal is only possible in the last 2 days; earlier the button does not show. If forgotten, the server is suspended for a day, then deleted.",
         ), top = 10))
         box.addView(button(t("🔁 باز کردن صفحهٔ تمدید", "🔁 Open the renew page"), filled = true) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(10))
         box.addView(button(t("✅ تمدید کردم", "✅ I renewed")) {
@@ -1297,19 +1291,22 @@ class NodeHostController(
         val box = column()
         box.addView(label(t(
             "چرا: کانفیگ آی‌پی:پورت رمزگذاری TLS ندارد و پورتش غیرعادی است؛ راحت‌تر بسته می‌شود. با Cloudflare جلوی سرور، کانفیگ TLS روی 443 و همهٔ کانفیگ‌های Cloudflare (با آی‌پی تمیز) را می‌گیرید.\n\n" +
-                "1) یک دامنه که در Cloudflare (پلن رایگان) باشد. (زیردامنهٔ رایگان kdns.fr از KataBump فقط اسم به‌جای آی‌پی است و خودش TLS نمی‌دهد.)\n" +
+                "1) دامنهٔ رایگان: داشبورد KataBump ← My Domains ← Get my first domain ← یک اسم + پسوند .kdns.fr ← تیک شرایط ← Order the domain.\n" +
+                "   Cloudflare (رایگان) ← Add a site ← همان دامنه ← پلن Free ← دو Nameserver که می‌دهد را کپی کنید ← در KataBump صفحهٔ همان دامنه ← Nameservers ← بچسبانید ← چند دقیقه تا چند ساعت صبر تا Cloudflare بگوید Active. (دامنهٔ خودتان را هم می‌شود به همین شکل استفاده کرد.)\n" +
                 "2) Cloudflare ← DNS ← Add record: نوع A، نام مثلاً cat، IPv4 = " + host + "، ابر نارنجی روشن.\n" +
                 "3) Rules ← Origin Rules ← Create: Hostname برابر cat.دامنهٔ‌شما ← Destination Port = " + port + ".\n" +
                 "4) Rules ← Configuration Rules ← همان Hostname ← SSL = Flexible (سرور http ساده است).\n" +
                 "5) برگردید ← «✍️ دامنه را اضافه کن» ← https://cat.دامنهٔ‌شما. پنل Cloudflare را می‌شناسد و کانفیگ‌های TLS می‌دهد.",
             "Why: an IP:port config has no TLS and an unusual port; it is easier to block. With Cloudflare in front you get a TLS config on 443 and the full Cloudflare set (with clean IPs).\n\n" +
-                "1) A domain on Cloudflare (free plan). (KataBump's free kdns.fr subdomain is only a name instead of the IP; it adds no TLS.)\n" +
+                "1) Free domain: KataBump dashboard → My Domains → Get my first domain → a name + the .kdns.fr suffix → tick the terms → Order the domain.\n" +
+                "   Cloudflare (free) → Add a site → that domain → Free plan → copy the two nameservers it gives → on KataBump, that domain's page → Nameservers → paste → wait minutes to hours until Cloudflare says Active. (Your own domain works the same way.)\n" +
                 "2) Cloudflare → DNS → Add record: type A, name e.g. cat, IPv4 = " + host + ", orange cloud on.\n" +
                 "3) Rules → Origin Rules → Create: Hostname equals cat.yourdomain → Destination Port = " + port + ".\n" +
                 "4) Rules → Configuration Rules → same Hostname → SSL = Flexible (the server speaks plain http).\n" +
                 "5) Come back → «✍️ Add the domain» → https://cat.yourdomain. The panel recognises Cloudflare and gives TLS configs.",
         ), 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
-        box.addView(button(t("🟧 باز کردن Cloudflare", "🟧 Open Cloudflare"), filled = true) { open(NodeHostPanel.CLOUDFLARE_DASH) }, lp(10))
+        box.addView(button(t("🆓 دامنهٔ رایگان kdns.fr (داشبورد KataBump)", "🆓 Free kdns.fr domain (KataBump dashboard)"), filled = true) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(10))
+        box.addView(button(t("🟧 باز کردن Cloudflare", "🟧 Open Cloudflare")) { open(NodeHostPanel.CLOUDFLARE_DASH) }, lp(6))
         box.addView(button(t("📋 کپی آی‌پی سرور", "📋 Copy the server IP")) { copy(host) }, lp(6))
         box.addView(button(t("✍️ دامنه را اضافه کن", "✍️ Add the domain")) { registerManual(item.kind, item.uuid, "https://") }, lp(6))
         showDialog(

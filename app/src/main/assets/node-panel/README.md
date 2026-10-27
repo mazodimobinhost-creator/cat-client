@@ -35,6 +35,11 @@
 
 ## ۱) KataBump — رایگان
 
+**ساخت حساب:** dashboard.katabump.com/auth/register ← نام، نام خانوادگی، ایمیل، رمز ← Create account ← لینک تأیید ایمیل.
+**ساخت سرور:** داشبورد ← Create a server ← Node.js ← Free ← نام ← Create (۲ تا ۵ دقیقه).
+**پنل کنترل:** داشبورد ← See more ← Access server ← Identifier و رمز ← control.katabump.com/auth/login.
+(در برنامه: کارت KataBump ← «🧭 از صفر شروع کن» همین قدم‌ها را با دکمهٔ باز کردن هر صفحه نشان می‌دهد.)
+
 > ⚠️ **قوانین KataBump (Acceptable Use، بند 2.4) اجرای پروکسی/VPN/تونل را ممنوع کرده است** و هر خانه فقط یک
 > سرویس رایگان مجاز است (بند 2.5). ممکن است سرور یا حساب بدون خبر پاک شود؛ ریسکش با خود شماست.
 > Lucity و Shiprr چنین منعی در قوانینشان ننوشته‌اند.
@@ -47,11 +52,12 @@
 
 نکته‌ها:
 - کاربرها و تنظیمات در پوشهٔ `cat-data` روی دیسک خود سرور می‌مانند؛ با ری‌استارت پاک نمی‌شوند.
-- KataBump سرور رایگان را **هر ۴ روز** باید تمدید کنید (dashboard.katabump.com ← Renew، با کپچا)، وگرنه حذف می‌شود.
+- KataBump سرور رایگان را **هر ۴ روز** باید تمدید کنید (dashboard.katabump.com ← Renew now، با کپچا؛ فقط در ۲ روز آخر ممکن است)، وگرنه حذف می‌شود.
   برنامهٔ Cat Client شمارش معکوس دارد و یک روز قبل از مهلت یادآوری می‌فرستد.
 - کانفیگ مستقیم (بدون TLS) ساده است ولی ممکن است در بعضی اپراتورها زود بسته شود. برای کانفیگ‌های
   **TLS + آی‌پی تمیز Cloudflare**:
-  1. یک دامنه که در Cloudflare (پلن رایگان) باشد. (زیردامنهٔ رایگان `*.kdns.fr` از KataBump فقط اسم به‌جای آی‌پی است و خودش TLS نمی‌دهد.)
+  1. دامنهٔ رایگان: داشبورد KataBump ← **My Domains** ← Get my first domain ← یک اسم با پسوند `.kdns.fr` ← Order the domain.
+     در Cloudflare (رایگان) ← Add a site ← همان دامنه ← Free ← دو Nameserver را در صفحهٔ دامنه در KataBump (بخش Nameservers) بگذارید و صبر کنید تا Active شود.
   2. در Cloudflare یک رکورد **A** با ابر نارنجی بسازید که به آی‌پی سرور اشاره کند.
   3. در Cloudflare ← Rules ← **Origin Rules** یک قانون بسازید: «Destination Port» را روی پورت سرور بگذارید.
      و با **Configuration Rules** (یا SSL/TLS کل دامنه) حالت را برای همان نام روی **Flexible** بگذارید (سرور خودش TLS ندارد؛ با Full خطای 525/526 می‌گیرید).

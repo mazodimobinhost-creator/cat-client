@@ -22,6 +22,10 @@ class NodeHostTest {
         assertEquals(listOf("katabump", "lucity", "shiprr"), NodeHostPanel.HOSTS.map { it.id })
         assertTrue(NodeHostPanel.HOSTS.first().free)
         assertTrue(NodeHostPanel.HOSTS.all { it.url.startsWith("https://") })
+        // «🧭 from zero» opens exactly these pages: sign-up, control-panel login, API keys.
+        assertEquals("https://dashboard.katabump.com/auth/register", NodeHostPanel.KATABUMP_REGISTER)
+        assertEquals("https://control.katabump.com/auth/login", NodeHostPanel.KATABUMP_CONTROL_LOGIN)
+        assertEquals("https://control.katabump.com/account/api", NodeHostPanel.KATABUMP_API_KEYS)
         assertEquals("KataBump", NodeHostPanel.hostName("katabump"))
     }
 

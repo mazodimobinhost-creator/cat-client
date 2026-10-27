@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta192] — 2026-10-27 (Panel 6.69.45)
+
+### Added
+- **«🧭 Start from zero» — the first button on every host card (KataBump · Lucity · Shiprr):** a step-by-step wizard («Step n of 5», ◀ / ▶), one screen per step, each with a button that opens exactly the right page.
+  - KataBump: create the account (`dashboard.katabump.com/auth/register`: first/last name, e-mail, password, the confirmation e-mail; one account per person/household) → «Create a server» → Node.js → Free → name (2–5 min) → control-panel login (dashboard → See more → Access server → Identifier + password → `control.katabump.com/auth/login`) → API key (Account → API Credentials, Allowed IPs empty, `ptlc_…` shown once) → ⚡ install.
+  - Lucity / Shiprr: GitHub account (sign-up, e-mailed code) → token (pre-filled page, expiration, Generate token, `ghp_…` shown once) → ⚡ the app creates the private repository → host account (Lucity: Login with GitHub + install the GitHub App on that one repository; Shiprr: registration + e-mail confirmation + connect GitHub) → create the app → ✍️ add my panel.
+- **«No server yet» is now real help instead of a dead end:** it says the key worked, then offers «🧭 Step by step: create the server», «⏳ Wait until my server is ready» (checks every 15 s for up to 6 minutes, then continues the install by itself), «🔄 Check again» and «Open the dashboard». The key and token dialogs also link to the wizard.
+
+### Fixed
+- **Domain + TLS:** a free `kdns.fr` domain *can* go on Cloudflare (My Domains → Get my first domain → Cloudflare Add a site → paste its two nameservers on the KataBump domain page) — the beta191 text said it could not. README updated.
+- **Renewal:** KataBump only allows renewal in the last 2 days before expiry; the countdown now says «too early, Renew opens in X days» before that, and the steps name the real button (the «Renewal required» banner → Renew now).
+- Tooling: `scripts/dev/node-host-check.sh` type-checks the Node-host screens against Android stubs and runs the tests against a real launcher (it caught a broken string literal before release).
+
 ## [1.10.0-beta191] — 2026-10-27 (Panel 6.69.45)
 
 ### Added

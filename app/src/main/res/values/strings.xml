@@ -1345,4 +1345,5 @@
     <string name="node_renew_channel">KataBump renewal</string>
     <string name="node_renew_title">⏰ Renew your KataBump server</string>
     <string name="node_renew_text">«%1$s» is deleted if it is not renewed within a day. Tap to open the renew page, then mark it as renewed in Cat Client.</string>
+    <string name="cloud_node_start">🧭 Start from zero (create the account, step by step)</string>
 </resources>

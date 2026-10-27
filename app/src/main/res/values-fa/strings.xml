@@ -1344,4 +1344,5 @@
     <string name="node_renew_channel">تمدید KataBump</string>
     <string name="node_renew_title">⏰ سرور KataBump را تمدید کنید</string>
     <string name="node_renew_text">«%1$s» اگر تا یک روز دیگر تمدید نشود پاک می‌شود. بزنید تا صفحهٔ تمدید باز شود، بعد در Cat Client «تمدید کردم» را بزنید.</string>
+    <string name="cloud_node_start">🧭 از صفر شروع کن (ساخت حساب، قدم‌به‌قدم)</string>
 </resources>

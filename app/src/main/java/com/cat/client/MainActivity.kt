@@ -7193,7 +7193,7 @@ class MainActivity : Activity() {
 
     /* ============================== Cloud tab ============================== */
 
-    /** A Cloud-tab card for one Node host: title, one plain sentence, and the same 6 buttons on every host. */
+    /** A Cloud-tab card for one Node host: title, one plain sentence, and the same 7 buttons on every host (🧭 from zero first). */
     private fun nodeHostCard(kind: String, @StringRes titleRes: Int, @StringRes descRes: Int): View {
         val card = advancedSettingsPanel()
         card.addView(
@@ -7218,6 +7218,7 @@ class MainActivity : Activity() {
         )
         val git = kind != NodeHostPanel.KATABUMP
         val buttons = listOf<Pair<Int, () -> Unit>>(
+            Pair(R.string.cloud_node_start, { nodeHosts.showStart(kind) }),
             Pair(if (git) R.string.cloud_node_auto_git else R.string.cloud_node_auto, { nodeHosts.autoInstall(kind) }),
             Pair(R.string.cloud_node_zip, { nodeHosts.saveFiles(kind) }),
             Pair(R.string.cloud_node_register, { nodeHosts.registerManual(kind) }),
