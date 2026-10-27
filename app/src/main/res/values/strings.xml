@@ -1290,7 +1290,6 @@
     <string name="cloud_vercel_start">Build on Vercel</string>
     <string name="cloud_vercel_scan">🔎 Vercel IP scanner (IPs that work on my line)</string>
     <string name="cloud_vercel_cf_front">🟧 Vercel configs do not ping? Build a Cloudflare front</string>
-    <string name="cloud_node_host">🆓 Cat panel on free hosts (KataBump, Lucity, Shiprr)</string>
     <string name="cloud_vercel_panel">🐱 No server: full Cat panel + configs on Vercel</string>
     <string name="servers_add_vercel_panel">Cat panel + configs on Vercel (no server)</string>
     <string name="design_pixel">Pixel</string>
@@ -1328,4 +1327,22 @@
     <string name="contrast_title">Contrast</string>
     <string name="contrast_detail">Higher contrast makes text and outlines easier to read</string>
     <string name="design_selected_description">%1$s, selected</string>
+    <string name="cloud_section_nodehost">🆓 Cat panel on other hosts (no server needed)</string>
+    <string name="cloud_katabump_title">🟩 KataBump — free</string>
+    <string name="cloud_katabump_desc">Free Node.js host. «⚡ Install automatically» puts the panel on your server with your KataBump key, tests it from this phone and adds the configs (IP:port, no TLS). Needs a renewal every 4 days — the app counts down and reminds you. Warning: KataBump rules forbid proxies; the server may be deleted.</string>
+    <string name="cloud_lucity_title">🟦 Lucity — 14 days free</string>
+    <string name="cloud_lucity_desc">Builds from GitHub. «⚡ Build automatically» makes a private GitHub repository with the panel; you pick it on Lucity (3 taps, shown step by step), then «✍️ Add my panel». TLS configs on 443.</string>
+    <string name="cloud_shiprr_title">🟪 Shiprr — 5 EUR free credit</string>
+    <string name="cloud_shiprr_desc">Builds from GitHub, address name.shiprr.dev. Same as Lucity: «⚡ Build automatically» → pick the repository on Shiprr → «✍️ Add my panel». The app checks for real whether WebSocket passes.</string>
+    <string name="cloud_node_auto">⚡ Install automatically</string>
+    <string name="cloud_node_auto_git">⚡ Build automatically (GitHub)</string>
+    <string name="cloud_node_zip">📦 Save the files (zip) to upload by hand</string>
+    <string name="cloud_node_register">✍️ Add my panel (test + configs)</string>
+    <string name="cloud_node_renew">🔁 Renew (countdown + reminder)</string>
+    <string name="cloud_node_redeploy">🔁 Update / rebuild</string>
+    <string name="cloud_node_mine">📋 My panels</string>
+    <string name="cloud_node_guide">❓ Step-by-step guide</string>
+    <string name="node_renew_channel">KataBump renewal</string>
+    <string name="node_renew_title">⏰ Renew your KataBump server</string>
+    <string name="node_renew_text">«%1$s» is deleted if it is not renewed within a day. Tap to open the renew page, then mark it as renewed in Cat Client.</string>
 </resources>

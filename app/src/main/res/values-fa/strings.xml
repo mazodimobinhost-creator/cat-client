@@ -1289,7 +1289,6 @@
     <string name="cloud_vercel_start">ساخت روی Vercel</string>
     <string name="cloud_vercel_scan">🔎 اسکنر آی‌پی Vercel (آی‌پی سالم برای خط من)</string>
     <string name="cloud_vercel_cf_front">🟧 کانفیگ Vercel پینگ نمی‌دهد؟ ساخت جلوی Cloudflare</string>
-    <string name="cloud_node_host">🆓 پنل Cat روی هاست‌های رایگان (KataBump و…)</string>
     <string name="cloud_vercel_panel">🐱 سرور ندارم: پنل کامل Cat + کانفیگ روی Vercel</string>
     <string name="servers_add_vercel_panel">پنل Cat + کانفیگ روی Vercel (بدون سرور)</string>
     <string name="design_pixel">پیکسل</string>
@@ -1327,4 +1326,22 @@
     <string name="contrast_title">کنتراست</string>
     <string name="contrast_detail">کنتراست بیشتر، خواندن متن و حاشیه‌ها را آسان‌تر می‌کند</string>
     <string name="design_selected_description">%1$s، انتخاب‌شده</string>
+    <string name="cloud_section_nodehost">🆓 پنل Cat روی هاست‌های دیگر (بدون نیاز به سرور)</string>
+    <string name="cloud_katabump_title">🟩 KataBump — رایگان</string>
+    <string name="cloud_katabump_desc">هاست رایگان Node.js. «⚡ نصب خودکار» با کلید KataBump خودتان پنل را روی سرورتان می‌گذارد، از همین گوشی تست می‌کند و کانفیگ‌ها را اضافه می‌کند (آی‌پی:پورت، بدون TLS). هر ۴ روز تمدید می‌خواهد — برنامه شمارش معکوس دارد و یادآوری می‌کند. هشدار: قوانین KataBump پروکسی را ممنوع کرده؛ ممکن است سرور پاک شود.</string>
+    <string name="cloud_lucity_title">🟦 Lucity — ۱۴ روز رایگان</string>
+    <string name="cloud_lucity_desc">از GitHub می‌سازد. «⚡ ساخت خودکار» یک مخزن خصوصی GitHub با پنل می‌سازد؛ شما در Lucity انتخابش می‌کنید (۳ قدم، قدم‌به‌قدم نشان داده می‌شود) و بعد «✍️ پنلم را اضافه کن». کانفیگ TLS روی 443.</string>
+    <string name="cloud_shiprr_title">🟪 Shiprr — ۵ یورو اعتبار رایگان</string>
+    <string name="cloud_shiprr_desc">از GitHub می‌سازد، آدرس name.shiprr.dev. مثل Lucity: «⚡ ساخت خودکار» ← انتخاب مخزن در Shiprr ← «✍️ پنلم را اضافه کن». برنامه واقعاً تست می‌کند WebSocket رد می‌شود یا نه.</string>
+    <string name="cloud_node_auto">⚡ نصب خودکار</string>
+    <string name="cloud_node_auto_git">⚡ ساخت خودکار (GitHub)</string>
+    <string name="cloud_node_zip">📦 ذخیرهٔ فایل‌ها (zip) برای آپلود دستی</string>
+    <string name="cloud_node_register">✍️ پنلم را اضافه کن (تست + کانفیگ)</string>
+    <string name="cloud_node_renew">🔁 تمدید (شمارش معکوس + یادآوری)</string>
+    <string name="cloud_node_redeploy">🔁 به‌روزرسانی / ساخت دوباره</string>
+    <string name="cloud_node_mine">📋 پنل‌های من</string>
+    <string name="cloud_node_guide">❓ راهنمای قدم‌به‌قدم</string>
+    <string name="node_renew_channel">تمدید KataBump</string>
+    <string name="node_renew_title">⏰ سرور KataBump را تمدید کنید</string>
+    <string name="node_renew_text">«%1$s» اگر تا یک روز دیگر تمدید نشود پاک می‌شود. بزنید تا صفحهٔ تمدید باز شود، بعد در Cat Client «تمدید کردم» را بزنید.</string>
 </resources>

@@ -165,6 +165,27 @@ class MainActivity : Activity() {
             showDialog = { dialog -> dialog.showCatClientDialog() },
         )
     }
+    // 6.69.45 the Cat panel on KataBump / Lucity / Shiprr — one card per host on the Cloud tab.
+    private val nodeHosts: NodeHostController by lazy {
+        NodeHostController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+            requestNotifications = {
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NODE_RENEW_NOTIFICATION)
+                }
+            },
+        )
+    }
     private var aetherOperationJob: Job? = null
     private var updateSettingsBadge: TextView? = null
     private val appUpdateUi by lazy {
@@ -7172,6 +7193,47 @@ class MainActivity : Activity() {
 
     /* ============================== Cloud tab ============================== */
 
+    /** A Cloud-tab card for one Node host: title, one plain sentence, and the same 6 buttons on every host. */
+    private fun nodeHostCard(kind: String, @StringRes titleRes: Int, @StringRes descRes: Int): View {
+        val card = advancedSettingsPanel()
+        card.addView(
+            TextView(this).apply {
+                setText(titleRes)
+                textSize = 16f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        card.addView(
+            TextView(this).apply {
+                setText(descRes)
+                textSize = 12.5f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+        )
+        val git = kind != NodeHostPanel.KATABUMP
+        val buttons = listOf<Pair<Int, () -> Unit>>(
+            Pair(if (git) R.string.cloud_node_auto_git else R.string.cloud_node_auto, { nodeHosts.autoInstall(kind) }),
+            Pair(R.string.cloud_node_zip, { nodeHosts.saveFiles(kind) }),
+            Pair(R.string.cloud_node_register, { nodeHosts.registerManual(kind) }),
+            Pair(if (git) R.string.cloud_node_redeploy else R.string.cloud_node_renew, { nodeHosts.renew(kind) }),
+            Pair(R.string.cloud_node_mine, { nodeHosts.showMine(kind) }),
+            Pair(R.string.cloud_node_guide, { nodeHosts.showGuide(kind) }),
+        )
+        buttons.forEachIndexed { i, (labelRes, action) ->
+            card.addView(
+                cloudActionButton(labelRes, R.drawable.ic_cloud_tab, accent = i == 0) { action() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (i == 0) 10 else 8) },
+            )
+        }
+        return card
+    }
+
     private fun cloudActionButton(
         @StringRes labelRes: Int,
         @DrawableRes iconRes: Int,
@@ -10915,12 +10977,20 @@ class MainActivity : Activity() {
             cloudActionButton(R.string.cloud_vercel_cf_front, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showCfFrontStart() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
-        // 6.69.45 the same panel on free / cheap Node hosts (KataBump, Lucity, Shiprr) — guide + 2-file zip
-        vercelCard.addView(
-            cloudActionButton(R.string.cloud_node_host, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showNodeHostGuide() },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-        )
         body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
+        // 6.69.45 the same Cat panel on Node hosts — one card per host, the same buttons on each.
+        body.addView(
+            advancedSectionLabel(getString(R.string.cloud_section_nodehost)),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
+        )
+        for ((kind, titleRes, descRes) in listOf(
+            Triple(NodeHostPanel.KATABUMP, R.string.cloud_katabump_title, R.string.cloud_katabump_desc),
+            Triple(NodeHostPanel.LUCITY, R.string.cloud_lucity_title, R.string.cloud_lucity_desc),
+            Triple(NodeHostPanel.SHIPRR, R.string.cloud_shiprr_title, R.string.cloud_shiprr_desc),
+        )) {
+            body.addView(nodeHostCard(kind, titleRes, descRes), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        }
 
         body.addView(
             advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
@@ -29875,6 +29945,7 @@ class MainActivity : Activity() {
         const val SCREEN_AETHER = 5
         const val REQUEST_VPN_PERMISSION = 10
         const val REQUEST_NOTIFICATION_PERMISSION = 11
+        const val REQUEST_NODE_RENEW_NOTIFICATION = 7301
         const val TIMER_TICK_MS = 1_000L
         const val KEYBOARD_SCROLL_DELAY_MS = 250L
         const val CONNECTION_TESTING_PAGE_ANIMATION_MS = 300L
