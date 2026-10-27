@@ -1087,6 +1087,7 @@ class MainActivity : Activity() {
             addView(subscriptionsHeaderCopy, LinearLayout.LayoutParams(0, -2, 1f))
             addView(headerActions, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         })
+        content.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
         // "Auto · All servers" — ZedSecure's first row: bolt badge + connect to the fastest server.
         content.addView(
             LinearLayout(this).apply {
@@ -2194,19 +2195,17 @@ class MainActivity : Activity() {
 
     private fun showAddSubscriptionMenu(anchor: View) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        // Most used first; every label says in plain words what happens.
         catClientPopupMenu(anchor).apply {
-            menu.add(
-                if (isFarsi) "➕ Add Aether config manually (افزودن دستی کانفیگ Aether / MASQUE in MASQUE)"
-                else "➕ Add Aether config manually",
-            ).setOnMenuItemClickListener {
-                showAddAetherDialog()
+            menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
+                addSubscriptionFromClipboard()
                 true
             }
             menu.add(
-                if (isFarsi) "⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)"
-                else "⚡ 1-Tap PattNG Guide (MASQUE in MASQUE + HTTP/2 + Psiphon)",
+                if (isFarsi) "📝 نوشتن یا چسباندن لینک (vless، vmess، لینک اشتراک…)"
+                else "📝 Type or paste a link (vless, vmess, subscription URL…)",
             ).setOnMenuItemClickListener {
-                runOneTapPattNgMimPsiphonSetup()
+                showAddSubscriptionDialog()
                 true
             }
             if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
@@ -2215,15 +2214,32 @@ class MainActivity : Activity() {
                     true
                 }
             }
-            menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
-                addSubscriptionFromClipboard()
+            menu.add(
+                if (isFarsi) "📂 از فایل (‎.txt / .conf / .vpn / .yaml / .json)"
+                else "📂 From a file (.txt / .conf / .vpn / .yaml / .json)",
+            ).setOnMenuItemClickListener {
+                appTools.openImportFilePicker()
                 true
             }
             menu.add(
-                if (isFarsi) "📝 افزودن دستی لینک یا سابسکریپشن"
-                else "📝 Add subscription / config link manually",
+                if (isFarsi) "🔐 کلید Amnezia (vpn://) یا AmneziaWG"
+                else "🔐 Amnezia key (vpn://) or AmneziaWG",
             ).setOnMenuItemClickListener {
-                showAddSubscriptionDialog()
+                showAmneziaSectionDialog()
+                true
+            }
+            menu.add(
+                if (isFarsi) "⚙️ پیشرفته: کانفیگ Aether دستی (MASQUE)"
+                else "⚙️ Advanced: manual Aether config (MASQUE)",
+            ).setOnMenuItemClickListener {
+                showAddAetherDialog()
+                true
+            }
+            menu.add(
+                if (isFarsi) "⚙️ پیشرفته: ساخت خودکار PattNG (MASQUE + سایفون)"
+                else "⚙️ Advanced: build PattNG automatically (MASQUE + Psiphon)",
+            ).setOnMenuItemClickListener {
+                runOneTapPattNgMimPsiphonSetup()
                 true
             }
             show()
@@ -2278,6 +2294,10 @@ class MainActivity : Activity() {
             .orEmpty()
         AetherSelection.fromAetherUri(rawClip)?.let { parsed ->
             importAndConnectAetherSelection(parsed)
+            return
+        }
+        if (AmneziaVpnKey.extractKeys(rawClip).isNotEmpty()) {
+            previewAndImportAmneziaText(rawClip)
             return
         }
         val source = normalizedSubscriptionSource(rawClip)
@@ -7158,6 +7178,7 @@ class MainActivity : Activity() {
             addDivider = false,
             badge = updateSettingsBadge,
         )
+        indexBody.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
         if (appDesign == AppDesign.Old) {
             indexBody.addView(
                 categoriesPanel,
@@ -7348,6 +7369,7 @@ class MainActivity : Activity() {
         }
 
         body.addView(cloudScannerSwitch(scannerActive = true), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+        body.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
         body.addView(
             TextView(this).apply {
                 setText(R.string.scanner_title)
@@ -10958,6 +10980,7 @@ class MainActivity : Activity() {
         }
 
         body.addView(cloudScannerSwitch(scannerActive = false), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        body.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
 
         // Wizard card (BPB/Zeus-style): token → deploy → import → scan, step by step.
         val setupWizardCard = advancedSettingsPanel()
@@ -11851,6 +11874,8 @@ class MainActivity : Activity() {
             },
         )
 
+        body.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
         // 1) Plain-Language Step-by-Step Guide Card ("If you tap this, this happens")
         body.addView(
             buildPlainLanguageQuickGuideCard(),
@@ -11904,6 +11929,14 @@ class MainActivity : Activity() {
                     accent = true,
                 ) { runOneClickRepairMyRealConfigAndConnect() },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
+            )
+            addView(
+                hubBtn(
+                    if (isFarsi) "🔐 کانفیگ‌های Amnezia (کلید vpn:// و فایل ‎.conf)"
+                    else "🔐 Amnezia configs (vpn:// key & .conf file)",
+                    accent = false,
+                ) { showAmneziaSectionDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
             )
             addView(
                 hubBtn(
@@ -17252,6 +17285,560 @@ class MainActivity : Activity() {
      * - Connects with anti-DPI AmneziaWG 2.0 (`Jc=5, Jmin=50, Jmax=1000, S1, S2` + UDP noise) & Hysteria2,
      * - Converts any standard Proton VPN / WireGuard `.conf` file into an anti-DPI `awg://` profile.
      */
+    // ---------------------------------------------------------------------------------------------------------
+    // 🧭 Feature finder: "what do you want to do?" → one plain sentence per tool → opens it directly.
+    // The app has dozens of tools spread over six tabs; this is the single place to find any of them.
+    // ---------------------------------------------------------------------------------------------------------
+
+    private class FinderEntry(
+        val titleFa: String,
+        val titleEn: String,
+        val whatFa: String,
+        val whatEn: String,
+        val keywords: String,
+        val open: () -> Unit,
+    )
+
+    private fun finderEntries(): List<FinderEntry> = listOf(
+        FinderEntry("🚀 فقط می‌خواهم وصل شوم", "🚀 I just want to connect",
+            "برنامه خودش بهترین راه را روی اینترنت شما پیدا می‌کند و وصل می‌شود. اگر نمی‌دانید چه بزنید، همین را بزنید.",
+            "The app finds the best way on your internet and connects. If unsure, tap this.",
+            "وصل اتصال پیشنهادی ساده connect recommended easy start") { showRecommendedOneClickConnectWizardDialog() },
+        FinderEntry("➕ کانفیگ یا لینک اشتراک دارم", "➕ I have a config or subscription link",
+            "لینک vless / vmess / trojan / ss یا لینک سابسکریپشن را اضافه کنید.",
+            "Add a vless / vmess / trojan / ss link or a subscription URL.",
+            "افزودن اضافه لینک سابسکریپشن اشتراک add link subscription import") { openScreen(SCREEN_SERVERS); showAddSubscriptionDialog() },
+        FinderEntry("🔐 کلید Amnezia (vpn://) یا AmneziaWG", "🔐 Amnezia key (vpn://) or AmneziaWG",
+            "کلیدی که با vpn:// شروع می‌شود یا فایل ‎.conf را می‌خواند و وصل می‌شود.",
+            "Reads a vpn:// key or a .conf file and connects.",
+            "امنزیا آمنزیا امنیزیا amnezia awg wireguard وایرگارد conf vpn://") { showAmneziaSectionDialog() },
+        FinderEntry("🦊 فایرفاکس VPN (۵۰ گیگ رایگان)", "🦊 Firefox VPN (50 GB free)",
+            "با حساب فایرفاکس، ماهی ۵۰ گیگ رایگان از سرورهای موزیلا. ورود به حساب لازم است.",
+            "50 GB/month free on Mozilla servers with a Firefox account (sign-in needed).",
+            "فایرفاکس موزیلا fenix firefox mozilla رایگان free") { showFirefoxVpnFenixHubDialog() },
+        FinderEntry("🛡 هیچ‌چیز وصل نمی‌شود / اینترنت ملی", "🛡 Nothing connects / national internet",
+            "بخش ضدسانسور: وارپ، سایفون، تور و روش‌های بدون سرور شخصی.",
+            "Anti-censorship tab: WARP, Psiphon, Tor and server-less methods.",
+            "ضدسانسور فیلتر ملی قطع وارپ سایفون تور warp psiphon tor aether censorship") { openScreen(SCREEN_AETHER) },
+        FinderEntry("🌍 آی‌پی خارج با کشور دلخواه", "🌍 Foreign IP in a chosen country",
+            "انتخاب کنید خروجی ایران باشد یا خارج (مثلاً آلمان) — از طریق سایفون.",
+            "Choose an Iranian or foreign exit (e.g. Germany) via Psiphon.",
+            "کشور آلمان خارج آیپی ip country germany exit psiphon تحریم sanction") { showAetherExitLocationPickerDialog() },
+        FinderEntry("🩺 کانفیگم کار نمی‌کند، درستش کن", "🩺 My config does not work, fix it",
+            "کانفیگ خود شما را با چند روش ضدفیلتر امتحان و تعمیر می‌کند و وصل می‌شود.",
+            "Tries several anti-filter fixes on your own config and connects.",
+            "تعمیر خراب درست repair fix broken") { runOneClickRepairMyRealConfigAndConnect() },
+        FinderEntry("🧹 کانفیگ‌های مرده را پاک و بر اساس پینگ مرتب کن", "🧹 Remove dead configs, sort by ping",
+            "همه را واقعی تست می‌کند، سوخته‌ها را کنار می‌گذارد و سریع‌ترها را بالا می‌آورد.",
+            "Really tests all, drops dead ones and puts the fastest first.",
+            "پینگ مرتب پاک سوخته ping sort clean dead") { runOneClickCleanAndSortConfigsDialog() },
+        FinderEntry("📶 کدام پروتکل روی اینترنت من باز است؟", "📶 Which protocols are open on my internet?",
+            "تست واقعی خط شما و تک‌تک کانفیگ‌هایتان؛ جدول سبز/قرمز به زبان ساده.",
+            "Real test of your line and each config; simple green/red table.",
+            "پروتکل اپراتور همراه ایرانسل protocol isp matrix") { showIspProtocolMatrixDialog() },
+        FinderEntry("🚨 اینترنت ملی است یا کانفیگم خراب است؟", "🚨 National internet or broken config?",
+            "تشخیص می‌دهد مشکل از قطعی اینترنت است یا از خود کانفیگ.",
+            "Tells whether the internet is cut or the config is broken.",
+            "ملی قطعی تشخیص net melli detect") { runNetMelliDetectorDialog() },
+        FinderEntry("🔎 پیدا کردن آی‌پی تمیز (اسکنر)", "🔎 Find clean IPs (scanner)",
+            "آی‌پی‌هایی را پیدا می‌کند که روی اینترنت شما باز هستند و سریع‌اند.",
+            "Finds IPs that are open and fast on your internet.",
+            "اسکن اسکنر آیپی تمیز کلودفلر scan scanner clean ip cloudflare") { openScreen(SCREEN_SCANNER) },
+        FinderEntry("🧪 سایت‌ها و آی‌پی‌های سفید (نت ملی)", "🧪 Whitelisted sites & IPs (national net)",
+            "وقتی فقط سایت‌های داخلی باز است: لیست سفید و روش‌های عبور.",
+            "When only domestic sites work: whitelist and bypass methods.",
+            "سفید وایت لیست ملی whitelist") { showNetMelli2026BypassLabDialog() },
+        FinderEntry("🆓 کانفیگ رایگان", "🆓 Free configs",
+            "از منبع‌های عمومی کانفیگ رایگان می‌گیرد و تست می‌کند.",
+            "Gets free configs from public sources and tests them.",
+            "رایگان مجانی free configs") { runFetchSevenGitHubFreeConfigSourcesDialog() },
+        FinderEntry("☁️ ساخت سرور/پنل شخصی رایگان (کلادفلر)", "☁️ Build a free personal panel (Cloudflare)",
+            "قدم‌به‌قدم یک پنل شخصی روی حساب کلادفلر خودتان می‌سازد.",
+            "Builds a personal panel on your own Cloudflare account, step by step.",
+            "پنل سرور شخصی کلادفلر ورکر panel worker cloudflare") { showPanelWizard() },
+        FinderEntry("▲ پنل روی Vercel", "▲ Panel on Vercel",
+            "پنل یا واسطه روی حساب Vercel شما، با اسکنر پینگ.",
+            "Panel or relay on your Vercel account, with a ping scanner.",
+            "ورسل vercel relay") { vercelRelay.showPanel() },
+        FinderEntry("🖥 سرور Node (KataBump / Lucity / Shiprr)", "🖥 Node server (KataBump / Lucity / Shiprr)",
+            "پنل روی هاست‌های رایگان Node با راهنمای قدم‌به‌قدم.",
+            "Panel on free Node hosts with a step-by-step guide.",
+            "کاتابامپ نود هاست katabump lucity shiprr node host") { openScreen(SCREEN_CLOUD) },
+        FinderEntry("⚡ تست سرعت", "⚡ Speed test", "سرعت دانلود و آپلود را از داخل تونل اندازه می‌گیرد.",
+            "Measures download/upload speed through the tunnel.", "سرعت اسپید speed test") { showSpeedTestPage() },
+        FinderEntry("🗺 نقشهٔ سرورها", "🗺 Server map", "سرورها را روی نقشه نشان می‌دهد.", "Shows servers on a map.",
+            "نقشه map") { showMapPage() },
+        FinderEntry("📡 پروکسی SOCKS5 / تلگرام", "📡 SOCKS5 / Telegram proxies", "پروکسی‌های عمومی را پیدا و تست می‌کند.",
+            "Finds and tests public proxies.", "ساکس پروکسی تلگرام socks proxy telegram") { showSocks5HubPage() },
+        FinderEntry("🧱 اسکنر ProxyIP", "🧱 ProxyIP scanner", "ProxyIPها را با پورت دقیق خودشان واقعی تست می‌کند.",
+            "Really tests ProxyIPs on their exact ports.", "پروکسی آیپی proxyip") { showProxyIpScannerPage() },
+        FinderEntry("📲 اشتراک اینترنت با گوشی/لپ‌تاپ دیگر", "📲 Share the connection with another device",
+            "هات‌اسپات با QR تا دستگاه دیگر هم از همین اتصال استفاده کند.", "Hotspot with a QR so another device uses this connection.",
+            "هات اسپات اشتراک لپتاپ hotspot share qr") { showEasyHotspotShareWithQrDialog() },
+        FinderEntry("🍎 آیفون / آیپد", "🍎 iPhone / iPad", "راه وصل کردن آیفون با کانفیگ‌های همین برنامه.",
+            "How to connect an iPhone with this app's configs.", "آیفون ios iphone ipad") { showIphoneIosConnectionHubDialog() },
+        FinderEntry("✨ Gemini / ChatGPT / یوتیوب باز است؟", "✨ Are Gemini / ChatGPT / YouTube open?",
+            "تست می‌کند این سرویس‌ها از داخل اتصال فعلی باز می‌شوند یا نه.", "Tests whether these services open through the current connection.",
+            "جمینای چت جی پی تی یوتیوب gemini chatgpt youtube ai") { runAiAndGeminiUnblockTesterDialog() },
+        FinderEntry("🏦 بانک و برنامه‌های ایرانی با VPN روشن", "🏦 Iranian banks & apps with VPN on",
+            "برنامه‌های ایرانی مستقیم می‌روند تا با VPN روشن هم کار کنند.", "Iranian apps go direct so they work with the VPN on.",
+            "بانک ایرانی bank iran direct") { runSmartIranBankingShieldDialog() },
+        FinderEntry("🧭 فایروال همراه اول / ایرانسل", "🧭 MCI / Irancell firewall",
+            "کدام روش روی کدام اپراتور جواب می‌دهد، به زبان ساده.", "Which method works on which operator, simply.",
+            "همراه اول ایرانسل فایروال mci irancell firewall") { showFirewallConnectionGuideDialog() },
+        FinderEntry("🐢 وسط کار قطع می‌شود یا گیر می‌کند", "🐢 It freezes or drops mid-use",
+            "پیدا می‌کند اتصال کجا گیر می‌کند و راه درمان پیشنهاد می‌دهد.", "Finds where the connection stalls and suggests a fix.",
+            "قطع گیر هنگ کند freeze drop stall") { runMidStreamFreezeDetectorDialog() },
+        FinderEntry("🛟 اتصال پایدار و کیل‌سوییچ", "🛟 Stable connection & kill switch",
+            "اگر اتصال افتاد، خودش دوباره وصل شود و اینترنت بی‌محافظ نماند.", "Reconnects by itself and never leaves you unprotected.",
+            "کیل سوییچ پایدار kill switch resilience") { showConnectionResilienceAndKillSwitchDialog() },
+        FinderEntry("📦 patth / paqet", "📦 patth / paqet", "موتورهای patth و paqet برای کانفیگ‌های همین نوع.",
+            "patth and paqet engines for those configs.", "پت پکت patth paqet") { showPaqetPatthEngineDialog() },
+        FinderEntry("🧵 تونل DNS (SlipNet / dnstt)", "🧵 DNS tunnels (SlipNet / dnstt)", "وقتی تقریباً همه‌چیز بسته است، از طریق DNS.",
+            "When almost everything is blocked, over DNS.", "دی ان اس اسلیپ نت slipnet dnstt dns tunnel") { showWhiteDnsResolverMethodsDialog() },
+        FinderEntry("🔗 دو سرور پشت سر هم (زنجیره)", "🔗 Two servers in a row (chain)", "ترافیک اول از یک سرور، بعد از سرور دوم می‌گذرد.",
+            "Traffic goes through one server, then a second.", "زنجیره چین chain") { openConnectionChainSettingsFromHome() },
+        FinderEntry("🔀 فقط بعضی برنامه‌ها از VPN بروند", "🔀 Only some apps through the VPN", "انتخاب حالت مسیریابی (همه، فقط خارجی‌ها، …).",
+            "Choose the routing mode (all, foreign only, …).", "مسیر برنامه اسپلیت routing split apps") { showRoutingModeSelector() },
+        FinderEntry("🌐 DNS امن", "🌐 Secure DNS", "DNS رمزدار (DoH / DoT) را انتخاب کنید.", "Pick encrypted DNS (DoH / DoT).",
+            "دی ان اس dns doh dot") { showDnsPrivacySelector() },
+        FinderEntry("🎨 تم و رنگ", "🎨 Theme & colour", "روشن/تیره و رنگ اصلی برنامه.", "Light/dark and accent colour.",
+            "تم رنگ تیره theme color dark") { showThemeSelector() },
+        FinderEntry("🌐 زبان", "🌐 Language", "فارسی یا انگلیسی.", "Persian or English.", "زبان language فارسی english") { showLanguageSelector() },
+        FinderEntry("💾 پشتیبان از اشتراک‌ها", "💾 Back up subscriptions", "یک فایل از همهٔ اشتراک‌ها ذخیره می‌کند.",
+            "Saves a file with all subscriptions.", "پشتیبان بکاپ backup") { appTools.startBackup() },
+        FinderEntry("♻️ برگرداندن تنظیمات به حالت اول", "♻️ Reset settings", "تنظیمات به پیش‌فرض برمی‌گردد (اشتراک‌ها می‌مانند، اول تأیید می‌گیرد).",
+            "Settings go back to default (asks first).", "ریست بازنشانی reset") { showResetSettingsDialog() },
+        FinderEntry("📖 راهنمای کامل به زبان ساده", "📖 Full plain-language guide", "«اینو بزنی این می‌شه» برای همهٔ بخش‌ها.",
+            "“Tap this, this happens” for every part.", "راهنما آموزش guide help") { showPlainLanguageFullGuideDialog() },
+    )
+
+    private fun normalizeFinderText(text: String): String = text.lowercase(Locale.ROOT)
+        .replace('ي', 'ی').replace('ك', 'ک').replace("\u200c", "").replace("آ", "ا")
+
+    /** Compact bar placed under each tab's title: opens the finder. */
+    private fun featureFinderBar(): View {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(withAlpha(palette.surfaceElevated2, 230))
+                setStroke(dp(1), withAlpha(TEAL, 120))
+            }
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (isFarsi) "جست‌وجوی همهٔ ابزارها" else "Search all tools"
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = if (isFarsi) "🧭 دنبال چی می‌گردی؟ اینجا بنویس یا بزن — همهٔ ابزارها با توضیح ساده"
+                    else "🧭 Looking for something? Tap here — every tool with a plain explanation"
+                    textSize = 13.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEXT_PRIMARY)
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            setOnClickListener { showFeatureFinderDialog() }
+        }
+    }
+
+    private fun showFeatureFinderDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val entries = finderEntries()
+        var dialog: AlertDialog? = null
+        val search = EditText(this).apply {
+            hint = if (isFarsi) "مثلاً: امنزیا، کشور، آیپی تمیز، رایگان…" else "e.g. amnezia, country, clean ip, free…"
+            setSingleLine(true)
+            textSize = 14f
+        }
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        fun render(query: String) {
+            list.removeAllViews()
+            val words = normalizeFinderText(query).split(' ').filter { it.isNotBlank() }
+            val shown = entries.filter { e ->
+                if (words.isEmpty()) return@filter true
+                val hay = normalizeFinderText("${e.titleFa} ${e.titleEn} ${e.whatFa} ${e.whatEn} ${e.keywords}")
+                words.all { it in hay }
+            }
+            if (shown.isEmpty()) {
+                list.addView(TextView(this).apply {
+                    text = if (isFarsi) "چیزی پیدا نشد. کلمهٔ ساده‌تری بنویسید یا «📖 راهنمای کامل» را باز کنید." else "Nothing found. Try a simpler word."
+                    setTextColor(TEXT_SECONDARY)
+                    setPadding(0, dp(12), 0, dp(12))
+                })
+            }
+            shown.forEach { e ->
+                list.addView(
+                    LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        setSelectableBackground()
+                        isClickable = true
+                        isFocusable = true
+                        addView(TextView(this@MainActivity).apply {
+                            text = if (isFarsi) e.titleFa else e.titleEn
+                            textSize = 14.5f
+                            typeface = CatClientBodyBoldTypeface
+                            setTextColor(TEXT_PRIMARY)
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            text = if (isFarsi) e.whatFa else e.whatEn
+                            textSize = 12.5f
+                            setTextColor(TEXT_SECONDARY)
+                            setLineSpacing(0f, 1.1f)
+                        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+                        setOnClickListener {
+                            dialog?.dismiss()
+                            runCatching { e.open() }.onFailure { error ->
+                                DiagnosticLogger.warn(this@MainActivity, "finder.open.failed", e.titleEn, error = error)
+                            }
+                        }
+                    },
+                    LinearLayout.LayoutParams(-1, -2),
+                )
+            }
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) = render(s?.toString().orEmpty())
+        })
+        render("")
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(4), dp(16), 0)
+            addView(search, LinearLayout.LayoutParams(-1, -2))
+            addView(ScrollView(this@MainActivity).apply { addView(list) }, LinearLayout.LayoutParams(-1, dp(420)))
+        }
+        val built = MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "🧭 می‌خواهید چه کار کنید؟" else "🧭 What do you want to do?")
+            .setView(box)
+            .setNegativeButton(if (isFarsi) "بستن" else "Close", null)
+            .create()
+        dialog = built
+        built.showCatClientDialog()
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // 🔐 Amnezia section: everything for AmneziaVPN keys (vpn://) and AmneziaWG / WireGuard .conf in one place.
+    // ---------------------------------------------------------------------------------------------------------
+
+    private val amneziaSubscriptionPrefix = "🔐 Amnezia"
+
+    private fun showAmneziaSectionDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        box.addView(
+            TextView(this).apply {
+                text = t(
+                    "کلید Amnezia همان متنی است که با vpn:// شروع می‌شود (یا فایل ‎.conf / ‎.vpn). اینجا بدهیدش؛ برنامه خودش می‌خواند، نشان می‌دهد چه چیزی داخلش است و با یک دکمه وصل می‌شود. نصب برنامهٔ Amnezia لازم نیست.",
+                    "An Amnezia key is the text starting with vpn:// (or a .conf / .vpn file). Give it here: the app reads it, shows what is inside and connects with one tap. The Amnezia app is not needed.",
+                )
+                textSize = 13.5f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(0f, 1.15f)
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        var dialog: androidx.appcompat.app.AlertDialog? = null
+        fun action(label: String, accent: Boolean = false, run: () -> Unit) {
+            box.addView(
+                MaterialButton(this).apply {
+                    text = label
+                    isAllCaps = false
+                    textSize = 13.5f
+                    typeface = CatClientBodyBoldTypeface
+                    minHeight = dp(48)
+                    insetTop = 0
+                    insetBottom = 0
+                    cornerRadius = dp(12)
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                    if (accent) {
+                        backgroundTintList = ColorStateList.valueOf(TEAL)
+                        setTextColor(palette.onAccent)
+                    } else {
+                        backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 220))
+                        strokeWidth = dp(1)
+                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 140))
+                        setTextColor(TEXT_PRIMARY)
+                    }
+                    setOnClickListener {
+                        dialog?.dismiss()
+                        run()
+                    }
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+        }
+        action(t("📋 کلید را کپی کرده‌ام → بخوان و وصل شو", "📋 I copied the key → read it and connect"), accent = true) {
+            val clip = readClipboardConfigText().orEmpty()
+            if (clip.isBlank()) {
+                Toast.makeText(this, t("کلیپ‌بورد خالی است؛ اول کلید vpn:// را کپی کنید.", "Clipboard is empty; copy the vpn:// key first."), Toast.LENGTH_LONG).show()
+            } else {
+                previewAndImportAmneziaText(clip)
+            }
+        }
+        action(t("✍️ چسباندن یا نوشتن دستی (vpn:// یا متن ‎.conf)", "✍️ Paste or type it (vpn:// or .conf text)")) { showAmneziaPasteDialog() }
+        action(t("📂 باز کردن فایل ‎.vpn یا ‎.conf", "📂 Open a .vpn or .conf file")) { appTools.openImportFilePicker() }
+        action(t("📋 کانفیگ‌های Amnezia من (وصل شدن / حذف)", "📋 My Amnezia configs (connect / delete)")) { showMyAmneziaConfigsDialog() }
+        action(t("🛡️ سرور رایگان AmneziaWG (روی WARP) + تبدیل پروتون/وایرگارد", "🛡️ Free AmneziaWG (over WARP) + convert Proton/WireGuard")) { showAmneziaAndProtonWgHubDialog() }
+        action(t("❓ کلید Amnezia را از کجا بیاورم؟ چه چیزهایی کار می‌کند؟", "❓ Where do I get a key? What works?")) { showAmneziaHelpDialog() }
+        val scroll = ScrollView(this).apply { addView(box) }
+        val built = MaterialAlertDialogBuilder(this)
+            .setTitle(t("🔐 Amnezia (AmneziaVPN و AmneziaWG)", "🔐 Amnezia (AmneziaVPN & AmneziaWG)"))
+            .setView(scroll)
+            .setNegativeButton(t("بستن", "Close"), null)
+            .create()
+        dialog = built
+        built.showCatClientDialog()
+    }
+
+    private fun showAmneziaPasteDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val input = EditText(this).apply {
+            hint = if (isFarsi) "vpn://… یا [Interface] …" else "vpn://… or [Interface] …"
+            textSize = 12.5f
+            minLines = 5
+            maxLines = 12
+            gravity = Gravity.TOP or Gravity.START
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "✍️ کلید Amnezia یا متن ‎.conf" else "✍️ Amnezia key or .conf text")
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(if (isFarsi) "بخوان" else "Read") { _, _ ->
+                previewAndImportAmneziaText(input.text?.toString().orEmpty())
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /** Reads vpn:// keys or .conf text, shows what is inside, then adds (and optionally connects). */
+    private fun previewAndImportAmneziaText(rawText: String) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val text = rawText.trim()
+        if (text.isBlank()) return
+        activityScope.launch {
+            data class Preview(val links: Int, val server: String, val ok: List<String>, val bad: List<String>, val problem: String?)
+            val preview = withContext(Dispatchers.IO) {
+                val keys = AmneziaVpnKey.extractKeys(text)
+                if (keys.isNotEmpty()) {
+                    val results = keys.mapNotNull { AmneziaVpnKey.decode(it) }
+                    Preview(
+                        links = results.sumOf { it.links.size },
+                        server = results.firstOrNull()?.serverName ?: "Amnezia",
+                        ok = results.flatMap { it.protocols }.distinct(),
+                        bad = results.flatMap { it.unsupported }.distinct(),
+                        problem = if (results.isEmpty()) t("کلید خراب یا ناقص است (کامل کپی نشده؟)", "The key is broken or incomplete (copied fully?)")
+                        else results.firstNotNullOfOrNull { if (isFarsi) it.problemFa else it.problemEn },
+                    )
+                } else {
+                    val uris = WireGuardConfText.toUris(text)
+                    val endpoint = uris.firstOrNull()?.substringAfter('@')?.substringBefore('?').orEmpty()
+                    Preview(
+                        links = uris.size,
+                        server = endpoint.ifBlank { "WireGuard" },
+                        ok = uris.map { if (it.startsWith("awg://")) "AmneziaWG" else "WireGuard" }.distinct(),
+                        bad = emptyList(),
+                        problem = if (uris.isEmpty()) t(
+                            "این متن نه کلید vpn:// است نه فایل ‎.conf کامل (PrivateKey، PublicKey و Endpoint لازم است).",
+                            "This is neither a vpn:// key nor a complete .conf (PrivateKey, PublicKey and Endpoint are needed).",
+                        ) else null,
+                    )
+                }
+            }
+            val message = buildString {
+                appendLine(t("🖥 سرور: ", "🖥 Server: ") + preview.server)
+                if (preview.ok.isNotEmpty()) appendLine(t("✅ قابل اجرا: ", "✅ Runs here: ") + preview.ok.joinToString(", ") + " · " + t("${preview.links} کانفیگ", "${preview.links} config(s)"))
+                if (preview.bad.isNotEmpty()) appendLine(t("⛔ اینجا اجرا نمی‌شود: ", "⛔ Cannot run here: ") + preview.bad.joinToString(", "))
+                if (preview.links == 0 && preview.problem != null) {
+                    appendLine()
+                    appendLine(preview.problem)
+                }
+            }.trim()
+            val builder = MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(if (preview.links > 0) t("🔐 کلید خوانده شد", "🔐 Key read") else t("⚠️ قابل استفاده نیست", "⚠️ Cannot be used"))
+                .setMessage(message)
+            if (preview.links > 0) {
+                builder
+                    .setPositiveButton(t("🚀 افزودن و اتصال", "🚀 Add & connect")) { _, _ -> saveAmneziaSubscription(text, preview.server, connect = true) }
+                    .setNeutralButton(t("➕ فقط افزودن", "➕ Add only")) { _, _ -> saveAmneziaSubscription(text, preview.server, connect = false) }
+                    .setNegativeButton(android.R.string.cancel, null)
+            } else {
+                builder.setPositiveButton(t("باشه", "OK"), null)
+                    .setNeutralButton(t("❓ راهنما", "❓ Help")) { _, _ -> showAmneziaHelpDialog() }
+            }
+            builder.create().showCatClientDialog()
+        }
+    }
+
+    private fun saveAmneziaSubscription(text: String, serverName: String, connect: Boolean) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val name = "$amneziaSubscriptionPrefix · ${serverName.take(40)}"
+        activityScope.launch {
+            val saved = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name == name }
+                    if (existing != null) userSubscriptionManager.update(existing.id, name, text)
+                    else userSubscriptionManager.add(name, text)
+                }
+            }.getOrElse { error ->
+                Toast.makeText(
+                    this@MainActivity,
+                    (if (isFarsi) "افزودن نشد: " else "Could not add: ") + (error.message ?: error.javaClass.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            Toast.makeText(
+                this@MainActivity,
+                if (isFarsi) "✅ «$name» اضافه شد (${saved.connectionCount} کانفیگ)" else "✅ Added “$name” (${saved.connectionCount} configs)",
+                Toast.LENGTH_LONG,
+            ).show()
+            renderSubscriptions()
+            if (connect) selectSubscriptionAndConnect(saved.id)
+        }
+    }
+
+    /** Selects a subscription and connects (or reconnects onto it), turning off engines that would override it. */
+    private fun selectSubscriptionAndConnect(subscriptionId: String) {
+        userSubscriptionManager.select(subscriptionId)
+        val curAether = aetherPreferenceStore.read()
+        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
+        orbotEnginePreferenceStore.setEnabled(false)
+        val wasStarted = buttonModel.state == VpnState.Started
+        onSubscriptionSelected() // reconnects by itself when already connected
+        renderAdvancedControls()
+        openScreen(SCREEN_HOME)
+        if (!wasStarted && buttonModel.state != VpnState.Starting) beginConnectFlow(Actions.CONNECT)
+    }
+
+    private fun showMyAmneziaConfigsDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        activityScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                userSubscriptionManager.list().filter { sub ->
+                    sub.name.startsWith(amneziaSubscriptionPrefix) ||
+                        AmneziaVpnKey.looksLikeKey(sub.input) ||
+                        sub.input.trimStart().startsWith("awg://", ignoreCase = true) ||
+                        sub.input.trimStart().startsWith("amneziawg://", ignoreCase = true)
+                }
+            }
+            if (items.isEmpty()) {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(t("📋 کانفیگ Amnezia ندارید", "📋 No Amnezia configs yet"))
+                    .setMessage(t("هنوز کلید Amnezia اضافه نکرده‌اید. کلید vpn:// را کپی کنید و «📋 کلید را کپی کرده‌ام» را بزنید.", "No Amnezia key added yet. Copy a vpn:// key and tap “📋 I copied the key”."))
+                    .setPositiveButton(t("باشه", "OK"), null)
+                    .create().showCatClientDialog()
+                return@launch
+            }
+            val selectedId = userSubscriptionManager.selectedId()
+            val labels = items.map { sub ->
+                (if (sub.id == selectedId) "● " else "") + sub.name + " · " + t("${sub.connectionCount} کانفیگ", "${sub.connectionCount} configs")
+            }.toTypedArray()
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(t("📋 کانفیگ‌های Amnezia من", "📋 My Amnezia configs"))
+                .setItems(labels) { _, which ->
+                    val sub = items[which]
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(sub.name)
+                        .setItems(
+                            arrayOf(t("🚀 وصل شو با این", "🚀 Connect with this"), t("🗑️ حذف", "🗑️ Delete")),
+                        ) { _, action ->
+                            when (action) {
+                                0 -> selectSubscriptionAndConnect(sub.id)
+                                1 -> MaterialAlertDialogBuilder(this@MainActivity)
+                                    .setTitle(t("حذف «${sub.name}»؟", "Delete “${sub.name}”?"))
+                                    .setNegativeButton(android.R.string.cancel, null)
+                                    .setPositiveButton(t("حذف", "Delete")) { _, _ ->
+                                        activityScope.launch {
+                                            withContext(Dispatchers.IO) { runCatching { userSubscriptionManager.delete(sub.id) } }
+                                            renderSubscriptions()
+                                            refreshLocationOptions()
+                                        }
+                                    }
+                                    .create().showCatClientDialog(positiveColor = ERROR)
+                            }
+                        }
+                        .create().showCatClientDialog()
+                }
+                .setNegativeButton(t("بستن", "Close"), null)
+                .create().showCatClientDialog()
+        }
+    }
+
+    private fun showAmneziaHelpDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val body = if (isFarsi) {
+            """
+            🔑 کلید Amnezia چیست؟
+            متنی که با vpn:// شروع می‌شود، یا فایل ‎.conf / ‎.vpn. همهٔ اطلاعات اتصال داخل همین متن است.
+
+            📥 از کجا بیاورم؟
+            • اگر سرور Amnezia دارید: در برنامهٔ Amnezia → «اشتراک‌گذاری» → سرور و پروتکل را انتخاب کنید → «فرمت AmneziaVPN» (vpn://) یا «فرمت AmneziaWG» (فایل ‎.conf) → کپی یا ذخیره.
+            • فروشنده‌ها و ربات‌هایی که «کانفیگ Amnezia» می‌فروشند همین vpn:// یا فایل ‎.conf را می‌دهند.
+
+            ✅ چه چیزهایی اینجا کار می‌کند؟
+            AmneziaWG (نسخهٔ ۱، ۱.۵ و ۲)، WireGuard، XRay (VLESS / Reality) و Shadowsocks.
+
+            ⛔ چه چیزهایی کار نمی‌کند؟
+            • OpenVPN، Cloak و IKEv2 داخل کلید (برنامه آن‌ها را نشان می‌دهد ولی اجرا نمی‌کند).
+            • کلیدهای «Amnezia Premium» و «Amnezia Free»: فقط توکن حساب دارند و سرورشان را خودِ برنامهٔ Amnezia می‌گیرد.
+            • کلید «دسترسی کامل مدیر» (SSH): کانفیگ کاربر نیست؛ در برنامهٔ Amnezia یک کاربر بسازید و آن را بفرستید.
+
+            🔒 امنیت: کلید شما فقط روی همین گوشی ذخیره می‌شود و برای کسی فرستاده نمی‌شود.
+            """.trimIndent()
+        } else {
+            """
+            🔑 What is an Amnezia key?
+            Text starting with vpn://, or a .conf / .vpn file. Everything needed to connect is inside it.
+
+            📥 Where do I get one?
+            • Your own Amnezia server: Amnezia app → Share → pick server and protocol → “AmneziaVPN format” (vpn://) or “AmneziaWG format” (.conf) → copy or save.
+            • Sellers and bots that sell “Amnezia configs” give exactly this vpn:// text or a .conf file.
+
+            ✅ What works here?
+            AmneziaWG (v1, 1.5 and 2), WireGuard, XRay (VLESS / Reality) and Shadowsocks.
+
+            ⛔ What does not?
+            • OpenVPN, Cloak and IKEv2 inside a key (shown, but not run).
+            • “Amnezia Premium” / “Amnezia Free” keys: they only hold an account token; only the Amnezia app can get their servers.
+            • Full-access admin keys (SSH): not a user config; create a user in the Amnezia app and share that.
+
+            🔒 Privacy: the key is stored only on this phone and is not sent anywhere.
+            """.trimIndent()
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "❓ راهنمای Amnezia" else "❓ Amnezia guide")
+            .setMessage(body)
+            .setPositiveButton(if (isFarsi) "فهمیدم" else "Got it", null)
+            .create()
+            .showCatClientDialog()
+    }
+
     private fun showAmneziaAndProtonWgHubDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val options = if (isFarsi) {

@@ -64,6 +64,10 @@ internal fun scannedSubscriptionName(source: String): String? {
     }.getOrNull()
     if (uriName != null) return uriName
 
+    if (AmneziaVpnKey.looksLikeKey(source)) {
+        return AmneziaVpnKey.decode(source)?.serverName?.let { "🔐 Amnezia · ${it.take(40)}" } ?: "🔐 Amnezia"
+    }
+
     if (source.startsWith("slipnet://", ignoreCase = true) ||
         source.startsWith("slipnet-enc://", ignoreCase = true) ||
         source.startsWith("dnst://", ignoreCase = true)
