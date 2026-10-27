@@ -4,6 +4,27 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta191] — 2026-10-27 (Panel 6.69.45)
+
+### Added
+- **Cloud tab → «🆓 Cat panel on other hosts»: one card per host — 🟩 KataBump, 🟦 Lucity, 🟪 Shiprr — like the Vercel card, the same 6 buttons on each:** ⚡ automatic install · 📦 save the files · ✍️ add my panel · 🔁 renew / update · 📋 my panels · ❓ step-by-step guide (plain words, Persian + English). Replaces the single guide button from beta190.
+- **KataBump ⚡ automatic install** with the user's own Pterodactyl client key (`ptlc_…`, stays on the phone; an admin `ptla_` key is explained and refused): lists the servers → asks for confirmation → writes `index.js`, `package.json`, `README.md`, `cat-config.json` → sets the start-file variable to `index.js` (a locked start file gets the launcher under its own name) → moves Node < 20 to the newest Node image offered → restarts → waits for `running` → tests the panel **from the phone** for up to 150 s → adds the configs. Every failure is explained (401/403 key or API off → use the zip; network → control.katabump.com filtered, connect a VPN; no server yet; panel silent → read the Console).
+- **A required «I read the rules and accept the risk» tick** before any KataBump install or zip: KataBump's acceptable-use policy §2.4 forbids proxies/VPNs (§2.5: one free service per household).
+- **🔁 KataBump renewal:** renewal has a captcha, so the app does not fake it — it keeps a 4-day countdown per server, sends a notification after 3 days (WorkManager; asks for the notification permission on Android 13+), opens the renew page, and «✅ I renewed» restarts the countdown.
+- **Lucity / Shiprr ⚡ automatic build:** with a GitHub token (pre-filled token page, scope `repo`) the app creates a **private** repository `cat-node-panel-xxxxx` with the 4 files (`CAT_NO_DISK=1`, fixed UUID in `cat-config.json`), then shows the 3 remaining taps on the host. «🔁 Update» puts this app version's launcher into the same repository again (existing files replaced via their blob sha) so the host rebuilds; `cat-config.json` is kept.
+- **📦 Save the files:** one zip (`cat-node-panel-<host>.zip`) in Download/ (MediaStore) plus a share sheet (FileProvider), with the next steps for that host.
+- **✍️ Add my panel / 🔎 test:** `/api/version` → `/sub/<UUID>` → a **real WebSocket handshake** on the first config's path (101 = configs can connect; anything else is reported honestly — this is how Shiprr's undocumented WebSocket support is checked). `http://IP:port` panels are reached with a plain socket because the app forbids clear-text HttpURLConnection; configs are added from the fetched subscription content.
+- **📋 My panels:** open the panel, get the configs again, copy the subscription link, renew/update, «🌐 Domain + TLS» (Cloudflare A record + Origin Rule port + SSL Flexible, with the server's IP and port filled in), remove from the list (the server itself is never touched).
+- **Launcher `cat-config.json`:** whitelisted keys only (`UUID`, `TROJAN_PASS`, `PANEL_PASSWORD`, `CAT_DATA_DIR`, `CAT_NO_DISK`, `CAT_PANEL_TAG`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`); host environment variables win. The app ships the launcher in `assets/node-panel/` (identical to `node-panel/`, checked by tests).
+
+### Fixed
+- Node image detection now reads «Node.js 22» as well as «Nodejs 22» / `nodejs_20` / `node:18` (found by actually running the tests).
+- `node-panel/README.md`: KataBump is no longer called «the first choice»; the AUP warning, the in-app buttons, `cat-config.json`, and a correct kdns.fr note (a kdns.fr name adds no TLS by itself) were added.
+
+### Tests
+- `NodeHostTest.kt` (10 tests: addresses, private allocations, start-file variable, Node image pick, countdown, `cat-config.json` content, zip, release URL, subscription/HTTP parsing, app launcher == repo launcher). Locally the helpers were also run against a **real launcher**: plain-http `/api/version`, `/sub/<UUID>` (2 links) and a WebSocket 101 on the config path, 404 on a wrong path.
+- `scripts/panels/node-host.test.mjs`: 34 checks (adds `cat-config.json`, env-over-file, unknown keys ignored).
+
 ## [1.10.0-beta190] — 2026-10-27 (Panel 6.69.45)
 
 ### Added
