@@ -246,17 +246,17 @@ class VercelPanelTest {
     @Test
     fun scanDiagnosisNamesTheCause() {
         val d = VercelScanDiagnosis
-        assertEquals(d.Cause.NONE, d.cause(5, 2, 1, listOf("HTTP/1.1 421")))
-        assertEquals(d.Cause.SNI_BLOCKED, d.cause(0, 0, 0, emptyList()))
-        assertEquals(d.Cause.VERCEL_421, d.cause(4, 1, 0, listOf("HTTP/1.1 421 Misdirected Request", "HTTP/1.1 421 Misdirected Request", "SSLException: reset")))
-        assertEquals(d.Cause.VERCEL_403, d.cause(4, 1, 0, listOf("HTTP/1.1 403 Forbidden")))
-        assertEquals(d.Cause.PATH_404, d.classify("HTTP/1.1 404 Not Found"))
-        assertEquals(d.Cause.NO_TUNNEL, d.classify("no answer through the tunnel"))
-        assertEquals(d.Cause.TIMEOUT, d.classify("SocketTimeoutException: Read timed out"))
-        assertEquals(d.Cause.TLS_RESET, d.classify("SSLHandshakeException: Connection reset by peer"))
-        d.Cause.values().filter { it != d.Cause.NONE }.forEach { c ->
+        assertEquals(VercelScanDiagnosis.Cause.NONE, d.cause(5, 2, 1, listOf("HTTP/1.1 421")))
+        assertEquals(VercelScanDiagnosis.Cause.SNI_BLOCKED, d.cause(0, 0, 0, emptyList()))
+        assertEquals(VercelScanDiagnosis.Cause.VERCEL_421, d.cause(4, 1, 0, listOf("HTTP/1.1 421 Misdirected Request", "HTTP/1.1 421 Misdirected Request", "SSLException: reset")))
+        assertEquals(VercelScanDiagnosis.Cause.VERCEL_403, d.cause(4, 1, 0, listOf("HTTP/1.1 403 Forbidden")))
+        assertEquals(VercelScanDiagnosis.Cause.PATH_404, d.classify("HTTP/1.1 404 Not Found"))
+        assertEquals(VercelScanDiagnosis.Cause.NO_TUNNEL, d.classify("no answer through the tunnel"))
+        assertEquals(VercelScanDiagnosis.Cause.TIMEOUT, d.classify("SocketTimeoutException: Read timed out"))
+        assertEquals(VercelScanDiagnosis.Cause.TLS_RESET, d.classify("SSLHandshakeException: Connection reset by peer"))
+        VercelScanDiagnosis.Cause.values().filter { it != VercelScanDiagnosis.Cause.NONE }.forEach { c ->
             assertTrue(d.explain(c, true).isNotBlank() && d.explain(c, false).isNotBlank())
         }
-        assertTrue(d.explain(d.Cause.SNI_BLOCKED, false).contains("76.76.21.21"))
+        assertTrue(d.explain(VercelScanDiagnosis.Cause.SNI_BLOCKED, false).contains("76.76.21.21"))
     }
 }
