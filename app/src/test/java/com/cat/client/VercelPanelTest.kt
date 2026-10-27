@@ -32,7 +32,9 @@ class VercelPanelTest {
     fun realAdapterLoadsThePanelFromLib() {
         val adapter = asset(VercelPanelPlanner.ADAPTER_ASSET).readText()
         assertEquals(adapter, VercelPanelPlanner.checkAdapter(adapter))
-        assertTrue(adapter.contains("env.CAT_PLATFORM = 'vercel'"))
+        // 6.69.45: the adapter is Vercel unless the Node launcher explicitly sets CAT_PLATFORM=node
+        assertTrue(adapter.contains("env.CAT_PLATFORM = PLATFORM"))
+        assertTrue(adapter.contains("String(process.env.CAT_PLATFORM || '').toLowerCase() === 'node' ? 'node' : 'vercel'"))
     }
 
     @Test
