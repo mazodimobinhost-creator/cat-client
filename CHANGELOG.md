@@ -4,6 +4,12 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta189] — 2026-10-27 (Panel 6.69.44)
+
+### Changed
+- **🟧 Cloudflare front is now visible:** a new button «🟧 کانفیگ Vercel پینگ نمی‌دهد؟ ساخت جلوی Cloudflare» sits right on the Cloud tab's Vercel card (it was 4 taps deep under «My projects» → panel). One linked panel → straight to the builder; several → pick one; none yet → plain-words explanation with «🔧 Link an existing panel» (updates it, keeps UUID/passwords, links it to the app) and «🐱 Build a panel».
+- The «✅ panel ready» screen after building/updating a panel also offers «🟧 No ping? Build a Cloudflare front».
+
 ## [1.10.0-beta188] — 2026-10-27 (Panel 6.69.44)
 
 ### Added

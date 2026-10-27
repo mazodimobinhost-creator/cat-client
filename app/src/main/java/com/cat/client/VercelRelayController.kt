@@ -1086,6 +1086,10 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         box.addView(button(t("🌐 باز کردن پنل", "🌐 Open the panel")) {
             runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(panelUrl))) }
         }, lp(6))
+        box.addView(button(t("🟧 پینگ نمی‌دهد؟ ساخت جلوی Cloudflare", "🟧 No ping? Build a Cloudflare front")) {
+            dialog?.dismiss()
+            showCfFront(saved)
+        }, lp(6))
         box.addView(button(t("📋 کپی همهٔ کانفیگ‌ها", "📋 Copy all configs")) { copy(saved.links.joinToString("\n")) }, lp(6))
         box.addView(button(t("📋 کپی لینک اشتراک", "📋 Copy the subscription link")) { copy(subUrl) }, lp(6))
         box.addView(button(t("🔳 نمایش QR", "🔳 Show QR")) { showQr(saved.links, "Vercel Panel · ${saved.projectName}") }, lp(6))
@@ -1478,6 +1482,39 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
     // ------------------------------------------------------------------------------------
     // 🟧 Cloudflare front (6.69.44): a small Worker on the user's own Cloudflare account that passes the
     // panel, subscription and tunnels on to this Vercel project — for lines where *.vercel.app is filtered.
+    /**
+     * Entry point from the Cloud tab's Vercel card: one panel → straight to the front builder; several → pick one;
+     * none known to this phone yet → explain, and offer «🔧 Update a panel» (it links an existing panel to the app,
+     * keeping its UUID/passwords), then this button works.
+     */
+    fun showCfFrontStart() {
+        val panels = store.list().filter { it.runtime == PANEL_RUNTIME }.sortedByDescending { it.createdAt }
+        when {
+            panels.size == 1 -> showCfFront(panels[0])
+            panels.size > 1 -> showDialog(MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🟧 جلوی Cloudflare برای کدام پنل؟", "🟧 Cloudflare front for which panel?"))
+                .setItems(panels.map { it.projectName + "\n" + it.host }.toTypedArray()) { d, which -> d.dismiss(); showCfFront(panels[which]) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create())
+            else -> showDialog(MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🟧 جلوی Cloudflare", "🟧 Cloudflare front"))
+                .setMessage(t(
+                    "این دکمه برای وقتی است که کانفیگ‌های پنل Vercel شما پینگ نمی‌دهند (vercel.app روی خط بسته است).\n\n" +
+                        "هنوز هیچ پنل Vercel در این برنامه ثبت نشده.\n" +
+                        "• اگر از قبل پنل دارید (مثلاً پنلی که روی سایت یا جای دیگر ساخته شده): «🔧 وصل کردن پنل موجود» را بزنید، توکن Vercel و اسم پروژه را بدهید. پنل به‌روز می‌شود (UUID و رمزها همان می‌مانند) و در برنامه ثبت می‌شود. بعد دوباره همین دکمهٔ 🟧 را بزنید.\n" +
+                        "• اگر پنل ندارید: «🐱 ساخت پنل» را بزنید.",
+                    "This is for when your Vercel panel's configs do not ping (vercel.app is blocked on the line).\n\n" +
+                        "No Vercel panel is linked to this app yet.\n" +
+                        "• Already have a panel (e.g. built elsewhere)? Tap “🔧 Link an existing panel”, give the Vercel token and project name. The panel is updated (UUID and passwords stay) and linked to the app. Then tap this 🟧 button again.\n" +
+                        "• No panel yet? Tap “🐱 Build a panel”.",
+                ))
+                .setPositiveButton(t("🔧 وصل کردن پنل موجود", "🔧 Link an existing panel")) { _, _ -> showUpdatePanel() }
+                .setNeutralButton(t("🐱 ساخت پنل", "🐱 Build a panel")) { _, _ -> showPanel() }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create())
+        }
+    }
+
     private fun showCfFront(item: SavedVercelRelay) {
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL

@@ -10910,6 +10910,11 @@ class MainActivity : Activity() {
             cloudActionButton(R.string.cloud_vercel_scan, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showIpScanner() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
+        // 6.69.44 🟧 Cloudflare front — right on the card (it used to be 4 taps deep under «My projects»).
+        vercelCard.addView(
+            cloudActionButton(R.string.cloud_vercel_cf_front, R.drawable.ic_cloud_tab, accent = false) { vercelRelay.showCfFrontStart() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
         body.addView(vercelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
         body.addView(
