@@ -73,7 +73,8 @@ class VercelRelayTest {
             assertFalse(parsed.params.containsKey("pbk"))
             assertTrue(parsed.remark.startsWith("🔺Vercel-"))
         }
-        assertEquals("vercel.com", VercelRelayPlanner.parse(links[0].link)!!.params["sni"])
+        // Vercel refuses SNI≠Host fronting (HTTP 421, live test), so every link carries the project SNI.
+        links.forEach { assertEquals("notes-ab12c.vercel.app", VercelRelayPlanner.parse(it.link)!!.params["sni"]) }
         assertEquals("notes-ab12c.vercel.app", VercelRelayPlanner.parse(links[2].link)!!.params["sni"])
     }
 
@@ -122,8 +123,29 @@ class VercelRelayTest {
     }
 
     @Test
+    fun vercelJsonDisablesFrameworkDetection() {
+        // Without this, a project preset as Next.js fails the build with NEXT_NO_VERSION (live test).
+        VercelRuntime.values().forEach { runtime ->
+            assertTrue(VercelRelayPlanner.vercelJson(runtime, "fra1", 300).contains("\"framework\":null"))
+        }
+    }
+
+    @Test
     fun picksProductionAlias() {
         assertEquals("notes-ab12c.vercel.app", VercelRelayPlanner.pickProductionHost(listOf("notes-ab12c-git-main-me.vercel.app", "notes-ab12c.vercel.app"), "notes-ab12c"))
         assertEquals("notes-ab12c-me.vercel.app", VercelRelayPlanner.pickProductionHost(listOf("notes-ab12c-git-main-me.vercel.app", "notes-ab12c-me.vercel.app"), "notes-ab12c"))
+        // Live-test shape: domains list + deployment aliases; the team alias is SSO-protected.
+        assertEquals(
+            "notes-r4m8t.vercel.app",
+            VercelRelayPlanner.pickProductionHost(listOf("notes-r4m8t-samiyarms021-2642.vercel.app", "https://notes-r4m8t.vercel.app/"), "notes-r4m8t", "samiyarms021-2642"),
+        )
+        assertEquals(
+            "notes-r4m8t-x1.vercel.app",
+            VercelRelayPlanner.pickProductionHost(listOf("notes-r4m8t-samiyarms021-2642.vercel.app", "notes-r4m8t-x1.vercel.app"), "notes-r4m8t", "samiyarms021-2642"),
+        )
+        assertEquals(
+            "notes-r4m8t-team.vercel.app",
+            VercelRelayPlanner.pickProductionHost(listOf("notes-r4m8t-team.vercel.app"), "notes-r4m8t", "team"),
+        )
     }
 }

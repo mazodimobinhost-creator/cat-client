@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta178] — 2026-10-27 (Panel 6.69.37)
+
+### Fixed (after a live test on a real Vercel Hobby account)
+- **Vercel relay — first deploy:** projects are created with a framework preset and `vercel.json` sets `"framework": null`, so the first production deploy no longer stops at "projectSettings required" or fails with `NEXT_NO_VERSION`.
+- **Vercel relay — host selection:** the project domain list is always queried and `<project>.vercel.app` is preferred; the team-scoped `<project>-<team>.vercel.app` alias (behind Vercel Authentication, redirects to vercel.com/login) and `-git-` aliases are skipped. The probe now recognises that login redirect.
+- **Vercel relay — links:** Vercel answers SNI=`vercel.com` + Host=`<project>` with HTTP 421 (no domain fronting), so the first config now dials the `vercel.com` address with the project SNI. Verified live: guard page, 48 KB upload (SHA-256 match), streamed download over HTTP/1.1 and HTTP/2, and all of `vercel.com` / project domain / 76.76.21.21 / 64.29.17.65 / 216.198.79.65 for both Node and Edge runtimes.
+
 ## [1.10.0-beta177] — 2026-10-27 (Panel 6.69.37)
 
 ### Added

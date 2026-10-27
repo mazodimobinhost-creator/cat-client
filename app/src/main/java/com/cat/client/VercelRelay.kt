@@ -173,11 +173,11 @@ internal object VercelRelayPlanner {
 
     fun vercelJson(runtime: VercelRuntime, region: String, maxDuration: Int): String =
         if (runtime == VercelRuntime.Node) {
-            "{\"version\":2,\"regions\":[${jsonString(region)}]," +
+            "{\"version\":2,\"framework\":null,\"regions\":[${jsonString(region)}]," +
                 "\"functions\":{\"api/index.js\":{\"maxDuration\":$maxDuration}}," +
                 "\"rewrites\":[{\"source\":\"/(.*)\",\"destination\":\"/api/index\"}]}"
         } else {
-            "{\"version\":2,\"rewrites\":[{\"source\":\"/(.*)\",\"destination\":\"/api/index\"}]}"
+            "{\"version\":2,\"framework\":null,\"rewrites\":[{\"source\":\"/(.*)\",\"destination\":\"/api/index\"}]}"
         }
 
     fun packageJson(projectName: String): String =
@@ -215,7 +215,9 @@ internal object VercelRelayPlanner {
         source.params["extra"]?.takeIf { it.isNotBlank() }?.let { keep["extra"] = it }
         val path = normalizePath(source.params["path"].orEmpty())
         val variants = mutableListOf<Triple<String, String, String>>() // address, sni, label
-        variants += Triple("vercel.com", "vercel.com", "front")
+        // Live test on Vercel (Oct 2026): SNI=vercel.com with Host=<project> is refused with HTTP 421
+        // (no domain fronting), but dialing vercel.com's address with SNI=<project> works.
+        variants += Triple("vercel.com", projectHost, "vcom")
         variants += Triple(projectHost, projectHost, "direct")
         VERCEL_IPS.forEachIndexed { index, ip -> variants += Triple(ip, projectHost, "ip${index + 1}") }
         return variants.map { (address, sni, label) ->
@@ -234,7 +236,7 @@ internal object VercelRelayPlanner {
             val name = "🔺Vercel-$label · $baseName"
             val link = "${source.scheme}://${encode(source.credential)}@$address:443?$query#${encode(name)}"
             val (fa, en) = when (label) {
-                "front" -> "از طریق vercel.com (اول این را امتحان کنید)" to "Via vercel.com (try this first)"
+                "vcom" -> "از طریق آدرس vercel.com (اول این را امتحان کنید)" to "Via the vercel.com address (try this first)"
                 "direct" -> "مستقیم با دامنه پروژه" to "Direct to the project domain"
                 else -> "با IP ورسل $address" to "Through Vercel IP $address"
             }
@@ -281,11 +283,21 @@ internal object VercelRelayPlanner {
         return "/" + (1..10).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
     }
 
-    /** Picks the shortest *.vercel.app alias (the production one), else null. */
-    fun pickProductionHost(aliases: List<String>, projectName: String): String? {
-        val clean = aliases.map { it.trim().removePrefix("https://").removeSuffix("/").lowercase() }.filter { it.endsWith(".vercel.app") }
-        clean.firstOrNull { it == "$projectName.vercel.app" }?.let { return it }
-        return clean.minByOrNull { it.length }
+    /**
+     * Picks the public production host. Live test: `<project>.vercel.app` is public, while the
+     * team-scoped `<project>-<team>.vercel.app` alias and `-git-` branch aliases sit behind
+     * "Vercel Authentication" (redirect to vercel.com/login). So: exact name first, then the
+     * shortest alias that is neither team-scoped nor a branch alias, then anything left.
+     */
+    fun pickProductionHost(aliases: List<String>, projectName: String, teamSlug: String? = null): String? {
+        val clean = aliases.map { it.trim().removePrefix("https://").removeSuffix("/").lowercase() }
+            .filter { it.endsWith(".vercel.app") }.distinct()
+        clean.firstOrNull { it == "${projectName.lowercase()}.vercel.app" }?.let { return it }
+        val slug = teamSlug?.trim()?.lowercase().orEmpty()
+        val open = clean.filter { host ->
+            !host.contains("-git-") && (slug.isEmpty() || !host.endsWith("-$slug.vercel.app"))
+        }
+        return open.minByOrNull { it.length } ?: clean.minByOrNull { it.length }
     }
 
     fun extractLinks(text: String): List<String> =
@@ -343,7 +355,9 @@ internal class VercelApi(private val token: String) {
 
     fun createProject(name: String): JSONObject {
         ensureScope()
-        val body = JSONObject().put("name", name).put("framework", JSONObject.NULL)
+        // A preset framework avoids Vercel's "projectSettings required" auto-detect stop on the
+        // first deploy; vercel.json's "framework": null then turns it off for the relay (live-tested).
+        val body = JSONObject().put("name", name).put("framework", "nextjs")
         return request("POST", "/v11/projects", body)
     }
 

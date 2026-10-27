@@ -35,7 +35,7 @@ import java.util.Date
 
 /**
  * "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their
- * token, then builds ready configs (vercel.com front, project domain, Vercel IPs) and adds them.
+ * token, then builds ready configs (vercel.com address, project domain, Vercel IPs — all with the project SNI) and adds them.
  */
 class VercelRelayController(
     private val activity: Activity,
@@ -126,9 +126,9 @@ class VercelRelayController(
         val scroll = ScrollView(activity).apply { addView(box) }
 
         box.addView(label(t(
-            "Vercel مثل یک واسطهٔ تمیز است: گوشی شما فقط با vercel.com حرف می‌زند و Vercel ترافیک را به سرور XHTTP شما می‌رساند. " +
+            "Vercel مثل یک واسطهٔ تمیز است: گوشی شما فقط با Vercel حرف می‌زند و Vercel ترافیک را به سرور XHTTP شما می‌رساند. " +
                 "به درد شما می‌خورد اگر یک کانفیگ XHTTP دارید که آدرسش فیلتر شده، یا یک سرور شخصی (VPS) دارید.",
-            "Vercel acts as a clean middleman: your phone only talks to vercel.com and Vercel carries the traffic to your XHTTP server. " +
+            "Vercel acts as a clean middleman: your phone only talks to Vercel and Vercel carries the traffic to your XHTTP server. " +
                 "Useful when you have an XHTTP config whose address got filtered, or your own server (VPS).",
         ), 13f, palette.textPrimary, 0))
         box.addView(button(t("❓ راهنمای ساده (هر دکمه چه می‌کند)", "❓ Simple guide (what each button does)")) { showGuide() }, lp(8))
@@ -275,7 +275,7 @@ Node / Edge: اگر نمی‌دانید، همان Node را بگذارید.
 
 🚀 «ساخت»: قبل از هر کاری فهرست کارهایی که در حساب Vercel شما انجام می‌شود را نشان می‌دهد و تأیید می‌خواهد. بعد یک پروژهٔ کوچک می‌سازد، منتشر می‌کند، خودش تست می‌گیرد و چند کانفیگ آماده می‌دهد.
 
-➕ «افزودن به برنامه»: کانفیگ‌های ساخته‌شده به‌صورت یک اشتراک «Vercel» اضافه می‌شوند؛ بعد مثل بقیه پینگ و وصل کنید. اول «vercel.com» را امتحان کنید، اگر نشد بقیه را.
+➕ «افزودن به برنامه»: کانفیگ‌های ساخته‌شده به‌صورت یک اشتراک «Vercel» اضافه می‌شوند؛ بعد مثل بقیه پینگ و وصل کنید. اول «آدرس vercel.com» را امتحان کنید، اگر نشد بقیه را. (نام پروژه در SNI دیده می‌شود؛ Vercel اجازهٔ پنهان کردن آن را نمی‌دهد.)
 
 📁 «پروژه‌های من»: پروژه‌هایی که برنامه ساخته را نشان می‌دهد؛ می‌توانید دوباره کانفیگ‌ها را بگیرید یا پروژه را از حساب Vercel پاک کنید.
 
@@ -294,7 +294,7 @@ Node / Edge: if unsure, keep Node.
 
 🚀 “Build”: first lists everything that will happen in your Vercel account and asks for confirmation. Then it creates a small project, deploys it, tests it and gives ready configs.
 
-➕ “Add to app”: the configs are added as a “Vercel” subscription; ping and connect like any other. Try “vercel.com” first, then the others.
+➕ “Add to app”: the configs are added as a “Vercel” subscription; ping and connect like any other. Try “vercel.com address” first, then the others. (The project name is visible in SNI; Vercel does not allow hiding it.)
 
 📁 “My projects”: projects this app created; get the configs again or delete the project from Vercel.
 
@@ -534,10 +534,13 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             deployment = api.deployment(deploymentId)
             state = deployment.optString("readyState")
         }
-        val aliases = mutableListOf<String>()
+        // Always ask the project's domain list: the deployment's own alias list may only carry the
+        // team-scoped alias, which is behind Vercel Authentication (seen in the live test).
+        val aliases = api.projectDomains(projectId).toMutableList()
         deployment.optJSONArray("alias")?.let { arr -> for (i in 0 until arr.length()) aliases += arr.optString(i) }
-        if (aliases.none { it.endsWith(".vercel.app") }) aliases += api.projectDomains(projectId)
-        val host = VercelRelayPlanner.pickProductionHost(aliases, name) ?: "$name.vercel.app"
+        deployment.optJSONArray("automaticAliases")?.let { arr -> for (i in 0 until arr.length()) aliases += arr.optString(i) }
+        val teamSlug = deployment.optJSONObject("team")?.optString("slug")
+        val host = VercelRelayPlanner.pickProductionHost(aliases, name, teamSlug) ?: "$name.vercel.app"
         step("   ✓ https://$host")
 
         step(t("۵/۶ تست واقعی از همین گوشی…", "5/6 Real test from this phone…"))
@@ -559,13 +562,14 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             val r = httpGet("https://$host/", 10_000)
             if (r.code == 200 && r.body.contains("Nothing to see")) { pageOk = true; break }
             lastError = if (r.code > 0) "HTTP ${r.code}" else r.error
-            if (r.code == 401 || r.code == 403) {
+            val toLogin = r.code in 300..399 && (r.location.contains("vercel.com/login") || r.location.contains("sso-api"))
+            if (r.code == 401 || r.code == 403 || toLogin) {
                 return t("   ⚠️ پروژه قفل «Vercel Authentication» دارد. در داشبورد Vercel ← پروژه ← Settings ← Deployment Protection آن را خاموش کنید.", "   ⚠️ The project is behind “Vercel Authentication”. Turn it off in Vercel → project → Settings → Deployment Protection.")
             }
             delay(4_000)
         }
         if (!pageOk) {
-            return t("   ⚠️ از این شبکه به ‎$host نرسیدیم ($lastError). ممکن است دامنه روی خط شما بسته باشد؛ کانفیگ «vercel.com» و آی‌پی‌ها را در برنامه تست کنید.", "   ⚠️ Could not reach $host from this network ($lastError). The domain may be blocked on your line; test the vercel.com and IP configs in the app.")
+            return t("   ⚠️ از این شبکه به ‎$host نرسیدیم ($lastError). ممکن است دامنه روی خط شما بسته باشد؛ کانفیگ «آدرس vercel.com» و آی‌پی‌ها را در برنامه تست کنید.", "   ⚠️ Could not reach $host from this network ($lastError). The domain may be blocked on your line; test the vercel.com-address and IP configs in the app.")
         }
         val base = if (path.endsWith('/')) path.dropLast(1) else path
         val through = httpGet("https://$host$base/cat-probe-${System.currentTimeMillis() % 100000}", 8_000)
@@ -580,7 +584,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         }
     }
 
-    private data class Probe(val code: Int, val body: String, val vercelError: String, val timedOut: Boolean, val error: String)
+    private data class Probe(val code: Int, val body: String, val vercelError: String, val timedOut: Boolean, val error: String, val location: String = "")
 
     private fun httpGet(url: String, timeoutMs: Int): Probe = try {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -593,7 +597,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
             val body = runCatching { stream?.bufferedReader()?.use { r -> CharArray(400).let { buf -> val n = r.read(buf); if (n > 0) String(buf, 0, n) else "" } } }.getOrNull().orEmpty()
-            Probe(code, body, c.getHeaderField("x-vercel-error").orEmpty(), false, "")
+            Probe(code, body, c.getHeaderField("x-vercel-error").orEmpty(), false, "", c.getHeaderField("Location").orEmpty())
         } finally {
             c.disconnect()
         }
@@ -617,8 +621,8 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         box.addView(button(t("📋 کپی همهٔ کانفیگ‌ها", "📋 Copy all configs")) { copy(saved.links.joinToString("\n")) }, lp(6))
         box.addView(button(t("🔳 نمایش QR", "🔳 Show QR")) { showQr(saved.links, "Vercel · ${saved.projectName}") }, lp(6))
         box.addView(label(t(
-            "ترتیب امتحان: ۱) vercel.com ۲) دامنهٔ پروژه ۳) آی‌پی‌های Vercel. بعد از افزودن، «تست پینگ» برنامه آن‌هایی که روی خط شما کار می‌کنند را نشان می‌دهد.",
-            "Try order: 1) vercel.com 2) project domain 3) Vercel IPs. After adding, the app's ping test shows which work on your line.",
+            "ترتیب امتحان: ۱) آدرس vercel.com ۲) دامنهٔ پروژه ۳) آی‌پی‌های Vercel. بعد از افزودن، «تست پینگ» برنامه آن‌هایی که روی خط شما کار می‌کنند را نشان می‌دهد.",
+            "Try order: 1) vercel.com address 2) project domain 3) Vercel IPs. After adding, the app's ping test shows which work on your line.",
         ), 11.5f, palette.textSecondary, 10))
         dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("✅ کانفیگ Vercel آماده است", "✅ Vercel config is ready"))
