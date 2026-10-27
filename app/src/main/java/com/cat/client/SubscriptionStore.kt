@@ -42,6 +42,12 @@ class SubscriptionStore(private val context: Context) {
     fun readUserSubscriptions(): List<UserSubscription> {
         val file = userSubscriptionsFile()
         if (!file.exists() || file.length() == 0L) return emptyList()
+        // The list is read dozens of times per screen; re-parsing the JSON (inline subscriptions can be large)
+        // every time made taps stutter. Reuse it while the file is unchanged (this process invalidates on write).
+        val stamp = file.lastModified() to file.length()
+        synchronized(listMemoLock) {
+            if (listMemoPath == file.path && listMemoStamp == stamp) listMemo?.let { return it }
+        }
         var needsSourceKindMigration = false
         val subscriptions = runCatching {
             val items = JSONArray(file.readText())
@@ -75,6 +81,12 @@ class SubscriptionStore(private val context: Context) {
         }.getOrDefault(emptyList())
         if (needsSourceKindMigration && subscriptions.isNotEmpty()) {
             runCatching { writeUserSubscriptions(subscriptions) }
+        } else if (subscriptions.isNotEmpty()) {
+            synchronized(listMemoLock) {
+                listMemoPath = file.path
+                listMemoStamp = stamp
+                listMemo = subscriptions
+            }
         }
         return subscriptions
     }
@@ -132,6 +144,16 @@ class SubscriptionStore(private val context: Context) {
     fun readCatalog(subscriptionId: String = DEFAULT_SUBSCRIPTION_ID): SubscriptionCatalog? {
         val file = catalogFile(subscriptionId)
         if (!file.exists() || file.length() == 0L) return null
+        val stamp = file.lastModified() to file.length()
+        synchronized(listMemoLock) {
+            catalogMemo[file.path]?.takeIf { it.first == stamp }?.let { return it.second }
+        }
+        return parseCatalogFile(file)?.also { parsed ->
+            synchronized(listMemoLock) { catalogMemo[file.path] = stamp to parsed }
+        }
+    }
+
+    private fun parseCatalogFile(file: File): SubscriptionCatalog? {
         return runCatching {
             val root = JSONObject(file.readText())
             val profiles = root.optJSONArray("profiles").orEmptyObjects().mapNotNull { item ->
@@ -177,6 +199,7 @@ class SubscriptionStore(private val context: Context) {
                     .put("shareLink", profile.shareLink.orEmpty()),
             )
         }
+        synchronized(listMemoLock) { catalogMemo.remove(catalogFile(subscriptionId).path) }
         writeFile(
             catalogFile(subscriptionId),
             JSONObject()
@@ -184,6 +207,7 @@ class SubscriptionStore(private val context: Context) {
                 .put("profiles", profiles)
                 .toString(),
         )
+        synchronized(listMemoLock) { catalogMemo.remove(catalogFile(subscriptionId).path) }
     }
 
     fun readConnectionDelayRecords(
@@ -387,9 +411,14 @@ class SubscriptionStore(private val context: Context) {
         File(context.filesDir, "mihomo/subscriptions/$id.yaml")
 
     private fun writeUserSubscriptions(subscriptions: List<UserSubscription>) {
+        synchronized(listMemoLock) { listMemo = null; listMemoStamp = null }
         val items = JSONArray()
         subscriptions.forEach { items.put(it.toJson()) }
-        writeFile(userSubscriptionsFile(), items.toString())
+        try {
+            writeFile(userSubscriptionsFile(), items.toString())
+        } finally {
+            synchronized(listMemoLock) { listMemo = null; listMemoStamp = null }
+        }
     }
 
     private fun UserSubscription.toJson(): JSONObject = JSONObject()
@@ -417,6 +446,12 @@ class SubscriptionStore(private val context: Context) {
     }
 
     companion object {
+        private val listMemoLock = Any()
+        private var listMemoPath: String? = null
+        private var listMemoStamp: Pair<Long, Long>? = null
+        private var listMemo: List<UserSubscription>? = null
+        private val catalogMemo = HashMap<String, Pair<Pair<Long, Long>, SubscriptionCatalog>>()
+
         const val PRIVATE_SUBSCRIPTION_ID = "catclient-private"
         const val PUBLIC_SUBSCRIPTION_ID = "catclient"
         val BUILT_IN_SUBSCRIPTION_IDS = listOfNotNull(

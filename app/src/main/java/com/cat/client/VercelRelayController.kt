@@ -1460,10 +1460,13 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         actions.forEach { (text, run) -> box.addView(action(text, run = run), lp(6)) }
         showDialog(dialog)
 
-        val bundled = runCatching {
-            PanelUpdate.parseVersion(activity.assets.open(VercelPanelPlanner.PANEL_ASSET).bufferedReader().use { it.readText() })
-        }.getOrNull().orEmpty()
         scope.launch {
+            // Reading the 640 KB panel asset on the UI thread made this dialog stutter on open.
+            val bundled = withContext(Dispatchers.IO) {
+                runCatching {
+                    PanelUpdate.parseVersion(activity.assets.open(VercelPanelPlanner.PANEL_ASSET).bufferedReader().use { it.readText() })
+                }.getOrNull().orEmpty()
+            }
             val probe = withContext(Dispatchers.IO) { httpGet("https://${item.host}/api/version", 15_000) }
             val health = VercelPanelPlanner.health(probe.code, probe.body, bundled, probe.vercelError.ifBlank { probe.error })
             if (!dialog.isShowing) return@launch

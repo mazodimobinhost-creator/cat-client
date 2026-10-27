@@ -221,6 +221,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             replaceSubscriptionSnapshot(file, subscription.snapshot.rawConfig) {
                 store.saveCatalog(id, subscription.snapshot.catalog)
             }
+            ParsedSnapshotMemo.seed(id, subscription.snapshot.rawConfig, subscription.snapshot.catalog.fetchedAt, subscription.snapshot)
             return
         }
 
@@ -237,6 +238,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             ),
             subscription.snapshot.rawConfig,
         )
+        ParsedSnapshotMemo.seed(id, subscription.snapshot.rawConfig, fetchedAt, subscription.snapshot)
     }
 
     override fun recordFailure(id: String, error: Throwable) {
@@ -344,7 +346,7 @@ internal class SubscriptionSnapshotResolver(
         val entry = persistence.read(id)
             ?: throw IOException("Subscription no longer exists")
         val cached = entry.cachedYaml?.let { yaml ->
-            runCatching { parseSubscriptionSnapshot(yaml, entry.fetchedAt) }.getOrNull()
+            runCatching { ParsedSnapshotMemo.parse(id, yaml, entry.fetchedAt) }.getOrNull()
         }
         val now = nowMs()
         if (
@@ -376,8 +378,48 @@ internal class SubscriptionSnapshotResolver(
     fun cached(id: String): MihomoSubscriptionSnapshot? {
         val entry = persistence.read(id) ?: return null
         val yaml = entry.cachedYaml ?: return null
-        return runCatching { parseSubscriptionSnapshot(yaml, entry.fetchedAt) }.getOrNull()
+        return runCatching { ParsedSnapshotMemo.parse(id, yaml, entry.fetchedAt) }.getOrNull()
     }
+}
+
+/**
+ * Parsing a cached subscription YAML (up to 2 MB, thousands of proxies) took long enough to freeze the screen,
+ * and the UI asked for it again on every tap (select a subscription, open its test list, the picker, the
+ * optimizer…). The parsed result is kept for the few most recently used subscriptions and reused while the YAML
+ * is byte-for-byte the same (same length + hash + fetch time); any refresh or edit parses again.
+ */
+internal object ParsedSnapshotMemo {
+    private const val MAX_ENTRIES = 4
+
+    private class Slot(val fetchedAt: Long, val length: Int, val hash: Int, val snapshot: MihomoSubscriptionSnapshot)
+
+    private val slots = LinkedHashMap<String, Slot>(8, 0.75f, true)
+
+    fun parse(id: String, yaml: String, fetchedAt: Long): MihomoSubscriptionSnapshot {
+        val length = yaml.length
+        val hash = yaml.hashCode()
+        synchronized(slots) {
+            val hit = slots[id]
+            if (hit != null && hit.fetchedAt == fetchedAt && hit.length == length && hit.hash == hash) return hit.snapshot
+        }
+        val parsed = parseSubscriptionSnapshot(yaml, fetchedAt)
+        synchronized(slots) {
+            slots[id] = Slot(fetchedAt, length, hash, parsed)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+        return parsed
+    }
+
+    /** Stores an already parsed snapshot (import / refresh) so the next screen does not parse it again. */
+    fun seed(id: String, yaml: String, fetchedAt: Long, snapshot: MihomoSubscriptionSnapshot) {
+        if (yaml.isBlank()) return
+        synchronized(slots) {
+            slots[id] = Slot(fetchedAt, yaml.length, yaml.hashCode(), snapshot)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+    }
+
+    fun clear() = synchronized(slots) { slots.clear() }
 }
 
 private fun parseSubscriptionSnapshot(yaml: String, fetchedAt: Long): MihomoSubscriptionSnapshot =

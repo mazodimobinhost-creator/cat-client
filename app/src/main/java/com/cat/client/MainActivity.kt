@@ -3391,6 +3391,24 @@ class MainActivity : Activity() {
         CrashWatch.markHealthy(this)
         renderFragmentCarrierLine()
         appUpdateUi.onResume()
+        prewarmSubscriptionSnapshots()
+    }
+
+    /**
+     * Parses the selected subscription (and a few others) in the background so the first tap on a subscription,
+     * the connection list or the picker does not freeze the UI while a large YAML is parsed.
+     */
+    private fun prewarmSubscriptionSnapshots() {
+        activityScope.launch(Dispatchers.IO) {
+            runCatching {
+                val selectedId = SubscriptionStore(this@MainActivity).readSelectedSubscriptionId()
+                val ids = (listOf(selectedId) + userSubscriptionManager.list().map { it.id })
+                    .distinct()
+                    .filterNot { SubscriptionStore.isBuiltInSubscription(it) }
+                    .take(3)
+                ids.forEach { id -> runCatching { userSubscriptionManager.cachedSnapshot(id) } }
+            }
+        }
     }
 
     override fun onPause() {
@@ -18295,7 +18313,15 @@ class MainActivity : Activity() {
         name.startsWith("⚡ تانل ترکیبی") || name.startsWith("⚡ Fused") || name.startsWith("📡 تانل سبز") || name.startsWith("📡 Green")
 
     /** Raw texts of every user subscription (inline links + cached YAML snapshots) and, optionally, the clipboard. */
-    private fun collectFusionRawTexts(includeClipboard: Boolean = true): List<String> {
+    /** Clipboard text that looks small enough to be configs (UI thread). */
+    private fun readClipboardConfigText(): String? = runCatching {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
+            .takeIf { it.isNotBlank() && it.length < UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES }
+    }.getOrNull()
+
+    /** Blocking (reads + parses every cached subscription): call on Dispatchers.IO. */
+    private fun collectFusionRawTexts(clipboardText: String?): List<String> {
         val rawTexts = mutableListOf<String>()
         userSubscriptionManager.list().forEach { sub ->
             if (isFusedSubscriptionName(sub.name)) return@forEach
@@ -18304,22 +18330,17 @@ class MainActivity : Activity() {
             }
             userSubscriptionManager.cachedSnapshot(sub.id)?.rawConfig?.takeIf { it.isNotBlank() }?.let { rawTexts.add(it) }
         }
-        if (includeClipboard) {
-            runCatching {
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim().orEmpty()
-                if (clip.isNotBlank() && clip.length < UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) rawTexts.add(0, clip)
-            }
-        }
+        clipboardText?.takeIf { it.isNotBlank() }?.let { rawTexts.add(0, it) }
         return rawTexts
     }
 
     private fun showMultiConfigSpeedFusionDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        val rawTexts = collectFusionRawTexts(includeClipboard = true)
+        val clipText = readClipboardConfigText()
 
         activityScope.launch {
             val bundle = withContext(Dispatchers.IO) {
+                val rawTexts = collectFusionRawTexts(clipText)
                 LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(rawTexts, maxProxies = 12)
             }
             if (bundle == null || bundle.totalProxiesFused == 0) {
@@ -18511,7 +18532,7 @@ class MainActivity : Activity() {
      */
     private fun showIspProtocolMatrixDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        val rawTexts = collectFusionRawTexts(includeClipboard = true)
+        val clipText = readClipboardConfigText()
         val progress = MaterialAlertDialogBuilder(this)
             .setTitle(if (isFarsi) "📡 در حال تست واقعی خط شما…" else "📡 Probing your line…")
             .setMessage(
@@ -18523,7 +18544,7 @@ class MainActivity : Activity() {
         progress.showCatClientDialog()
         activityScope.launch {
             val report = withContext(Dispatchers.IO) {
-                runCatching { IspProtocolMatrix.run(rawTexts) }.getOrNull()
+                runCatching { IspProtocolMatrix.run(collectFusionRawTexts(clipText)) }.getOrNull()
             }
             runCatching { progress.dismiss() }
             if (report == null) {
@@ -19636,14 +19657,19 @@ class MainActivity : Activity() {
             val clipText = cm.primaryClip?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString().orEmpty().trim()
             if (clipText.isNotBlank()) rawSources += clipText
             val selectedId = userSubscriptionManager.selectedId()
-            val subs = userSubscriptionManager.list()
+            val subs = withContext(Dispatchers.IO) { userSubscriptionManager.list() }
             val activeSub = subs.firstOrNull { it.id == selectedId } ?: subs.firstOrNull()
-            for (sub in subs) {
-                rawSources += sub.input
-                val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
-                snap?.catalog?.profiles?.forEach { p ->
-                    val link = p.shareLink?.trim().orEmpty()
-                    if (link.isNotEmpty()) rawSources += link
+            // Parsing every cached subscription on the UI thread froze the app here.
+            rawSources += withContext(Dispatchers.IO) {
+                buildList {
+                    for (sub in subs) {
+                        add(sub.input)
+                        val snap = runCatching { userSubscriptionManager.cachedSnapshot(sub.id) }.getOrNull()
+                        snap?.catalog?.profiles?.forEach { p ->
+                            val link = p.shareLink?.trim().orEmpty()
+                            if (link.isNotEmpty()) add(link)
+                        }
+                    }
                 }
             }
 
