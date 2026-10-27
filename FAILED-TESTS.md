@@ -1,26 +1,12 @@
-# Android failure report (dda01c4)
+# Android failure report (eb8cf18)
 
 
 ## files with compile errors
-     19 app/src/main/java/com/cat/client/ZedShapes.kt
+     51 app/src/main/java/com/cat/client/VercelRelayController.kt
+      1 app/src/main/java/com/cat/client/VercelRelay.kt
+      1 app/src/main/java/com/cat/client/VercelPanel.kt
 ## log tail
 ### step18.log
-✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … which is asked to CONNECT to the real target
-✓ the app scanner line pasted RAW into the box («#SOCKS5 ip» remark): … and the client payload reaches the far side through it
-✓ a t.me/socks share: the sub has a 🧦 config for it
-✓ a t.me/socks share: the 🧦 name carries no relay host:port
-✓ a t.me/socks share: the worker exits through that SOCKS5 server (first dial)
-✓ a t.me/socks share: … which is asked to CONNECT to the real target
-✓ a t.me/socks share: … and the client payload reaches the far side through it
-
-PROXYIP DATA-PLANE TESTS PASSED
-✓ syntax check passed
-✓ subQuery keeps only in-range ports (70000/0/-5/abc/99999 dropped)
-✓ subQuery accepts 65535, rejects 65536
-✓ ?port=70000: sub is NOT empty (falls back to the panel port walk)
-✓ ?port=70000: every emitted port is dialable
-✓ ?port=99999: sing-box carries no out-of-range port
-✓ ?port=99999: clash carries no out-of-range port
 ✓ ?port=99999: xray carries no out-of-range port
 ✓ ?addr=ip#DE: sub is not empty
 ✓ ?addr=ip#DE: every server is the BARE ip
@@ -37,7 +23,7 @@ PROXYIP DATA-PLANE TESTS PASSED
 ✓ ?addr=mix of junk + one ip: only the real ip is served
 ✓ ?addr=all junk: the panel address list takes over (never an empty sub)
 ADDR/PORT QUERY TESTS PASSED
-(node:3484) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
+(node:3326) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=aq-unit is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -55,7 +41,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ space-txt IPs keep verified ports + repo country tag
 ✓ country import writes the selected ProxyIPs into the active list
 ✓ reselecting a country is actionable but reports zero real additions
-(node:3499) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
+(node:3341) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?panel=pxfeeds is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -65,7 +51,7 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 PROXYIP FEED TESTS PASSED
 ✓ survival apply → ok + changed list
 ✓ survival returns the survive link
-(node:3518) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3360) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -95,10 +81,26 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 ✓ health ordering expires stale scans after 7 days
 ✓ health ordering carries domain Ping through DNS-to-IP mapping
 ✓ telemetry: users carry lastOnline (panel shows «never connected»)
+✓ vercel sub answers 200 with links
+✓ every vercel line is :443
+✓ every vercel line is TLS
+✓ every vercel address is a Vercel edge address or the project host
+✓ SNI == Host == project domain on every vercel line
+✓ no ECH / cipher-suite pinning on vercel lines
+✓ vercel sub carries the project host itself
+✓ vercel sub carries both VLESS and Trojan
+✓ ?port= cannot re-add non-443 ports on vercel
+✓ cloudflare behaviour unchanged: non-Vercel addresses still present
+✓ cloudflare behaviour unchanged: alternate ports still present
+all vercel-platform checks passed
+(node:3372) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3530) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3387) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -126,70 +128,110 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
-
-Welcome to Gradle 8.9!
-
-Here are the highlights of this release:
- - Enhanced Error and Warning Messages
- - IDE Integration Improvements
- - Daemon JVM Information
-
-For more details see https://docs.gradle.org/8.9/release-notes.html
-
-Starting a Gradle Daemon (subsequent builds will be faster)
-Daemon JVM discovery is an incubating feature.
-
-> Configure project :app
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:41: Unnecessary non-null assertion (!!) on a non-null receiver of type String
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:84: Unnecessary non-null assertion (!!) on a non-null receiver of type String
-w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'jvmTarget: String' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
-
-> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :app:preBuild UP-TO-DATE
-> Task :app:preDebugBuild UP-TO-DATE
-> Task :app:generateDebugBuildConfig
-> Task :app:generateDebugResValues
-> Task :app:checkDebugAarMetadata
-> Task :app:mapDebugSourceSetPaths
-> Task :app:generateDebugResources
-> Task :app:packageDebugResources
-> Task :app:mergeDebugResources
-> Task :app:createDebugCompatibleScreenManifests
-> Task :app:extractDeepLinksDebug
-> Task :app:parseDebugLocalResources
-
-> Task :app:processDebugMainManifest
-/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-243:19 Warning:
-	application@android:allowBackup was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
-/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-243:19 Warning:
-	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
-
-> Task :app:processDebugManifest
-> Task :app:javaPreCompileDebug
-> Task :app:processDebugManifestForPackage
-> Task :app:processDebugResources
-> Task :app:compileDebugKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:31:12 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:32:10 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:33:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:34:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:35:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:36:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:37:14 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:38:15 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:39:11 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:40:11 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:41:14 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:42:9 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:43:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:44:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:45:12 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:46:11 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:47:12 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:48:13 Companion object of enum class 'ZedShape' is uninitialized here.
-e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/ZedShapes.kt:49:10 Companion object of enum class 'ZedShape' is uninitialized here.
-
-> Task :app:compileDebugKotlin FAILED
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:821:74 Function 'component1()' is ambiguous for this expression: 
+fun <T> Array<out T>.component1(): T
+fun ByteArray.component1(): Byte
+fun ShortArray.component1(): Short
+fun IntArray.component1(): Int
+fun LongArray.component1(): Long
+fun FloatArray.component1(): Float
+fun DoubleArray.component1(): Double
+fun BooleanArray.component1(): Boolean
+fun CharArray.component1(): Char
+fun <T> List<T>.component1(): T
+fun <K, V> Map.Entry<K, V>.component1(): K
+fun UIntArray.component1(): UInt
+fun ULongArray.component1(): ULong
+fun UByteArray.component1(): UByte
+fun UShortArray.component1(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:821:74 Function 'component2()' is ambiguous for this expression: 
+fun <T> Array<out T>.component2(): T
+fun ByteArray.component2(): Byte
+fun ShortArray.component2(): Short
+fun IntArray.component2(): Int
+fun LongArray.component2(): Long
+fun FloatArray.component2(): Float
+fun DoubleArray.component2(): Double
+fun BooleanArray.component2(): Boolean
+fun CharArray.component2(): Char
+fun <T> List<T>.component2(): T
+fun <K, V> Map.Entry<K, V>.component2(): V
+fun UIntArray.component2(): UInt
+fun ULongArray.component2(): ULong
+fun UByteArray.component2(): UByte
+fun UShortArray.component2(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:826:45 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:826:45 Not enough information to infer type argument for 'V'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:827:28 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:827:28 Not enough information to infer type argument for 'B'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:827:31 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:828:27 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:828:27 Not enough information to infer type argument for 'B'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:828:30 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:829:29 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:829:29 Not enough information to infer type argument for 'B'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:871:27 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:872:45 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:872:95 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:873:36 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:873:74 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:873:74 Not enough information to infer type argument for 'R'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:873:78 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:874:21 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:874:21 Not enough information to infer type argument for 'B'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:874:24 Unresolved reference 'VercelPanelProbe'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:876:17 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:876:17 Not enough information to infer type argument for 'T'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:876:27 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:876:27 Function 'component1()' is ambiguous for this expression: 
+fun <T> Array<out T>.component1(): T
+fun ByteArray.component1(): Byte
+fun ShortArray.component1(): Short
+fun IntArray.component1(): Int
+fun LongArray.component1(): Long
+fun FloatArray.component1(): Float
+fun DoubleArray.component1(): Double
+fun BooleanArray.component1(): Boolean
+fun CharArray.component1(): Char
+fun <T> List<T>.component1(): T
+fun <K, V> Map.Entry<K, V>.component1(): K
+fun UIntArray.component1(): UInt
+fun ULongArray.component1(): ULong
+fun UByteArray.component1(): UByte
+fun UShortArray.component1(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:876:27 Function 'component2()' is ambiguous for this expression: 
+fun <T> Array<out T>.component2(): T
+fun ByteArray.component2(): Byte
+fun ShortArray.component2(): Short
+fun IntArray.component2(): Int
+fun LongArray.component2(): Long
+fun FloatArray.component2(): Float
+fun DoubleArray.component2(): Double
+fun BooleanArray.component2(): Boolean
+fun CharArray.component2(): Char
+fun <T> List<T>.component2(): T
+fun <K, V> Map.Entry<K, V>.component2(): V
+fun UIntArray.component2(): UInt
+fun ULongArray.component2(): ULong
+fun UByteArray.component2(): UByte
+fun UShortArray.component2(): UShort.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:878:24 Unresolved reference 'ok'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:878:73 Unresolved reference 'millis'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:878:120 Unresolved reference 'detail'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:883:25 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:884:37 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:884:87 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:887:25 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:887:94 Unresolved reference 'it'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:888:34 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:888:126 Unresolved reference 'size'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:891:21 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:891:21 Not enough information to infer type argument for 'T'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:891:26 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:891:31 Unresolved reference 'second'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:897:104 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:907:24 Unresolved reference 'VercelPanelPlanner'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/VercelRelayController.kt:999:100 Unresolved reference 'VercelPanelPlanner'.
 
 FAILURE: Build failed with an exception.
 
@@ -204,5 +246,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 2m 24s
+BUILD FAILED in 1m 37s
 16 actionable tasks: 16 executed
