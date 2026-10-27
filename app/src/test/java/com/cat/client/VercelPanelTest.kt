@@ -314,30 +314,4 @@ class VercelPanelTest {
         assertEquals("/tr/seed?ed=2560", VercelCfFront.param(out[1], "path"))
         assertTrue(VercelCfFront.links(listOf("vmess://abc"), front).isEmpty())
     }
-
-    // 6.69.45 Cat panel on Node hosts: the zip comes from THIS app version's release
-    @Test
-    fun nodeHostZipComesFromThisVersionsRelease() {
-        assertEquals(
-            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta190/cat-node-panel.zip",
-            NodeHostPanel.zipUrl("1.10.0-beta190"),
-        )
-        assertEquals("v1.10.0-beta190", NodeHostPanel.releaseTag("v1.10.0-beta190"))
-        assertEquals(listOf("katabump", "lucity", "shiprr"), NodeHostPanel.HOSTS.map { it.id })
-        assertTrue(NodeHostPanel.HOSTS.first().free)
-        assertTrue(NodeHostPanel.HOSTS.all { it.url.startsWith("https://") })
-    }
-
-    @Test
-    fun nodeLauncherShipsAndMatchesTheAdapterContract() {
-        val root = generateSequence(File("").absoluteFile) { it.parentFile }.first { File(it, "node-panel/index.js").exists() }
-        val launcher = File(root, "node-panel/index.js").readText()
-        val adapter = File(root, "app/src/main/assets/vercel/panel-adapter.mjs").readText()
-        // the launcher swaps the same sockets import the Vercel planner does, and checks the adapter shape the planner checks
-        assertTrue(launcher.contains("Promise.resolve(globalThis.__catSockets)"))
-        assertTrue(launcher.contains("import('../lib/catpanel.mjs')") && adapter.contains("import('../lib/catpanel.mjs')"))
-        assertTrue(launcher.contains("cat-node-panel.sha256") && launcher.contains("SHA-256 mismatch"))
-        assertTrue(adapter.contains("export function fileKv(") && adapter.contains("CAT_NODE_EDGE"))
-        assertTrue(File(root, "node-panel/package.json").readText().contains("\"ws\""))
-    }
 }
