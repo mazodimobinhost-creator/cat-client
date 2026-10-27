@@ -1270,9 +1270,13 @@ object SubConvConverter {
             "i3",
             "i4",
             "i5",
+            "j1",
+            "j2",
+            "j3",
         ).forEach { key ->
             query[key]?.takeIf(String::isNotBlank)?.let { put(key, it) }
         }
+        query["itime"]?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { put("itime", it) }
         listOf("random-trailers", "disable-cookies").forEach { key ->
             query[key]?.lowercase()?.let { value ->
                 if (value == "true" || value == "false") put(key, value.toBoolean())

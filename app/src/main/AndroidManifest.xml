@@ -156,6 +156,7 @@
                 <data android:scheme="fenix" />
                 <data android:scheme="juicity" />
                 <data android:scheme="mieru" />
+                <data android:scheme="vpn" />
             </intent-filter>
             <!-- One-tap subscription import links of other clients (clash://install-config?url=…) -->
             <intent-filter>

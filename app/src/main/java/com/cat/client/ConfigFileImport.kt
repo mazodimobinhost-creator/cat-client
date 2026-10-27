@@ -15,7 +15,13 @@ import java.util.Locale
  * dedicated AmneziaWG dialog understood it).
  */
 object WireGuardConfText {
-    private val AMNEZIA_KEYS = listOf("jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5")
+    private val AMNEZIA_KEYS = listOf(
+        "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4",
+        "i1", "i2", "i3", "i4", "i5", "j1", "j2", "j3", "itime",
+    )
+
+    /** Special-junk packets (`<r 2><b 0x…>`) keep their inner spaces; stripping them broke AmneziaWG 1.5/2.0 I1–I5. */
+    private val KEEP_SPACES = setOf("i1", "i2", "i3", "i4", "i5", "j1", "j2", "j3")
 
     fun looksLikeConf(text: String): Boolean {
         val lower = text.lowercase(Locale.US)
@@ -66,7 +72,9 @@ object WireGuardConfText {
         val scheme = if (isAmnezia) "awg" else "wireguard"
         val params = mutableListOf<String>()
         fun add(key: String, value: String?) {
-            if (!value.isNullOrBlank()) params += "$key=${URLEncoder.encode(value.replace(" ", ""), "UTF-8")}"
+            if (value.isNullOrBlank()) return
+            val clean = if (key in KEEP_SPACES) value.trim() else value.replace(" ", "")
+            params += "$key=${URLEncoder.encode(clean, "UTF-8").replace("+", "%20")}"
         }
         add("address", iface["address"])
         add("publickey", publicKey)
@@ -93,7 +101,7 @@ object IncomingConfigIntents {
     val CONFIG_SCHEMES = setOf(
         "vless", "vmess", "trojan", "ss", "ssr", "hysteria", "hysteria2", "hy2", "tuic", "wireguard", "wg",
         "awg", "amneziawg", "anytls", "socks", "socks5", "slipnet", "dnstt", "dnst", "noizdns", "vaydns",
-        "catfusion", "paqet", "fenix", "ssh", "naive+https", "juicity", "mieru", "snell",
+        "catfusion", "paqet", "fenix", "ssh", "naive+https", "juicity", "mieru", "snell", "vpn",
     )
 
     /** Schemes whose `url` query parameter carries a subscription link (Clash / sing-box / Hiddify / v2rayNG style). */
@@ -169,6 +177,9 @@ object IncomingConfigIntents {
 
     fun guessName(text: String): String {
         val first = text.lineSequence().map(String::trim).firstOrNull { it.isNotEmpty() }.orEmpty()
+        if (AmneziaVpnKey.looksLikeKey(first)) {
+            return AmneziaVpnKey.decode(first)?.serverName?.take(50)?.let { "🔐 Amnezia · $it" } ?: "🔐 Amnezia"
+        }
         val fragment = first.substringAfter('#', "").takeIf { it.isNotBlank() }
             ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
         if (!fragment.isNullOrBlank()) return fragment.take(60)

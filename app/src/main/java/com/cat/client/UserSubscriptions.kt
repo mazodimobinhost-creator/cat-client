@@ -112,6 +112,22 @@ object UserSubscriptionImporter {
             require(count > 0) { "اتصال پشتیبانی‌شده‌ای پیدا نشد" }
             return ImportedUserSubscription(bundle.yaml, UserSubscriptionFormat.Links, count)
         }
+        // AmneziaVPN keys (vpn://…) → awg:// / wireguard:// / vless:// / ss:// links; other lines are kept.
+        if (AmneziaVpnKey.extractKeys(trimmed).isNotEmpty()) {
+            val keys = AmneziaVpnKey.extractKeys(trimmed)
+            val decoded = keys.map { AmneziaVpnKey.decode(it) }
+            val amneziaLinks = decoded.flatMap { it?.links.orEmpty() }
+            val others = trimmed.split(Regex("\\s+")).filterNot { it.startsWith("vpn://", ignoreCase = true) }
+                .filter { it.contains("://") }
+            require(amneziaLinks.isNotEmpty() || others.isNotEmpty()) {
+                decoded.firstNotNullOfOrNull { it?.problemFa } ?: "کلید vpn:// معتبر نیست (کلید Amnezia خراب یا ناقص است)"
+            }
+            val combined = (amneziaLinks + others).joinToString("\n")
+            val amYaml = MihomoLinkConfigBuilder.build(SubConvConverter.convert(combined))
+            val amCount = MihomoConfigParser.parse(amYaml, nowMs).catalog.profiles.size
+            require(amCount > 0) { "کانفیگ قابل اجرایی در کلید Amnezia پیدا نشد" }
+            return ImportedUserSubscription(amYaml, UserSubscriptionFormat.Links, amCount)
+        }
         // Plain WireGuard / AmneziaWG .conf text (pasted, shared or opened as a file).
         val wgConfUris = WireGuardConfText.toUris(trimmed)
         if (wgConfUris.isNotEmpty()) {
