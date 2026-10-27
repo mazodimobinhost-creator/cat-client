@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta193] — 2026-10-27 (Panel 6.69.45)
+
+### Added
+- **«🔐 Logins and links» for every Node-host panel** (on the ✅ result screen and under «📋 My panels» → a panel): every value with 📋 copy, secrets hidden until 👁 show.
+  - 🐱 Cat panel: address `/panel`, username `admin`, the password (default `admin` with a «change it in Settings» warning; «✏️ Save the new panel password» remembers the changed one on this phone — the panel itself and `OPEN_SUB=false` are untouched).
+  - 🔗 Subscription link (for v2rayNG / Hiddify / Streisand), UUID and Trojan password.
+  - 🟩 KataBump: explains the two separate logins (dashboard = the sign-up e-mail/password, renewal there; control panel = files/Console, its password from dashboard → See more → Access server); the account e-mail and control-panel username are read with the user's key (`/api/client/account`), the server ID, SFTP address + username `<user>.<server id>` (`sftp_details`); «💾 Save the control-panel login on this phone» (KataBump never gives that password to apps); buttons to the dashboard and straight to the server in the control panel.
+  - 🟦 Lucity / Shiprr: log in with GitHub (no separate password) and the private repository link.
+- «📋 My panels» is labelled «logins, links, renewal» so it is clear where these are.
+
 ## [1.10.0-beta192] — 2026-10-27 (Panel 6.69.45)
 
 ### Added

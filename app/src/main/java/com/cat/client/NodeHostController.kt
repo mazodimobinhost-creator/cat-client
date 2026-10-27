@@ -976,6 +976,9 @@ class NodeHostController(
             }, lp(10))
         }
         if (saved != null) {
+            box.addView(button(t("🔐 اطلاعات ورود و لینک‌ها (پنل، اشتراک، KataBump)", "🔐 Logins and links (panel, subscription, KataBump)")) {
+                showInfo(saved)
+            }, lp(6))
             box.addView(button(t("🌐 باز کردن پنل (admin / admin — رمز را عوض کنید)", "🌐 Open the panel (admin / admin — change the password)")) {
                 open(NodeHostPanel.panelUrl(saved.base))
             }, lp(6))
@@ -1118,6 +1121,182 @@ class NodeHostController(
     }
 
     // ------------------------------------------------------------------------------------
+    // 🔐 login info and links — everything the owner needs, in one place, with copy buttons
+    // ------------------------------------------------------------------------------------
+
+    private data class KataInfo(val username: String, val email: String, val sftp: Pair<String, Int>?)
+
+    private fun infoRow(box: LinearLayout, title: String, value: String, secret: Boolean = false) {
+        box.addView(label(title, 11.5f, palette.textSecondary, 10))
+        val shown = label(if (secret) "••••••••" else value, 14f, palette.textPrimary, 0).apply {
+            textDirection = View.TEXT_DIRECTION_LTR
+            setTextIsSelectable(!secret)
+        }
+        box.addView(shown)
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        val half = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(3); marginStart = dp(3) }
+        row.addView(button(t("📋 کپی", "📋 Copy")) { copy(value) }, half)
+        if (secret) {
+            var visible = false
+            row.addView(button(t("👁 نمایش", "👁 Show")) {
+                visible = !visible
+                shown.text = if (visible) value else "••••••••"
+                shown.setTextIsSelectable(visible)
+            }, half)
+        }
+        box.addView(row, lp(2))
+    }
+
+    private fun section(box: LinearLayout, title: String) {
+        box.addView(label(title, 15f, palette.teal, 18))
+    }
+
+    private fun showInfo(item: SavedNodeHost) {
+        val key = store.pteroKey
+        if (item.kind == NodeHostPanel.KATABUMP && key.isNotBlank() && item.serverId.isNotBlank()) {
+            runSteps<KataInfo>(t("🔐 گرفتن اطلاعات", "🔐 Reading the details"), { step ->
+                step(t("حساب پنل کنترل…", "Control-panel account…"))
+                val account = runCatching { NodeHostApi.pteroAccount(key) }.getOrDefault(Pair("", ""))
+                val sftp = runCatching { NodeHostApi.pteroSftp(key, item.serverId) }.getOrNull()
+                KataInfo(account.first, account.second, sftp)
+            }) { info, _ -> renderInfo(item, info) }
+        } else {
+            renderInfo(item, null)
+        }
+    }
+
+    private fun renderInfo(item: SavedNodeHost, kata: KataInfo?) {
+        val box = column()
+        box.addView(label(t(
+            "همهٔ اطلاعات ورود و لینک‌های این پنل. فقط روی همین گوشی است؛ برای کسی نفرستید.",
+            "All logins and links of this panel. It stays on this phone; do not send it to anyone.",
+        ), 12.5f, palette.textSecondary, 2))
+
+        section(box, t("🐱 پنل Cat (ساخت کاربر، آمار، تنظیمات)", "🐱 Cat panel (users, stats, settings)"))
+        infoRow(box, t("آدرس پنل — در مرورگر باز کنید", "Panel address — open it in a browser"), NodeHostPanel.panelUrl(item.base))
+        infoRow(box, t("نام کاربری", "Username"), NodeHostPanel.PANEL_USER)
+        val panelPass = store.panelPassword(item.id).ifBlank { NodeHostPanel.PANEL_DEFAULT_PASSWORD }
+        infoRow(box, t("رمز", "Password"), panelPass, secret = true)
+        box.addView(label(
+            if (panelPass == NodeHostPanel.PANEL_DEFAULT_PASSWORD) t(
+                "⚠️ رمز هنوز پیش‌فرض (admin) است. در پنل ← تنظیمات ← رمز را عوض کنید، بعد «✏️ رمز تازهٔ پنل» را بزنید تا اینجا یادتان بماند.",
+                "⚠️ The password is still the default (admin). In the panel → Settings → change it, then tap «✏️ New panel password» so it is remembered here.",
+            ) else t("✅ رمز عوض شده و اینجا ذخیره است.", "✅ The password was changed and is saved here."),
+            12f, palette.textSecondary, 4,
+        ))
+        box.addView(button(t("✏️ رمز تازهٔ پنل را ذخیره کن", "✏️ Save the new panel password")) { askPanelPassword(item) }, lp(6))
+
+        section(box, t("🔗 اشتراک و کانفیگ‌ها", "🔗 Subscription and configs"))
+        infoRow(box, t("لینک اشتراک — برای v2rayNG / Hiddify / Streisand", "Subscription link — for v2rayNG / Hiddify / Streisand"), NodeHostPanel.subUrl(item.base, item.uuid))
+        box.addView(label(t(
+            "در خود Cat Client لینک لازم نیست: «➕ گرفتن و اضافه کردن کانفیگ‌ها» کانفیگ‌ها را مستقیم اضافه می‌کند.",
+            "Cat Client itself does not need the link: «➕ Get and add the configs» adds the configs directly.",
+        ), 12f, palette.textSecondary, 4))
+        infoRow(box, "UUID (VLESS)", item.uuid, secret = true)
+        if (item.trojanPass.isNotBlank()) infoRow(box, t("رمز Trojan", "Trojan password"), item.trojanPass, secret = true)
+
+        if (item.kind == NodeHostPanel.KATABUMP) {
+            section(box, t("🟩 حساب KataBump", "🟩 KataBump account"))
+            box.addView(label(t(
+                "KataBump دو ورود جدا دارد:\n" +
+                    "1) داشبورد (dashboard.katabump.com): با همان ایمیل و رمزی که موقع ثبت‌نام خودتان ساختید. تمدید از اینجاست.\n" +
+                    "2) پنل کنترل (control.katabump.com): فایل‌ها و Console. رمزش را داشبورد می‌دهد: See more ← Access server ← Current password.",
+                "KataBump has two separate logins:\n" +
+                    "1) Dashboard (dashboard.katabump.com): the e-mail and password you chose at sign-up. Renewal is here.\n" +
+                    "2) Control panel (control.katabump.com): files and Console. The dashboard gives its password: See more → Access server → Current password.",
+            ), 12.5f, palette.textPrimary, 4))
+            val username = store.kataIdentifier.ifBlank { kata?.username.orEmpty() }
+            if (kata != null && kata.email.isNotBlank()) infoRow(box, t("ایمیل حساب", "Account e-mail"), kata.email)
+            if (username.isNotBlank()) infoRow(box, t("نام کاربری پنل کنترل", "Control-panel username"), username)
+            if (store.kataPassword.isNotBlank()) infoRow(box, t("رمز پنل کنترل", "Control-panel password"), store.kataPassword, secret = true)
+            else box.addView(label(t(
+                "رمز پنل کنترل اینجا ذخیره نشده (KataBump آن را به برنامه نمی‌دهد). اگر می‌خواهید همیشه اینجا باشد: داشبورد ← See more ← Access server ← کپی ← «💾 ذخیرهٔ ورود پنل کنترل».",
+                "The control-panel password is not saved here (KataBump does not give it to apps). To keep it here: dashboard → See more → Access server → copy → «💾 Save the control-panel login».",
+            ), 12f, palette.textSecondary, 6))
+            box.addView(button(t("💾 ذخیرهٔ ورود پنل کنترل در همین گوشی", "💾 Save the control-panel login on this phone")) { askKataLogin(item, kata) }, lp(6))
+            if (item.serverId.isNotBlank()) infoRow(box, t("شناسهٔ سرور", "Server ID"), item.serverId)
+            val sftpUser = NodeHostPanel.sftpUser(username, item.serverId)
+            if (kata?.sftp != null && sftpUser != null) {
+                infoRow(box, t("SFTP (برای FileZilla) — آدرس", "SFTP (for FileZilla) — address"), "sftp://" + kata.sftp.first + ":" + kata.sftp.second)
+                infoRow(box, t("SFTP — نام کاربری (رمز = رمز پنل کنترل)", "SFTP — username (password = control-panel password)"), sftpUser)
+            }
+            box.addView(button(t("🌐 داشبورد KataBump", "🌐 KataBump dashboard"), filled = true) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(12))
+            box.addView(button(t("🌐 پنل کنترل KataBump", "🌐 KataBump control panel")) {
+                open(if (item.serverId.isNotBlank()) NodeHostPanel.KATABUMP_CONTROL + "/server/" + item.serverId else NodeHostPanel.KATABUMP_CONTROL_LOGIN)
+            }, lp(6))
+        } else {
+            section(box, "🟦 " + name(item.kind))
+            val repo = store.lastRepo(item.kind)
+            box.addView(label(t(
+                "ورود به " + name(item.kind) + " با همان حساب GitHub است (Login with GitHub) — رمز جدایی ندارد.",
+                "You log in to " + name(item.kind) + " with your GitHub account (Login with GitHub) — no separate password.",
+            ), 12.5f, palette.textPrimary, 4))
+            if (repo.isNotBlank()) infoRow(box, t("مخزن خصوصی GitHub", "Private GitHub repository"), "https://github.com/" + repo)
+            box.addView(button(t("🌐 باز کردن ", "🌐 Open ") + name(item.kind), filled = true) { open(siteFor(item.kind)) }, lp(12))
+        }
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🔐 اطلاعات ورود و لینک‌ها", "🔐 Logins and links"))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+
+    private fun askPanelPassword(item: SavedNodeHost) {
+        val box = column()
+        box.addView(label(t(
+            "رمزی که در پنل Cat (تنظیمات) گذاشتید را بنویسید. فقط روی همین گوشی ذخیره می‌شود تا یادتان نرود؛ رمز خود پنل را عوض نمی‌کند.",
+            "Type the password you set in the Cat panel (Settings). It is only saved on this phone so you do not forget it; it does not change the panel itself.",
+        ), 13f, palette.textPrimary, 2))
+        val field = input(t("رمز تازهٔ پنل", "New panel password"), store.panelPassword(item.id), password = true)
+        box.addView(field, lp(8))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("✏️ رمز پنل", "✏️ Panel password"))
+                .setView(scroll(box))
+                .setPositiveButton(t("ذخیره", "Save")) { _, _ ->
+                    store.setPanelPassword(item.id, field.text.toString())
+                    toast(t("ذخیره شد", "Saved"))
+                    renderInfo(item, null)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun askKataLogin(item: SavedNodeHost, kata: KataInfo?) {
+        val box = column()
+        box.addView(label(t(
+            "در داشبورد KataBump ← کنار سرور See more ← Access server ← Identifier و Current password را کپی کنید و اینجا بچسبانید.",
+            "On the KataBump dashboard → next to the server See more → Access server → copy the Identifier and the Current password and paste them here.",
+        ), 13f, palette.textPrimary, 2))
+        val user = input("Identifier", store.kataIdentifier.ifBlank { kata?.username.orEmpty() })
+        val pass = input(t("رمز (Current password)", "Password (Current password)"), store.kataPassword, password = true)
+        box.addView(user, lp(8))
+        box.addView(button(t("📋 چسباندن نام کاربری", "📋 Paste the username")) { user.setText(clipboardText().trim()) }, lp(4))
+        box.addView(pass, lp(8))
+        box.addView(button(t("📋 چسباندن رمز", "📋 Paste the password")) { pass.setText(clipboardText().trim()) }, lp(4))
+        box.addView(button(t("🌐 باز کردن داشبورد", "🌐 Open the dashboard")) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(4))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("💾 ورود پنل کنترل", "💾 Control-panel login"))
+                .setView(scroll(box))
+                .setPositiveButton(t("ذخیره", "Save")) { _, _ ->
+                    store.kataIdentifier = user.text.toString()
+                    store.kataPassword = pass.text.toString()
+                    toast(t("ذخیره شد", "Saved"))
+                    renderInfo(item, kata)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    // ------------------------------------------------------------------------------------
     // 🔁 renew (KataBump) / update (Lucity, Shiprr)
     // ------------------------------------------------------------------------------------
 
@@ -1255,6 +1434,7 @@ class NodeHostController(
         box.addView(button(t("➕ گرفتن و اضافه کردن کانفیگ‌ها", "➕ Get and add the configs"), filled = true) {
             addChecked(item.kind, item.base, item.uuid)
         }, lp(10))
+        box.addView(button(t("🔐 اطلاعات ورود و لینک‌ها", "🔐 Logins and links")) { showInfo(item) }, lp(6))
         box.addView(button(t("🌐 باز کردن پنل", "🌐 Open the panel")) { open(NodeHostPanel.panelUrl(item.base)) }, lp(6))
         box.addView(button(t("📋 کپی لینک اشتراک", "📋 Copy the subscription link")) { copy(NodeHostPanel.subUrl(item.base, item.uuid)) }, lp(6))
         if (item.kind == NodeHostPanel.KATABUMP) {

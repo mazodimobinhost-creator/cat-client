@@ -258,6 +258,14 @@ object NodeHostPanel {
         return status to (if (split >= 0) text.substring(split + 4) else "")
     }
 
+    /** The Cat panel's first login (OPEN_SUB stays false; the owner changes it inside the panel). */
+    const val PANEL_USER = "admin"
+    const val PANEL_DEFAULT_PASSWORD = "admin"
+
+    /** Pterodactyl SFTP user name: «<panel user>.<short server id>». */
+    fun sftpUser(username: String, identifier: String): String? =
+        if (username.isBlank() || identifier.isBlank()) null else username.trim() + "." + identifier.trim()
+
     fun repoName(random: SecureRandom = SecureRandom()): String = "cat-node-panel-" + randomToken(5, random)
 
     /** Body of GitHub «create or update file contents». */
@@ -289,6 +297,22 @@ internal class NodeHostStore(context: Context) {
     var githubToken: String
         get() = prefs.getString("github_token", "").orEmpty()
         set(value) { prefs.edit().putString("github_token", value.trim()).apply() }
+
+    /** control.katabump.com login, only if the user chose to keep it on this phone. */
+    var kataIdentifier: String
+        get() = prefs.getString("kata_identifier", "").orEmpty()
+        set(value) { prefs.edit().putString("kata_identifier", value.trim()).apply() }
+
+    var kataPassword: String
+        get() = prefs.getString("kata_password", "").orEmpty()
+        set(value) { prefs.edit().putString("kata_password", value).apply() }
+
+    /** The Cat panel password after the owner changed it (empty = still the default). */
+    fun panelPassword(id: String): String = prefs.getString("panel_pass_$id", "").orEmpty()
+
+    fun setPanelPassword(id: String, value: String) {
+        prefs.edit().putString("panel_pass_$id", value).apply()
+    }
 
     /** The identity written into the last zip / repo for a host kind, so «register» knows the UUID. */
     fun pending(kind: String): Pair<String, String>? {
@@ -443,6 +467,20 @@ internal object NodeHostApi {
             }
         }
         return vars to images
+    }
+
+    /** The control-panel account behind the key: (username, e-mail). */
+    fun pteroAccount(key: String): Pair<String, String> {
+        val a = JSONObject(request(pteroUrl("/account"), "GET", ptero(key))).optJSONObject("attributes")
+        return Pair(a?.optString("username").orEmpty(), a?.optString("email").orEmpty())
+    }
+
+    /** SFTP host and port of a server (null when the panel does not say). */
+    fun pteroSftp(key: String, id: String): Pair<String, Int>? {
+        val d = JSONObject(request(pteroUrl("/servers/$id"), "GET", ptero(key))).optJSONObject("attributes")?.optJSONObject("sftp_details")
+        val ip = d?.optString("ip").orEmpty()
+        val port = d?.optInt("port") ?: 0
+        return if (ip.isBlank() || port <= 0) null else Pair(ip, port)
     }
 
     fun pteroImage(key: String, id: String): String =

@@ -26,6 +26,9 @@ class NodeHostTest {
         assertEquals("https://dashboard.katabump.com/auth/register", NodeHostPanel.KATABUMP_REGISTER)
         assertEquals("https://control.katabump.com/auth/login", NodeHostPanel.KATABUMP_CONTROL_LOGIN)
         assertEquals("https://control.katabump.com/account/api", NodeHostPanel.KATABUMP_API_KEYS)
+        assertEquals("ali.d1712508", NodeHostPanel.sftpUser("ali", "d1712508"))
+        assertNull(NodeHostPanel.sftpUser("", "d1712508"))
+        assertEquals("admin", NodeHostPanel.PANEL_USER)
         assertEquals("KataBump", NodeHostPanel.hostName("katabump"))
     }
 

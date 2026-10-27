@@ -1340,7 +1340,7 @@
     <string name="cloud_node_register">✍️ Add my panel (test + configs)</string>
     <string name="cloud_node_renew">🔁 Renew (countdown + reminder)</string>
     <string name="cloud_node_redeploy">🔁 Update / rebuild</string>
-    <string name="cloud_node_mine">📋 My panels</string>
+    <string name="cloud_node_mine">📋 My panels (logins, links, renewal)</string>
     <string name="cloud_node_guide">❓ Step-by-step guide</string>
     <string name="node_renew_channel">KataBump renewal</string>
     <string name="node_renew_title">⏰ Renew your KataBump server</string>

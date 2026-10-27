@@ -1339,7 +1339,7 @@
     <string name="cloud_node_register">✍️ پنلم را اضافه کن (تست + کانفیگ)</string>
     <string name="cloud_node_renew">🔁 تمدید (شمارش معکوس + یادآوری)</string>
     <string name="cloud_node_redeploy">🔁 به‌روزرسانی / ساخت دوباره</string>
-    <string name="cloud_node_mine">📋 پنل‌های من</string>
+    <string name="cloud_node_mine">📋 پنل‌های من (رمزها، لینک‌ها، تمدید)</string>
     <string name="cloud_node_guide">❓ راهنمای قدم‌به‌قدم</string>
     <string name="node_renew_channel">تمدید KataBump</string>
     <string name="node_renew_title">⏰ سرور KataBump را تمدید کنید</string>
