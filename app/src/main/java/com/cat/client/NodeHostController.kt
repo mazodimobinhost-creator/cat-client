@@ -405,3 +405,238 @@ class NodeHostController(
             activity.startActivity(Intent.createChooser(intent, file.name))
         }.onFailure { toast(explain(it)) }
     }
+
+    // ------------------------------------------------------------------------------------
+    // ⚡ automatic install
+    // ------------------------------------------------------------------------------------
+
+    fun autoInstall(kind: String) {
+        if (kind == NodeHostPanel.KATABUMP) confirmKataBumpRules { askPteroKey() } else askGithubToken(kind)
+    }
+
+    private fun askPteroKey() {
+        val box = column()
+        box.addView(label(t(
+            "برنامه با «کلید API» خود شما به control.katabump.com وصل می‌شود (مثل توکن Vercel، فقط روی همین گوشی می‌ماند).\n\n" +
+                "1) «🔑 باز کردن صفحهٔ کلید» را بزنید (اگر خواست، وارد حساب KataBump شوید).\n" +
+                "2) Create API Key ← یک نام دلخواه ← Create.\n" +
+                "3) کلیدی که با ptlc_ شروع می‌شود را کپی کنید ← برگردید ← «📋 چسباندن» ← ادامه.",
+            "The app connects to control.katabump.com with your own «API key» (like the Vercel token, it stays on this phone only).\n\n" +
+                "1) Tap «🔑 Open the key page» (sign in to KataBump if asked).\n" +
+                "2) Create API Key → any name → Create.\n" +
+                "3) Copy the key that starts with ptlc_ → come back → «📋 Paste» → Continue.",
+        ), 13f, palette.textPrimary, 2))
+        val field = input("ptlc_…", store.pteroKey, password = true)
+        box.addView(field, lp(8))
+        box.addView(button(t("🔑 باز کردن صفحهٔ کلید", "🔑 Open the key page")) { open(NodeHostPanel.KATABUMP_API_KEYS) }, lp(8))
+        box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("⚡ نصب خودکار روی KataBump", "⚡ Automatic install on KataBump"))
+                .setView(scroll(box))
+                .setPositiveButton(t("ادامه", "Continue")) { _, _ ->
+                    val key = field.text.toString().trim()
+                    when {
+                        key.startsWith("ptla_") -> message(
+                            t("کلید اشتباه", "Wrong key"),
+                            t(
+                                "این کلید «Application» (مدیر) است و KataBump آن را به کاربر نمی‌دهد. کلید «Client» لازم است که با ptlc_ شروع می‌شود: Account ← API Credentials.",
+                                "This is an «Application» (admin) key. A «Client» key is needed, it starts with ptlc_: Account → API Credentials.",
+                            ),
+                        )
+                        key.length < 20 -> toast(t("کلید را کامل بچسبانید", "Paste the whole key"))
+                        else -> {
+                            store.pteroKey = key
+                            loadServers(key)
+                        }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun loadServers(key: String) {
+        runSteps<List<NodeHostApi.PteroServer>>(t("KataBump", "KataBump"), { step ->
+            step(t("گرفتن فهرست سرورهای شما…", "Reading your servers…"))
+            NodeHostApi.pteroServers(key)
+        }) { servers, _ ->
+            when {
+                servers.isEmpty() -> message(
+                    t("سروری نیست", "No server yet"),
+                    t(
+                        "در حساب شما سروری نیست. katabump.com ← داشبورد ← ساخت سرور رایگان Node.js ← بعد دوباره «⚡ نصب خودکار».",
+                        "Your account has no server. katabump.com → dashboard → create a free Node.js server → then «⚡ Install automatically» again.",
+                    ),
+                )
+                servers.size == 1 -> confirmInstall(key, servers.first())
+                else -> showDialog(
+                    MaterialAlertDialogBuilder(activity)
+                        .setTitle(t("کدام سرور؟", "Which server?"))
+                        .setItems(servers.map { s -> s.name + "  ·  " + (s.host ?: "?") + ":" + (s.port ?: "?") }.toTypedArray()) { _, i ->
+                            confirmInstall(key, servers[i])
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create(),
+                )
+            }
+        }
+    }
+
+    private fun confirmInstall(key: String, server: NodeHostApi.PteroServer) {
+        message2(
+            t("نصب روی «", "Install on «") + server.name + "»?",
+            t(
+                "این کارها روی همین سرور انجام می‌شود:\n" +
+                    "• ۴ فایل index.js، package.json، README.md و cat-config.json گذاشته می‌شوند (اگر فایلی با همین نام هست، جایگزین می‌شود).\n" +
+                    "• فایل شروع = index.js.\n• اگر Node قدیمی‌تر از 20 باشد، به جدیدترین Node موجود عوض می‌شود.\n• سرور ری‌استارت می‌شود.\n\n" +
+                    "فایل‌های دیگر شما دست نمی‌خورند.",
+                "This will be done on this server:\n" +
+                    "• 4 files index.js, package.json, README.md and cat-config.json are written (same-named files are replaced).\n" +
+                    "• Start file = index.js.\n• If Node is older than 20, it is switched to the newest Node offered.\n• The server is restarted.\n\n" +
+                    "Your other files are not touched.",
+            ),
+            t("نصب کن", "Install"),
+        ) { install(key, server) }
+    }
+
+    /** A yes/no dialog. */
+    private fun message2(title: String, text: String, yes: String, onYes: () -> Unit) {
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(title)
+                .setView(scroll(column().apply { addView(label(text, 13f, palette.textPrimary, 2)) }))
+                .setPositiveButton(yes) { _, _ -> onYes() }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun install(key: String, server: NodeHostApi.PteroServer) {
+        val kind = NodeHostPanel.KATABUMP
+        runSteps<Outcome>(t("⚡ نصب روی ", "⚡ Installing on ") + server.name, { step ->
+            val id = server.identifier
+            val all = files(kind)
+            val (uuid, pass) = identity(kind)
+            step(t("1/6 گذاشتن فایل‌ها…", "1/6 Writing the files…"))
+            for ((fileName, bytes) in all) {
+                NodeHostApi.pteroWrite(key, id, "/" + fileName, bytes)
+                step("   ✓ " + fileName)
+            }
+            step(t("2/6 فایل شروع…", "2/6 Start file…"))
+            val startup = runCatching { NodeHostApi.pteroStartup(key, id) }
+                .onFailure { step("   ⚠️ " + explain(it)) }
+                .getOrDefault(Pair(emptyList(), emptyMap()))
+            val main = startup.first.firstOrNull { NodeHostPanel.isMainFileVar(it.env, it.serverValue, it.defaultValue) }
+            if (main == null) {
+                step(t("   ⚠️ متغیر فایل شروع پیدا نشد — در Startup ببینید index.js باشد.", "   ⚠️ No start-file variable found — check Startup says index.js."))
+            } else if (main.serverValue.trim() == "index.js") {
+                step("   ✓ " + main.env + " = index.js")
+            } else if (main.editable) {
+                val set = runCatching { NodeHostApi.pteroSetVariable(key, id, main.env, "index.js") }
+                if (set.isSuccess) step("   ✓ " + main.env + " = index.js") else step("   ⚠️ " + explain(set.exceptionOrNull()!!))
+            } else {
+                // Locked start file (e.g. app.js): put the same launcher under that name too.
+                val locked = main.serverValue.trim().removePrefix("/")
+                if (locked.endsWith(".js") || locked.endsWith(".mjs")) {
+                    NodeHostApi.pteroWrite(key, id, "/" + locked, all.getValue("index.js"))
+                    step(t("   ✓ فایل شروع قفل است؛ همان پنل با نام ", "   ✓ The start file is locked; the panel was also written as ") + locked)
+                } else {
+                    step("   ⚠️ " + main.env + " = " + main.serverValue)
+                }
+            }
+            step(t("3/6 نسخهٔ Node…", "3/6 Node version…"))
+            val current = runCatching { NodeHostApi.pteroImage(key, id) }.getOrDefault("")
+            val pick = NodeHostPanel.pickNodeImage(startup.second, current)
+            if (pick != null) {
+                val ok = runCatching { NodeHostApi.pteroSetImage(key, id, pick) }
+                if (ok.isSuccess) step("   ✓ → " + (startup.second.entries.firstOrNull { it.value == pick }?.key ?: pick))
+                else step("   ⚠️ " + explain(ok.exceptionOrNull()!!))
+            } else {
+                step("   ✓ " + (NodeHostPanel.nodeVersionOf(current)?.let { "Node " + it } ?: current.ifBlank { "?" }))
+            }
+            step(t("4/6 روشن کردن دوباره…", "4/6 Restarting…"))
+            val restarted = runCatching { NodeHostApi.pteroPower(key, id, "restart") }
+            if (restarted.isFailure) NodeHostApi.pteroPower(key, id, "start")
+            step(t("5/6 صبر تا روشن شود…", "5/6 Waiting until it runs…"))
+            var state = ""
+            for (i in 0 until 24) {
+                delay(5_000)
+                state = runCatching { NodeHostApi.pteroState(key, id) }.getOrDefault(state)
+                if (state == "running") break
+            }
+            step("   " + (if (state == "running") "✓ running" else "⚠️ " + state.ifBlank { "?" }))
+            val base = server.host?.let { h -> server.port?.let { p -> NodeHostPanel.normalizeAddress(h + ":" + p) } }
+            if (base == null) {
+                Outcome(null, emptyList(), false, t(
+                    "فایل‌ها نصب شدند ولی KataBump آدرس عمومی سرور را نداد. آدرس آی‌پی:پورت بالای صفحهٔ سرور را کپی کنید و «✍️ پنلم را اضافه کن» را بزنید.",
+                    "Files are installed but KataBump did not give the public address. Copy the IP:port at the top of the server page and tap «✍️ Add my panel».",
+                ))
+            } else {
+                step(t("6/6 تست پنل از همین گوشی (تا ۲.۵ دقیقه؛ بار اول پنل دانلود می‌شود)…", "6/6 Testing the panel from this phone (up to 2.5 min; the first start downloads the panel)…"))
+                val check = verify(kind, base, uuid, step, 150)
+                val now = System.currentTimeMillis()
+                val saved = SavedNodeHost("katabump-" + id, kind, server.name, base, uuid, id, now, now, pass)
+                store.save(saved)
+                Outcome(saved, check.links, check.ok, check.headline)
+            }
+        }) { outcome, lines -> showOutcome(outcome, lines) }
+    }
+
+    private data class Check(val links: List<String>, val ok: Boolean, val headline: String, val answered: Boolean)
+
+    /** /api/version → /sub/<uuid> → a real WebSocket handshake on the first config's path. */
+    private suspend fun verify(kind: String, base: String, uuid: String, step: (String) -> Unit, waitSeconds: Int): Check {
+        var answered = false
+        var tries = 0
+        val maxTries = (waitSeconds / 5).coerceAtLeast(1)
+        while (!answered && tries < maxTries) {
+            val r = runCatching { NodeHostApi.panelGet(base, "/api/version", 6_000) }.getOrNull()
+            answered = r != null && r.first == 200 && r.second.contains("cat-panel")
+            tries++
+            if (!answered && tries < maxTries) {
+                if (tries % 6 == 0) step("   … " + (tries * 5) + "s")
+                delay(5_000)
+            }
+        }
+        if (!answered) {
+            val why = if (kind == NodeHostPanel.KATABUMP) t(
+                "پنل روی " + base + " جواب نداد. در KataBump ← Console ببینید خطایی هست یا نه (مثلاً Node قدیمی، فایل شروع اشتباه). اگر Console می‌گوید «listening» ولی اینجا جواب نمی‌دهد، این آی‌پی:پورت روی اینترنت شما بسته است؛ با VPN دوباره «🔎 تست» را بزنید تا مطمئن شوید.",
+                "The panel did not answer at " + base + ". On KataBump → Console, look for an error (old Node, wrong start file). If the Console says «listening» but it does not answer here, this IP:port is blocked on your line; tap «🔎 Check» again with a VPN to be sure.",
+            ) else t(
+                "پنل روی " + base + " جواب نداد. در " + name(kind) + " ببینید ساخت (build) سبز شده و دامنه ساخته شده باشد؛ لاگ برنامه باید «Cat Panel … listening» داشته باشد.",
+                "The panel did not answer at " + base + ". On " + name(kind) + " check the build is green and the domain exists; the app log should say «Cat Panel … listening».",
+            )
+            step("   ❌ /api/version")
+            return Check(emptyList(), false, why, false)
+        }
+        step("   ✓ " + t("پنل جواب داد", "the panel answers"))
+        val sub = runCatching { NodeHostApi.panelGet(base, "/sub/" + uuid) }.getOrNull()
+        val links = if (sub != null && sub.first == 200) NodeHostPanel.decodeSub(sub.second) else emptyList()
+        if (links.isEmpty()) {
+            step("   ❌ /sub")
+            return Check(emptyList(), false, t(
+                "پنل بالا است ولی این UUID مال آن نیست (cat-config.json آپلود نشده یا UUID دیگری دارد). پنل را باز کنید (admin/admin) و لینک اشتراک را از آنجا بردارید، یا UUID درست را در «✍️ پنلم را اضافه کن» بنویسید.",
+                "The panel is up but this UUID is not its own (cat-config.json was not uploaded or has another UUID). Open the panel (admin/admin) and take the subscription link there, or type the right UUID in «✍️ Add my panel».",
+            ), true)
+        }
+        step("   ✓ " + links.size + t(" کانفیگ", " configs"))
+        val first = links.first()
+        val path = NodeHostPanel.linkParam(first, "path") ?: "/"
+        val hostHeader = NodeHostPanel.linkParam(first, "host")?.takeIf { it.isNotBlank() }
+            ?: NodeHostPanel.hostPort(base).let { (h, p) -> if (p == 80 || p == 443) h else h + ":" + p }
+        val ws = runCatching { NodeHostApi.websocketStatus(base, path, hostHeader) }.getOrDefault(0)
+        return if (ws == 101) {
+            step("   ✓ WebSocket 101")
+            Check(links, true, t(
+                "✅ پنل کار می‌کند و تونل WebSocket از " + name(kind) + " رد می‌شود. کانفیگ‌ها آماده‌اند.",
+                "✅ The panel works and the WebSocket tunnel passes through " + name(kind) + ". The configs are ready.",
+            ), true)
+        } else {
+            step("   ❌ WebSocket " + ws)
+            Check(links, false, t(
+                "پنل جواب می‌دهد ولی دست‌دادن WebSocket جواب " + ws + " گرفت (باید 101 باشد). یعنی " + name(kind) + " تونل را رد نمی‌کند و کانفیگ‌ها وصل نمی‌شوند. اگر پشت Cloudflare هستید، WebSockets در Network روشن باشد.",
+                "The panel answers but the WebSocket handshake got " + ws + " (must be 101). " + name(kind) + " does not pass the tunnel, so the configs will not connect. Behind Cloudflare, make sure Network → WebSockets is on.",
+            ), true)
+        }
+    }
