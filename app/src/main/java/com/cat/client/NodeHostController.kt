@@ -526,7 +526,7 @@ class NodeHostController(
             step(t("2/6 فایل شروع…", "2/6 Start file…"))
             val startup = runCatching { NodeHostApi.pteroStartup(key, id) }
                 .onFailure { step("   ⚠️ " + explain(it)) }
-                .getOrDefault(Pair(emptyList(), emptyMap()))
+                .getOrDefault(Pair(emptyList<NodeHostApi.PteroVariable>(), emptyMap<String, String>()))
             val main = startup.first.firstOrNull { NodeHostPanel.isMainFileVar(it.env, it.serverValue, it.defaultValue) }
             if (main == null) {
                 step(t("   ⚠️ متغیر فایل شروع پیدا نشد — در Startup ببینید index.js باشد.", "   ⚠️ No start-file variable found — check Startup says index.js."))
@@ -640,3 +640,418 @@ class NodeHostController(
             ), true)
         }
     }
+
+    // ------------------------------------------------------------------------------------
+    // ✍️ add my panel (any host, any address the user has)
+    // ------------------------------------------------------------------------------------
+
+    fun registerManual(kind: String, uuidPrefill: String? = null, addressPrefill: String = "") {
+        val box = column()
+        box.addView(label(
+            if (kind == NodeHostPanel.KATABUMP) t(
+                "آدرس سرور را بنویسید: همان آی‌پی:پورت بالای صفحهٔ سرور در control.katabump.com (مثل 1.2.3.4:25565)، یا دامنهٔ https خودتان اگر پشت Cloudflare گذاشته‌اید.",
+                "Type the server address: the IP:port at the top of the server page on control.katabump.com (like 1.2.3.4:25565), or your own https domain if it is behind Cloudflare.",
+            ) else t(
+                "آدرس برنامه را بنویسید (مثل https://نام.shiprr.dev یا دامنه‌ای که Lucity ساخت).",
+                "Type the app address (like https://name.shiprr.dev or the domain Lucity generated).",
+            ),
+            13f, palette.textPrimary, 2,
+        ))
+        val address = input(if (kind == NodeHostPanel.KATABUMP) "1.2.3.4:25565" else "https://….shiprr.dev", addressPrefill)
+        box.addView(address, lp(6))
+        box.addView(button(t("📋 چسباندن", "📋 Paste")) { address.setText(clipboardText().trim()) }, lp(4))
+        box.addView(label(t(
+            "UUID اصلی (خودکار پر شده، همان که داخل cat-config.json است؛ فقط اگر پنل را جور دیگری ساخته‌اید عوضش کنید):",
+            "Main UUID (filled in for you, the one inside cat-config.json; change it only if you built the panel another way):",
+        ), top = 12))
+        val uuidField = input("UUID", uuidPrefill ?: identity(kind).first)
+        box.addView(uuidField, lp(4))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle("✍️ " + name(kind))
+                .setView(scroll(box))
+                .setPositiveButton(t("تست و اضافه", "Test and add")) { _, _ ->
+                    val base = NodeHostPanel.normalizeAddress(address.text.toString())
+                    val uuid = uuidField.text.toString().trim()
+                    when {
+                        base == null -> toast(t("آدرس درست نیست", "The address is not valid"))
+                        uuid.length < 8 -> toast(t("UUID خالی است", "The UUID is empty"))
+                        else -> addChecked(kind, base, uuid)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun addChecked(kind: String, base: String, uuid: String) {
+        runSteps<Outcome>(t("🔎 تست ", "🔎 Testing ") + base, { step ->
+            step(t("تست از همین گوشی…", "Testing from this phone…"))
+            val check = verify(kind, base, uuid, step, 30)
+            if (!check.answered) {
+                Outcome(null, emptyList(), false, check.headline)
+            } else {
+                val pending = store.pending(kind)
+                val pass = if (pending != null && pending.first == uuid) pending.second else ""
+                val now = System.currentTimeMillis()
+                val existing = store.list().firstOrNull { it.kind == kind && it.base == base }
+                val saved = existing?.copy(uuid = uuid, trojanPass = pass.ifBlank { existing.trojanPass })
+                    ?: SavedNodeHost(kind + "-" + Integer.toHexString(base.hashCode()), kind, NodeHostPanel.hostPort(base).first, base, uuid, "", now, now, pass)
+                store.save(saved)
+                Outcome(saved, check.links, check.ok, check.headline)
+            }
+        }) { outcome, lines -> showOutcome(outcome, lines) }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // result: add configs · open panel · renew
+    // ------------------------------------------------------------------------------------
+
+    private fun showOutcome(o: Outcome, lines: List<String>) {
+        val saved = o.saved
+        if (saved != null && saved.uuid == store.pending(saved.kind)?.first) rotateIdentity(saved.kind)
+        val box = column()
+        box.addView(label(o.headline, 14f, palette.textPrimary, 2))
+        box.addView(label(lines.joinToString("\n"), 11.5f, palette.textSecondary, 8).apply { setTextIsSelectable(true) })
+        if (o.links.isNotEmpty()) {
+            box.addView(button(t("➕ اضافه کردن ", "➕ Add ") + o.links.size + t(" کانفیگ", " configs"), filled = true) {
+                addSubscription(o.links.joinToString("\n"), "Cat · " + name(saved?.kind ?: "") + " · " + (saved?.name ?: ""))
+            }, lp(10))
+        }
+        if (saved != null) {
+            box.addView(button(t("🌐 باز کردن پنل (admin / admin — رمز را عوض کنید)", "🌐 Open the panel (admin / admin — change the password)")) {
+                open(NodeHostPanel.panelUrl(saved.base))
+            }, lp(6))
+            box.addView(button(t("📋 کپی لینک اشتراک (برای برنامه‌های دیگر)", "📋 Copy the subscription link (for other apps)")) {
+                copy(NodeHostPanel.subUrl(saved.base, saved.uuid))
+            }, lp(6))
+            if (saved.kind == NodeHostPanel.KATABUMP) {
+                remindLater(saved)
+                box.addView(label(t(
+                    "🔔 یادآوری تمدید برای ۳ روز دیگر تنظیم شد (KataBump بعد از ۴ روز بدون تمدید پاک می‌کند). اگر امروز تمدید نکرده‌اید، همین حالا «🔁 تمدید» را بزنید.",
+                    "🔔 A renewal reminder is set for 3 days from now (KataBump deletes after 4 days without renewal). If you did not renew today, tap «🔁 Renew» now.",
+                ), top = 10))
+                box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(saved) }, lp(6))
+            }
+            if (!o.ok) box.addView(button(t("🔎 دوباره تست کن", "🔎 Test again")) { addChecked(saved.kind, saved.base, saved.uuid) }, lp(6))
+        } else {
+            box.addView(button(t("✍️ آدرس را خودم می‌نویسم", "✍️ I will type the address")) { registerManual(NodeHostPanel.KATABUMP) }, lp(10))
+        }
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(if (o.ok) t("✅ آماده", "✅ Ready") else t("⚠️ نتیجه", "⚠️ Result"))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+
+    private fun remindLater(item: SavedNodeHost) {
+        val wait = (item.renewedAt + NodeHostPanel.REMIND_AFTER_MS - System.currentTimeMillis()).coerceAtLeast(60_000L)
+        runCatching { NodeHostRenewReminder.schedule(activity, item.id, item.name, wait) }
+        requestNotifications()
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Lucity / Shiprr: a private GitHub repository with the 4 files
+    // ------------------------------------------------------------------------------------
+
+    private fun askGithubToken(kind: String) {
+        val box = column()
+        box.addView(label(t(
+            name(kind) + " برنامه را از یک مخزن GitHub می‌سازد. برنامه با توکن شما یک مخزن خصوصی با ۴ فایل می‌سازد (توکن فقط روی همین گوشی می‌ماند).\n\n" +
+                "1) GitHub ندارید؟ «🆕 ثبت‌نام GitHub».\n" +
+                "2) «🔑 ساخت توکن» ← صفحه آماده باز می‌شود (دسترسی repo تیک خورده) ← پایین صفحه Generate token ← کپی.\n" +
+                "3) برگردید ← «📋 چسباندن» ← ادامه.",
+            name(kind) + " builds the app from a GitHub repository. With your token the app creates a private repository with 4 files (the token stays on this phone only).\n\n" +
+                "1) No GitHub? «🆕 GitHub sign-up».\n" +
+                "2) «🔑 Create a token» → the page opens pre-filled (repo scope ticked) → Generate token at the bottom → copy.\n" +
+                "3) Come back → «📋 Paste» → Continue.",
+        ), 13f, palette.textPrimary, 2))
+        val field = input("ghp_… / github_pat_…", store.githubToken, password = true)
+        box.addView(field, lp(8))
+        box.addView(button(t("🆕 ثبت‌نام GitHub", "🆕 GitHub sign-up")) { open(NodeHostPanel.GITHUB_SIGNUP) }, lp(8))
+        box.addView(button(t("🔑 ساخت توکن", "🔑 Create a token")) { open(NodeHostPanel.GITHUB_TOKEN_URL) }, lp(6))
+        box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("⚡ ساخت خودکار برای ", "⚡ Automatic build for ") + name(kind))
+                .setView(scroll(box))
+                .setPositiveButton(t("ادامه", "Continue")) { _, _ ->
+                    val token = field.text.toString().trim()
+                    if (token.length < 20) {
+                        toast(t("توکن را کامل بچسبانید", "Paste the whole token"))
+                    } else {
+                        store.githubToken = token
+                        checkGithub(kind, token)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun checkGithub(kind: String, token: String) {
+        runSteps<String>("GitHub", { step ->
+            step(t("بررسی توکن…", "Checking the token…"))
+            NodeHostApi.githubLogin(token)
+        }) { login, _ ->
+            val repo = NodeHostPanel.repoName()
+            message2(
+                t("ساخت مخزن؟", "Create the repository?"),
+                t(
+                    "در حساب GitHub «" + login + "» یک مخزن خصوصی به نام " + repo + " ساخته می‌شود و ۴ فایل پنل (index.js، package.json، README.md، cat-config.json) داخلش گذاشته می‌شود. به مخزن‌های دیگر شما دست زده نمی‌شود.",
+                    "A private repository named " + repo + " is created in GitHub account «" + login + "» with the 4 panel files (index.js, package.json, README.md, cat-config.json). Your other repositories are not touched.",
+                ),
+                t("بساز", "Create"),
+            ) { createRepo(kind, token, repo) }
+        }
+    }
+
+    private fun createRepo(kind: String, token: String, repo: String) {
+        runSteps<String>("GitHub", { step ->
+            step(t("ساخت مخزن خصوصی…", "Creating the private repository…"))
+            val full = NodeHostApi.githubCreateRepo(token, repo)
+            step("   ✓ " + full)
+            for ((fileName, bytes) in files(kind)) {
+                NodeHostApi.githubPut(token, full, fileName, bytes)
+                step("   ✓ " + fileName)
+            }
+            store.setLastRepo(kind, full)
+            full
+        }) { full, _ -> showGitNext(kind, full) }
+    }
+
+    private fun showGitNext(kind: String, full: String) {
+        val repoShort = full.substringAfter('/')
+        val steps = if (kind == NodeHostPanel.LUCITY) t(
+            "✅ مخزن آماده است: " + full + "\n\nحالا در Lucity (۳ قدم):\n" +
+                "1) «🌐 باز کردن Lucity» ← Login with GitHub ← وقتی پرسید، دسترسی به " + repoShort + " را بدهید.\n" +
+                "2) New ← GitHub Repository ← " + repoShort + " ← ساخت.\n" +
+                "3) Settings ← Platform Domain ← Generate Domain.\n\n" +
+                "وقتی ساخت سبز شد، دامنه را کپی کنید ← «✍️ ساختم — پنلم را اضافه کن».",
+            "✅ The repository is ready: " + full + "\n\nNow on Lucity (3 steps):\n" +
+                "1) «🌐 Open Lucity» → Login with GitHub → when asked, allow access to " + repoShort + ".\n" +
+                "2) New → GitHub Repository → " + repoShort + " → create.\n" +
+                "3) Settings → Platform Domain → Generate Domain.\n\n" +
+                "When the build is green, copy the domain → «✍️ Deployed — add my panel».",
+        ) else t(
+            "✅ مخزن آماده است: " + full + "\n\nحالا در Shiprr (۳ قدم):\n" +
+                "1) «🌐 باز کردن Shiprr» ← ثبت‌نام ← GitHub را وصل کنید.\n" +
+                "2) Apps ← New app ← یک نام (مثلاً cat" + repoShort.takeLast(5) + ")، مخزن " + repoShort + "، منطقه Europe ← ساخت.\n" +
+                "3) وقتی بالا آمد، آدرس https://نام.shiprr.dev است ← «✍️ ساختم — پنلم را اضافه کن».",
+            "✅ The repository is ready: " + full + "\n\nNow on Shiprr (3 steps):\n" +
+                "1) «🌐 Open Shiprr» → sign up → connect GitHub.\n" +
+                "2) Apps → New app → a name (e.g. cat" + repoShort.takeLast(5) + "), repository " + repoShort + ", region Europe → create.\n" +
+                "3) When it is up, the address is https://name.shiprr.dev → «✍️ Deployed — add my panel».",
+        )
+        val box = column()
+        box.addView(label(steps, 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
+        box.addView(button(t("🌐 باز کردن ", "🌐 Open ") + name(kind), filled = true) { open(siteFor(kind)) }, lp(10))
+        box.addView(button(t("📋 کپی نام مخزن", "📋 Copy the repository name")) { copy(repoShort) }, lp(6))
+        box.addView(button(t("✍️ ساختم — پنلم را اضافه کن", "✍️ Deployed — add my panel")) { registerManual(kind) }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(name(kind))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+
+    // ------------------------------------------------------------------------------------
+    // 🔁 renew (KataBump) / update (Lucity, Shiprr)
+    // ------------------------------------------------------------------------------------
+
+    fun renew(kind: String) {
+        if (kind != NodeHostPanel.KATABUMP) {
+            redeploy(kind)
+            return
+        }
+        val items = store.list().filter { it.kind == kind }
+        when {
+            items.isEmpty() -> message2(
+                t("🔁 تمدید KataBump", "🔁 Renew KataBump"),
+                t(
+                    "هنوز پنلی از KataBump اینجا ثبت نشده، پس برنامه شمارش معکوس ندارد. صفحهٔ تمدید را باز کنید ← سرورتان ← Renew.",
+                    "No KataBump panel is registered here yet, so there is no countdown. Open the renew page → your server → Renew.",
+                ),
+                t("باز کردن صفحهٔ تمدید", "Open the renew page"),
+            ) { open(NodeHostPanel.KATABUMP_DASHBOARD) }
+            items.size == 1 -> showRenew(items.first())
+            else -> pick(items) { showRenew(it) }
+        }
+    }
+
+    private fun countdown(item: SavedNodeHost): String {
+        val left = NodeHostPanel.daysLeft(item.renewedAt, System.currentTimeMillis())
+        return when {
+            left == null -> t("⏳ زمان تمدید معلوم نیست", "⏳ Renewal time unknown")
+            left <= 0 -> t("⛔ مهلت گذشته — فوراً تمدید کنید (KataBump یک روز بعد پاک می‌کند)", "⛔ Overdue — renew now (KataBump deletes one day later)")
+            else -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز تا تمدید", " days until renewal")
+        }
+    }
+
+    private fun showRenew(item: SavedNodeHost) {
+        val box = column()
+        box.addView(label(item.name + "\n" + countdown(item), 14f, palette.textPrimary, 2))
+        box.addView(label(t(
+            "تمدید KataBump کپچا دارد («من ربات نیستم»)، پس هیچ برنامه‌ای نمی‌تواند بی‌خطر به‌جای شما بزند. کار شما ۲۰ ثانیه است:\n" +
+                "1) «🔁 باز کردن صفحهٔ تمدید» ← سرورتان ← Renew ← کپچا.\n2) برگردید ← «✅ تمدید کردم». برنامه ۳ روز بعد دوباره یادآوری می‌کند.",
+            "KataBump's renewal has a captcha («I am not a robot»), so no app can safely press it for you. It takes you 20 seconds:\n" +
+                "1) «🔁 Open the renew page» → your server → Renew → captcha.\n2) Come back → «✅ I renewed». The app reminds you again in 3 days.",
+        ), top = 10))
+        box.addView(button(t("🔁 باز کردن صفحهٔ تمدید", "🔁 Open the renew page"), filled = true) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(10))
+        box.addView(button(t("✅ تمدید کردم", "✅ I renewed")) {
+            store.markRenewed(item.id, System.currentTimeMillis())
+            store.list().firstOrNull { it.id == item.id }?.let { remindLater(it) }
+            toast(t("ثبت شد؛ ۳ روز دیگر یادآوری می‌کنم", "Saved; I will remind you in 3 days"))
+        }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🔁 تمدید", "🔁 Renew"))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+
+    private fun redeploy(kind: String) {
+        val repo = store.lastRepo(kind)
+        val token = store.githubToken
+        if (repo.isBlank() || token.isBlank()) {
+            message(
+                t("🔁 به‌روزرسانی", "🔁 Update"),
+                t(
+                    "اول «⚡ ساخت خودکار» را بزنید تا برنامه مخزن را بسازد؛ بعد این دکمه هر بار فایل‌های نسخهٔ جدید برنامه را در همان مخزن می‌گذارد و " + name(kind) + " از نو می‌سازد.",
+                    "First tap «⚡ Build automatically» so the app creates the repository; after that this button puts the new app version's files into it and " + name(kind) + " rebuilds.",
+                ),
+            )
+            return
+        }
+        message2(
+            t("🔁 به‌روزرسانی ", "🔁 Update ") + name(kind) + "?",
+            t(
+                "فایل‌های پنل (index.js، package.json، README.md) از همین نسخهٔ برنامه در مخزن " + repo + " گذاشته می‌شوند و " + name(kind) + " دوباره می‌سازد (۱ تا ۳ دقیقه). cat-config.json عوض نمی‌شود، پس کانفیگ‌ها همان می‌مانند.",
+                "The panel files (index.js, package.json, README.md) from this app version go into " + repo + " and " + name(kind) + " rebuilds (1–3 minutes). cat-config.json is not changed, so the configs stay the same.",
+            ),
+            t("به‌روزرسانی", "Update"),
+        ) {
+            runSteps<String>("GitHub", { step ->
+                val all = files(kind)
+                for (f in NodeHostPanel.LAUNCHER_FILES) {
+                    NodeHostApi.githubPut(token, repo, f, all.getValue(f))
+                    step("   ✓ " + f)
+                }
+                NodeHostApi.githubPut(token, repo, ".cat-deploy", (BuildConfig.VERSION_NAME + " " + System.currentTimeMillis()).toByteArray())
+                step("   ✓ .cat-deploy")
+                repo
+            }) { _, lines ->
+                message("✅ " + name(kind), (lines + "" + t(
+                    "فرستاده شد. چند دقیقه بعد در «📋 پنل‌های من» دکمهٔ «🔎 تست» را بزنید.",
+                    "Sent. In a few minutes tap «🔎 Check» under «📋 My panels».",
+                )).joinToString("\n"))
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // 📋 my panels
+    // ------------------------------------------------------------------------------------
+
+    private fun pick(items: List<SavedNodeHost>, onPick: (SavedNodeHost) -> Unit) {
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("کدام پنل؟", "Which panel?"))
+                .setItems(items.map { it.name + "  ·  " + it.base }.toTypedArray()) { _, i -> onPick(items[i]) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    fun showMine(kind: String) {
+        val items = store.list().filter { it.kind == kind }.sortedByDescending { it.createdAt }
+        if (items.isEmpty()) {
+            message(
+                "📋 " + name(kind),
+                t(
+                    "هنوز پنلی اینجا نیست. «⚡ نصب خودکار» را بزنید، یا اگر خودتان نصب کرده‌اید «✍️ پنلم را اضافه کن».",
+                    "No panel here yet. Tap «⚡ Install automatically», or if you installed it yourself, «✍️ Add my panel».",
+                ),
+            )
+            return
+        }
+        if (items.size == 1) showItem(items.first()) else pick(items) { showItem(it) }
+    }
+
+    private fun showItem(item: SavedNodeHost) {
+        val box = column()
+        val info = StringBuilder()
+            .append(item.name).append('\n')
+            .append(item.base).append('\n')
+            .append("UUID: ").append(item.uuid)
+        if (item.kind == NodeHostPanel.KATABUMP) info.append('\n').append(countdown(item))
+        box.addView(label(info.toString(), 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
+        box.addView(button(t("➕ گرفتن و اضافه کردن کانفیگ‌ها", "➕ Get and add the configs"), filled = true) {
+            addChecked(item.kind, item.base, item.uuid)
+        }, lp(10))
+        box.addView(button(t("🌐 باز کردن پنل", "🌐 Open the panel")) { open(NodeHostPanel.panelUrl(item.base)) }, lp(6))
+        box.addView(button(t("📋 کپی لینک اشتراک", "📋 Copy the subscription link")) { copy(NodeHostPanel.subUrl(item.base, item.uuid)) }, lp(6))
+        if (item.kind == NodeHostPanel.KATABUMP) {
+            box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(item) }, lp(6))
+            box.addView(button(t("🌐 دامنه + TLS (Cloudflare)", "🌐 Domain + TLS (Cloudflare)")) { showDomainTls(item) }, lp(6))
+        } else {
+            box.addView(button(t("🔁 به‌روزرسانی", "🔁 Update")) { redeploy(item.kind) }, lp(6))
+        }
+        box.addView(button(t("🗑 حذف از این فهرست", "🗑 Remove from this list")) {
+            message2(
+                t("حذف؟", "Remove?"),
+                t(
+                    "فقط از این فهرست و یادآوری‌ها حذف می‌شود؛ خود سرور روی " + name(item.kind) + " دست نمی‌خورد.",
+                    "It is removed from this list and its reminders only; the server on " + name(item.kind) + " is not touched.",
+                ),
+                t("حذف", "Remove"),
+            ) {
+                store.remove(item.id)
+                runCatching { NodeHostRenewReminder.cancel(activity, item.id) }
+                toast(t("حذف شد", "Removed"))
+            }
+        }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle("📋 " + name(item.kind))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+
+    private fun showDomainTls(item: SavedNodeHost) {
+        val (host, port) = NodeHostPanel.hostPort(item.base)
+        val box = column()
+        box.addView(label(t(
+            "چرا: کانفیگ آی‌پی:پورت رمزگذاری TLS ندارد و پورتش غیرعادی است؛ راحت‌تر بسته می‌شود. با Cloudflare جلوی سرور، کانفیگ TLS روی 443 و همهٔ کانفیگ‌های Cloudflare (با آی‌پی تمیز) را می‌گیرید.\n\n" +
+                "1) یک دامنه که در Cloudflare (پلن رایگان) باشد. (زیردامنهٔ رایگان kdns.fr از KataBump فقط اسم به‌جای آی‌پی است و خودش TLS نمی‌دهد.)\n" +
+                "2) Cloudflare ← DNS ← Add record: نوع A، نام مثلاً cat، IPv4 = " + host + "، ابر نارنجی روشن.\n" +
+                "3) Rules ← Origin Rules ← Create: Hostname برابر cat.دامنهٔ‌شما ← Destination Port = " + port + ".\n" +
+                "4) Rules ← Configuration Rules ← همان Hostname ← SSL = Flexible (سرور http ساده است).\n" +
+                "5) برگردید ← «✍️ دامنه را اضافه کن» ← https://cat.دامنهٔ‌شما. پنل Cloudflare را می‌شناسد و کانفیگ‌های TLS می‌دهد.",
+            "Why: an IP:port config has no TLS and an unusual port; it is easier to block. With Cloudflare in front you get a TLS config on 443 and the full Cloudflare set (with clean IPs).\n\n" +
+                "1) A domain on Cloudflare (free plan). (KataBump's free kdns.fr subdomain is only a name instead of the IP; it adds no TLS.)\n" +
+                "2) Cloudflare → DNS → Add record: type A, name e.g. cat, IPv4 = " + host + ", orange cloud on.\n" +
+                "3) Rules → Origin Rules → Create: Hostname equals cat.yourdomain → Destination Port = " + port + ".\n" +
+                "4) Rules → Configuration Rules → same Hostname → SSL = Flexible (the server speaks plain http).\n" +
+                "5) Come back → «✍️ Add the domain» → https://cat.yourdomain. The panel recognises Cloudflare and gives TLS configs.",
+        ), 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
+        box.addView(button(t("🟧 باز کردن Cloudflare", "🟧 Open Cloudflare"), filled = true) { open(NodeHostPanel.CLOUDFLARE_DASH) }, lp(10))
+        box.addView(button(t("📋 کپی آی‌پی سرور", "📋 Copy the server IP")) { copy(host) }, lp(6))
+        box.addView(button(t("✍️ دامنه را اضافه کن", "✍️ Add the domain")) { registerManual(item.kind, item.uuid, "https://") }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🌐 دامنه + TLS", "🌐 Domain + TLS"))
+                .setView(scroll(box))
+                .setPositiveButton(android.R.string.ok, null)
+                .create(),
+        )
+    }
+}
