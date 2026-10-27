@@ -178,7 +178,9 @@ const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_
 const CAT_KV = kvUrl && kvToken ? upstashKv(kvUrl, kvToken) : undefined;
 
 /* ------------------------------- panel -------------------------------- */
-const panelModule = await import('./catpanel.mjs');
+// Layout written by the app: api/index.mjs (this file) + lib/catpanel.mjs (the panel with
+// `import("cloudflare:sockets")` swapped for the socket shim). vercel.json includeFiles keeps lib/.
+const panelModule = await import('../lib/catpanel.mjs');
 const worker = panelModule.default;
 if (panelModule._testing && typeof panelModule._testing.__setSockets === 'function') panelModule._testing.__setSockets(globalThis.__catSockets);
 
