@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.39';
+const CAT_PANEL_VERSION = '6.69.40';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -6814,7 +6814,9 @@ ${fresh ? `
 <b>${fa ? '⚡ ورود اولیه' : '⚡ First sign-in'}</b>
 <div class="small" style="margin-top:8px;line-height:2">${fa ? 'نام کاربری:' : 'Username:'} <code>admin</code><br>${fa ? 'رمز عبور:' : 'Password:'} <code>admin</code></div>
 <div class="small" style="margin-top:8px;color:#ffab00;line-height:1.9"><b>${fa ? '⚠ بلافاصله پس از ورود، رمز عبور را در تنظیمات تغییر بده.' : '⚠ Change the password in Settings immediately after signing in.'}</b></div>
-<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${noKv
+<div class="small" style="margin-top:10px;color:#ffab00;line-height:1.9">${noKv && isVercelPlatform(env)
+  ? (fa ? '⚠ این پنل روی Vercel است و هنوز «حافظهٔ دائمی» (Vercel Blob) به آن وصل نشده؛ پس تنظیمات و کاربرهایی که اینجا می‌سازی بعد از چند دقیقه پاک می‌شوند (لینک اشتراک اصلی کار می‌کند). ساده‌ترین راه: در برنامهٔ Cat Client → Vercel → «پروژه‌های من» → همین پروژه → «🔧 همین حالا درستش کن». یا دستی: vercel.com → همین پروژه → Storage → Create → Blob → Connect و بعد Redeploy. بعد از آن در تب تنظیمات یک رمز بگذار.' : '⚠ This panel runs on Vercel and no permanent storage (Vercel Blob) is connected yet, so settings and users you create here vanish after a few minutes (the master subscription link still works). Easiest fix: Cat Client app → Vercel → “My projects” → this project → “🔧 Fix it now”. Or by hand: vercel.com → this project → Storage → Create → Blob → Connect, then Redeploy. Then set a password in the settings tab.')
+  : noKv
   ? (fa ? '⚠ ذخیره‌سازی (KV) بایند نشده و هیچ تنظیمی ذخیره نمی‌شود؛ هر کسی هم که این صفحه را باز کند می‌تواند وارد شود. برای امن‌کردن: Cloudflare → Storage &amp; Databases → KV → Create (نام: هرچه خواستی) → برگرد به ورکر → Settings → Bindings → KV namespace با نام متغیر CAT_KV → و بعد در تب تنظیمات یک رمز بگذار.' : '⚠ No KV namespace is bound, so nothing is stored — and anyone who opens this page can sign in. To secure it: Cloudflare → Storage &amp; Databases → KV → Create, then Worker → Settings → Bindings → KV namespace bound as CAT_KV, then set a password in the settings tab.')
   : (fa ? '✓ ذخیره‌سازی (KV) بایند شده است. پس از ورود، رمز پیش‌فرض را فوراً در تب تنظیمات تغییر بده.' : '✓ Storage (KV) is bound. Change the default password in Settings immediately after signing in.')}</div>
 </div>` : ''}

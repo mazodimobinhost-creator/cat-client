@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta183] — 2026-10-27 (Panel 6.69.40)
+
+### Fixed
+- **Panel 6.69.40 — first sign-in warning on Vercel:** a Vercel panel without permanent storage used to tell the user to bind a Cloudflare KV namespace (`CAT_KV`), which does not exist on Vercel. It now explains in plain words that Vercel Blob is not connected (panel-made users and settings vanish, the master subscription still works) and gives the two real fixes: Cat Client → Vercel → «My projects» → «🔧 Fix it now», or vercel.com → Storage → Blob → Connect → Redeploy. Cloudflare panels keep the KV steps. Covered by `vercel-platform.test.mjs`.
+
+### Verified (live)
+- The test panel `cat-panel-v7k2m.vercel.app` was redeployed and checked from outside: `/api/version` answers, the master subscription returns 10 ws/TLS:443 configs, and a real VLESS **and** Trojan WebSocket tunnel through it fetched `example.com` (HTTP 200, ~260 ms) from a separate Vercel function.
+
 ## [1.10.0-beta182] — 2026-10-27 (Panel 6.69.39)
 
 ### Added

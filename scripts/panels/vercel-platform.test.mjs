@@ -73,6 +73,13 @@ const cookie2 = String(login2.headers.get('set-cookie') || '').split(';')[0];
 const add2 = await worker.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookie2, origin: 'https://' + HOST }, body: JSON.stringify({ name: 'ali' }) }), storedEnv, { waitUntil() {} });
 check('vercel with storage creates the user', add2.status === 201, add2.status + ' ' + (await add2.text()).slice(0, 120));
 
+// 6.69.40: the first-sign-in warning must give Vercel steps on Vercel, not Cloudflare KV bindings.
+const vLogin = await (await worker.fetch(new Request('https://' + HOST + '/panel/', { headers: { 'accept-language': 'fa' } }), vercelEnv, { waitUntil() {} })).text();
+check('vercel login page explains Vercel Blob + the in-app fix', /Vercel Blob/.test(vLogin) && /همین حالا درستش کن|Fix it now/.test(vLogin), vLogin.slice(0, 120));
+check('vercel login page has no Cloudflare KV binding steps', !/Storage &amp; Databases → KV|Bindings → KV namespace/.test(vLogin));
+const cfLogin = await (await worker.fetch(new Request('https://cf.example.workers.dev/panel/', { headers: { 'accept-language': 'fa' } }), { UUID, TROJAN_PASS: 'p-cf' }, { waitUntil() {} })).text();
+check('cloudflare login page keeps the KV binding steps', /Bindings → KV namespace/.test(cfLogin) && !/Vercel Blob/.test(cfLogin));
+
 const cf = (await subLines({ UUID, TROJAN_PASS: 'p-cf-test' })).lines.map(parse);
 check('cloudflare behaviour unchanged: non-Vercel addresses still present', cf.some((p) => !VERCEL.has(p.host)));
 check('cloudflare behaviour unchanged: alternate ports still present', cf.some((p) => p.port !== 443));
