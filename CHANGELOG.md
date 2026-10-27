@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta185] — 2026-10-27 (Panel 6.69.41, unchanged)
+
+### Fixed
+- **Map page empty («not known yet», whole world as a thin strip, no marker):** the map code itself had not changed; the page only knew the user's location from an earlier IP lookup made with no VPN up, and on Iranian lines those lookup services (ipify, ipwho.is, Cloudflare trace…) often never answer, so the origin was never recorded and the page — which read one snapshot and never refreshed — stayed empty for good. Now:
+  - when no location is recorded yet, the map shows the country of the **mobile network / SIM** (offline, no permission, not changed by a VPN), labelled «You · from your mobile network» and never saved as the real origin (`MapOrigin`, unit-tested);
+  - opening the page with no VPN up starts a **live lookup** («Finding your location…», up to 20 s); its answer is recorded as the origin and the map marker, the flag badge and the card update in place without reopening the page. The lookup stops when the page is closed or ignores its answer if a VPN came up meanwhile.
+
 ## [1.10.0-beta184] — 2026-10-27 (Panel 6.69.41)
 
 ### Fixed

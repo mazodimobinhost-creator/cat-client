@@ -23203,19 +23203,35 @@ class MainActivity : Activity() {
             originCode = ""; originLabel = ""
             prefs.edit().remove("origin_code").remove("origin_label").apply()
         }
+        // No recorded origin yet (the IP services often never answer on Iranian lines, which left the
+        // map empty for good): fall back to the mobile network / SIM country — offline, VPN-proof, and
+        // labelled as such. Replaced as soon as a real lookup answers below.
+        var originFromSim = false
+        if (originCode.isBlank()) MapOrigin.telephonyCountry(this)?.let { cc ->
+            originCode = cc
+            originLabel = MapOrigin.countryName(cc, resources.configuration.locales[0])
+            originFromSim = true
+        }
         val originTint = ZedBlobView.ZED_HOT_PINK
+        val exitCodeNow = exitCode
+        val exitLabelNow = exitLabel
 
         val map = ZedWorldMapView(this).apply {
             accent = TEAL
             originColor = originTint
             landColor = TEXT_PRIMARY
         }
-        activityScope.launch {
-            val list = withContext(kotlinx.coroutines.Dispatchers.IO) { WorldMap.countries(this@MainActivity) }
-            map.setCountries(list)
-            val o = WorldMap.anchorOf(list, originCode)?.let { ZedWorldMapView.Point(it.first, it.second, originLabel, originCode) }
-            val e = WorldMap.anchorOf(list, exitCode)?.let { ZedWorldMapView.Point(it.first, it.second, exitLabel, exitCode) }
+        var countriesList: List<WorldMap.Country> = emptyList()
+        fun applyRoute() {
+            if (countriesList.isEmpty()) return
+            val o = WorldMap.anchorOf(countriesList, originCode)?.let { ZedWorldMapView.Point(it.first, it.second, originLabel, originCode) }
+            val e = WorldMap.anchorOf(countriesList, exitCodeNow)?.let { ZedWorldMapView.Point(it.first, it.second, exitLabelNow, exitCodeNow) }
             map.setRoute(o, e)
+        }
+        activityScope.launch {
+            countriesList = withContext(kotlinx.coroutines.Dispatchers.IO) { WorldMap.countries(this@MainActivity) }
+            map.setCountries(countriesList)
+            applyRoute()
         }
 
         fun endpointRow(dot: Int, hollow: Boolean, caption: String, value: String) = LinearLayout(this).apply {
@@ -23248,6 +23264,24 @@ class MainActivity : Activity() {
                 layoutDirection = View.LAYOUT_DIRECTION_LTR; textDirection = View.TEXT_DIRECTION_LTR
             })
         }
+        // A direct lookup is worth trying while NO VPN is up (it then measures the real line).
+        val lookingUp = !vpnOn && live == null
+        fun originCaption() = getString(when {
+            originFromSim -> R.string.map_you_sim
+            connected && originCode.isNotBlank() -> R.string.map_you_saved
+            else -> R.string.map_you
+        })
+        fun originValue() = originLabel.ifBlank {
+            getString(when {
+                connected -> R.string.map_no_origin
+                lookingUp -> R.string.map_locating
+                else -> R.string.map_unknown
+            })
+        }
+        val originRow = endpointRow(originTint, true, originCaption(), originValue())
+        val originTexts = originRow.getChildAt(1) as LinearLayout
+        val originCaptionView = originTexts.getChildAt(0) as TextView
+        val originValueView = originTexts.getChildAt(1) as TextView
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -23257,11 +23291,7 @@ class MainActivity : Activity() {
                 cornerRadius = dp(24).toFloat()
                 setColor(withAlpha(palette.surfaceElevated1, 225))
             }
-            addView(endpointRow(
-                originTint, true,
-                getString(if (connected && originCode.isNotBlank()) R.string.map_you_saved else R.string.map_you),
-                originLabel.ifBlank { getString(if (connected) R.string.map_no_origin else R.string.map_unknown) },
-            ))
+            addView(originRow)
             if (connected) {
                 addView(endpointRow(TEAL, false, getString(R.string.map_exit), exitLabel.ifBlank { getString(R.string.map_unknown) }),
                     LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
@@ -23293,24 +23323,28 @@ class MainActivity : Activity() {
                 setColor(withAlpha(palette.surfaceElevated1, 230))
                 setStroke(dp(1), withAlpha(OUTLINE, 150))
             }
-            fun endpoint(code: String, label: String, tint: Int, hollow: Boolean) = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                addView(FlagBadgeView(this@MainActivity).apply {
-                    circle = true; ringColor = tint; ringWidthDp = if (hollow) 1.5f else 2f; fallbackColor = palette.surfaceElevated2
-                    setCountryCode(code)
-                }, LinearLayout.LayoutParams(dp(34), dp(34)))
-                if (label.isNotBlank()) addView(TextView(this@MainActivity).apply {
-                    text = label.substringBefore(',').trim(); textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); maxLines = 1
-                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
-            }
-            if (originCode.isNotBlank()) addView(endpoint(originCode, originLabel, originTint, true))
-            if (connected && exitCode.isNotBlank()) {
-                addView(ZedRouteConnectorView(this@MainActivity).apply { color = TEAL }, LinearLayout.LayoutParams(dp(38), dp(34)).apply { marginStart = dp(10); marginEnd = dp(10) })
-                addView(endpoint(exitCode, exitLabel, TEAL, false))
-            }
-            visibility = if (originCode.isNotBlank() || exitCode.isNotBlank()) View.VISIBLE else View.GONE
         }
+        fun endpoint(code: String, label: String, tint: Int, hollow: Boolean) = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(FlagBadgeView(this@MainActivity).apply {
+                circle = true; ringColor = tint; ringWidthDp = if (hollow) 1.5f else 2f; fallbackColor = palette.surfaceElevated2
+                setCountryCode(code)
+            }, LinearLayout.LayoutParams(dp(34), dp(34)))
+            if (label.isNotBlank()) addView(TextView(this@MainActivity).apply {
+                text = label.substringBefore(',').trim(); textSize = 11f; typeface = CatClientBodyTypeface; setTextColor(TEXT_SECONDARY); maxLines = 1
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+        }
+        fun renderBadge() = badge.apply {
+            removeAllViews()
+            if (originCode.isNotBlank()) addView(endpoint(originCode, originLabel, originTint, true))
+            if (connected && exitCodeNow.isNotBlank()) {
+                addView(ZedRouteConnectorView(this@MainActivity).apply { color = TEAL }, LinearLayout.LayoutParams(dp(38), dp(34)).apply { marginStart = dp(10); marginEnd = dp(10) })
+                addView(endpoint(exitCodeNow, exitLabelNow, TEAL, false))
+            }
+            visibility = if (originCode.isNotBlank() || exitCodeNow.isNotBlank()) View.VISIBLE else View.GONE
+        }
+        renderBadge()
         val overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -23331,6 +23365,32 @@ class MainActivity : Activity() {
         val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         dialog.setContentView(page)
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(BACKGROUND))
+        // Live lookup while the page is open: the map used to read one snapshot and stay empty when
+        // no lookup had answered before. A direct (VPN-off) answer becomes the recorded origin and
+        // the map, badge and card update in place.
+        val lookupJob = if (lookingUp) activityScope.launch {
+            val info = kotlinx.coroutines.withTimeoutOrNull(20_000L) {
+                runCatching { IpGeolocation.locate(physicalNetwork = activePhysicalNetwork()) }.getOrNull()
+            }
+            val cc = MapOrigin.usableCode(info?.countryCode)
+            if (info != null && !currentVpnStateIsStarted() && !deviceVpnActive()) {
+                liveGeo = info; liveGeoTunneled = false; liveGeoAtMs = SystemClock.elapsedRealtime()
+                if (cc != null) {
+                    originCode = cc
+                    originLabel = listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName.takeIf { it.isNotBlank() && it != info.ip })
+                        .joinToString(", ").ifBlank { MapOrigin.countryName(cc, resources.configuration.locales[0]) }
+                    originFromSim = false
+                    prefs.edit()
+                        .putString("origin_code", originCode).putString("origin_label", originLabel).apply()
+                }
+            }
+            // whatever happened, never leave «finding your location…» on screen
+            originCaptionView.text = originCaption()
+            originValueView.text = originLabel.ifBlank { getString(R.string.map_unknown) }
+            renderBadge()
+            applyRoute()
+        } else null
+        dialog.setOnDismissListener { lookupJob?.cancel() }
         dialog.show()
     }
 

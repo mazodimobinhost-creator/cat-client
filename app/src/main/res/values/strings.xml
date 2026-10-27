@@ -1018,7 +1018,15 @@
     <string name="accent_sky">Sky</string>
     <string name="dock_home">Home</string>
     <string name="dock_servers">Servers</string>
-    <string name="map_you">You</string>\n    <string name="map_you_saved">You · recorded without VPN</string>\n    <string name="map_no_origin">Disconnect once so the map can learn your real location</string>\n    <string name="map_ping">Ping</string>\n    <string name="map_server">Server</string>\n    <string name="map_offline_here">You are browsing directly from here — connect to see the route.</string>\n    <string name="speedtest_title">Speed test</string>
+    <string name="map_you">You</string>
+    <string name="map_you_sim">You · from your mobile network</string>
+    <string name="map_locating">Finding your location…</string>
+    <string name="map_you_saved">You · recorded without VPN</string>
+    <string name="map_no_origin">Disconnect once so the map can learn your real location</string>
+    <string name="map_ping">Ping</string>
+    <string name="map_server">Server</string>
+    <string name="map_offline_here">You are browsing directly from here — connect to see the route.</string>
+    <string name="speedtest_title">Speed test</string>
     <string name="speedtest_subtitle">Measure your tunnel\'s real throughput</string>
     <string name="speedtest_start">Start</string>
     <string name="speedtest_restart">Restart</string>
