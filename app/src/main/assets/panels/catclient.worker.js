@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.69.37';
+const CAT_PANEL_VERSION = '6.69.38';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -980,7 +980,7 @@ const DOM_TTL_MS = 12 * 60 * 60 * 1000;
  * ?dom=1 on the sub link keeps the raw domains.
  */
 async function withDomMap(env, settings, host) {
-  if (settings.domToIp === false) return settings;
+  if (settings.domToIp === false || isVercelPlatform(env)) return settings;
   const kv = kvBinding(env);
   let cache = {};
   if (kv) { try { cache = JSON.parse((await kv.get(DOM_CACHE_KEY)) || '{}'); } catch (e) { cache = {}; } }
@@ -3986,10 +3986,26 @@ function scanSniOf(env, settings) {
   return String((settings && settings.sni) || (env && env.SNI) || DEFAULT_FRONTING_SNI).trim().toLowerCase();
 }
 
+/* ---- Vercel platform (6.69.38) ----
+ * The Cat Client app can run this same script on a Vercel Node.js Function (panel-adapter.mjs
+ * sets env.CAT_PLATFORM = 'vercel'). Vercel answers only TLS :443 and only on its own edge, so
+ * Cloudflare clean IPs, Cloudflare's alternate ports, plain :80 links, CF ECH and CF-only DNS
+ * pinning are meaningless there. Live-tested: dialing vercel.com or a Vercel anycast IP with
+ * SNI = Host = the project domain reaches the project; SNI ≠ Host is refused (HTTP 421). */
+const VERCEL_EDGE_ADDRESSES = ['vercel.com', '76.76.21.21', '64.29.17.65', '216.198.79.65'];
+function isVercelPlatform(env) { return String((env && env.CAT_PLATFORM) || '').toLowerCase() === 'vercel'; }
+function vercelLinkSettings(settings) {
+  return Object.assign({}, settings, {
+    tlsPorts: [443], plainPorts: [], plainEnabled: false, useDefaults: true, includeHost: true,
+    repoAuto: false, domToIp: false, domMap: null, sniFront: false, sniRotate: false, extraSnis: [],
+    echList: '', fmLinks: false, finalMaskProfile: '', finalMaskCipherSuites: '', cipherSuites: '',
+  });
+}
+
 function addressList(host, env, settings) {
   const own = settings.ips || [];
   const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter(Boolean);
-  const defaults = settings.useDefaults ? DEFAULT_CLEAN_ADDRESSES : [];
+  const defaults = isVercelPlatform(env) ? VERCEL_EDGE_ADDRESSES : (settings.useDefaults ? DEFAULT_CLEAN_ADDRESSES : []);
   const list = uniq(own.concat(fromEnv, defaults));
   if (settings.includeHost && !list.some((a) => a.toLowerCase() === String(host).toLowerCase())) list.push(String(host));
   if (settings.fallbackHost && !list.some((a) => a.toLowerCase() === String(settings.fallbackHost).toLowerCase())) list.push(String(settings.fallbackHost));
@@ -4003,9 +4019,10 @@ function configName(proto, addr, port, tls, cc, host, index) {
   // flag (when known) still leads the name so clients can group by country.
   const protoName = proto === 'vless' ? 'VLESS' : 'TROJAN';
   const isWorker = !!host && String(addr).toLowerCase().replace(/^\[/, '').replace(/\]$/, '') === String(host).toLowerCase();
-  const label = (isWorker ? 'WorkerOnly' : 'Clean IP') + (tls ? ' TLS' : '');
+  const isVercelEdge = !isWorker && VERCEL_EDGE_ADDRESSES.includes(String(addr).toLowerCase());
+  const label = (isWorker ? 'WorkerOnly' : (isVercelEdge ? 'Vercel Edge' : 'Clean IP')) + (tls ? ' TLS' : '');
   const n = index ? index + '. ' : '';
-  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : '💦 ') + n + protoName + ' - ' + label + ' : ' + port;
+  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : '💦 ')) + n + protoName + ' - ' + label + ' : ' + port;
 }
 
 function wsParams(hostHeader, path, sni, fp, tls, ech, alpn) {
@@ -4062,8 +4079,12 @@ function linkContext(host, env, settings, uuid, user) {
 
 /** Every (address × port × protocol) entry; Cat order = TLS 443 first, then plain :80. */
 function buildConfigEntries(host, env, settings, uuid, user, q) {
-  const ctx = linkContext(host, env, settings, uuid, user);
   q = q || {};
+  if (isVercelPlatform(env)) {
+    settings = vercelLinkSettings(settings);
+    if (q.port && q.port.length) q = Object.assign({}, q, { port: q.port.filter((p) => Number(p) === 443) });
+  }
+  const ctx = linkContext(host, env, settings, uuid, user);
   // SNI rotation (beta46): TLS configs cycle through the pool instead of all
   // sharing one SNI. ?sni=<host> pins a single SNI and disables rotation.
   if (q.sni) ctx.sni = q.sni;
