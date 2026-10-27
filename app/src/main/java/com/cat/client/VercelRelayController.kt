@@ -1487,65 +1487,6 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
      * none known to this phone yet → explain, and offer «🔧 Update a panel» (it links an existing panel to the app,
      * keeping its UUID/passwords), then this button works.
      */
-    /**
-     * 6.69.45 🆓 the Cat panel on free / cheap Node hosts (KataBump, Lucity, Shiprr): plain-words steps,
-     * the 2-file zip from this app version's release, and buttons that open each site.
-     */
-    fun showNodeHostGuide() {
-        val zip = NodeHostPanel.zipUrl(BuildConfig.VERSION_NAME)
-        val text = t(
-            "با این روش پنل Cat (همان پنل Cloudflare/Vercel) روی یک هاست Node.js بالا می‌آید و کانفیگ VLESS و Trojan می‌دهد.\n\n" +
-                "📦 فقط ۲ فایل لازم است (داخل zip): index.js و package.json. دکمهٔ «⬇️ دانلود فایل‌ها» را بزنید.\n" +
-                "پنل خودش آخرین نسخه را از صفحهٔ Release برمی‌دارد و با SHA-256 چک می‌کند.\n\n" +
-                "🆓 KataBump (رایگان، پیشنهاد اول):\n" +
-                "1) در سایت ثبت‌نام کنید و یک سرور Node.js رایگان بسازید.\n" +
-                "2) Files ← فایل zip را آپلود و Unarchive کنید (یا دو فایل را جدا آپلود کنید).\n" +
-                "3) Startup ← فایل اجرایی index.js و نسخهٔ Node 20 یا بالاتر.\n" +
-                "4) Start ← در مرورگر http://آی‌پی:پورت/panel را باز کنید (آی‌پی و پورت در صفحهٔ سرور است).\n" +
-                "5) ورود با admin / admin ← رمز را عوض کنید ← لینک اشتراک را در «➕ افزودن» همین برنامه بزنید.\n" +
-                "⚠️ سرور رایگان KataBump را هر ۴ روز باید Renew کنید.\n" +
-                "💡 برای TLS و آی‌پی تمیز: زیردامنهٔ رایگان kdns.fr را به Cloudflare ببرید (رکورد A نارنجی + Origin Rule پورت + SSL روی Flexible) و پنل را از همان دامنه باز کنید؛ خودش کانفیگ‌های Cloudflare می‌سازد.\n\n" +
-                "💳 Lucity (حدود ۵ فرانک در ماه): دو فایل را در یک مخزن GitHub بگذارید و در Lucity از همان مخزن بسازید. آدرس *.lucity.app/panel. برای ماندن کاربرها یک Volume با متغیر CAT_DATA_DIR بدهید.\n\n" +
-                "💳 Shiprr (۵ یورو اعتبار هدیه): مثل Lucity از GitHub. دیسکش موقت است؛ متغیرهای UUID و TROJAN_PASS را ثابت بگذارید یا Upstash Redis (KV_REST_API_URL و KV_REST_API_TOKEN) بدهید.\n\n" +
-                "پنل خودش می‌فهمد از چه راهی بازش کرده‌اید و فقط کانفیگ‌هایی می‌سازد که از همان راه کار می‌کنند (مستقیم: یک VLESS + یک Trojan روی همان آی‌پی:پورت).",
-            "This runs the Cat panel (the same panel as on Cloudflare/Vercel) on a Node.js host and gives VLESS and Trojan configs.\n\n" +
-                "📦 Only 2 files are needed (in the zip): index.js and package.json. Tap “⬇️ Download files”.\n" +
-                "The panel fetches the newest release itself and checks it with SHA-256.\n\n" +
-                "🆓 KataBump (free, first choice):\n" +
-                "1) Sign up and create a free Node.js server.\n" +
-                "2) Files → upload the zip and Unarchive (or upload the two files).\n" +
-                "3) Startup → main file index.js, Node 20 or newer.\n" +
-                "4) Start → open http://IP:port/panel in a browser (IP and port are on the server page).\n" +
-                "5) Sign in admin / admin → change the password → add the subscription link with “➕ Add” in this app.\n" +
-                "⚠️ A free KataBump server must be renewed every 4 days.\n" +
-                "💡 For TLS and clean IPs: move the free kdns.fr subdomain to Cloudflare (orange A record + Origin Rule port + SSL Flexible) and open the panel from that domain; it builds Cloudflare configs itself.\n\n" +
-                "💳 Lucity (about CHF 5/month): put the two files in a GitHub repo and build it on Lucity. Address *.lucity.app/panel. To keep users, add a Volume and set CAT_DATA_DIR.\n\n" +
-                "💳 Shiprr (EUR 5 welcome credit): like Lucity, from GitHub. Its disk is temporary; set fixed UUID and TROJAN_PASS or add Upstash Redis (KV_REST_API_URL and KV_REST_API_TOKEN).\n\n" +
-                "The panel sees how you opened it and only builds configs that work that way (direct: one VLESS + one Trojan on that IP:port).",
-        )
-        val box = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(8))
-        }
-        box.addView(label(text, 13f, palette.textPrimary, 0), lp(0))
-        box.addView(button(t("⬇️ دانلود فایل‌ها (zip)", "⬇️ Download files (zip)"), filled = true) {
-            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(zip))) }
-                .onFailure { copy(zip) }
-        }, lp(12))
-        box.addView(button(t("📋 کپی لینک zip (برای آپلود مستقیم روی هاست)", "📋 Copy the zip link (to upload on the host)")) { copy(zip) }, lp(8))
-        for (h in NodeHostPanel.HOSTS) {
-            val tag = if (h.free) t("رایگان", "free") else t("پولی", "paid")
-            box.addView(button("🌐 " + h.name + " (" + tag + ")") {
-                runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(h.url))) }
-            }, lp(8))
-        }
-        showDialog(MaterialAlertDialogBuilder(activity)
-            .setTitle(t("🆓 پنل Cat روی هاست‌های رایگان", "🆓 Cat panel on free hosts"))
-            .setView(ScrollView(activity).apply { addView(box) })
-            .setPositiveButton(android.R.string.ok, null)
-            .create())
-    }
-
     fun showCfFrontStart() {
         val panels = store.list().filter { it.runtime == PANEL_RUNTIME }.sortedByDescending { it.createdAt }
         when {
