@@ -2,6 +2,7 @@ package com.cat.client
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -690,6 +691,49 @@ object CloudflareWorker {
                 extraSubKeys = subscriptionKeys(context, wizardUrl, PanelDeploymentStore(context).uuidFor(wizardUrl)),
             ),
         )
+    }
+
+    data class VercelFrontResult(val workerName: String, val url: String, val host: String, val verified: Boolean)
+
+    /**
+     * 🟧 Cloudflare front for a Cat panel on Vercel (6.69.44): uploads assets/vercel/cf-front.js as a new Worker
+     * (never overwrites an existing one), with the Vercel project as its only origin, turns on its workers.dev
+     * name and waits until /__cat_front answers as our front pointing at [origin].
+     */
+    suspend fun deployVercelFront(
+        context: Context,
+        token: String,
+        accountId: String,
+        origin: String,
+        workerName: String = VercelCfFront.randomWorkerName(),
+    ): VercelFrontResult = withContext(Dispatchers.IO) {
+        val template = context.assets.open(VercelCfFront.ASSET).bufferedReader().use { it.readText() }
+        val script = VercelCfFront.script(template, origin)
+        val subdomain = resolveWorkersSubdomain(token, accountId)
+        val uploadUrl = "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName"
+        ensureWorkerNameAvailable(token, uploadUrl, workerName)
+        val bindings = JSONArray().put(JSONObject().put("type", "plain_text").put("name", "CAT_VERCEL_ORIGIN").put("text", origin.lowercase()))
+        val putResult = cfUploadWorker(token, uploadUrl, script, extraBindings = bindings)
+        if (!putResult.optBoolean("success", false)) {
+            throw RuntimeException("Cloudflare front upload failed: " + (putResult.optJSONArray("errors")?.toString() ?: "unknown"))
+        }
+        runCatching {
+            cfPost(token, "$uploadUrl/subdomain", JSONObject().put("enabled", true).put("previews_enabled", false).toString())
+        }
+        val host = "$workerName.$subdomain.workers.dev"
+        // A brand-new workers.dev name can take a little while to resolve: poll up to ~60 s.
+        var verified = false
+        for (attempt in 0 until 20) {
+            verified = runCatching {
+                val conn = (URL("https://$host/__cat_front").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 6_000; readTimeout = 6_000; useCaches = false
+                }
+                try { conn.responseCode == 200 && VercelCfFront.healthy(conn.inputStream.bufferedReader().use { it.readText() }, origin) } finally { conn.disconnect() }
+            }.getOrDefault(false)
+            if (verified) break
+            delay(3_000)
+        }
+        VercelFrontResult(workerName, "https://$host", host, verified)
     }
 
     data class CfTokenPermissions(

@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta188] — 2026-10-27 (Panel 6.69.44)
+
+### Added
+- **🟧 Cloudflare front for a Vercel panel:** for lines where `*.vercel.app` is filtered but Cloudflare is open. A small Worker on the user's own Cloudflare account (`app/src/main/assets/vercel/cf-front.js`, written for Cat Client) passes the panel, the subscription and the VLESS/Trojan WebSocket tunnels (incl. early data via `Sec-WebSocket-Protocol`, echoed back) on to the Vercel project. It talks only to that one origin (refuses with 500 when none is set, 508 for a loop to itself, never an open proxy), keeps no logs or storage, rewrites redirects back to the front and answers `/__cat_front` with its origin so the panel and app can verify it.
+  - **App:** Vercel → My projects → a panel → «🟧 Build a Cloudflare front». Paste a Cloudflare token («Edit Cloudflare Workers» template) → token check → a confirmation that says exactly what will happen → a new Worker `cat-front-xxxxxx` (an existing Worker is never overwritten), workers.dev turned on, health-checked until `/__cat_front` names this project → `CAT_CF_FRONT` set on the Vercel project and the panel redeployed with the same files (UUID, passwords and users unchanged) → two ready «🟧 Cloudflare front» configs to add or copy.
+  - **Panel 6.69.44:** with `CAT_CF_FRONT` (env) or the new «🟧 Cloudflare front» field in the 🔬 Vercel card, the subscription starts with a `🟧 CF` group (1 VLESS + 1 Trojan: address = Host = SNI = the front, :443 TLS). `?sni=<front>` returns only those lines. The front's address is the domain only; the Cloudflare clean-IP scanner swaps in IPs with the exact port they were tested on. «📋 Copy the Cloudflare front script» (owner-only `GET /api/vercel-front.js`, origin pre-filled) for setting it up by hand. «Check on Vercel» checks the front first (OK only when it points at this project) and «Check my internet» opens it from the phone.
+
+### Fixed
+- `obfuscate.mjs` / `stealth.mjs` only rewrite real `export default {` / `export const _testing = {` statements at the start of a line (the embedded front script's own `export default` broke the obfuscated artifact).
+
+### Tests
+- New `vercel-cf-front.test.mjs`: the front script in the real Workers runtime (miniflare/workerd) in front of the real Vercel adapter + panel — health, `/api/version`, the panel page, the subscription, VLESS and Trojan over WebSocket with and without early data, the subprotocol echo, a 3 MB download checked by SHA-256, a wrong UUID, the no-origin / bad-origin / loop guards and the redirect rewrite. It caught a real bug: binary frames arriving as a `Blob` were forwarded as the text «[object Blob]»; the front now turns them into bytes and keeps the frame order.
+- `vercel-platform.test.mjs` (CF group, `?sni=` pin, Clash export, settings sanitising, owner-only script, the doctor's front check with OK / wrong-origin / unreachable), `vercel-doctor-ui.test.mjs` (copy script, save front, my-internet check), `VercelPanelTest.kt` (script fill-in, health parse, worker names, front links).
+- The paste-artifact gzip budget went from 186 000 to 192 000 B (measured 188 704 B).
+
 ## [1.10.0-beta187] — 2026-10-27 (Panel 6.69.43)
 
 ### Why Vercel configs do not ping from Iran (measured live from Vercel's edge, iad1)

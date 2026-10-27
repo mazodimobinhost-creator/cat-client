@@ -28,7 +28,9 @@ for (const lang of ['fa', 'en']) {
       if (u.includes('/api/vercel-doctor')) return Promise.resolve(new Response(JSON.stringify({ ok: true, results: [
         { id: 'bare', sni: 'vercel.app', status: 101, ok: true, ms: 40 }, { id: 'rnd', sni: 'wq8x2k1m0zz9.vercel.app', status: 101, ok: true, ms: 41 },
         { id: 'project', sni: HOST, status: 101, ok: true, ms: 39 }, { id: 'front', sni: 'nextjs.org', status: 421, ok: false, ms: 30 }] })));
-      if (u.includes('/api/settings') && o && o.method === 'PUT') { const b = JSON.parse(o.body); return Promise.resolve(new Response(JSON.stringify({ ok: true, persisted: false, settings: { vercelDomain: /vercel/.test(b.vercelDomain) ? '' : b.vercelDomain } }))); }
+      if (u.endsWith('/api/vercel-front.js')) return Promise.resolve(new Response("const DEFAULT_ORIGIN = '" + HOST + "';\nexport default {}"));
+      if (/^https:\/\/cat-front\.example\.workers\.dev\/__cat_front/.test(u)) return Promise.resolve(new Response(''));
+      if (u.includes('/api/settings') && o && o.method === 'PUT') { const b = JSON.parse(o.body); return Promise.resolve(new Response(JSON.stringify({ ok: true, persisted: false, settings: { vercelDomain: /vercel/.test(b.vercelDomain || '') ? '' : (b.vercelDomain || ''), vercelCfFront: /vercel/.test(b.vercelCfFront || '') ? '' : (b.vercelCfFront || '') } }))); }
       // the user's line: vercel.app and the project name are blocked, the random name passes
       if (/^https:\/\/(vercel\.app|cat-panel)/.test(u)) return Promise.reject(new TypeError('Failed to fetch'));
       if (/^https:\/\/w[a-z0-9]+\.vercel\.app\//.test(u)) return Promise.resolve(new Response(''));
@@ -54,6 +56,16 @@ for (const lang of ['fa', 'en']) {
   d.getElementById('vdSave').click();
   check(lang + ': saving without storage explains the permanent way', await until(() => /CAT_VERCEL_DOMAIN/.test(d.getElementById('vdMsg').textContent)), d.getElementById('vdMsg').textContent);
   check(lang + ': a saved domain joins the next my-internet check', w.__VD.plan[0].id === 'custom' && w.__VD.plan[0].sni === 'vpn.example.ir');
+  // 🟧 Cloudflare front: copy the script, save the front name, both checks include it
+  d.getElementById('vdCfCopy').click();
+  check(lang + ': front script button shows the script with the origin', await until(() => d.getElementById('vdCfSrc').value.includes(HOST) && d.getElementById('vdCfSrc').style.display === 'block'));
+  check(lang + ': front script comes from the owner-only endpoint', calls.some(([u]) => u.endsWith('/api/vercel-front.js')));
+  d.getElementById('vdCf').value = 'cat-front.example.workers.dev';
+  d.getElementById('vdCfSave').click();
+  check(lang + ': saving the front name without storage explains CAT_CF_FRONT', await until(() => /CAT_CF_FRONT/.test(d.getElementById('vdMsg').textContent)) && w.__VD.front === 'cat-front.example.workers.dev', d.getElementById('vdMsg').textContent);
+  calls.length = 0;
+  d.getElementById('vdNet').click();
+  check(lang + ': my-internet check also opens the front', await until(() => calls.some(([u]) => u.startsWith('https://cat-front.example.workers.dev/__cat_front'))) && await until(() => /🟧/.test(d.getElementById('vdOut').textContent)));
   check(lang + ': no script errors', errors.length === 0, errors.join(' | '));
   w.close();
 }

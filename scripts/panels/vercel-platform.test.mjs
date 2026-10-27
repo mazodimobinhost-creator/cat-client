@@ -114,12 +114,35 @@ check('vercel login page has no Cloudflare KV binding steps', !/Storage &amp; Da
 const cfLogin = await (await worker.fetch(new Request('https://cf.example.workers.dev/panel/', { headers: { 'accept-language': 'fa' } }), { UUID, TROJAN_PASS: 'p-cf' }, { waitUntil() {} })).text();
 check('cloudflare login page keeps the KV binding steps', /Bindings → KV namespace/.test(cfLogin) && !/Vercel Blob/.test(cfLogin));
 
+// 6.69.44 🟧 Cloudflare front: two lines first (VLESS + Trojan), address = Host = SNI = the front's name.
+const frontEnv = Object.assign({}, vercelEnv, { CAT_CF_FRONT: 'https://cat-front.you.workers.dev/' });
+const fr = (await subLines(frontEnv)).lines;
+const frP = fr.map(parse);
+check('CF front adds exactly two lines first (VLESS + Trojan)', fr.length === 42 && fr[0].startsWith('vless://') && fr[1].startsWith('trojan://') && /Cloudflare%20front/.test(fr[0]), fr.length + ' ' + fr[0].slice(0, 90));
+check('CF front lines: address = Host = SNI = the front, :443 TLS, no fm/ech', frP.slice(0, 2).every((p) => p.host === 'cat-front.you.workers.dev' && p.port === 443 && p.q.get('security') === 'tls' && p.q.get('host') === 'cat-front.you.workers.dev' && p.q.get('sni') === 'cat-front.you.workers.dev' && !p.q.get('fm') && !p.q.get('ech')));
+check('CF front lines keep the panel tunnel paths', frP[0].q.get('path') === parsed.find((p) => p.q.get('path') && p.q.get('path').startsWith('/vl/')).q.get('path'));
+check('the other 40 lines are unchanged with a CF front', frP.slice(2).every((p) => p.q.get('host') === HOST));
+const frPin = (await subLines(frontEnv, '?sni=cat-front.you.workers.dev')).lines.map(parse);
+check('?sni=<front> gives only the CF front lines', frPin.length === 2 && frPin.every((p) => p.host === 'cat-front.you.workers.dev' && p.q.get('host') === 'cat-front.you.workers.dev'), frPin.length);
+check('a vercel.app name is never taken as the CF front', (await subLines(Object.assign({}, vercelEnv, { CAT_CF_FRONT: 'x.vercel.app' }))).lines.length === 40);
+const clashFront = await (await worker.fetch(new Request('https://' + HOST + '/sub/' + UUID + '?target=clash'), frontEnv, { waitUntil() {} })).text();
+check('clash export carries the CF front server/Host', /server: "?cat-front\.you\.workers\.dev"?/.test(clashFront) && /Host: "cat-front\.you\.workers\.dev"/.test(clashFront));
+const cfOnly = (await subLines({ UUID, TROJAN_PASS: 'p-cf', CAT_CF_FRONT: 'cat-front.you.workers.dev' })).lines;
+check('CF front lines only exist on Vercel panels', !cfOnly.some((l) => /Cloudflare%20front/.test(l)));
+
 // 6.69.43 settings: vercelDomain is sanitised (scheme/path stripped, vercel.app refused).
 const putDom = async (v) => (await (await worker.fetch(new Request('https://' + HOST + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie2, origin: 'https://' + HOST }, body: JSON.stringify({ vercelDomain: v }) }), storedEnv, { waitUntil() {} })).json()).settings.vercelDomain;
 check('settings: vercelDomain keeps a real domain (scheme/path stripped)', (await putDom('https://VPN.Example.ir/panel/')) === 'vpn.example.ir');
 check('settings: vercelDomain refuses vercel.app names', (await putDom('x.vercel.app')) === '');
 check('settings: saved vercelDomain drives the Domain group', ((await putDom('cdn.example.org')) === 'cdn.example.org') && (await subLines(storedEnv)).lines.map(parse).filter((p) => p.q.get('sni') === 'cdn.example.org' && p.q.get('host') === 'cdn.example.org').length === 8);
 await putDom('');
+const putFront = async (v) => (await (await worker.fetch(new Request('https://' + HOST + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie2, origin: 'https://' + HOST }, body: JSON.stringify({ vercelCfFront: v }) }), storedEnv, { waitUntil() {} })).json()).settings.vercelCfFront;
+check('settings: vercelCfFront keeps a real name and refuses vercel.app', (await putFront('HTTPS://Cat-Front.You.Workers.dev/x')) === 'cat-front.you.workers.dev' && (await putFront('a.vercel.app')) === '');
+await putFront('');
+const frontJs = await worker.fetch(new Request('https://' + HOST + '/api/vercel-front.js', { headers: { cookie } }), vercelEnv, { waitUntil() {} });
+const frontJsText = await frontJs.text();
+check('owner gets the front script with this project as origin', frontJs.status === 200 && frontJsText.includes("const DEFAULT_ORIGIN = '" + HOST + "';") && /webSocket/.test(frontJsText));
+check('anonymous callers cannot read the front script', (await worker.fetch(new Request('https://' + HOST + '/api/vercel-front.js'), vercelEnv, { waitUntil() {} })).status === 401);
 // 6.69.43 /api/vercel-doctor: owner-only; dials each SNI group with a WebSocket upgrade and reports Vercel's answer.
 const T0 = (await import(workerPath))._testing;
 const dialed = [];
@@ -146,6 +169,16 @@ check('vercel-doctor reports 101 for vercel.app / random / mixed / project SNIs'
 check('vercel-doctor shows the nextjs.org fronting control as 421', byId.front && byId.front.status === 421 && !byId.front.ok);
 check('vercel-doctor dials with the planned SNIs', dialed.includes('vercel.app') && dialed.includes('nextjs.org'), dialed.join(','));
 const docCf = await worker.fetch(new Request('https://w.example.workers.dev/api/vercel-doctor', { method: 'POST', headers: { origin: 'https://w.example.workers.dev' } }), { UUID, TROJAN_PASS: 'p-cf' }, { waitUntil() {} });
+const docFront = await (await worker.fetch(new Request('https://' + HOST + '/api/vercel-doctor', { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: 'https://' + HOST }, body: '{}' }), frontEnv, { waitUntil() {} })).json();
+check('vercel-doctor checks the CF front first (unreachable here → not ok, no crash)', docFront.ok && docFront.front === 'cat-front.you.workers.dev' && docFront.results[0].id === 'cf' && docFront.results[0].ok === false, JSON.stringify(docFront.results && docFront.results[0]));
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u) => String(u).startsWith('https://cat-front.you.workers.dev/__cat_front') ? new Response(JSON.stringify({ ok: true, front: 'cat-cf-front', origin: HOST })) : realFetch(u);
+const docFront2 = await (await worker.fetch(new Request('https://' + HOST + '/api/vercel-doctor', { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: 'https://' + HOST }, body: '{}' }), frontEnv, { waitUntil() {} })).json();
+check('vercel-doctor: a front that points at this project is ok', docFront2.results[0].id === 'cf' && docFront2.results[0].ok === true, JSON.stringify(docFront2.results[0]));
+globalThis.fetch = async (u) => String(u).startsWith('https://cat-front.you.workers.dev/__cat_front') ? new Response(JSON.stringify({ ok: true, front: 'cat-cf-front', origin: 'someone-else.vercel.app' })) : realFetch(u);
+const docFront3 = await (await worker.fetch(new Request('https://' + HOST + '/api/vercel-doctor', { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: 'https://' + HOST }, body: '{}' }), frontEnv, { waitUntil() {} })).json();
+check('vercel-doctor: a front pointing at another project is NOT ok', docFront3.results[0].ok === false && docFront3.results[0].origin === 'someone-else.vercel.app');
+globalThis.fetch = realFetch;
 check('vercel-doctor is not offered on Cloudflare', docCf.status !== 200, docCf.status);
 T0.__setSockets(null);
 

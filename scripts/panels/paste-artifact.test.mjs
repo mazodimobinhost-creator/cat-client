@@ -94,7 +94,10 @@ const source = readFileSync(sourcePath, 'utf8');
   // 🔬 card with its server check, my-internet check, custom-domain field and a bilingual
   // plain-words guide) and the ✂️ Frag / random-SNI / custom-domain subscription groups —
   // measured 183 081 B, i.e. ~5.2 KB gzip over 6.69.42 (177 856 B).
-  ok('gzip stays under the 186 KB regression budget', gz < 186_000, gz);
+  // Raised from 186 000 to 192 000 for 6.69.44: the 🟧 Cloudflare front — the whole front Worker
+  // ships inside the panel (owner-only /api/vercel-front.js, ~2.1 KB gzip), plus the CF subscription
+  // group, the doctor's front check and the bilingual plain-words setup guide — measured 188 704 B.
+  ok('gzip stays under the 192 KB regression budget', gz < 192_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

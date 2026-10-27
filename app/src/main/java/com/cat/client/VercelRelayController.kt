@@ -48,7 +48,10 @@ class VercelRelayController(
     private val showQr: (links: List<String>, title: String) -> Unit,
     private val showDialog: (AlertDialog) -> Unit,
 ) {
-    private companion object { const val PANEL_RUNTIME = "panel" }
+    private companion object {
+        const val PANEL_RUNTIME = "panel"
+        const val VERCEL_FRONT_KEY = VercelCfFront.ENV_KEY
+    }
     private val palette by lazy { CatClientDesignTokens.forContext(activity) }
     private val store by lazy { VercelRelayStore(activity) }
     private var job: Job? = null
@@ -1446,6 +1449,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             t("🔎 اسکنر آی‌پی Vercel برای این پنل", "🔎 Vercel IP scanner for this panel") to {
                 showIpScanner(item.links.firstOrNull { VercelIpScanner.target(it) != null } ?: item.sourceName)
             },
+            t("🟧 ساخت جلوی Cloudflare (وقتی vercel.app بسته است)", "🟧 Build a Cloudflare front (when vercel.app is blocked)") to { showCfFront(item) },
             t("🔧 به‌روزرسانی پنل (+ حافظهٔ دائمی)", "🔧 Update the panel (+ permanent storage)") to { showUpdatePanel(item.projectName) },
             t("🗑️ پاک کردن پروژه از حساب Vercel", "🗑️ Delete the project from Vercel") to { confirmDelete(item) },
         )
@@ -1469,6 +1473,161 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             )
             fixRow.visibility = if (health.needsUpdate) View.VISIBLE else View.GONE
         }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // 🟧 Cloudflare front (6.69.44): a small Worker on the user's own Cloudflare account that passes the
+    // panel, subscription and tunnels on to this Vercel project — for lines where *.vercel.app is filtered.
+    private fun showCfFront(item: SavedVercelRelay) {
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(4), dp(18), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        box.addView(label(t(
+            "وقتی روی خط شما vercel.app باز نمی‌شود ولی Cloudflare باز است، این دکمه یک Worker کوچک روی حساب Cloudflare خودتان می‌سازد که همه‌چیز (پنل، اشتراک و تونل‌ها) را به همین پنل Vercel می‌رساند. گوشی به Cloudflare وصل می‌شود و سایت‌ها هنوز آی‌پی Vercel را می‌بینند.\n\n" +
+                "۱) در Cloudflare: My Profile ← API Tokens ← Create Token ← قالب «Edit Cloudflare Workers» ← Continue ← Create Token.\n" +
+                "۲) توکن را این‌جا بچسبانید و «ادامه» را بزنید؛ قبل از ساختن، دقیقاً می‌گوییم چه کاری انجام می‌شود.",
+            "When vercel.app does not open on your line but Cloudflare does, this builds a small Worker on your own Cloudflare account that passes everything (panel, subscription, tunnels) on to this Vercel panel. The phone connects to Cloudflare and websites still see Vercel's IP.\n\n" +
+                "1) In Cloudflare: My Profile → API Tokens → Create Token → template “Edit Cloudflare Workers” → Continue → Create Token.\n" +
+                "2) Paste the token here and tap “Continue”; before anything is built you will see exactly what will happen.",
+        ), 12.5f, palette.textPrimary, 0))
+        val tokenInput = input(t("توکن Cloudflare را اینجا بچسبانید", "Paste the Cloudflare token here"), store.cfToken, password = true)
+        box.addView(tokenInput, lp(10))
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("🟧 جلوی Cloudflare برای ", "🟧 Cloudflare front for ") + item.projectName)
+            .setView(ScrollView(activity).apply { addView(box) })
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(t("ادامه", "Continue"), null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val token = tokenInput.text.toString().trim()
+                if (token.length < 20) { tokenInput.error = t("توکن کامل نیست", "The token looks incomplete"); return@setOnClickListener }
+                dialog.dismiss()
+                checkCfTokenThenConfirm(item, token)
+            }
+        }
+        showDialog(dialog)
+    }
+
+    private fun checkCfTokenThenConfirm(item: SavedVercelRelay, token: String) {
+        val wait = MaterialAlertDialogBuilder(activity)
+            .setTitle("🟧 Cloudflare")
+            .setMessage(t("⏳ بررسی توکن Cloudflare…", "⏳ Checking the Cloudflare token…"))
+            .setCancelable(false)
+            .create()
+        showDialog(wait)
+        scope.launch {
+            val perms = runCatching { CloudflareWorker.verifyToken(token) }
+            wait.dismiss()
+            val p = perms.getOrNull()
+            if (p == null || !p.valid || p.accountId.isNullOrBlank()) {
+                val why = perms.exceptionOrNull()?.let { (it.message ?: it.javaClass.simpleName) }
+                    ?: t("توکن معتبر نیست یا دسترسی کم دارد: ", "The token is not valid or lacks access: ") + (p?.missingScopes?.joinToString().orEmpty())
+                showDialog(MaterialAlertDialogBuilder(activity)
+                    .setTitle(t("❌ توکن Cloudflare", "❌ Cloudflare token"))
+                    .setMessage(why + t("\n\nاگر api.cloudflare.com روی خط شما باز نیست، اول با یک کانفیگ دیگر وصل شوید.", "\n\nIf api.cloudflare.com is blocked on your line, connect with another config first."))
+                    .setPositiveButton(android.R.string.ok, null).create())
+                return@launch
+            }
+            store.cfToken = token
+            val accountId: String = p.accountId.orEmpty()
+            val accountName: String = p.accountName.orEmpty()
+            val workerName = VercelCfFront.randomWorkerName()
+            // Installer confirmation: say exactly what will be created/changed before doing it.
+            showDialog(MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🟧 ساخت جلوی Cloudflare؟", "🟧 Build the Cloudflare front?"))
+                .setMessage(t(
+                    "این کارها انجام می‌شود:\n" +
+                        "• یک Worker تازه به نام «$workerName» روی حساب Cloudflare «$accountName» ساخته می‌شود (هیچ Worker موجودی عوض نمی‌شود).\n" +
+                        "• این Worker فقط به «${item.host}» وصل می‌شود؛ پراکسی باز نیست.\n" +
+                        "• در پروژهٔ Vercel متغیر $VERCEL_FRONT_KEY تنظیم و پنل با همان فایل‌ها دوباره منتشر می‌شود تا خطوط «🟧 CF» در اشتراک بیایند. UUID، رمزها و کاربرها عوض نمی‌شوند.\n" +
+                        "• دو کانفیگ «🟧 Cloudflare front» آماده می‌شود که می‌توانید به برنامه اضافه کنید.",
+                    "This will:\n" +
+                        "• create a new Worker “$workerName” on the Cloudflare account “$accountName” (no existing Worker is changed);\n" +
+                        "• point it only at “${item.host}” — it is not an open proxy;\n" +
+                        "• set $VERCEL_FRONT_KEY on the Vercel project and redeploy the panel with the same files so “🟧 CF” lines join the subscription. UUID, passwords and users stay the same;\n" +
+                        "• prepare two “🟧 Cloudflare front” configs you can add to the app.",
+                ))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(t("بساز", "Build")) { _, _ -> buildCfFront(item, token, accountId, workerName) }
+                .create())
+        }
+    }
+
+    private fun buildCfFront(item: SavedVercelRelay, cfToken: String, accountId: String, workerName: String) {
+        val status = label(t("⏳ ساخت Worker روی Cloudflare…", "⏳ Creating the Worker on Cloudflare…"), 13f, palette.textPrimary, 0)
+        val progress = MaterialAlertDialogBuilder(activity)
+            .setTitle("🟧 Cloudflare front")
+            .setView(LinearLayout(activity).apply { setPadding(dp(18), dp(8), dp(18), dp(8)); addView(status) })
+            .setCancelable(false)
+            .create()
+        showDialog(progress)
+        scope.launch {
+            val front = runCatching { CloudflareWorker.deployVercelFront(activity, cfToken, accountId, item.host, workerName) }
+            val r = front.getOrNull()
+            if (r == null) {
+                progress.dismiss()
+                showDialog(MaterialAlertDialogBuilder(activity)
+                    .setTitle(t("❌ ساخته نشد", "❌ Not built"))
+                    .setMessage(front.exceptionOrNull()?.message ?: "?")
+                    .setPositiveButton(android.R.string.ok, null).create())
+                return@launch
+            }
+            status.text = t("⏳ وصل کردن به پنل Vercel…", "⏳ Connecting it to the Vercel panel…")
+            // Panel side: env var + redeploy (same files) so the panel's own subscription carries the 🟧 CF lines.
+            val vercelToken = store.token
+            val panelNote = if (vercelToken.isBlank()) {
+                t("⚠️ توکن Vercel در برنامه نیست؛ خطوط «🟧 CF» فقط در همین برنامه اضافه می‌شوند. برای اشتراک پنل، نام جلو را در پنل ← «🩺 Vercel» ذخیره کنید.",
+                    "⚠️ No Vercel token in the app; the “🟧 CF” lines are only added here. For the panel subscription, save the front name in the panel → “🩺 Vercel”.")
+            } else {
+                val res = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val api = VercelApi(vercelToken)
+                        api.upsertEnv(item.projectId, VERCEL_FRONT_KEY, r.host)
+                        api.redeployLatest(item.projectId, item.projectName)
+                    }
+                }
+                if (res.isSuccess) t("✅ پنل Vercel دوباره منتشر شد؛ حدود یک دقیقه بعد اشتراک پنل هم خطوط «🟧 CF» را دارد.",
+                    "✅ The Vercel panel was redeployed; in about a minute its subscription carries the “🟧 CF” lines too.")
+                else t("⚠️ تنظیم پنل Vercel کامل نشد (", "⚠️ Could not finish the Vercel side (") + (res.exceptionOrNull()?.message ?: "?") +
+                    t("). «🔧 به‌روزرسانی پنل» را بزنید تا خطوط «🟧 CF» در اشتراک بیایند.", "). Run “🔧 Update the panel” to get the “🟧 CF” lines into the subscription.")
+            }
+            progress.dismiss()
+            val links = VercelCfFront.links(item.links, r.host)
+            showCfFrontResult(item, r, links, panelNote)
+        }
+    }
+
+    private fun showCfFrontResult(item: SavedVercelRelay, r: CloudflareWorker.VercelFrontResult, links: List<String>, panelNote: String) {
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(4), dp(18), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        }
+        box.addView(label(
+            (if (r.verified) t("✅ جلوی Cloudflare ساخته شد و جواب داد: ", "✅ The Cloudflare front was built and answers: ")
+            else t("⚠️ Worker ساخته شد ولی هنوز جواب نداد (اسم تازهٔ workers.dev گاهی چند دقیقه طول می‌کشد): ", "⚠️ The Worker was built but does not answer yet (a new workers.dev name can take a few minutes): ")) + r.host,
+            13f, if (r.verified) palette.teal else palette.amber, 0))
+        box.addView(label(panelNote, 12.5f, palette.textPrimary, 8))
+        box.addView(label(t(
+            "• «➕ افزودن» را بزنید و کانفیگ‌های «🟧» را امتحان کنید.\n• اگر خود workers.dev روی خط شما بسته است، اسکنر آی‌پی تمیز Cloudflare برنامه را روی همین کانفیگ‌ها بزنید؛ آی‌پی سالم با همان پورتی که تست شد جایگزین می‌شود.\n• پنل از این آدرس هم باز می‌شود: https://${r.host}/panel/",
+            "• Tap “➕ Add” and try the “🟧” configs.\n• If workers.dev itself is blocked on your line, run the app's Cloudflare clean-IP scanner on these configs; a working IP replaces the address with exactly the port it was tested on.\n• The panel also opens at: https://${r.host}/panel/",
+        ), 12.5f, palette.textSecondary, 8))
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle("🟧 " + item.projectName)
+            .setView(ScrollView(activity).apply { addView(box) })
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        if (links.isNotEmpty()) {
+            box.addView(button(t("➕ افزودن ${links.size} کانفیگ «🟧 Cloudflare front» به برنامه", "➕ Add ${links.size} “🟧 Cloudflare front” configs to the app"), true) {
+                dialog.dismiss(); addSubscription(links.joinToString("\n"), "Vercel Panel · ${item.projectName} · CF front")
+            }, lp(10))
+            box.addView(button(t("📋 کپی کانفیگ‌ها", "📋 Copy the configs")) { copy(links.joinToString("\n")) }, lp(6))
+        }
+        box.addView(button(t("📋 کپی آدرس جلو", "📋 Copy the front address")) { copy(r.host) }, lp(6))
+        showDialog(dialog)
     }
 
     /** Plain-language status line for a deployed panel: what it means and what to press. */

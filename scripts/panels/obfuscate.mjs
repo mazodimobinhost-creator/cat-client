@@ -60,13 +60,18 @@ if (!version) {
 // 1) hide the export statements from the obfuscator
 const DEFAULT_MARK = 'export default {';
 const TESTING_MARK = 'export const _testing = {';
-if (!src.includes(DEFAULT_MARK) || !src.includes(TESTING_MARK)) {
+// Only REAL export statements (start of a line) — the worker embeds other modules' source as string
+// literals (e.g. the 6.69.44 Cloudflare front script), and their own `export default {` must stay untouched.
+const DEFAULT_RE = /^export default \{/m;
+const TESTING_RE = /^export const _testing = \{/m;
+const countRe = (re, text) => (text.match(new RegExp(re.source, 'gm')) || []).length;
+if (countRe(DEFAULT_RE, src) !== 1 || countRe(TESTING_RE, src) !== 1) {
   console.error('obfuscate: expected export markers not found — source shape changed?');
   process.exit(1);
 }
 const prepped = src
-  .replace(DEFAULT_MARK, 'const __catDefault = {')
-  .replace(TESTING_MARK, 'const __catTesting = {')
+  .replace(DEFAULT_RE, 'const __catDefault = {')
+  .replace(TESTING_RE, 'const __catTesting = {')
   + '\n;Object.assign(globalThis, { __CAT_DEFAULT: __catDefault, __CAT_TESTING: __catTesting });\n';
 
 // 2) obfuscate

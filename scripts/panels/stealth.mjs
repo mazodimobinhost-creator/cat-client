@@ -194,13 +194,18 @@ for (const e of edits) byWhy[e.why] = (byWhy[e.why] || 0) + 1;
 
 const DEFAULT_MARK = 'export default {';
 const TESTING_MARK = 'export const _testing = {';
-if (!scrubbed.includes(DEFAULT_MARK) || !scrubbed.includes(TESTING_MARK)) {
+// Only REAL export statements (start of a line) — the worker embeds other modules' source as string
+// literals (e.g. the 6.69.44 Cloudflare front script), and their own `export default {` must stay untouched.
+const DEFAULT_RE = /^export default \{/m;
+const TESTING_RE = /^export const _testing = \{/m;
+const countRe = (re, text) => (text.match(new RegExp(re.source, 'gm')) || []).length;
+if (countRe(DEFAULT_RE, scrubbed) !== 1 || countRe(TESTING_RE, scrubbed) !== 1) {
   console.error('stealth: expected export markers not found — source shape changed?');
   process.exit(1);
 }
 const prepped = scrubbed
-  .replace(DEFAULT_MARK, 'const __d = {')
-  .replace(TESTING_MARK, 'const __t = {')
+  .replace(DEFAULT_RE, 'const __d = {')
+  .replace(TESTING_RE, 'const __t = {')
   + '\n;Object.assign(globalThis, { __d: __d, __t: __t });\n';
 
 const OPTIONS = {

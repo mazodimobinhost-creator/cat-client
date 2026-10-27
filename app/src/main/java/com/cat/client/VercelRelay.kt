@@ -436,6 +436,20 @@ internal class VercelApi(private val token: String) {
         request("POST", "/v10/projects/${enc(projectId)}/env?upsert=true", body)
     }
 
+    /**
+     * Redeploys the newest READY production deployment with the same files (Vercel's «Redeploy»), so a
+     * changed env var takes effect without re-uploading the panel. Returns the new deployment.
+     */
+    fun redeployLatest(projectId: String, projectName: String): JSONObject {
+        ensureScope()
+        val list = request("GET", "/v6/deployments?projectId=${enc(projectId)}&target=production&state=READY&limit=1", null)
+            .optJSONArray("deployments") ?: JSONArray()
+        val uid = list.optJSONObject(0)?.optString("uid").orEmpty()
+        if (uid.isBlank()) throw VercelApiException("no ready production deployment to redeploy")
+        val body = JSONObject().put("name", projectName).put("project", projectId).put("deploymentId", uid).put("target", "production")
+        return request("POST", "/v13/deployments?forceNew=1", body)
+    }
+
     /** Uploads one file by content hash (how the Vercel CLI ships big files); returns its sha1. */
     fun uploadFile(bytes: ByteArray): String {
         ensureScope()
@@ -566,6 +580,11 @@ internal class VercelRelayStore(context: Context) {
     var token: String
         get() = prefs.getString("token", "").orEmpty()
         set(value) { prefs.edit().putString("token", value.trim()).apply() }
+
+    /** Cloudflare API token for the 🟧 Cloudflare front (kept on this phone only, like the Vercel token). */
+    var cfToken: String
+        get() = prefs.getString("cf_token", "").orEmpty()
+        set(value) { prefs.edit().putString("cf_token", value.trim()).apply() }
 
     fun list(): List<SavedVercelRelay> = runCatching {
         val arr = JSONArray(prefs.getString("projects", "[]"))

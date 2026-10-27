@@ -548,3 +548,72 @@ object VercelScanDiagnosis {
         Cause.OTHER -> if (fa) "❔ علت مشخص نشد؛ جزئیات خطا در پایین آمده." else "❔ Unclear cause; the error details are below."
     }
 }
+
+/**
+ * 6.69.44 🟧 Cloudflare front for a Vercel panel: a tiny Worker (assets/vercel/cf-front.js) on the user's own
+ * Cloudflare account passes the panel, the subscription and the WebSocket tunnels on to the Vercel project.
+ * Used when *.vercel.app is filtered on the line but Cloudflare is open. Pure helpers (unit-tested).
+ */
+internal object VercelCfFront {
+    const val ASSET = "vercel/cf-front.js"
+    const val ENV_KEY = "CAT_CF_FRONT"
+    private const val ORIGIN_PLACEHOLDER = "'__CAT_ORIGIN__'"
+
+    fun randomWorkerName(random: kotlin.random.Random = kotlin.random.Random.Default): String {
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return "cat-front-" + (1..6).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+    }
+
+    fun isHostname(value: String): Boolean =
+        value.length in 4..253 && Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$").matches(value)
+
+    /** The shipped script with the Vercel project written in (the CAT_VERCEL_ORIGIN binding is set too). */
+    fun script(template: String, origin: String): String {
+        val o = origin.trim().lowercase()
+        require(isHostname(o)) { "origin must be a hostname" }
+        require(template.contains(ORIGIN_PLACEHOLDER)) { "front script: origin placeholder missing" }
+        return template.replace(ORIGIN_PLACEHOLDER, "'$o'")
+    }
+
+    /** True when /__cat_front answered as OUR front script pointing at [origin]. */
+    fun healthy(body: String, origin: String): Boolean = runCatching {
+        val j = org.json.JSONObject(body)
+        j.optBoolean("ok") && j.optString("front") == "cat-cf-front" && j.optString("origin").equals(origin, ignoreCase = true)
+    }.getOrDefault(false)
+
+    /**
+     * One VLESS + one Trojan config through the front, made from the panel's own lines: address, Host and
+     * SNI become the front's name (:443, TLS), path / UUID / password stay; Vercel-only knobs (fm, cs, ech) go.
+     */
+    fun links(panelLinks: List<String>, front: String): List<String> {
+        val out = mutableListOf<String>()
+        for (scheme in listOf("vless", "trojan")) {
+            val src = panelLinks.firstOrNull { l ->
+                l.startsWith("$scheme://") && param(l, "security") == "tls" && param(l, "type") == "ws" && param(l, "path").isNotBlank()
+            } ?: continue
+            val at = src.indexOf('@')
+            val q = src.indexOf('?', at)
+            if (at < 0 || q < 0) continue
+            var body = src.substring(0, at + 1) + front + ":443" + src.substring(q).substringBefore('#')
+            for (k in listOf("fm", "cs", "ech")) body = withoutParam(body, k)
+            body = VercelIpScanner.withParam(body, "host", front)
+            body = VercelIpScanner.withParam(body, "sni", front)
+            out += body + "#" + VercelRelayPlanner.encode("🟧 " + scheme.uppercase() + " · Cloudflare front")
+        }
+        return out
+    }
+
+    fun param(link: String, key: String): String {
+        val query = link.substringAfter('?', "").substringBefore('#')
+        val raw = query.split('&').firstOrNull { it.substringBefore('=') == key }?.substringAfter('=', "") ?: return ""
+        return runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+    }
+
+    fun withoutParam(link: String, key: String): String {
+        val q = link.indexOf('?')
+        if (q < 0) return link
+        val hash = link.indexOf('#', q).let { if (it < 0) link.length else it }
+        val kept = link.substring(q + 1, hash).split('&').filter { it.isNotBlank() && it.substringBefore('=') != key }
+        return link.substring(0, q) + (if (kept.isEmpty()) "" else "?" + kept.joinToString("&")) + link.substring(hash)
+    }
+}

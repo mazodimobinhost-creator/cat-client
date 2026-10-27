@@ -259,4 +259,57 @@ class VercelPanelTest {
         }
         assertTrue(d.explain(VercelScanDiagnosis.Cause.SNI_BLOCKED, false).contains("76.76.21.21"))
     }
+
+    // 6.69.44 🟧 Cloudflare front
+    @Test
+    fun cfFrontScriptGetsTheOriginWrittenInOnce() {
+        val template = asset(VercelCfFront.ASSET).readText()
+        val script = VercelCfFront.script(template, "Cat-Panel-V7K2M.vercel.app")
+        assertTrue(script.contains("const DEFAULT_ORIGIN = '$host';"))
+        assertFalse(script.contains("__CAT_ORIGIN__"))
+        assertTrue(script.contains("webSocket") && script.contains("/__cat_front"))
+        assertTrue(runCatching { VercelCfFront.script(template, "evil.com/'+x") }.isFailure)
+        assertTrue(runCatching { VercelCfFront.script("no placeholder", host) }.isFailure)
+    }
+
+    @Test
+    fun cfFrontHealthNeedsOurScriptAndThisOrigin() {
+        assertTrue(VercelCfFront.healthy("""{"ok":true,"front":"cat-cf-front","version":1,"origin":"$host"}""", host))
+        assertFalse(VercelCfFront.healthy("""{"ok":true,"front":"cat-cf-front","origin":"other.vercel.app"}""", host))
+        assertFalse(VercelCfFront.healthy("""{"ok":true,"front":"something","origin":"$host"}""", host))
+        assertFalse(VercelCfFront.healthy("<html>hello world</html>", host))
+    }
+
+    @Test
+    fun cfFrontWorkerNamesAreValidAndRandom() {
+        val names = (1..20).map { VercelCfFront.randomWorkerName() }.toSet()
+        assertTrue(names.size > 15)
+        assertTrue(names.all { Regex("^cat-front-[a-z0-9]{6}$").matches(it) })
+    }
+
+    @Test
+    fun cfFrontLinksReuseThePanelLinesWithTheFrontAsAddressHostAndSni() {
+        val front = "cat-front-abc123.you.workers.dev"
+        val panel = listOf(
+            "vless://$uuid@64.29.17.65:443?encryption=none&security=tls&sni=wnm2u6310h33.vercel.app&fp=chrome&alpn=http%2F1.1&type=ws&host=$host&path=%2Fvl%2Fseed%3Fed%3D2560&fm=x#A",
+            "vless://$uuid@$host:443?encryption=none&security=tls&sni=$host&fp=chrome&type=ws&host=$host&path=%2Fvl%2Fseed%3Fed%3D2560#B",
+            "trojan://pass-1@76.76.21.21:443?security=tls&sni=$host&fp=chrome&type=ws&host=$host&path=%2Ftr%2Fseed%3Fed%3D2560&ech=abc#C",
+        )
+        val out = VercelCfFront.links(panel, front)
+        assertEquals(2, out.size)
+        assertTrue(out[0].startsWith("vless://$uuid@$front:443?"))
+        assertTrue(out[1].startsWith("trojan://pass-1@$front:443?"))
+        for (l in out) {
+            assertEquals(front, VercelCfFront.param(l, "host"))
+            assertEquals(front, VercelCfFront.param(l, "sni"))
+            assertEquals("tls", VercelCfFront.param(l, "security"))
+            assertEquals("ws", VercelCfFront.param(l, "type"))
+            assertEquals("", VercelCfFront.param(l, "fm"))
+            assertEquals("", VercelCfFront.param(l, "ech"))
+            assertTrue(l.contains("#") && l.substringAfter('#').contains("Cloudflare"))
+        }
+        assertEquals("/vl/seed?ed=2560", VercelCfFront.param(out[0], "path"))
+        assertEquals("/tr/seed?ed=2560", VercelCfFront.param(out[1], "path"))
+        assertTrue(VercelCfFront.links(listOf("vmess://abc"), front).isEmpty())
+    }
 }
