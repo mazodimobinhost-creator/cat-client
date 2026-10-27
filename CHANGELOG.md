@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta181] — 2026-10-27 (Panel 6.69.39)
+
+### Fixed
+- **HTTPUpgrade configs never connected (all servers, not only Vercel):** Mihomo has no `network: httpupgrade`; an unknown network silently falls back to plain TCP+TLS, so every imported `type=httpupgrade` link (share link, sing-box JSON, Xray JSON, app subscriptions) produced a proxy that could never work. Converted proxies now use Mihomo's real shape — `network: ws` + `ws-opts.v2ray-http-upgrade: true` (early data → `v2ray-http-upgrade-fast-open`) — through one normaliser (`SubConvConverter.normalizeMihomoTransport`) plus the sing-box / Xray paths in `UserSubscriptions`. Export back to a share link keeps `type=httpupgrade`. Checked against the Mihomo v1.19.30 source the app ships; new regression test in `MihomoShareLinkTest`.
+
+### Added
+- **Play Protect explained in the updater:** a plain-language note under the update panel says what «App scan recommended» means (it appears for every new APK Google hasn't seen; it is not an error) and what each button does («Scan app», «Install without scanning», «Don't install app»). The app cannot suppress that Android dialog.
+- **`scripts/panels/vercel-transport.test.mjs`** (13 checks, in `npm test` and CI on the shipped panel): the real Vercel adapter + panel carry VLESS/Trojan over WebSocket end to end; the Vercel subscription (links, Clash, sing-box) stays WebSocket-only; an httpupgrade client is refused at once instead of hanging.
+
+### Verified live (not shipped as a feature)
+- **HTTPUpgrade cannot run on a Vercel Function:** a probe deployed on Vercel (iad1) showed that the edge answers `101` for a key-less httpupgrade request but then forwards **only valid WebSocket frames** — raw bytes after 101 never arrive in either direction (project domain and 216.198.79.65 alike), while real WebSocket echoed in 51–484 ms. So the Cat panel on Vercel keeps WebSocket only, and no httpupgrade twins are generated (they would import and never connect). The probe project was deleted.
+
 ## [1.10.0-beta180] — 2026-10-27 (Panel 6.69.39)
 
 ### Fixed

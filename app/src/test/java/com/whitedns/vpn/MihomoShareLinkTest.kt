@@ -42,6 +42,41 @@ class MihomoShareLinkTest {
     }
 
     @Test
+    fun httpUpgradeLinksBecomeMihomoWsWithV2rayHttpUpgradeAndRoundTrip() {
+        // Mihomo has no `network: httpupgrade` (unknown → plain TLS, never connects); the real
+        // shape is ws + v2ray-http-upgrade. Same shape as panels that hand out /ws/vl/<uuid>.
+        val link = "vless://11111111-2222-4333-8444-555555555555@216.198.79.65:443?encryption=none" +
+            "&security=tls&type=httpupgrade&host=hu.example.app&path=%2Fws%2Fvl%2Fabc&sni=hu.example.app" +
+            "&fp=chrome&alpn=http%2F1.1#HU-TEST"
+        val proxy = SubConvConverter.convert(link).single()
+        assertEquals("ws", proxy.getString("network"))
+        val opts = proxy.getJSONObject("ws-opts")
+        assertEquals(true, opts.getBoolean("v2ray-http-upgrade"))
+        assertEquals("/ws/vl/abc", opts.getString("path"))
+        assertEquals("hu.example.app", opts.getJSONObject("headers").getString("Host"))
+
+        val imported = UserSubscriptionImporter.import(link, now)
+        assertTrue(!imported.yaml.contains("'httpupgrade'"))
+        val block = MihomoConfigParser.parse(imported.yaml, now).summary.proxies.single().rawYaml
+        val rebuilt = MihomoShareLink.fromYamlBlock(block)!!
+        assertTrue(rebuilt, rebuilt.startsWith("vless://11111111-2222-4333-8444-555555555555@216.198.79.65:443?"))
+        assertTrue(rebuilt, rebuilt.contains("type=httpupgrade"))
+        assertTrue(rebuilt, rebuilt.contains("host=hu.example.app"))
+
+        // trojan + plain ws must stay plain ws
+        val ws = SubConvConverter.convert(
+            "trojan://pw@1.2.3.4:443?security=tls&type=ws&host=w.example&path=%2Ftr&sni=w.example#WS",
+        ).single()
+        assertEquals("ws", ws.getString("network"))
+        assertTrue(!ws.getJSONObject("ws-opts").has("v2ray-http-upgrade"))
+        val trojanHu = SubConvConverter.convert(
+            "trojan://pw@1.2.3.4:443?security=tls&type=httpupgrade&host=w.example&path=%2Ftr&sni=w.example#THU",
+        ).single()
+        assertEquals("ws", trojanHu.getString("network"))
+        assertEquals(true, trojanHu.getJSONObject("ws-opts").getBoolean("v2ray-http-upgrade"))
+    }
+
+    @Test
     fun changeRouteAndChangeProxyIpFromYamlBlockPreserveRemarkSniAndHost() {
         val link =
             "vless://uuid@104.16.1.1:443?encryption=none&security=tls&type=ws&host=worker.example" +

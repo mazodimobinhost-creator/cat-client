@@ -951,6 +951,7 @@
     <string name="cloud_wizard_share_hint">Share this link. Each visitor installs their own panel with their own token; the token is never stored.</string>
 
     <!-- Diagnostics and update safety -->
+    <string name="update_play_protect_note">🛡️ If Google Play Protect says “App scan recommended”: that appears for every new version Google hasn\'t seen yet, it is not an error. “Scan app” = Google checks it (about a minute) and then installs; “Install without scanning” = installs right away. Both are fine; “Don\'t install app” cancels the update.</string>
     <string name="update_security_note">Official Cat Client release only · SHA-256, package, ABI and signing certificate are verified before installation.</string>
     <string name="diagnostics_section">Diagnostics &amp; support</string>
     <string name="diagnostics_description">Keeps a short local startup and connection diary. Secrets are redacted before copying or sharing.</string>

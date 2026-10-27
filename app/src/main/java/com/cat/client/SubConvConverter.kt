@@ -157,7 +157,7 @@ object SubConvConverter {
             }
         }.toList()
         if (proxies.isEmpty()) {
-            val structured = parseRawJsonOrTomlConfigs(data, names)
+            val structured = parseRawJsonOrTomlConfigs(data, names).map(::normalizeMihomoTransport)
             if (structured.isNotEmpty()) return structured
             PaqetEngine.parsePaqetFileOrUri(data)?.let { paqetCfg ->
                 val obj = PaqetEngine.toMihomoProxyJson(paqetCfg)
@@ -166,7 +166,25 @@ object SubConvConverter {
             }
         }
         require(proxies.isNotEmpty()) { "No valid proxies found" }
-        return proxies
+        return proxies.map(::normalizeMihomoTransport)
+    }
+
+    /**
+     * Mihomo has NO `network: httpupgrade` — an unknown network silently falls back to plain
+     * TCP(+TLS), so every `type=httpupgrade` share link (Xray/sing-box «HTTPUpgrade», e.g. panels
+     * that hand out `/ws/vl/<uuid>` over httpupgrade) used to produce a config that could never
+     * connect. Mihomo's real shape is `network: ws` + `ws-opts.v2ray-http-upgrade: true`
+     * (early data → `v2ray-http-upgrade-fast-open`). Applied to every converted proxy.
+     */
+    internal fun normalizeMihomoTransport(proxy: JSONObject): JSONObject {
+        if (!proxy.optString("network").equals("httpupgrade", ignoreCase = true)) return proxy
+        val opts = proxy.optJSONObject("ws-opts") ?: JSONObject()
+        if (!opts.has("path")) opts.put("path", "/")
+        opts.remove("max-early-data")
+        opts.remove("early-data-header-name")
+        opts.put("v2ray-http-upgrade", true)
+        proxy.put("network", "ws").put("ws-opts", opts)
+        return proxy
     }
 
     private fun parseVless(line: String, names: NameRegistry): JSONObject {
@@ -800,11 +818,14 @@ object SubConvConverter {
                     proxy.put(if (proto == "trojan" || proto == "tuic" || proto == "hysteria2") "sni" else "servername", it)
                 }
             }
-            if (netType == "ws") {
+            if (netType == "ws" || netType == "httpupgrade") {
                 proxy.put("network", "ws")
-                val wsPath = trObj?.optString("path", "/") ?: "/"
-                val wsHost = trObj?.optJSONObject("headers")?.optString("Host", sni).orEmpty()
-                proxy.put("ws-opts", JSONObject().put("path", wsPath).put("headers", JSONObject().put("Host", wsHost)))
+                val wsPath = trObj?.optString("path", "/")?.ifBlank { "/" } ?: "/"
+                val wsHost = trObj?.optJSONObject("headers")?.optString("Host", "")?.ifBlank { null }
+                    ?: trObj?.optString("host", "")?.ifBlank { null } ?: sni
+                val wsOpts = JSONObject().put("path", wsPath).put("headers", JSONObject().put("Host", wsHost))
+                if (netType == "httpupgrade") wsOpts.put("v2ray-http-upgrade", true)
+                proxy.put("ws-opts", wsOpts)
             }
             return proxy
         }
@@ -817,7 +838,7 @@ object SubConvConverter {
         val tlsSettings = stream?.optJSONObject("tlsSettings") ?: stream?.optJSONObject("realitySettings")
         val sni = tlsSettings?.optString("serverName", "").orEmpty()
         val fp = tlsSettings?.optString("fingerprint", "chrome").orEmpty().ifBlank { "chrome" }
-        val wsSettings = stream?.optJSONObject("wsSettings")
+        val wsSettings = stream?.optJSONObject("wsSettings") ?: stream?.optJSONObject("httpupgradeSettings")
         val wsPath = wsSettings?.optString("path", "/").orEmpty().ifBlank { "/" }
         val wsHost = wsSettings?.optJSONObject("headers")?.optString("Host", "")
             ?.ifBlank { wsSettings.optString("host", sni) }.orEmpty()

@@ -950,6 +950,7 @@
     <string name="cloud_wizard_share_hint">این لینک را به دوستانت بده. هرکس با توکن خودش پنل خودش را نصب می‌کند؛ توکن هیچ‌جا ذخیره نمی‌شود.</string>
 
     <!-- Diagnostics and update safety -->
+    <string name="update_play_protect_note">🛡️ اگر Google Play Protect گفت «App scan recommended»: این پیام برای هر نسخهٔ تازه‌ای که گوگل هنوز ندیده می‌آید و خطا نیست. «Scan app» را بزنی ← گوگل حدود یک دقیقه بررسی می‌کند و بعد نصب می‌شود. «Install without scanning» را بزنی ← همان لحظه نصب می‌شود. هر دو درست است؛ «Don\'t install app» به‌روزرسانی را لغو می‌کند.</string>
     <string name="update_security_note">فقط ریلیز رسمی Cat Client · SHA-256، پکیج، ABI و گواهی امضا قبل از نصب بررسی می‌شوند.</string>
     <string name="diagnostics_section">گزارش عیب‌یابی و پشتیبانی</string>
     <string name="diagnostics_description">گزارش کوتاه محلی از شروع برنامه و اتصال‌ها نگه می‌دارد. قبل از کپی یا اشتراک‌گذاری، رمزها حذف می‌شوند.</string>

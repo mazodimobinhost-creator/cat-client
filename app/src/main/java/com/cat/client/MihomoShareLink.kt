@@ -450,9 +450,11 @@ object MihomoShareLink {
         val params = LinkedHashMap<String, String>()
         when (proxy.str("network")?.lowercase() ?: "tcp") {
             "ws", "httpupgrade" -> {
-                val network = proxy.str("network")!!.lowercase()
-                params["type"] = network
                 val options = proxy.child("ws-opts") ?: emptyMap<String, Any?>()
+                // Mihomo spells HTTPUpgrade as ws + `v2ray-http-upgrade: true`; share links say type=httpupgrade.
+                val upgradeFlag = options["v2ray-http-upgrade"].let { it == true || it?.toString().equals("true", ignoreCase = true) }
+                val network = if (upgradeFlag) "httpupgrade" else proxy.str("network")!!.lowercase()
+                params["type"] = network
                 var path = options.str("path") ?: "/"
                 val earlyData = options.str("max-early-data")?.toIntOrNull() ?: 0
                 if (network == "ws" && earlyData > 0 && !Regex("""[?&]ed=""").containsMatchIn(path)) {

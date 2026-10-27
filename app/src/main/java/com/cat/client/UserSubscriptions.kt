@@ -247,12 +247,16 @@ object JsonSubscriptionImporter {
 
             val transport = outbound.optJSONObject("transport")
             when (transport?.optString("type")) {
-                "ws" -> {
-                    val wsOpts = JSONObject().put("path", transport.optString("path"))
+                "ws", "httpupgrade" -> {
+                    val transportType = transport.optString("type")
+                    val wsOpts = JSONObject().put("path", transport.optString("path").ifBlank { "/" })
                     val host = transport.optJSONObject("headers")
                         ?.let { it.optString("Host").ifBlank { it.optString("host") } }
                         .orEmpty()
+                        .ifBlank { transport.optString("host") }
                     if (host.isNotBlank()) wsOpts.put("headers", JSONObject().put("Host", host))
+                    // Mihomo has no `httpupgrade` network: it is ws + v2ray-http-upgrade.
+                    if (transportType == "httpupgrade") wsOpts.put("v2ray-http-upgrade", true)
                     proxy.put("network", "ws").put("ws-opts", wsOpts)
                 }
                 "grpc" -> {
@@ -483,12 +487,15 @@ object JsonSubscriptionImporter {
             "tcp" -> xrayTcpHttpOptions(stream.optJSONObject("tcpSettings"))?.let { options ->
                 proxy.put("network", "http").put("http-opts", options)
             }
-            "ws" -> {
-                val ws = stream.optJSONObject("wsSettings") ?: JSONObject()
-                val options = JSONObject().put("path", ws.optString("path"))
+            "ws", "httpupgrade" -> {
+                val upgrade = stream.optString("network") == "httpupgrade"
+                val ws = stream.optJSONObject(if (upgrade) "httpupgradeSettings" else "wsSettings") ?: JSONObject()
+                val options = JSONObject().put("path", ws.optString("path").ifBlank { "/" })
                 val host = ws.optString("host")
                     .ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty() }
                 if (host.isNotBlank()) options.put("headers", JSONObject().put("Host", host))
+                // Mihomo has no `httpupgrade` network: it is ws + v2ray-http-upgrade.
+                if (upgrade) options.put("v2ray-http-upgrade", true)
                 proxy.put("network", "ws").put("ws-opts", options)
             }
             "grpc" -> {
