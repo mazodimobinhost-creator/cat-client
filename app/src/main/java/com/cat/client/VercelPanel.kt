@@ -21,7 +21,7 @@ import javax.net.ssl.SSLSocketFactory
  * Deploy layout (identical to the live test):
  *   api/index.mjs     assets/vercel/panel-adapter.mjs (Workers → Node shims, ws upgrade)
  *   lib/catpanel.mjs  assets/panels/catpanel.min.js with import("cloudflare:sockets") swapped
- *   vercel.json       framework null, maxDuration 300, includeFiles lib/**, rewrite /(.*) → /api/index
+ *   vercel.json       framework null, maxDuration 300, includeFiles "lib/" + everything under it, rewrite every path → /api/index
  *   package.json      type module, node 24.x, ws
  * Project env: UUID, TROJAN_PASS, DATA_PLANE_ENABLED=true (+ optional PANEL_PASSWORD).
  */
