@@ -1083,6 +1083,11 @@ function normalizeSettings(raw) {
   s.uiTheme = PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME;
   // beta199 one-time move to the new light default: «aurora» was the old implicit default,
   // so it moves to «clean» once; a skin picked after this flag is set is never touched again.
+  // beta199 named clean-IP pools (DevCop-style «استخر»): a saved list a user can be filled from.
+  s.ipPools = (Array.isArray(s.ipPools) ? s.ipPools : []).map((p) => ({
+    name: String((p && p.name) || '').replace(/[<>"']/g, '').trim().slice(0, 40),
+    ips: uniq((Array.isArray(p && p.ips) ? p.ips : []).map((a) => cleanAddrEntry(a)).filter(Boolean)).slice(0, 100),
+  })).filter((p) => p.name && p.ips.length).slice(0, 20);
   if (s.uiCleanV !== 1) { if (s.uiTheme === 'aurora') s.uiTheme = 'clean'; s.uiCleanV = 1; }
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
   // Default ON for fresh panels; an owner's saved false remains an explicit opt-out.
@@ -7611,6 +7616,28 @@ details.how>div{font-size:13px;line-height:1.9;color:var(--mute)}
 .cmdk li small{margin-inline-start:auto;color:var(--dim);font-size:12px}
 .cmdk .kb{font-size:12px;color:var(--dim);padding:8px 14px;border-top:1px solid var(--line)}
 .flash{outline:3px solid var(--violet);outline-offset:3px;border-radius:12px}
+/* user modal (beta199): centered card with tabs instead of a side drawer */
+.drawer .pn{inset:auto;top:50%;left:50%;transform:translate(-50%,-50%);width:min(780px,calc(100% - 20px));max-height:calc(100vh - 32px);border-radius:20px;border:1px solid var(--line2);padding:20px 20px 18px}
+.utabs{display:flex;gap:6px;overflow-x:auto;margin:14px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.utabs button{flex:none;min-height:44px;padding:0 14px;border-radius:12px 12px 0 0;border:1px solid transparent;border-bottom:0;font-weight:700;font-size:13px;color:var(--mute);background:none}
+.utabs button.on{color:var(--violet);background:var(--nav-bg);border-color:var(--line2)}
+.upane{display:none}
+.pn[data-tab=base] .upane[data-up=base],.pn[data-tab=quota] .upane[data-up=quota],.pn[data-tab=conn] .upane[data-up=conn],.pn[data-tab=ip] .upane[data-up=ip]{display:block}
+.pn[data-tab=links] #fUser{display:none}
+.pn:not([data-tab=links]) #dLinks{display:none}
+.pn.nolinks #uTabLinks{display:none}
+.ufoot{display:flex;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+#dLinks{margin-top:14px}
+.lnk4{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.lnk4>div{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--b05)}
+.lnk4 .hd{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13.5px;margin-bottom:8px}
+.lnk4 .hd small{font-weight:500;color:var(--mute);font-size:12px}
+.lnk4 input{font-size:12px}
+.lnk4 .row{gap:6px;margin-top:8px;flex-wrap:wrap}
+.cfgl{display:grid;gap:6px;margin-top:8px;max-height:340px;overflow:auto}
+.cfgl>div{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:12.5px}
+.cfgl>div>b{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:8px;background:var(--nav-bg);color:var(--violet);font-size:12px}
+.cfgl>div>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tgrid label{display:block;font-size:12.5px;font-weight:600;color:var(--mute);margin:6px 0}
 .ncard b{font-size:14px}
 @media(min-width:1080px){.burger{display:none!important}.tools>a[href="/logout"]{display:none}#v-dash .stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -7636,7 +7663,7 @@ html:is([data-theme=clean],[data-theme=daylight]) .note.i{color:#075985;backgrou
 html:is([data-theme=clean],[data-theme=daylight]) .note.w{color:#92400e;background:#fffbeb;border-color:#fde68a}
 html:is([data-theme=clean],[data-theme=daylight]) .note.e{color:#991b1b;background:#fef2f2;border-color:#fecaca}
 html:is([data-theme=clean],[data-theme=daylight]) .note.g{color:#065f46;background:#ecfdf5;border-color:#a7f3d0}
-html:is([data-theme=clean],[data-theme=daylight]) .sw{background:#e2e8f0}
+html:is([data-theme=clean],[data-theme=daylight]) .sw:not(.on){background:#e2e8f0}
 html:is([data-theme=clean],[data-theme=daylight]) .sec h2 .ic,html:is([data-theme=clean],[data-theme=daylight]) .st .ic{background:var(--nav-bg);border-color:transparent}
 html:is([data-theme=clean],[data-theme=daylight]) .bar{background:#e8eef6}
 html:is([data-theme=clean],[data-theme=daylight]) .badge.ok{color:#047857}
@@ -8306,7 +8333,7 @@ ${(() => {
 </section>
 
 <!-- ================= SUBSCRIPTION LINKS (new, inside «users») ================= -->
-<section class="view" id="v-sublink" data-sec="users" data-in="clients">
+<section class="view" id="v-sublink" data-sec="users">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span data-i="hm_sub_title"></span></h2>
   <p class="nsub" data-i="hm_sub_hint"></p>
@@ -9040,7 +9067,15 @@ ${vDoctor}
 <div class="drawer" id="drawer"><div class="bg" data-close></div><div class="pn frm" role="dialog" aria-modal="true" aria-labelledby="dTitle">
  <div class="row" style="justify-content:space-between"><h3><span class="ic" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:rgba(0,225,193,.2)">👤</span><span id="dTitle"></span></h3><button class="ib" type="button" data-c="red" data-close data-al="al_close" title="Close" aria-label="Close">✕</button></div>
  <div class="small mute" data-i="d_sub"></div>
+ <div class="utabs" id="uTabs" role="tablist">
+  <button type="button" role="tab" data-ut="base" class="on">👤 ${tr2('پایه', 'Basics')}</button>
+  <button type="button" role="tab" data-ut="quota">📦 ${tr2('سهمیه', 'Quota')}</button>
+  <button type="button" role="tab" data-ut="conn">🛡 ${tr2('اتصال و ضد DPI', 'Connection & anti-DPI')}</button>
+  <button type="button" role="tab" data-ut="ip">📍 ${tr2('آیپی و لوکیشن', 'IPs & location')}</button>
+  <button type="button" role="tab" data-ut="links" id="uTabLinks">🔗 ${tr2('لینک‌ها', 'Links')}</button>
+ </div>
  <form id="fUser">
+  <div class="upane" data-up="base">
   <label data-i="u_name"></label>
   <div class="row"><input name="uname" maxlength="40" required style="flex:1"><button class="btn sm" type="button" id="btnRandName">🎲 <span data-i="u_rand"></span></button></div>
   <label data-i="u_protocols"></label>
@@ -9048,26 +9083,37 @@ ${vDoctor}
    <label id="uVless"><span class="ic" style="background:rgba(0,225,193,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" checked style="width:auto;margin-inline-start:auto"></label>
    <label id="uTrojan"><span class="ic" style="background:rgba(0,179,152,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" checked style="width:auto;margin-inline-start:auto"></label>
   </div>
+  <label data-i="u_note"></label>
+  <input name="note" maxlength="200">
+  <div class="row" style="margin-top:12px"><span class="sw on" id="swEnabled"></span><span class="small" data-i="u_enabled"></span></div>
+  </div>
+  <div class="upane" data-up="quota">
   <label data-i="u_days"></label>
   <input name="days" type="number" min="0" placeholder="0">
   <div class="pick" id="pickDays"></div>
-  <label data-i="u_quota"></label>
-  <input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr">
-  <label data-i="u_maxips"></label>
-  <input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr">
   <div class="row" style="margin-top:10px"><span class="sw" id="swFirst"></span><span class="small" data-i="u_first"></span></div>
+  <div class="two">
+   <div><label data-i="u_quota"></label><input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr"></div>
+   <div><label data-i="u_maxips"></label><input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr"></div>
+  </div>
+  <div class="note w small" style="margin-top:14px" data-i="u_noquota"></div>
+  </div>
+  <div class="upane" data-up="conn">
   <label data-i="u_fw"></label>
   <select name="fw" id="uFw"></select>
+  <div class="note i small" style="margin-top:10px;line-height:1.9">${tr2('«پیش‌فرض پنل» یعنی همان تنظیمات صفحهٔ تنظیمات. اگر این کاربر روی <b>همراه اول</b> یا <b>ایرانسل</b> است و کانفیگ‌ها وصل نمی‌شوند، پروفایل همان اپراتور را انتخاب کن؛ فقط لینک‌های <b>همین کاربر</b> عوض می‌شود (اثرانگشت، ALPN، فرگمنت و آی‌پی مخصوص آن فایروال).', '«Panel default» means the Settings page values. If this user is on <b>MCI</b> or <b>Irancell</b> and configs do not connect, pick that operator’s profile; only <b>this user’s</b> links change (fingerprint, ALPN, fragment and the IP for that firewall).')}</div>
+  <div class="tres" id="uConnSum"></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" type="button" data-goto="settings#fSettings" data-close>⚙️ ${tr2('تنظیمات اتصال کل پنل', 'Panel-wide connection settings')}</button></div>
+  </div>
+  <div class="upane" data-up="ip">
   <label data-i="u_ips"></label>
-  <textarea name="uips" rows="3" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
-  <div class="row" style="margin-top:6px"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button></div>
-  <label data-i="u_note"></label>
-  <input name="note" maxlength="200">
-  <div class="row" style="margin-top:10px"><span class="sw on" id="swEnabled"></span><span class="small" data-i="u_enabled"></span></div>
-  <div class="note w small" style="margin-top:14px" data-i="u_noquota"></div>
-  <div class="row" style="margin-top:18px"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" data-close data-i="cancel"></button></div>
+  <textarea name="uips" rows="4" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
+  <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button><select id="uPoolPick" style="width:auto;flex:1;min-width:160px"></select><button class="btn sm" type="button" id="uPoolUse">📥 ${tr2('از استخر', 'From pool')}</button></div>
+  <div class="note i small" style="margin-top:10px;line-height:1.9">${tr2('خالی بماند = همان آی‌پی‌های پنل. اگر چیزی بنویسی، برای این کاربر <b>به‌جای</b> فهرست آی‌پی پنل می‌نشیند؛ اگر پورت نوشتی (مثل 1.2.3.4:2053) کانفیگ <b>فقط با همان پورت</b> ساخته می‌شود، بدون پورت = پورت‌های TLS تنظیمات. خروجی کشوری (SOCKS/ProxyIP) از صفحهٔ «لوکیشن و خروجی» برای همه اعمال می‌شود.', 'Empty = the panel’s own IPs. If you fill it, it <b>replaces</b> the panel IP list for this user; with a port (e.g. 1.2.3.4:2053) the config uses <b>only that port</b>, without one = the TLS ports from Settings. Exit countries (SOCKS/ProxyIP) are set for everyone in «Locations & exits».')}</div>
+  </div>
+  <div class="ufoot"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" data-close data-i="cancel"></button></div>
  </form>
- <div id="dLinks" style="margin-top:18px"></div>
+ <div id="dLinks"></div>
 </div></div>
 
 <div class="modal" id="qrModal" onclick="this.classList.remove('show')"><div class="in"><div class="qrbox" id="qrBox"></div><div class="small mute" style="margin-top:10px" id="qrLabel"></div></div></div>
@@ -9774,7 +9820,7 @@ function timeCell(u){if(u.firstUseDays>0&&!u.expiresAt)return '<span class="chip
  var cls=d<=0?'d':d<=5?'w':'';return '<div class="small">'+(d>0?d+' '+t('days')+' '+t('left'):t('expired'))+' <span class="dim">· '+fmtDate(u.expiresAt)+'</span></div><div class="bar '+cls+'" style="margin-top:4px;width:120px"><i style="width:'+pct+'%"></i></div>'}
 function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':s==='quota'?'📦':'⛔')+' '+t(s)+'</span>'}
 function linkBtns(u){return '<div class="act"><button class="btn sm g" data-copy="'+esc(u.links.sub)+'">🔗 '+t('sub')+'</button><button class="btn sm c" data-copy="'+esc(u.links.clash)+'">'+t('clash')+'</button><button class="btn sm" data-copy="'+esc(u.links.singbox)+'">'+t('singbox')+'</button><button class="btn sm" data-copy="'+esc(u.links.xray)+'">Xray</button><button class="btn sm" data-qr="'+esc(u.links.sub)+'" data-qrl="'+esc(u.name)+'">▦</button><a class="btn sm" href="'+esc(u.links.info)+'" target="_blank" rel="noopener">↗</a></div>'}
-function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button>'+(u.quotaBytes>0?'<button class="ib" data-c="green" data-reset="'+u.id+'" title="'+t('reset_usage')+'" aria-label="'+t('reset_usage')+'">♻️</button>':'')+'<button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
+function actBtns(u){return '<div class="act"><button class="ib" data-c="cyan" data-ulinks="'+u.id+'" title="'+esc(tx('لینک‌ها و کانفیگ‌ها','Links & configs'))+'" aria-label="'+esc(tx('لینک‌ها و کانفیگ‌ها','Links & configs'))+'">🔗</button><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button>'+(u.quotaBytes>0?'<button class="ib" data-c="green" data-reset="'+u.id+'" title="'+t('reset_usage')+'" aria-label="'+t('reset_usage')+'">♻️</button>':'')+'<button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
@@ -9786,6 +9832,7 @@ document.addEventListener('click',async function(e){var b;
  if((b=e.target.closest('[data-copy]'))){copy(b.getAttribute('data-copy'));return}
  if((b=e.target.closest('[data-qr]'))){showQr(b.getAttribute('data-qr'),b.getAttribute('data-qrl')||'');return}
  if((b=e.target.closest('[data-edit]'))){openDrawer(USERS.filter(function(u){return u.id===b.getAttribute('data-edit')})[0]);return}
+ if((b=e.target.closest('[data-ulinks]'))){var lu=USERS.filter(function(u){return u.id===b.getAttribute('data-ulinks')})[0];if(lu){openDrawer(lu);setUTab('links')}return}
  if((b=e.target.closest('[data-renew]'))){api('/api/users/'+b.getAttribute('data-renew')+'/renew',{method:'POST',body:{days:30}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-reset]'))){if(!(await ask(t('confirm_reset'),{ok:t('reset_usage')})))return;api('/api/users/'+b.getAttribute('data-reset')+'/reset-usage',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-toggle]'))){api('/api/users/'+b.getAttribute('data-toggle')+'/toggle',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
@@ -9805,9 +9852,27 @@ function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textConten
  $('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
  f.elements.uips.value=u&&u.ips?u.ips.join('\\n'):'';
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
- $('#dLinks').innerHTML=u?'<div class="card" style="padding:12px"><div class="small mute b" style="margin-bottom:6px">'+t('h_links')+'</div>'+[['sub',u.links.sub],['clash',u.links.clash],['singbox',u.links.singbox],['info',u.links.info]].map(function(p){return '<div class="lk"><span class="small" style="min-width:56px">'+t(p[0])+'</span><input class="mono" readonly value="'+esc(p[1])+'"><button class="btn sm" type="button" data-copy="'+esc(p[1])+'">📋</button><button class="btn sm" type="button" data-qr="'+esc(p[1])+'" data-qrl="'+esc(u.name)+'">▦</button></div>'}).join('')+'</div>':'';
+ var dl=$('#dLinks');dl.__u=u||null;dl.__loaded=0;dl.innerHTML=u?richLinks(u.links,u.name,u):'';
+ var pn=$('#drawer .pn');pn.classList.toggle('nolinks',!u);setUTab('base');poolsRender();connSummary();
  $('#drawer').classList.add('show')}
 function closeDrawer(){$('#drawer').classList.remove('show');editing=null}
+function setUTab(k){var pn=$('#drawer .pn');if(!pn)return;pn.setAttribute('data-tab',k);$$('#uTabs button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ut')===k)});if(k==='links'){var L=$('#dLinks');if(L&&L.__u&&!L.__loaded)loadUserConfigs(L.__u)}}
+$$('#uTabs button').forEach(function(b){b.addEventListener('click',function(){setUTab(b.getAttribute('data-ut'))})});
+$('#fUser').addEventListener('invalid',function(e){var p=e.target.closest&&e.target.closest('.upane');if(p)setUTab(p.getAttribute('data-up'))},true);
+function poolsRender(){var sel=$('#uPoolPick');if(!sel)return;var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[];sel.innerHTML=P.length?P.map(function(p,i){return '<option value="'+i+'">'+esc(p.name)+' ('+p.ips.length+')</option>'}).join(''):'<option value="">'+esc(tx('هنوز استخری نساخته‌ای','No pools yet'))+'</option>'}
+if($('#uPoolUse'))$('#uPoolUse').addEventListener('click',function(){var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[],p=P[+$('#uPoolPick').value];if(!p){toast(tx('اول در «آیپی تمیز» یک استخر بساز','Create a pool in «Clean IP» first'),true);return}$('#fUser').elements.uips.value=p.ips.slice(0,20).join(String.fromCharCode(10));toast('✓ '+p.name)});
+function connSummary(){var box=$('#uConnSum');if(!box||!CFG||!CFG.settings)return;var s=CFG.settings,fr=s.fragment||{};box.innerHTML=tRow('TLS',(s.tlsPorts||[]).join(' · ')||'—')+tRow('Fingerprint',esc(s.fingerprint||'chrome'))+tRow('ALPN',esc(s.alpn||'http/1.1'))+tRow(tx('فرگمنت','Fragment'),fr.enabled?esc((fr.packets||'tlshello')+' · '+(fr.length||'')+' · '+(fr.interval||'')):tx('خاموش','off'))+tRow('ECH',s.echList?tx('روشن','on'):tx('خاموش','off'))}
+function linkCard(title,sub,url,qrl){return '<div><div class="hd">'+title+' <small>'+sub+'</small></div><input class="mono" readonly value="'+esc(url)+'"><div class="row"><button class="btn sm p" type="button" data-copy="'+esc(url)+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-qr="'+esc(url)+'" data-qrl="'+esc(qrl)+'">▦ QR</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tx('باز کردن','Open'))+'</a></div></div>'}
+function richLinks(L,name,u){return '<div class="lnk4">'+linkCard('🔗 '+esc(tx('ساب اصلی','Subscription')),'Base64 · v2rayNG / Hiddify / Streisand',L.sub,name)+linkCard('📦 sing-box','Hiddify / sing-box / NekoBox',L.singbox,name)+(L.xray?linkCard('🧩 Xray JSON','v2rayNG (JSON) / Xray',L.xray,name):'')+linkCard('🐱 Clash Meta','Clash Verge / FlClash / Stash',L.clash,name)+'</div>'
+ +'<div class="lk" style="margin-top:10px"><span class="small b" style="min-width:110px">📊 '+esc(tx('صفحهٔ وضعیت','Status page'))+'</span><input class="mono" readonly value="'+esc(L.info)+'"><button class="btn sm" type="button" data-copy="'+esc(L.info)+'">📋</button><a class="btn sm" href="'+esc(L.info)+'" target="_blank" rel="noopener">↗</a></div>'
+ +'<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><a class="btn sm p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">🐱 Cat Client</a><a class="btn sm" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">v2rayNG</a><a class="btn sm" href="hiddify://import/'+esc(L.sub)+'">Hiddify</a></div>'
+ +(u?'<div class="card" style="padding:12px;margin-top:12px"><div class="row" style="justify-content:space-between"><b class="small">🧾 '+esc(tx('کانفیگ‌های همین ساب','Configs in this subscription'))+'</b><button class="btn sm" type="button" id="cfgCopyAll" disabled>📋 '+esc(tx('کپی همه','Copy all'))+'</button></div><div class="cfgl" id="cfgList"><div class="dim">…</div></div></div>':'')
+ +'<div class="note i small" style="margin-top:10px">'+esc(tx('این لینک‌ها ثابت‌اند و با هر بار باز شدن، آی‌پی‌ها و کانفیگ‌های تازه را می‌دهند. اگر لینکی لو رفت، کاربر را حذف یا غیرفعال کن (برای ساب اصلی: «چرخش توکن ساب» در «راهنما و درباره»).','These links are stable and return fresh IPs and configs on every refresh. If a link leaks, delete or disable the user (master subscription: «rotate subscription token» in «Help & about»).'))+'</div>'}
+function b64txt(x){try{var bin=atob(String(x).replace(/[^A-Za-z0-9+/=_-]/g,'').replace(/-/g,'+').replace(/_/g,'/'));try{return decodeURIComponent(escape(bin))}catch(e){return bin}}catch(e){return ''}}
+function loadUserConfigs(u){var L=$('#dLinks');L.__loaded=1;var box=$('#cfgList');if(!box)return;var su=u.links.sub;try{var pu=new URL(su,location.href);su=pu.pathname+pu.search}catch(e){}fetch(su,{cache:'no-store',credentials:'omit'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(txt){var raw=/:[/][/]/.test(txt)?txt:b64txt(txt);var lines=raw.split(String.fromCharCode(10)).map(function(x){return x.trim()}).filter(function(x){return /^[a-z0-9+.-]+:[/][/]/i.test(x)});
+  if(!lines.length){box.innerHTML='<div class="dim">'+esc(tx('ساب خالی است — اول در «آیپی تمیز» آی‌پی اضافه کن.','The subscription is empty — add IPs in «Clean IP» first.'))+'</div>';return}
+  box.innerHTML=lines.slice(0,200).map(function(l,i){var h=l.indexOf('#'),nm=h>=0?l.slice(h+1):l.split('@').pop();try{nm=decodeURIComponent(nm)}catch(e){}return '<div><b>'+(i+1)+'</b><span title="'+esc(nm)+'">'+esc(nm)+'</span><button class="btn sm" type="button" data-copy="'+esc(l)+'">📋</button></div>'}).join('');
+  var all=$('#cfgCopyAll');if(all){all.disabled=false;all.onclick=function(){copy(lines.join(String.fromCharCode(10)))}}}).catch(function(e){box.innerHTML='<div class="bad">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
 $('#btnAdd').addEventListener('click',function(){openDrawer(null)});
 $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname.value=randName()});
 /* fastest addresses of the last in-browser test, exactly as listed (IP or IP:port) */
@@ -9828,7 +9893,7 @@ $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.
 /* ---------- master links / self ---------- */
 $('#btnMasterLinks').addEventListener('click',function(){openMasterLinks()});
 function openMasterLinks(){var L=CFG.links;var u={id:CFG.uuid,name:t('master_links'),links:L,protocols:CFG.settings.protocols,enabled:true,expiresAt:0,createdAt:0,note:''};
- $('#dTitle').textContent=t('master_links');$('#fUser').style.display='none';$('#dLinks').innerHTML='<div class="card" style="padding:12px">'+[['sub',L.sub],['clash',L.clash],['singbox',L.singbox],['info',L.info]].map(function(p){return '<div class="lk"><span class="small" style="min-width:56px">'+t(p[0])+'</span><input class="mono" readonly value="'+esc(p[1])+'"><button class="btn sm" type="button" data-copy="'+esc(p[1])+'">📋</button><button class="btn sm" type="button" data-qr="'+esc(p[1])+'" data-qrl="master">▦</button></div>'}).join('')+'<div class="row" style="margin-top:10px"><a class="btn p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(CFG.settings.title||'Cat Panel')+'">🐱 Cat Client</a><a class="btn" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name=CatPanel">v2rayNG</a><a class="btn" href="hiddify://import/'+esc(L.sub)+'">Hiddify</a></div></div>';
+ $('#dTitle').textContent=t('master_links');$('#fUser').style.display='none';var dl=$('#dLinks');dl.__u=null;dl.innerHTML=richLinks(L,CFG.settings.title||'Cat Panel',null);var pn=$('#drawer .pn');pn.classList.add('nolinks');pn.setAttribute('data-tab','links');$('#uTabs').style.display='none';$$('[data-close]').forEach(function(b){b.addEventListener('click',function(){$('#uTabs').style.display=''},{once:true})});
  $('#drawer').classList.add('show');$$('[data-close]').forEach(function(b){b.addEventListener('click',function(){$('#fUser').style.display=''},{once:true})})}
 $('#btnSync').addEventListener('click',function(){toast(t('sync_hint'));location.href='catclient://add-sub?url='+encodeURIComponent(CFG.links.sub)+'&name='+encodeURIComponent(CFG.settings.title||'Cat Panel')});
 $('#btnRefresh').addEventListener('click',function(){load().then(function(){toast('✓')})});
