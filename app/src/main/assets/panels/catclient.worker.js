@@ -7536,6 +7536,19 @@ function uiIcon(n) {
 }
 
 const CLEAN_CSS = `
+#v-settings .sec.acc>h2{cursor:pointer;user-select:none;margin-bottom:0;padding-block:2px}
+#v-settings .sec.acc>h2::after{content:'';margin-inline-start:auto;width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;flex:none}
+#v-settings .sec.acc.shut>h2::after{transform:rotate(-45deg)}
+html[dir=rtl] #v-settings .sec.acc.shut>h2::after{transform:rotate(135deg)}
+#v-settings .sec.acc:not(.shut)>h2{margin-bottom:12px}
+#v-settings .sec.acc.shut>*:not(h2){display:none!important}
+#v-settings .sec.acc.shut{padding-block:14px}
+.accbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+#setSaveBar>h2{display:none}#setSaveBar{padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}#setSaveBar>.row{margin:0!important}
+@media(max-width:900px){#setSaveBar{bottom:96px!important}}
+#setSaveBar{position:sticky;bottom:10px;z-index:30;box-shadow:0 10px 30px rgba(15,23,42,.16);backdrop-filter:blur(8px)}
+#setSaveBar.dirty{outline:2px solid var(--accent,#3b82f6);outline-offset:-2px}
+#setSaveBar.dirty #saveState{color:var(--amber);font-weight:700}
 /* ───── beta199 «Cat Clean» shell (all skins): right sidebar + page header + calm cards ───── */
 .side::after{display:none}
 .side .sbrand{padding:20px 18px 14px;border-bottom:1px solid var(--line);margin-bottom:6px}
@@ -9017,11 +9030,12 @@ ${vDoctor}
   </div>
   <div class="small dim" data-i="s_gh_hint"></div>
   </div>
- <div class="card sec">
+ <div class="card sec savebar" id="setSaveBar">
   <h2>💾 <span data-i="g_save"></span></h2>
-  <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><span class="small mute" id="saveState"></span></div>
-  <div class="row" style="margin-top:10px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
+  <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" id="btnSetRestore" title="${tr2('تغییرات ذخیره‌نشده را دور بریز و مقدارهای فعلی پنل را برگردان', 'Discard unsaved edits and reload the panel’s current values')}">↩️ ${tr2('لغو تغییرات', 'Discard changes')}</button><span class="small mute" id="saveState"></span></div>
+  
   </div>
+ <div class="row" style="margin-top:4px;padding-inline:4px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
 </form>
  <div class="card sec">
   <h2><span class="ic">🔗</span><span data-i="paths"></span></h2>
@@ -10679,6 +10693,24 @@ if($('#rsToPool'))$('#rsToPool').addEventListener('click',function(){var p=rsPic
 if($('#poolAdd'))$('#poolAdd').addEventListener('click',function(){var nm=($('#poolName').value||'').trim(),ips=String($('#poolIps').value||'').split(/[\\s,;]+/).filter(Boolean);if(!nm||!ips.length){toast(tx('نام و حداقل یک آی‌پی لازم است','A name and at least one IP are needed'),true);return}poolsSave(poolUpsert(nm,ips.slice(0,100)),'✓ '+nm).then(function(){$('#poolName').value='';$('#poolIps').value=''})});
 function poolsList(){var box=$('#poolList');if(!box||!CFG||!CFG.settings)return;var P=CFG.settings.ipPools||[];box.innerHTML=P.length?P.map(function(p,i){return '<div><div class="hd">🗂 '+esc(p.name)+' <small>'+p.ips.length+' IP</small></div><div class="mono small dim" style="max-height:60px;overflow:hidden" dir="ltr">'+esc(p.ips.slice(0,4).join(' · '))+(p.ips.length>4?' …':'')+'</div><div class="row"><button class="btn sm" type="button" data-copy="'+esc(p.ips.join(String.fromCharCode(10)))+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-pooldel="'+i+'">🗑 '+esc(tx('حذف','Delete'))+'</button></div></div>'}).join(''):'<div class="small dim">'+esc(tx('هنوز استخری نداری. بعد از اسکن، «ذخیره در استخر» را بزن یا از «افزودن استخر با آدرس» بساز.','No pools yet. After a scan press «Save as pool», or use «Add a pool by addresses».'))+'</div>'}
 document.addEventListener('click',async function(e){var b=e.target.closest('[data-pooldel]');if(!b)return;var P=(CFG.settings.ipPools||[]).slice(),i=+b.getAttribute('data-pooldel'),p=P[i];if(!p)return;if(!(await ask(tx('استخر «'+p.name+'» حذف شود؟','Delete pool «'+p.name+'»?'),{ok:tx('حذف','Delete')})))return;P.splice(i,1);poolsSave(P,'✓')});
+/* ---- beta199 settings accordions + sticky save/restore bar ---- */
+(function(){var V=$('#v-settings');if(!V)return;var cards=$$('#v-settings .card.sec').filter(function(c){return c.id!=='setSaveBar'&&c.querySelector(':scope>h2')}),st={};try{st=JSON.parse(localStorage.getItem('catAcc')||'{}')}catch(e){}
+ cards.forEach(function(c,i){var h=c.querySelector(':scope>h2'),key=(h.textContent||'').trim().slice(0,40)||String(i);c.classList.add('acc');if(st[key]!==undefined?st[key]:i>0)c.classList.add('shut');h.setAttribute('role','button');h.setAttribute('tabindex','0');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));
+  function tog(){c.classList.toggle('shut');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));st[key]=c.classList.contains('shut');try{localStorage.setItem('catAcc',JSON.stringify(st))}catch(e){}}
+  h.addEventListener('click',function(e){if(e.target.closest('button,a,input,select,label,.hq'))return;tog()});h.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tog()}})});
+ var bar=document.createElement('div');bar.className='accbar';bar.innerHTML='<button class="btn sm" type="button" id="accOpen">⊞ '+esc(tx('باز کردن همه','Expand all'))+'</button><button class="btn sm" type="button" id="accShut">⊟ '+esc(tx('بستن همه','Collapse all'))+'</button><span class="small mute">'+esc(tx('روی عنوان هر بخش بزن تا باز/بسته شود.','Tap a section title to open/close it.'))+'</span>';
+ var first=cards[0];if(first){var anc=first;while(anc.parentNode&&anc.parentNode!==V)anc=anc.parentNode;V.insertBefore(bar,anc)}
+ function all(shut){cards.forEach(function(c){c.classList.toggle('shut',shut);var h=c.querySelector(':scope>h2');h.setAttribute('aria-expanded',String(!shut))})}
+ $('#accOpen').addEventListener('click',function(){all(false)});$('#accShut').addEventListener('click',function(){all(true)});
+ V.addEventListener('invalid',function(e){var c=e.target.closest&&e.target.closest('.sec.acc');if(c)c.classList.remove('shut')},true);
+ /* open the section of anything other code scrolls to / focuses */
+ V.addEventListener('focusin',function(e){var c=e.target.closest&&e.target.closest('.sec.acc.shut');if(c&&!e.target.matches('h2'))c.classList.remove('shut')});
+ var _siv=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(){var c=this.closest&&this.closest('.sec.acc.shut');if(c)c.classList.remove('shut');return _siv.apply(this,arguments)};
+ window.openSetSection=function(el){var c=el&&el.closest&&el.closest('.sec.acc');if(c)c.classList.remove('shut')};
+ var f=$('#fSettings'),sb=$('#setSaveBar');function dirty(on){sb.classList.toggle('dirty',on);if(on)$('#saveState').textContent=tx('تغییرات ذخیره‌نشده','Unsaved changes')}
+ f.addEventListener('input',function(){dirty(true)});f.addEventListener('change',function(){dirty(true)});f.addEventListener('submit',function(){setTimeout(function(){dirty(false)},0)});
+ $('#btnSetRestore').addEventListener('click',function(){if(!CFG)return;renderCfg();dirty(false);$('#saveState').textContent='';toast(tx('مقدارهای فعلی پنل برگشت','Panel values restored'))});
+})();
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
