@@ -8462,6 +8462,41 @@ x.com</textarea>
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
 ${vNote}${nNote}
 ${vDoctor}
+ <div class="card sec" id="rsCard">
+  <h2><span class="ic">${uiIcon('scan')}</span><span>${tr2('اسکنر آیپی تمیز — از اینترنت خودت', 'Clean-IP scanner — from your own line')}</span><span class="hq" title="${tr2('اندازه‌گیری از همین مرورگر انجام می‌شود؛ VPN را خاموش کن.', 'Measured from this browser; turn the VPN off.')}">؟</span></h2>
+  <p class="tsub">${tr2('رنج یا آی‌پی بده؛ مرورگرت (با VPN خاموش) به هرکدام وصل می‌شود و زمان دست‌دادن را می‌سنجد. سالم‌ها را تیک بزن و به پنل، یک کاربر یا یک استخر بفرست.', 'Give ranges or IPs; your browser (VPN off) connects to each and measures the handshake time. Tick the healthy ones and send them to the panel, a user or a pool.')}</p>
+  <div class="two">
+   <div><label>${tr2('رنج‌ها یا آی‌پی‌ها (هر خط یکی)', 'Ranges or IPs (one per line)')}</label><textarea id="rsRanges" dir="ltr" class="mono" rows="5" spellcheck="false" placeholder="104.16.0.0/20&#10;172.64.0.0/20&#10;188.114.96.0/22"></textarea>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="rsPresetCf">🟧 ${tr2('رنج‌های Cloudflare', 'Cloudflare ranges')}</button><button class="btn sm" type="button" id="rsClearR">🧹 ${tr2('پاک کردن', 'Clear')}</button></div></div>
+   <div>
+    <div class="two"><div><label>${tr2('پورت', 'Port')}</label><select id="rsPort"><option>443</option><option>8443</option><option>2053</option><option>2083</option><option>2087</option><option>2096</option></select></div>
+    <div><label>${tr2('تعداد آی‌پی برای تست', 'IPs to test')}</label><select id="rsCount"><option>50</option><option selected>100</option><option>200</option><option>400</option></select></div></div>
+    <label>${tr2('هم‌زمانی', 'Parallel probes')}</label><select id="rsPar"><option>4</option><option selected>8</option><option>12</option></select>
+    <div class="row small" style="margin-top:12px"><span class="sw on" id="rsRandom"></span><span>${tr2('انتخاب تصادفی از رنج (پیشنهادی؛ هر بار آی‌پی‌های تازه)', 'Random picks inside each range (recommended; fresh IPs each run)')}</span></div>
+   </div>
+  </div>
+  <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center"><button class="btn p" type="button" id="rsStart">▶ ${tr2('شروع اسکن', 'Start scan')}</button><button class="btn" type="button" id="rsStop" disabled>⏹ ${tr2('توقف', 'Stop')}</button><span class="chip" id="rsProg">0 ${tr2('آزموده', 'tested')} · ${tr2('سالم', 'healthy')} 0</span></div>
+  <div class="bar" style="margin-top:10px"><i id="rsBar" style="width:0%"></i></div>
+  <div class="row" id="rsTools" style="display:none;gap:6px;margin-top:12px;flex-wrap:wrap"><span class="small mute">${tr2('انتخاب بهترین‌ها:', 'Select the best:')}</span><button class="btn sm" type="button" data-rstop="5">5</button><button class="btn sm" type="button" data-rstop="10">10</button><button class="btn sm" type="button" data-rstop="100">100</button><button class="btn sm" type="button" data-rstop="0">${tr2('هیچ‌کدام', 'None')}</button><button class="btn sm" type="button" id="rsClearRes">🗑 ${tr2('پاک کردن نتایج', 'Clear results')}</button></div>
+  <div class="tres" id="rsList" style="max-height:360px;overflow:auto"></div>
+  <div id="rsSave" style="display:none;margin-top:12px">
+   <div class="small b" style="margin-bottom:6px">${tr2('انتخاب‌شده‌ها را کجا بفرستم؟', 'Where should the selection go?')} <span class="chip" id="rsSelN">0</span></div>
+   <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm p" type="button" id="rsToPanel">➕ ${tr2('به آی‌پی‌های پنل (همه کاربران)', 'To the panel IPs (all users)')}</button></div>
+   <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><select id="rsUser" style="flex:1;min-width:160px"></select><button class="btn sm" type="button" id="rsToUser">👤 ${tr2('به این کاربر', 'To this user')}</button></div>
+   <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="rsPoolName" style="flex:1;min-width:160px" placeholder="${tr2('نام استخر، مثلاً «ایرانسل تهران»', 'Pool name, e.g. «Irancell Tehran»')}"><button class="btn sm" type="button" id="rsToPool">🗂 ${tr2('ذخیره در استخر', 'Save as pool')}</button></div>
+  </div>
+  <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('۱) VPN را خاموش کن. ۲) «رنج‌های Cloudflare» را بزن (یا رنج/آی‌پی خودت را بنویس). ۳) «شروع اسکن» را بزن؛ کنار هر آی‌پی زمان پاسخ از خط تو نوشته می‌شود — عدد کمتر بهتر. ۴) «۱۰» را بزن تا ۱۰ آی‌پیِ سریع‌تر تیک بخورند. ۵) بفرست: «به آی‌پی‌های پنل» یعنی ساب همه کاربران؛ «به این کاربر» فقط ساب همان کاربر؛ «استخر» یعنی یک فهرست اسم‌دار که بعداً در فرم کاربر با «از استخر» پر می‌کنی.<br>هر آی‌پی با <b>همان پورتی</b> که تست شد ذخیره می‌شود. این تست «باز بودن و زمان دست‌دادن» است، نه سرعت دانلود؛ برای تست کامل کانفیگ از اسکنر Cat Client استفاده کن.', '1) Turn the VPN off. 2) Press «Cloudflare ranges» (or type your own). 3) Press «Start»; each IP shows the reply time from your line — lower is better. 4) Press «10» to tick the ten fastest. 5) Send: «panel IPs» = every user’s subscription; «this user» = only that user; «pool» = a named list you can later load in the user form with «From pool».<br>Every IP is saved with <b>exactly the port</b> it was tested on. This is reachability and handshake time, not download speed; for a full config test use the Cat Client scanner.')}</div></details>
+ </div>
+ <div class="card sec" id="poolCard">
+  <h2><span class="ic">🗂</span><span>${tr2('استخرهای آی‌پی', 'IP pools')}</span></h2>
+  <p class="tsub">${tr2('فهرست‌های اسم‌دار (مثلاً یکی برای همراه اول، یکی برای ایرانسل). در فرم کاربر، تب «آیپی و لوکیشن» → «از استخر».', 'Named lists (e.g. one for MCI, one for Irancell). In the user form: «IPs & location» tab → «From pool».')}</p>
+  <div class="lnk4" id="poolList"></div>
+  <details class="how"><summary>➕ ${tr2('افزودن استخر با آدرس', 'Add a pool by addresses')}</summary><div>
+   <input id="poolName" placeholder="${tr2('نام استخر', 'Pool name')}" style="margin-top:6px">
+   <textarea id="poolIps" dir="ltr" class="mono" rows="4" spellcheck="false" placeholder="104.17.1.2:443&#10;[2606:4700::1]:2053" style="margin-top:8px"></textarea>
+   <button class="btn sm p" type="button" id="poolAdd" style="margin-top:8px">💾 ${tr2('ذخیره استخر', 'Save pool')}</button>
+  </div></details>
+ </div>
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
   <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>
@@ -9223,7 +9258,7 @@ function show(v){if(!document.getElementById('v-'+v))v='dash';
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -10605,6 +10640,45 @@ if($('#tlDomGo'))$('#tlDomGo').addEventListener('click',function(){var b=this,ou
  b.disabled=true;out.innerHTML='<div><b>'+esc(tx('دامنه','Domain'))+'</b><b>'+esc(tx('سرور · اینترنت تو','Server · your internet'))+'</b></div>'+list.map(function(d){return '<div data-dm="'+esc(d)+'"><span class="mono">'+esc(d)+'</span><span><span class="sv dim">…</span> · <span class="me dim">…</span></span></div>'}).join('');
  list.forEach(function(d){var row=out.querySelector('[data-dm="'+d+'"] .me');var t0=performance.now(),ctl=new AbortController(),tm=setTimeout(function(){ctl.abort()},6000);fetch('https://'+d+'/favicon.ico?c='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){clearTimeout(tm);row.className='me ok';row.textContent='✅ '+Math.round(performance.now()-t0)+' ms'},function(){clearTimeout(tm);row.className='me bad';row.textContent='✗'})});
  api('/api/svc-test',{method:'POST',body:{hosts:list}}).then(function(j){var R=(j&&j.results)||{};list.forEach(function(d){var el=out.querySelector('[data-dm="'+d+'"] .sv'),r=R[d];if(!el)return;if(!r){el.className='sv warn';el.textContent='?';return}el.className='sv '+(r.ok?'ok':'bad');el.textContent=r.ok?('✅ '+r.ms+' ms'):'✗'})}).catch(function(){$$('#tlDomOut .sv').forEach(function(el){el.className='sv warn';el.textContent='?'})}).then(function(){b.disabled=false})});
+/* ---- beta199 range scanner (browser, honest: reachability + handshake time from the owner's own line) ---- */
+var CF_V4=['173.245.48.0/20','103.21.244.0/22','103.22.200.0/22','103.31.4.0/22','141.101.64.0/18','108.162.192.0/18','190.93.240.0/20','188.114.96.0/20','197.234.240.0/22','198.41.128.0/17','162.158.0.0/15','104.16.0.0/13','104.24.0.0/14','172.64.0.0/13','131.0.72.0/22'];
+var RS={run:false,res:{},order:[]};
+function ip2n(ip){var p=ip.split('.').map(Number);return ((p[0]<<24)>>>0)+(p[1]<<16)+(p[2]<<8)+p[3]}
+function n2ip(n){return [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.')}
+function rsTargets(){var lines=String($('#rsRanges').value||'').split(/[\\s,;]+/).filter(Boolean),want=+$('#rsCount').value||100,rnd=$('#rsRandom').classList.contains('on'),single=[],ranges=[];
+ lines.forEach(function(l){var m=/^(\\d{1,3}(?:\\.\\d{1,3}){3})\\/(\\d{1,2})$/.exec(l);if(m&&+m[2]>=8&&+m[2]<=32){var size=Math.pow(2,32-m[2]),base=ip2n(m[1])-(ip2n(m[1])%size);ranges.push({b:base,s:size})}else if(/^[0-9a-f:.]+$/i.test(l.replace(/^\\[|\\]$/g,'')))single.push(l.replace(/^\\[|\\]$/g,''))});
+ var out=single.slice(0,want),seen={};out.forEach(function(x){seen[x]=1});var tot=ranges.reduce(function(a,r){return a+r.s},0),guard=0;
+ ranges.forEach(function(r,ri){var share=Math.max(1,Math.round((want-single.length)*r.s/Math.max(1,tot)));for(var k=0;k<share&&out.length<want&&guard<want*20;k++,guard++){var off=rnd?1+Math.floor(Math.random()*Math.max(1,r.s-2)):1+Math.floor(k*(r.s-2)/share);var ip=n2ip(r.b+off);if(seen[ip]){k--;continue}seen[ip]=1;out.push(ip)}});
+ return out.slice(0,want)}
+function rsKey(ip,port){return (ip.indexOf(':')>=0?'['+ip+']':ip)+':'+port}
+function rsRender(){var list=$('#rsList'),keys=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].ok}).sort(function(a,b){return RS.res[a].ms-RS.res[b].ms});
+ list.innerHTML=keys.map(function(k){var r=RS.res[k];return '<div><label class="row" style="gap:8px;margin:0;cursor:pointer"><input type="checkbox" data-rsk="'+esc(k)+'"'+(r.sel?' checked':'')+' style="width:auto"><span class="mono">'+esc(k)+'</span></label><span class="'+msCls(r.ms)+'">'+r.ms+' ms</span></div>'}).join('');
+ $('#rsTools').style.display=keys.length?'flex':'none';rsSel()}
+function rsSel(){var n=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].sel}).length;$('#rsSave').style.display=n?'block':'none';$('#rsSelN').textContent=String(n);var u=$('#rsUser');if(u&&!u.__f){u.__f=1;u.innerHTML=USERS.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')||'<option value="">—</option>'}}
+function rsPicked(){return RS.order.filter(function(k){return RS.res[k]&&RS.res[k].sel})}
+if($('#rsPresetCf'))$('#rsPresetCf').addEventListener('click',function(){$('#rsRanges').value=CF_V4.join(String.fromCharCode(10))});
+if($('#rsClearR'))$('#rsClearR').addEventListener('click',function(){$('#rsRanges').value=''});
+if($('#rsStart'))$('#rsStart').addEventListener('click',function(){var ips=rsTargets();if(!ips.length){toast(tx('اول رنج یا آی‌پی بنویس (یا «رنج‌های Cloudflare» را بزن)','Enter ranges or IPs first (or press «Cloudflare ranges»)'),true);return}
+ var port=+$('#rsPort').value||443,par=+$('#rsPar').value||8,i=0,done=0,ok=0,BS=window.__browserScan=window.__browserScan||{};RS.run=true;$('#rsStart').disabled=true;$('#rsStop').disabled=false;
+ function prog(){$('#rsProg').textContent=done+' '+tx('آزموده','tested')+' · '+tx('سالم','healthy')+' '+ok;$('#rsBar').style.width=Math.round(done/ips.length*100)+'%'}
+ function fin(){RS.run=false;$('#rsStart').disabled=false;$('#rsStop').disabled=true;rsRender();toast('✓ '+ok+' / '+done)}
+ function next(){if(!RS.run||i>=ips.length){if(done>=i&&(!RS.run||i>=ips.length)&&!next.f){next.f=1;fin()}return}var ip=ips[i++],k=rsKey(ip,port),t0=performance.now(),ctl=new AbortController(),to=false,tm=setTimeout(function(){to=true;ctl.abort()},3000);
+  if(RS.order.indexOf(k)<0)RS.order.push(k);
+  fetch('https://'+(ip.indexOf(':')>=0?'['+ip+']':ip)+':'+port+'/',{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){},function(){}).then(function(){clearTimeout(tm);var ms=Math.round(performance.now()-t0);done++;if(!to){ok++;RS.res[k]={ok:true,ms:ms};BS[k]={ok:true,ms:ms}}else RS.res[k]={ok:false};prog();if(done%8===0)rsRender();next()})}
+ next.f=0;prog();for(var p=0;p<par;p++)next()});
+if($('#rsStop'))$('#rsStop').addEventListener('click',function(){RS.run=false});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-rstop]');if(!b)return;var n=+b.getAttribute('data-rstop'),keys=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].ok}).sort(function(a,c){return RS.res[a].ms-RS.res[c].ms});keys.forEach(function(k,ix){RS.res[k].sel=ix<n});rsRender()});
+document.addEventListener('change',function(e){var c=e.target.closest&&e.target.closest('[data-rsk]');if(!c)return;var r=RS.res[c.getAttribute('data-rsk')];if(r)r.sel=c.checked;rsSel()});
+if($('#rsClearRes'))$('#rsClearRes').addEventListener('click',function(){RS.res={};RS.order=[];rsRender();$('#rsProg').textContent='0';$('#rsBar').style.width='0%'});
+if($('#rsToPanel'))$('#rsToPanel').addEventListener('click',function(){var p=rsPicked();if(!p.length)return;api('/api/ips',{method:'POST',body:{ips:p,source:'scan'}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');toast('✓ '+(j.count!=null?j.count:p.length)+' '+tx('آی‌پی در پنل','IPs in the panel'));return load()}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})});
+if($('#rsToUser'))$('#rsToUser').addEventListener('click',function(){var p=rsPicked(),id=$('#rsUser').value,u=USERS.filter(function(x){return x.id===id})[0];if(!p.length||!u){toast(tx('یک کاربر انتخاب کن','Pick a user'),true);return}var merged=p.concat((u.ips||[]).filter(function(x){return p.indexOf(x)<0})).slice(0,20);
+ api('/api/users/'+encodeURIComponent(id),{method:'PUT',body:{ips:merged}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');toast('✓ '+u.name+' · '+merged.length+' IP');return load()}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})});
+function poolsSave(next,msg){return api('/api/settings',{method:'PUT',body:{ipPools:next}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');CFG.settings.ipPools=j.settings.ipPools||next;poolsList();poolsRender();toast(j.persisted?msg:t('saved_nokv'),!j.persisted)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})}
+function poolUpsert(name,ips){var P=((CFG.settings.ipPools)||[]).filter(function(x){return x.name!==name});P.unshift({name:name,ips:ips});return P.slice(0,20)}
+if($('#rsToPool'))$('#rsToPool').addEventListener('click',function(){var p=rsPicked(),nm=($('#rsPoolName').value||'').trim();if(!p.length)return;if(!nm){toast(tx('برای استخر یک نام بنویس','Give the pool a name'),true);return}poolsSave(poolUpsert(nm,p.slice(0,100)),'✓ '+nm)});
+if($('#poolAdd'))$('#poolAdd').addEventListener('click',function(){var nm=($('#poolName').value||'').trim(),ips=String($('#poolIps').value||'').split(/[\\s,;]+/).filter(Boolean);if(!nm||!ips.length){toast(tx('نام و حداقل یک آی‌پی لازم است','A name and at least one IP are needed'),true);return}poolsSave(poolUpsert(nm,ips.slice(0,100)),'✓ '+nm).then(function(){$('#poolName').value='';$('#poolIps').value=''})});
+function poolsList(){var box=$('#poolList');if(!box||!CFG||!CFG.settings)return;var P=CFG.settings.ipPools||[];box.innerHTML=P.length?P.map(function(p,i){return '<div><div class="hd">🗂 '+esc(p.name)+' <small>'+p.ips.length+' IP</small></div><div class="mono small dim" style="max-height:60px;overflow:hidden" dir="ltr">'+esc(p.ips.slice(0,4).join(' · '))+(p.ips.length>4?' …':'')+'</div><div class="row"><button class="btn sm" type="button" data-copy="'+esc(p.ips.join(String.fromCharCode(10)))+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-pooldel="'+i+'">🗑 '+esc(tx('حذف','Delete'))+'</button></div></div>'}).join(''):'<div class="small dim">'+esc(tx('هنوز استخری نداری. بعد از اسکن، «ذخیره در استخر» را بزن یا از «افزودن استخر با آدرس» بساز.','No pools yet. After a scan press «Save as pool», or use «Add a pool by addresses».'))+'</div>'}
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-pooldel]');if(!b)return;var P=(CFG.settings.ipPools||[]).slice(),i=+b.getAttribute('data-pooldel'),p=P[i];if(!p)return;if(!(await ask(tx('استخر «'+p.name+'» حذف شود؟','Delete pool «'+p.name+'»?'),{ok:tx('حذف','Delete')})))return;P.splice(i,1);poolsSave(P,'✓')});
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
