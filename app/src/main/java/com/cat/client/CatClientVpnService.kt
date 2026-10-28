@@ -221,7 +221,14 @@ internal var currentVpnServiceState: VpnState = VpnState.Stopped
 private var currentVpnService: CatClientVpnService? = null
 
 internal fun protectOutboundSocket(socket: java.net.Socket): Boolean =
-    runCatching { currentVpnService?.protect(socket) ?: true }.getOrDefault(false)
+    runCatching {
+        val service = currentVpnService ?: return@runCatching true
+        // beta204: a fresh `Socket()` has no file descriptor until its impl is created (first option / bind /
+        // connect), and protect() on it fails silently — the probe then ran THROUGH the tunnel and reported the VPN
+        // exit's view instead of this network's. Touching an option creates the descriptor first.
+        runCatching { socket.tcpNoDelay = true }
+        service.protect(socket)
+    }.getOrDefault(false)
 
 internal fun protectOutboundDatagramSocket(socket: java.net.DatagramSocket): Boolean =
     runCatching { currentVpnService?.protect(socket) ?: true }.getOrDefault(false)

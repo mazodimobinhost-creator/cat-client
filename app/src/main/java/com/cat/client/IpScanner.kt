@@ -110,6 +110,7 @@ object IpScanner {
                 ssl.apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                     val params = sslParameters
                     params.serverNames = listOf(SNIHostName(SPEED_TEST_SNI))
@@ -121,6 +122,7 @@ object IpScanner {
                 java.net.Socket().apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                 }
             }
@@ -193,6 +195,7 @@ object IpScanner {
                 ssl.apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                     val params = sslParameters
                     params.serverNames = listOf(SNIHostName(SPEED_TEST_SNI))
@@ -204,6 +207,7 @@ object IpScanner {
                 java.net.Socket().apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                 }
             }
@@ -924,6 +928,7 @@ object IpScanner {
         val socket = Socket()
         return try {
             socket.tcpNoDelay = true
+            protectOutboundSocket(socket) // measure THIS network, not the running tunnel
             socket.connect(InetSocketAddress(ip, port), timeoutMs)
             (System.nanoTime() - started) / 1_000_000
         } catch (e: Exception) {
@@ -961,6 +966,7 @@ object IpScanner {
                 val base = Socket().apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                 }
                 rawUnderlying = base
@@ -980,6 +986,7 @@ object IpScanner {
                 (SSLSocketFactory.getDefault().createSocket() as SSLSocket).apply {
                     soTimeout = timeoutMs
                     tcpNoDelay = true
+                    protectOutboundSocket(this) // measure THIS network, not the running tunnel
                     connect(InetSocketAddress(ip, port), timeoutMs)
                     if (sni.isNotBlank()) {
                         val params = sslParameters

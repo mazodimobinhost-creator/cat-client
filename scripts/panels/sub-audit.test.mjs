@@ -302,6 +302,10 @@ for (const platform of [{ label: 'cf', env: {} }, { label: 'vercel', env: { CAT_
   check('app push: countries keyed by the stored address', st.ipCountries['1.2.3.4:2053'] === 'DE' && st.ipCountries['[2606:4700::1]:8443'] === 'NL');
   const px = (await (await P.call('/api/settings', { method: 'PUT', headers: P.auth, body: { proxyIps: PROXY_IPS.concat([SOCKS, '5.5.5.5']), proxyCountries: { [PROXY_IPS[0]]: 'SG' } } })).json()).settings;
   check('ProxyIP page: both ProxyIPs kept with their exact ports, SOCKS kept, port-less entry not guessed', JSON.stringify(px.proxyIps) === JSON.stringify(PROXY_IPS.concat([SOCKS])), JSON.stringify(px.proxyIps));
+  await P.call('/api/settings', { method: 'PUT', headers: P.auth, body: { sni: 'www.speedtest.net', sniFront: true, sniRotate: false, extraSnis: [] } });
+  const subTxt = await (await P.call('/sub/' + UUID)).text();
+  const snis = [...subTxt.matchAll(/[?&]sni=([^&#]+)/g)].map((m) => m[1]);
+  check('app «make main SNI»: every TLS config carries exactly the verified SNI', snis.length > 0 && snis.every((x) => x === 'www.speedtest.net'), [...new Set(snis)].join(','));
   check('settings page port buttons get numbers (no duplicate «443» buttons)', st.tlsPorts.every((p) => typeof p === 'number') && st.plainPorts.every((p) => typeof p === 'number'), JSON.stringify(st.tlsPorts));
 }
 

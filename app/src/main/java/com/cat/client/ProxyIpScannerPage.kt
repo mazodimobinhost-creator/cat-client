@@ -1172,6 +1172,7 @@ class ProxyIpScannerPage(
     private fun probe(host: String, port: Int): Hit? = runCatching {
         val t0 = SystemClock.elapsedRealtime()
         Socket().use { raw ->
+            protectOutboundSocket(raw) // ProxyIP health is about THIS network, never the running tunnel
             raw.connect(InetSocketAddress(host, port), timeoutMs)
             raw.soTimeout = timeoutMs
             val ssl = (SSLContext.getDefault().socketFactory.createSocket(raw, TRACE_HOST, port, true) as SSLSocket)

@@ -190,6 +190,7 @@ object WhiteDnsToolkit {
     private fun httpProxyWorks(host: String, port: Int, timeoutMs: Int): Boolean = runCatching {
         // Waves 1 + 2: TCP connect + CONNECT handshake.
         val handshake = Socket().use { s ->
+            protectOutboundSocket(s) // test from THIS network even while a tunnel is up
             s.connect(InetSocketAddress(host, port), timeoutMs)
             s.soTimeout = 4_000
             s.getOutputStream().apply {
@@ -202,6 +203,7 @@ object WhiteDnsToolkit {
         if (!handshake) return@runCatching false
         // Wave 3: real plain-HTTP request through the proxy.
         Socket().use { s ->
+            protectOutboundSocket(s) // test from THIS network even while a tunnel is up
             s.connect(InetSocketAddress(host, port), timeoutMs)
             s.soTimeout = 5_000
             s.getOutputStream().apply {
@@ -217,6 +219,7 @@ object WhiteDnsToolkit {
 
     private fun socks5ProxyWorks(host: String, port: Int, timeoutMs: Int): Boolean = runCatching {
         Socket().use { s ->
+            protectOutboundSocket(s) // test from THIS network even while a tunnel is up
             s.connect(InetSocketAddress(host, port), timeoutMs)
             s.soTimeout = 5_000
             val input = s.getInputStream()
@@ -280,6 +283,7 @@ object WhiteDnsToolkit {
         val started = System.nanoTime()
         return runCatching {
             val raw = Socket()
+            protectOutboundSocket(raw) // test from THIS network even while a tunnel is up
             raw.connect(InetSocketAddress(ip, port), timeoutMs)
             raw.soTimeout = timeoutMs
             val ssl = trustAllContext.socketFactory.createSocket(raw, sni, port, true) as SSLSocket
@@ -348,7 +352,7 @@ object WhiteDnsToolkit {
                 if (cancelled()) return@repeat
                 val started = System.nanoTime()
                 val ok = runCatching {
-                    Socket().use { s -> s.connect(InetSocketAddress(t.host, port), 1_500) }
+                    Socket().use { s -> protectOutboundSocket(s); s.connect(InetSocketAddress(t.host, port), 1_500) }
                     true
                 }.getOrDefault(false)
                 if (ok) rtts += (System.nanoTime() - started) / 1_000_000
@@ -457,6 +461,7 @@ object WhiteDnsToolkit {
     private fun dnsExchange(ip: String, port: Int, query: ByteArray, timeoutMs: Int): ByteArray? = runCatching {
         DatagramSocket().use { socket ->
             socket.soTimeout = timeoutMs
+            protectOutboundDatagramSocket(socket)
             socket.send(DatagramPacket(query, query.size, InetAddress.getByName(ip), port))
             val buffer = ByteArray(4096)
             val packet = DatagramPacket(buffer, buffer.size)

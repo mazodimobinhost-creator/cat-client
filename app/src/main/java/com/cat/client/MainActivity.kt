@@ -24897,7 +24897,9 @@ class MainActivity : Activity() {
         if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
         val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
         login.disconnect()
-        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("sni", sni).put("sniFront", true).toString(), cookie)
+        // beta204: sniRotate=false — otherwise the panel kept rotating its built-in SNI pool (names never tested on this
+        // network) and the SNI the user just verified appeared on only a few configs.
+        val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("sni", sni).put("sniFront", true).put("sniRotate", false).toString(), cookie)
         val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
         put.disconnect()
         if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")

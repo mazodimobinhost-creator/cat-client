@@ -68,4 +68,34 @@ class LocalSniSpoofSplitTest {
         assertTrue(ids.contains("tls-record-tiny"))
         assertTrue(ids.contains("sni-tcp-boundary"))
     }
+
+    @Test
+    fun multiChunkSplitterTouchesOnlyOneCompleteRecord() {
+        // beta204: a partial ClientHello used to be re-wrapped with a wrong length; now it passes untouched.
+        val partial = hello.copyOfRange(0, hello.size - 3)
+        val same = LocalSniSpoofProxy.splitClientHelloMultiChunkAtSni(partial)
+        assertEquals(1, same.size)
+        assertArrayEquals(partial, same[0])
+        // ClientHello + another record in one read: only the ClientHello is re-cut, the rest goes on raw.
+        val tail = byteArrayOf(0x14, 0x03, 0x03, 0x00, 0x01, 0x01)
+        val parts = LocalSniSpoofProxy.splitClientHelloMultiChunkAtSni(hello + tail)
+        assertArrayEquals(tail, parts.last())
+        val payload = java.io.ByteArrayOutputStream()
+        for (r in parts.dropLast(1)) {
+            assertEquals(0x16, r[0].toInt() and 0xFF)
+            val len = ((r[3].toInt() and 0xFF) shl 8) or (r[4].toInt() and 0xFF)
+            assertEquals(r.size - 5, len)
+            payload.write(r, 5, len)
+        }
+        assertArrayEquals(hello.copyOfRange(5, hello.size), payload.toByteArray())
+    }
+
+    @Test
+    fun completeFirstRecordReadsTheMissingTail() {
+        val head = hello.copyOfRange(0, 20)
+        val rest = java.io.ByteArrayInputStream(hello.copyOfRange(20, hello.size) + byteArrayOf(9, 9, 9))
+        val full = LocalSniSpoofProxy.completeFirstTlsRecord(rest, head)
+        assertArrayEquals(hello, full)
+        assertEquals(3, rest.available()) // never reads past the record
+    }
 }
