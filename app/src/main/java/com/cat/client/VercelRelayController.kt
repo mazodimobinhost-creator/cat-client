@@ -800,6 +800,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         val uuid = VercelRelayPlanner.randomUuid()
         val trojanPass = VercelPanelPlanner.randomSecret()
         VercelPanelPlanner.envVars(uuid, trojanPass, password).forEach { (k, v) -> api.upsertEnv(projectId, k, v) }
+        VercelPanelPlanner.selfUpdateEnv(token, projectId, api.scopeTeamId()).forEach { (k, v) -> api.upsertEnv(projectId, k, v) }
         step(t("   ✓ UUID و رمزها در تنظیمات پروژه ذخیره شد", "   ✓ UUID and secrets stored in the project settings"))
 
         step(t("۴/۸ حافظهٔ دائمی پنل (Vercel Blob)…", "4/8 Permanent panel storage (Vercel Blob)…"))
@@ -1009,6 +1010,10 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         val trojanPass = env["TROJAN_PASS"].orEmpty()
         step("   ✓ $name")
         if (env["DATA_PLANE_ENABLED"].isNullOrBlank()) api.upsertEnv(projectId, "DATA_PLANE_ENABLED", "true")
+        // 6.75.0: from now on the panel's own «⚡ update» redeploys itself with this token — no Cloudflare token, no question.
+        VercelPanelPlanner.selfUpdateEnv(token, projectId, api.scopeTeamId()).forEach { (k, v) ->
+            if (env[k] != v) api.upsertEnv(projectId, k, v)
+        }
         step(t("۳/۸ آماده کردن فایل‌های پنل…", "3/8 Preparing the panel files…"))
         val files = panelFiles()
         step(t("۴/۸ حافظهٔ دائمی پنل (Vercel Blob)…", "4/8 Permanent panel storage (Vercel Blob)…"))

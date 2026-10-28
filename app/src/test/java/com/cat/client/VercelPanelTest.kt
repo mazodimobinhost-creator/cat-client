@@ -314,4 +314,18 @@ class VercelPanelTest {
         assertEquals("/tr/seed?ed=2560", VercelCfFront.param(out[1], "path"))
         assertTrue(VercelCfFront.links(listOf("vmess://abc"), front).isEmpty())
     }
+
+    @Test
+    fun selfUpdateEnvLetsThePanelRedeployItselfWithoutAnyQuestion() {
+        val env = VercelPanelPlanner.selfUpdateEnv(" tok123 ", "prj_1", "team_9")
+        assertEquals("tok123", env["CAT_VERCEL_TOKEN"])
+        assertEquals("prj_1", env["CAT_VERCEL_PROJECT"])
+        assertEquals("team_9", env["CAT_VERCEL_TEAM"])
+        assertFalse(VercelPanelPlanner.selfUpdateEnv("t", "p", null).containsKey("CAT_VERCEL_TEAM"))
+        // the panel side reads exactly these names, and the adapter passes CAT_* through to the panel env
+        val worker = asset("panels/catclient.worker.js").readText()
+        assertTrue(worker.contains("CAT_VERCEL_TOKEN") || worker.contains("selfUpdateVercelPanel") || worker.contains("vcdeploy"))
+        val adapter = asset(VercelPanelPlanner.ADAPTER_ASSET).readText()
+        assertTrue(adapter.contains("CAT_VERCEL_REGION"))
+    }
 }

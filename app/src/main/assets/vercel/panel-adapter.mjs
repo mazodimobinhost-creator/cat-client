@@ -405,6 +405,9 @@ function buildEnv() {
   // Vercel's shortest production domain: a custom domain the owner attached in the dashboard shows up here,
   // and the panel then serves it (Host = SNI = that domain) without any extra setting.
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) env.CAT_VERCEL_PROD_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  // 6.75.0 in-panel self-update: which region/project to redeploy (the token itself comes from CAT_VERCEL_TOKEN).
+  if (process.env.VERCEL_REGION) env.CAT_VERCEL_REGION = process.env.VERCEL_REGION;
+  if (process.env.VERCEL_PROJECT_ID && !env.CAT_VERCEL_PROJECT) env.CAT_VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
   env.CAT_STORAGE = KV_KIND;
   return env;
 }

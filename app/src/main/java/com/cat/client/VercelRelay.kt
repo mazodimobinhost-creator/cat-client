@@ -342,6 +342,12 @@ internal class VercelApi(private val token: String) {
 
     fun user(): JSONObject = request("GET", "/v2/user", null, scoped = false).optJSONObject("user") ?: JSONObject()
 
+    /** The team scope every scoped call uses (null = personal scope); resolved once. */
+    fun scopeTeamId(): String? {
+        ensureScope()
+        return teamId
+    }
+
     private fun ensureScope() {
         if (teamChecked) return
         teamChecked = true

@@ -98,6 +98,16 @@ internal object VercelPanelPlanner {
             if (panelPassword.isNotBlank()) put("PANEL_PASSWORD", panelPassword)
         }
 
+    /**
+     * 6.75.0: what the panel needs to update ITSELF later («⚡ آپدیت مستقیم» in the panel) without asking for any
+     * token: the same Vercel token the app used, this project's id and its team scope. Stored as encrypted env
+     * on the owner's own project, like CF_API_TOKEN on a Cloudflare panel.
+     */
+    fun selfUpdateEnv(token: String, projectId: String, teamId: String?): LinkedHashMap<String, String> =
+        linkedMapOf("CAT_VERCEL_TOKEN" to token.trim(), "CAT_VERCEL_PROJECT" to projectId).apply {
+            if (!teamId.isNullOrBlank()) put("CAT_VERCEL_TEAM", teamId)
+        }
+
     fun randomSecret(length: Int = 20, random: java.util.Random = SecureRandom()): String {
         val alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         return (1..length).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
