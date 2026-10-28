@@ -403,7 +403,7 @@ let user;
   const sb = await (await req('/singbox/' + MASTER)).json();
   check('singbox: ads rule_set + reject, tls_fragment, alpn', sb.route.rule_set.some(r=>r.tag==='geosite-ads') && sb.route.rules.some(r=>r.action==='reject') && sb.outbounds.some(o=>o.tls && o.tls_fragment===true && o.tls.alpn[0]==='h2'));
   const xr = await req('/xray/' + MASTER + '?raw=1&limit=2'); const cfgs = await xr.json();
-  check('xray: full JSON configs list', Array.isArray(cfgs) && cfgs.length===2 && cfgs[0].outbounds[0].protocol==='vless' && cfgs[0].remarks);
+  check('xray: full JSON configs list (+ «🚀 Best Ping» last when ≥2 exits)', Array.isArray(cfgs) && cfgs[0].outbounds[0].protocol==='vless' && cfgs[0].remarks && (cfgs.length===2 || (cfgs.length===3 && /Best Ping/.test(cfgs[2].remarks) && cfgs[2].routing.balancers[0].strategy.type==='leastPing')), cfgs.map(c=>c.remarks).join(' | '));
   const o = cfgs[0].outbounds; const frag = o.find(x=>x.tag==='fragment');
   check('xray: fragment outbound + dialerProxy', frag && frag.settings.fragment.packets==='1-3' && o[0].streamSettings.sockopt.dialerProxy==='fragment');
   check('xray: tls extras + ws host', o[0].streamSettings.tlsSettings.cipherSuites.startsWith('TLS_AES') && o[0].streamSettings.wsSettings.headers.Host && o[0].streamSettings.tlsSettings.alpn[0]==='h2');
@@ -797,7 +797,7 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.70.0', T.CAT_PANEL_VERSION === '6.70.0');
+  check('panel version is 6.71.0', T.CAT_PANEL_VERSION === '6.71.0');
   check('non-CF whitelist targets & 5 CF spoof methods & MasterDNS/VayDNS catalogs exist', Array.isArray(T.NON_CF_WHITELIST_TARGETS) && T.NON_CF_WHITELIST_TARGETS.length >= 10 && Array.isArray(T.CF_SPOOF_5_METHODS) && T.CF_SPOOF_5_METHODS.length === 5 && T.MASTERDNS_BALANCERS_0_8.length === 9 && T.VAYDNS_RECORD_TYPES.length === 9);
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the

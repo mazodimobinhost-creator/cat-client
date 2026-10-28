@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.70.0';
+const CAT_PANEL_VERSION = '6.71.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1039,6 +1039,11 @@ function defaultSettings() {
     ghWorkflow: 'deploy-worker.yml',
     blockAds: false,     // ad networks → REJECT (geosite category-ads-all)
     blockQuic: false,    // UDP 443 (QUIC/HTTP3) → REJECT, pushes apps to TCP+TLS we can carry
+    // BPB-style «🚀 Best Ping» Xray config: every usable entry in ONE config behind a leastPing
+    // balancer; the CLIENT measures each one through the real tunnel (observatory → generate_204)
+    // on the user's own line and keeps the fastest. ?bp=0 drops it from one link.
+    bestPing: true,
+    bestPingInterval: 30, // seconds between observatory rounds (10..600)
     domToIp: true,       // emit domain entries as resolved CF edge IPs (DNS-proof subs)
     fragment: { enabled: false, packets: 'tlshello', length: '10-100', interval: '10-20' }, // opt-in; Xray + sing-box only
     alpn: 'http/1.1',    // WS over Cloudflare needs http/1.1; h2 would break the upgrade
@@ -1137,6 +1142,8 @@ function normalizeSettings(raw) {
   s.ghWorkflow = /^[\w.-]+\.ya?ml$/.test(String(s.ghWorkflow || '').trim()) ? String(s.ghWorkflow).trim() : 'deploy-worker.yml';
   s.blockAds = s.blockAds === true;
   s.blockQuic = s.blockQuic === true;
+  s.bestPing = s.bestPing !== false;
+  s.bestPingInterval = Math.min(600, Math.max(10, Math.round(Number(s.bestPingInterval) || 30)));
   s.domToIp = s.domToIp !== false;
   s.sniRotate = s.sniRotate !== false;
   // 🌍 Outbound-proxy policy (6.67.5), the two knobs the owner asked for after seeing a
@@ -4689,6 +4696,8 @@ function subQuery(url) {
     sni: sniHostnameOk(q.get('sni') || '') ? String(q.get('sni')).trim().toLowerCase() : '',
     nofm: q.get('nofm') === '1',
     noext: q.get('noext') === '1' || q.get('noext') === 'true',
+    // ?bp=0 → no «🚀 Best Ping» config in this Xray JSON; ?bp=1 forces it even when the setting is off.
+    bp: q.get('bp') === '0' ? '0' : (q.get('bp') === '1' ? '1' : ''),
   };
 }
 
@@ -4800,6 +4809,23 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
   ].filter((l) => l !== null).join('\n');
 }
 
+/**
+ * sing-box ws transport. sing-box does NOT read Xray's «?ed=2560» from the path, so (like
+ * BPB does for sing-box clients) the early-data size moves into max_early_data with the
+ * Sec-WebSocket-Protocol header — the worker already reads the first payload from that
+ * header, which saves one round trip per new connection. The path itself stays untouched:
+ * its query also carries ?proxyip= pins the worker must see.
+ */
+function singboxWsTransport(path, hostHeader) {
+  const t = { type: 'ws', path, headers: { Host: hostHeader } };
+  const m = /[?&]ed=(\d{1,5})/.exec(String(path || ''));
+  if (m) {
+    const ed = Math.min(8192, Number(m[1]) || 0);
+    if (ed > 0) { t.max_early_data = ed; t.early_data_header_name = 'Sec-WebSocket-Protocol'; }
+  }
+  return t;
+}
+
 function buildSingboxConfig(host, env, settings, uuid, user, q) {
   const { ctx, entries, preferredCc } = buildConfigEntries(host, env, settings, uuid, user, q);
   const outbounds = entries.map((e) => {
@@ -4808,7 +4834,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
       tag: e.name,
       server: e.addr.replace(/^\[|\]$/g, ''),
       server_port: e.port,
-      transport: { type: 'ws', path: e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), headers: { Host: e.hostHeader || ctx.hostHeader || ctx.host } },
+      transport: singboxWsTransport(e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), e.hostHeader || ctx.hostHeader || ctx.host),
     };
     if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx[TROJAN_KEY + 'Pass'];
     if (e.tls) {
@@ -4878,7 +4904,224 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
 
 /** Full Xray JSON configs (v2rayNG / V2Box / Hiddify): fragment + TLS extras
  * + routing. Share links cannot carry these, so this endpoint exists. */
+/* ------------------------------------------------------------------ */
+/* 🧪 Custom single-config builder (6.71.0)                           */
+/* ------------------------------------------------------------------ */
+/*
+ * What BPB and Zeus let an owner tune per config, built independently here (no code copied —
+ * BPB is GPL-3.0 and Zeus is «All Rights Reserved»; only the list of knobs was studied):
+ *   • exact address + exact port, TLS decided by the Cloudflare port family (BPB/Zeus both
+ *     do this: 443/8443/2053/2083/2087/2096 = TLS, 80/8080/8880/2052/2082/2086/2095 = plain)
+ *   • ws Host + SNI, BPB's random-case SNI (DPI matchers that compare case-sensitively miss it)
+ *   • ws path: the deployment path, a BPB-style random /vl/<16-32> path per config, or your own
+ *   • early data ?ed=2560 (Xray form in the link; sing-box gets max_early_data instead)
+ *   • TLS fingerprint (Zeus keeps one per user), ALPN, fragment (Xray JSON + sing-box), ECH
+ * One request → the same config in four shapes: share link, Clash (mihomo), sing-box, Xray JSON.
+ * Nothing is saved; the panel settings stay untouched.
+ */
+const CC_FINGERPRINTS = ['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq', 'random', 'randomized'];
+const CC_ALPNS = ['http/1.1', 'h2,http/1.1'];
+
+function ccRandomCase(value) {
+  let out = '';
+  const bytes = crypto.getRandomValues(new Uint8Array(String(value).length));
+  for (let i = 0; i < value.length; i += 1) out += bytes[i] & 1 ? value[i].toUpperCase() : value[i].toLowerCase();
+  return out;
+}
+
+function ccRandomSegment() {
+  const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const len = 16 + (crypto.getRandomValues(new Uint8Array(1))[0] % 17); // 16..32, like BPB
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  let s = '';
+  for (let i = 0; i < len; i += 1) s += abc[bytes[i] % abc.length];
+  return s;
+}
+
+/** «104.16.1.1», «104.16.1.1:2053», «[2606:4700::1]:443», «2606:4700::1», «cdn.example.com:8443». */
+function ccParseAddress(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { addr: '', port: 0 };
+  let m = /^\[([0-9a-f:.]+)\](?::(\d{1,5}))?$/i.exec(s);
+  if (m) return { addr: m[1], port: m[2] ? Number(m[2]) : 0 };
+  if (isIpv6(s)) return { addr: s, port: 0 };
+  m = /^([^:\s/]+):(\d{1,5})$/.exec(s);
+  if (m) return { addr: m[1], port: Number(m[2]) };
+  return { addr: s, port: 0 };
+}
+
+function ccFragment(raw) {
+  // «tlshello,10-100,10-20» — packets,length,interval (the same string the builder card prints)
+  const parts = String(raw || '').split(',').map((x) => x.trim());
+  const range = /^\d{1,4}(-\d{1,4})?$/;
+  const packets = parts[0] || 'tlshello';
+  if (!(packets === 'tlshello' || range.test(packets))) return null;
+  const length = parts[1] || '10-100';
+  const interval = parts[2] || '10-20';
+  if (!range.test(length) || !range.test(interval)) return null;
+  return { packets, length, interval };
+}
+
+function buildCustomConfig(host, env, settings, uuid, user, body) {
+  body = body || {};
+  const ctx = linkContext(host, env, settings, uuid, user);
+  const warnings = [];
+  const proto = String(body.proto || 'vless').toLowerCase() === 'trojan' ? 'trojan' : 'vless';
+  if (!ctx.protocols[proto === 'vless' ? PROTO_VLESS : TROJAN_KEY]) warnings.push('proto_off');
+
+  // address + exact port: a port written WITH the address wins — the scanner verified that pair.
+  const parsed = ccParseAddress(body.addr);
+  const addr = parsed.addr || ctx.host;
+  if (!(isIpv4(addr) || isIpv6(addr) || sniHostnameOk(addr))) return { ok: false, error: 'addr' };
+  let port = Number(body.port) || 443;
+  if (parsed.port) {
+    if (body.port && Number(body.port) !== parsed.port) warnings.push('port_from_addr');
+    port = parsed.port;
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, error: 'port' };
+
+  const tlsMode = ['on', 'off'].includes(body.tls) ? body.tls : 'auto';
+  const tls = tlsMode === 'on' ? true : tlsMode === 'off' ? false : !PLAIN_PORTS.includes(port);
+  if (tlsMode === 'on' && PLAIN_PORTS.includes(port)) warnings.push('tls_on_plain_port');
+  if (tlsMode === 'off' && TLS_PORTS.includes(port)) warnings.push('plain_on_tls_port');
+  if (!tls && proto === 'trojan') warnings.push('trojan_plain');
+  if (isVercelPlatform(env) && (port !== 443 || !tls)) warnings.push('vercel_443');
+  if (nodeDirect(env)) warnings.push('node_direct');
+
+  const hostHeader = String(body.host || ctx.hostHeader || ctx.host).trim().toLowerCase();
+  if (!sniHostnameOk(hostHeader)) return { ok: false, error: 'host' };
+  let sni = String(body.sni || (hostHeader === ctx.host ? ctx.sni : hostHeader)).trim().toLowerCase();
+  if (!sniHostnameOk(sni)) return { ok: false, error: 'sni' };
+  if (tls && sni !== hostHeader) warnings.push('sni_differs');
+  if (hostHeader !== ctx.host && hostHeader !== String(settings.fallbackHost || '').toLowerCase()) warnings.push('host_not_panel');
+
+  const ech = !!body.ech && tls;
+  let echValue = '';
+  if (ech) {
+    const raw = String(settings.echList || '').trim();
+    const kw = raw.toLowerCase();
+    echValue = !raw || kw === 'auto' || kw === 'off' ? DEFAULT_ECH_VALUE : raw;
+  }
+  const sniCase = !!body.sniCase && tls && !ech;
+  if (sniCase) sni = ccRandomCase(sni);
+
+  // ws path — must stay a shape the data plane accepts, or the config can never connect.
+  const pathMode = ['random', 'custom'].includes(body.pathMode) ? body.pathMode : 'auto';
+  const ed = body.ed !== false;
+  let basePath;
+  if (pathMode === 'random') basePath = (proto === 'vless' ? '/vl/' : '/tr/') + ccRandomSegment();
+  else if (pathMode === 'custom') {
+    const raw = String(body.path || '').trim();
+    if (!raw.startsWith('/') || raw.length > 200 || /[\s#]/.test(raw)) return { ok: false, error: 'path' };
+    basePath = raw;
+  } else basePath = ctx.paths[(proto === 'vless' ? PROTO_VLESS : TROJAN_KEY) + 'Path'];
+  const qi = basePath.indexOf('?');
+  const pathname = qi >= 0 ? basePath.slice(0, qi) : basePath;
+  if (!isTunnelPath(pathname, env)) return { ok: false, error: 'path' };
+  const query = new URLSearchParams(qi >= 0 ? basePath.slice(qi + 1) : '');
+  if (ed) query.set('ed', '2560'); else query.delete('ed');
+  const qs = query.toString();
+  const path = pathname + (qs ? '?' + qs : '');
+
+  const fp = CC_FINGERPRINTS.includes(String(body.fp)) ? String(body.fp) : (CC_FINGERPRINTS.includes(ctx.fp) ? ctx.fp : 'chrome');
+  const alpn = CC_ALPNS.includes(String(body.alpn)) ? String(body.alpn) : 'http/1.1';
+  if (alpn !== 'http/1.1') warnings.push('alpn_h2');
+  let frag = null;
+  if (body.frag && tls) {
+    frag = ccFragment(body.fragValue);
+    if (!frag) return { ok: false, error: 'frag' };
+    if (ech) { frag = null; warnings.push('frag_ech'); }
+  }
+
+  const name = String(body.name || '').trim().slice(0, 80) ||
+    ('🧪 ' + (proto === 'vless' ? 'VLESS' : 'TROJAN') + ' · ' + formatAddr(addr) + ':' + port + (tls ? ' TLS' : ''));
+  const secret = proto === 'vless' ? ctx.uuid : ctx[TROJAN_KEY + 'Pass'];
+  const params = wsParams(hostHeader, path, sni, fp, tls, echValue, alpn);
+  const link = proto === 'vless'
+    ? PROTO_VLESS + '://' + secret + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' + params + '#' + encodeURIComponent(name)
+    : 'trojan://' + encodeURIComponent(secret) + '@' + formatAddr(addr) + ':' + port + '?' + params + '#' + encodeURIComponent(name);
+
+  // Clash (mihomo): no fragment, and trojan always needs TLS there.
+  let clash = '';
+  if (tls || proto === 'vless') {
+    const lines = [
+      '- name: ' + yamlStr(name),
+      '  type: ' + proto,
+      '  server: ' + yamlStr(addr),
+      '  port: ' + port,
+      proto === 'vless' ? '  uuid: ' + secret : '  password: ' + yamlStr(secret),
+      '  udp: true',
+      '  network: ws',
+      '  ws-opts:',
+      '    path: ' + yamlStr(path),
+      '    headers:',
+      '      Host: ' + yamlStr(hostHeader),
+    ];
+    if (tls) {
+      lines.push('  tls: true', '  servername: ' + yamlStr(sni), '  client-fingerprint: ' + (fp === 'randomized' ? 'random' : fp), '  skip-cert-verify: false', '  alpn: [' + alpn.split(',').map((a) => JSON.stringify(a)).join(', ') + ']');
+      if (proto === 'trojan') lines.push('  sni: ' + yamlStr(sni));
+      if (echValue) {
+        const em = /^([A-Za-z0-9][A-Za-z0-9.-]{0,252})\+(?:udp|tcp|https|h2c|tls):\/\//.exec(echValue);
+        lines.push('  ech-opts:', '    enable: true', em ? '    query-server-name: ' + yamlStr(em[1]) : '    config: ' + yamlStr(echValue));
+      }
+    } else lines.push('  tls: false');
+    clash = lines.join('\n');
+  }
+
+  // sing-box outbound (ECH is left out on purpose — see buildSingboxConfig).
+  const sb = { type: proto, tag: name, server: addr, server_port: port, transport: singboxWsTransport(path, hostHeader) };
+  if (proto === 'vless') sb.uuid = secret; else sb.password = secret;
+  if (tls) {
+    sb.tls = { enabled: true, server_name: sni, insecure: false, alpn: alpn.split(','), utls: { enabled: true, fingerprint: fp } };
+    if (frag) sb.tls_fragment = true;
+  }
+  const singbox = proto === 'trojan' && !tls ? '' : JSON.stringify(sb, null, 2);
+
+  // Full Xray JSON (what v2rayNG / Streisand import as a «custom config»).
+  const stream = {
+    network: 'ws',
+    security: tls ? 'tls' : 'none',
+    wsSettings: { path, headers: { Host: hostHeader } },
+    sockopt: frag ? { tcpKeepAliveIdle: 100, tcpNoDelay: true, dialerProxy: 'fragment' } : { tcpKeepAliveIdle: 100, tcpNoDelay: true },
+  };
+  if (tls) {
+    stream.tlsSettings = { serverName: sni, fingerprint: fp, alpn: alpn.split(','), allowInsecure: false };
+    if (echValue) stream.tlsSettings.echConfigList = echValue;
+  }
+  const proxy = proto === 'vless'
+    ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: addr, port, users: [{ id: secret, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
+    : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: addr, port, password: secret, level: 8 }] }, streamSettings: stream };
+  const outbounds = [proxy];
+  if (frag) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: frag }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
+  outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
+  const rules = [{ type: 'field', ip: ['geoip:private'], outboundTag: 'direct' }];
+  if (settings.bypassIran) rules.push({ type: 'field', domain: ['geosite:category-ir', 'domain:ir'], outboundTag: 'direct' }, { type: 'field', ip: ['geoip:ir'], outboundTag: 'direct' });
+  rules.push({ type: 'field', port: '0-65535', outboundTag: 'proxy' });
+  const xray = JSON.stringify({
+    remarks: name,
+    log: { loglevel: 'warning' },
+    dns: { servers: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'], queryStrategy: 'UseIP' },
+    inbounds: [
+      { tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { auth: 'noauth', udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+      { tag: 'http-in', port: 10809, listen: '127.0.0.1', protocol: 'http', sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+    ],
+    outbounds,
+    routing: { domainStrategy: 'IPIfNonMatch', rules },
+  }, null, 2);
+
+  return {
+    ok: true,
+    link, clash, singbox, xray,
+    warnings: Array.from(new Set(warnings)),
+    used: { proto, addr, port, tls, host: hostHeader, sni, path, fp, alpn, ech: !!echValue, frag: frag ? frag.packets + ',' + frag.length + ',' + frag.interval : '', name },
+  };
+}
+
+/** Upper bound of exits inside one «🚀 Best Ping» config (each one is probed every round). */
+const BEST_PING_MAX = 24;
+
 function buildXrayConfigs(host, env, settings, uuid, user, q) {
+  q = q || {};
   const { ctx, entries } = buildConfigEntries(host, env, settings, uuid, user, q);
   const usable = entries.filter((e) => e.tls || e.proto === 'vless');
   const frag = settings.fragment;
@@ -4898,7 +5141,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
   // F&F finalMask and ECH must never stack with the legacy fragment outbound:
   // ECH requires an unfragmented ClientHello and standard TLS 1.3 cipher negotiation.
   const fragOn = !!(frag && frag.enabled && !finalMask && !ctx.ech);
-  const one = (e) => {
+  const streamFor = (e) => {
     const stream = {
       network: 'ws',
       security: e.tls ? 'tls' : 'none',
@@ -4913,32 +5156,59 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
       if (ctx.ech) stream.tlsSettings.echConfigList = ctx.ech;
       if (finalMask) stream.finalmask = finalMask;
     }
-    const proxy = e.proto === 'vless'
-      ? { tag: 'proxy', protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: stream }
-      : { tag: 'proxy', protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx[TROJAN_KEY + 'Pass'], level: 8 }] }, streamSettings: stream };
-    const outbounds = [proxy];
+    return stream;
+  };
+  const proxyOut = (e, tag) => (e.proto === 'vless'
+    ? { tag, protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: streamFor(e) }
+    : { tag, protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx[TROJAN_KEY + 'Pass'], level: 8 }] }, streamSettings: streamFor(e) });
+  // Shared tail: warp / fragment dialers, then direct + block.
+  const tail = () => {
+    const outs = [];
     if (warpOut.length) {
       // warp dials either the hub (WARP-in-WARP) or the fragment/edge directly.
       for (const wo of warpOut) {
         if (wo.tag === 'warp' && wo.streamSettings.sockopt && !wo.streamSettings.sockopt.dialerProxy && fragOn) wo.streamSettings.sockopt.dialerProxy = 'fragment';
-        outbounds.push(wo);
+        outs.push(wo);
       }
     }
-    if (fragOn) outbounds.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
-    outbounds.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
-    return {
-      remarks: e.name,
-      log: { loglevel: 'warning' },
-      dns: { servers: ['https://1.1.1.1/dns-query', settings.bypassIran ? { address: '8.8.8.8', domains: ['geosite:category-ir', 'domain:ir'], skipFallback: true } : 'https://8.8.8.8/dns-query'].filter(Boolean), queryStrategy: 'UseIP' },
-      inbounds: [
-        { tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { auth: 'noauth', udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
-        { tag: 'http-in', port: 10809, listen: '127.0.0.1', protocol: 'http', sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
-      ],
-      outbounds,
-      routing: { domainStrategy: 'IPIfNonMatch', rules },
-    };
+    if (fragOn) outs.push({ tag: 'fragment', protocol: 'freedom', settings: { fragment: { packets: frag.packets, length: frag.length, interval: frag.interval } }, streamSettings: { sockopt: { tcpKeepAliveIdle: 100, tcpNoDelay: true } } });
+    outs.push({ tag: 'direct', protocol: 'freedom', settings: {} }, { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } });
+    return outs;
   };
-  return usable.map(one);
+  const doc = (remarks, outbounds, routingRules) => ({
+    remarks,
+    log: { loglevel: 'warning' },
+    dns: { servers: ['https://1.1.1.1/dns-query', settings.bypassIran ? { address: '8.8.8.8', domains: ['geosite:category-ir', 'domain:ir'], skipFallback: true } : 'https://8.8.8.8/dns-query'].filter(Boolean), queryStrategy: 'UseIP' },
+    inbounds: [
+      { tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { auth: 'noauth', udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+      { tag: 'http-in', port: 10809, listen: '127.0.0.1', protocol: 'http', sniffing: { enabled: true, destOverride: ['http', 'tls'], routeOnly: true } },
+    ],
+    outbounds,
+    routing: { domainStrategy: 'IPIfNonMatch', rules: routingRules },
+  });
+  const out = usable.map((e) => doc(e.name, [proxyOut(e, 'proxy')].concat(tail()), rules));
+  // 🚀 Best Ping (BPB-style): ALL usable entries in one config, a leastPing balancer in
+  // front, and Xray's observatory probing each one THROUGH the tunnel from the user's own
+  // line every bestPingInterval seconds. The fastest live exit carries the traffic; a dead
+  // one drops out by itself. Appended LAST so config #1 keeps its meaning for every client.
+  const bpWanted = q.bp === '1' || (q.bp !== '0' && settings.bestPing !== false);
+  // Worth it only with at least two DIFFERENT exits (VLESS + Trojan on one IP:port is one path).
+  const distinctExits = new Set(usable.map((e) => String(e.addr).toLowerCase() + ':' + e.port)).size;
+  if (bpWanted && distinctExits >= 2) {
+    const pool = usable.slice(0, BEST_PING_MAX);
+    const outs = pool.map((e, i) => proxyOut(e, 'bp-' + (i + 1)));
+    const bpRules = rules.map((r) => (r.outboundTag === 'proxy' ? { type: 'field', port: r.port, balancerTag: 'best' } : r));
+    const cfg = doc('🚀 Best Ping · ' + pool.length, outs.concat(tail()), bpRules);
+    cfg.routing.balancers = [{ tag: 'best', selector: ['bp-'], strategy: { type: 'leastPing' }, fallbackTag: 'bp-1' }];
+    cfg.observatory = {
+      subjectSelector: ['bp-'],
+      probeUrl: 'https://www.gstatic.com/generate_204',
+      probeInterval: Math.min(600, Math.max(10, Number(settings.bestPingInterval) || 30)) + 's',
+      enableConcurrency: true,
+    };
+    out.push(cfg);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -6142,6 +6412,16 @@ async function handleApi(request, url, env, ctx) {
   // can guarantee every carrier/client. Keep SNI=Host (Cloudflare rejects
   // mismatched SNI), add common cleartext ports as alternatives, and report
   // measured scanner latency only as a local hint. Returns the ?survive=1 link.
+  if (path === '/api/custom-config' && method === 'POST') {
+    const body = (await readJsonBody(request, 16 * 1024)) || {};
+    let user = null;
+    if (body.user) {
+      user = findUser(await readUsers(env), body.user);
+      if (!user) return json({ ok: false, error: 'user' }, 404);
+    }
+    const out = buildCustomConfig(host, env, settings, user ? user.id : masterUuid, user, body);
+    return json(out, out.ok ? 200 : 400);
+  }
   if (path === '/api/survival' && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
     if (!body.apply) return json({ ok: false, error: 'body.apply required' }, 400);
@@ -8020,6 +8300,45 @@ ${vDoctor}
   </div>
   <div class="row" style="margin-top:8px"><button class="btn sm" id="bFragCopy" type="button">📋 <span data-i="copy_all"></span></button></div>
  </div>
+ <div class="card sec" id="ccCard">
+  <h2><span class="ic">🧪</span><span data-i="cc_title"></span></h2>
+  <div class="note i small" data-i="cc_hint"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="cc_proto"></label><div class="pick" id="ccProto"><button type="button" data-v="vless" class="on">VLESS</button><button type="button" data-v="trojan">TROJAN</button></div></div>
+   <div><label data-i="cc_user"></label><select id="ccUser"><option value="" data-i="cc_owner"></option></select></div>
+  </div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="cc_addr"></label><input id="ccAddr" class="mono" dir="ltr" autocomplete="off" data-ph="cc_addr_ph"></div>
+   <div><label data-i="cc_port"></label><select id="ccPort"><option>443</option><option>8443</option><option>2053</option><option>2083</option><option>2087</option><option>2096</option><option>80</option><option>8080</option><option>8880</option><option>2052</option><option>2082</option><option>2086</option><option>2095</option></select></div>
+  </div>
+  <div class="small dim" data-i="cc_addr_n" style="margin-top:4px"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="cc_tls"></label><div class="pick" id="ccTls"><button type="button" data-v="auto" class="on" data-i="cc_auto"></button><button type="button" data-v="on">TLS</button><button type="button" data-v="off" data-i="cc_notls"></button></div></div>
+   <div><label data-i="cc_fp"></label><select id="ccFp"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>360</option><option>qq</option><option>random</option><option>randomized</option></select></div>
+  </div>
+  <div class="small dim" data-i="cc_tls_n" style="margin-top:4px"></div>
+  <div class="two" style="margin-top:8px">
+   <div><label data-i="cc_host"></label><input id="ccHost" class="mono" dir="ltr" autocomplete="off"></div>
+   <div><label>SNI</label><input id="ccSni" class="mono" dir="ltr" autocomplete="off"></div>
+  </div>
+  <div class="small dim" data-i="cc_host_n" style="margin-top:4px"></div>
+  <label data-i="cc_path" style="margin-top:8px"></label>
+  <div class="pick" id="ccPath"><button type="button" data-v="auto" class="on" data-i="cc_path_auto"></button><button type="button" data-v="random" data-i="cc_path_rnd"></button><button type="button" data-v="custom" data-i="cc_path_custom"></button></div>
+  <input id="ccPathV" class="mono" dir="ltr" autocomplete="off" placeholder="/vl/my-own-path" style="display:none;margin-top:6px">
+  <div class="small dim" data-i="cc_path_n" style="margin-top:4px"></div>
+  <div class="row small" style="margin-top:8px"><span class="sw on" id="ccEd"></span><span data-i="cc_ed"></span></div>
+  <div class="row small" style="margin-top:8px"><span class="sw" id="ccCase"></span><span data-i="cc_case"></span></div>
+  <div class="row small" style="margin-top:8px"><span class="sw" id="ccEch"></span><span data-i="cc_ech"></span></div>
+  <div class="row small" style="margin-top:8px"><span class="sw" id="ccFrag"></span><span data-i="cc_frag"></span></div>
+  <div class="two" style="margin-top:8px">
+   <div><label>Fragment</label><input id="ccFragV" class="mono" dir="ltr" value="tlshello,10-100,10-20"></div>
+   <div><label>ALPN</label><select id="ccAlpn"><option>http/1.1</option><option>h2,http/1.1</option></select></div>
+  </div>
+  <label data-i="cc_name" style="margin-top:8px"></label>
+  <input id="ccName" autocomplete="off">
+  <div class="row" style="margin-top:12px"><button class="btn p" id="ccGen" type="button">🧪 <span data-i="cc_gen"></span></button></div>
+  <div id="ccOut" style="margin-top:10px"></div>
+ </div>
  <div class="card sec">
   <h2><span class="ic">🧬</span><span data-i="aether_title"></span></h2>
   <div class="note i small" data-i="aether_hint"></div>
@@ -8249,6 +8568,7 @@ ${vDoctor}
   <div class="row small" style="margin-top:6px"><span class="sw" id="swIran"></span><span data-i="s_iran"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swAds"></span><span data-i="s_ads"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swQuic"></span><span data-i="s_quic"></span></div>
+  <div class="row small" style="margin-top:8px"><span class="sw" id="swBestPing"></span><span data-i="s_bestping"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swDom2ip"></span><span data-i="s_dom2ip"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swSniRot"></span><span data-i="s_snir"></span></div>
   <div class="row small" style="margin-top:8px"><span class="sw" id="swFm"></span><span data-i="s_fml"></span></div>
@@ -8472,7 +8792,7 @@ scan_app:'اسکن با Cat Client',scan_browser:'تست از شبکهٔ من (�
 kv_warn_title:'حافظهٔ پنل وصل نیست — تغییرات ذخیره نمی‌شوند',kv_warn_body:'هر تغییری که بدهی (کاربر، IP تمیز، تنظیمات) فقط چند دقیقه می‌ماند و بعد از بین می‌رود؛ ساب هم بدون IP تمیز خالی درمی‌آید. راه‌حل: در اپ Cat Client → «دیپلوی‌های من» → همین دیپلوی → «به‌روزرسانی پنل» را بزن تا حافظه دوباره وصل شود.',kv_warn_ok:'فهمیدم',kv_save_failed:'ذخیره نشد — حافظهٔ پنل وصل نیست',b_empty_title:'ساب خالی است — هیچ کانفیگی ساخته نشد',b_empty_body:'فهرست IPهای اختصاصی پنل خالی است. ورکر فقط در این حالت به آدرس‌های پیش‌فرض و دامنهٔ خودش برمی‌گردد؛ پیش‌نمایش خالی معمولاً یعنی درخواست ساب شکست خورده. جزئیات HTTP زیر را ببین.',b_fetch_error:'گرفتن ساب ساخته‌شده ناموفق بود: %1',b_empty_reply:'پاسخ HTTP هیچ خط کانفیگی نداشت: %1',b_bad_reply:'پاسخ دریافتی ساب کانفیگ نیست: %1',b_user_save_error:'ذخیرهٔ کاربر ناموفق بود: %1',b_user_saved_refresh_error:'کاربر ذخیره شد، اما تازه‌سازی فهرست کاربران شکست خورد: %1',ip_append:'افزودن به لیست',ip_replace:'جایگزینی کل لیست',ip_test_btn:'سلامت و تست',ip_test_reach:'از سمت ورکر سالم',svc_btn:'سرویس‌ها',svc_note:'آزمون اجرای آمریکا (ویژهٔ Gemini/AI): وضعیت باز/ردِ هر سرویس از خروجی فعلی — 404 یعنی قابل‌دسترس',svc_gemini_hint:'جمنای باز نمی‌شود؟ خروجیِ فعلی کلادفلری است و گوگل آن را نمی‌پسندد — یک socks5 خارجی در بخش 🎭 اضافه کن (🧦) و دوباره تست بزن',exit_hint:'وصل شو به کانفیگ، این را باز کن: آی‌پی/کشورِ خروجی، نشت DNS و WebRTC، پینگ جهانی و باز‌بودن جمنای — نیمه‌ای که فقط از خطِ خودت دیده می‌شود',ip_test_hint:'تست واقعی از سمت ورکر: 💦 با همان IP+پورت+TLS+Hostِ قالب کانفیگ؛ 🎯 روی پورتِ خودِ هر ProxyIP؛ 🧦 رله‌های socks5 با هندشیک واقعی socks (و احراز هویت user:pass). پورت 443 داخل کانفیگ 🎯/🧦 پورتِ ورود به ورکر است، نه پورتِ رله. رفتار SNI روی خط خودت فقط با اسکنر اپ دیده می‌شود.',ip_list:'لیست آی‌پی‌های پنل',ip_list_hint:'این‌ها اول هر اشتراک قرار می‌گیرند. برای حذف روی هر مورد بزن.',ip_clear:'پاک کردن همه',copy_all:'کپی همه',cc_title:'فیلتر کشور کانفیگ‌ها (IP اضافه نمی‌کند)',cc_why:'هر آدرس را با کشوری که برای تو از آن خارج می‌شود برچسب بزن (از اسکنر Cat Client به شکل ip#DE بچسبان، یا دستی از منوی هر آی‌پی). روی یک کشور بزن تا کانفیگ‌ها فقط از همان کشور باشند؛ اگر همهٔ آی‌پی‌های آن کشور بسته شوند، به سریع‌ترین کشور دیگر می‌رود.',cc_auto:'🤖 خودکار (همهٔ کشورها)',cc_fallback:'وقتی همهٔ آی‌پی‌های کشور انتخابی بسته شد',cc_fb_auto:'برو سریع‌ترین کشور دیگر (پیشنهادی)',cc_fb_none:'هیچ‌وقت کشور عوض نشود (قطع شود)',cc_proxy:'Proxy IP‌ها',cc_proxy_btn:'🌍 تشخیص کشور Proxy IP‌ها',cc_hint:'در Clash/Mihomo و Cat Client جابه‌جایی خودکار است؛ در V2Box/sing-box کشور پیش‌فرض انتخاب می‌شود و بقیه در لیست می‌مانند. لینک فقط-یک-کشور: دکمهٔ 🔗 کنار هر کشور (?country=XX&strict=1).',cc_untagged:'بدون کشور',cc_link:'لینک فقط این کشور',
 settings:'تنظیمات پنل',s_title:'عنوان پنل',s_lang:'زبان',s_pass:'رمز پنل',s_stealth:'مسیر مخفی پنل',s_stealth_ph:'خالی = مخفی‌کاری خاموش',s_path_random:'ساخت مسیر تصادفی',s_stealth_hint:'با تنظیم این مسیر، آدرس اصلی پنل یک ۴۰۴ خنثی می‌دهد و پنل فقط روی /این‌مسیر بالا می‌آید — جلوی ربات‌های اسکن workers.dev را می‌گیرد. لینک جدید بعد از ذخیره: دامنه/مسیر',s_pass_ph:'خالی = بدون تغییر',s_protocols:'پروتکل‌ها',p_vless:'سبک و پرسرعت',p_trojan:'جایگزین امن',
 s_tls:'پورت‌های TLS',s_plain:'پورت‌های بدون TLS (HTTP)',s_plain_on:'کانفیگ‌های بدون TLS هم ساخته شود',s_sni:'SNI / Host',s_sni_ph:'خالی = آدرس ورکر (پیشنهادی؛ کلادفلر فقط همین را می‌پذیرد) — فقط وقتی «اسپوف SNI» روشن است اعمال می‌شود',s_fp:'فینگرپرینت TLS',s_limit:'حداکثر کانفیگ در هر ساب',s_ech:'ECH (پنهان‌سازی SNI)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'مقدار ECH برای کانفیگ‌های TLS؛ با ?ech=1 اعمال می‌شود. خالی = پیش‌فرض مشترک کلادفلر (cloudflare-ech.com+udp://1.1.1.1) که SNI واقعی را روی هر میزبان پشت کلادفلر رمز می‌کند؛ auto = فقط رکورد خود SNI؛ off = خاموش',s_port_bad:'پورت نامعتبر — عددی بین ۱ تا ۶۵۵۳۵ بزن',
-s_flags:'گزینه‌ها',s_health:'مرتب‌سازی ساب بر اساس Ping اسکنر',s_health_hint:'آیتم‌هایی که اسکنر طی ۷ روز اخیر از خط فرستنده سریع‌تر گزارش کرده، جلو می‌آیند؛ نامعلوم‌ها بعدتر. این اندازه‌گیری فقط همان خط است، نه تضمین برای کاربرهای دیگر.',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک مورد: host یا host:port (رلهٔ کلودفلر؛ فقط وقتی مقصد خودش پشت کلودفلر باشد) یا socks5://ip:port (برای هر مقصدی). متن بعد از # توضیح است و نادیده گرفته می‌شود (مثل socks5://ip:port#SOCKS5 ip از اسکنر اپ). موارد نامعتبر نادیده گرفته و اعلام می‌شوند.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'اسپوف SNI (چرخش استخر / SNI دلخواه) — خاموش (پیش‌فرض) = SNI همان آدرس ورکر است. ⚠️ کلادفلر SNI متفاوت با Host را با ۴۰۳ رد می‌کند؛ فقط برای آزمایش یا دامنهٔ سفارشی خودت روشن کن. با ?sni=دامنه می‌توان یک لینک را pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',vip_title:'پروکسی‌های خروجی (VIP)',vip_hint:'هر رله‌ای که این‌جا باشد، خروجیِ ثابتِ پنل است (🧦). ★ = ترجیحِ تو: هر اتصال تازه از همان شروع می‌شود. «📶 تست» هر رله را با یک اتصالِ واقعی از خودِ ورکر می‌سنجد و میلی‌ثانیه را می‌نویسد؛ «🐚 دستور ساخت» یک دستورِ آمادهٔ کپی برای ساختنِ رله روی سرورِ خودت می‌دهد.',vip_empty:'هنوز رله‌ای نداری — با «➕ افزودن پروکسی» یکی اضافه کن یا از «🐚 دستور ساخت» شروع کن.',vip_test:'تست همه (ms)',vip_add:'افزودن پروکسی',vip_cmd:'دستور ساخت رله',vip_swap:'تعویض خودکار رلهٔ خراب',vip_swap_hint:'روشن = اگر رلهٔ ترجیحی جواب نداد، بقیهٔ لیست امتحان می‌شوند (رفتارِ همیشگی). خاموش = فقط همان رلهٔ ★ استفاده می‌شود و هیچ‌وقت بی‌صدا عوض نمی‌شود.',vip_cc:'کشور (۲ حرف، اختیاری)',vip_cc_ph:'DE',vip_url:'آدرس پروکسی',vip_url_ph:'socks5://user:pass@1.2.3.4:1080',vip_save:'افزودن به لیست',vip_cancel:'بستن',vip_saved:'ذخیره شد ✓',vip_fail:'ذخیره/تست ناموفق بود',vip_cleared:'ترجیح پاک شد',vip_wait:'در حال تست…',vip_tested:'%1 از %2 رله پاسخ داد',vip_bad_url:'آدرس باید با socks5:// یا http(s):// شروع شود',vip_dup:'همین آدرس از قبل در لیست است',vip_is:'رلهٔ ترجیحی',vip_cmd_title:'دستور ساخت رله روی سرور خودت',vip_cmd_copy:'کپی',vip_cmd_copied:'دستور کپی شد ✓',vip_cmd_hint:'این دستور روی سرورِ خودت یک رلهٔ socks5 میسازد؛ آدرسِ خروجی را در «افزودن پروکسی» بگذار و «📶 تست» را بزن. پورت را فقط برای بازههای آیپی کلادفلر باز بگذار.',lab_title:'🧪 آزمایشگاه SNI — تست زنده',lab_hint:'هر کاندید دو سؤال دارد و هر سؤال از جایی پرسیده می‌شود که فقط آن‌جا دیده می‌شود: «📶 تست از شبکهٔ من» همین‌جا در مرورگرِ خودت اجرا می‌شود (تنها نقطه‌ای که فیلترینگِ اپراتور را می‌بیند: اگر SNI بسته باشد، درخواست شکست می‌خورد) و «🛰 بررسی لبه» از ورکر می‌پرسد که کلادفلر واقعاً همین دامنه را سرو می‌کند یا نه — چون کلادفلر SNIِ بیگانه را با ۴۰۳ رد می‌کند، کاندیدی که CF نباشد هرگز برای چرخش قابل استفاده نیست. فقط ردیف‌هایی که هر دو را پاس کنند با «💾 ذخیرهٔ سالم‌ها» در استخر بالا می‌نشینند (ذخیره از همان فرمِ تنظیمات عبور می‌کند، پس همان اعتبارسنجیِ دستی اعمال می‌شود).',lab_net:'تست از شبکهٔ من',lab_edge:'بررسی لبه (کلادفلر)',lab_save:'ذخیرهٔ سالم‌ها',lab_wait:'در حال تست…',lab_none:'کاندیدی برای تست نیست — استخر و پیش‌فرض‌ها خالی‌اند.',lab_fail:'بررسی لبه ناموفق بود (ورکر جواب نداد).',lab_saved:'استخر پر شد — دکمهٔ ذخیرهٔ تنظیمات را بزن تا ماندگار شود.',s_snir_hint:'فقط وقتی اسپوف روشن است: استخر SNI (با کاما)؛ خالی = icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify. برای پنهان‌کردن آدرس ورکر از DPI به‌جای اسپوف از ECH (گزینهٔ «ECH» در ساخت ساب) یا پورت‌های بدون TLS استفاده کن.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',br_title:'پلِ اضطراری (dnstt)',br_hint:'وقتی هیچ‌کدام از راه‌های معمول وصل نمی‌شود، یک تونلِ DNS اغلب زنده می‌ماند: خاموشیِ فوریهٔ ۲۰۲۶ نشان داد dnstt آخرین روشی است که کار می‌کند — کند (~۱۰۰KB/s) و بی‌ثبات، ولی زنده. این کارت دو راه می‌دهد: خط‌های آمادهٔ خودِ تور برای Orbot، و ساختنِ پلِ خودت روی سرورِ خودت.',br_tor_title:'۱) خط‌های آمادهٔ تور (Orbot)',br_copy:'کپی',br_steps:'Orbot اندروید ≥ 17.9.3-RC-1 (iOS ≥ 1.10.0) → Set Transport (اندروید) یا Choose How to Connect (iOS) → Custom Bridges → Next → همین خط‌ها را پیست کن → Connect. اگر dns.google روی خطِ تو بسته است، جای doh= در خطِ بریج یک resolverِ دیگر بگذار (dot=1.1.1.1:853 یا udp=8.8.8.8:53) — بقیهٔ خط دست‌نخورده می‌ماند.',br_src:'منبعِ رسمیِ همین خط‌ها: تاپیکِ فرومِ تور (آوریل ۲۰۲۶) — اگر عوض شدند، آن‌جا به‌روز می‌شوند.',br_own_title:'۲) پلِ خودت (سرورِ خودت، کلیدِ خودت)',br_own_hint:'دامنه و IP سرورت را بده تا یک اسکریپتِ آماده ساخته شود: روی VPS یک پلِ تورِ خصوصی + dnstt-server می‌سازد و در پایان همان خطِ بریج را با کلیدِ واقعیِ خودت چاپ می‌کند. dnstt با go از منبعِ رسمی (کدِ public-domain روی bamsoftware.com) نصب می‌شود — نه یک باینریِ ناشناس از یک لینک.',br_domain:'دامنهٔ خودت',br_ip:'IP سرور (VPS)',br_doh:'resolver (DoH / DoT / UDP)',br_gen:'ساخت دستور',br_bad_domain:'دامنهٔ معتبر بده — مثل example.com (بدون http و بدون اسلش).',br_bad_ip:'IP معتبر بده، بدون پورت — IPv4 مثل 203.0.113.2 یا IPv6.',br_bad_doh:'resolver را به یکی از این شکل‌ها بده: https://dns.google/dns-query یا tls://1.1.1.1:853 یا udp://8.8.8.8:53',br_out_title:'اسکریپتِ ساختِ پلِ خودت',br_copied:'کپی شد ✓',br_note:'اسکریپت را روی سرورِ بیرونیِ خودت اجرا کن (نه داخلِ ایران)، و اول سه رکوردِ DNS را که چاپ می‌کند بساز. خطِ آخرِ اسکریپت همان خطِ بریجِ Orbot است. آدرسِ اولِ خطِ بریج را کلاینتِ dnstt دایل نمی‌کند (در کدِ رسمی فقط doh/dot/udp و pubkey و domain خوانده می‌شود) — تونل از راهِ resolver باز می‌شود، پس آن مقدار فقط شکلِ خط را کامل می‌کند.',
+s_flags:'گزینه‌ها',s_health:'مرتب‌سازی ساب بر اساس Ping اسکنر',s_health_hint:'آیتم‌هایی که اسکنر طی ۷ روز اخیر از خط فرستنده سریع‌تر گزارش کرده، جلو می‌آیند؛ نامعلوم‌ها بعدتر. این اندازه‌گیری فقط همان خط است، نه تضمین برای کاربرهای دیگر.',s_defaults:'افزودن آدرس‌های پیش‌فرض بعد از لیست من',s_host:'خود آدرس ورکر هم به‌عنوان آدرس اضافه شود',s_proxy:'Proxy IP (برای سایت‌های پشت کلودفلر)',s_proxy_ph:'هر خط یکی: 1.2.3.4 یا 1.2.3.4:8443 (رلهٔ CF) یا socks5://user:pass@ip:port یا لینک t.me/socks تلگرام (رلهٔ شخصی — خروج برای جمنای و هر سایت)',s_proxy_hint:'هر خط یک مورد: host یا host:port (رلهٔ کلودفلر؛ فقط وقتی مقصد خودش پشت کلودفلر باشد) یا socks5://ip:port (برای هر مقصدی). متن بعد از # توضیح است و نادیده گرفته می‌شود (مثل socks5://ip:port#SOCKS5 ip از اسکنر اپ). موارد نامعتبر نادیده گرفته و اعلام می‌شوند.',s_route:'مسیریابی',s_iran:'سایت‌ها و اپ‌های ایرانی مستقیم (بدون VPN) — اسنپ، بانک، دیجی‌کالا عادی کار می‌کنند',s_ads:'مسدودسازی تبلیغات (شبکه‌های تبلیغاتی)',cc_title:'🧪 ساخت کانفیگ دستی (تنظیم تک‌تک گزینه‌ها مثل BPB و Zeus)',cc_hint:'یک کانفیگ تکی با همهٔ تنظیمات دلخواه خودت می‌سازد و همان را در ۴ شکل می‌دهد: لینک (v2rayNG، Hiddify، Streisand، Cat Client)، Clash/Mihomo، sing-box و JSON کامل Xray. هیچ تنظیمی از پنل عوض نمی‌شود. اگر نمی‌دانی چیزی چیست، دست نزن — پیش‌فرض‌ها درست کار می‌کنند.',cc_proto:'پروتکل',cc_user:'برای کدام کاربر؟',cc_owner:'خودم (مالک پنل)',cc_addr:'آدرس اتصال (آی‌پی تمیز یا دامنه)',cc_addr_ph:'مثلاً 104.16.1.1:2053 — خالی = دامنهٔ ورکر',cc_addr_n:'اگر پورت را کنار آی‌پی بنویسی (مثل 104.16.1.1:2053) دقیقاً همان پورت استفاده می‌شود — همان جفتی که اسکنر روی خطت تست کرده.',cc_port:'پورت',cc_tls:'TLS (رمزنگاری)',cc_auto:'خودکار از روی پورت',cc_notls:'بدون TLS',cc_tls_n:'خودکار: پورت‌های 443، 8443، 2053، 2083، 2087، 2096 با TLS؛ پورت‌های 80، 8080، 8880، 2052، 2082، 2086، 2095 بدون TLS (همان قانون کلودفلر).',cc_fp:'اثر انگشت TLS (fingerprint)',cc_host:'Host (دامنهٔ ورکر)',cc_host_n:'Host و SNI را خالی بگذار تا دامنهٔ همین پنل گذاشته شود. اگر SNI با Host فرق کند، کلودفلر معمولاً خطای 403 می‌دهد.',cc_path:'مسیر WebSocket',cc_path_auto:'مسیر پنل',cc_path_rnd:'تصادفی برای همین کانفیگ (BPB)',cc_path_custom:'مسیر دلخواه',cc_path_n:'تصادفی: هر بار یک مسیر تازه مثل /vl/k3x9… ساخته می‌شود تا فیلترینگ نتواند از روی یک مسیر ثابت کانفیگ‌ها را پیدا کند. مسیر دلخواه باید با /vl/ یا /tr/ شروع شود.',cc_ed:'Early Data (ed=2560): اولین بستهٔ داده همراه دست‌دادن می‌رود — اتصال‌ها سریع‌تر باز می‌شوند',cc_case:'SNI با حروف بزرگ و کوچک تصادفی (ترفند BPB): برای فیلترهایی که حروف را دقیق مقایسه می‌کنند',cc_ech:'ECH: نام سایت داخل دست‌دادن رمز می‌شود (فرگمنت و ترفند حروف خاموش می‌شوند)',cc_frag:'Fragment: تکه‌کردن دست‌دادن TLS برای رد شدن از فیلتر (فقط در Xray JSON و sing-box)',cc_name:'نام کانفیگ (اختیاری)',cc_gen:'بساز',cc_out_link:'لینک (برای کپی یا QR)',cc_out_xray:'JSON کامل Xray (در v2rayNG: افزودن کانفیگ سفارشی)',cc_err_addr:'آدرس درست نیست — یک IPv4، IPv6 یا دامنه بنویس.',cc_err_port:'پورت باید بین 1 تا 65535 باشد.',cc_err_host:'Host باید یک دامنه باشد.',cc_err_sni:'SNI باید یک دامنه باشد.',cc_err_path:'این مسیر را ورکر قبول نمی‌کند — با /vl/ یا /tr/ و دست‌کم ۴ حرف شروع کن (مثل /vl/abcd1234).',cc_err_frag:'Fragment را به شکل tlshello,10-100,10-20 بنویس.',cc_err_user:'این کاربر پیدا نشد.',cc_err_x:'ساخت کانفیگ انجام نشد.',cc_w_proto_off:'این پروتکل در تنظیمات پنل خاموش است؛ کانفیگ ساخته شد ولی در ساب نمی‌آید.',cc_w_port_from_addr:'پورتِ نوشته‌شده کنار آدرس استفاده شد، نه پورت انتخاب‌شده.',cc_w_tls_on_plain_port:'روی این پورت کلودفلر TLS نمی‌دهد؛ احتمالاً وصل نمی‌شود.',cc_w_plain_on_tls_port:'این پورت روی کلودفلر فقط TLS می‌پذیرد؛ بدون TLS وصل نمی‌شود.',cc_w_trojan_plain:'Trojan بدون TLS در Clash و sing-box پشتیبانی نمی‌شود؛ فقط لینک و Xray ساخته شد.',cc_w_vercel_443:'پنل روی Vercel است و فقط پورت 443 با TLS را جواب می‌دهد.',cc_w_node_direct:'پنل روی هاست Node است و فقط یک آدرس و یک پورت دارد.',cc_w_sni_differs:'SNI با Host فرق دارد؛ کلودفلر معمولاً 403 می‌دهد مگر هر دو روی همان حساب باشند.',cc_w_host_not_panel:'Host دامنهٔ این پنل نیست؛ فقط اگر آن دامنه به همین ورکر وصل است کار می‌کند.',cc_w_alpn_h2:'با WebSocket روی کلودفلر فقط http/1.1 مطمئن است؛ h2 ممکن است اتصال را خراب کند.',cc_w_frag_ech:'Fragment با ECH جمع نمی‌شود؛ خاموش شد.',s_bestping:'🚀 کانفیگ «Best Ping» در خروجی Xray (مثل BPB): همهٔ کانفیگ‌ها داخل یک کانفیگ؛ خود برنامه هر ۳۰ ثانیه از داخل تونل روی اینترنت خودت پینگ واقعی می‌گیرد و سریع‌ترین را خودکار انتخاب می‌کند. (?bp=0 = بدون آن)',s_quic:'مسدودسازی QUIC/HTTP3 (UDP 443) — مثل BPB؛ بعضی اپراتورها UDP را خراب می‌کنند، بلاکش کلاینت را به TCP می‌فرستد',s_dom2ip:'دامنه‌ها در ساب به آی‌پی خام کلادفلر تبدیل شوند (ساب بدون DNS — پیشنهادی). با ?dom=1 هم می‌توان دامنه‌ای گرفت',s_snir:'اسپوف SNI (چرخش استخر / SNI دلخواه) — خاموش (پیش‌فرض) = SNI همان آدرس ورکر است. ⚠️ کلادفلر SNI متفاوت با Host را با ۴۰۳ رد می‌کند؛ فقط برای آزمایش یا دامنهٔ سفارشی خودت روشن کن. با ?sni=دامنه می‌توان یک لینک را pin کرد',s_fml:'فرگمنت و cs داخل لینک‌های TLS (fm/cs — دور زدن فیلتر SNI در کلاینت‌های نو: PattNG، v2rayNG جدید، Streisand)',vip_title:'پروکسی‌های خروجی (VIP)',vip_hint:'هر رله‌ای که این‌جا باشد، خروجیِ ثابتِ پنل است (🧦). ★ = ترجیحِ تو: هر اتصال تازه از همان شروع می‌شود. «📶 تست» هر رله را با یک اتصالِ واقعی از خودِ ورکر می‌سنجد و میلی‌ثانیه را می‌نویسد؛ «🐚 دستور ساخت» یک دستورِ آمادهٔ کپی برای ساختنِ رله روی سرورِ خودت می‌دهد.',vip_empty:'هنوز رله‌ای نداری — با «➕ افزودن پروکسی» یکی اضافه کن یا از «🐚 دستور ساخت» شروع کن.',vip_test:'تست همه (ms)',vip_add:'افزودن پروکسی',vip_cmd:'دستور ساخت رله',vip_swap:'تعویض خودکار رلهٔ خراب',vip_swap_hint:'روشن = اگر رلهٔ ترجیحی جواب نداد، بقیهٔ لیست امتحان می‌شوند (رفتارِ همیشگی). خاموش = فقط همان رلهٔ ★ استفاده می‌شود و هیچ‌وقت بی‌صدا عوض نمی‌شود.',vip_cc:'کشور (۲ حرف، اختیاری)',vip_cc_ph:'DE',vip_url:'آدرس پروکسی',vip_url_ph:'socks5://user:pass@1.2.3.4:1080',vip_save:'افزودن به لیست',vip_cancel:'بستن',vip_saved:'ذخیره شد ✓',vip_fail:'ذخیره/تست ناموفق بود',vip_cleared:'ترجیح پاک شد',vip_wait:'در حال تست…',vip_tested:'%1 از %2 رله پاسخ داد',vip_bad_url:'آدرس باید با socks5:// یا http(s):// شروع شود',vip_dup:'همین آدرس از قبل در لیست است',vip_is:'رلهٔ ترجیحی',vip_cmd_title:'دستور ساخت رله روی سرور خودت',vip_cmd_copy:'کپی',vip_cmd_copied:'دستور کپی شد ✓',vip_cmd_hint:'این دستور روی سرورِ خودت یک رلهٔ socks5 میسازد؛ آدرسِ خروجی را در «افزودن پروکسی» بگذار و «📶 تست» را بزن. پورت را فقط برای بازههای آیپی کلادفلر باز بگذار.',lab_title:'🧪 آزمایشگاه SNI — تست زنده',lab_hint:'هر کاندید دو سؤال دارد و هر سؤال از جایی پرسیده می‌شود که فقط آن‌جا دیده می‌شود: «📶 تست از شبکهٔ من» همین‌جا در مرورگرِ خودت اجرا می‌شود (تنها نقطه‌ای که فیلترینگِ اپراتور را می‌بیند: اگر SNI بسته باشد، درخواست شکست می‌خورد) و «🛰 بررسی لبه» از ورکر می‌پرسد که کلادفلر واقعاً همین دامنه را سرو می‌کند یا نه — چون کلادفلر SNIِ بیگانه را با ۴۰۳ رد می‌کند، کاندیدی که CF نباشد هرگز برای چرخش قابل استفاده نیست. فقط ردیف‌هایی که هر دو را پاس کنند با «💾 ذخیرهٔ سالم‌ها» در استخر بالا می‌نشینند (ذخیره از همان فرمِ تنظیمات عبور می‌کند، پس همان اعتبارسنجیِ دستی اعمال می‌شود).',lab_net:'تست از شبکهٔ من',lab_edge:'بررسی لبه (کلادفلر)',lab_save:'ذخیرهٔ سالم‌ها',lab_wait:'در حال تست…',lab_none:'کاندیدی برای تست نیست — استخر و پیش‌فرض‌ها خالی‌اند.',lab_fail:'بررسی لبه ناموفق بود (ورکر جواب نداد).',lab_saved:'استخر پر شد — دکمهٔ ذخیرهٔ تنظیمات را بزن تا ماندگار شود.',s_snir_hint:'فقط وقتی اسپوف روشن است: استخر SNI (با کاما)؛ خالی = icook.tw، speedtest، cdnjs، visa، speed.cloudflare، wto، shopify. برای پنهان‌کردن آدرس ورکر از DPI به‌جای اسپوف از ECH (گزینهٔ «ECH» در ساخت ساب) یا پورت‌های بدون TLS استفاده کن.',i_snipool_ph:'استخر SNI — مثل: icook.tw,www.visa.com,time.is',s_route_hint:'در خروجی Clash / sing-box / Xray اعمال می‌شود. لینک‌های ساده vless:// قانون ندارند؛ آن‌ها را کلاینت تعیین می‌کند (Cat Client خودش همین‌ها را دارد).',s_frag:'Fragment و TLS پیشرفته',s_frag_on:'Fragment فعال (شکستن TLS ClientHello برای عبور از فیلتر)',s_frag_confirm:'Fragment روی همهٔ لینک‌های «Xray کامل» و sing-box اعمال می‌شود (بعد از ذخیره). روی بعضی اپراتورها سرعت کمی کم می‌شود. فعال شود؟',s_frag_hint:'Fragment و Cipher suites فقط در لینک «Xray کامل» و sing-box اعمال می‌شود (لینک ساده نمی‌تواند حمل‌شان کند). ALPN را روی http/1.1 بگذار؛ h2 روی WebSocket کلودفلر کار نمی‌کند.',s_tg:'ربات تلگرام',s_tg_admins:'آیدی عددی ادمین‌ها',s_tg_hook:'🤖 اتصال ربات (Webhook)',s_tg_hint:'از @BotFather یک ربات بساز و توکنش را اینجا بگذار؛ آیدی عددی‌ات را از @userinfobot بگیر. اول ذخیره کن، بعد «اتصال ربات». دستورها: /users /add /renew /toggle /del /link /ips /country /status. تا پیامی نفرستی هیچ هزینه‌ای ندارد.',tg_ok:'وصل شد',tg_off:'غیرفعال',s_gh_title:'🚀 دیپلوی خودکار (ربات ← GitHub Actions ← کلادفلر)',s_gh_repo:'مخزن گیت‌هاب (owner/repo)',s_gh_ref:'برنچ دیپلوی',s_gh_pat:'توکن گیت‌هاب (Actions: read/write)',s_gh_wf:'فایل ورک‌فلو',s_gh_hint:'در تلگرام: /deploy [برنچ] و /deploys. توکن کلادفلر هیچ‌وقت اینجا وارد نمی‌شود — فقط یک‌بار در GitHub Secrets (CLOUDFLARE_API_TOKEN، CLOUDFLARE_ACCOUNT_ID، TELEGRAM_BOT_TOKEN، TELEGRAM_CHAT_ID). راهنمای کامل: docs/telegram-deploy.md',s_chain:'خروجی ثابت (IP و کشور ثابت)',s_chain_ph:'socks5://… یا http://… یا vless://… یا trojan://… یا t.me/socks',s_chain_hint:'ورکر همهٔ ترافیک را از این سرور بیرون می‌فرستد؛ IP و کشور همیشه یکی می‌ماند. پشتیبانی: socks5/http (با user:pass) · vless/trojan (ws، httpupgrade، tcp؛ TLS خودکار) · لینک t.me/socks. reality و flow پشتیبانی نمی‌شوند. خالی = خروجی خود کلودفلر.',s_chain_mode:'کدام مقصدها',s_chain_all:'همهٔ سایت‌ها (کاملاً ثابت)',s_chain_cf:'فقط سایت‌های پشت کلودفلر (به‌جای Proxy IP)',s_chain_strict:'سخت‌گیرانه',s_chain_strict_on:'اگر سرور زنجیره در دسترس نبود، قطع شو (نشت نکن)',s_chain_test:'🧪 تست زنجیره',chain_off:'غیرفعال',chain_ok:'وصل شد',chain_fail:'ناموفق',br_title:'پلِ اضطراری (dnstt)',br_hint:'وقتی هیچ‌کدام از راه‌های معمول وصل نمی‌شود، یک تونلِ DNS اغلب زنده می‌ماند: خاموشیِ فوریهٔ ۲۰۲۶ نشان داد dnstt آخرین روشی است که کار می‌کند — کند (~۱۰۰KB/s) و بی‌ثبات، ولی زنده. این کارت دو راه می‌دهد: خط‌های آمادهٔ خودِ تور برای Orbot، و ساختنِ پلِ خودت روی سرورِ خودت.',br_tor_title:'۱) خط‌های آمادهٔ تور (Orbot)',br_copy:'کپی',br_steps:'Orbot اندروید ≥ 17.9.3-RC-1 (iOS ≥ 1.10.0) → Set Transport (اندروید) یا Choose How to Connect (iOS) → Custom Bridges → Next → همین خط‌ها را پیست کن → Connect. اگر dns.google روی خطِ تو بسته است، جای doh= در خطِ بریج یک resolverِ دیگر بگذار (dot=1.1.1.1:853 یا udp=8.8.8.8:53) — بقیهٔ خط دست‌نخورده می‌ماند.',br_src:'منبعِ رسمیِ همین خط‌ها: تاپیکِ فرومِ تور (آوریل ۲۰۲۶) — اگر عوض شدند، آن‌جا به‌روز می‌شوند.',br_own_title:'۲) پلِ خودت (سرورِ خودت، کلیدِ خودت)',br_own_hint:'دامنه و IP سرورت را بده تا یک اسکریپتِ آماده ساخته شود: روی VPS یک پلِ تورِ خصوصی + dnstt-server می‌سازد و در پایان همان خطِ بریج را با کلیدِ واقعیِ خودت چاپ می‌کند. dnstt با go از منبعِ رسمی (کدِ public-domain روی bamsoftware.com) نصب می‌شود — نه یک باینریِ ناشناس از یک لینک.',br_domain:'دامنهٔ خودت',br_ip:'IP سرور (VPS)',br_doh:'resolver (DoH / DoT / UDP)',br_gen:'ساخت دستور',br_bad_domain:'دامنهٔ معتبر بده — مثل example.com (بدون http و بدون اسلش).',br_bad_ip:'IP معتبر بده، بدون پورت — IPv4 مثل 203.0.113.2 یا IPv6.',br_bad_doh:'resolver را به یکی از این شکل‌ها بده: https://dns.google/dns-query یا tls://1.1.1.1:853 یا udp://8.8.8.8:53',br_out_title:'اسکریپتِ ساختِ پلِ خودت',br_copied:'کپی شد ✓',br_note:'اسکریپت را روی سرورِ بیرونیِ خودت اجرا کن (نه داخلِ ایران)، و اول سه رکوردِ DNS را که چاپ می‌کند بساز. خطِ آخرِ اسکریپت همان خطِ بریجِ Orbot است. آدرسِ اولِ خطِ بریج را کلاینتِ dnstt دایل نمی‌کند (در کدِ رسمی فقط doh/dot/udp و pubkey و domain خوانده می‌شود) — تونل از راهِ resolver باز می‌شود، پس آن مقدار فقط شکلِ خط را کامل می‌کند.',
 save:'ذخیره تغییرات',cancel:'انصراف',saved:'ذخیره شد',
 n_clients:'کاربران',n_inbounds:'اینباندها',n_about:'درباره',n_logout:'خروج',ov_info:'اطلاعات پنل',ov_loc:'موقعیت',ov_up:'آپتایم',ov_ver:'نسخه',ov_check:'بررسی آپدیت',ov_services:'سرویس‌ها',svc_run:'فعال',svc_idle:'خاموش',ib_count:'اینباندها',ib_ports:'پورت‌ها',ib_inbound:'اینباند',ib_copy:'کپی لینک ساب',ib_hint:'لینک کپی‌شده فقط کانفیگ‌های همان پروتکل و پورت را می‌دهد (?proto=&port=). ترافیک روی Cloudflare Workers قابل شمارش نیست.',bulk_count:'چند کاربر ساخته شود؟',bulk_prefix:'پیشوند نام (مثلاً user)',bulk_done:'ساخته شد: ',n_spoof:'SNI و ProxyIP',spoof:'SNI و ProxyIP (اسپوف)',spoof_hint:'کانفیگ‌های این بخش جدا از ایپی‌های تمیز و با نام مخصوص خودشان ساخته می‌شوند: 🧬 SNI … و 🎯 PX … — اول «ذخیره تغییرات» را بزن، بعد ساب را دوباره آپدیت کن. لینک‌های «کانفیگ‌ساز» هم 🎯 PX و 🧦 را می‌گیرند و جزو «تعداد کانفیگ» حساب می‌شوند (حداکثر نصف آن)؛ فقط لینک‌های پین‌شده (limit ۱ یا ۲، یا addr=) بدون آن‌ها هستند. 🧬 فقط در ساب بدون limit می‌آید.',s_extra_sni:'SNIهای اضافه (هر خط یکی — حداکثر ۸)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'برای هر دامنه یک کانفیگ با servername همان دامنه ساخته می‌شود (دامنه باید پشت کلادفلر باشد) — وقتی SNI دامنه‌ی خودت فیلتر شده. اسپوف SNI.',pattn_btn:'PattN ✨',pattn_filled:'پیش‌تنظیم PattN پر شد — cipher suites + ALPN http/1.1 + fingerprint=unsafe + Fragment — حالا ذخیره کن',saved_nokv:'ذخیره شد (موقت — KV وصل نیست!)',paths:'مسیرها و اتصال',
 backup:'پشتیبان‌گیری',backup_hint:'یک فایل JSON شامل تنظیمات و کاربران. برای انتقال پنل به ورکر/اکانت دیگر همین فایل را بازگردانی کن.',backup_dl:'دانلود پشتیبان',backup_start:'دانلود فایل پشتیبان آغاز شد',backup_up:'بازگردانی',
@@ -8494,7 +8814,7 @@ scan_app:'Scan with Cat Client',scan_browser:'Test from my network (browser)',sc
 b_empty_title:'The subscription is empty — no config was built',b_empty_body:'The custom IP list is empty. The Worker falls back to built-in addresses + its hostname; a blank preview usually means the subscription request failed. Check the HTTP detail below.',b_fetch_error:'Could not fetch the generated subscription: %1',b_empty_reply:'The HTTP response contained no config lines: %1',b_bad_reply:'The response is not a config subscription: %1',b_user_save_error:'Could not save user: %1',b_user_saved_refresh_error:'User was saved, but the user list could not be refreshed: %1',kv_warn_title:'Panel storage is not attached — changes are not saved',kv_warn_body:'Any change (users, clean IPs, settings) survives only a few minutes and then disappears; subscriptions also come out empty without clean IPs. Fix: in the Cat Client app → My deployments → this deployment → “Update panel”, which re-attaches storage.',kv_warn_ok:'Got it',kv_save_failed:'Not saved — panel storage is not attached',ip_append:'Append',ip_replace:'Replace list',ip_test_btn:'Health & test',ip_test_reach:'healthy from the worker',svc_btn:'Services',svc_note:'US egress test (Gemini/AI focus): open/refused per service through the current exit — 404 means reachable',svc_gemini_hint:'Gemini blocked? The current exit is Cloudflare and Google refuses it — add a FOREIGN socks5 in the 🎭 section (🧦) and re-run this test',exit_hint:'Connect to a config, then open it: exit IP/country, DNS & WebRTC leaks, global ping and whether Gemini opens — the half only YOUR line can see',ip_test_hint:'Real tests from the worker: 💦 dials the exact IP+port+TLS+Host of the config template; 🎯 is probed on each ProxyIP\u2019s OWN port; 🧦 socks5 relays get a REAL socks handshake (incl. user:pass auth). The 443 inside a 🎯 config is the worker ENTRY port, not the relay port — the relay port rides in ?proxyip= and the worker dials it directly. SNI behaviour on YOUR line only the app scanner sees.',ip_list:'Panel IP list',ip_list_hint:'These come first in every subscription. Tap one to remove it.',ip_clear:'Clear all',copy_all:'Copy all',cc_title:'Config country filter (does not add IPs)',cc_why:'Tag each address with the country it exits from FOR YOU (paste ip#DE from the Cat Client scanner, or pick from the menu next to each ip). Click a country to serve configs from it only; when all of its ips die, the fastest other country takes over.',cc_auto:'🤖 Automatic (all countries)',cc_fallback:'When every ip of the chosen country is dead',cc_fb_auto:'switch to the fastest other country (recommended)',cc_fb_none:'never leave the country (fail instead)',cc_proxy:'Proxy IPs',cc_proxy_btn:'🌍 Detect proxy-IP countries',cc_hint:'Clash/Mihomo and Cat Client switch automatically; V2Box/sing-box get the chosen country as default with the rest listed. Single-country link: 🔗 next to each country (?country=XX&strict=1).',cc_untagged:'untagged',cc_link:'link for this country only',
 settings:'Panel settings',s_title:'Panel title',s_lang:'Language',s_pass:'Panel password',s_stealth:'Hidden panel path',s_stealth_ph:'empty = stealth off',s_path_random:'Generate random path',s_stealth_hint:'When set, the root address answers a neutral 404 and the panel only loads at /this-path — defeats workers.dev scanners. New link after saving: domain/path',s_pass_ph:'empty = unchanged',s_protocols:'Protocols',p_vless:'light & fast',p_trojan:'secure alternative',
 s_tls:'TLS ports',s_plain:'Non-TLS ports (HTTP)',s_plain_on:'also emit non-TLS configs',s_sni:'SNI / Host',s_sni_ph:'empty = the worker host (recommended; the only SNI Cloudflare accepts) — used only while SNI spoofing is on',s_fp:'TLS fingerprint',s_limit:'Max configs per sub',s_ech:'ECH (SNI encryption)',s_ech_ph:'cloudflare-ech.com+udp://1.1.1.1',s_ech_hint:'ECH value for TLS configs; applied with ?ech=1. Empty = the shared Cloudflare default (cloudflare-ech.com+udp://1.1.1.1) which encrypts the real SNI on any CF-fronted host; auto = only the SNI own HTTPS record; off = disabled',s_port_bad:'Invalid port — enter a number between 1 and 65535',
-s_flags:'Options',s_health:'Order subscription by scanner ping',s_health_hint:'Addresses the importing scanner measured faster within the last 7 days go first; unknowns follow. This is only that sender’s line, not a guarantee for other users.',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line: host or host:port (a Cloudflare relay — only used when the destination is itself behind Cloudflare) or socks5://ip:port (used for any destination). Text after # is a remark and is ignored (e.g. socks5://ip:port#SOCKS5 ip from the app scanner). Invalid entries are ignored and reported.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_fml:'Fragment and cs inside TLS links (fm/cs — SNI-filter bypass in newer clients: PattNG, new v2rayNG, Streisand)',s_snir:'SNI spoofing (rotating pool / custom SNI) — OFF (default) = the SNI is the worker host. ⚠️ Cloudflare answers 403 when the SNI differs from the Host; enable only to experiment or for your own custom domain. ?sni=<host> pins one link',vip_title:'Outbound proxies (VIP)',vip_hint:'Every relay listed here is the fixed exit of this panel (🧦). ★ marks your preference: every fresh connection starts there. «📶 test» measures each relay with a real connection from the worker itself and prints the latency; «🐚 build command» hands you a copy-paste command that creates the relay on your own server.',vip_empty:'No relays yet — add one with «➕ add proxy» or start from the «🐚 build command».',vip_test:'Test all (ms)',vip_add:'Add proxy',vip_cmd:'Build relay command',vip_swap:'Auto-swap a dead relay',vip_swap_hint:'On = when the preferred relay fails, the rest of the list is tried (the historical behaviour). Off = only the ★ relay is ever used, and never silently replaced.',vip_cc:'Country (2 letters, optional)',vip_cc_ph:'DE',vip_url:'Proxy URL',vip_url_ph:'socks5://user:pass@1.2.3.4:1080',vip_save:'Add to list',vip_cancel:'Close',vip_saved:'Saved ✓',vip_fail:'Save/test failed',vip_cleared:'Preference cleared',vip_wait:'Testing…',vip_tested:'%1 of %2 relays answered',vip_bad_url:'The URL must start with socks5:// or http(s)://',vip_dup:'That address is already in the list',vip_is:'Preferred relay',vip_cmd_title:'Relay build command (your own server)',vip_cmd_copy:'Copy',vip_cmd_copied:'Command copied ✓',vip_cmd_hint:'This builds a socks5 relay on your own server; paste the resulting URL into «add proxy» and press «📶 test». Open the port only to Cloudflare IP ranges.',lab_title:'🧪 SNI Lab — live test',lab_hint:'Every candidate has two questions, each asked from the only place that can see it: «📶 test from my network» runs right here in YOUR browser (the one vantage point that sees carrier filtering — a blocked SNI fails there), and «🛰 edge check» asks the worker whether Cloudflare really serves that hostname — Cloudflare 403s a foreign SNI, so a candidate that is not CF-proxied can never be rotated onto. Only rows that pass both are copied into the pool above by «💾 save healthy», and that save goes through the settings form, so the same validation the manual field gets applies.',lab_net:'Test from my network',lab_edge:'Edge check (Cloudflare)',lab_save:'Save healthy',lab_wait:'Testing…',lab_none:'No candidates to test — the pool and the defaults are empty.',lab_fail:'Edge check failed (the worker did not answer).',lab_saved:'Pool filled — press save settings to persist it.',s_snir_hint:'Only while spoofing is on: SNI pool (comma separated); empty = icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify. To hide the worker host from DPI use ECH (the «ECH» toggle in the sub builder) or non-TLS ports instead of spoofing.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',br_title:'Emergency bridge (dnstt)',br_hint:'When nothing else connects, a DNS tunnel is usually still alive: the February 2026 blackout showed dnstt is the last method standing — slow (~100 KB/s) and unstable, but alive. This card gives you two ways: Tor own ready-made lines for Orbot, and a command that builds YOUR OWN bridge on your own server.',br_tor_title:'1) Tor ready-made lines (Orbot)',br_copy:'Copy',br_steps:'Orbot Android ≥ 17.9.3-RC-1 (iOS ≥ 1.10.0) → Set Transport (Android) or Choose How to Connect (iOS) → Custom Bridges → Next → paste these lines → Connect. If dns.google is blocked on your line, replace the doh= part in the bridge line with another resolver (dot=1.1.1.1:853 or udp=8.8.8.8:53) — the rest of the line stays as it is.',br_src:'Source of these exact lines: the official Tor forum thread (April 2026) — updates land there.',br_own_title:'2) Your own bridge (your server, your key)',br_own_hint:'Give your domain and the server IP to generate a ready script: it builds a private Tor bridge + dnstt-server on the VPS and, at the end, prints the bridge line with your real key. dnstt is installed with go from the official source (public-domain code on bamsoftware.com) — not an unknown binary from a random link.',br_domain:'Your domain',br_ip:'Server IP (VPS)',br_doh:'resolver (DoH / DoT / UDP)',br_gen:'Build command',br_bad_domain:'Enter a valid domain — e.g. example.com (no http, no slash).',br_bad_ip:'Enter a valid IP without a port — IPv4 like 203.0.113.2, or IPv6.',br_bad_doh:'Give the resolver in one of these forms: https://dns.google/dns-query or tls://1.1.1.1:853 or udp://8.8.8.8:53',br_out_title:'Your bridge build script',br_copied:'Copied ✓',br_note:'Run the script on your own server (outside Iran), and create the three DNS records it prints first. The last line of the script is the Orbot bridge line. The first token of a dnstt bridge line is never dialed by the client (the official code reads only doh/dot/udp, pubkey and domain) — the tunnel is built through the resolver, so that token only completes the line shape.',
+s_flags:'Options',s_health:'Order subscription by scanner ping',s_health_hint:'Addresses the importing scanner measured faster within the last 7 days go first; unknowns follow. This is only that sender’s line, not a guarantee for other users.',s_defaults:'append default addresses after mine',s_host:'also include the worker hostname',s_proxy:'Proxy IP (for Cloudflare-hosted sites)',s_proxy_ph:'one per line: 1.2.3.4 · 1.2.3.4:8443 (CF relay) · socks5://user:pass@ip:port · a t.me/socks link (own relay — foreign exit for Gemini & everything)',s_proxy_hint:'One per line: host or host:port (a Cloudflare relay — only used when the destination is itself behind Cloudflare) or socks5://ip:port (used for any destination). Text after # is a remark and is ignored (e.g. socks5://ip:port#SOCKS5 ip from the app scanner). Invalid entries are ignored and reported.',s_route:'Routing',s_iran:'Iranian sites & apps go direct (no VPN) — banking, Snapp, Digikala work normally',s_ads:'Block ads (ad networks)',cc_title:'🧪 Custom single config (every knob, like BPB and Zeus)',cc_hint:'Builds ONE config with exactly your settings and gives it in 4 shapes: share link (v2rayNG, Hiddify, Streisand, Cat Client), Clash/Mihomo, sing-box and full Xray JSON. Nothing in the panel settings changes. If you do not know what a field does, leave it — the defaults work.',cc_proto:'Protocol',cc_user:'For which user?',cc_owner:'Me (panel owner)',cc_addr:'Connect address (clean IP or domain)',cc_addr_ph:'e.g. 104.16.1.1:2053 — empty = worker domain',cc_addr_n:'Write the port next to the IP (like 104.16.1.1:2053) and exactly that port is used — the pair the scanner verified on your line.',cc_port:'Port',cc_tls:'TLS (encryption)',cc_auto:'Auto from the port',cc_notls:'No TLS',cc_tls_n:'Auto: ports 443, 8443, 2053, 2083, 2087, 2096 use TLS; ports 80, 8080, 8880, 2052, 2082, 2086, 2095 do not (Cloudflare’s own rule).',cc_fp:'TLS fingerprint',cc_host:'Host (worker domain)',cc_host_n:'Leave Host and SNI empty to use this panel’s domain. When the SNI differs from the Host, Cloudflare usually answers 403.',cc_path:'WebSocket path',cc_path_auto:'Panel path',cc_path_rnd:'Random for this config (BPB)',cc_path_custom:'My own path',cc_path_n:'Random: a fresh path like /vl/k3x9… every time, so filtering cannot spot configs by one fixed path. Your own path must start with /vl/ or /tr/.',cc_ed:'Early Data (ed=2560): the first data rides along with the handshake — connections open faster',cc_case:'Random upper/lower-case SNI (BPB trick): for filters that compare letters exactly',cc_ech:'ECH: the site name inside the handshake is encrypted (fragment and the case trick switch off)',cc_frag:'Fragment: split the TLS handshake to slip past filtering (Xray JSON and sing-box only)',cc_name:'Config name (optional)',cc_gen:'Build',cc_out_link:'Link (copy or QR)',cc_out_xray:'Full Xray JSON (v2rayNG: add custom config)',cc_err_addr:'That address is not valid — write an IPv4, IPv6 or domain.',cc_err_port:'The port must be 1–65535.',cc_err_host:'Host must be a domain.',cc_err_sni:'SNI must be a domain.',cc_err_path:'The worker would not accept that path — start with /vl/ or /tr/ and at least 4 characters (like /vl/abcd1234).',cc_err_frag:'Write the fragment as tlshello,10-100,10-20.',cc_err_user:'That user was not found.',cc_err_x:'The config could not be built.',cc_w_proto_off:'This protocol is off in the panel settings; the config was built but the subscription will not include it.',cc_w_port_from_addr:'The port written next to the address was used, not the picked port.',cc_w_tls_on_plain_port:'Cloudflare offers no TLS on this port; it will most likely not connect.',cc_w_plain_on_tls_port:'Cloudflare accepts only TLS on this port; without TLS it will not connect.',cc_w_trojan_plain:'Trojan without TLS is not supported by Clash or sing-box; only the link and Xray were built.',cc_w_vercel_443:'This panel runs on Vercel, which answers only port 443 with TLS.',cc_w_node_direct:'This panel runs on a Node host with one address and one port.',cc_w_sni_differs:'SNI differs from Host; Cloudflare usually answers 403 unless both are on the same account.',cc_w_host_not_panel:'Host is not this panel’s domain; it only works if that domain points to this worker.',cc_w_alpn_h2:'With WebSocket on Cloudflare only http/1.1 is safe; h2 may break the connection.',cc_w_frag_ech:'Fragment does not stack with ECH; it was switched off.',s_bestping:'🚀 «Best Ping» config in the Xray output (BPB-style): every config inside one; the app itself pings each one through the tunnel on YOUR line every 30 s and switches to the fastest automatically. (?bp=0 = without it)',s_quic:'Block QUIC/HTTP3 (UDP 443) — BPB-style; on carriers where UDP breaks, clients fall back to TCP+TLS',s_dom2ip:'Resolve domain entries to raw Cloudflare IPs in the sub (DNS-proof — recommended). ?dom=1 keeps domains',s_fml:'Fragment and cs inside TLS links (fm/cs — SNI-filter bypass in newer clients: PattNG, new v2rayNG, Streisand)',s_snir:'SNI spoofing (rotating pool / custom SNI) — OFF (default) = the SNI is the worker host. ⚠️ Cloudflare answers 403 when the SNI differs from the Host; enable only to experiment or for your own custom domain. ?sni=<host> pins one link',vip_title:'Outbound proxies (VIP)',vip_hint:'Every relay listed here is the fixed exit of this panel (🧦). ★ marks your preference: every fresh connection starts there. «📶 test» measures each relay with a real connection from the worker itself and prints the latency; «🐚 build command» hands you a copy-paste command that creates the relay on your own server.',vip_empty:'No relays yet — add one with «➕ add proxy» or start from the «🐚 build command».',vip_test:'Test all (ms)',vip_add:'Add proxy',vip_cmd:'Build relay command',vip_swap:'Auto-swap a dead relay',vip_swap_hint:'On = when the preferred relay fails, the rest of the list is tried (the historical behaviour). Off = only the ★ relay is ever used, and never silently replaced.',vip_cc:'Country (2 letters, optional)',vip_cc_ph:'DE',vip_url:'Proxy URL',vip_url_ph:'socks5://user:pass@1.2.3.4:1080',vip_save:'Add to list',vip_cancel:'Close',vip_saved:'Saved ✓',vip_fail:'Save/test failed',vip_cleared:'Preference cleared',vip_wait:'Testing…',vip_tested:'%1 of %2 relays answered',vip_bad_url:'The URL must start with socks5:// or http(s)://',vip_dup:'That address is already in the list',vip_is:'Preferred relay',vip_cmd_title:'Relay build command (your own server)',vip_cmd_copy:'Copy',vip_cmd_copied:'Command copied ✓',vip_cmd_hint:'This builds a socks5 relay on your own server; paste the resulting URL into «add proxy» and press «📶 test». Open the port only to Cloudflare IP ranges.',lab_title:'🧪 SNI Lab — live test',lab_hint:'Every candidate has two questions, each asked from the only place that can see it: «📶 test from my network» runs right here in YOUR browser (the one vantage point that sees carrier filtering — a blocked SNI fails there), and «🛰 edge check» asks the worker whether Cloudflare really serves that hostname — Cloudflare 403s a foreign SNI, so a candidate that is not CF-proxied can never be rotated onto. Only rows that pass both are copied into the pool above by «💾 save healthy», and that save goes through the settings form, so the same validation the manual field gets applies.',lab_net:'Test from my network',lab_edge:'Edge check (Cloudflare)',lab_save:'Save healthy',lab_wait:'Testing…',lab_none:'No candidates to test — the pool and the defaults are empty.',lab_fail:'Edge check failed (the worker did not answer).',lab_saved:'Pool filled — press save settings to persist it.',s_snir_hint:'Only while spoofing is on: SNI pool (comma separated); empty = icook.tw, speedtest, cdnjs, visa, speed.cloudflare, wto, shopify. To hide the worker host from DPI use ECH (the «ECH» toggle in the sub builder) or non-TLS ports instead of spoofing.',i_snipool_ph:'SNI pool — e.g. icook.tw,www.visa.com,time.is',s_route_hint:'Applied to Clash / sing-box / Xray output. Plain vless:// links carry no rules; the client decides (Cat Client has the same rules built in).',s_frag:'Fragment & advanced TLS',s_frag_on:'Fragment on (split the TLS ClientHello to slip past DPI)',s_frag_confirm:'Fragment will apply to every "Full Xray" and sing-box link (after Save). Some carriers get slightly slower. Enable?',s_frag_hint:'Fragment and cipher suites only apply to the "Full Xray" link and sing-box (a share link cannot carry them). Keep ALPN at http/1.1; h2 breaks WebSocket on Cloudflare.',s_tg:'Telegram bot',s_tg_admins:'admin numeric ids',s_tg_hook:'🤖 Connect bot (webhook)',s_tg_hint:'Create a bot with @BotFather and paste its token; get your numeric id from @userinfobot. Save first, then “Connect bot”. Commands: /users /add /renew /toggle /del /link /ips /country /status. Costs nothing until you message it.',tg_ok:'connected',tg_off:'off',s_gh_title:'🚀 Auto-deploy (bot → GitHub Actions → Cloudflare)',s_gh_repo:'GitHub repo (owner/repo)',s_gh_ref:'deploy branch',s_gh_pat:'GitHub token (Actions: read/write)',s_gh_wf:'workflow file',s_gh_hint:'Telegram commands: /deploy [branch] and /deploys. The Cloudflare token is never stored here — it goes once into GitHub Secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Full guide: docs/telegram-deploy.md',s_chain:'Fixed exit (stable IP & country)',s_chain_ph:'socks5://… or http://… or vless://… or trojan://… or t.me/socks',s_chain_hint:'The worker sends all traffic out through this server, so the IP/country never changes. Supported: socks5/http (user:pass) · vless/trojan (ws, httpupgrade, tcp; TLS auto) · t.me/socks links. reality & flow are not supported. Empty = Cloudflare egress.',s_chain_mode:'Which destinations',s_chain_all:'everything (fully stable)',s_chain_cf:'only Cloudflare-hosted sites (instead of Proxy IP)',s_chain_strict:'Strict',s_chain_strict_on:'if the chain is down, fail instead of leaking',s_chain_test:'🧪 Test chain',chain_off:'off',chain_ok:'connected',chain_fail:'failed',br_title:'Emergency bridge (dnstt)',br_hint:'When nothing else connects, a DNS tunnel is usually still alive: the February 2026 blackout showed dnstt is the last method standing — slow (~100 KB/s) and unstable, but alive. This card gives you two ways: Tor own ready-made lines for Orbot, and a command that builds YOUR OWN bridge on your own server.',br_tor_title:'1) Tor ready-made lines (Orbot)',br_copy:'Copy',br_steps:'Orbot Android ≥ 17.9.3-RC-1 (iOS ≥ 1.10.0) → Set Transport (Android) or Choose How to Connect (iOS) → Custom Bridges → Next → paste these lines → Connect. If dns.google is blocked on your line, replace the doh= part in the bridge line with another resolver (dot=1.1.1.1:853 or udp=8.8.8.8:53) — the rest of the line stays as it is.',br_src:'Source of these exact lines: the official Tor forum thread (April 2026) — updates land there.',br_own_title:'2) Your own bridge (your server, your key)',br_own_hint:'Give your domain and the server IP to generate a ready script: it builds a private Tor bridge + dnstt-server on the VPS and, at the end, prints the bridge line with your real key. dnstt is installed with go from the official source (public-domain code on bamsoftware.com) — not an unknown binary from a random link.',br_domain:'Your domain',br_ip:'Server IP (VPS)',br_doh:'resolver (DoH / DoT / UDP)',br_gen:'Build command',br_bad_domain:'Enter a valid domain — e.g. example.com (no http, no slash).',br_bad_ip:'Enter a valid IP without a port — IPv4 like 203.0.113.2, or IPv6.',br_bad_doh:'Give the resolver in one of these forms: https://dns.google/dns-query or tls://1.1.1.1:853 or udp://8.8.8.8:53',br_out_title:'Your bridge build script',br_copied:'Copied ✓',br_note:'Run the script on your own server (outside Iran), and create the three DNS records it prints first. The last line of the script is the Orbot bridge line. The first token of a dnstt bridge line is never dialed by the client (the official code reads only doh/dot/udp, pubkey and domain) — the tunnel is built through the resolver, so that token only completes the line shape.',
 save:'Save',cancel:'Cancel',saved:'Saved',
 n_clients:'Clients',n_inbounds:'Inbounds',n_about:'About',n_logout:'Log out',ov_info:'Panel info',ov_loc:'Location',ov_up:'Uptime',ov_ver:'Version',ov_check:'Check for Update',ov_services:'Services',svc_run:'RUNNING',svc_idle:'IDLE',ib_count:'Inbounds',ib_ports:'Ports',ib_inbound:'Inbound',ib_copy:'Copy sub URL',ib_hint:'The copied URL serves only that protocol+port (?proto=&port=). Traffic counting is not possible on Cloudflare Workers.',bulk_count:'How many users?',bulk_prefix:'Name prefix (e.g. user)',bulk_done:'Created: ',n_spoof:'SNI & ProxyIP',spoof:'SNI & ProxyIP (spoofing)',spoof_hint:'Configs from this section are built apart from the clean-IP list under their own names: 🧬 SNI … and 🎯 PX … — press Save first, then refresh the subscription. Config-builder links include 🎯 PX and 🧦 too and they count toward «Config count» (at most half of it); only pinned links (limit 1–2, or addr=) leave them out. 🧬 appears only in subs without a limit.',s_extra_sni:'Extra SNI hosts (one per line — max 8)',s_extra_sni_ph:'speedtest.example.com',s_extra_sni_hint:'Each host gets its own config with that servername (the host must be behind Cloudflare) — for when your own panel SNI gets filtered. SNI spoofing.',pattn_btn:'PattN ✨',pattn_filled:'PattN preset filled — cipher suites + ALPN http/1.1 + fingerprint unsafe + fragment — now press Save',saved_nokv:'Saved (volatile — KV not bound!)',paths:'Paths & connection',
 backup:'Backup',backup_hint:'A JSON file with settings and users. Restore it on another worker/account to move the panel.',backup_dl:'Download backup',backup_start:'Backup download started',backup_up:'Restore',
@@ -9077,7 +9397,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
 function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.echList.value=s.echList||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){var n=document.querySelector('[data-view=\"spoof\"]');if(n)n.click();sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');f.elements.ghRepo.value=s.ghRepo||'';f.elements.ghRef.value=s.ghRef||'';f.elements.ghPat.value=s.ghPat||'';f.elements.ghWorkflow.value=s.ghWorkflow||'deploy-worker.yml';var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(s.subRotate||'fetch'))});renderRotBtn();renderWarp();renderExt();
 if(srp&&!srp.__w){srp.__w=1;srp.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;$$('#subRotatePick button').forEach(function(x){x.classList.remove('on')});b.classList.add('on')})}
-$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swQuic').classList.toggle('on',!!s.blockQuic);$('#swDom2ip').classList.toggle('on',s.domToIp!==false);$('#swSniRot').classList.toggle('on',s.sniFront===true);$('#swFm').classList.toggle('on',s.fmLinks!==false);$('#sniPoolCsv').value=(s.sniPool||[]).join(',');$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
+$('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swQuic').classList.toggle('on',!!s.blockQuic);$('#swBestPing').classList.toggle('on',s.bestPing!==false);$('#swDom2ip').classList.toggle('on',s.domToIp!==false);$('#swSniRot').classList.toggle('on',s.sniFront===true);$('#swFm').classList.toggle('on',s.fmLinks!==false);$('#sniPoolCsv').value=(s.sniPool||[]).join(',');$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
  $('#swPlain').classList.toggle('on',s.plainEnabled);$('#swDefaults').classList.toggle('on',s.useDefaults);$('#swHost').classList.toggle('on',s.includeHost);
  pick('#pickTls',CFG.defaults.tlsPorts,s.tlsPorts);pick('#pickPlain',CFG.defaults.plainPorts,s.plainPorts);
@@ -9105,7 +9425,7 @@ $('#btnSetExport').addEventListener('click',function(){if(!CFG||!CFG.settings){t
 $('#btnSetImport').addEventListener('click',function(){toast(t('set_import_choose'));$('#setImportFile').click()});
 $('#setImportFile').addEventListener('change',function(){var f=this.files&&this.files[0];this.value='';if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(String(r.result));var st=j&&j.settings?j.settings:j;if(!st||typeof st!=='object'||Array.isArray(st))throw 0;delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;delete st.password;api('/api/settings',{method:'PUT',body:st}).then(function(x){if(!x.ok)throw 0;toast(t('saved'));return load()}).catch(function(){toast('error',true)})}catch(e){toast(t('set_import_bad'),true)}};r.readAsText(f)});
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,echList:f.elements.echList.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
@@ -9327,6 +9647,27 @@ if($('#btnSurvival'))$('#btnSurvival').addEventListener('click',function(){var o
  api('/api/survival',{method:'POST',body:{apply:true}}).then(function(j){if(!j||!j.ok){out.textContent='✗';toast('✗',true);return}
   toast(t('surv_done'));renderSurvival(j);return load()}).catch(function(){out.textContent='✗';toast('✗',true)})});
 
+/* ---------- 🧪 custom single config (BPB / Zeus knobs, built here) ---------- */
+(function(){var card=$('#ccCard');if(!card)return;
+ var CC={proto:'vless',tls:'auto',path:'auto'};
+ function pick(id,key){$$('#'+id+' button').forEach(function(b){b.addEventListener('click',function(){$$('#'+id+' button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');CC[key]=b.getAttribute('data-v');if(key==='path')$('#ccPathV').style.display=CC.path==='custom'?'':'none'})})}
+ pick('ccProto','proto');pick('ccTls','tls');pick('ccPath','path');
+ function fillUsers(){var sel=$('#ccUser');var cur=sel.value;var opts='<option value="">'+esc(t('cc_owner'))+'</option>';(USERS||[]).forEach(function(u){opts+='<option value="'+esc(u.id)+'">'+esc(u.name||u.id)+'</option>'});sel.innerHTML=opts;sel.value=cur}
+ $('#ccUser').addEventListener('focus',fillUsers);$('#ccUser').addEventListener('mousedown',fillUsers);
+ function panelHost(){try{return new URL((CFG&&CFG.links&&CFG.links.sub)||location.href).hostname}catch(e){return location.hostname}}
+ function prefill(){var h=panelHost();$('#ccHost').placeholder=h;$('#ccSni').placeholder=h}
+ card.addEventListener('focusin',prefill);prefill();
+ function box(label,val,qr){if(!val)return '';return '<label style="margin-top:10px">'+esc(label)+'</label><textarea readonly class="mono" dir="ltr" style="min-height:'+(val.length>300?170:72)+'px">'+esc(val)+'</textarea><div class="row" style="margin-top:4px"><button class="btn sm" type="button" data-copy="'+esc(val)+'">📋 '+esc(t('copy'))+'</button>'+(qr?'<button class="btn sm" type="button" data-qr="'+esc(val)+'" data-qrl="custom">▦ QR</button>':'')+'</div>'}
+ $('#ccGen').addEventListener('click',function(){var out=$('#ccOut');out.innerHTML='<div class="small">⏳</div>';
+  var body={proto:CC.proto,user:$('#ccUser').value||'',addr:$('#ccAddr').value.trim(),port:Number($('#ccPort').value)||443,tls:CC.tls,fp:$('#ccFp').value,host:$('#ccHost').value.trim(),sni:$('#ccSni').value.trim(),pathMode:CC.path,path:$('#ccPathV').value.trim(),ed:$('#ccEd').classList.contains('on'),sniCase:$('#ccCase').classList.contains('on'),ech:$('#ccEch').classList.contains('on'),frag:$('#ccFrag').classList.contains('on'),fragValue:$('#ccFragV').value.trim(),alpn:$('#ccAlpn').value,name:$('#ccName').value.trim()};
+  api('/api/custom-config',{method:'POST',body:body}).then(function(j){
+   if(!j||!j.ok){var ek='cc_err_'+((j&&j.error)||'x');var em=t(ek);if(em===ek)em=t('cc_err_x');out.innerHTML='<div class="note w">✗ '+esc(em)+'</div>';return}
+   var w=(j.warnings||[]).map(function(k){return '<div>⚠️ '+esc(t('cc_w_'+k))+'</div>'}).join('');
+   var u=j.used||{};
+   var sum='<div class="note g small mono" dir="ltr" style="text-align:left;word-break:break-all">'+esc(u.proto+' · '+u.addr+':'+u.port+' · '+(u.tls?'TLS':'no TLS')+' · Host '+u.host+(u.tls?' · SNI '+u.sni+' · fp '+u.fp+' · '+u.alpn:'')+' · path '+u.path+(u.frag?' · fragment '+u.frag:'')+(u.ech?' · ECH':''))+'</div>';
+   out.innerHTML=sum+(w?'<div class="note w small" style="margin-top:6px">'+w+'</div>':'')+box(t('cc_out_link'),j.link,true)+box('Clash / Mihomo',j.clash)+box('sing-box (outbound)',j.singbox)+box(t('cc_out_xray'),j.xray);
+  }).catch(function(e){out.innerHTML='<div class="note w">✗ '+esc(String(e&&e.message||e))+'</div>'})});
+})();
 /* ---------- config builder + scanner filters + events ---------- */
 var CC_FA={DE:'آلمان',NL:'هلند',GB:'بریتانیا',FR:'فرانسه',TR:'ترکیه',AE:'امارات',FI:'فنلاند',SE:'سوئد',CA:'کانادا',SG:'سنگاپور',JP:'ژاپن',US:'آمریکا',IR:'ایران',IT:'ایتالیا',ES:'اسپانیا',CH:'سوئیس',AT:'اتریش',BE:'بلژیک',DK:'دانمارک',NO:'نروژ',PL:'لهستان',UA:'اوکراین',RU:'روسیه',CN:'چین',HK:'هنگ‌کنگ',IN:'هند',KR:'کرهٔ جنوبی',AU:'استرالیا',BR:'برزیل',IL:'اسرائیل',SA:'عربستان',QA:'قطر',KW:'کویت',IQ:'عراق',OM:'عمان',AZ:'آذربایجان',AM:'ارمنستان',GE:'گرجستان',KZ:'قزاقستان',MY:'مالزی',TH:'تایلند',VN:'ویتنام',PH:'فیلیپین',ID:'اندونزی',ZA:'آفریقای جنوبی',EG:'مصر',MA:'مراکش',AR:'آرژانتین',MX:'مکزیک'};
 var REGIONS={eu:['DE','NL','GB','FR','FI','SE','NO','DK','IT','ES','CH','AT','BE','PL','UA','RU'],me:['TR','AE','SA','QA','KW','IQ','OM','IL','AZ','AM','GE','IR'],as:['SG','JP','IN','KR','CN','HK','MY','TH','VN','PH','ID','KZ'],am:['US','CA','BR','AR','MX'],af:['ZA','EG','MA']};
@@ -10025,6 +10366,7 @@ export default {
 
 export const _testing = {
   admitLimitedUser, startFirstUseClock, subResponse,
+  buildCustomConfig, singboxWsTransport, buildXrayConfigs, BEST_PING_MAX,
   cfFrontScript,
   vercelCfFront,
   CAT_PANEL_VERSION,
