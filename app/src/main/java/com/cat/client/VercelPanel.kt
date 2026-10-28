@@ -278,6 +278,7 @@ internal object VercelPanelProbe {
         val started = System.currentTimeMillis()
         val raw = java.net.Socket()
         return try {
+            protectOutboundSocket(raw) // beta205: scan Vercel edges from THIS network, not through the running tunnel
             raw.connect(InetSocketAddress(address, port), timeoutMs)
             raw.soTimeout = timeoutMs
             val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, sni, port, true) as SSLSocket
@@ -305,6 +306,7 @@ internal object VercelPanelProbe {
         val started = System.currentTimeMillis()
         val raw = java.net.Socket()
         return try {
+            protectOutboundSocket(raw) // beta205: scan Vercel edges from THIS network, not through the running tunnel
             raw.connect(InetSocketAddress(address, port), timeoutMs)
             raw.soTimeout = timeoutMs
             val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, sni, port, true) as SSLSocket

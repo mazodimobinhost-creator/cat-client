@@ -410,7 +410,10 @@ object IspProtocolMatrix {
         if (host.isBlank() || port !in 1..65535) return ProbeResult(false, null, "bad-endpoint")
         val start = System.nanoTime()
         return runCatching {
-            Socket().use { s -> s.connect(InetSocketAddress(host, port), timeoutMs) }
+            Socket().use { s ->
+                protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
+                s.connect(InetSocketAddress(host, port), timeoutMs)
+            }
             ProbeResult(true, (System.nanoTime() - start) / 1_000_000, "tcp-open")
         }.getOrElse { ProbeResult(false, null, it.javaClass.simpleName) }
     }
@@ -431,6 +434,7 @@ object IspProtocolMatrix {
         val start = System.nanoTime()
         return runCatching {
             Socket().use { raw ->
+                protectOutboundSocket(raw) // beta205: probe THIS network, not the running tunnel
                 raw.connect(InetSocketAddress(host, port), timeoutMs)
                 raw.soTimeout = timeoutMs
                 val sniHost = sni.trim().takeIf { it.isNotEmpty() && !looksLikeIp(it) } ?: host
@@ -455,6 +459,7 @@ object IspProtocolMatrix {
         val start = System.nanoTime()
         return runCatching {
             Socket().use { s ->
+                protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                 s.connect(InetSocketAddress(host, port), timeoutMs)
                 s.soTimeout = timeoutMs
                 val buf = ByteArray(64)
@@ -474,6 +479,7 @@ object IspProtocolMatrix {
         val start = System.nanoTime()
         return runCatching {
             DatagramSocket().use { sock ->
+                protectOutboundDatagramSocket(sock) // beta205: probe THIS network, not the running tunnel
                 sock.soTimeout = timeoutMs
                 val addr = InetAddress.getByName(host)
                 val packet = buildQuicVersionProbe(SecureRandom())
@@ -494,6 +500,7 @@ object IspProtocolMatrix {
         val start = System.nanoTime()
         return runCatching {
             DatagramSocket().use { sock ->
+                protectOutboundDatagramSocket(sock) // beta205: probe THIS network, not the running tunnel
                 sock.soTimeout = timeoutMs
                 val id = SecureRandom().nextInt(0xFFFF)
                 val q = buildDnsQuery(id, qname, qtype)
@@ -518,6 +525,7 @@ object IspProtocolMatrix {
         val start = System.nanoTime()
         return runCatching {
             Socket().use { s ->
+                protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                 s.connect(InetSocketAddress(resolver, port), timeoutMs)
                 s.soTimeout = timeoutMs
                 val id = SecureRandom().nextInt(0xFFFF)

@@ -455,6 +455,7 @@ internal object MlmAndNextGenVpnHub {
         for (ip in v4Candidates) {
             val tcpOk = runCatching {
                 Socket().use { s ->
+                    protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                     s.connect(InetSocketAddress(ip, 443), timeoutMs)
                     true
                 }
@@ -484,6 +485,7 @@ internal object MlmAndNextGenVpnHub {
         for (v6 in CLOUDFLARE_HEALTHY_IPV6_EDGES.take(5)) {
             val ok = runCatching {
                 Socket().use { s ->
+                    protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                     s.connect(InetSocketAddress(v6, 443), timeoutMs)
                     true
                 }
@@ -501,6 +503,7 @@ internal object MlmAndNextGenVpnHub {
             for (host in masqueHosts) {
                 val ok = runCatching {
                     Socket().use { s ->
+                        protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                         s.connect(InetSocketAddress(host, port), 850)
                         true
                     }

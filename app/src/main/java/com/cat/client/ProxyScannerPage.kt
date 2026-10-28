@@ -855,6 +855,7 @@ class ProxyScannerPage(
             val t0 = SystemClock.elapsedRealtime()
             val ok = runCatching {
                 Socket().use { s ->
+                    protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                     s.connect(InetSocketAddress(c.host, c.port), timeoutMs)
                     anyOpen = true
                     s.soTimeout = timeoutMs

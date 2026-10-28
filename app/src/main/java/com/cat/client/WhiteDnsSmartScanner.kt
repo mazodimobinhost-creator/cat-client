@@ -681,6 +681,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val addr = InetAddress.getByName(bareHost)
             Socket().use { raw ->
+                protectOutboundSocket(raw) // beta205: probe THIS network, not the running tunnel
                 raw.soTimeout = timeoutMs
                 raw.connect(InetSocketAddress(addr, port), timeoutMs)
                 val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -801,6 +802,7 @@ internal object WhiteDnsSmartScanner {
             val t0 = System.nanoTime()
             val addr = InetAddress.getByName(ip.trim())
             Socket().use { raw ->
+                protectOutboundSocket(raw) // beta205: probe THIS network, not the running tunnel
                 raw.soTimeout = timeoutMs
                 raw.connect(InetSocketAddress(addr, port), timeoutMs)
                 val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -1127,6 +1129,7 @@ internal object WhiteDnsSmartScanner {
         return runCatching {
             val start = System.nanoTime()
             Socket().use { s ->
+                protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                 s.connect(InetSocketAddress(host, port), timeoutMs)
             }
             ((System.nanoTime() - start) / 1_000_000L).coerceAtLeast(1L)

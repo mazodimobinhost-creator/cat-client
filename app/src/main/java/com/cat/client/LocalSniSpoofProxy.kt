@@ -1867,6 +1867,7 @@ internal object LocalSniSpoofProxy {
         for (resolver in listOf("8.8.8.8", "1.1.1.1", "9.9.9.9")) {
             val tcpIp = runCatching {
                 Socket().use { s ->
+                    protectOutboundSocket(s) // beta205: probe THIS network, not the running tunnel
                     s.soTimeout = timeoutMs
                     s.connect(InetSocketAddress(resolver, 53), timeoutMs)
                     val out = s.getOutputStream()
