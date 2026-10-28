@@ -91,8 +91,8 @@ const VAYDNS_RECORD_TYPES = Object.freeze(['txt', 'cname', 'a', 'aaaa', 'mx', 'n
 // v6.65 «Cat Glass» skins. Every theme is only a handful of CSS variables (see
 // BASE_CSS) — the wallpapers are layered gradients, so the panel stays a single
 // self-contained file: no image assets, no CDN, no network request.
-const PANEL_THEMES = ['aurora', 'nebula', 'ocean', 'ember', 'forest', 'steel', 'turquoise', 'cyberpunk', 'gold', 'amoled', 'nord', 'daylight'];
-const DEFAULT_PANEL_THEME = 'aurora';
+const PANEL_THEMES = ['clean', 'aurora', 'nebula', 'ocean', 'ember', 'forest', 'steel', 'turquoise', 'cyberpunk', 'gold', 'amoled', 'nord', 'daylight'];
+const DEFAULT_PANEL_THEME = 'clean'; // beta199: DevCop-style light shell is the default; dark skins stay one tap away
 // Scheme assembled at runtime — the worker source carries no plaintext URI scheme
 // (nothing for naive payload scanners to fingerprint).
 const PROTO_VLESS = 'vl' + 'ess';
@@ -1010,7 +1010,7 @@ function defaultSettings() {
     title: '',
     passwordHash: '',   // sha256(password); empty → PANEL_PASSWORD env or UUID
     lang: 'fa',
-    uiTheme: 'aurora',  // «Cat Glass» skin id — cosmetic only, never affects configs
+    uiTheme: 'clean',   // «Cat Glass» skin id — cosmetic only, never affects configs
     ips: [],            // owner's clean IPs / domains (first in every subscription)
     repoAuto: true,     // append up to 8 free feed IPs to subs by default; never persists them to ips
     repoAutoDefaultMigrated: true, // legacy default-off values are migrated once, preserving an explicit recent opt-out
@@ -1081,6 +1081,9 @@ function normalizeSettings(raw) {
   s.lang = s.lang === 'en' ? 'en' : 'fa';
   // Cosmetic only: an unknown id (hand-edited JSON, older panel) falls back to the default skin.
   s.uiTheme = PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME;
+  // beta199 one-time move to the new light default: «aurora» was the old implicit default,
+  // so it moves to «clean» once; a skin picked after this flag is set is never touched again.
+  if (s.uiCleanV !== 1) { if (s.uiTheme === 'aurora') s.uiTheme = 'clean'; s.uiCleanV = 1; }
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
   // Default ON for fresh panels; an owner's saved false remains an explicit opt-out.
   s.repoAuto = s.repoAuto !== false;
@@ -7271,6 +7274,15 @@ const BASE_CSS = `
 --glow:rgba(2,132,199,.30);--nav-bg:rgba(2,132,199,.12);
 --wall:radial-gradient(1100px 680px at 8% -12%,rgba(14,165,233,.18),transparent 62%),radial-gradient(920px 620px at 94% 2%,rgba(99,102,241,.15),transparent 60%),linear-gradient(180deg,#f8fafc,#eef2f9 62%);
 --wall2:radial-gradient(560px 420px at 16% 10%,rgba(14,165,233,.22),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(99,102,241,.18),transparent 72%)}
+[data-theme=clean]{
+--bg:#f4f7fb;--bg2:#edf2f9;--flat:#fff;--card:#fff;--card2:#f7f9fc;--glass:#fff;
+--line:rgba(15,23,42,.08);--line2:rgba(37,99,235,.30);--b05:rgba(15,23,42,.035);--text:#0f172a;--mute:#4b5a70;--dim:#66748a;--input-bg:#f8fafc;
+--sh:0 1px 2px rgba(15,23,42,.05),0 10px 28px -16px rgba(15,23,42,.16);--sheen:none;--blur:0px;
+--violet:#2563eb;--violet2:#1d4ed8;--fuchsia:#0ea47a;--pink:#7c3aed;--cyan:#0369a1;--blue:#2563eb;--lime:#059669;--green:#059669;--amber:#b45309;--red:#dc2626;
+--glow:rgba(37,99,235,.25);--nav-bg:rgba(37,99,235,.08);--surface:#fff;--surface2:#f3f6fb;--muted:#4b5a70;--accent:#2563eb;
+--wall:radial-gradient(900px 560px at 100% -10%,rgba(37,99,235,.08),transparent 60%),radial-gradient(800px 520px at 0% 110%,rgba(16,185,129,.07),transparent 60%),linear-gradient(180deg,#f6f9fd,#eef3f9);
+--wall2:none}
+[data-theme=clean] .btn.p,[data-theme=daylight] .btn.p{color:#fff}
 .mbdock{display:none}
 @media(max-width:860px){body{padding-bottom:78px}.mbdock{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:38;display:grid;grid-template-columns:repeat(6,1fr);gap:4px;padding:6px;border-radius:20px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);border:1px solid var(--line2);box-shadow:var(--sh)}.mbdock button{min-height:44px;border:0;background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 2px;border-radius:14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:background .2s,color .2s}.mbdock button b{font-size:16px;line-height:1}.mbdock button.on{background:var(--nav-bg);color:var(--violet2)}}
 /* Browsers without backdrop-filter get opaque surfaces instead of unreadable ones. */
@@ -7481,8 +7493,167 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-copy
 </script></body></html>`;
 }
 
+// beta199 «Cat Clean» shell — DevCop-style layout (right sidebar, page header, white cards),
+// written from scratch for this panel. Line icons are plain SVG paths: no font, no CDN.
+const UI_ICONS = {
+  dash: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  scan: '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
+  nodes: '<circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8 5 16M12 8l7 8"/>',
+  loc: '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  tools: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  build: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5"/>',
+  spoof: '<path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/>',
+  inbounds: '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  backup: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  palette: '<circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A5.7 5.7 0 0 0 22 9.7C22 5.4 17.5 2 12 2z"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  cmd: '<path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 0 0 0-6z"/>',
+  side: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',
+  bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  pulse: '<path d="M3 12h4l3 8 4-16 3 8h4"/>',
+  route: '<circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>',
+  door: '<path d="M3 21h18M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M14 12h.01"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/>',
+  devices: '<rect x="2" y="4" width="14" height="10" rx="2"/><path d="M6 18h6"/><rect x="17" y="8" width="5" height="12" rx="1.5"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+};
+function uiIcon(n) {
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (UI_ICONS[n] || '') + '</svg>';
+}
+
+const CLEAN_CSS = `
+/* ───── beta199 «Cat Clean» shell (all skins): right sidebar + page header + calm cards ───── */
+.side::after{display:none}
+.side .sbrand{padding:20px 18px 14px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.side .sbrand .lg{width:40px;height:40px;border-radius:12px}
+.side .sbrand small{display:block;font-size:12px;font-weight:600;color:var(--dim);margin-top:1px}
+.sb-nav .sbg{font-size:12px;font-weight:700;color:var(--dim);padding:12px 12px 4px;letter-spacing:.2px}
+.sb-nav>button{min-height:44px;font-size:13.5px}
+.sb-nav>button.on::before{display:none}
+.side .sb-bot{display:flex;gap:8px;justify-content:center;padding:12px;border-top:1px solid var(--line)}
+.side .sb-bot>a,.side .sb-bot>button{width:44px;height:44px;padding:0;justify-content:center;border:1px solid var(--line);border-radius:12px;flex:none}
+.side .sb-bot>a{color:var(--red)}
+#btnDark .sun{display:none}
+html:is([data-theme=clean],[data-theme=daylight]) #btnDark .sun{display:block}
+html:is([data-theme=clean],[data-theme=daylight]) #btnDark .moon{display:none}
+.pgt{display:none;min-width:0}
+.pgt b{display:block;font-size:17px;font-weight:800;line-height:1.35}
+.pgt small{display:block;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52vw}
+.tnew{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 18px;border-radius:12px;border:0;color:#fff;font-weight:700;font-size:13.5px;background-image:linear-gradient(135deg,var(--violet),var(--fuchsia));box-shadow:0 8px 20px -10px var(--glow);margin-inline-start:auto;white-space:nowrap}
+.tnew:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.tnew svg{width:18px;height:18px}
+.tools{margin-inline-start:0}
+.sbtog{display:none}
+@media(min-width:1080px){
+ body .side{display:flex!important}
+ .top{display:block;margin-inline-start:var(--sb-w)}
+ .topin{max-width:none;padding:12px 26px}
+ .top .brand{display:none}
+ .pgt{display:block}
+ .sbtog{display:grid}
+ .vhead{display:none}
+ body.sbmini{--sb-w:78px}
+ body.sbmini .side .lbl,body.sbmini .side .sbg,body.sbmini .side .sbrand>div:last-child{display:none}
+ body.sbmini .sb-nav>button{justify-content:center}
+ body.sbmini .side .sb-bot{flex-direction:column;align-items:center}
+}
+@media(max-width:1079px){.tnew .lbl{display:none}.tnew{padding:0 13px}}
+/* dashboard */
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px}
+.dgrid>.sec{margin-bottom:0}
+.qa{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.qa button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--b05);text-align:start;min-height:72px;font-weight:700;font-size:13px;color:var(--text);transition:border-color .2s,background .2s,transform .25s var(--spring)}
+.qa button svg{width:20px;height:20px;color:var(--violet)}
+.qa button small{font-weight:500;color:var(--mute);font-size:12px;line-height:1.5}
+.qa button:hover{border-color:var(--glow);background:var(--nav-bg);transform:translateY(-1px)}
+.st .s2{display:block;margin-top:6px;font-size:12px;color:var(--mute);font-weight:600}
+.tu{width:100%;border-collapse:collapse;font-size:13px}
+.tu th{font-size:12px;color:var(--dim);font-weight:700;text-align:start;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tu td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tu tr:last-child td{border-bottom:0}
+.tu .bar{min-width:110px;margin-top:5px}
+.pwab{display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px}
+.pwab.show{display:flex}
+.pwab .t{flex:1;min-width:200px;font-size:13px}
+.hq{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);font-size:12px;color:var(--mute);cursor:help;margin-inline-start:4px;flex:none}
+/* tools page */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.tgrid>.sec{margin:0}
+@media(max-width:420px){.tgrid{grid-template-columns:1fr}}
+details.how{margin-top:12px;border:1px dashed var(--line2);border-radius:12px;padding:0 12px}
+details.how>summary{min-height:44px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;font-size:13px;color:var(--violet);list-style:none}
+details.how>summary::-webkit-details-marker{display:none}
+details.how[open]{padding-bottom:10px}
+details.how>div{font-size:13px;line-height:1.9;color:var(--mute)}
+.tres{display:grid;gap:6px;margin-top:10px}
+.tres>div{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;background:var(--b05)}
+.tres .ok{color:var(--green);font-weight:700}.tres .bad{color:var(--red);font-weight:700}.tres .warn{color:var(--amber);font-weight:700}
+.tsub{font-size:13px;color:var(--mute);line-height:1.8;margin:-4px 0 10px}
+/* command palette */
+.cmdk{position:fixed;inset:0;z-index:97;display:none;align-items:flex-start;justify-content:center;padding:12vh 16px 16px;background:rgba(8,10,16,.55)}
+.cmdk.show{display:flex}
+.cmdk .box{width:min(560px,100%);background:var(--surface,#12141c);border:1px solid var(--line2);border-radius:18px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);overflow:hidden}
+.cmdk input{border:0;border-bottom:1px solid var(--line);border-radius:0;font-size:15px;padding:16px 18px;background:transparent}
+.cmdk input:focus{box-shadow:none}
+.cmdk ul{list-style:none;max-height:56vh;overflow:auto;padding:6px}
+.cmdk li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;font-size:13.5px;min-height:44px}
+.cmdk li svg{color:var(--violet);flex:none}
+.cmdk li.on,.cmdk li:hover{background:var(--nav-bg)}
+.cmdk li small{margin-inline-start:auto;color:var(--dim);font-size:12px}
+.cmdk .kb{font-size:12px;color:var(--dim);padding:8px 14px;border-top:1px solid var(--line)}
+.flash{outline:3px solid var(--violet);outline-offset:3px;border-radius:12px}
+.tgrid label{display:block;font-size:12.5px;font-weight:600;color:var(--mute);margin:6px 0}
+.ncard b{font-size:14px}
+@media(min-width:1080px){.burger{display:none!important}.tools>a[href="/logout"]{display:none}#v-dash .stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* ───── light skins (clean + daylight): no dark glass leftovers ───── */
+html:is([data-theme=clean],[data-theme=daylight]){scrollbar-color:rgba(15,23,42,.25) transparent}
+html:is([data-theme=clean],[data-theme=daylight]) ::-webkit-scrollbar-thumb{background:rgba(15,23,42,.18);background-clip:content-box}
+html:is([data-theme=clean],[data-theme=daylight]) select option{background:#fff;color:#0f172a}
+html:is([data-theme=clean],[data-theme=daylight]) .top{background-color:rgba(255,255,255,.86);border-bottom:1px solid var(--line)}
+html:is([data-theme=clean],[data-theme=daylight]) .side{background-color:#fff;box-shadow:0 0 0 1px var(--line),12px 0 32px -26px rgba(15,23,42,.25)}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.drawer .pn,.askbox,.mpanel,.tpick .tpbox,.cmdk .box,.mbdock){background-color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .toast{background:#0f172a;color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.drawer .bg,.modal,.ask,.mbg,.tpick .tpbg,.cmdk){background:rgba(15,23,42,.38)}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.card,.sec){box-shadow:var(--sh)}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl td{background-color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl tbody tr:nth-child(even) td{background-color:#f8fafd}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl tbody tr:hover td{background-color:#f1f6fe}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.btn,.ib,.fab,.pick button,.chip,.ipl .chip,.marq){background-color:#f3f6fa}
+html:is([data-theme=clean],[data-theme=daylight]) .btn.p{color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.ok{color:#047857;background:#ecfdf5;border-color:#a7f3d0}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.bad{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.warn{color:#92400e;background:#fffbeb;border-color:#fde68a}
+html:is([data-theme=clean],[data-theme=daylight]) .note.i{color:#075985;background:#eff6ff;border-color:#bfdbfe}
+html:is([data-theme=clean],[data-theme=daylight]) .note.w{color:#92400e;background:#fffbeb;border-color:#fde68a}
+html:is([data-theme=clean],[data-theme=daylight]) .note.e{color:#991b1b;background:#fef2f2;border-color:#fecaca}
+html:is([data-theme=clean],[data-theme=daylight]) .note.g{color:#065f46;background:#ecfdf5;border-color:#a7f3d0}
+html:is([data-theme=clean],[data-theme=daylight]) .sw{background:#e2e8f0}
+html:is([data-theme=clean],[data-theme=daylight]) .sec h2 .ic,html:is([data-theme=clean],[data-theme=daylight]) .st .ic{background:var(--nav-bg);border-color:transparent}
+html:is([data-theme=clean],[data-theme=daylight]) .bar{background:#e8eef6}
+html:is([data-theme=clean],[data-theme=daylight]) .badge.ok{color:#047857}
+html:is([data-theme=clean],[data-theme=daylight]) .badge.bad{color:#b91c1c}
+html[data-theme=clean] body::after{display:none}
+html[data-theme=clean] .marq{display:none}
+html[data-theme=clean] .st::after{display:none}
+html[data-theme=clean] .card,html[data-theme=clean] .sec{border-radius:16px}
+html[data-theme=clean] #v-dash .sec,html[data-theme=clean] #v-clients .sec,html[data-theme=clean] #v-inbounds .sec,html[data-theme=clean] #v-scan .sec,html[data-theme=clean] #v-build .sec,html[data-theme=clean] #v-nodes .sec,html[data-theme=clean] #v-spoof .sec,html[data-theme=clean] #v-settings .sec,html[data-theme=clean] #v-backup .sec,html[data-theme=clean] #v-about .sec,html[data-theme=clean] #fSettings>.card.sec{border-inline-start:1px solid var(--line)}
+html[data-theme=clean] .side button.on{background:var(--nav-bg);border-color:var(--line2);color:var(--violet)}
+.main .ncard{margin:0 0 14px}
+html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
+`;
+
 function panelPage(env, settings, host, masterUuid) {
   const fa = settings.lang !== 'en';
+  const tr2 = (a, b) => (fa ? a : b);
   // Cosmetic only: a bad id can never break the page, it just falls back to the default skin.
   const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
   const title = panelTitle(env, settings);
@@ -7809,6 +7980,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 .pbar-lbl{font-size:12px;color:var(--cyan);margin-bottom:4px}
 .pbar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden}
 .pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
+${CLEAN_CSS}
 </style></head><body>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -7830,6 +8002,8 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
    <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
    <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
    <button data-view="nodes"><span class="mi" style="background:linear-gradient(135deg,rgba(245,158,11,.20),rgba(245,158,11,.42))">🎯</span><span class="mtx"><b data-i="n_nodes"></b><small data-i="d_nodes"></small></span></button>
+   <button data-view="loc"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">📍</span><span class="mtx"><b>${tr2('لوکیشن و خروجی', 'Locations & exits')}</b><small>${tr2('کشور خروجی، SOCKS و پل‌ها', 'Exit country, SOCKS and bridges')}</small></span></button>
+   <button data-view="tools"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">🧰</span><span class="mtx"><b>${tr2('ابزارها', 'Tools')}</b><small>${tr2('پینگ، مسیر، پورت و دامنه', 'Ping, route, port and domain')}</small></span></button>
    <button data-view="spoof"><span class="mi" style="background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(236,72,153,.42))">🎭</span><span class="mtx"><b data-i="n_spoof"></b><small data-i="d_spoof"></small></span></button>
    <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
    <button data-view="backup"><span class="mi" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><span class="mtx"><b data-i="n_backup"></b><small data-i="d_backup"></small></span></button>
@@ -7840,31 +8014,36 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 </div>
 
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg">${catLogo(3)}</div><span id="sideTitle">${escapeHtml(title)}</span></div>
+ <div class="sbrand"><div class="lg">${catLogo(3)}</div><div><span id="sideTitle">${escapeHtml(title)}</span><small>${tr2('نسخه', 'Version')} ${CAT_PANEL_VERSION}</small></div></div>
  <div class="sb-nav">
-  <button data-view="dash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> <span data-i="n_dash"></span></button>
-  <div class="nav-acc">
-   <button type="button" class="nav-acc-head" onclick="var b=document.getElementById('accBody');var o=b.style.display!=='flex';b.style.display=o?'flex':'none';this.querySelector('.ar').textContent=o?'▴':'▾'"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> <span data-i="n_manage"></span></span><span class="ar">▾</span></button>
-   <div class="nav-acc-body" id="accBody" style="display:flex">
-    <button data-view="clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg> <span data-i="n_clients"></span></button>
-    <button data-view="inbounds"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> <span data-i="n_inbounds"></span></button>
-    <button data-view="scan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg> <span data-i="n_scan"></span></button>
-    <button data-view="build"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> <span data-i="n_build"></span></button>
-    <button data-view="nodes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg> <span data-i="n_nodes"></span></button>
-    <button data-view="spoof"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/></svg> <span data-i="n_spoof"></span></button>
-    <button data-view="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> <span data-i="n_set"></span></button>
-   </div>
-  </div>
-  <button data-view="backup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> <span data-i="n_bak"></span></button>
-  <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
+  <button type="button" data-view="dash">${uiIcon('dash')}<span class="lbl" data-i="n_dash"></span></button>
+  <button type="button" data-view="clients">${uiIcon('users')}<span class="lbl" data-i="n_clients"></span></button>
+  <button type="button" data-view="scan">${uiIcon('scan')}<span class="lbl" data-i="n_scan"></span></button>
+  <button type="button" data-view="nodes">${uiIcon('nodes')}<span class="lbl" data-i="n_nodes"></span></button>
+  <button type="button" data-view="loc">${uiIcon('loc')}<span class="lbl">${tr2('لوکیشن و خروجی', 'Locations & exits')}</span></button>
+  <button type="button" data-view="tools">${uiIcon('tools')}<span class="lbl">${tr2('ابزارها', 'Tools')}</span></button>
+  <div class="sbg">${tr2('پیشرفته', 'Advanced')}</div>
+  <button type="button" data-view="build">${uiIcon('build')}<span class="lbl" data-i="n_build"></span></button>
+  <button type="button" data-view="spoof">${uiIcon('spoof')}<span class="lbl" data-i="n_spoof"></span></button>
+  <button type="button" data-view="inbounds">${uiIcon('inbounds')}<span class="lbl" data-i="n_inbounds"></span></button>
+  <button type="button" data-view="settings">${uiIcon('settings')}<span class="lbl" data-i="n_settings"></span></button>
+  <button type="button" data-view="backup">${uiIcon('backup')}<span class="lbl" data-i="n_bak"></span></button>
+  <button type="button" data-view="about">${uiIcon('help')}<span class="lbl">${tr2('راهنما و درباره', 'Help & about')}</span></button>
  </div>
- <button type="button" data-theme-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7a9.3 9.3 0 100 18.6c1.4 0 2.2-.9 2.2-2 0-1.5-1.2-2-1.2-3.2 0-1 .8-1.8 1.9-1.8h1.8A4.3 4.3 0 0021.3 10c0-4.1-4.2-7.3-9.3-7.3z"/><circle cx="7.6" cy="11.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="11" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.6" cy="8.6" r="1.1" fill="currentColor" stroke="none"/></svg> <span data-i="n_theme"></span></button>
- <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sb-foot"><span class="dot"></span> Cat Panel v${CAT_PANEL_VERSION}</div>
+ <div class="sb-bot">
+  <a class="sb-out" href="/logout" data-al="al_logout" title="Logout" aria-label="Logout">${uiIcon('logout')}</a>
+  <button type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">${uiIcon('palette')}</button>
+  <button type="button" id="btnDark" title="${tr2('حالت روشن/تیره', 'Light / dark')}" aria-label="${tr2('حالت روشن/تیره', 'Light / dark')}"><span class="moon">${uiIcon('moon')}</span><span class="sun">${uiIcon('sun')}</span></button>
+ </div>
 </div>
 <div class="top"><div class="topin">
+ <button class="ib sbtog" type="button" id="btnSbToggle" title="${tr2('جمع/باز کردن منو', 'Collapse menu')}" aria-label="${tr2('جمع/باز کردن منو', 'Collapse menu')}">${uiIcon('side')}</button>
  <div class="brand"><div class="lg">${catLogo(4)}</div><span id="brandTitle">${escapeHtml(title)}</span><span class="v">v${CAT_PANEL_VERSION}</span></div>
+ <div class="pgt"><b id="pgTitle">${tr2('داشبورد', 'Dashboard')}</b><small id="pgSub"></small></div>
+ <button class="tnew" type="button" id="btnTopNew">${uiIcon('plus')}<span class="lbl">${tr2('کاربر جدید', 'New user')}</span></button>
  <div class="tools">
+  <button class="ib" type="button" id="btnTopRefresh" title="${tr2('بارگذاری دوباره', 'Reload data')}" aria-label="${tr2('بارگذاری دوباره', 'Reload data')}">${uiIcon('refresh')}</button>
+  <button class="ib" type="button" id="btnPalette" title="${tr2('جستجوی سریع (Ctrl+K)', 'Quick search (Ctrl+K)')}" aria-label="${tr2('جستجوی سریع', 'Quick search')}">${uiIcon('cmd')}</button>
   <button class="ib" data-c="green" id="btnUpdate" data-al="al_update" title="Update" aria-label="Update"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-7 7l7-7 7 7"/></svg></button>
   <button class="ib" id="btnRot" title="Fixed IP" aria-label="Fixed IP"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg></button>
   <button class="ib" data-c="blue" id="btnLang" data-al="al_lang" title="Language" aria-label="Language"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></button>
@@ -7907,17 +8086,15 @@ ${(() => {
   </div>
   <div class="small" id="pwOut" style="margin-top:6px"></div>
  </div>
- <div class="card sec" id="heroCard">
-  <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
-  <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
- </div>
+ <div class="card sec pwab" id="pwaBanner"><span class="ic" style="font-size:22px">📲</span><div class="t"><b>${tr2('پنل را مثل یک اپ نصب کن', 'Install the panel like an app')}</b><div class="small mute">${tr2('یک آیکن روی صفحهٔ گوشی یا دسکتاپ؛ همین پنل بدون نوار آدرس باز می‌شود.', 'One icon on your home screen or desktop; the same panel opens without the address bar.')}</div></div><button class="btn sm p" type="button" id="pwaYes">${tr2('نصب', 'Install')}</button><button class="btn sm" type="button" id="pwaNever">${tr2('دیگر نشان نده', 'Don’t show again')}</button><button class="ib" type="button" id="pwaX" aria-label="${tr2('بستن', 'Close')}" title="${tr2('بستن', 'Close')}">✕</button></div>
  <div class="card sec">
   <h2><span class="ic">📊</span><span data-i="stats"></span></h2>
   <div class="note w" id="noIpsNote" style="display:none;margin-top:10px"><span data-i="no_ips"></span> <button class="btn sm" data-view="nodes" style="vertical-align:middle">🕸️ <span data-i="n_nodes"></span></button></div>
   <div class="stats">
-   <div class="st" data-c="violet"><div class="ic">👥</div><div class="k" data-i="st_users"></div><div class="n" id="stUsers">–</div><div class="s" data-i="st_users_s"></div></div>
-   <div class="st" data-c="green"><div class="ic">✅</div><div class="k" data-i="st_active"></div><div class="n" id="stActive">–</div><div class="s" data-i="st_active_s"></div></div>
-   <div class="st" data-c="amber"><div class="ic">⏳</div><div class="k" data-i="st_exp"></div><div class="n" id="stExp">–</div><div class="s" data-i="st_exp_s"></div></div>
+   <div class="st" data-c="violet"><div class="ic">${uiIcon('users')}</div><div class="k" data-i="st_users"></div><div class="n" id="stUsers">–</div><span class="s2"><b id="stActive">–</b> ${tr2('فعال', 'active')} · <b id="stOff">–</b> ${tr2('غیرفعال', 'inactive')}</span></div>
+   <div class="st" data-c="blue"><div class="ic">${uiIcon('chart')}</div><div class="k">${tr2('حجم مصرفی کل', 'Total traffic')}</div><div class="n" id="stVol">–</div><span class="s2">${tr2('مجموع آپلود و دانلود همهٔ کاربران', 'Upload + download of every user')}</span></div>
+   <div class="st" data-c="green"><div class="ic">${uiIcon('devices')}</div><div class="k">${tr2('دستگاه آنلاین', 'Devices online')}</div><div class="n" id="stDev">–</div><span class="s2">${tr2('IPهای متصل در ۱۰ دقیقهٔ اخیر', 'Client IPs seen in the last 10 min')}</span></div>
+   <div class="st" data-c="amber"><div class="ic">${uiIcon('clock')}</div><div class="k" data-i="st_exp"></div><div class="n" id="stExp">–</div><span class="s2" data-i="st_exp_s"></span></div>
    <div class="st" data-c="cyan"><div class="ic">📡</div><div class="k" data-i="st_ips"></div><div class="n" id="stIps">–</div><div class="s" id="stIpsS"></div></div>
    <div class="st" data-c="pink"><div class="ic">🧩</div><div class="k" data-i="st_cfg"></div><div class="n" id="stCfg">–</div><div class="s" id="stCfgS"></div></div>
   </div>
@@ -7929,6 +8106,28 @@ ${(() => {
   <div id="selfBox" class="small mute" style="margin-top:8px"></div>
  </div>
 
+ <div class="card sec" id="heroCard">
+  <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
+  <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+ </div>
+ <div class="dgrid">
+ <div class="card sec" id="quickCard">
+  <h2><span class="ic">${uiIcon('bolt')}</span><span>${tr2('عملیات سریع', 'Quick actions')}</span><span class="hq" title="${tr2('هر دکمه همان کار واقعی را انجام می‌دهد؛ چیزی نمایشی نیست.', 'Every button runs the real action; nothing here is cosmetic.')}">؟</span></h2>
+  <div class="qa">
+   <button type="button" data-qa="new">${uiIcon('plus')}<span>${tr2('کاربر جدید', 'New user')}</span><small>${tr2('فرم کامل با سهمیه و آیپی', 'Full form with quota and IPs')}</small></button>
+   <button type="button" data-qa="quick">${uiIcon('bolt')}<span>${tr2('ساخت سریع', 'Quick create')}</span><small>${tr2('یک کاربر ۳۰روزه با بهترین آیپی‌ها', 'A 30-day user with the best IPs')}</small></button>
+   <button type="button" data-qa="scan">${uiIcon('scan')}<span>${tr2('اسکن آیپی تمیز', 'Scan clean IPs')}</span><small>${tr2('از اینترنت خودت', 'From your own line')}</small></button>
+   <button type="button" data-qa="loc">${uiIcon('loc')}<span>${tr2('خروجی کشور', 'Exit country')}</span><small>${tr2('پیدا کردن رلهٔ سالم', 'Find a healthy relay')}</small></button>
+   <button type="button" data-qa="tools">${uiIcon('pulse')}<span>${tr2('تست پینگ و مسیر', 'Ping & route test')}</span><small>${tr2('ابزارهای عیب‌یابی', 'Troubleshooting tools')}</small></button>
+   <button type="button" data-qa="update">${uiIcon('refresh')}<span>${tr2('بررسی آپدیت', 'Check for update')}</span><small>${tr2('مقایسه با آخرین نسخه', 'Compare with the latest release')}</small></button>
+  </div>
+ </div>
+ <div class="card sec" id="topUsersCard">
+  <h2><span class="ic">${uiIcon('chart')}</span><span>${tr2('پرمصرف‌ترین کاربران', 'Top users by traffic')}</span><button class="btn sm" type="button" data-view="clients" style="margin-inline-start:auto">${tr2('همه', 'All')}</button></h2>
+  <div style="overflow-x:auto"><table class="tu"><thead><tr><th>${tr2('کاربر', 'User')}</th><th>${tr2('حجم', 'Traffic')}</th><th>${tr2('زمان', 'Time')}</th><th>${tr2('دستگاه', 'Devices')}</th><th>${tr2('وضعیت', 'Status')}</th></tr></thead><tbody id="topUsers"></tbody></table></div>
+  <div class="small dim" id="topUsersEmpty" style="display:none;padding:10px 0">${tr2('هنوز کاربری نساخته‌ای. دکمهٔ «کاربر جدید» بالای صفحه را بزن.', 'No users yet. Press «New user» at the top.')}</div>
+ </div>
+ </div>
  <div class="card sec">
   <h2><span class="ic">🖥</span><span data-i="ov_info"></span></h2>
   <div class="kv" style="margin:6px 0">
@@ -7962,7 +8161,8 @@ ${(() => {
 
 
 
-<section class="view" id="v-loc" data-sec="loc">
+<section class="view" id="v-loc" data-sec="loc" data-in="loc">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>${tr2('لوکیشن و خروجی', 'Locations & exits')}</h1><p>${tr2('کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه', 'Exit country, SOCKS relays, VIP proxies and emergency bridges in one page')}</p></div></div>
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span data-i="loc_path_title"></span></h2>
   <p class="nsub" data-i="loc_path_hint"></p>
@@ -7974,7 +8174,7 @@ ${(() => {
   <div class="small" id="locPathNow" style="margin-top:10px"></div>
  </div>
 </section>
-<section class="view" id="v-loc-cards" data-sec="loc">
+<section class="view" id="v-loc-cards" data-sec="loc" data-in="loc">
 <div class="card sec" id="vipCard">
   <h2><span class="ic">🌍</span><span data-i="vip_title"></span> <span class="chip" id="vipState"></span></h2>
   <div class="note i small" data-i="vip_hint"></div>
@@ -8057,7 +8257,7 @@ ${(() => {
   <button type="button" role="tab" data-atab-go="sk" data-i="at_sk"></button>
  </div>
 </section>
-<section class="view" id="v-socks" data-sec="addr" data-atab="sk">
+<section class="view" id="v-socks" data-sec="loc" data-in="loc">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v3a3 3 0 0 0 3 3M17 6h3v3a3 3 0 0 1-3 3"/></svg><span data-i="sk_title"></span></h2>
   <p class="nsub" data-i="sk_hint"></p>
@@ -8075,7 +8275,7 @@ ${(() => {
 </section>
 
 <!-- ================= HOME (new mobile shell) ================= -->
-<section class="view" id="v-home" data-sec="home">
+<section class="view" id="v-home" data-sec="home" data-in="dash">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span data-i="hm_status"></span></h2>
   <p class="nsub" data-i="hm_status_hint"></p>
@@ -8106,7 +8306,7 @@ ${(() => {
 </section>
 
 <!-- ================= SUBSCRIPTION LINKS (new, inside «users») ================= -->
-<section class="view" id="v-sublink" data-sec="users">
+<section class="view" id="v-sublink" data-sec="users" data-in="clients">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span data-i="hm_sub_title"></span></h2>
   <p class="nsub" data-i="hm_sub_hint"></p>
@@ -8162,6 +8362,71 @@ ${(() => {
    <th data-i="ib_inbound"></th><th>Endpoint</th><th data-i="h_proto"></th><th data-i="h_act"></th>
   </tr></thead><tbody id="ibRows"></tbody></table>
   <div class="small dim" style="margin-top:8px" data-i="ib_hint"></div>
+ </div>
+</section>
+
+<!-- ================= TOOLS (beta199) ================= -->
+<section class="view" id="v-tools" data-sec="tools">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">🧰</span><div><h1>${tr2('ابزارها', 'Tools')}</h1><p>${tr2('تست پینگ، مسیر، پورت، دیتاسنتر و دسترسی دامنه — هر کارت یک «📖 آموزش» دارد', 'Ping, route, port, datacenter and domain checks — every card has a «📖 How-to»')}</p></div></div>
+ <div class="note i small" style="margin-bottom:14px">${tr2('نکته: تست‌هایی که «از اینترنت تو» هستند را با <b>VPN خاموش</b> بزن؛ وگرنه نتیجهٔ VPN را می‌بینی نه اینترنت خودت را. تست‌های «سرور» از خودِ پنل انجام می‌شوند و به VPN تو ربطی ندارند.', 'Tip: run the «from your internet» tests with the <b>VPN off</b>, otherwise you measure the VPN, not your line. «Server» tests run on the panel itself and do not depend on your VPN.')}</div>
+ <div class="tgrid">
+  <div class="card sec" id="tlPing">
+   <h2><span class="ic">${uiIcon('pulse')}</span><span>${tr2('تست پینگ', 'Ping test')}</span></h2>
+   <p class="tsub">${tr2('دو اندازه‌گیری جدا: از سرور تا اینترنت، و از اینترنت تو تا سرور.', 'Two separate measurements: server to internet, and your internet to the server.')}</p>
+   <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm p" type="button" id="tlPingSrv">🖥 ${tr2('سرور ← اینترنت', 'Server → internet')}</button><button class="btn sm" type="button" id="tlPingMe">📶 ${tr2('اینترنت من ← سرور', 'My internet → server')}</button></div>
+   <div class="tres" id="tlPingOut"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('«سرور ← اینترنت» را بزنی: پنل خودش به گوگل و کلودفلر وصل می‌شود و زمان پاسخ را می‌گوید (اگر زنجیرهٔ خروجی گذاشته باشی، از همان مسیر). عدد کم یعنی خروجیِ پنل سالم است.<br>«اینترنت من ← سرور» را بزنی: ۶ بار از همین مرورگر به پنل درخواست می‌رود و کمترین، میانگین و نوسان (جیتر) را نشان می‌دهد. نوسان زیاد یعنی خط تو ناپایدار است، نه پنل.', '«Server → internet»: the panel itself connects to Google and Cloudflare and reports the reply time (through your exit chain if you set one). Low numbers mean the panel’s exit is healthy.<br>«My internet → server»: six requests go from this browser to the panel; you get the minimum, average and jitter. High jitter means your line is unstable, not the panel.')}</div></details>
+  </div>
+  <div class="card sec" id="tlRoute">
+   <h2><span class="ic">${uiIcon('route')}</span><span>${tr2('دیباگ مسیریابی', 'Route debug')}</span></h2>
+   <p class="tsub">${tr2('مسیر کامل: تو ← دیتاسنتر کلودفلر ← خروجی پنل به اینترنت.', 'The full path: you → Cloudflare datacenter → the panel’s exit to the internet.')}</p>
+   <button class="btn sm p" type="button" id="tlRouteGo">🧭 ${tr2('نمایش مسیر', 'Show the route')}</button>
+   <div class="tres" id="tlRouteOut"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('دکمه را بزنی سه ایستگاه نشان داده می‌شود: ۱) آی‌پی و اپراتور تو، ۲) دیتاسنتر کلودفلری که جواب تو را می‌دهد (مثلاً FRA یعنی فرانکفورت)، ۳) آی‌پی و کشوری که سایت‌ها پنل را با آن می‌بینند. اگر کشور ایستگاه ۳ چیزی نیست که می‌خواهی، از صفحهٔ «لوکیشن و خروجی» یک خروجی کشوری بگذار.', 'Press it to see three hops: 1) your IP and ISP, 2) the Cloudflare datacenter that answers you (FRA = Frankfurt), 3) the IP and country websites see for the panel. If hop 3 is not the country you want, set an exit in «Locations & exits».')}</div></details>
+  </div>
+  <div class="card sec" id="tlPort">
+   <h2><span class="ic">${uiIcon('door')}</span><span>${tr2('تستر پورت کلودفلر', 'Cloudflare port tester')}</span></h2>
+   <p class="tsub">${tr2('کدام پورت کلودفلر روی اینترنت تو باز است؟ (همان پورتی که در کانفیگ می‌گذاری)', 'Which Cloudflare port is open on your line? (the port you put in a config)')}</p>
+   <label>${tr2('آدرس یا آی‌پی (خالی = همین پنل)', 'Host or IP (empty = this panel)')}</label>
+   <input id="tlPortHost" dir="ltr" class="mono" spellcheck="false" placeholder="">
+   <div class="pick" id="tlPortPick"></div>
+   <div class="row small" style="margin-top:10px"><span class="sw" id="tlPortHttp"></span><span>${tr2('پورت‌های HTTP (80، 8080، …) را هم تست کن', 'Also test the HTTP ports (80, 8080, …)')}</span></div>
+   <button class="btn sm p" type="button" id="tlPortGo" style="margin-top:10px">🚪 ${tr2('شروع تست پورت‌ها', 'Test the ports')}</button>
+   <div class="tres" id="tlPortOut"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('VPN را خاموش کن و «شروع» را بزن. برای هر پورت سه بار از همین مرورگر وصل می‌شویم: ✅ یعنی آن پورت روی خط تو باز است و می‌توانی در کانفیگ بگذاری؛ ✗ یعنی اپراتور آن را بسته. این فقط «باز بودن و زمان دست‌دادن» است، نه سرعت دانلود. مرورگر از صفحهٔ HTTPS اجازهٔ تست پورت‌های HTTP را نمی‌دهد؛ برای آن‌ها از اسکنر Cat Client استفاده کن.', 'Turn the VPN off and press start. For every port we connect three times from this browser: ✅ means it is open on your line and usable in a config; ✗ means your ISP blocks it. This is reachability and handshake time only, not download speed. Browsers do not allow testing HTTP ports from an HTTPS page; use the Cat Client scanner for those.')}</div></details>
+  </div>
+  <div class="card sec" id="tlDc">
+   <h2><span class="ic">${uiIcon('server')}</span><span>${tr2('ردیاب دیتاسنتر و پروتکل', 'Datacenter & protocol tracker')}</span></h2>
+   <p class="tsub">${tr2('آیا همیشه به یک دیتاسنتر وصل می‌شوی؟ با کدام نسخهٔ HTTP و TLS؟', 'Do you always land on the same datacenter? With which HTTP and TLS version?')}</p>
+   <button class="btn sm p" type="button" id="tlDcGo">🛰 ${tr2('۶ بار ردیابی کن', 'Track 6 times')}</button>
+   <div class="tres" id="tlDcOut"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('دکمه را بزنی ۶ درخواست پشت‌سرهم فرستاده می‌شود و برای هر کدام دیتاسنتر کلودفلر، HTTP/2 یا HTTP/3 و نسخهٔ TLS نوشته می‌شود. اگر دیتاسنتر مدام عوض شود، پینگ کانفیگ‌ها هم بالا و پایین می‌رود؛ آن‌وقت از اسکنر یک آی‌پی تمیز ثابت انتخاب کن.', 'Six back-to-back requests; each shows the Cloudflare datacenter, HTTP/2 or HTTP/3 and the TLS version. If the datacenter keeps changing, config ping will jump too — pick a fixed clean IP from the scanner.')}</div></details>
+  </div>
+  <div class="card sec" id="tlDom">
+   <h2><span class="ic">${uiIcon('globe')}</span><span>${tr2('بررسی دسترسی دامنه', 'Domain access check')}</span></h2>
+   <p class="tsub">${tr2('یک سایت از سرور باز می‌شود؟ از اینترنت خودت چطور؟', 'Does a site open from the server? And from your own internet?')}</p>
+   <textarea id="tlDomList" dir="ltr" class="mono" rows="4" spellcheck="false" style="min-height:96px">google.com
+youtube.com
+telegram.org
+instagram.com
+chatgpt.com
+x.com</textarea>
+   <button class="btn sm p" type="button" id="tlDomGo" style="margin-top:10px">🔍 ${tr2('بررسی کن', 'Check')}</button>
+   <div class="tres" id="tlDomOut"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('هر خط یک دامنه (حداکثر ۸). «بررسی کن» را بزنی برای هر دامنه دو جواب می‌گیری: ستون «سرور» یعنی پنل (با همان مسیر خروجی کانفیگ‌ها) آن سایت را باز می‌کند یا نه؛ ستون «اینترنت تو» یعنی همین مرورگر بدون VPN به آن می‌رسد یا نه. سرور ✅ و تو ✗ یعنی فیلتر است و کانفیگ لازم داری.', 'One domain per line (max 8). Each domain gets two answers: «Server» = the panel (through the same exit as configs) can open it; «Your internet» = this browser reaches it without VPN. Server ✅ and you ✗ means it is filtered and you need a config.')}</div></details>
+  </div>
+  <div class="card sec" id="tlMore">
+   <h2><span class="ic">${uiIcon('tools')}</span><span>${tr2('ابزارهای دیگر پنل', 'More panel tools')}</span></h2>
+   <p class="tsub">${tr2('ابزارهایی که کنار دادهٔ خودشان مانده‌اند؛ با یک کلیک به همان‌جا می‌روی.', 'Tools that live next to their own data; one tap takes you there.')}</p>
+   <div class="qa">
+    <button type="button" data-goto="scan#btnWsTest">🔌<span>${tr2('تست وب‌سوکت', 'WebSocket test')}</span><small>${tr2('دست‌دادن واقعی کانفیگ', 'A real config handshake')}</small></button>
+    <button type="button" data-goto="scan#btnPortTest">🚪<span>${tr2('پورت‌های همین پنل', 'This panel’s ports')}</span><small>${tr2('۶ پورت TLS کلودفلر', 'Six Cloudflare TLS ports')}</small></button>
+    <button type="button" data-goto="scan#survCard">🛡<span>${tr2('بستهٔ بقا', 'Survival pack')}</span><small>${tr2('تنظیمات امن یک‌کلیکی', 'One-tap safe settings')}</small></button>
+    <button type="button" data-goto="loc#ehGo">📍<span>${tr2('شکار خروجی کشور', 'Exit hunt')}</span><small>${tr2('SOCKS سالم برای هر کشور', 'Healthy SOCKS per country')}</small></button>
+    <button type="button" data-goto="nodes#btnIpTest">🩺<span>${tr2('سلامت آی‌پی‌ها', 'IP health')}</span><small>${tr2('تست TCP/TLS از سرور', 'TCP/TLS from the server')}</small></button>
+    <button type="button" data-goto="build#bGen">🛠<span>${tr2('کانفیگ‌ساز', 'Config builder')}</span><small>${tr2('ساخت لینک دلخواه', 'Build a custom link')}</small></button>
+   </div>
+  </div>
  </div>
 </section>
 
@@ -8809,12 +9074,13 @@ ${vDoctor}
 <nav class="mbdock" id="mbDock" aria-label="Mobile quick dock">
  <button type="button" class="on" data-view="dash"><b>📊</b><span data-i="hm_title"></span></button>
  <button type="button" data-view="clients"><b>👥</b><span data-i="n_clients"></span></button>
- <button type="button" data-view="build"><b>🛠</b><span data-i="n_build"></span></button>
- <button type="button" data-view="nodes"><b>📡</b><span data-i="n_nodes"></span></button>
+ <button type="button" data-view="scan"><b>📡</b><span>${tr2('آیپی تمیز', 'Clean IP')}</span></button>
+ <button type="button" data-view="tools"><b>🧰</b><span>${tr2('ابزارها', 'Tools')}</span></button>
  <button type="button" data-view="settings"><b>⚙️</b><span data-i="n_set"></span></button>
  <button type="button" data-theme-open><b>🎨</b><span data-i="n_theme"></span></button>
 </nav>
 <div class="toast" id="toast"></div>
+<div class="cmdk" id="cmdk" role="dialog" aria-modal="true" aria-label="Quick search"><div class="box"><input id="cmdkIn" type="search" autocomplete="off" spellcheck="false" placeholder="${tr2('کجا بروم یا چه کار کنم؟ (مثلاً «کاربر» یا «پینگ»)', 'Where to go or what to do? (e.g. «user» or «ping»)')}"><ul id="cmdkList"></ul><div class="kb">↑ ↓ · Enter · Esc — ${tr2('میان‌بر: Ctrl+K', 'shortcut: Ctrl+K')}</div></div></div>
 <div class="ask" id="ask"><div class="askbox"><div class="askmsg" id="askMsg"></div><input class="askin" id="askIn" dir="ltr" style="display:none"><div class="askrow"><button class="btn sm" id="askNo"></button><button class="btn sm" id="askYes" style="border-color:var(--violet);color:var(--violet)"></button></div></div></div>
 
 <script>
@@ -8827,7 +9093,7 @@ try{var tm=document.cookie.match(/(?:^|;\\s*)catTheme=([a-z]+)/);if(tm&&${JSON.s
 var HOST=${JSON.stringify(host)}, UUID=${JSON.stringify(masterUuid)}, VERSION=${JSON.stringify(CAT_PANEL_VERSION)};
 var FIREWALL_PRESETS_UI=${JSON.stringify(firewallPresetUi)};
 var I18N={
-fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
+fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_clean:'تمیز روشن',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
@@ -8849,7 +9115,7 @@ kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره ن
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
 update_check:'بررسی نسخهٔ جدید…',update_safe:'به‌روزرسانی امن',update_safe_hint:'از GitHub Actions اجرا می‌شود؛ توکن Cloudflare داخل پنل ذخیره نمی‌شود.',update_confirm:'به‌روزرسانی پنل در GitHub Actions شروع شود؟',update_queued:'به‌روزرسانی در صف قرار گرفت',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'با زدن «⚡ آپدیت مستقیم پنل» همین ورکر بدون نیاز به توکن مجدد یا کپی/پیست آپدیت می‌شود (یا از تب پنل من در Cat Client).',update_how2:'با زدن «⚡ آپدیت مستقیم پنل»، همین ورکر بدون نیاز به توکن مجدد مستقیماً روی کلودفلر آپدیت می‌شود (UUID، KV و تنظیمات حفظ می‌شوند). همچنین با ⬇️ می‌توانی فایل worker.js را مستقیم دانلود کنی.',update_direct_btn:'آپدیت مستقیم پنل',update_direct_reapply:'تعمیر / نصب مجدد مستقیم',update_direct_confirm:'همین ورکر پنل مستقیماً به آخرین نسخه آپدیت شود؟ (UUID، KV و تمام تنظیمات حفظ می‌شوند)',update_direct_working:'در حال آپدیت مستقیم ورکر…',update_direct_done:'✅ پنل با موفقیت آپدیت شد (%1 ← %2) — در حال بارگذاری مجدد…',update_token_once:'این پنل قدیمی‌تر است و توکن کلودفلر در زمان ساخت روی آن بایند نشده بود. فقط یک‌بار توکن Cloudflare API را وارد کن تا روی همین ورکر ذخیره شود و از این به بعد بدون توکن آپدیت شود:',
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box',b_fw_mci_ipv6:'همراه اول · IPv6 (2a06:98c1:3101::6812:202f)',b_fw_irancell_ff98:'ایرانسل · F&F (188.114.98.0)',b_fw_mci_ipv6_n:'🟦 فایروال همراه اول (CDN/WORKER with IPv6): پاک شدن echConfigList، cipherSuites و finalMask، تنظیم fingerprint=chrome و آدرس IPv6 پیش‌فرض 2a06:98c1:3101::6812:202f (مناسب دامنه شخصی فیلترنشده یا *.workers.dev؛ دامنه *.pages.dev فیلتر است).',b_fw_irancell_ff_n:'🟧 فایروال ایرانسل (CDN/WORKER with F&F method): پاک شدن echConfigList، آدرس 188.114.98.0 (یا 188.114.97.6)، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe و ALPN متناسب (http/1.1 برای ws و h2,http/1.1 برای XHTTP) جهت رفع محدودیت سرعت آپلود.',b_fw_hint:'⚠️ در برخی مناطق سیم‌کارت شما همراه اول است ولی فایروال منطقه ایرانسل است و بالعکس (سایر نت‌ها هم از یکی از این دو فایروال استفاده می‌کنند). دامنه *.pages.dev فیلتر است. F&F به Xray Core 26.9+ نیاز دارد.',b_fw_addr_ph:'2a06:98c1:3101::6812:202f یا 188.114.98.0',aether_fw_mci_warp:'🟦 همراه اول: WARP با IPv6',aether_fw_masque:'🟦🟧 همراه اول/ایرانسل: MASQUE-HTTP/2',aether_fw_irancell_warp:'🟧 ایرانسل: WARP (هر نوع IP)',aether_fw_psiphon:'🔓 رفع تحریم: WARP → Psiphon',aether_fw_tor:'🧅 رفع تحریم: WARP → Tor',ae_loc_lbl:'مکان آی‌پی خروجی (ایران 🇮🇷 / خارج 🌍)',ae_loc_out:'🌍 آی‌پی خارج (غیر ایران)',ae_loc_ir:'🇮🇷 آی‌پی ایران (تک‌لایه سریع)',aether_chain_lbl:'چین رفع تحریم (warp -> psiphon / tor)',aether_chain_none:'بدون چین (سرعت کامل)',aether_chain_psiphon:'🌀 WARP → Psiphon',aether_chain_tor:'🧅 WARP → Tor',aether_chain_note:'۳) در صورت عدم رفع تحریم‌ها حتی با پروتکل wireguard-over-masque-HTTP/2، می‌توانید با چین کردن سایفون/تور (warp -> psiphon/tor) تحریم‌ها را دور بزنید. وقتی سایفون/تور را چین می‌کنید بهتر است از پروتکل‌های ساده wireguard یا masque-h2 استفاده کنید (به‌صورت خودکار اعمال می‌شود). دقت کنید tor/psiphon سرعت متوسطی دارند و فقط در صورت نیاز به رفع تحریم از آن‌ها استفاده کنید.'},
-en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_turquoise:'Turquoise',th_cyberpunk:'Cyberpunk',th_gold:'Royal Gold',th_amoled:'AMOLED Black',th_nord:'Arctic Nord',th_daylight:'Daylight Pearl',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
+en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_turquoise:'Turquoise',th_cyberpunk:'Cyberpunk',th_gold:'Royal Gold',th_amoled:'AMOLED Black',th_nord:'Arctic Nord',th_daylight:'Daylight Pearl',th_clean:'Clean Light',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
@@ -8906,8 +9172,12 @@ function randName(){var a='abcdefghjkmnpqrstuvwxyz23456789',s='';for(var i=0;i<6
 var CFG=null, USERS=[], editing=null, dirtyScan=false;
 
 /* ---------- views ---------- */
-function show(v){$$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
+function show(v){if(!document.getElementById('v-'+v))v='dash';
+ /* a page = its own section + every section that declares data-in="<page>" (beta199 grouping) */
+ $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
+ setPage();
  if(v==='about'&&CFG)renderDiag();
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -8919,9 +9189,9 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
    cookie so the next paint is already correct. When KV exists the choice is
    also stored in panel settings, so every device gets it. */
 function themeSwatch(a,b){return 'radial-gradient(90% 80% at 15% 10%,'+a+',transparent 62%),radial-gradient(90% 80% at 88% 92%,'+b+',transparent 60%),linear-gradient(160deg,#0c0e16,#06060c)'}
-var THEME_META={aurora:['th_aurora',themeSwatch('rgba(0,225,193,.55)','rgba(124,58,237,.50)')],nebula:['th_nebula',themeSwatch('rgba(139,92,246,.60)','rgba(236,72,153,.45)')],ocean:['th_ocean',themeSwatch('rgba(56,189,248,.55)','rgba(79,70,229,.50)')],ember:['th_ember',themeSwatch('rgba(255,176,32,.50)','rgba(244,63,94,.42)')],forest:['th_forest',themeSwatch('rgba(52,211,153,.50)','rgba(6,182,212,.45)')],steel:['th_steel',themeSwatch('rgba(148,163,184,.42)','rgba(71,85,105,.50)')],turquoise:['th_turquoise',themeSwatch('rgba(0,212,200,.58)','rgba(2,132,199,.50)')],cyberpunk:['th_cyberpunk',themeSwatch('rgba(255,42,133,.62)','rgba(0,240,255,.52)')],gold:['th_gold',themeSwatch('rgba(245,176,65,.58)','rgba(217,119,6,.48)')],amoled:['th_amoled',themeSwatch('rgba(0,255,157,.50)','rgba(0,212,255,.40)')],nord:['th_nord',themeSwatch('rgba(136,192,208,.52)','rgba(94,129,172,.50)')],daylight:['th_daylight','radial-gradient(90% 80% at 15% 10%,rgba(14,165,233,.45),transparent 62%),radial-gradient(90% 80% at 88% 92%,rgba(99,102,241,.40),transparent 60%),linear-gradient(160deg,#f8fafc,#e2e8f0)']};
+var THEME_META={clean:['th_clean','radial-gradient(90% 80% at 85% 10%,rgba(37,99,235,.35),transparent 62%),radial-gradient(90% 80% at 12% 92%,rgba(16,185,129,.32),transparent 60%),linear-gradient(160deg,#ffffff,#eef3f9)'],aurora:['th_aurora',themeSwatch('rgba(0,225,193,.55)','rgba(124,58,237,.50)')],nebula:['th_nebula',themeSwatch('rgba(139,92,246,.60)','rgba(236,72,153,.45)')],ocean:['th_ocean',themeSwatch('rgba(56,189,248,.55)','rgba(79,70,229,.50)')],ember:['th_ember',themeSwatch('rgba(255,176,32,.50)','rgba(244,63,94,.42)')],forest:['th_forest',themeSwatch('rgba(52,211,153,.50)','rgba(6,182,212,.45)')],steel:['th_steel',themeSwatch('rgba(148,163,184,.42)','rgba(71,85,105,.50)')],turquoise:['th_turquoise',themeSwatch('rgba(0,212,200,.58)','rgba(2,132,199,.50)')],cyberpunk:['th_cyberpunk',themeSwatch('rgba(255,42,133,.62)','rgba(0,240,255,.52)')],gold:['th_gold',themeSwatch('rgba(245,176,65,.58)','rgba(217,119,6,.48)')],amoled:['th_amoled',themeSwatch('rgba(0,255,157,.50)','rgba(0,212,255,.40)')],nord:['th_nord',themeSwatch('rgba(136,192,208,.52)','rgba(94,129,172,.50)')],daylight:['th_daylight','radial-gradient(90% 80% at 15% 10%,rgba(14,165,233,.45),transparent 62%),radial-gradient(90% 80% at 88% 92%,rgba(99,102,241,.40),transparent 60%),linear-gradient(160deg,#f8fafc,#e2e8f0)']};
 function buildThemeGrid(){var g=$('#themeGrid');if(!g||g.__built)return;g.__built=1;Object.keys(THEME_META).forEach(function(id){var m=THEME_META[id];var b=document.createElement('button');b.type='button';b.setAttribute('data-t',id);b.style.setProperty('--tpw',m[1]);b.innerHTML='<i></i><span></span>';b.querySelector('span').textContent=t(m[0]);g.appendChild(b)})}
-function renderTheme(){var cur=document.documentElement.getAttribute('data-theme')||'aurora';$$('#themeGrid button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-t')===cur)})}
+function renderTheme(){var cur=document.documentElement.getAttribute('data-theme')||'clean';$$('#themeGrid button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-t')===cur)})}
 function openThemePick(){buildThemeGrid();renderTheme();var p=$('#themePick');if(p)p.classList.add('show')}
 function closeThemePick(){var p=$('#themePick');if(p)p.classList.remove('show')}
 function setTheme(id,persist){if(!THEME_META[id])return;document.documentElement.setAttribute('data-theme',id);try{document.cookie='catTheme='+id+';path=/;max-age=31536000;samesite=lax'}catch(e){}
@@ -9430,7 +9700,7 @@ $('#btnBulk').addEventListener('click',async function(){
  chain.then(function(){toast(t('bulk_done')+made);return load()}).catch(function(){toast('error',true)});
 });
 function renderStats(){var active=USERS.filter(function(u){return statusOf(u)==='active'}).length;
- $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;
+ $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;if($('#stOff'))$('#stOff').textContent=USERS.length-active;try{renderDash()}catch(e){}
  var ips=CFG.settings.ips.length;$('#stIps').textContent=ips;$('#stIpsS').textContent=(CFG.settings.useDefaults?'+ '+CFG.defaults.addresses.length+' default':'');
  var addrs=ips+(CFG.settings.useDefaults?CFG.defaults.addresses.length:0)+(CFG.settings.includeHost?1:0);
  var ports=CFG.settings.tlsPorts.length+(CFG.settings.plainEnabled?CFG.settings.plainPorts.length:0);var protos=(CFG.settings.protocols.vless?1:0)+(CFG.settings.protocols.trojan?1:0);
@@ -10201,10 +10471,79 @@ function initCollapsibleCards(){
 }
 initCollapsibleCards();
 $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,true)})});
+/* ---------- beta199 «Cat Clean» shell: page header, sidebar, dark toggle, quick search, dashboard, tools ---------- */
+function tx(a,b){return lang==='en'?b:a}
+function setPage(){var sec=document.querySelector('.view.on'),h=sec&&sec.querySelector('.vhead h1'),p=sec&&sec.querySelector('.vhead p');var pt=$('#pgTitle'),ps=$('#pgSub');if(pt)pt.textContent=h?h.textContent:'';if(ps)ps.textContent=p?p.textContent:'';if(h)document.title=h.textContent+' · '+(($('#brandTitle')||{}).textContent||'Cat Panel')}
+function gotoTarget(spec){var i=spec.indexOf('#'),v=i<0?spec:spec.slice(0,i),id=i<0?'':spec.slice(i+1);show(v);if(id){setTimeout(function(){var el=document.getElementById(id);if(!el)return;el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('flash');setTimeout(function(){el.classList.remove('flash')},1600)},80)}}
+if($('#btnTopNew'))$('#btnTopNew').addEventListener('click',function(){openDrawer(null)});
+if($('#btnTopRefresh'))$('#btnTopRefresh').addEventListener('click',function(){var b=this;b.disabled=true;load().then(function(){toast('✓ '+tx('به‌روز شد','Reloaded'))}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+if($('#btnSbToggle'))$('#btnSbToggle').addEventListener('click',function(){var on=!document.body.classList.contains('sbmini');document.body.classList.toggle('sbmini',on);try{localStorage.setItem('catSbMini',on?'1':'')}catch(e){}});
+try{if(localStorage.getItem('catSbMini')==='1')document.body.classList.add('sbmini')}catch(e){}
+function isLightSkin(id){return id==='clean'||id==='daylight'}
+if($('#btnDark'))$('#btnDark').addEventListener('click',function(){var cur=document.documentElement.getAttribute('data-theme')||'clean';if(isLightSkin(cur)){var d='';try{d=localStorage.getItem('catDark')||''}catch(e){}setTheme(THEME_META[d]&&!isLightSkin(d)?d:'aurora',1)}else{try{localStorage.setItem('catDark',cur)}catch(e){}setTheme('clean',1)}});
+document.addEventListener('click',function(e){var q=e.target.closest('[data-qa]');if(q){var a=q.getAttribute('data-qa');if(a==='new')openDrawer(null);else if(a==='quick'){var bq=$('#btnQuick');if(bq)bq.click()}else if(a==='update'){var bu=$('#btnOvUpdate')||$('#btnUpdate');if(bu)bu.click()}else show(a);return}
+ var g=e.target.closest('[data-goto]');if(g){gotoTarget(g.getAttribute('data-goto'));return}});
+/* quick search (⌘ / Ctrl+K): every page + the real actions, nothing new to learn */
+var CMDK_SEL=0;
+function cmdkItems(){var out=[],seen={};$$('#sideNav [data-view]').forEach(function(b){var v=b.getAttribute('data-view');if(seen[v])return;seen[v]=1;out.push({label:(b.textContent||'').trim(),hint:tx('صفحه','page'),svg:(b.querySelector('svg')||{}).outerHTML||'',run:function(){show(v)}})});
+ [[tx('کاربر جدید','New user'),function(){openDrawer(null)}],[tx('ساخت سریع کاربر','Quick-create user'),function(){var b=$('#btnQuick');if(b)b.click()}],[tx('لینک‌های ساب اصلی','Master subscription links'),function(){var b=$('#btnMasterLinks');if(b)b.click()}],[tx('تست پینگ','Ping test'),function(){gotoTarget('tools#tlPing')}],[tx('تستر پورت','Port tester'),function(){gotoTarget('tools#tlPort')}],[tx('بررسی دسترسی دامنه','Domain access check'),function(){gotoTarget('tools#tlDom')}],[tx('شکار خروجی کشور','Exit hunt'),function(){gotoTarget('loc#ehGo')}],[tx('انتخاب پوسته','Choose a skin'),function(){openThemePick()}],[tx('حالت روشن / تیره','Light / dark mode'),function(){var b=$('#btnDark');if(b)b.click()}],[tx('بررسی آپدیت','Check for update'),function(){var b=$('#btnOvUpdate');if(b)b.click()}],[tx('تغییر زبان','Switch language'),function(){var b=$('#btnLang');if(b)b.click()}],[tx('خروج از پنل','Log out'),function(){location.href='/logout'}]].forEach(function(x){out.push({label:x[0],hint:tx('عملیات','action'),svg:'',run:x[1]})});return out}
+function cmdkRender(){var q=($('#cmdkIn').value||'').trim().toLowerCase();var items=cmdkItems().filter(function(x){return !q||x.label.toLowerCase().indexOf(q)>=0});window.__cmdk=items;if(CMDK_SEL>=items.length)CMDK_SEL=Math.max(0,items.length-1);
+ $('#cmdkList').innerHTML=items.length?items.map(function(x,i){return '<li data-ci="'+i+'" class="'+(i===CMDK_SEL?'on':'')+'">'+x.svg+'<span>'+esc(x.label)+'</span><small>'+esc(x.hint)+'</small></li>'}).join(''):'<li>'+esc(tx('چیزی پیدا نشد','Nothing found'))+'</li>'}
+function cmdkOpen(){var m=$('#cmdk');if(!m)return;CMDK_SEL=0;$('#cmdkIn').value='';cmdkRender();m.classList.add('show');setTimeout(function(){$('#cmdkIn').focus()},30)}
+function cmdkClose(){var m=$('#cmdk');if(m)m.classList.remove('show')}
+function cmdkRun(i){var it=(window.__cmdk||[])[i];cmdkClose();if(it)it.run()}
+if($('#btnPalette'))$('#btnPalette').addEventListener('click',cmdkOpen);
+if($('#cmdk')){$('#cmdk').addEventListener('click',function(e){if(e.target.id==='cmdk'){cmdkClose();return}var li=e.target.closest('[data-ci]');if(li)cmdkRun(+li.getAttribute('data-ci'))});
+ $('#cmdkIn').addEventListener('input',function(){CMDK_SEL=0;cmdkRender()});
+ $('#cmdkIn').addEventListener('keydown',function(e){var n=(window.__cmdk||[]).length;if(e.key==='ArrowDown'){e.preventDefault();CMDK_SEL=n?(CMDK_SEL+1)%n:0;cmdkRender()}else if(e.key==='ArrowUp'){e.preventDefault();CMDK_SEL=n?(CMDK_SEL-1+n)%n:0;cmdkRender()}else if(e.key==='Enter'){e.preventDefault();cmdkRun(CMDK_SEL)}else if(e.key==='Escape'){cmdkClose()}})}
+document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='k'){e.preventDefault();var m=$('#cmdk');if(m&&m.classList.contains('show'))cmdkClose();else cmdkOpen()}else if(e.key==='Escape')cmdkClose()});
+/* PWA install banner: only when the browser really offers installation */
+(function(){var B=$('#pwaBanner'),ev=null;if(!B)return;var never=false;try{never=localStorage.getItem('catPwaNo')==='1'}catch(e){}
+ window.addEventListener('beforeinstallprompt',function(e){ev=e;if(!never)B.classList.add('show')});
+ $('#pwaYes').addEventListener('click',function(){B.classList.remove('show');if(ev){ev.prompt();ev=null}});
+ $('#pwaNever').addEventListener('click',function(){B.classList.remove('show');try{localStorage.setItem('catPwaNo','1')}catch(e){}});
+ $('#pwaX').addEventListener('click',function(){B.classList.remove('show')})})();
+/* dashboard: totals + top users (all from /api/users, nothing estimated) */
+function userUsed(u){var tr=u.traffic||{};return (Number(tr.up)||0)+(Number(tr.down)||0)}
+function renderDash(){if(!$('#stVol'))return;var vol=0,dev=0;USERS.forEach(function(u){vol+=userUsed(u);dev+=Number(u.activeIps)||0});$('#stVol').textContent=fmtGB(vol);$('#stDev').textContent=String(dev);
+ var tb=$('#topUsers');if(!tb)return;var list=USERS.slice().sort(function(a,b){return userUsed(b)-userUsed(a)}).slice(0,6);$('#topUsersEmpty').style.display=list.length?'none':'block';
+ tb.innerHTML=list.map(function(u){var used=userUsed(u),q=Number(u.quotaBytes)||0,pct=q>0?Math.min(100,Math.round(used/q*100)):0;
+  return '<tr><td><b>'+esc(u.name)+'</b></td><td><div dir="ltr" class="small">'+fmtGB(used)+(q>0?' / '+fmtGB(q):' / ∞')+'</div>'+(q>0?'<div class="bar'+(pct>=90?' d':pct>=70?' w':'')+'"><i style="width:'+pct+'%"></i></div>':'')+'</td><td class="small">'+timeCell(u)+'</td><td class="small" dir="ltr">'+(Number(u.activeIps)||0)+(u.maxIps>0?' / '+u.maxIps:'')+'</td><td>'+statusChip(u)+'</td></tr>'}).join('')}
+/* ---- tools page ---- */
+function tRow(label,val,cls){return '<div><span>'+label+'</span><span class="'+(cls||'')+'" dir="ltr">'+val+'</span></div>'}
+function msCls(ms){return ms<250?'ok':ms<700?'warn':'bad'}
+if($('#tlPingSrv'))$('#tlPingSrv').addEventListener('click',function(){var b=this,out=$('#tlPingOut');b.disabled=true;out.innerHTML=tRow('⏳',tx('در حال تست از سمت سرور…','Testing from the server…'));
+ api('/api/svc-test',{method:'POST',body:{hosts:['www.gstatic.com','www.google.com','www.cloudflare.com']}}).then(function(j){var R=(j&&j.results)||{};var rows=Object.keys(R).map(function(h){var r=R[h]||{};return tRow('🖥 → '+esc(h),r.ok?(r.ms+' ms'):('✗ '+esc(String(r.error||r.status||'').slice(0,40))),r.ok?msCls(r.ms):'bad')});var ex=j&&j.exit||{};if(ex.ip||ex.loc)rows.push(tRow(tx('خروجی پنل','Panel exit'),esc((ex.loc||'?')+' · '+(ex.colo||'')+' · '+(ex.ip||''))));out.innerHTML=rows.join('')||tRow('✗',esc(j&&j.error||'?'),'bad')}).catch(function(e){out.innerHTML=tRow('✗',esc(safeDiag(e&&e.message||e)),'bad')}).then(function(){b.disabled=false})});
+if($('#tlPingMe'))$('#tlPingMe').addEventListener('click',function(){var b=this,out=$('#tlPingOut');b.disabled=true;var res=[],n=0;out.innerHTML=tRow('⏳',tx('در حال اندازه‌گیری از مرورگر تو…','Measuring from your browser…'));
+ function one(){var t0=performance.now();fetch('/api/self?p='+Date.now(),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.text()}).then(function(){res.push(Math.round(performance.now()-t0))},function(){res.push(-1)}).then(function(){if(++n<6)one();else done()})}
+ function done(){b.disabled=false;var ok=res.filter(function(x){return x>=0});if(!ok.length){out.innerHTML=tRow('✗',tx('پنل از این مرورگر جواب نداد','The panel did not answer this browser'),'bad');return}var mn=Math.min.apply(null,ok),avg=Math.round(ok.reduce(function(a,c){return a+c},0)/ok.length),jit=0;for(var i=1;i<ok.length;i++)jit+=Math.abs(ok[i]-ok[i-1]);jit=ok.length>1?Math.round(jit/(ok.length-1)):0;
+  out.innerHTML=tRow(tx('کمترین','Minimum'),mn+' ms',msCls(mn))+tRow(tx('میانگین','Average'),avg+' ms',msCls(avg))+tRow(tx('نوسان (جیتر)','Jitter'),jit+' ms',jit<40?'ok':jit<120?'warn':'bad')+tRow(tx('موفق','Succeeded'),ok.length+' / '+res.length,ok.length===res.length?'ok':'warn')}
+ one()});
+if($('#tlRouteGo'))$('#tlRouteGo').addEventListener('click',function(){var b=this,out=$('#tlRouteOut');b.disabled=true;out.innerHTML=tRow('⏳','…');
+ Promise.all([api('/api/self').catch(function(){return {}}),api('/api/svc-test',{method:'POST',body:{hosts:['www.cloudflare.com']}}).catch(function(){return {}})]).then(function(a){var me=a[0]||{},sv=a[1]||{},ex=sv.exit||{};
+  out.innerHTML=tRow('1️⃣ '+tx('تو','You'),esc((me.ip||'?')+(me.country?' · '+me.country:'')+(me.asn?' · AS'+me.asn:'')+(me.asOrganization?' '+String(me.asOrganization).slice(0,28):'')))+tRow('2️⃣ '+tx('دیتاسنتر کلودفلر','Cloudflare datacenter'),esc((me.colo||'?')+(me.city?' · '+me.city:'')),'ok')+tRow('3️⃣ '+tx('خروجی پنل به اینترنت','Panel exit to the internet'),esc(ex.ip?((ex.loc||'?')+' · '+ex.ip+(ex.colo?' · '+ex.colo:'')):tx('نامعلوم (سرور اجازهٔ تست نداد)','unknown (the server could not test)')),ex.ip?'ok':'warn')+(CFG&&CFG.chain?tRow('⛓ '+tx('زنجیرهٔ خروجی','Exit chain'),esc(CFG.chain.type+' · '+CFG.chain.host)):'')}).then(function(){b.disabled=false})});
+var TL_TLS=[443,8443,2053,2083,2087,2096],TL_HTTP=[80,8080,8880,2052,2082,2086,2095];
+(function(){var pk=$('#tlPortPick');if(!pk)return;function draw(){var http=$('#tlPortHttp').classList.contains('on');pk.innerHTML=TL_TLS.concat(http?TL_HTTP:[]).map(function(p){return '<button type="button" class="on" data-v="'+p+'">'+p+'</button>'}).join('')}draw();
+ $('#tlPortHttp').addEventListener('click',function(){setTimeout(draw,0)});pk.addEventListener('click',function(e){var b=e.target.closest('button');if(b)b.classList.toggle('on')});
+ var hi=$('#tlPortHost');if(hi)hi.placeholder=location.hostname})();
+if($('#tlPortGo'))$('#tlPortGo').addEventListener('click',function(){var out=$('#tlPortOut'),host=($('#tlPortHost').value||'').trim()||location.hostname;host=host.replace(/^https?:[/][/]/,'').split('/')[0];var ports=$$('#tlPortPick button.on').map(function(b){return +b.getAttribute('data-v')});if(!ports.length){toast(tx('حداقل یک پورت انتخاب کن','Pick at least one port'),true);return}
+ var hb=host.indexOf(':')>=0&&host.charAt(0)!=='['?'['+host+']':host;out.innerHTML='';
+ ports.forEach(function(p){var http=TL_HTTP.indexOf(p)>=0,d=document.createElement('div');d.innerHTML='<span class="mono">'+esc(host)+':'+p+(http?' (HTTP)':' (TLS)')+'</span><span class="dim">…</span>';out.appendChild(d);var c=d.lastChild;
+  if(http&&location.protocol==='https:'){c.className='warn';c.textContent=tx('از صفحهٔ HTTPS قابل تست نیست — اسکنر اپ','Not testable from an HTTPS page — use the app scanner');return}
+  var best=1e9,n=0,fail=0;function one(){var t0=performance.now(),ctl=new AbortController(),tm=setTimeout(function(){ctl.abort()},4000);
+   fetch((http?'http://':'https://')+hb+':'+p+'/cdn-cgi/trace?pt='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){best=Math.min(best,Math.round(performance.now()-t0))},function(){var el=Math.round(performance.now()-t0);if(el<3900&&host!==location.hostname)best=Math.min(best,el);else fail++}).then(function(){clearTimeout(tm);if(++n<3&&fail<2)one();else{c.className=best<1e9?msCls(best):'bad';c.textContent=best<1e9?('✅ '+best+' ms'):('✗ '+tx('بسته یا بی‌جواب','closed or silent'))}})}
+  one()})});
+if($('#tlDcGo'))$('#tlDcGo').addEventListener('click',function(){var b=this,out=$('#tlDcOut'),rows=[],colos={};b.disabled=true;out.innerHTML='';var n=0;
+ function one(){var t0=performance.now();fetch('/api/self?dc='+Date.now(),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){var ms=Math.round(performance.now()-t0);colos[j.colo||'?']=1;rows.push(tRow('#'+(n+1)+' · '+esc(j.colo||'?'),esc((j.httpProtocol||'?')+' · '+(j.tlsVersion||'?')+' · '+ms+' ms'),msCls(ms)))},function(){rows.push(tRow('#'+(n+1),'✗','bad'))}).then(function(){out.innerHTML=rows.join('');if(++n<6)one();else{var k=Object.keys(colos);out.innerHTML+=tRow(tx('نتیجه','Result'),k.length<=1?tx('ثابت: ','Stable: ')+esc(k[0]||'?'):tx('متغیر: ','Changing: ')+esc(k.join(' ، ')),k.length<=1?'ok':'warn');b.disabled=false}})}
+ one()});
+if($('#tlDomGo'))$('#tlDomGo').addEventListener('click',function(){var b=this,out=$('#tlDomOut');var list=String($('#tlDomList').value||'').split(/[\\s,;]+/).map(function(x){return x.trim().toLowerCase().replace(/^https?:[/][/]/,'').split('/')[0]}).filter(function(x){return /^[a-z0-9.-]+[.][a-z]{2,}$/.test(x)}).slice(0,8);if(!list.length){toast(tx('یک دامنهٔ درست بنویس، مثل google.com','Write a valid domain, e.g. google.com'),true);return}
+ b.disabled=true;out.innerHTML='<div><b>'+esc(tx('دامنه','Domain'))+'</b><b>'+esc(tx('سرور · اینترنت تو','Server · your internet'))+'</b></div>'+list.map(function(d){return '<div data-dm="'+esc(d)+'"><span class="mono">'+esc(d)+'</span><span><span class="sv dim">…</span> · <span class="me dim">…</span></span></div>'}).join('');
+ list.forEach(function(d){var row=out.querySelector('[data-dm="'+d+'"] .me');var t0=performance.now(),ctl=new AbortController(),tm=setTimeout(function(){ctl.abort()},6000);fetch('https://'+d+'/favicon.ico?c='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){clearTimeout(tm);row.className='me ok';row.textContent='✅ '+Math.round(performance.now()-t0)+' ms'},function(){clearTimeout(tm);row.className='me bad';row.textContent='✗'})});
+ api('/api/svc-test',{method:'POST',body:{hosts:list}}).then(function(j){var R=(j&&j.results)||{};list.forEach(function(d){var el=out.querySelector('[data-dm="'+d+'"] .sv'),r=R[d];if(!el)return;if(!r){el.className='sv warn';el.textContent='?';return}el.className='sv '+(r.ok?'ok':'bad');el.textContent=r.ok?('✅ '+r.ms+' ms'):'✗'})}).catch(function(){$$('#tlDomOut .sv').forEach(function(el){el.className='sv warn';el.textContent='?'})}).then(function(){b.disabled=false})});
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','nodes','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();

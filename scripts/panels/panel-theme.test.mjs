@@ -56,12 +56,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ── 1. the stylesheet parses ─────────────────────────────────────────── */
 check('inline stylesheet parses (no stray brace kills later rules)', cssErrors.length === 0, cssErrors.join(' | '));
 check('wallpaper + glass tokens are inlined', html.includes('--wall:radial-gradient') && html.includes('backdrop-filter:blur(var(--blur))'));
-// «aurora» is the default: it lives in :root, the other eleven are [data-theme=…] overrides.
+// beta199: «clean» (light, DevCop-style shell) is the default; «aurora» still lives in :root and
+// every other skin, «clean» included, is a [data-theme=…] override.
 check('default skin lives in :root', html.includes('--wall:radial-gradient'));
-check('eleven alternate skins declared', ['nebula', 'ocean', 'ember', 'forest', 'steel', 'turquoise', 'cyberpunk', 'gold', 'amoled', 'nord', 'daylight'].every((t) => html.includes('[data-theme=' + t + ']{')));
+check('twelve alternate skins declared', ['clean', 'nebula', 'ocean', 'ember', 'forest', 'steel', 'turquoise', 'cyberpunk', 'gold', 'amoled', 'nord', 'daylight'].every((t) => html.includes('[data-theme=' + t + ']{')));
 
 /* ── 2. server-rendered skin (no flash of the wrong colour) ───────────── */
-check('default skin rendered server-side', document.documentElement.getAttribute('data-theme') === 'aurora', document.documentElement.getAttribute('data-theme'));
+check('default skin rendered server-side', document.documentElement.getAttribute('data-theme') === 'clean', document.documentElement.getAttribute('data-theme'));
 
 /* ── 3. the picker works end to end ───────────────────────────────────── */
 const btn = document.querySelector('[data-theme-open]');
@@ -69,9 +70,9 @@ check('skin button exists (sidebar + mobile drawer)', !!btn && document.querySel
 btn.click(); await sleep(60);
 check('picker opens', document.querySelector('#themePick').classList.contains('show'));
 const swatches = [...document.querySelectorAll('#themeGrid button')];
-check('twelve skins offered', swatches.length === 12, String(swatches.length));
-check('skin names translated (fa)', swatches.map((b) => b.querySelector('span').textContent).join(',') === 'شفق,سحابی,اقیانوس,اخگر,جنگل,فولاد,فیروزه‌ای,سایبرپانک,طلایی VIP,مشکی مطلق,قطبی نورد,روشن مرواریدی', swatches.map((b) => b.querySelector('span').textContent).join(','));
-check('active skin marked', swatches.filter((b) => b.classList.contains('on')).map((b) => b.getAttribute('data-t')).join() === 'aurora');
+check('thirteen skins offered', swatches.length === 13, String(swatches.length));
+check('skin names translated (fa)', swatches.map((b) => b.querySelector('span').textContent).join(',') === 'تمیز روشن,شفق,سحابی,اقیانوس,اخگر,جنگل,فولاد,فیروزه‌ای,سایبرپانک,طلایی VIP,مشکی مطلق,قطبی نورد,روشن مرواریدی', swatches.map((b) => b.querySelector('span').textContent).join(','));
+check('active skin marked', swatches.filter((b) => b.classList.contains('on')).map((b) => b.getAttribute('data-t')).join() === 'clean');
 check('every swatch carries a preview gradient', swatches.every((b) => (b.getAttribute('style') || '').includes('--tpw')));
 
 swatches.find((b) => b.getAttribute('data-t') === 'nebula').click(); await sleep(200);

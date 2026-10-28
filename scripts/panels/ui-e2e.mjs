@@ -149,7 +149,7 @@ check('لینکِ ساب ساخته می‌شود و از همین هاست بی
 // ساختارِ واقعی: دکمه‌ها `data-view="x"` و بخش‌ها `#v-x` با کلاسِ `view`;
 // فعال‌شدن = «view on» روی همان بخش + «on» روی دکمه (تابعِ show در پنل).
 // روی صفحهٔ موبایل منو بسته است، پس اول باید باز شود — دقیقاً کاری که کاربر می‌کند.
-const ALL_VIEWS = ['dash', 'clients', 'inbounds', 'scan', 'build', 'nodes', 'spoof', 'settings', 'backup', 'about'];
+const ALL_VIEWS = ['dash', 'clients', 'inbounds', 'scan', 'build', 'nodes', 'loc', 'tools', 'spoof', 'settings', 'backup', 'about'];
 const navNames = await page.$$eval('[data-view]', (els) => [...new Set(els.map((e) => e.getAttribute('data-view')))]);
 say(`# دکمه‌های ناوبری در DOM: ${navNames.join(', ')}`);
 const missing = navNames.filter((n) => !ALL_VIEWS.includes(n));

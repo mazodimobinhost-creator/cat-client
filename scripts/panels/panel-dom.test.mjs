@@ -181,7 +181,7 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 10 labeled items', document.querySelectorAll('#menu .mlist > button').length === 10 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 12 labeled items (beta199: + locations, tools)', document.querySelectorAll('#menu .mlist > button').length === 12 && document.querySelector('#menu .mtx b').textContent.length > 2);
 document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
