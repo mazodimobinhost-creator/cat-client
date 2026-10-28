@@ -4349,7 +4349,8 @@ class CatClientVpnService : VpnService() {
             scanMode = effectiveSelection.scanMode,
             noizePreset = effectiveSelection.noizePreset,
             fingerprint = effectiveSelection.fingerprint.ifBlank {
-                if (effectiveSelection.mode == AetherMode.MasqueInMasque) "chrome" else "semi-python"
+                // beta206: PattNG's default (a modern Chrome ClientHello) for every mode; semi-python stays a choice.
+                "chrome"
             },
             fragmentEnabled = effectiveSelection.fragmentEnabled,
             fragmentSize = effectiveSelection.fragmentSize,

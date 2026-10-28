@@ -228,9 +228,9 @@ internal object AetherOperations {
         val logs = mutableListOf<String>()
         val normKind = kind.trim().lowercase()
         logs += "[*] Starting WARP key registration (kind=$normKind, fingerprint=$fingerprint, fragment=$fragment)"
-        val effectiveEnroll = enrollAddress.trim().ifEmpty {
-            apiHost.trim().ifEmpty { apiSni.trim() }
-        }
+        // Aether 2.4 takes apiHost/apiSni as their own settings; only a real address goes to enrollAddress
+        // (an SNI name is not where to connect).
+        val effectiveEnroll = enrollAddress.trim().ifEmpty { AetherRuntimeConfig.safeTlsName(apiHost).orEmpty() }
         if (effectiveEnroll.isNotEmpty()) {
             logs += "[*] API endpoint override: $effectiveEnroll"
         } else {
@@ -238,33 +238,6 @@ internal object AetherOperations {
         }
 
         fun buildProvisionJson(transportCode: String): String {
-            val (tlsCiphers, tlsGroups, disableGrease) = when (fingerprint.lowercase()) {
-                "firefox" -> Triple(
-                    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384",
-                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                    true,
-                )
-                "semi-python" -> Triple(
-                    "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
-                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                    true,
-                )
-                "go" -> Triple(
-                    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
-                    "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                    true,
-                )
-                "chrome-120" -> Triple(
-                    "ALL:!aPSK:!ECDSA+SHA1:!3DES",
-                    "X25519:P-256:P-384",
-                    false,
-                )
-                else -> Triple(
-                    "ALL:!aPSK:!ECDSA+SHA1:!3DES",
-                    "X25519MLKEM768:X25519:P-256:P-384",
-                    false,
-                )
-            }
             return org.json.JSONObject()
                 .put("mode", "tun")
                 .put("configPath", identityFile.absolutePath)
@@ -277,15 +250,16 @@ internal object AetherOperations {
                 .put("lanSharing", false)
                 .put("listenPort", 1819)
                 .put("fragmentTls", fragment)
-                .put("fragmentSize", fragmentSize.ifBlank { "16-32" })
-                .put("fragmentDelay", fragmentDelay.ifBlank { "2-8" })
+                .put("fragmentSize", AetherRuntimeConfig.safeRange(fragmentSize, 1, 16_384) ?: "16-32")
+                .put("fragmentDelay", AetherRuntimeConfig.safeRange(fragmentDelay, 0, 100) ?: "2-8")
                 .put("encryptedHello", ech)
                 .put("echDns", echDns)
                 .put("echDomain", echDomain)
-                .put("tlsCiphers", tlsCiphers)
-                .put("tlsGroups", tlsGroups)
-                .put("disableGrease", disableGrease)
                 .apply {
+                    // beta206: the same browser-capture fingerprint the tunnel uses (see AetherTlsFingerprint).
+                    AetherTlsFingerprint.of(fingerprint).applyTo(this)
+                    AetherRuntimeConfig.safeTlsName(apiHost)?.let { put("apiHost", it) }
+                    AetherRuntimeConfig.safeTlsName(apiSni)?.let { put("apiSni", it) }
                     if (effectiveEnroll.isNotEmpty()) put("enrollAddress", effectiveEnroll)
                     if (!upstreamProxy.isNullOrBlank()) put("upstreamProxy", upstreamProxy)
                 }

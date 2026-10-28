@@ -1895,7 +1895,10 @@ object MihomoConnectionOptionsPatcher {
 
     private fun upsertInlineMap(line: String, key: String, fields: Map<String, String>): String {
         val keyPattern = Regex.escape(key)
-        val nestedMap = Regex("""(['\"]?$keyPattern['\"]?\s*:\s*)\{([^}]*)}""")
+        // beta206: Android's ICU regex rejects a bare «}» («Syntax error in regexp pattern near index 52»); the
+        // desktop JVM accepts it, so unit tests never saw it. Every WireGuard/Amnezia profile in a flow-style
+        // (`- {…}`) subscription broke the connection test and the connect. Both braces are escaped now.
+        val nestedMap = Regex("""(['\"]?$keyPattern['\"]?\s*:\s*)\{([^\}]*)\}""")
         val match = nestedMap.find(line)
         if (match != null) {
             val body = patchInlineFields(match.groupValues[2], fields)

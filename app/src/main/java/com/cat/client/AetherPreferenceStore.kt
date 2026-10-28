@@ -334,7 +334,7 @@ data class AetherSelection(
                 params += "fragment_delay=${fragmentDelay.ifBlank { "2-10" }}"
             }
             val effFp = fingerprint.takeIf { it in VALID_FINGERPRINTS }
-                ?: if (proto == "mim") "chrome" else "semi-python"
+                ?: "chrome"
             params += "fingerprint=$effFp"
             val cleanMasqueSni = masqueSni.trim()
             if (cleanMasqueSni.isNotEmpty()) {
@@ -542,7 +542,11 @@ data class AetherSelection(
             val scanModeParam = map["scan"].orEmpty().lowercase().takeIf { it in VALID_SCAN_MODES } ?: "balanced"
             val noizeParam = map["noize"].orEmpty().lowercase().takeIf { it in VALID_NOIZE_PRESETS } ?: "auto"
             val fpParam = map["fingerprint"].orEmpty().lowercase().takeIf { it in VALID_FINGERPRINTS }.orEmpty()
-            val fragEnabledParam = map["fragment"].orEmpty().lowercase() !in setOf("0", "false", "off")
+            // beta206: PattNG (and our own export) write `fragment=1` only when splitting is ON; a link without it
+            // means OFF. We used to read "absent" as ON, so every imported PattNG MASQUE profile was dialled with a
+            // 16–32-byte split ClientHello the PattNG app never sends — one reason «PattNG-MIM-H2-DE» worked there
+            // and failed here.
+            val fragEnabledParam = map["fragment"].orEmpty().lowercase() in setOf("1", "true", "on", "yes")
             val fragSizeParam = map["fragment_size"]?.trim()?.takeIf { it.isNotEmpty() } ?: "16-32"
             val fragDelayParam = map["fragment_delay"]?.trim()?.takeIf { it.isNotEmpty() } ?: "2-10"
             val psiModeParam = map["psiphon_mode"].orEmpty().lowercase().takeIf { it in VALID_PSIPHON_MODES } ?: "auto"

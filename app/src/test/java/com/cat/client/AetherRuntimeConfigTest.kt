@@ -102,9 +102,14 @@ class AetherRuntimeConfigTest {
         assertEquals("aggressive", mimJson.getString("noize"))
         assertEquals("chrome-120", mimJson.getString("fingerprint"))
         assertEquals("custom-masque.cloudflareclient.com", mimJson.getString("masque_sni"))
+        assertEquals("custom-masque.cloudflareclient.com", mimJson.getString("masqueSni"))
         assertTrue(mimJson.getBoolean("ech"))
-        assertTrue(mimJson.getBoolean("enable_grease_sigalgs"))
-        assertTrue(mimJson.getBoolean("enable_ech_grease"))
+        // chrome-120 capture: no ML-KEM, old ALPS codepoint, no GREASE among sigalgs, GREASE ECH.
+        assertEquals("X25519:P-256:P-384", mimJson.getString("tlsGroups"))
+        assertEquals("old", mimJson.getString("tlsAlps"))
+        assertFalse(mimJson.getBoolean("enableGreaseSigalgs"))
+        assertTrue(mimJson.getBoolean("enableEchGrease"))
+        assertFalse(mimJson.has("tlsKeyShares"))
         assertTrue(mimCfg.usesMasqueHttp2)
 
         // WARP-in-WARP (wiw)
@@ -132,5 +137,50 @@ class AetherRuntimeConfigTest {
         assertThrows(IllegalArgumentException::class.java) {
             AetherRuntimeConfig(AetherMode.MasqueHttp2, File("/tmp/aether.json"), "192.168.1.1:443")
         }
+    }
+
+    @Test fun beta206DefaultsToPattngChromeAndNeverSendsAllGroupsAsKeyShares() {
+        val json = JSONObject(AetherRuntimeConfig(AetherMode.MasqueInMasque, File("/tmp/a.toml")).toNativeJson())
+        assertEquals("chrome", json.getString("fingerprint"))
+        assertEquals("X25519MLKEM768:X25519:P-256:P-384", json.getString("tlsGroups"))
+        assertFalse("Chrome sends two key shares, chosen by BoringSSL", json.has("tlsKeyShares"))
+        assertEquals("new", json.getString("tlsAlps"))
+        assertEquals("6000", json.getString("tlsServerPadding"))
+        assertTrue(json.getBoolean("enableGreaseSigalgs"))
+        assertFalse(json.getBoolean("disableGrease"))
+        val firefox = JSONObject(AetherRuntimeConfig(AetherMode.MasqueHttp2, File("/tmp/a.toml"), fingerprint = "firefox").toNativeJson())
+        assertEquals("X25519MLKEM768:X25519:P-256", firefox.getString("tlsKeyShares"))
+        assertTrue(firefox.getBoolean("disableSessionTicket"))
+        assertEquals("chrome", AetherTlsFingerprint.of("nonsense").type)
+    }
+
+    @Test fun beta206DropsValuesAether24WouldRejectTheWholeConfigFor() {
+        val json = JSONObject(AetherRuntimeConfig(
+            AetherMode.MasqueHttp2,
+            File("/tmp/a.toml"),
+            masqueSni = "162.159.198.1",
+            apiHost = "https://api.example.com/x",
+            apiSni = "www.cloudflare.com.",
+            fragmentSize = "900000",
+            fragmentDelay = "10-2",
+        ).toNativeJson())
+        assertFalse(json.has("masqueSni"))
+        assertFalse(json.has("apiHost"))
+        assertEquals("www.cloudflare.com", json.getString("apiSni"))
+        assertEquals("16-32", json.getString("fragmentSize"))
+        assertEquals("2-10", json.getString("fragmentDelay"))
+        assertEquals("5-40", AetherRuntimeConfig.safeRange(" 5-40 ", 1, 16_384))
+        assertEquals(null, AetherRuntimeConfig.safeTlsName("1.2.3.4"))
+        assertEquals("www.cloudflare.com", AetherRuntimeConfig.safeTlsName("www.cloudflare.com"))
+    }
+
+    @Test fun beta206PattngLinkWithoutFragmentMeansNoFragmentAndIsKeptVerbatim() {
+        val link = "aether://?protocol=mim&scan=balanced&ip=v4&transport=h2&outer=162.159.198.1%3A443&inner=162.159.198.2%3A443#PattNG-MIM-H2-DE"
+        val sel = AetherSelection.fromAetherUri(link)!!
+        assertEquals(AetherMode.MasqueInMasque, sel.mode)
+        assertFalse(sel.fragmentEnabled)
+        assertTrue(AetherSelection.fromAetherUri(link.replace("#", "&fragment=1#"))!!.fragmentEnabled)
+        val converted = SubConvConverter.convert(link)
+        assertEquals(link, converted.single().getString("aether-uri"))
     }
 }

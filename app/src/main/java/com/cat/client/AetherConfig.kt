@@ -84,33 +84,7 @@ data class AetherRuntimeConfig(
         }
 
     fun toNativeJson(): String {
-        val (tlsCiphers, tlsGroups, disableGrease) = when (fingerprint.lowercase()) {
-            "firefox" -> Triple(
-                "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384",
-                "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                true,
-            )
-            "semi-python" -> Triple(
-                "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
-                "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                true,
-            )
-            "go" -> Triple(
-                "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
-                "X25519MLKEM768:X25519:P-256:P-384:P-521",
-                true,
-            )
-            "chrome-120" -> Triple(
-                "ALL:!aPSK:!ECDSA+SHA1:!3DES",
-                "X25519:P-256:P-384",
-                false,
-            )
-            else -> Triple(
-                "ALL:!aPSK:!ECDSA+SHA1:!3DES",
-                "X25519MLKEM768:X25519:P-256:P-384",
-                false,
-            )
-        }
+        val tls = AetherTlsFingerprint.of(fingerprint)
         return JSONObject()
             .put("mode", runtimeEndpoint.wireName)
             .put("configPath", identityFile.absolutePath)
@@ -119,24 +93,16 @@ data class AetherRuntimeConfig(
             .put("scanMode", scanMode)
             .put("scan", scanMode)
             .put("noize", noizePreset)
-            .put("fingerprint", fingerprint.ifBlank { "semi-python" })
+            .put("fingerprint", tls.type)
             .put("scanBudgetMillis", scanBudgetMillis)
             .put("validationEnabled", true)
             .put("autoReprovision", false)
             .put("lanSharing", false)
             .put("listenPort", listenPort)
             .put("fragmentTls", fragmentEnabled)
-            .put("fragmentSize", fragmentSize.ifBlank { "16-32" })
-            .put("fragmentDelay", fragmentDelay.ifBlank { "2-10" })
-            .put("tlsCiphers", tlsCiphers)
-            .put("tlsGroups", tlsGroups)
-            .put("disableGrease", disableGrease)
-            .put("tlsKeyShares", tlsGroups)
-            .put("tlsCertCompression", "brotli")
-            .put("enableGreaseSigalgs", !disableGrease)
-            .put("enable_grease_sigalgs", !disableGrease)
-            .put("enableEchGrease", !disableGrease)
-            .put("enable_ech_grease", !disableGrease)
+            // The core refuses the whole config for an out-of-range fragment value, so bad input falls back.
+            .put("fragmentSize", safeRange(fragmentSize, 1, 16_384) ?: "16-32")
+            .put("fragmentDelay", safeRange(fragmentDelay, 0, 100) ?: "2-10")
             .apply {
                 if (noizePreset != "auto" && noizePreset.isNotBlank()) {
                     put("noizePreset", noizePreset)
@@ -147,15 +113,18 @@ data class AetherRuntimeConfig(
                 }
                 innerEndpoint?.let { put("innerPeer", it) }
                 upstreamProxy?.let { put("upstreamProxy", it) }
-                masqueSni.trim().takeIf { it.isNotEmpty() }?.let {
+                tls.applyTo(this)
+                // Aether 2.4 refuses the WHOLE config when one of these is not a DNS name (an IP, a URL, a
+                // typo), which turned a harmless optional field into «خطای اتصال». Only real names are sent.
+                safeTlsName(masqueSni)?.let {
                     put("masqueSni", it)
                     put("masque_sni", it)
                 }
-                apiHost.trim().takeIf { it.isNotEmpty() }?.let {
+                safeTlsName(apiHost)?.let {
                     put("apiHost", it)
                     put("api_host", it)
                 }
-                apiSni.trim().takeIf { it.isNotEmpty() }?.let {
+                safeTlsName(apiSni)?.let {
                     put("apiSni", it)
                     put("api_sni", it)
                 }
@@ -170,6 +139,27 @@ data class AetherRuntimeConfig(
     }
 
     companion object {
+        private val DNS_NAME = Regex("^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z][A-Za-z0-9-]{0,62}$")
+
+        /** A host name the native core takes for masqueSni/apiHost/apiSni, or null (IP, URL, blank, junk). */
+        fun safeTlsName(raw: String): String? {
+            val v = raw.trim().trimEnd('.')
+            if (v.isEmpty() || v.length > 253) return null
+            if (v.any { it.isWhitespace() || it.isISOControl() || it == '/' || it == ':' || it == '@' }) return null
+            if (v.matches(Regex("[0-9.]+"))) return null
+            return v.takeIf { DNS_NAME.matches(it) }
+        }
+
+        /** `n` or ascending `a-b` inside [min, max] (the native bridge's own rule), else null. */
+        fun safeRange(raw: String, min: Long, max: Long): String? {
+            val parts = raw.trim().split('-')
+            if (parts.isEmpty() || parts.size > 2) return null
+            val lo = parts.first().trim().toLongOrNull() ?: return null
+            val hi = parts.last().trim().toLongOrNull() ?: return null
+            if (lo < min || hi < lo || hi > max) return null
+            return if (parts.size == 1) "$lo" else "$lo-$hi"
+        }
+
         val VALID_SCAN_MODES = setOf("turbo", "balanced", "thorough", "verified", "ironclad")
         val VALID_NOIZE_PRESETS = setOf("auto", "off", "light", "firewall", "balanced", "gfw", "aggressive")
         val VALID_FINGERPRINTS = setOf("chrome", "chrome-120", "firefox", "semi-python", "go")

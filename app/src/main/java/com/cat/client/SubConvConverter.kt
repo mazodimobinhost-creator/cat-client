@@ -1030,7 +1030,10 @@ object SubConvConverter {
             .put("server", "127.0.0.1")
             .put("port", 1819)
             .put("udp", true)
-            .put("aether-uri", sel.toAetherUri())
+            // beta206: keep a PattNG `aether://` link byte-for-byte. Re-exporting it rewrote PattNG's semantics
+            // (fragment, fingerprint, sni defaults) into ours, so the profile that connects in PattNG was not the
+            // one Cat dialled. `masque://` (no PattNG form) is still normalised.
+            .put("aether-uri", if (line.trim().startsWith("aether://", ignoreCase = true)) line.trim() else sel.toAetherUri())
     }
 
     private fun parseFenixVpn(line: String, names: NameRegistry): JSONObject {
