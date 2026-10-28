@@ -3578,6 +3578,7 @@ function normalizePeer(raw) {
     lastOk: Number(p.lastOk) || 0,
     lastMs: Math.max(0, Math.min(60000, Number(p.lastMs) || 0)),
     lastErr: String(p.lastErr || '').slice(0, 120),
+    pushed: Math.max(0, Math.min(500, Number(p.pushed) || 0)),
     mirror: (Array.isArray(p.mirror) ? p.mirror : []).filter((m) => m && isUuid(m.id) && Number(m.lease) > now)
       .map((m) => ({ id: String(m.id).toLowerCase(), en: m.en !== false, exp: Number(m.exp) || 0, lease: Number(m.lease) })).slice(0, 500),
   };
@@ -3682,7 +3683,7 @@ function parseLinkCode(code) {
 
 function linkPeerPublic(env, p) {
   return { id: p.id, url: p.url, host: p.host, name: p.name, info: p.info, exit: p.exit, sub: p.sub, created: p.created, lastOk: p.lastOk, lastMs: p.lastMs, lastErr: p.lastErr,
-    mirrored: p.mirror.length, exitCapable: linkExitCapable(env, p.info) };
+    mirrored: p.mirror.length, pushed: p.pushed, exitCapable: linkExitCapable(env, p.info) };
 }
 
 /** 🔗 Linked panels’ configs for one subscription render (≤40 lines per peer, 5-min memory cache per user). */
@@ -3717,8 +3718,14 @@ async function linkSyncUsers(env, onlyId) {
   const users = (await readUsers(env)).map((u) => ({ id: u.id, en: !userBlockedReason(u), exp: u.expiresAt || 0 }));
   const out = [];
   for (const p of peers) {
-    try { const j = await linkCall(p, '/api/link/users', { users }, 8000); out.push({ id: p.id, ok: true, n: j.n }); }
+    try { const j = await linkCall(p, '/api/link/users', { users }, 8000); p.pushed = Number(j.n) || 0; out.push({ id: p.id, ok: true, n: j.n }); }
     catch (e) { out.push({ id: p.id, ok: false, error: String((e && e.message) || e).slice(0, 120) }); }
+  }
+  if (out.some((r) => r.ok)) {
+    // re-read: the owner may have changed the link while we were talking to the peer
+    const fresh = await readLinks(env);
+    for (const r of out) { const f = fresh.peers.find((x) => x.id === r.id); const p = peers.find((x) => x.id === r.id); if (f && r.ok) f.pushed = p.pushed; }
+    await writeLinks(env, fresh);
   }
   return out;
 }
@@ -7649,7 +7656,7 @@ async function handleApi(request, url, env, ctx) {
       const persisted = await writeLinks(env, links);
       if (exitPatch) await writeSettings(env, exitPatch);
       let sync = null;
-      if (body.sub === true) sync = await linkSyncUsers(env, peer.id);
+      if (body.sub === true) { sync = await linkSyncUsers(env, peer.id); if (sync[0] && sync[0].ok) peer.pushed = Number(sync[0].n) || 0; }
       return json({ ok: true, persisted, sync, peer: linkPeerPublic(env, peer) });
     }
     if (path === '/api/links/sync') return json({ ok: true, sync: await linkSyncUsers(env, peer.id) });
@@ -7887,10 +7894,10 @@ async function handleRequest(request, env, ctx) {
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) {
-    const res = await handleApi(request, url, env, ctx);
+    const apiRes = await handleApi(request, url, env, ctx);
     // 🔗 a user was added / edited / removed → linked panels that carry our subscription learn it now (best effort).
-    if (path.startsWith('/api/users') && request.method !== 'GET' && res.status === 200 && ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(linkSyncUsers(env).catch(() => {}));
-    return res;
+    if (path.startsWith('/api/users') && request.method !== 'GET' && apiRes && apiRes.status === 200 && ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(linkSyncUsers(env).catch(() => {}));
+    return apiRes;
   }
 
   if (path === '/qr.svg' || path === '/qr') {
@@ -10806,7 +10813,7 @@ function lkDraw(){var j=LKD,s=j.self||{};$('#lkSelf').innerHTML=LK('این پن�
    +'<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" type="button" data-lk="check" data-id="'+id+'">🩺 '+LK('بررسی واقعی','Real check')+'</button><span class="small" data-lkres="'+id+'"></span></div>'
    +'<div class="ibrow" style="margin-top:10px"><span class="iblbl">🚪 '+LK('خروجی از این پنل','Exit via this panel')+'</span><div class="pick">'+ex+'</div></div>'
    +(!p.exitCapable?'<div class="small mute">'+LK('دو پنل کلادفلر نمی‌توانند از همدیگر خارج شوند — اضافه کردن به ساب کار می‌کند.','Two Cloudflare panels cannot exit through each other — adding to the sub works.')+'</div>':'')
-   +'<label class="row small" style="gap:8px;margin-top:10px;align-items:center;cursor:pointer"><input type="checkbox" data-lk="sub" data-id="'+id+'"'+(p.sub?' checked':'')+'> ➕ '+LK('کانفیگ‌های این پنل به ساب کاربرانم اضافه شود','Add this panel’s configs to my users’ subs')+(p.sub?' <span class="mute">('+p.mirrored+' '+LK('کاربر','users')+')</span>':'')+'</label>'
+   +'<label class="row small" style="gap:8px;margin-top:10px;align-items:center;cursor:pointer"><input type="checkbox" data-lk="sub" data-id="'+id+'"'+(p.sub?' checked':'')+'> ➕ '+LK('کانفیگ‌های این پنل به ساب کاربرانم اضافه شود','Add this panel’s configs to my users’ subs')+(p.sub?' <span class="mute">('+p.pushed+' '+LK('کاربر فرستاده شد','users sent')+')</span>':'')+'</label>'
    +'<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">'+(p.sub?'<button class="btn sm" type="button" data-lk="sync" data-id="'+id+'">🔄 '+LK('همگام‌سازی کاربران','Sync users')+'</button>':'')+'<button class="btn sm" type="button" data-lk="px" data-id="'+id+'">📥 '+LK('گرفتن ProxyIP','Import ProxyIPs')+'</button><button class="btn sm" type="button" data-lk="ips" data-id="'+id+'">📥 '+LK('گرفتن آی‌پی تمیز','Import clean IPs')+'</button><button class="btn sm" type="button" data-lk="rm" data-id="'+id+'" style="color:var(--red)">🗑️ '+LK('قطع اتصال','Unlink')+'</button></div>'
    +'</div>'}).join('')}
 if($('#lkList')){$('#lkList').addEventListener('click',function(ev){var b=ev.target.closest('[data-lk]');if(!b||b.tagName==='INPUT')return;var k=b.getAttribute('data-lk'),id=b.getAttribute('data-id');

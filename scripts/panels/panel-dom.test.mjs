@@ -181,7 +181,7 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 10 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab)', document.querySelectorAll('#menu .mlist > button').length === 10 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 11 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab; 6.76.0: + 🔗 link panels)', document.querySelectorAll('#menu .mlist > button').length === 11 && document.querySelector('#menu .mtx b').textContent.length > 2);
 document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
@@ -308,6 +308,19 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   document.querySelector('#wdnsPrPick [data-wdpr="iran-download-heavy"]').click();
   const wdnsText = document.querySelector('#wdnsOut').textContent || '';
   check('WhiteDNS Lab generates CottenMax, StormDNS, Soar, DNSTT and DoQ/DoH3 lines', wdnsText.includes('cottendns://10.202.10.202:53/') && wdnsText.includes('transport=doq') && wdnsText.includes('delivery=null') && wdnsText.includes('preset=iran-download-heavy') && wdnsText.includes('stormdns://') && wdnsText.includes('soar://') && wdnsText.includes('DoQ=quic://10.202.10.202:853'));
+}
+
+// 6.76.0 🔗 link panels page: real clicks against the real worker
+{
+  document.querySelector('#sideNav [data-view="link"]').click(); await sleep(150);
+  check('🔗 link page opens from the sidebar', document.getElementById('v-link').classList.contains('on'));
+  check('… lists «no linked panel yet» from GET /api/links', /no linked panel|هنوز پنلی/i.test(document.querySelector('#lkList').textContent), document.querySelector('#lkList').textContent.slice(0, 80));
+  document.querySelector('#lkMake').click(); await sleep(150);
+  const code = document.querySelector('#lkOut').value;
+  check('«make code» shows a CATLINK1- code', /^CATLINK1-/.test(code) && document.querySelector('#lkOutBox').style.display === 'block', code.slice(0, 20));
+  document.querySelector('#lkCode').value = code; document.querySelector('#lkJoin').click(); await sleep(150);
+  check('pasting the code in the same panel shows a clear refusal', /❌/.test(document.querySelector('#lkMsg').textContent), document.querySelector('#lkMsg').textContent);
+  check('the plain-words guide is on the page', document.querySelectorAll('#v-link ul li').length >= 5);
 }
 
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)

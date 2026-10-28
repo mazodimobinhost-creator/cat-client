@@ -111,7 +111,8 @@ check("the panel's own update-check reads the shipped artifact's version line", 
 // ── 3/4/5) shape ─────────────────────────────────────────────────────────────
 check('marker is the very first line (survives a truncated download)', /^\/\* CAT_PANEL_VERSION = '[0-9]+(?:\.[0-9]+)+' \*\/\n/.test(artifact));
 check("artifact passes PanelUpdate's module check (contains «export default»)", artifact.includes('export default'));
-check('normal minified artifact stays below 800 KB', artifact.length < 800000, String(artifact.length));
+// 6.76.0: 800 000 → 860 000 characters (🔗 link panels); the release guard counts bytes and stays at 900 000.
+check('normal minified artifact stays below 860 K characters', artifact.length < 860000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;
