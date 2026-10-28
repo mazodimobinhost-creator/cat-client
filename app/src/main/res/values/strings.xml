@@ -795,6 +795,8 @@
     <string name="scanner_col_jitter">Jitter</string>
     <string name="scanner_col_speed">Speed</string>
     <string name="scanner_col_country">Country</string>
+    <string name="scanner_col_line">Line</string>
+    <string name="scanner_col_worker">Worker</string>
     <string name="scanner_sort_hint">Tap a column header to sort · tap the row to select it</string>
     <string name="scanner_select_all">All</string>
     <string name="scanner_select_none">None</string>

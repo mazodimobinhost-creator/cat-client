@@ -794,6 +794,8 @@
     <string name="scanner_col_jitter">جیتر</string>
     <string name="scanner_col_speed">سرعت</string>
     <string name="scanner_col_country">کشور</string>
+    <string name="scanner_col_line">خط من</string>
+    <string name="scanner_col_worker">ورکر</string>
     <string name="scanner_sort_hint">برای مرتب‌سازی روی سرستون بزن · با زدن روی هر ردیف انتخاب می‌شود</string>
     <string name="scanner_select_all">همه</string>
     <string name="scanner_select_none">هیچ</string>

@@ -112,5 +112,45 @@ async function cc(body) { const r = await req('/api/custom-config', { method:'PO
   check('panel page has the 🧪 custom config card + builder button', html.includes('id="ccCard"') && html.includes('id="ccGen"') && html.includes('/api/custom-config'));
   check('panel page has the Best Ping switch', html.includes('id="swBestPing"') && html.includes('s_bestping')); }
 
+// ---------- 5) the 🧪 card really drives the API (jsdom) ----------
+{
+  const { JSDOM } = await import('jsdom');
+  const env2 = { CAT_KV: new FakeKV(), UUID, OPEN_PANEL: 'true' };
+  const H = 'https://ui.workers.dev';
+  const html = await (await worker.fetch(new Request(H + '/panel'), env2, {})).text();
+  const errors = []; const sent = [];
+  const dom = new JSDOM(html, { url: H + '/', runScripts: 'dangerously', pretendToBeVisual: true, beforeParse(window) {
+    window.fetch = async (p2, init = {}) => {
+      const url = new URL(p2, H);
+      if (url.pathname === '/api/custom-config') sent.push(JSON.parse(init.body));
+      return worker.fetch(new Request(url, { method: init.method || 'GET', headers: init.headers || {}, body: init.body }), env2, {});
+    };
+    window.confirm = () => true;
+    window.addEventListener('error', (e) => errors.push(String(e.error && e.error.stack || e.message)));
+    window.console.error = (...x) => errors.push(x.join(' '));
+  } });
+  const { window } = dom; const { document } = window; const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  await sleep(300);
+  check('UI: panel loads without JS errors', errors.length === 0, errors.join('\n'));
+  check('UI: the card says what it is in plain words (title + hint translated)', !/cc_title|cc_hint/.test(document.querySelector('#ccCard').textContent));
+  document.querySelector('#ccAddr').value = '104.16.1.1:2053';
+  document.querySelector('#ccProto button[data-v="trojan"]').click();
+  document.querySelector('#ccPath button[data-v="random"]').click();
+  document.querySelector('#ccGen').click(); await sleep(300);
+  const b = sent[0] || {};
+  check('UI: the form sends exactly what was picked', b.addr === '104.16.1.1:2053' && b.proto === 'trojan' && b.pathMode === 'random' && b.ed === true, JSON.stringify(b));
+  const out = document.querySelector('#ccOut');
+  const boxes = out.querySelectorAll('textarea');
+  check('UI: link + Clash + sing-box + Xray boxes, each with a copy button', boxes.length === 4 && out.querySelectorAll('[data-copy]').length >= 4 && boxes[0].value.startsWith('trojan://') && boxes[0].value.includes('@104.16.1.1:2053?'), boxes.length + ' ' + (boxes[0] && boxes[0].value.slice(0, 60)));
+  check('UI: the «port from the address» warning is shown in words, not as a key', out.textContent.includes('⚠️') && !/cc_w_/.test(out.textContent), out.textContent.slice(0, 200));
+  document.querySelector('#ccPath button[data-v="custom"]').click();
+  check('UI: «custom path» reveals its field', document.querySelector('#ccPathV').style.display === '');
+  document.querySelector('#ccPathV').value = '/nope';
+  document.querySelector('#ccGen').click(); await sleep(300);
+  check('UI: a rejected path shows a plain error and no outputs', out.querySelectorAll('textarea').length === 0 && out.textContent.includes('✗') && !/cc_err_/.test(out.textContent), out.textContent.slice(0, 160));
+  check('UI: still no JS errors', errors.length === 0, errors.join('\n'));
+  window.close();
+}
+
 if (failures) { console.log(failures + ' bestping-custom check(s) FAILED'); process.exit(1); }
 console.log('all bestping-custom checks passed');

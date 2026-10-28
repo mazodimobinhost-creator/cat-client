@@ -669,12 +669,22 @@ object IpScanner {
         val uploadBps: Long? = null,
         /** Share of the ping samples that never connected (0..100). */
         val lossPct: Float = 0f,
-        /** Mean deviation between samples in ms — how steady the path is. */
+        /** Line jitter in ms: mean difference between consecutive TCP samples — how steady the path is. */
         val jitterMs: Long = 0L,
         /** How many samples the three numbers above are based on. */
         val sampleCount: Int = 0,
         /** True when a TLS/trace check was actually attempted on this row. */
         val verifyTls: Boolean = false,
+        /** 🏠 «My line»: median bare TCP connect from this phone (one round trip, no TLS). */
+        val lineMs: Long? = null,
+        /** ☁️ «Worker»: median request → first byte on a warm TLS connection that carries
+         *  the worker's SNI — the line PLUS Cloudflare running the worker. null = not measured. */
+        val workerMs: Long? = null,
+        val workerJitterMs: Long? = null,
+        val workerLossPct: Float? = null,
+        val workerColo: String? = null,
+        /** [PingJitterMeter.WorkerState] name, null = not measured yet. */
+        val workerState: String? = null,
     ) {
         val flag: String get() = countryCode?.toFlagEmoji() ?: "🌐"
 
@@ -782,22 +792,33 @@ object IpScanner {
         probePort(ip, port, ScanOptions(sni = sni, port = port, ports = listOf(port), includeBuiltin = false, includeIranLibrary = false, randomSample = false, connectTimeoutMs = connectTimeoutMs, tlsTimeoutMs = tlsTimeoutMs, verifyHttp = true))
 
     /** Result of [sampleTcp]: the average is the ping, the rest is its quality. */
-    internal data class PingStats(val avgMs: Long, val lossPct: Float, val jitterMs: Long, val answered: Int)
+    internal data class PingStats(val avgMs: Long, val lossPct: Float, val jitterMs: Long, val answered: Int, val medianMs: Long = avgMs)
+
+    /** Gap between two TCP samples: back-to-back connects measure the phone's socket
+     *  setup more than the path, and a burst hides the very variation jitter is about. */
+    internal const val SAMPLE_GAP_MS = 25L
 
     /** [count] TCP connects to the same endpoint. Cheap (no DNS, no SNI) and the
-     *  only latency a phone can measure without root — ICMP is unavailable. */
+     *  only latency a phone can measure without root — ICMP is unavailable.
+     *  Jitter is the mean difference between CONSECUTIVE samples (the speed-test /
+     *  RFC 3550 idea) — the old «distance from the average» hid a path that swings
+     *  between two values on every packet. */
     internal fun sampleTcp(ip: String, port: Int, count: Int, timeoutMs: Int): PingStats? {
         val n = count.coerceIn(1, 20)
-        val times = ArrayList<Long>(n)
-        var lost = 0
-        repeat(n) {
-            val ms = tcpConnect(ip, port, timeoutMs)
-            if (ms == null) lost += 1 else times += ms
+        val raw = ArrayList<Long?>(n)
+        repeat(n) { i ->
+            if (i > 0) runCatching { Thread.sleep(SAMPLE_GAP_MS) }
+            raw += tcpConnect(ip, port, timeoutMs)
         }
-        if (times.isEmpty()) return null
-        val avg = times.average().toLong()
-        val jitter = times.map { kotlin.math.abs(it - avg) }.average().toLong()
-        return PingStats(avg, lost * 100f / n, jitter, times.size)
+        val stats = PingJitterMeter.Stats.of(raw)
+        if (stats.answered == 0) return null
+        return PingStats(
+            avgMs = stats.samples.average().toLong(),
+            lossPct = stats.lossPct,
+            jitterMs = stats.jitterMs ?: 0L,
+            answered = stats.answered,
+            medianMs = stats.medianMs ?: 0L,
+        )
     }
 
     /**
@@ -848,6 +869,7 @@ object IpScanner {
                 sampleCount = stats.answered,
                 countryName = detectEdgeLabelForIp(ip, null),
                 sourceRange = sourceRange,
+                lineMs = stats.medianMs,
             )
         }
         val verifyTls = options.verifyHttp || options.sni.isNotBlank()
@@ -892,6 +914,7 @@ object IpScanner {
             jitterMs = stats.jitterMs,
             sampleCount = stats.answered,
             verifyTls = verifyTls,
+            lineMs = stats.medianMs,
         )
     }
 

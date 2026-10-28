@@ -8323,6 +8323,24 @@ class MainActivity : Activity() {
         }
         body.addView(quickScanToolsRow1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         body.addView(quickScanToolsRow2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        // ⏱ One exact ip:port, measured long: my line vs through the worker.
+        body.addView(
+            MaterialButton(this).apply {
+                text = if (isFarsiScanner) "⏱ پینگ و جیتر دقیق (خط من / ورکر)" else "⏱ Precise ping & jitter (line / worker)"
+                textSize = 12f
+                typeface = CatClientBodyBoldTypeface
+                isAllCaps = false
+                cornerRadius = dp(10)
+                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
+                setTextColor(TEAL)
+                insetTop = 0
+                insetBottom = 0
+                setOnClickListener { showPingJitterPage() }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        )
 
         // 🔎 «منابع اسکن» — the card that answers «منبع نداره اسکن کنه».
         val sourcesCard = LinearLayout(this).apply {
@@ -8987,17 +9005,26 @@ class MainActivity : Activity() {
                 scannerSniPreference(),
                 scannerPortPreference(),
             )
-            // ⚡ Advanced: record the run (best ms + verified count), then a
-            // jitter pass — two extra handshakes for the top verified hits.
+            // ⚡ Advanced: record the run (best ms + verified count), then the
+            // 🏠/☁️ pass: real ping + jitter of the best rows on YOUR line (TCP) and
+            // through the worker (warm TLS, request → first byte), per exact ip:port.
             saveScanHistoryRun(found.filter { it.tlsOk }.minByOrNull { it.pingMs }?.pingMs?.toInt(), found.count { it.tlsOk }, found.size)
-            scannerJitterMs = withContext(Dispatchers.IO) {
-                val out = mutableMapOf<String, Int>()
-                for (r in found.filter { it.tlsOk }.take(8)) {
-                    val pings = mutableListOf(r.pingMs)
-                    repeat(2) { runCatching { IpScanner.reprobeOnce(r.ip, sni, r.port) }.getOrNull()?.let { pings += it.pingMs } }
-                    out[r.ip] = ((pings.maxOrNull() ?: r.pingMs) - (pings.minOrNull() ?: r.pingMs)).toInt()
+            renderScannerResults()
+            val measureRows = scannerResults.filter { it.tlsOk }.take(SCANNER_MEASURE_ROWS)
+            if (measureRows.isNotEmpty()) {
+                val farsiMeasure = appLanguagePreferenceStore.read() == AppLanguage.Persian
+                scannerStatusText.text = if (farsiMeasure) {
+                    "⏱ سنجش پینگ و جیتر ${measureRows.size} آی‌پی برتر: روی خط تو و از راه ورکر…"
+                } else {
+                    "⏱ Measuring ping & jitter of the top ${measureRows.size}: on your line and through the worker…"
                 }
-                out
+                val measured = withContext(Dispatchers.IO) {
+                    val workerHost = runCatching { scannerWorkerHost(sni) }.getOrNull()
+                    measureScannerRows(measureRows, workerHost)
+                }
+                // A new scan started meanwhile: its rows are not ours to rewrite.
+                if (scannerRunning) return@launch
+                scannerResults = scannerResults.map { measured[scannerRowKey(it)] ?: it }
             }
             renderScanHistory()
             renderScannerResults()
@@ -9973,7 +10000,6 @@ class MainActivity : Activity() {
     private lateinit var scannerForeignList: LinearLayout
     private lateinit var scannerForeignShareButton: MaterialButton
     private val scannerForeignResults = linkedMapOf<String, ForeignServiceProbeResult>()
-    private var scannerJitterMs: Map<String, Int> = emptyMap()
     private var scannerCountryText: TextView? = null
     private var scannerHistoryText: TextView? = null
     /** Set by [onTrimMemory] when the system reports a low heap: fewer rows, same data. */
@@ -10046,11 +10072,14 @@ class MainActivity : Activity() {
     /** Applies the column the owner sorted on; rows with no value for it sink to the bottom. */
     private fun scannerSortedRows(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> {
         val cmp: Comparator<IpScanner.ScanResult> = when (scannerSortKey) {
-            "jitter" -> compareBy<IpScanner.ScanResult> { scannerJitterMs[it.ip] ?: Int.MAX_VALUE }
+            // ☁️ worker: measured rows first (fastest worker answer), unmeasured/failed sink.
+            "worker" -> compareBy<IpScanner.ScanResult> { it.workerMs ?: Long.MAX_VALUE }
+            "jitter" -> compareBy<IpScanner.ScanResult> { it.workerJitterMs ?: it.jitterMs }
             "speed" -> compareByDescending<IpScanner.ScanResult> { it.speedBps ?: -1L }
             "country" -> compareBy<IpScanner.ScanResult>({ it.countryCode ?: "zz" }, { it.pingMs })
             "ip" -> compareBy<IpScanner.ScanResult> { it.ip }
-            else -> compareBy<IpScanner.ScanResult> { it.pingMs }
+            // 🏠 line: the measured median when there is one, the scan ping otherwise.
+            else -> compareBy<IpScanner.ScanResult> { it.lineMs ?: it.pingMs }
         }
         val ordered = list.sortedWith(cmp.thenBy { it.pingMs }.thenBy { it.ip })
         return if (scannerSortAsc) ordered else ordered.reversed()
@@ -10171,10 +10200,11 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(dp(26), -2),
         )
         row.addView(head(getString(R.string.scanner_col_address), "ip", Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(head(getString(R.string.scanner_col_country), "country", Gravity.CENTER), LinearLayout.LayoutParams(dp(54), -2))
-        row.addView(head(getString(R.string.scanner_col_ping), "ping", Gravity.CENTER), LinearLayout.LayoutParams(dp(56), -2))
-        row.addView(head(getString(R.string.scanner_col_jitter), "jitter", Gravity.CENTER), LinearLayout.LayoutParams(dp(46), -2))
-        row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(78), -2))
+        row.addView(head(getString(R.string.scanner_col_country), "country", Gravity.CENTER), LinearLayout.LayoutParams(dp(44), -2))
+        row.addView(head(getString(R.string.scanner_col_line), "ping", Gravity.CENTER), LinearLayout.LayoutParams(dp(46), -2))
+        row.addView(head(getString(R.string.scanner_col_worker), "worker", Gravity.CENTER), LinearLayout.LayoutParams(dp(50), -2))
+        row.addView(head(getString(R.string.scanner_col_jitter), "jitter", Gravity.CENTER), LinearLayout.LayoutParams(dp(40), -2))
+        row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(54), -2))
         return row
     }
 
@@ -10393,12 +10423,87 @@ class MainActivity : Activity() {
         }
 
     /**
+     * «🏠 line 38ms ±4 · ☁️ worker 61ms ±9 FRA (+23)» — ping AND jitter of this exact
+     * ip:port on the phone's own line and through the worker. null = nothing measured yet:
+     * the scan's own sample count tells whether the line numbers are real.
+     */
+    private fun scannerMeasureLine(r: IpScanner.ScanResult): String? {
+        val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val lineMs = r.lineMs ?: if (r.sampleCount >= 2) r.pingMs else null
+        if (lineMs == null && r.workerState == null) return null
+        return buildString {
+            append(if (fa) "🏠 خط من " else "🏠 line ")
+            if (lineMs != null) {
+                append(lineMs).append("ms")
+                if (r.sampleCount >= 2) append(" ±").append(r.jitterMs)
+                if (r.lossPct >= 1f) append(" ").append(r.lossPct.toInt()).append("%✗")
+            } else {
+                append("—")
+            }
+            val state = r.workerState ?: return@buildString
+            val edge = state == PingJitterMeter.WorkerState.EDGE.name
+            append(if (edge) { if (fa) "  ·  ☁️ لبه " else "  ·  ☁️ edge " } else { if (fa) "  ·  ☁️ ورکر " else "  ·  ☁️ worker " })
+            val w = r.workerMs
+            if (w != null) {
+                append(w).append("ms")
+                r.workerJitterMs?.let { append(" ±").append(it) }
+                r.workerLossPct?.takeIf { it >= 1f }?.let { append(" ").append(it.toInt()).append("%✗") }
+                r.workerColo?.let { append(" ").append(it) }
+                if (lineMs != null) append(" (+").append((w - lineMs).coerceAtLeast(0L)).append(")")
+            } else {
+                val ws = runCatching { PingJitterMeter.WorkerState.valueOf(state) }.getOrNull()
+                append("✗ ").append(if (ws != null) PingJitterMeter.stateLabel(ws, fa) else state)
+            }
+        }
+    }
+
+    /**
+     * The worker the ☁️ column measures through: a deployed Cat panel first, then the
+     * worker host baked into the subscriptions, then the scan SNI when it is a
+     * workers.dev name. Vercel and bare-IP panels cannot ride a Cloudflare IP → null
+     * (the column then measures Cloudflare's own edge and says so). Reads storage: IO only.
+     */
+    private fun scannerWorkerHost(scanSni: String?): String? {
+        fun usable(h: String?): String? {
+            val host = h?.trim()?.lowercase(Locale.US)?.trimEnd('.').orEmpty()
+            if (host.isEmpty() || !host.contains('.') || host.contains(':')) return null
+            if (host.all { it.isDigit() || it == '.' }) return null
+            if (PingJitterMeter.isNonCloudflareHost(host)) return null
+            return host
+        }
+        runCatching { PanelDeploymentStore(this).deployments() }.getOrNull().orEmpty().forEach { d ->
+            usable(runCatching { java.net.URI(d.workerUrl).host }.getOrNull())?.let { return it }
+        }
+        usable(runCatching { detectPanelSniFromSubscriptions() }.getOrNull())
+            ?.takeIf { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") || !IpScanner.RECOMMENDED_SNIS.contains(it) }
+            ?.let { return it }
+        return usable(scanSni)?.takeIf { it.endsWith(".workers.dev") }
+    }
+
+    /** 🏠/☁️ pass over [rows]: 6 TCP samples + 6 warm-TLS worker samples each, 4 at a time. */
+    private suspend fun measureScannerRows(
+        rows: List<IpScanner.ScanResult>,
+        workerHost: String?,
+    ): Map<String, IpScanner.ScanResult> = kotlinx.coroutines.coroutineScope {
+        val gate = Semaphore(4)
+        rows.map { r ->
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    val report = runCatching {
+                        PingJitterMeter.measure(r.ip, r.port, workerHost, lineSamples = 6, workerSamples = 6)
+                    }.getOrNull() ?: return@withPermit null
+                    scannerRowKey(r) to PingJitterMeter.applyTo(r, report)
+                }
+            }
+        }.awaitAll().filterNotNull().toMap()
+    }
+
+    /**
      * One result as a column row: ☑ · address (+ provenance) · country · ping ·
      * jitter · speed. Tapping the row ticks it; long-press copies the address.
      */
     private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
         val selected = scannerSelected.contains(scannerRowKey(result))
-        val jitter = scannerJitterMs[result.ip]
         val speed = result.speedBps
         val up = result.uploadBps
         val location = if (!result.countryCode.isNullOrBlank()) {
@@ -10407,7 +10512,6 @@ class MainActivity : Activity() {
             result.colo?.takeIf { it.isNotBlank() } ?: getString(R.string.scanner_result_edge_fallback)
         }
         val metrics = buildString {
-            if (jitter != null) append(" · ±").append(jitter)
             when {
                 speed != null && up != null -> append(" · ").append(getString(R.string.scanner_result_speeds, speed / 1_000_000.0, up / 1_000_000.0))
                 speed != null -> append(" · ").append(getString(R.string.scanner_result_speed, speed / 1_000_000.0))
@@ -10433,6 +10537,7 @@ class MainActivity : Activity() {
                 append(" · ").append(getString(R.string.scanner_result_ping, result.pingMs))
                 append(metrics)
                 append(" · ").append(location)
+                scannerMeasureLine(result)?.let { append('\n').append(it) }
             }
             textSize = 12.5f
             typeface = CatClientDataTypeface
@@ -17366,6 +17471,9 @@ class MainActivity : Activity() {
             "کاتابامپ نود هاست katabump lucity shiprr node host") { openScreen(SCREEN_CLOUD) },
         FinderEntry("⚡ تست سرعت", "⚡ Speed test", "سرعت دانلود و آپلود را از داخل تونل اندازه می‌گیرد.",
             "Measures download/upload speed through the tunnel.", "سرعت اسپید speed test") { showSpeedTestPage() },
+        FinderEntry("⏱ پینگ و جیتر دقیق", "⏱ Precise ping & jitter", "پینگ و جیتر یک آی‌پی:پورت را روی خط خودت و از راه ورکر کنار هم نشان می‌دهد.",
+            "Shows ping and jitter of one IP:port on your own line and through the worker, side by side.",
+            "پینگ جیتر تاخیر ping jitter latency خط ورکر worker") { showPingJitterPage() },
         FinderEntry("🗺 نقشهٔ سرورها", "🗺 Server map", "سرورها را روی نقشه نشان می‌دهد.", "Shows servers on a map.",
             "نقشه map") { showMapPage() },
         FinderEntry("📡 پروکسی SOCKS5 / تلگرام", "📡 SOCKS5 / Telegram proxies", "پروکسی‌های عمومی را پیدا و تست می‌کند.",
@@ -24435,6 +24543,22 @@ class MainActivity : Activity() {
     }
 
     /**
+     * ⏱ Precise ping & jitter page. Prefills the ticked (or best verified) scanner row with
+     * its exact port, and the worker the scanner measures through — never a made-up value:
+     * with no scan yet the target is the worker domain itself on 443.
+     */
+    private fun showPingJitterPage() {
+        val farsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            val worker = withContext(Dispatchers.IO) { runCatching { scannerWorkerHost(null) }.getOrNull() }
+            val picked = scannerResults.firstOrNull { scannerSelected.contains(scannerRowKey(it)) }
+                ?: scannerResults.filter { it.tlsOk }.minByOrNull { it.workerMs ?: it.lineMs ?: it.pingMs }
+            val target = picked?.authority ?: worker?.let { "$it:443" }
+            PingJitterPage(this@MainActivity, palette, activityScope, farsi, target, worker, vpnOn = currentVpnStateIsStarted()).show()
+        }
+    }
+
+    /**
      * Panel base for push APIs (ips / extraSnis). Priority: KNOWN deployments
      * recorded in this app (deploys + Add-existing + wizard) — never a guess;
      * falls back to panel hosts detected inside subscriptions only when no
@@ -30628,6 +30752,8 @@ class MainActivity : Activity() {
         const val SCANNER_PORT_KEY = "scanner_port"
         val SCANNER_PORTS = setOf(443, 2053, 2083, 8443)
         const val DEFAULT_SCANNER_SNI = "skk.moe"
+        /** Rows the 🏠/☁️ ping-jitter pass measures after a scan (best verified first). */
+        const val SCANNER_MEASURE_ROWS = 12
         const val SCANNER_BUILD_LIMIT = 12
         val SCANNER_BUILD_PORTS = listOf(80, 443, 2053)
         const val SCANNER_VISIBLE_RESULTS = 40

@@ -248,6 +248,7 @@ jobs:
           # beta196: first-connection clock, per-user operator profile + exact-port clean IPs,
           # ⚡ quick user, scanner → user, installable panel (driven through the real UI)
           node scripts/panels/devcop-parity.test.mjs
+          node scripts/panels/bestping-custom.test.mjs
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated

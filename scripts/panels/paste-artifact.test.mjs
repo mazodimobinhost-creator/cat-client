@@ -70,7 +70,11 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 640 000 → 660 000 for 6.70.0: validity from the first connection, per-user operator
   // profile + per-user exact-port clean IPs, ⚡ quick user, scanner → «save fastest to a user»,
   // the installable-app manifest/icon routes and their bilingual strings — measured 642 301 B.
-  ok('raw size is in the paste range (300–660 KB)', asset.length >= 300_000 && asset.length <= 660_000, asset.length);
+  // Raised 660 000 → 680 000 for 6.71.0: the 🚀 Best Ping Xray config (leastPing balancer +
+  // observatory), sing-box early data, and the 🧪 custom single-config builder (server builder
+  // for link/Clash/sing-box/Xray, its API route, the UI card and bilingual hints/warnings) —
+  // measured 666 362 B.
+  ok('raw size is in the paste range (300–680 KB)', asset.length >= 300_000 && asset.length <= 680_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -103,7 +107,12 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised from 192 000 to 196 000 for 6.70.0: the DevCop-parity user features (first-connection
   // clock, per-user operator profile and exact-port clean IPs, ⚡ quick user, scanner → user, the
   // installable-app manifest) and their fa/en strings — measured 192 100 B (~3.4 KB gzip).
-  ok('gzip stays under the 196 KB regression budget', gz < 196_000, gz);
+  // Raised from 196 000 to 202 000 for 6.71.0: 🚀 Best Ping (one Xray config that keeps every
+  // exit behind a leastPing balancer + observatory), sing-box early data, and the 🧪 custom
+  // single-config builder (exact IP:port, TLS by port family, Host/SNI, random-case SNI, random
+  // path, early data, fingerprint, ALPN, fragment, ECH; four output shapes + warnings, fa/en) —
+  // measured 199 166 B (~7 KB gzip over 6.70.0).
+  ok('gzip stays under the 202 KB regression budget', gz < 202_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).
