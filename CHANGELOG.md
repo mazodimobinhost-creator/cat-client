@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta199] — 2026-10-28 (Panel 6.73.0)
+
+### Changed — panel 6.73.0 «Cat Clean» (DevCop-level look, own code, Cat branding)
+- **New light default skin** with a right sidebar (logo, version, line icons, active pill; logout / skin / dark at the bottom), a page header with the gradient «+ new user», refresh and ⌘ command palette, white 16px cards, gradient primary and grey pill buttons. Existing panels move to it once; every dark skin is still one tap away. Mobile keeps the bottom dock.
+- **Dashboard** tiles (users, traffic, online devices, expired, clean IPs, configs per sub), quick actions, service status and a top-users table. **Tools page** (ping, route, CF port test, DC tracker, domain check) with a «📖 how-to» on each.
+- **User form = centered tabbed modal**: Basic · Quota (days, first-use start, volume, device cap) · Connection/anti-DPI (carrier profile + live summary of what the user’s configs will use) · IPs & location (own clean IPs with the exact port, «5 fastest from my last test», **fill from a pool**) · Links. A required field on a hidden tab switches to that tab instead of silently blocking save.
+- **Links tab / 🔗 per-user button**: Base64, sing-box, Xray JSON and Clash Meta cards (copy · QR · open), the status page, Cat Client / v2rayNG / Hiddify buttons, and the **list of every config in that subscription with «copy all»**.
+- **Users table**: checkboxes + **bulk bar** (enable, disable, +30 days, copy links, delete with confirmation). Quick user shows a red «add clean IPs» notice when neither the user nor the panel has one.
+- **IP scanner**: new **range scanner from your own line** — Cloudflare range preset or your own CIDRs/IPs, port, count, random picks, parallelism, start/stop, «N tested · M healthy», select the best 5/10/100, then send them to the panel, one user or a **named pool**. Every IP is saved with exactly the port it was tested on. **IP pools card** (create from addresses, copy, delete); pools are stored in settings (`ipPools`, ≤20 × 100, cleaned server-side).
+- **Settings**: collapsible sections (remembered), expand/collapse all, and a **sticky save / discard-changes bar** that lights up on unsaved edits; anything another page scrolls to opens its section.
+- **`/status/<id>` page redesigned**: avatar, name, active/blocked pill, dark toggle; usage / validity / devices / protocols stats; the 4 subscription formats with copy + QR; carrier-specific links; app buttons; every single config with copy, QR and «copy all» (loaded by a relative path, so it works on any domain).
+
+### Tests
+- `clean-shell.test.mjs`: pool normalization (caps, junk, exact ports, persistence), every new control on the page, the `/status` page content, blocked user, 404.
+
 ## [1.10.0-beta198] — 2026-10-28 (Panel 6.72.0)
 
 ### Added — app

@@ -74,7 +74,12 @@ const source = readFileSync(sourcePath, 'utf8');
   // observatory), sing-box early data, and the 🧪 custom single-config builder (server builder
   // for link/Clash/sing-box/Xray, its API route, the UI card and bilingual hints/warnings) —
   // measured 666 362 B.
-  ok('raw size is in the paste range (300–680 KB)', asset.length >= 300_000 && asset.length <= 680_000, asset.length);
+  // Raised 680 000 → 790 000 for 6.73.0 «Cat Clean»: the new light shell (sidebar, page header,
+  // line-icon set, tools page, dashboard tiles, ⌘ palette), the tabbed user modal with the links
+  // tab and per-config list, the range scanner + IP pools, bulk user actions, settings accordions
+  // and the redesigned /status page, all bilingual — measured 763 882 B (still far below the
+  // 1 MB / 3 MB Workers limits and pasteable in the dashboard editor).
+  ok('raw size is in the paste range (300–790 KB)', asset.length >= 300_000 && asset.length <= 790_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -112,7 +117,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // single-config builder (exact IP:port, TLS by port family, Host/SNI, random-case SNI, random
   // path, early data, fingerprint, ALPN, fragment, ECH; four output shapes + warnings, fa/en) —
   // measured 199 166 B (~7 KB gzip over 6.70.0).
-  ok('gzip stays under the 202 KB regression budget', gz < 202_000, gz);
+  // Raised 202 000 → 236 000 for 6.73.0 «Cat Clean» (see the raw-size note above) — measured
+  // 228 929 B (~30 KB gzip over 6.72.0).
+  ok('gzip stays under the 236 KB regression budget', gz < 236_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

@@ -1,4 +1,4 @@
-<!doctype html><html lang="fa" dir="rtl" data-theme="aurora"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>Cat Panel</title>
+<!doctype html><html lang="fa" dir="rtl" data-theme="clean"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07060d"><title>Cat Panel</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2064%2064%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20aria-hidden%3D%22true%22%20style%3D%22display%3Ablock%3Bwidth%3A100%25%3Bheight%3A100%25%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22cgf%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%2300e1c1%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%232ef2d6%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Cpath%20fill%3D%22url(%23cgf)%22%20d%3D%22M32%2013.5C27.5%207%2019%203.8%209.5%204.9c1.8%205.7%202.2%2011.6%201.2%2016.9C7.1%2027%205.5%2032.3%205.5%2037.6%205.5%2050.4%2017.3%2058.5%2032%2058.5s26.5-8.1%2026.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2%201.2-16.9C45%203.8%2036.5%207%2032%2013.5Z%22%2F%3E%3Ccircle%20cx%3D%2222.8%22%20cy%3D%2234.5%22%20r%3D%223.2%22%20fill%3D%22%2305302a%22%2F%3E%3Ccircle%20cx%3D%2241.2%22%20cy%3D%2234.5%22%20r%3D%223.2%22%20fill%3D%22%2305302a%22%2F%3E%3Cpath%20fill%3D%22%2305302a%22%20d%3D%22M28.6%2044h6.8L32%2049z%22%2F%3E%3C%2Fsvg%3E"><link rel="manifest" href="/app.webmanifest">
 <style>
 /* ───────── Cat Panel design system v2 — «Cat Glass» ─────────
@@ -77,6 +77,15 @@
 --glow:rgba(2,132,199,.30);--nav-bg:rgba(2,132,199,.12);
 --wall:radial-gradient(1100px 680px at 8% -12%,rgba(14,165,233,.18),transparent 62%),radial-gradient(920px 620px at 94% 2%,rgba(99,102,241,.15),transparent 60%),linear-gradient(180deg,#f8fafc,#eef2f9 62%);
 --wall2:radial-gradient(560px 420px at 16% 10%,rgba(14,165,233,.22),transparent 70%),radial-gradient(620px 470px at 84% 80%,rgba(99,102,241,.18),transparent 72%)}
+[data-theme=clean]{
+--bg:#f4f7fb;--bg2:#edf2f9;--flat:#fff;--card:#fff;--card2:#f7f9fc;--glass:#fff;
+--line:rgba(15,23,42,.08);--line2:rgba(37,99,235,.30);--b05:rgba(15,23,42,.035);--text:#0f172a;--mute:#4b5a70;--dim:#66748a;--input-bg:#f8fafc;
+--sh:0 1px 2px rgba(15,23,42,.05),0 10px 28px -16px rgba(15,23,42,.16);--sheen:none;--blur:0px;
+--violet:#2563eb;--violet2:#1d4ed8;--fuchsia:#0ea47a;--pink:#7c3aed;--cyan:#0369a1;--blue:#2563eb;--lime:#059669;--green:#059669;--amber:#b45309;--red:#dc2626;
+--glow:rgba(37,99,235,.25);--nav-bg:rgba(37,99,235,.08);--surface:#fff;--surface2:#f3f6fb;--muted:#4b5a70;--accent:#2563eb;
+--wall:radial-gradient(900px 560px at 100% -10%,rgba(37,99,235,.08),transparent 60%),radial-gradient(800px 520px at 0% 110%,rgba(16,185,129,.07),transparent 60%),linear-gradient(180deg,#f6f9fd,#eef3f9);
+--wall2:none}
+[data-theme=clean] .btn.p,[data-theme=daylight] .btn.p{color:#fff}
 .mbdock{display:none}
 @media(max-width:860px){body{padding-bottom:78px}.mbdock{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:38;display:grid;grid-template-columns:repeat(6,1fr);gap:4px;padding:6px;border-radius:20px;background-image:var(--sheen);background-color:var(--glass);-webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);border:1px solid var(--line2);box-shadow:var(--sh)}.mbdock button{min-height:44px;border:0;background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 2px;border-radius:14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:background .2s,color .2s}.mbdock button b{font-size:16px;line-height:1}.mbdock button.on{background:var(--nav-bg);color:var(--violet2)}}
 /* Browsers without backdrop-filter get opaque surfaces instead of unreadable ones. */
@@ -427,6 +436,164 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 .pbar-lbl{font-size:12px;color:var(--cyan);margin-bottom:4px}
 .pbar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden}
 .pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
+
+.bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin-bottom:10px;border-radius:14px;border:1px solid var(--accent,#3b82f6);background:rgba(59,130,246,.08);position:sticky;top:76px;z-index:5}
+.tbl tr.selr td{background:rgba(59,130,246,.06)}
+.uc .hd input[type=checkbox]{margin-inline-end:4px}
+#v-settings .sec.acc>h2{cursor:pointer;user-select:none;margin-bottom:0;padding-block:2px}
+#v-settings .sec.acc>h2::after{content:'';margin-inline-start:auto;width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;flex:none}
+#v-settings .sec.acc.shut>h2::after{transform:rotate(-45deg)}
+html[dir=rtl] #v-settings .sec.acc.shut>h2::after{transform:rotate(135deg)}
+#v-settings .sec.acc:not(.shut)>h2{margin-bottom:12px}
+#v-settings .sec.acc.shut>*:not(h2){display:none!important}
+#v-settings .sec.acc.shut{padding-block:14px}
+.accbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+#setSaveBar>h2{display:none}#setSaveBar{padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}#setSaveBar>.row{margin:0!important}
+@media(max-width:900px){#setSaveBar{bottom:96px!important}}
+#setSaveBar{position:sticky;bottom:10px;z-index:30;box-shadow:0 10px 30px rgba(15,23,42,.16);backdrop-filter:blur(8px)}
+#setSaveBar.dirty{outline:2px solid var(--accent,#3b82f6);outline-offset:-2px}
+#setSaveBar.dirty #saveState{color:var(--amber);font-weight:700}
+/* ───── beta199 «Cat Clean» shell (all skins): right sidebar + page header + calm cards ───── */
+.side::after{display:none}
+.side .sbrand{padding:20px 18px 14px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.side .sbrand .lg{width:40px;height:40px;border-radius:12px}
+.side .sbrand small{display:block;font-size:12px;font-weight:600;color:var(--dim);margin-top:1px}
+.sb-nav .sbg{font-size:12px;font-weight:700;color:var(--dim);padding:12px 12px 4px;letter-spacing:.2px}
+.sb-nav>button{min-height:44px;font-size:13.5px}
+.sb-nav>button.on::before{display:none}
+.side .sb-bot{display:flex;gap:8px;justify-content:center;padding:12px;border-top:1px solid var(--line)}
+.side .sb-bot>a,.side .sb-bot>button{width:44px;height:44px;padding:0;justify-content:center;border:1px solid var(--line);border-radius:12px;flex:none}
+.side .sb-bot>a{color:var(--red)}
+#btnDark .sun{display:none}
+html:is([data-theme=clean],[data-theme=daylight]) #btnDark .sun{display:block}
+html:is([data-theme=clean],[data-theme=daylight]) #btnDark .moon{display:none}
+.pgt{display:none;min-width:0}
+.pgt b{display:block;font-size:17px;font-weight:800;line-height:1.35}
+.pgt small{display:block;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52vw}
+.tnew{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 18px;border-radius:12px;border:0;color:#fff;font-weight:700;font-size:13.5px;background-image:linear-gradient(135deg,var(--violet),var(--fuchsia));box-shadow:0 8px 20px -10px var(--glow);margin-inline-start:auto;white-space:nowrap}
+.tnew:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.tnew svg{width:18px;height:18px}
+.tools{margin-inline-start:0}
+.sbtog{display:none}
+@media(min-width:1080px){
+ body .side{display:flex!important}
+ .top{display:block;margin-inline-start:var(--sb-w)}
+ .topin{max-width:none;padding:12px 26px}
+ .top .brand{display:none}
+ .pgt{display:block}
+ .sbtog{display:grid}
+ .vhead{display:none}
+ body.sbmini{--sb-w:78px}
+ body.sbmini .side .lbl,body.sbmini .side .sbg,body.sbmini .side .sbrand>div:last-child{display:none}
+ body.sbmini .sb-nav>button{justify-content:center}
+ body.sbmini .side .sb-bot{flex-direction:column;align-items:center}
+}
+@media(max-width:1079px){.tnew .lbl{display:none}.tnew{padding:0 13px}}
+/* dashboard */
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px}
+.dgrid>.sec{margin-bottom:0}
+.qa{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.qa button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--b05);text-align:start;min-height:72px;font-weight:700;font-size:13px;color:var(--text);transition:border-color .2s,background .2s,transform .25s var(--spring)}
+.qa button svg{width:20px;height:20px;color:var(--violet)}
+.qa button small{font-weight:500;color:var(--mute);font-size:12px;line-height:1.5}
+.qa button:hover{border-color:var(--glow);background:var(--nav-bg);transform:translateY(-1px)}
+.st .s2{display:block;margin-top:6px;font-size:12px;color:var(--mute);font-weight:600}
+.tu{width:100%;border-collapse:collapse;font-size:13px}
+.tu th{font-size:12px;color:var(--dim);font-weight:700;text-align:start;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tu td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tu tr:last-child td{border-bottom:0}
+.tu .bar{min-width:110px;margin-top:5px}
+.pwab{display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px}
+.pwab.show{display:flex}
+.pwab .t{flex:1;min-width:200px;font-size:13px}
+.hq{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);font-size:12px;color:var(--mute);cursor:help;margin-inline-start:4px;flex:none}
+/* tools page */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.tgrid>.sec{margin:0}
+@media(max-width:420px){.tgrid{grid-template-columns:1fr}}
+details.how{margin-top:12px;border:1px dashed var(--line2);border-radius:12px;padding:0 12px}
+details.how>summary{min-height:44px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;font-size:13px;color:var(--violet);list-style:none}
+details.how>summary::-webkit-details-marker{display:none}
+details.how[open]{padding-bottom:10px}
+details.how>div{font-size:13px;line-height:1.9;color:var(--mute)}
+.tres{display:grid;gap:6px;margin-top:10px}
+.tres>div{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;background:var(--b05)}
+.tres .ok{color:var(--green);font-weight:700}.tres .bad{color:var(--red);font-weight:700}.tres .warn{color:var(--amber);font-weight:700}
+.tsub{font-size:13px;color:var(--mute);line-height:1.8;margin:-4px 0 10px}
+/* command palette */
+.cmdk{position:fixed;inset:0;z-index:97;display:none;align-items:flex-start;justify-content:center;padding:12vh 16px 16px;background:rgba(8,10,16,.55)}
+.cmdk.show{display:flex}
+.cmdk .box{width:min(560px,100%);background:var(--surface,#12141c);border:1px solid var(--line2);border-radius:18px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);overflow:hidden}
+.cmdk input{border:0;border-bottom:1px solid var(--line);border-radius:0;font-size:15px;padding:16px 18px;background:transparent}
+.cmdk input:focus{box-shadow:none}
+.cmdk ul{list-style:none;max-height:56vh;overflow:auto;padding:6px}
+.cmdk li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;font-size:13.5px;min-height:44px}
+.cmdk li svg{color:var(--violet);flex:none}
+.cmdk li.on,.cmdk li:hover{background:var(--nav-bg)}
+.cmdk li small{margin-inline-start:auto;color:var(--dim);font-size:12px}
+.cmdk .kb{font-size:12px;color:var(--dim);padding:8px 14px;border-top:1px solid var(--line)}
+.flash{outline:3px solid var(--violet);outline-offset:3px;border-radius:12px}
+/* user modal (beta199): centered card with tabs instead of a side drawer */
+.drawer .pn{inset:auto;top:50%;left:50%;transform:translate(-50%,-50%);width:min(780px,calc(100% - 20px));max-height:calc(100vh - 32px);border-radius:20px;border:1px solid var(--line2);padding:20px 20px 18px}
+.utabs{display:flex;gap:6px;overflow-x:auto;margin:14px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.utabs button{flex:none;min-height:44px;padding:0 14px;border-radius:12px 12px 0 0;border:1px solid transparent;border-bottom:0;font-weight:700;font-size:13px;color:var(--mute);background:none}
+.utabs button.on{color:var(--violet);background:var(--nav-bg);border-color:var(--line2)}
+.upane{display:none}
+.pn[data-tab=base] .upane[data-up=base],.pn[data-tab=quota] .upane[data-up=quota],.pn[data-tab=conn] .upane[data-up=conn],.pn[data-tab=ip] .upane[data-up=ip]{display:block}
+.pn[data-tab=links] #fUser{display:none}
+.pn:not([data-tab=links]) #dLinks{display:none}
+.pn.nolinks #uTabLinks{display:none}
+.ufoot{display:flex;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+#dLinks{margin-top:14px}
+.lnk4{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.lnk4>div{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--b05)}
+.lnk4 .hd{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13.5px;margin-bottom:8px}
+.lnk4 .hd small{font-weight:500;color:var(--mute);font-size:12px}
+.lnk4 input{font-size:12px}
+.lnk4 .row{gap:6px;margin-top:8px;flex-wrap:wrap}
+.cfgl{display:grid;gap:6px;margin-top:8px;max-height:340px;overflow:auto}
+.cfgl>div{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:12.5px}
+.cfgl>div>b{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:8px;background:var(--nav-bg);color:var(--violet);font-size:12px}
+.cfgl>div>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tgrid label{display:block;font-size:12.5px;font-weight:600;color:var(--mute);margin:6px 0}
+.ncard b{font-size:14px}
+@media(min-width:1080px){.burger{display:none!important}.tools>a[href="/logout"]{display:none}#v-dash .stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* ───── light skins (clean + daylight): no dark glass leftovers ───── */
+html:is([data-theme=clean],[data-theme=daylight]){scrollbar-color:rgba(15,23,42,.25) transparent}
+html:is([data-theme=clean],[data-theme=daylight]) ::-webkit-scrollbar-thumb{background:rgba(15,23,42,.18);background-clip:content-box}
+html:is([data-theme=clean],[data-theme=daylight]) select option{background:#fff;color:#0f172a}
+html:is([data-theme=clean],[data-theme=daylight]) .top{background-color:rgba(255,255,255,.86);border-bottom:1px solid var(--line)}
+html:is([data-theme=clean],[data-theme=daylight]) .side{background-color:#fff;box-shadow:0 0 0 1px var(--line),12px 0 32px -26px rgba(15,23,42,.25)}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.drawer .pn,.askbox,.mpanel,.tpick .tpbox,.cmdk .box,.mbdock){background-color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .toast{background:#0f172a;color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.drawer .bg,.modal,.ask,.mbg,.tpick .tpbg,.cmdk){background:rgba(15,23,42,.38)}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.card,.sec){box-shadow:var(--sh)}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl td{background-color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl tbody tr:nth-child(even) td{background-color:#f8fafd}
+html:is([data-theme=clean],[data-theme=daylight]) .tbl tbody tr:hover td{background-color:#f1f6fe}
+html:is([data-theme=clean],[data-theme=daylight]) :is(.btn,.ib,.fab,.pick button,.chip,.ipl .chip,.marq){background-color:#f3f6fa}
+html:is([data-theme=clean],[data-theme=daylight]) .btn.p{color:#fff}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.ok{color:#047857;background:#ecfdf5;border-color:#a7f3d0}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.bad{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
+html:is([data-theme=clean],[data-theme=daylight]) .chip.warn{color:#92400e;background:#fffbeb;border-color:#fde68a}
+html:is([data-theme=clean],[data-theme=daylight]) .note.i{color:#075985;background:#eff6ff;border-color:#bfdbfe}
+html:is([data-theme=clean],[data-theme=daylight]) .note.w{color:#92400e;background:#fffbeb;border-color:#fde68a}
+html:is([data-theme=clean],[data-theme=daylight]) .note.e{color:#991b1b;background:#fef2f2;border-color:#fecaca}
+html:is([data-theme=clean],[data-theme=daylight]) .note.g{color:#065f46;background:#ecfdf5;border-color:#a7f3d0}
+html:is([data-theme=clean],[data-theme=daylight]) .sw:not(.on){background:#e2e8f0}
+html:is([data-theme=clean],[data-theme=daylight]) .sec h2 .ic,html:is([data-theme=clean],[data-theme=daylight]) .st .ic{background:var(--nav-bg);border-color:transparent}
+html:is([data-theme=clean],[data-theme=daylight]) .bar{background:#e8eef6}
+html:is([data-theme=clean],[data-theme=daylight]) .badge.ok{color:#047857}
+html:is([data-theme=clean],[data-theme=daylight]) .badge.bad{color:#b91c1c}
+html[data-theme=clean] body::after{display:none}
+html[data-theme=clean] .marq{display:none}
+html[data-theme=clean] .st::after{display:none}
+html[data-theme=clean] .card,html[data-theme=clean] .sec{border-radius:16px}
+html[data-theme=clean] #v-dash .sec,html[data-theme=clean] #v-clients .sec,html[data-theme=clean] #v-inbounds .sec,html[data-theme=clean] #v-scan .sec,html[data-theme=clean] #v-build .sec,html[data-theme=clean] #v-nodes .sec,html[data-theme=clean] #v-spoof .sec,html[data-theme=clean] #v-settings .sec,html[data-theme=clean] #v-backup .sec,html[data-theme=clean] #v-about .sec,html[data-theme=clean] #fSettings>.card.sec{border-inline-start:1px solid var(--line)}
+html[data-theme=clean] .side button.on{background:var(--nav-bg);border-color:var(--line2);color:var(--violet)}
+.main .ncard{margin:0 0 14px}
+html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
+
 </style></head><body>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -440,7 +607,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.72.0</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.73.0</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -448,6 +615,8 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
    <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
    <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
    <button data-view="nodes"><span class="mi" style="background:linear-gradient(135deg,rgba(245,158,11,.20),rgba(245,158,11,.42))">🎯</span><span class="mtx"><b data-i="n_nodes"></b><small data-i="d_nodes"></small></span></button>
+   <button data-view="loc"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">📍</span><span class="mtx"><b>لوکیشن و خروجی</b><small>کشور خروجی، SOCKS و پل‌ها</small></span></button>
+   <button data-view="tools"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">🧰</span><span class="mtx"><b>ابزارها</b><small>پینگ، مسیر، پورت و دامنه</small></span></button>
    <button data-view="spoof"><span class="mi" style="background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(236,72,153,.42))">🎭</span><span class="mtx"><b data-i="n_spoof"></b><small data-i="d_spoof"></small></span></button>
    <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
    <button data-view="backup"><span class="mi" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><span class="mtx"><b data-i="n_backup"></b><small data-i="d_backup"></small></span></button>
@@ -458,31 +627,36 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 </div>
 
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="sideTitle">Cat Panel</span></div>
+ <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.73.0</small></div></div>
  <div class="sb-nav">
-  <button data-view="dash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> <span data-i="n_dash"></span></button>
-  <div class="nav-acc">
-   <button type="button" class="nav-acc-head" onclick="var b=document.getElementById('accBody');var o=b.style.display!=='flex';b.style.display=o?'flex':'none';this.querySelector('.ar').textContent=o?'▴':'▾'"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> <span data-i="n_manage"></span></span><span class="ar">▾</span></button>
-   <div class="nav-acc-body" id="accBody" style="display:flex">
-    <button data-view="clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8zm13 10v-2a4 4 0 00-3-3.87m-4-12a4 4 0 010 7.75"/></svg> <span data-i="n_clients"></span></button>
-    <button data-view="inbounds"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> <span data-i="n_inbounds"></span></button>
-    <button data-view="scan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg> <span data-i="n_scan"></span></button>
-    <button data-view="build"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> <span data-i="n_build"></span></button>
-    <button data-view="nodes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg> <span data-i="n_nodes"></span></button>
-    <button data-view="spoof"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/></svg> <span data-i="n_spoof"></span></button>
-    <button data-view="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> <span data-i="n_set"></span></button>
-   </div>
-  </div>
-  <button data-view="backup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> <span data-i="n_bak"></span></button>
-  <button data-view="about"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg> <span data-i="n_about"></span></button>
+  <button type="button" data-view="dash"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="lbl" data-i="n_dash"></span></button>
+  <button type="button" data-view="clients"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="lbl" data-i="n_clients"></span></button>
+  <button type="button" data-view="scan"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg><span class="lbl" data-i="n_scan"></span></button>
+  <button type="button" data-view="nodes"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8 5 16M12 8l7 8"/></svg><span class="lbl" data-i="n_nodes"></span></button>
+  <button type="button" data-view="loc"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span class="lbl">لوکیشن و خروجی</span></button>
+  <button type="button" data-view="tools"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span class="lbl">ابزارها</span></button>
+  <div class="sbg">پیشرفته</div>
+  <button type="button" data-view="build"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5"/></svg><span class="lbl" data-i="n_build"></span></button>
+  <button type="button" data-view="spoof"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/></svg><span class="lbl" data-i="n_spoof"></span></button>
+  <button type="button" data-view="inbounds"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg><span class="lbl" data-i="n_inbounds"></span></button>
+  <button type="button" data-view="settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="lbl" data-i="n_settings"></span></button>
+  <button type="button" data-view="backup"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="lbl" data-i="n_bak"></span></button>
+  <button type="button" data-view="about"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg><span class="lbl">راهنما و درباره</span></button>
  </div>
- <button type="button" data-theme-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7a9.3 9.3 0 100 18.6c1.4 0 2.2-.9 2.2-2 0-1.5-1.2-2-1.2-3.2 0-1 .8-1.8 1.9-1.8h1.8A4.3 4.3 0 0021.3 10c0-4.1-4.2-7.3-9.3-7.3z"/><circle cx="7.6" cy="11.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="11" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.6" cy="8.6" r="1.1" fill="currentColor" stroke="none"/></svg> <span data-i="n_theme"></span></button>
- <a class="sb-out" href="/logout">⏻ <span data-i="n_logout"></span></a>
- <div class="sb-foot"><span class="dot"></span> Cat Panel v6.72.0</div>
+ <div class="sb-bot">
+  <a class="sb-out" href="/logout" data-al="al_logout" title="Logout" aria-label="Logout"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></a>
+  <button type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A5.7 5.7 0 0 0 22 9.7C22 5.4 17.5 2 12 2z"/></svg></button>
+  <button type="button" id="btnDark" title="حالت روشن/تیره" aria-label="حالت روشن/تیره"><span class="moon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span><span class="sun"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span></button>
+ </div>
 </div>
 <div class="top"><div class="topin">
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.72.0</span></div>
+ <button class="ib sbtog" type="button" id="btnSbToggle" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.73.0</span></div>
+ <div class="pgt"><b id="pgTitle">داشبورد</b><small id="pgSub"></small></div>
+ <button class="tnew" type="button" id="btnTopNew"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">کاربر جدید</span></button>
  <div class="tools">
+  <button class="ib" type="button" id="btnTopRefresh" title="بارگذاری دوباره" aria-label="بارگذاری دوباره"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+  <button class="ib" type="button" id="btnPalette" title="جستجوی سریع (Ctrl+K)" aria-label="جستجوی سریع"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 0 0 0-6z"/></svg></button>
   <button class="ib" data-c="green" id="btnUpdate" data-al="al_update" title="Update" aria-label="Update"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-7 7l7-7 7 7"/></svg></button>
   <button class="ib" id="btnRot" title="Fixed IP" aria-label="Fixed IP"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg></button>
   <button class="ib" data-c="blue" id="btnLang" data-al="al_lang" title="Language" aria-label="Language"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></button>
@@ -513,17 +687,15 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   </div>
   <div class="small" id="pwOut" style="margin-top:6px"></div>
  </div>
- <div class="card sec" id="heroCard">
-  <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
-  <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
- </div>
+ <div class="card sec pwab" id="pwaBanner"><span class="ic" style="font-size:22px">📲</span><div class="t"><b>پنل را مثل یک اپ نصب کن</b><div class="small mute">یک آیکن روی صفحهٔ گوشی یا دسکتاپ؛ همین پنل بدون نوار آدرس باز می‌شود.</div></div><button class="btn sm p" type="button" id="pwaYes">نصب</button><button class="btn sm" type="button" id="pwaNever">دیگر نشان نده</button><button class="ib" type="button" id="pwaX" aria-label="بستن" title="بستن">✕</button></div>
  <div class="card sec">
   <h2><span class="ic">📊</span><span data-i="stats"></span></h2>
   <div class="note w" id="noIpsNote" style="display:none;margin-top:10px"><span data-i="no_ips"></span> <button class="btn sm" data-view="nodes" style="vertical-align:middle">🕸️ <span data-i="n_nodes"></span></button></div>
   <div class="stats">
-   <div class="st" data-c="violet"><div class="ic">👥</div><div class="k" data-i="st_users"></div><div class="n" id="stUsers">–</div><div class="s" data-i="st_users_s"></div></div>
-   <div class="st" data-c="green"><div class="ic">✅</div><div class="k" data-i="st_active"></div><div class="n" id="stActive">–</div><div class="s" data-i="st_active_s"></div></div>
-   <div class="st" data-c="amber"><div class="ic">⏳</div><div class="k" data-i="st_exp"></div><div class="n" id="stExp">–</div><div class="s" data-i="st_exp_s"></div></div>
+   <div class="st" data-c="violet"><div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><div class="k" data-i="st_users"></div><div class="n" id="stUsers">–</div><span class="s2"><b id="stActive">–</b> فعال · <b id="stOff">–</b> غیرفعال</span></div>
+   <div class="st" data-c="blue"><div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/></svg></div><div class="k">حجم مصرفی کل</div><div class="n" id="stVol">–</div><span class="s2">مجموع آپلود و دانلود همهٔ کاربران</span></div>
+   <div class="st" data-c="green"><div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="14" height="10" rx="2"/><path d="M6 18h6"/><rect x="17" y="8" width="5" height="12" rx="1.5"/></svg></div><div class="k">دستگاه آنلاین</div><div class="n" id="stDev">–</div><span class="s2">IPهای متصل در ۱۰ دقیقهٔ اخیر</span></div>
+   <div class="st" data-c="amber"><div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div><div class="k" data-i="st_exp"></div><div class="n" id="stExp">–</div><span class="s2" data-i="st_exp_s"></span></div>
    <div class="st" data-c="cyan"><div class="ic">📡</div><div class="k" data-i="st_ips"></div><div class="n" id="stIps">–</div><div class="s" id="stIpsS"></div></div>
    <div class="st" data-c="pink"><div class="ic">🧩</div><div class="k" data-i="st_cfg"></div><div class="n" id="stCfg">–</div><div class="s" id="stCfgS"></div></div>
   </div>
@@ -535,6 +707,28 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   <div id="selfBox" class="small mute" style="margin-top:8px"></div>
  </div>
 
+ <div class="card sec" id="heroCard">
+  <h2><span class="ic">⚡</span><span data-i="hero_inuse"></span><button class="btn sm" type="button" data-view="build" style="margin-inline-start:auto">🛠 <span data-i="hero_build"></span></button></h2>
+  <div class="row" id="heroChips" style="flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+ </div>
+ <div class="dgrid">
+ <div class="card sec" id="quickCard">
+  <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span><span>عملیات سریع</span><span class="hq" title="هر دکمه همان کار واقعی را انجام می‌دهد؛ چیزی نمایشی نیست.">؟</span></h2>
+  <div class="qa">
+   <button type="button" data-qa="new"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>کاربر جدید</span><small>فرم کامل با سهمیه و آیپی</small></button>
+   <button type="button" data-qa="quick"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>ساخت سریع</span><small>یک کاربر ۳۰روزه با بهترین آیپی‌ها</small></button>
+   <button type="button" data-qa="scan"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg><span>اسکن آیپی تمیز</span><small>از اینترنت خودت</small></button>
+   <button type="button" data-qa="loc"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>خروجی کشور</span><small>پیدا کردن رلهٔ سالم</small></button>
+   <button type="button" data-qa="tools"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span>تست پینگ و مسیر</span><small>ابزارهای عیب‌یابی</small></button>
+   <button type="button" data-qa="update"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg><span>بررسی آپدیت</span><small>مقایسه با آخرین نسخه</small></button>
+  </div>
+ </div>
+ <div class="card sec" id="topUsersCard">
+  <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/></svg></span><span>پرمصرف‌ترین کاربران</span><button class="btn sm" type="button" data-view="clients" style="margin-inline-start:auto">همه</button></h2>
+  <div style="overflow-x:auto"><table class="tu"><thead><tr><th>کاربر</th><th>حجم</th><th>زمان</th><th>دستگاه</th><th>وضعیت</th></tr></thead><tbody id="topUsers"></tbody></table></div>
+  <div class="small dim" id="topUsersEmpty" style="display:none;padding:10px 0">هنوز کاربری نساخته‌ای. دکمهٔ «کاربر جدید» بالای صفحه را بزن.</div>
+ </div>
+ </div>
  <div class="card sec">
   <h2><span class="ic">🖥</span><span data-i="ov_info"></span></h2>
   <div class="kv" style="margin:6px 0">
@@ -542,7 +736,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
    <div><span data-i="ov_seen"></span><span id="ovSeen">…</span></div>
    <div class="small mute" style="margin-top:-6px" data-i="ov_seen_hint"></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.72.0</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.73.0</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -568,7 +762,8 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 
 
 
-<section class="view" id="v-loc" data-sec="loc">
+<section class="view" id="v-loc" data-sec="loc" data-in="loc">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>لوکیشن و خروجی</h1><p>کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه</p></div></div>
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span data-i="loc_path_title"></span></h2>
   <p class="nsub" data-i="loc_path_hint"></p>
@@ -580,7 +775,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   <div class="small" id="locPathNow" style="margin-top:10px"></div>
  </div>
 </section>
-<section class="view" id="v-loc-cards" data-sec="loc">
+<section class="view" id="v-loc-cards" data-sec="loc" data-in="loc">
 <div class="card sec" id="vipCard">
   <h2><span class="ic">🌍</span><span data-i="vip_title"></span> <span class="chip" id="vipState"></span></h2>
   <div class="note i small" data-i="vip_hint"></div>
@@ -663,7 +858,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   <button type="button" role="tab" data-atab-go="sk" data-i="at_sk"></button>
  </div>
 </section>
-<section class="view" id="v-socks" data-sec="addr" data-atab="sk">
+<section class="view" id="v-socks" data-sec="loc" data-in="loc">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v3a3 3 0 0 0 3 3M17 6h3v3a3 3 0 0 1-3 3"/></svg><span data-i="sk_title"></span></h2>
   <p class="nsub" data-i="sk_hint"></p>
@@ -681,7 +876,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 </section>
 
 <!-- ================= HOME (new mobile shell) ================= -->
-<section class="view" id="v-home" data-sec="home">
+<section class="view" id="v-home" data-sec="home" data-in="dash">
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span data-i="hm_status"></span></h2>
   <p class="nsub" data-i="hm_status_hint"></p>
@@ -745,8 +940,9 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
    <select id="flt"><option value="all" data-i="f_all"></option><option value="active" data-i="f_active"></option><option value="expired" data-i="f_expired"></option><option value="disabled" data-i="f_disabled"></option></select>
    <select id="srt"><option value="new" data-i="s_new"></option><option value="exp" data-i="s_exp"></option><option value="name" data-i="s_name"></option></select>
   </div>
+  <div class="bulkbar" id="bulkBar" style="display:none"><b id="bulkN">0</b><span>کاربر انتخاب شد</span><button class="btn sm" type="button" data-bulk="on">✅ فعال</button><button class="btn sm" type="button" data-bulk="off">⏸ غیرفعال</button><button class="btn sm" type="button" data-bulk="renew">➕ ۳۰ روز تمدید</button><button class="btn sm" type="button" data-bulk="copy">📋 کپی لینک‌ها</button><button class="btn sm danger" type="button" data-bulk="del">🗑 حذف</button><button class="btn sm" type="button" data-bulk="none">✕ لغو انتخاب</button></div>
   <table class="tbl"><thead><tr>
-   <th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_seen"></th><th data-i="h_status"></th><th data-i="h_act"></th>
+   <th style="width:34px"><input type="checkbox" id="selAll" aria-label="انتخاب همه" title="انتخاب همه" style="width:auto"></th><th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_seen"></th><th data-i="h_status"></th><th data-i="h_act"></th>
   </tr></thead><tbody id="rows"></tbody></table>
   <div class="ucard" id="cards"></div>
   <div class="empty" id="empty" style="display:none"><div>🐾</div><div data-i="no_users"></div></div>
@@ -771,11 +967,111 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
  </div>
 </section>
 
+<!-- ================= TOOLS (beta199) ================= -->
+<section class="view" id="v-tools" data-sec="tools">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">🧰</span><div><h1>ابزارها</h1><p>تست پینگ، مسیر، پورت، دیتاسنتر و دسترسی دامنه — هر کارت یک «📖 آموزش» دارد</p></div></div>
+ <div class="note i small" style="margin-bottom:14px">نکته: تست‌هایی که «از اینترنت تو» هستند را با <b>VPN خاموش</b> بزن؛ وگرنه نتیجهٔ VPN را می‌بینی نه اینترنت خودت را. تست‌های «سرور» از خودِ پنل انجام می‌شوند و به VPN تو ربطی ندارند.</div>
+ <div class="tgrid">
+  <div class="card sec" id="tlPing">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span><span>تست پینگ</span></h2>
+   <p class="tsub">دو اندازه‌گیری جدا: از سرور تا اینترنت، و از اینترنت تو تا سرور.</p>
+   <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm p" type="button" id="tlPingSrv">🖥 سرور ← اینترنت</button><button class="btn sm" type="button" id="tlPingMe">📶 اینترنت من ← سرور</button></div>
+   <div class="tres" id="tlPingOut"></div>
+   <details class="how"><summary>📖 آموزش</summary><div>«سرور ← اینترنت» را بزنی: پنل خودش به گوگل و کلودفلر وصل می‌شود و زمان پاسخ را می‌گوید (اگر زنجیرهٔ خروجی گذاشته باشی، از همان مسیر). عدد کم یعنی خروجیِ پنل سالم است.<br>«اینترنت من ← سرور» را بزنی: ۶ بار از همین مرورگر به پنل درخواست می‌رود و کمترین، میانگین و نوسان (جیتر) را نشان می‌دهد. نوسان زیاد یعنی خط تو ناپایدار است، نه پنل.</div></details>
+  </div>
+  <div class="card sec" id="tlRoute">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/></svg></span><span>دیباگ مسیریابی</span></h2>
+   <p class="tsub">مسیر کامل: تو ← دیتاسنتر کلودفلر ← خروجی پنل به اینترنت.</p>
+   <button class="btn sm p" type="button" id="tlRouteGo">🧭 نمایش مسیر</button>
+   <div class="tres" id="tlRouteOut"></div>
+   <details class="how"><summary>📖 آموزش</summary><div>دکمه را بزنی سه ایستگاه نشان داده می‌شود: ۱) آی‌پی و اپراتور تو، ۲) دیتاسنتر کلودفلری که جواب تو را می‌دهد (مثلاً FRA یعنی فرانکفورت)، ۳) آی‌پی و کشوری که سایت‌ها پنل را با آن می‌بینند. اگر کشور ایستگاه ۳ چیزی نیست که می‌خواهی، از صفحهٔ «لوکیشن و خروجی» یک خروجی کشوری بگذار.</div></details>
+  </div>
+  <div class="card sec" id="tlPort">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M14 12h.01"/></svg></span><span>تستر پورت کلودفلر</span></h2>
+   <p class="tsub">کدام پورت کلودفلر روی اینترنت تو باز است؟ (همان پورتی که در کانفیگ می‌گذاری)</p>
+   <label>آدرس یا آی‌پی (خالی = همین پنل)</label>
+   <input id="tlPortHost" dir="ltr" class="mono" spellcheck="false" placeholder="">
+   <div class="pick" id="tlPortPick"></div>
+   <div class="row small" style="margin-top:10px"><span class="sw" id="tlPortHttp"></span><span>پورت‌های HTTP (80، 8080، …) را هم تست کن</span></div>
+   <button class="btn sm p" type="button" id="tlPortGo" style="margin-top:10px">🚪 شروع تست پورت‌ها</button>
+   <div class="tres" id="tlPortOut"></div>
+   <details class="how"><summary>📖 آموزش</summary><div>VPN را خاموش کن و «شروع» را بزن. برای هر پورت سه بار از همین مرورگر وصل می‌شویم: ✅ یعنی آن پورت روی خط تو باز است و می‌توانی در کانفیگ بگذاری؛ ✗ یعنی اپراتور آن را بسته. این فقط «باز بودن و زمان دست‌دادن» است، نه سرعت دانلود. مرورگر از صفحهٔ HTTPS اجازهٔ تست پورت‌های HTTP را نمی‌دهد؛ برای آن‌ها از اسکنر Cat Client استفاده کن.</div></details>
+  </div>
+  <div class="card sec" id="tlDc">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span><span>ردیاب دیتاسنتر و پروتکل</span></h2>
+   <p class="tsub">آیا همیشه به یک دیتاسنتر وصل می‌شوی؟ با کدام نسخهٔ HTTP و TLS؟</p>
+   <button class="btn sm p" type="button" id="tlDcGo">🛰 ۶ بار ردیابی کن</button>
+   <div class="tres" id="tlDcOut"></div>
+   <details class="how"><summary>📖 آموزش</summary><div>دکمه را بزنی ۶ درخواست پشت‌سرهم فرستاده می‌شود و برای هر کدام دیتاسنتر کلودفلر، HTTP/2 یا HTTP/3 و نسخهٔ TLS نوشته می‌شود. اگر دیتاسنتر مدام عوض شود، پینگ کانفیگ‌ها هم بالا و پایین می‌رود؛ آن‌وقت از اسکنر یک آی‌پی تمیز ثابت انتخاب کن.</div></details>
+  </div>
+  <div class="card sec" id="tlDom">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span>بررسی دسترسی دامنه</span></h2>
+   <p class="tsub">یک سایت از سرور باز می‌شود؟ از اینترنت خودت چطور؟</p>
+   <textarea id="tlDomList" dir="ltr" class="mono" rows="4" spellcheck="false" style="min-height:96px">google.com
+youtube.com
+telegram.org
+instagram.com
+chatgpt.com
+x.com</textarea>
+   <button class="btn sm p" type="button" id="tlDomGo" style="margin-top:10px">🔍 بررسی کن</button>
+   <div class="tres" id="tlDomOut"></div>
+   <details class="how"><summary>📖 آموزش</summary><div>هر خط یک دامنه (حداکثر ۸). «بررسی کن» را بزنی برای هر دامنه دو جواب می‌گیری: ستون «سرور» یعنی پنل (با همان مسیر خروجی کانفیگ‌ها) آن سایت را باز می‌کند یا نه؛ ستون «اینترنت تو» یعنی همین مرورگر بدون VPN به آن می‌رسد یا نه. سرور ✅ و تو ✗ یعنی فیلتر است و کانفیگ لازم داری.</div></details>
+  </div>
+  <div class="card sec" id="tlMore">
+   <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span>ابزارهای دیگر پنل</span></h2>
+   <p class="tsub">ابزارهایی که کنار دادهٔ خودشان مانده‌اند؛ با یک کلیک به همان‌جا می‌روی.</p>
+   <div class="qa">
+    <button type="button" data-goto="scan#btnWsTest">🔌<span>تست وب‌سوکت</span><small>دست‌دادن واقعی کانفیگ</small></button>
+    <button type="button" data-goto="scan#btnPortTest">🚪<span>پورت‌های همین پنل</span><small>۶ پورت TLS کلودفلر</small></button>
+    <button type="button" data-goto="scan#survCard">🛡<span>بستهٔ بقا</span><small>تنظیمات امن یک‌کلیکی</small></button>
+    <button type="button" data-goto="loc#ehGo">📍<span>شکار خروجی کشور</span><small>SOCKS سالم برای هر کشور</small></button>
+    <button type="button" data-goto="nodes#btnIpTest">🩺<span>سلامت آی‌پی‌ها</span><small>تست TCP/TLS از سرور</small></button>
+    <button type="button" data-goto="build#bGen">🛠<span>کانفیگ‌ساز</span><small>ساخت لینک دلخواه</small></button>
+   </div>
+  </div>
+ </div>
+</section>
+
 <!-- ================= CLEAN IP / SCAN ================= -->
 <section class="view" id="v-scan" data-sec="addr">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><div><h1 data-i="n_scan"></h1><p data-i="d_scan"></p></div></div>
 
 
+ <div class="card sec" id="rsCard">
+  <h2><span class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg></span><span>اسکنر آیپی تمیز — از اینترنت خودت</span><span class="hq" title="اندازه‌گیری از همین مرورگر انجام می‌شود؛ VPN را خاموش کن.">؟</span></h2>
+  <p class="tsub">رنج یا آی‌پی بده؛ مرورگرت (با VPN خاموش) به هرکدام وصل می‌شود و زمان دست‌دادن را می‌سنجد. سالم‌ها را تیک بزن و به پنل، یک کاربر یا یک استخر بفرست.</p>
+  <div class="two">
+   <div><label>رنج‌ها یا آی‌پی‌ها (هر خط یکی)</label><textarea id="rsRanges" dir="ltr" class="mono" rows="5" spellcheck="false" placeholder="104.16.0.0/20&#10;172.64.0.0/20&#10;188.114.96.0/22"></textarea>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="rsPresetCf">🟧 رنج‌های Cloudflare</button><button class="btn sm" type="button" id="rsClearR">🧹 پاک کردن</button></div></div>
+   <div>
+    <div class="two"><div><label>پورت</label><select id="rsPort"><option>443</option><option>8443</option><option>2053</option><option>2083</option><option>2087</option><option>2096</option></select></div>
+    <div><label>تعداد آی‌پی برای تست</label><select id="rsCount"><option>50</option><option selected>100</option><option>200</option><option>400</option></select></div></div>
+    <label>هم‌زمانی</label><select id="rsPar"><option>4</option><option selected>8</option><option>12</option></select>
+    <div class="row small" style="margin-top:12px"><span class="sw on" id="rsRandom"></span><span>انتخاب تصادفی از رنج (پیشنهادی؛ هر بار آی‌پی‌های تازه)</span></div>
+   </div>
+  </div>
+  <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center"><button class="btn p" type="button" id="rsStart">▶ شروع اسکن</button><button class="btn" type="button" id="rsStop" disabled>⏹ توقف</button><span class="chip" id="rsProg">0 آزموده · سالم 0</span></div>
+  <div class="bar" style="margin-top:10px"><i id="rsBar" style="width:0%"></i></div>
+  <div class="row" id="rsTools" style="display:none;gap:6px;margin-top:12px;flex-wrap:wrap"><span class="small mute">انتخاب بهترین‌ها:</span><button class="btn sm" type="button" data-rstop="5">5</button><button class="btn sm" type="button" data-rstop="10">10</button><button class="btn sm" type="button" data-rstop="100">100</button><button class="btn sm" type="button" data-rstop="0">هیچ‌کدام</button><button class="btn sm" type="button" id="rsClearRes">🗑 پاک کردن نتایج</button></div>
+  <div class="tres" id="rsList" style="max-height:360px;overflow:auto"></div>
+  <div id="rsSave" style="display:none;margin-top:12px">
+   <div class="small b" style="margin-bottom:6px">انتخاب‌شده‌ها را کجا بفرستم؟ <span class="chip" id="rsSelN">0</span></div>
+   <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm p" type="button" id="rsToPanel">➕ به آی‌پی‌های پنل (همه کاربران)</button></div>
+   <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><select id="rsUser" style="flex:1;min-width:160px"></select><button class="btn sm" type="button" id="rsToUser">👤 به این کاربر</button></div>
+   <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="rsPoolName" style="flex:1;min-width:160px" placeholder="نام استخر، مثلاً «ایرانسل تهران»"><button class="btn sm" type="button" id="rsToPool">🗂 ذخیره در استخر</button></div>
+  </div>
+  <details class="how"><summary>📖 آموزش</summary><div>۱) VPN را خاموش کن. ۲) «رنج‌های Cloudflare» را بزن (یا رنج/آی‌پی خودت را بنویس). ۳) «شروع اسکن» را بزن؛ کنار هر آی‌پی زمان پاسخ از خط تو نوشته می‌شود — عدد کمتر بهتر. ۴) «۱۰» را بزن تا ۱۰ آی‌پیِ سریع‌تر تیک بخورند. ۵) بفرست: «به آی‌پی‌های پنل» یعنی ساب همه کاربران؛ «به این کاربر» فقط ساب همان کاربر؛ «استخر» یعنی یک فهرست اسم‌دار که بعداً در فرم کاربر با «از استخر» پر می‌کنی.<br>هر آی‌پی با <b>همان پورتی</b> که تست شد ذخیره می‌شود. این تست «باز بودن و زمان دست‌دادن» است، نه سرعت دانلود؛ برای تست کامل کانفیگ از اسکنر Cat Client استفاده کن.</div></details>
+ </div>
+ <div class="card sec" id="poolCard">
+  <h2><span class="ic">🗂</span><span>استخرهای آی‌پی</span></h2>
+  <p class="tsub">فهرست‌های اسم‌دار (مثلاً یکی برای همراه اول، یکی برای ایرانسل). در فرم کاربر، تب «آیپی و لوکیشن» → «از استخر».</p>
+  <div class="lnk4" id="poolList"></div>
+  <details class="how"><summary>➕ افزودن استخر با آدرس</summary><div>
+   <input id="poolName" placeholder="نام استخر" style="margin-top:6px">
+   <textarea id="poolIps" dir="ltr" class="mono" rows="4" spellcheck="false" placeholder="104.17.1.2:443&#10;[2606:4700::1]:2053" style="margin-top:8px"></textarea>
+   <button class="btn sm p" type="button" id="poolAdd" style="margin-top:8px">💾 ذخیره استخر</button>
+  </div></details>
+ </div>
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📡</span><span data-i="scan_title"></span><button class="btn sm" id="btnLocRefresh" type="button" style="margin-inline-start:auto" data-i="loc_refresh"></button></h2>
   <div class="row" style="align-items:center;gap:8px;margin-bottom:10px"><span class="chip v" id="locNow" style="font-size:12px">…</span></div>
@@ -1296,11 +1592,12 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
   </div>
   <div class="small dim" data-i="s_gh_hint"></div>
   </div>
- <div class="card sec">
+ <div class="card sec savebar" id="setSaveBar">
   <h2>💾 <span data-i="g_save"></span></h2>
-  <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><span class="small mute" id="saveState"></span></div>
-  <div class="row" style="margin-top:10px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
+  <div class="row" style="margin-top:16px"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" id="btnSetRestore" title="تغییرات ذخیره‌نشده را دور بریز و مقدارهای فعلی پنل را برگردان">↩️ لغو تغییرات</button><span class="small mute" id="saveState"></span></div>
+  
   </div>
+ <div class="row" style="margin-top:4px;padding-inline:4px"><button class="btn sm" type="button" id="btnSetExport">⬇️ <span data-i="set_export"></span></button><button class="btn sm" type="button" id="btnSetImport">⬆️ <span data-i="set_import"></span></button><input type="file" id="setImportFile" accept=".json,application/json" style="display:none"></div>
 </form>
  <div class="card sec">
   <h2><span class="ic">🔗</span><span data-i="paths"></span></h2>
@@ -1328,7 +1625,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 <section class="view" id="v-about" data-sec="set">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.72.0</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.73.0</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -1381,7 +1678,15 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 <div class="drawer" id="drawer"><div class="bg" data-close></div><div class="pn frm" role="dialog" aria-modal="true" aria-labelledby="dTitle">
  <div class="row" style="justify-content:space-between"><h3><span class="ic" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:rgba(0,225,193,.2)">👤</span><span id="dTitle"></span></h3><button class="ib" type="button" data-c="red" data-close data-al="al_close" title="Close" aria-label="Close">✕</button></div>
  <div class="small mute" data-i="d_sub"></div>
+ <div class="utabs" id="uTabs" role="tablist">
+  <button type="button" role="tab" data-ut="base" class="on">👤 پایه</button>
+  <button type="button" role="tab" data-ut="quota">📦 سهمیه</button>
+  <button type="button" role="tab" data-ut="conn">🛡 اتصال و ضد DPI</button>
+  <button type="button" role="tab" data-ut="ip">📍 آیپی و لوکیشن</button>
+  <button type="button" role="tab" data-ut="links" id="uTabLinks">🔗 لینک‌ها</button>
+ </div>
  <form id="fUser">
+  <div class="upane" data-up="base">
   <label data-i="u_name"></label>
   <div class="row"><input name="uname" maxlength="40" required style="flex:1"><button class="btn sm" type="button" id="btnRandName">🎲 <span data-i="u_rand"></span></button></div>
   <label data-i="u_protocols"></label>
@@ -1389,38 +1694,50 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
    <label id="uVless"><span class="ic" style="background:rgba(0,225,193,.2);color:#c4b5fd">✈️</span><div><div class="b">VLESS</div><div class="dim small" data-i="p_vless"></div></div><input type="checkbox" name="pv" checked style="width:auto;margin-inline-start:auto"></label>
    <label id="uTrojan"><span class="ic" style="background:rgba(0,179,152,.2);color:#f0abfc">🛡️</span><div><div class="b">Trojan</div><div class="dim small" data-i="p_trojan"></div></div><input type="checkbox" name="pt" checked style="width:auto;margin-inline-start:auto"></label>
   </div>
+  <label data-i="u_note"></label>
+  <input name="note" maxlength="200">
+  <div class="row" style="margin-top:12px"><span class="sw on" id="swEnabled"></span><span class="small" data-i="u_enabled"></span></div>
+  </div>
+  <div class="upane" data-up="quota">
   <label data-i="u_days"></label>
   <input name="days" type="number" min="0" placeholder="0">
   <div class="pick" id="pickDays"></div>
-  <label data-i="u_quota"></label>
-  <input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr">
-  <label data-i="u_maxips"></label>
-  <input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr">
   <div class="row" style="margin-top:10px"><span class="sw" id="swFirst"></span><span class="small" data-i="u_first"></span></div>
+  <div class="two">
+   <div><label data-i="u_quota"></label><input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr"></div>
+   <div><label data-i="u_maxips"></label><input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr"></div>
+  </div>
+  <div class="note w small" style="margin-top:14px" data-i="u_noquota"></div>
+  </div>
+  <div class="upane" data-up="conn">
   <label data-i="u_fw"></label>
   <select name="fw" id="uFw"></select>
+  <div class="note i small" style="margin-top:10px;line-height:1.9">«پیش‌فرض پنل» یعنی همان تنظیمات صفحهٔ تنظیمات. اگر این کاربر روی <b>همراه اول</b> یا <b>ایرانسل</b> است و کانفیگ‌ها وصل نمی‌شوند، پروفایل همان اپراتور را انتخاب کن؛ فقط لینک‌های <b>همین کاربر</b> عوض می‌شود (اثرانگشت، ALPN، فرگمنت و آی‌پی مخصوص آن فایروال).</div>
+  <div class="tres" id="uConnSum"></div>
+  <div class="row" style="margin-top:10px"><button class="btn sm" type="button" data-goto="settings#fSettings" data-close>⚙️ تنظیمات اتصال کل پنل</button></div>
+  </div>
+  <div class="upane" data-up="ip">
   <label data-i="u_ips"></label>
-  <textarea name="uips" rows="3" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
-  <div class="row" style="margin-top:6px"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button></div>
-  <label data-i="u_note"></label>
-  <input name="note" maxlength="200">
-  <div class="row" style="margin-top:10px"><span class="sw on" id="swEnabled"></span><span class="small" data-i="u_enabled"></span></div>
-  <div class="note w small" style="margin-top:14px" data-i="u_noquota"></div>
-  <div class="row" style="margin-top:18px"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" data-close data-i="cancel"></button></div>
+  <textarea name="uips" rows="4" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
+  <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button><select id="uPoolPick" style="width:auto;flex:1;min-width:160px"></select><button class="btn sm" type="button" id="uPoolUse">📥 از استخر</button></div>
+  <div class="note i small" style="margin-top:10px;line-height:1.9">خالی بماند = همان آی‌پی‌های پنل. اگر چیزی بنویسی، برای این کاربر <b>به‌جای</b> فهرست آی‌پی پنل می‌نشیند؛ اگر پورت نوشتی (مثل 1.2.3.4:2053) کانفیگ <b>فقط با همان پورت</b> ساخته می‌شود، بدون پورت = پورت‌های TLS تنظیمات. خروجی کشوری (SOCKS/ProxyIP) از صفحهٔ «لوکیشن و خروجی» برای همه اعمال می‌شود.</div>
+  </div>
+  <div class="ufoot"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" data-close data-i="cancel"></button></div>
  </form>
- <div id="dLinks" style="margin-top:18px"></div>
+ <div id="dLinks"></div>
 </div></div>
 
 <div class="modal" id="qrModal" onclick="this.classList.remove('show')"><div class="in"><div class="qrbox" id="qrBox"></div><div class="small mute" style="margin-top:10px" id="qrLabel"></div></div></div>
 <nav class="mbdock" id="mbDock" aria-label="Mobile quick dock">
  <button type="button" class="on" data-view="dash"><b>📊</b><span data-i="hm_title"></span></button>
  <button type="button" data-view="clients"><b>👥</b><span data-i="n_clients"></span></button>
- <button type="button" data-view="build"><b>🛠</b><span data-i="n_build"></span></button>
- <button type="button" data-view="nodes"><b>📡</b><span data-i="n_nodes"></span></button>
+ <button type="button" data-view="scan"><b>📡</b><span>آیپی تمیز</span></button>
+ <button type="button" data-view="tools"><b>🧰</b><span>ابزارها</span></button>
  <button type="button" data-view="settings"><b>⚙️</b><span data-i="n_set"></span></button>
  <button type="button" data-theme-open><b>🎨</b><span data-i="n_theme"></span></button>
 </nav>
 <div class="toast" id="toast"></div>
+<div class="cmdk" id="cmdk" role="dialog" aria-modal="true" aria-label="Quick search"><div class="box"><input id="cmdkIn" type="search" autocomplete="off" spellcheck="false" placeholder="کجا بروم یا چه کار کنم؟ (مثلاً «کاربر» یا «پینگ»)"><ul id="cmdkList"></ul><div class="kb">↑ ↓ · Enter · Esc — میان‌بر: Ctrl+K</div></div></div>
 <div class="ask" id="ask"><div class="askbox"><div class="askmsg" id="askMsg"></div><input class="askin" id="askIn" dir="ltr" style="display:none"><div class="askrow"><button class="btn sm" id="askNo"></button><button class="btn sm" id="askYes" style="border-color:var(--violet);color:var(--violet)"></button></div></div></div>
 
 <script>
@@ -1429,11 +1746,11 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 /* Skin: the server already rendered the saved one on <html data-theme>. This fallback
    only matters on KV-less panels, where settings cannot persist — the cookie keeps the
    owner's choice instead of resetting to the default skin on every reload. */
-try{var tm=document.cookie.match(/(?:^|;\s*)catTheme=([a-z]+)/);if(tm&&["aurora","nebula","ocean","ember","forest","steel","turquoise","cyberpunk","gold","amoled","nord","daylight"].indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
-var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.72.0";
+try{var tm=document.cookie.match(/(?:^|;\s*)catTheme=([a-z]+)/);if(tm&&["clean","aurora","nebula","ocean","ember","forest","steel","turquoise","cyberpunk","gold","amoled","nord","daylight"].indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
+var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.73.0";
 var FIREWALL_PRESETS_UI={"mci-ech":{"address":"188.114.97.6","fingerprint":"chrome","ech":true,"note":"b_fw_mci_ech_n","finalMask":false},"mci-ipv6":{"address":"2a06:98c1:3101::6812:202f","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ipv6_n","finalMask":false},"mci-ipv6-ff":{"address":"2a06:98c1:3121::7","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ff_n","finalMask":true},"irancell-ff":{"address":"188.114.97.6","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true},"irancell-ff-98":{"address":"188.114.98.0","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true}};
 var I18N={
-fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
+fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_clean:'تمیز روشن',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
 master_links:'لینک‌های اشتراک اصلی',self:'اطلاعات اتصال من',users:'لیست کاربران',search:'جستجوی نام یا UUID…',f_all:'همه',f_active:'فعال',f_expired:'منقضی',f_disabled:'غیرفعال',s_new:'جدیدترین',s_exp:'نزدیک‌ترین انقضا',s_name:'نام',
 h_user:'کاربر',h_proto:'پروتکل',h_links:'لینک ساب',h_time:'زمان',h_seen:'آخرین آنلاین',h_status:'وضعیت',h_act:'عملیات',seen_never:'هرگز',seen_now:'همین حالا',seen_min:'%1 دقیقه پیش',no_users:'هنوز کاربری نساختی. با دکمهٔ + اولین کاربر را بساز.',
 scan_title:'آی‌پی تمیز و اسکنر',scan_why:'اسکن روی دستگاه خودت انجام می‌شود (نه داخل ورکر). این دقیقاً روشی است که BPB و ZEUS استفاده می‌کنند: ورکر هیچ درخواستی خرج نمی‌کند و نتیجه از شبکهٔ واقعی تو (همان اپراتور) به دست می‌آید.',
@@ -1455,7 +1772,7 @@ kv_on:'KV متصل',kv_off:'KV وصل نیست — داده‌ها ذخیره ن
 self_wait:'در حال دریافت…',browser_note:'تست از شبکهٔ خودت (مرورگر): دامنه‌ها با /cdn-cgi/trace و آی‌پی‌های خام با اتصال TLS سنجیده می‌شوند — جواب سریع = روی خط تو زنده است، تایم‌اوت = ✗ مرده روی خط تو. پورت‌های بدون TLS (مثل 80/8080) در مرورگر قابل تست نیستند (⊘). پروکسی‌آی‌پی‌ها را با «تست با کارگر» بسنج — مسیرشان از ورکر است.',scan_prune:'حذف مرده‌ها از لیست من',scan_prune_confirm:'%1 آی‌پی مرده (از دید خط تو) از لیست حذف شود؟',scan_prune_none:'اول «تست از شبکهٔ من» را بزن — نتیجه‌ای برای حذف نیست',scan_sum_alive:'آی‌پی زنده روی خط تو',scan_sum_dead:'مرده',scan_sum_skip:'پورت غیرTLS',ws_test:'تست واقعی اتصال (دامنه‌ها)',ws_note:'برای هر دامنه یک WebSocket واقعی به مسیر تونل (/ws) باز می‌شود — دقیقاً همان مسیری که کانفیگ می‌رود: باز شدن = کانفیگ روی خط تو واقعاً وصل می‌شود. آدرس خود پنل همیشه اول تست می‌شود (مبنا). آی‌پی خام در مرورگر «تست واقعی» ندارد چون مرورگر نمی‌تواند هدر Host بفرستد؛ دامنه‌ای که به ورکر وصل نباشد هم ✗ می‌خورد.',ws_base:'مبنا — خود پنل',ws_ok:'مسیر کانفیگ باز شد',ws_fail:'وصل نشد — مرده روی خط تو، یا به ورکر وصل نیست',ws_sum:'دامنه با اتصال واقعیِ تونل تأیید شد',ws_noway:'این مرورگر WebSocket ندارد',surv_title:'بستهٔ بقا — جایگزین‌های بیشتر، نه تضمین',surv_hint:'یک کلیک: چرخش روزانه، هر دو پروتکل، آدرس‌های پیش‌فرض و خود ورکر، پورت‌های جایگزین 80/8080 و ترتیب بر اساس Ping اسکنر در ۷ روز اخیر. SNI روی نام خود ورکر می‌ماند؛ SNI جعلی/چرخشی ممکن است خود Cloudflare را 403 کند. Fragment فقط در Xray/sing-box پشتیبانی می‌شود. هیچ‌کدام تضمین ۱۰۰٪ برای همهٔ اپراتورها و کلاینت‌ها نیست؛ لینک را روی سیم‌کارت/وای‌فای و برنامهٔ واقعی کاربرها جدا تست کن. Ping فقط از خطی است که اسکن را فرستاده، نه همهٔ کاربران.',surv_apply:'اعمال بستهٔ بقا',surv_done:'🛡 بستهٔ بقا اعمال شد',surv_applied:'اعمال شد',surv_changed:'مورد تغییر کرد',surv_already:'بستهٔ بقا از قبل فعال است',surv_link:'لینک بقا',surv_formats:'فرمت متناسب با کلاینت را انتخاب و کپی کن:',ov_seen:'ورود احراز‌شدهٔ کاربران:',ov_seen_24:'وصل در ۲۴ ساعت اخیر',ov_seen_never:'هنوز اتصالی ثبت نشده (شاید کاربر استفاده نکرده)',ov_seen_hint:'این آمار فقط تلاش تونل با شناسهٔ معتبر را می‌شمارد، نه اینکه سایت مقصد باز شده باشد. کلودفلر هم IP لبهٔ انتخاب‌شده را نمی‌گوید؛ برای اثبات کارکرد کامل یا حذف IP کافی نیست.',
 update_check:'بررسی نسخهٔ جدید…',update_safe:'به‌روزرسانی امن',update_safe_hint:'از GitHub Actions اجرا می‌شود؛ توکن Cloudflare داخل پنل ذخیره نمی‌شود.',update_confirm:'به‌روزرسانی پنل در GitHub Actions شروع شود؟',update_queued:'به‌روزرسانی در صف قرار گرفت',update_ok:'آخرین نسخه را داری',update_new:'نسخهٔ جدید موجود است: ',update_how:'با زدن «⚡ آپدیت مستقیم پنل» همین ورکر بدون نیاز به توکن مجدد یا کپی/پیست آپدیت می‌شود (یا از تب پنل من در Cat Client).',update_how2:'با زدن «⚡ آپدیت مستقیم پنل»، همین ورکر بدون نیاز به توکن مجدد مستقیماً روی کلودفلر آپدیت می‌شود (UUID، KV و تنظیمات حفظ می‌شوند). همچنین با ⬇️ می‌توانی فایل worker.js را مستقیم دانلود کنی.',update_direct_btn:'آپدیت مستقیم پنل',update_direct_reapply:'تعمیر / نصب مجدد مستقیم',update_direct_confirm:'همین ورکر پنل مستقیماً به آخرین نسخه آپدیت شود؟ (UUID، KV و تمام تنظیمات حفظ می‌شوند)',update_direct_working:'در حال آپدیت مستقیم ورکر…',update_direct_done:'✅ پنل با موفقیت آپدیت شد (%1 ← %2) — در حال بارگذاری مجدد…',update_token_once:'این پنل قدیمی‌تر است و توکن کلودفلر در زمان ساخت روی آن بایند نشده بود. فقط یک‌بار توکن Cloudflare API را وارد کن تا روی همین ورکر ذخیره شود و از این به بعد بدون توکن آپدیت شود:',
 sync_hint:'اشتراک اصلی را در Cat Client باز می‌کند',restore_ok:'بازگردانی شد',restore_bad:'فایل نامعتبر',sub:'ساب',clash:'Clash',singbox:'sing-box',b_fw_mci_ipv6:'همراه اول · IPv6 (2a06:98c1:3101::6812:202f)',b_fw_irancell_ff98:'ایرانسل · F&F (188.114.98.0)',b_fw_mci_ipv6_n:'🟦 فایروال همراه اول (CDN/WORKER with IPv6): پاک شدن echConfigList، cipherSuites و finalMask، تنظیم fingerprint=chrome و آدرس IPv6 پیش‌فرض 2a06:98c1:3101::6812:202f (مناسب دامنه شخصی فیلترنشده یا *.workers.dev؛ دامنه *.pages.dev فیلتر است).',b_fw_irancell_ff_n:'🟧 فایروال ایرانسل (CDN/WORKER with F&F method): پاک شدن echConfigList، آدرس 188.114.98.0 (یا 188.114.97.6)، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe و ALPN متناسب (http/1.1 برای ws و h2,http/1.1 برای XHTTP) جهت رفع محدودیت سرعت آپلود.',b_fw_hint:'⚠️ در برخی مناطق سیم‌کارت شما همراه اول است ولی فایروال منطقه ایرانسل است و بالعکس (سایر نت‌ها هم از یکی از این دو فایروال استفاده می‌کنند). دامنه *.pages.dev فیلتر است. F&F به Xray Core 26.9+ نیاز دارد.',b_fw_addr_ph:'2a06:98c1:3101::6812:202f یا 188.114.98.0',aether_fw_mci_warp:'🟦 همراه اول: WARP با IPv6',aether_fw_masque:'🟦🟧 همراه اول/ایرانسل: MASQUE-HTTP/2',aether_fw_irancell_warp:'🟧 ایرانسل: WARP (هر نوع IP)',aether_fw_psiphon:'🔓 رفع تحریم: WARP → Psiphon',aether_fw_tor:'🧅 رفع تحریم: WARP → Tor',ae_loc_lbl:'مکان آی‌پی خروجی (ایران 🇮🇷 / خارج 🌍)',ae_loc_out:'🌍 آی‌پی خارج (غیر ایران)',ae_loc_ir:'🇮🇷 آی‌پی ایران (تک‌لایه سریع)',aether_chain_lbl:'چین رفع تحریم (warp -> psiphon / tor)',aether_chain_none:'بدون چین (سرعت کامل)',aether_chain_psiphon:'🌀 WARP → Psiphon',aether_chain_tor:'🧅 WARP → Tor',aether_chain_note:'۳) در صورت عدم رفع تحریم‌ها حتی با پروتکل wireguard-over-masque-HTTP/2، می‌توانید با چین کردن سایفون/تور (warp -> psiphon/tor) تحریم‌ها را دور بزنید. وقتی سایفون/تور را چین می‌کنید بهتر است از پروتکل‌های ساده wireguard یا masque-h2 استفاده کنید (به‌صورت خودکار اعمال می‌شود). دقت کنید tor/psiphon سرعت متوسطی دارند و فقط در صورت نیاز به رفع تحریم از آن‌ها استفاده کنید.'},
-en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_turquoise:'Turquoise',th_cyberpunk:'Cyberpunk',th_gold:'Royal Gold',th_amoled:'AMOLED Black',th_nord:'Arctic Nord',th_daylight:'Daylight Pearl',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
+en:{n_theme:'Theme',th_title:'Panel look',th_sub:'Pick a skin. It is saved in this browser, and on the panel itself when KV is available. Configs are never affected.',th_aurora:'Aurora',th_nebula:'Nebula',th_ocean:'Ocean',th_ember:'Ember',th_forest:'Forest',th_steel:'Steel',th_turquoise:'Turquoise',th_cyberpunk:'Cyberpunk',th_gold:'Royal Gold',th_amoled:'AMOLED Black',th_nord:'Arctic Nord',th_daylight:'Daylight Pearl',th_clean:'Clean Light',th_close:'Close',th_saved:'Theme saved ✓',stats:'Panel status',st_users:'Users',st_users_s:'defined in panel',st_active:'Active',st_active_s:'not expired / disabled',st_exp:'Expired / disabled',st_exp_s:'need renewal',st_ips:'Clean IPs',st_cfg:'Configs per sub',
 master_links:'Master subscription links',self:'My connection info',users:'Users',search:'Search name or UUID…',f_all:'All',f_active:'Active',f_expired:'Expired',f_disabled:'Disabled',s_new:'Newest',s_exp:'Expiring soon',s_name:'Name',
 h_user:'User',h_proto:'Protocol',h_links:'Sub links',h_time:'Time',h_seen:'Last online',h_status:'Status',h_act:'Actions',seen_never:'never',seen_now:'now',seen_min:'%1 min ago',no_users:'No users yet — tap + to create one.',
 scan_title:'Clean IP & scanner',scan_why:'Scanning runs on YOUR device, not inside the worker — exactly what BPB and ZEUS do. The worker spends zero requests and results reflect your real network.',
@@ -1512,8 +1829,12 @@ function randName(){var a='abcdefghjkmnpqrstuvwxyz23456789',s='';for(var i=0;i<6
 var CFG=null, USERS=[], editing=null, dirtyScan=false;
 
 /* ---------- views ---------- */
-function show(v){$$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
+function show(v){if(!document.getElementById('v-'+v))v='dash';
+ /* a page = its own section + every section that declares data-in="<page>" (beta199 grouping) */
+ $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
+ setPage();
  if(v==='about'&&CFG)renderDiag();
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -1525,9 +1846,9 @@ $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show
    cookie so the next paint is already correct. When KV exists the choice is
    also stored in panel settings, so every device gets it. */
 function themeSwatch(a,b){return 'radial-gradient(90% 80% at 15% 10%,'+a+',transparent 62%),radial-gradient(90% 80% at 88% 92%,'+b+',transparent 60%),linear-gradient(160deg,#0c0e16,#06060c)'}
-var THEME_META={aurora:['th_aurora',themeSwatch('rgba(0,225,193,.55)','rgba(124,58,237,.50)')],nebula:['th_nebula',themeSwatch('rgba(139,92,246,.60)','rgba(236,72,153,.45)')],ocean:['th_ocean',themeSwatch('rgba(56,189,248,.55)','rgba(79,70,229,.50)')],ember:['th_ember',themeSwatch('rgba(255,176,32,.50)','rgba(244,63,94,.42)')],forest:['th_forest',themeSwatch('rgba(52,211,153,.50)','rgba(6,182,212,.45)')],steel:['th_steel',themeSwatch('rgba(148,163,184,.42)','rgba(71,85,105,.50)')],turquoise:['th_turquoise',themeSwatch('rgba(0,212,200,.58)','rgba(2,132,199,.50)')],cyberpunk:['th_cyberpunk',themeSwatch('rgba(255,42,133,.62)','rgba(0,240,255,.52)')],gold:['th_gold',themeSwatch('rgba(245,176,65,.58)','rgba(217,119,6,.48)')],amoled:['th_amoled',themeSwatch('rgba(0,255,157,.50)','rgba(0,212,255,.40)')],nord:['th_nord',themeSwatch('rgba(136,192,208,.52)','rgba(94,129,172,.50)')],daylight:['th_daylight','radial-gradient(90% 80% at 15% 10%,rgba(14,165,233,.45),transparent 62%),radial-gradient(90% 80% at 88% 92%,rgba(99,102,241,.40),transparent 60%),linear-gradient(160deg,#f8fafc,#e2e8f0)']};
+var THEME_META={clean:['th_clean','radial-gradient(90% 80% at 85% 10%,rgba(37,99,235,.35),transparent 62%),radial-gradient(90% 80% at 12% 92%,rgba(16,185,129,.32),transparent 60%),linear-gradient(160deg,#ffffff,#eef3f9)'],aurora:['th_aurora',themeSwatch('rgba(0,225,193,.55)','rgba(124,58,237,.50)')],nebula:['th_nebula',themeSwatch('rgba(139,92,246,.60)','rgba(236,72,153,.45)')],ocean:['th_ocean',themeSwatch('rgba(56,189,248,.55)','rgba(79,70,229,.50)')],ember:['th_ember',themeSwatch('rgba(255,176,32,.50)','rgba(244,63,94,.42)')],forest:['th_forest',themeSwatch('rgba(52,211,153,.50)','rgba(6,182,212,.45)')],steel:['th_steel',themeSwatch('rgba(148,163,184,.42)','rgba(71,85,105,.50)')],turquoise:['th_turquoise',themeSwatch('rgba(0,212,200,.58)','rgba(2,132,199,.50)')],cyberpunk:['th_cyberpunk',themeSwatch('rgba(255,42,133,.62)','rgba(0,240,255,.52)')],gold:['th_gold',themeSwatch('rgba(245,176,65,.58)','rgba(217,119,6,.48)')],amoled:['th_amoled',themeSwatch('rgba(0,255,157,.50)','rgba(0,212,255,.40)')],nord:['th_nord',themeSwatch('rgba(136,192,208,.52)','rgba(94,129,172,.50)')],daylight:['th_daylight','radial-gradient(90% 80% at 15% 10%,rgba(14,165,233,.45),transparent 62%),radial-gradient(90% 80% at 88% 92%,rgba(99,102,241,.40),transparent 60%),linear-gradient(160deg,#f8fafc,#e2e8f0)']};
 function buildThemeGrid(){var g=$('#themeGrid');if(!g||g.__built)return;g.__built=1;Object.keys(THEME_META).forEach(function(id){var m=THEME_META[id];var b=document.createElement('button');b.type='button';b.setAttribute('data-t',id);b.style.setProperty('--tpw',m[1]);b.innerHTML='<i></i><span></span>';b.querySelector('span').textContent=t(m[0]);g.appendChild(b)})}
-function renderTheme(){var cur=document.documentElement.getAttribute('data-theme')||'aurora';$$('#themeGrid button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-t')===cur)})}
+function renderTheme(){var cur=document.documentElement.getAttribute('data-theme')||'clean';$$('#themeGrid button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-t')===cur)})}
 function openThemePick(){buildThemeGrid();renderTheme();var p=$('#themePick');if(p)p.classList.add('show')}
 function closeThemePick(){var p=$('#themePick');if(p)p.classList.remove('show')}
 function setTheme(id,persist){if(!THEME_META[id])return;document.documentElement.setAttribute('data-theme',id);try{document.cookie='catTheme='+id+';path=/;max-age=31536000;samesite=lax'}catch(e){}
@@ -2036,7 +2357,7 @@ $('#btnBulk').addEventListener('click',async function(){
  chain.then(function(){toast(t('bulk_done')+made);return load()}).catch(function(){toast('error',true)});
 });
 function renderStats(){var active=USERS.filter(function(u){return statusOf(u)==='active'}).length;
- $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;
+ $('#stUsers').textContent=USERS.length;$('#stActive').textContent=active;$('#stExp').textContent=USERS.length-active;if($('#stOff'))$('#stOff').textContent=USERS.length-active;try{renderDash()}catch(e){}
  var ips=CFG.settings.ips.length;$('#stIps').textContent=ips;$('#stIpsS').textContent=(CFG.settings.useDefaults?'+ '+CFG.defaults.addresses.length+' default':'');
  var addrs=ips+(CFG.settings.useDefaults?CFG.defaults.addresses.length:0)+(CFG.settings.includeHost?1:0);
  var ports=CFG.settings.tlsPorts.length+(CFG.settings.plainEnabled?CFG.settings.plainPorts.length:0);var protos=(CFG.settings.protocols.vless?1:0)+(CFG.settings.protocols.trojan?1:0);
@@ -2110,18 +2431,27 @@ function timeCell(u){if(u.firstUseDays>0&&!u.expiresAt)return '<span class="chip
  var cls=d<=0?'d':d<=5?'w':'';return '<div class="small">'+(d>0?d+' '+t('days')+' '+t('left'):t('expired'))+' <span class="dim">· '+fmtDate(u.expiresAt)+'</span></div><div class="bar '+cls+'" style="margin-top:4px;width:120px"><i style="width:'+pct+'%"></i></div>'}
 function statusChip(u){var s=statusOf(u);return '<span class="chip '+(s==='active'?'ok':'bad')+'">'+(s==='active'?'🟢':s==='expired'?'⏰':s==='quota'?'📦':'⛔')+' '+t(s)+'</span>'}
 function linkBtns(u){return '<div class="act"><button class="btn sm g" data-copy="'+esc(u.links.sub)+'">🔗 '+t('sub')+'</button><button class="btn sm c" data-copy="'+esc(u.links.clash)+'">'+t('clash')+'</button><button class="btn sm" data-copy="'+esc(u.links.singbox)+'">'+t('singbox')+'</button><button class="btn sm" data-copy="'+esc(u.links.xray)+'">Xray</button><button class="btn sm" data-qr="'+esc(u.links.sub)+'" data-qrl="'+esc(u.name)+'">▦</button><a class="btn sm" href="'+esc(u.links.info)+'" target="_blank" rel="noopener">↗</a></div>'}
-function actBtns(u){return '<div class="act"><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button>'+(u.quotaBytes>0?'<button class="ib" data-c="green" data-reset="'+u.id+'" title="'+t('reset_usage')+'" aria-label="'+t('reset_usage')+'">♻️</button>':'')+'<button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
+function actBtns(u){return '<div class="act"><button class="ib" data-c="cyan" data-ulinks="'+u.id+'" title="'+esc(tx('لینک‌ها و کانفیگ‌ها','Links & configs'))+'" aria-label="'+esc(tx('لینک‌ها و کانفیگ‌ها','Links & configs'))+'">🔗</button><button class="ib" data-c="violet" data-edit="'+u.id+'" title="'+t('edit')+'" aria-label="'+t('edit')+'">✏️</button><button class="ib" data-c="green" data-renew="'+u.id+'" title="'+t('renew')+'" aria-label="'+t('renew')+'">🔁</button><button class="ib" data-c="amber" data-toggle="'+u.id+'" title="'+t('toggle')+'" aria-label="'+t('toggle')+'">'+(u.enabled?'⏸':'▶️')+'</button>'+(u.quotaBytes>0?'<button class="ib" data-c="green" data-reset="'+u.id+'" title="'+t('reset_usage')+'" aria-label="'+t('reset_usage')+'">♻️</button>':'')+'<button class="ib" data-c="red" data-del="'+u.id+'" title="'+t('del')+'" aria-label="'+t('del')+'">🗑</button></div>'}
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
- $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
+ $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('');bulkSync()}
+var SEL={};
+function bulkSync(){Object.keys(SEL).forEach(function(id){if(!USERS.some(function(u){return u.id===id}))delete SEL[id]});var n=Object.keys(SEL).length,vis=filtered();$('#bulkBar').style.display=n?'flex':'none';$('#bulkN').textContent=String(n);var sa=$('#selAll');if(sa){sa.checked=!!vis.length&&vis.every(function(u){return SEL[u.id]});sa.indeterminate=n>0&&!sa.checked}}
+document.addEventListener('change',function(e){var c=e.target;if(c.id==='selAll'){filtered().forEach(function(u){if(c.checked)SEL[u.id]=1;else delete SEL[u.id]});renderUsers();return}var id=c.getAttribute&&c.getAttribute('data-sel');if(id==null)return;if(c.checked)SEL[id]=1;else delete SEL[id];renderUsers()});
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-bulk]');if(!b)return;var k=b.getAttribute('data-bulk'),ids=Object.keys(SEL),us=USERS.filter(function(u){return SEL[u.id]});if(k==='none'){SEL={};renderUsers();return}if(!ids.length)return;
+ if(k==='copy'){copy(us.map(function(u){return u.name+': '+((u.links&&u.links.sub)||(location.origin+'/sub/'+u.id))}).join(String.fromCharCode(10)));return}
+ if(k==='del'&&!(await ask(tx(ids.length+' کاربر برای همیشه حذف شود؟',''+ids.length+' users will be deleted permanently. Continue?'),{ok:t('del')})))return;
+ b.disabled=true;var ok=0,bad=0;for(var i=0;i<ids.length;i++){var id=encodeURIComponent(ids[i]),r;try{r=k==='del'?await api('/api/users/'+id,{method:'DELETE'}):k==='renew'?await api('/api/users/'+id+'/renew',{method:'POST',body:{days:30}}):await api('/api/users/'+id,{method:'PUT',body:{enabled:k==='on'}});if(r&&r.ok!==false)ok++;else bad++}catch(_){bad++}}
+ b.disabled=false;if(k==='del')SEL={};toast('✓ '+ok+(bad?' · ✗ '+bad:''),!!bad);load()});
 ['input','change'].forEach(function(e){$('#q').addEventListener(e,renderUsers);$('#flt').addEventListener(e,renderUsers);$('#srt').addEventListener(e,renderUsers)});
 
 document.addEventListener('click',async function(e){var b;
  if((b=e.target.closest('[data-copy]'))){copy(b.getAttribute('data-copy'));return}
  if((b=e.target.closest('[data-qr]'))){showQr(b.getAttribute('data-qr'),b.getAttribute('data-qrl')||'');return}
  if((b=e.target.closest('[data-edit]'))){openDrawer(USERS.filter(function(u){return u.id===b.getAttribute('data-edit')})[0]);return}
+ if((b=e.target.closest('[data-ulinks]'))){var lu=USERS.filter(function(u){return u.id===b.getAttribute('data-ulinks')})[0];if(lu){openDrawer(lu);setUTab('links')}return}
  if((b=e.target.closest('[data-renew]'))){api('/api/users/'+b.getAttribute('data-renew')+'/renew',{method:'POST',body:{days:30}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-reset]'))){if(!(await ask(t('confirm_reset'),{ok:t('reset_usage')})))return;api('/api/users/'+b.getAttribute('data-reset')+'/reset-usage',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
  if((b=e.target.closest('[data-toggle]'))){api('/api/users/'+b.getAttribute('data-toggle')+'/toggle',{method:'POST',body:{}}).then(function(){toast('✓');return load()});return}
@@ -2141,17 +2471,37 @@ function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textConten
  $('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
  f.elements.uips.value=u&&u.ips?u.ips.join('\n'):'';
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
- $('#dLinks').innerHTML=u?'<div class="card" style="padding:12px"><div class="small mute b" style="margin-bottom:6px">'+t('h_links')+'</div>'+[['sub',u.links.sub],['clash',u.links.clash],['singbox',u.links.singbox],['info',u.links.info]].map(function(p){return '<div class="lk"><span class="small" style="min-width:56px">'+t(p[0])+'</span><input class="mono" readonly value="'+esc(p[1])+'"><button class="btn sm" type="button" data-copy="'+esc(p[1])+'">📋</button><button class="btn sm" type="button" data-qr="'+esc(p[1])+'" data-qrl="'+esc(u.name)+'">▦</button></div>'}).join('')+'</div>':'';
+ var dl=$('#dLinks');dl.__u=u||null;dl.__loaded=0;dl.innerHTML=u?richLinks(u.links,u.name,u):'';
+ var pn=$('#drawer .pn');pn.classList.toggle('nolinks',!u);setUTab('base');poolsRender();connSummary();
  $('#drawer').classList.add('show')}
 function closeDrawer(){$('#drawer').classList.remove('show');editing=null}
+function setUTab(k){var pn=$('#drawer .pn');if(!pn)return;pn.setAttribute('data-tab',k);$$('#uTabs button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ut')===k)});if(k==='links'){var L=$('#dLinks');if(L&&L.__u&&!L.__loaded)loadUserConfigs(L.__u)}}
+$$('#uTabs button').forEach(function(b){b.addEventListener('click',function(){setUTab(b.getAttribute('data-ut'))})});
+$('#fUser').addEventListener('invalid',function(e){var p=e.target.closest&&e.target.closest('.upane');if(p)setUTab(p.getAttribute('data-up'))},true);
+function poolsRender(){var sel=$('#uPoolPick');if(!sel)return;var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[];sel.innerHTML=P.length?P.map(function(p,i){return '<option value="'+i+'">'+esc(p.name)+' ('+p.ips.length+')</option>'}).join(''):'<option value="">'+esc(tx('هنوز استخری نساخته‌ای','No pools yet'))+'</option>'}
+if($('#uPoolUse'))$('#uPoolUse').addEventListener('click',function(){var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[],p=P[+$('#uPoolPick').value];if(!p){toast(tx('اول در «آیپی تمیز» یک استخر بساز','Create a pool in «Clean IP» first'),true);return}$('#fUser').elements.uips.value=p.ips.slice(0,20).join(String.fromCharCode(10));toast('✓ '+p.name)});
+function connSummary(){var box=$('#uConnSum');if(!box||!CFG||!CFG.settings)return;var s=CFG.settings,fr=s.fragment||{};box.innerHTML=tRow('TLS',(s.tlsPorts||[]).join(' · ')||'—')+tRow('Fingerprint',esc(s.fingerprint||'chrome'))+tRow('ALPN',esc(s.alpn||'http/1.1'))+tRow(tx('فرگمنت','Fragment'),fr.enabled?esc((fr.packets||'tlshello')+' · '+(fr.length||'')+' · '+(fr.interval||'')):tx('خاموش','off'))+tRow('ECH',s.echList?tx('روشن','on'):tx('خاموش','off'))}
+function linkCard(title,sub,url,qrl){return '<div><div class="hd">'+title+' <small>'+sub+'</small></div><input class="mono" readonly value="'+esc(url)+'"><div class="row"><button class="btn sm p" type="button" data-copy="'+esc(url)+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-qr="'+esc(url)+'" data-qrl="'+esc(qrl)+'">▦ QR</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tx('باز کردن','Open'))+'</a></div></div>'}
+function richLinks(L,name,u){return '<div class="lnk4">'+linkCard('🔗 '+esc(tx('ساب اصلی','Subscription')),'Base64 · v2rayNG / Hiddify / Streisand',L.sub,name)+linkCard('📦 sing-box','Hiddify / sing-box / NekoBox',L.singbox,name)+(L.xray?linkCard('🧩 Xray JSON','v2rayNG (JSON) / Xray',L.xray,name):'')+linkCard('🐱 Clash Meta','Clash Verge / FlClash / Stash',L.clash,name)+'</div>'
+ +'<div class="lk" style="margin-top:10px"><span class="small b" style="min-width:110px">📊 '+esc(tx('صفحهٔ وضعیت','Status page'))+'</span><input class="mono" readonly value="'+esc(L.info)+'"><button class="btn sm" type="button" data-copy="'+esc(L.info)+'">📋</button><a class="btn sm" href="'+esc(L.info)+'" target="_blank" rel="noopener">↗</a></div>'
+ +'<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><a class="btn sm p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">🐱 Cat Client</a><a class="btn sm" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">v2rayNG</a><a class="btn sm" href="hiddify://import/'+esc(L.sub)+'">Hiddify</a></div>'
+ +(u?'<div class="card" style="padding:12px;margin-top:12px"><div class="row" style="justify-content:space-between"><b class="small">🧾 '+esc(tx('کانفیگ‌های همین ساب','Configs in this subscription'))+'</b><button class="btn sm" type="button" id="cfgCopyAll" disabled>📋 '+esc(tx('کپی همه','Copy all'))+'</button></div><div class="cfgl" id="cfgList"><div class="dim">…</div></div></div>':'')
+ +'<div class="note i small" style="margin-top:10px">'+esc(tx('این لینک‌ها ثابت‌اند و با هر بار باز شدن، آی‌پی‌ها و کانفیگ‌های تازه را می‌دهند. اگر لینکی لو رفت، کاربر را حذف یا غیرفعال کن (برای ساب اصلی: «چرخش توکن ساب» در «راهنما و درباره»).','These links are stable and return fresh IPs and configs on every refresh. If a link leaks, delete or disable the user (master subscription: «rotate subscription token» in «Help & about»).'))+'</div>'}
+function b64txt(x){try{var bin=atob(String(x).replace(/[^A-Za-z0-9+/=_-]/g,'').replace(/-/g,'+').replace(/_/g,'/'));try{return decodeURIComponent(escape(bin))}catch(e){return bin}}catch(e){return ''}}
+function loadUserConfigs(u){var L=$('#dLinks');L.__loaded=1;var box=$('#cfgList');if(!box)return;var su=u.links.sub;try{var pu=new URL(su,location.href);su=pu.pathname+pu.search}catch(e){}fetch(su,{cache:'no-store',credentials:'omit'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(txt){var raw=/:[/][/]/.test(txt)?txt:b64txt(txt);var lines=raw.split(String.fromCharCode(10)).map(function(x){return x.trim()}).filter(function(x){return /^[a-z0-9+.-]+:[/][/]/i.test(x)});
+  if(!lines.length){box.innerHTML='<div class="dim">'+esc(tx('ساب خالی است — اول در «آیپی تمیز» آی‌پی اضافه کن.','The subscription is empty — add IPs in «Clean IP» first.'))+'</div>';return}
+  box.innerHTML=lines.slice(0,200).map(function(l,i){var h=l.indexOf('#'),nm=h>=0?l.slice(h+1):l.split('@').pop();try{nm=decodeURIComponent(nm)}catch(e){}return '<div><b>'+(i+1)+'</b><span title="'+esc(nm)+'">'+esc(nm)+'</span><button class="btn sm" type="button" data-copy="'+esc(l)+'">📋</button></div>'}).join('');
+  var all=$('#cfgCopyAll');if(all){all.disabled=false;all.onclick=function(){copy(lines.join(String.fromCharCode(10)))}}}).catch(function(e){box.innerHTML='<div class="bad">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
 $('#btnAdd').addEventListener('click',function(){openDrawer(null)});
 $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname.value=randName()});
 /* fastest addresses of the last in-browser test, exactly as listed (IP or IP:port) */
 function fastIps(n){var BS=window.__browserScan||{};return Object.keys(BS).filter(function(k){return BS[k].ok&&BS[k].ms>0}).sort(function(a,b){return BS[a].ms-BS[b].ms}).slice(0,n||5)}
 $('#btnUserIpsFast').addEventListener('click',function(){var best=fastIps(5);if(!best.length){toast(t('u_ips_none'),true);return}$('#fUser').elements.uips.value=best.join('\n')});
-$('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;
- api('/api/users',{method:'POST',body:{name:randName(),days:0,firstUseDays:30,ips:fastIps(5),protocols:{vless:true,trojan:true}}}).then(function(j){if(!j||!j.ok){toast(t('b_user_save_error').replace('%1',safeDiag(j&&(j.error||j.message)||'?')),true);return}
-  toast(t('u_quick_ok'));return load().then(function(){openDrawer(USERS.filter(function(x){return x.id===j.user.id})[0]||null)})}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+$('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;var qips=fastIps(5);
+ api('/api/users',{method:'POST',body:{name:randName(),days:0,firstUseDays:30,ips:qips,protocols:{vless:true,trojan:true}}}).then(function(j){if(!j||!j.ok){toast(t('b_user_save_error').replace('%1',safeDiag(j&&(j.error||j.message)||'?')),true);return}
+  toast(t('u_quick_ok'));return load().then(function(){openDrawer(USERS.filter(function(x){return x.id===j.user.id})[0]||null);
+  /* DevCop-style red notice: a user with no clean IP (own or panel) gets only the default addresses, which are often filtered */
+  if(!qips.length&&!((CFG.settings&&CFG.settings.ips)||[]).length){setUTab('ip');toast(tx('توجه: آیپی تمیز قرار دهید — این کاربر فعلاً فقط آدرس‌های پیش‌فرض را دارد. از «اسکنر IP» چند آیپی سالم بگیر و اینجا بگذار.','Note: add clean IPs — this user only has the default addresses. Get a few healthy IPs from «IP scanner» and put them here.'),true)}})}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
 var PWA=null;window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();PWA=e;$('#btnInstall').style.display=''});
 $('#btnInstall').addEventListener('click',function(){if(!PWA)return;PWA.prompt();PWA=null;this.style.display='none'});
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
@@ -2164,7 +2514,7 @@ $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.
 /* ---------- master links / self ---------- */
 $('#btnMasterLinks').addEventListener('click',function(){openMasterLinks()});
 function openMasterLinks(){var L=CFG.links;var u={id:CFG.uuid,name:t('master_links'),links:L,protocols:CFG.settings.protocols,enabled:true,expiresAt:0,createdAt:0,note:''};
- $('#dTitle').textContent=t('master_links');$('#fUser').style.display='none';$('#dLinks').innerHTML='<div class="card" style="padding:12px">'+[['sub',L.sub],['clash',L.clash],['singbox',L.singbox],['info',L.info]].map(function(p){return '<div class="lk"><span class="small" style="min-width:56px">'+t(p[0])+'</span><input class="mono" readonly value="'+esc(p[1])+'"><button class="btn sm" type="button" data-copy="'+esc(p[1])+'">📋</button><button class="btn sm" type="button" data-qr="'+esc(p[1])+'" data-qrl="master">▦</button></div>'}).join('')+'<div class="row" style="margin-top:10px"><a class="btn p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(CFG.settings.title||'Cat Panel')+'">🐱 Cat Client</a><a class="btn" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name=CatPanel">v2rayNG</a><a class="btn" href="hiddify://import/'+esc(L.sub)+'">Hiddify</a></div></div>';
+ $('#dTitle').textContent=t('master_links');$('#fUser').style.display='none';var dl=$('#dLinks');dl.__u=null;dl.innerHTML=richLinks(L,CFG.settings.title||'Cat Panel',null);var pn=$('#drawer .pn');pn.classList.add('nolinks');pn.setAttribute('data-tab','links');$('#uTabs').style.display='none';$$('[data-close]').forEach(function(b){b.addEventListener('click',function(){$('#uTabs').style.display=''},{once:true})});
  $('#drawer').classList.add('show');$$('[data-close]').forEach(function(b){b.addEventListener('click',function(){$('#fUser').style.display=''},{once:true})})}
 $('#btnSync').addEventListener('click',function(){toast(t('sync_hint'));location.href='catclient://add-sub?url='+encodeURIComponent(CFG.links.sub)+'&name='+encodeURIComponent(CFG.settings.title||'Cat Panel')});
 $('#btnRefresh').addEventListener('click',function(){load().then(function(){toast('✓')})});
@@ -2807,10 +3157,136 @@ function initCollapsibleCards(){
 }
 initCollapsibleCards();
 $('#btnUpdate').addEventListener('click',function(){show('about');var b=$('#updateBox');b.textContent=t('update_check');api('/api/update-check').then(function(j){renderUpdateBox(b,j,true)})});
+/* ---------- beta199 «Cat Clean» shell: page header, sidebar, dark toggle, quick search, dashboard, tools ---------- */
+function tx(a,b){return lang==='en'?b:a}
+function setPage(){var sec=document.querySelector('.view.on'),h=sec&&sec.querySelector('.vhead h1'),p=sec&&sec.querySelector('.vhead p');var pt=$('#pgTitle'),ps=$('#pgSub');if(pt)pt.textContent=h?h.textContent:'';if(ps)ps.textContent=p?p.textContent:'';if(h)document.title=h.textContent+' · '+(($('#brandTitle')||{}).textContent||'Cat Panel')}
+function gotoTarget(spec){var i=spec.indexOf('#'),v=i<0?spec:spec.slice(0,i),id=i<0?'':spec.slice(i+1);show(v);if(id){setTimeout(function(){var el=document.getElementById(id);if(!el)return;el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('flash');setTimeout(function(){el.classList.remove('flash')},1600)},80)}}
+if($('#btnTopNew'))$('#btnTopNew').addEventListener('click',function(){openDrawer(null)});
+if($('#btnTopRefresh'))$('#btnTopRefresh').addEventListener('click',function(){var b=this;b.disabled=true;load().then(function(){toast('✓ '+tx('به‌روز شد','Reloaded'))}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+if($('#btnSbToggle'))$('#btnSbToggle').addEventListener('click',function(){var on=!document.body.classList.contains('sbmini');document.body.classList.toggle('sbmini',on);try{localStorage.setItem('catSbMini',on?'1':'')}catch(e){}});
+try{if(localStorage.getItem('catSbMini')==='1')document.body.classList.add('sbmini')}catch(e){}
+function isLightSkin(id){return id==='clean'||id==='daylight'}
+if($('#btnDark'))$('#btnDark').addEventListener('click',function(){var cur=document.documentElement.getAttribute('data-theme')||'clean';if(isLightSkin(cur)){var d='';try{d=localStorage.getItem('catDark')||''}catch(e){}setTheme(THEME_META[d]&&!isLightSkin(d)?d:'aurora',1)}else{try{localStorage.setItem('catDark',cur)}catch(e){}setTheme('clean',1)}});
+document.addEventListener('click',function(e){var q=e.target.closest('[data-qa]');if(q){var a=q.getAttribute('data-qa');if(a==='new')openDrawer(null);else if(a==='quick'){var bq=$('#btnQuick');if(bq)bq.click()}else if(a==='update'){var bu=$('#btnOvUpdate')||$('#btnUpdate');if(bu)bu.click()}else show(a);return}
+ var g=e.target.closest('[data-goto]');if(g){gotoTarget(g.getAttribute('data-goto'));return}});
+/* quick search (⌘ / Ctrl+K): every page + the real actions, nothing new to learn */
+var CMDK_SEL=0;
+function cmdkItems(){var out=[],seen={};$$('#sideNav [data-view]').forEach(function(b){var v=b.getAttribute('data-view');if(seen[v])return;seen[v]=1;out.push({label:(b.textContent||'').trim(),hint:tx('صفحه','page'),svg:(b.querySelector('svg')||{}).outerHTML||'',run:function(){show(v)}})});
+ [[tx('کاربر جدید','New user'),function(){openDrawer(null)}],[tx('ساخت سریع کاربر','Quick-create user'),function(){var b=$('#btnQuick');if(b)b.click()}],[tx('لینک‌های ساب اصلی','Master subscription links'),function(){var b=$('#btnMasterLinks');if(b)b.click()}],[tx('تست پینگ','Ping test'),function(){gotoTarget('tools#tlPing')}],[tx('تستر پورت','Port tester'),function(){gotoTarget('tools#tlPort')}],[tx('بررسی دسترسی دامنه','Domain access check'),function(){gotoTarget('tools#tlDom')}],[tx('شکار خروجی کشور','Exit hunt'),function(){gotoTarget('loc#ehGo')}],[tx('انتخاب پوسته','Choose a skin'),function(){openThemePick()}],[tx('حالت روشن / تیره','Light / dark mode'),function(){var b=$('#btnDark');if(b)b.click()}],[tx('بررسی آپدیت','Check for update'),function(){var b=$('#btnOvUpdate');if(b)b.click()}],[tx('تغییر زبان','Switch language'),function(){var b=$('#btnLang');if(b)b.click()}],[tx('خروج از پنل','Log out'),function(){location.href='/logout'}]].forEach(function(x){out.push({label:x[0],hint:tx('عملیات','action'),svg:'',run:x[1]})});return out}
+function cmdkRender(){var q=($('#cmdkIn').value||'').trim().toLowerCase();var items=cmdkItems().filter(function(x){return !q||x.label.toLowerCase().indexOf(q)>=0});window.__cmdk=items;if(CMDK_SEL>=items.length)CMDK_SEL=Math.max(0,items.length-1);
+ $('#cmdkList').innerHTML=items.length?items.map(function(x,i){return '<li data-ci="'+i+'" class="'+(i===CMDK_SEL?'on':'')+'">'+x.svg+'<span>'+esc(x.label)+'</span><small>'+esc(x.hint)+'</small></li>'}).join(''):'<li>'+esc(tx('چیزی پیدا نشد','Nothing found'))+'</li>'}
+function cmdkOpen(){var m=$('#cmdk');if(!m)return;CMDK_SEL=0;$('#cmdkIn').value='';cmdkRender();m.classList.add('show');setTimeout(function(){$('#cmdkIn').focus()},30)}
+function cmdkClose(){var m=$('#cmdk');if(m)m.classList.remove('show')}
+function cmdkRun(i){var it=(window.__cmdk||[])[i];cmdkClose();if(it)it.run()}
+if($('#btnPalette'))$('#btnPalette').addEventListener('click',cmdkOpen);
+if($('#cmdk')){$('#cmdk').addEventListener('click',function(e){if(e.target.id==='cmdk'){cmdkClose();return}var li=e.target.closest('[data-ci]');if(li)cmdkRun(+li.getAttribute('data-ci'))});
+ $('#cmdkIn').addEventListener('input',function(){CMDK_SEL=0;cmdkRender()});
+ $('#cmdkIn').addEventListener('keydown',function(e){var n=(window.__cmdk||[]).length;if(e.key==='ArrowDown'){e.preventDefault();CMDK_SEL=n?(CMDK_SEL+1)%n:0;cmdkRender()}else if(e.key==='ArrowUp'){e.preventDefault();CMDK_SEL=n?(CMDK_SEL-1+n)%n:0;cmdkRender()}else if(e.key==='Enter'){e.preventDefault();cmdkRun(CMDK_SEL)}else if(e.key==='Escape'){cmdkClose()}})}
+document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='k'){e.preventDefault();var m=$('#cmdk');if(m&&m.classList.contains('show'))cmdkClose();else cmdkOpen()}else if(e.key==='Escape')cmdkClose()});
+/* PWA install banner: only when the browser really offers installation */
+(function(){var B=$('#pwaBanner'),ev=null;if(!B)return;var never=false;try{never=localStorage.getItem('catPwaNo')==='1'}catch(e){}
+ window.addEventListener('beforeinstallprompt',function(e){ev=e;if(!never)B.classList.add('show')});
+ $('#pwaYes').addEventListener('click',function(){B.classList.remove('show');if(ev){ev.prompt();ev=null}});
+ $('#pwaNever').addEventListener('click',function(){B.classList.remove('show');try{localStorage.setItem('catPwaNo','1')}catch(e){}});
+ $('#pwaX').addEventListener('click',function(){B.classList.remove('show')})})();
+/* dashboard: totals + top users (all from /api/users, nothing estimated) */
+function userUsed(u){var tr=u.traffic||{};return (Number(tr.up)||0)+(Number(tr.down)||0)}
+function renderDash(){if(!$('#stVol'))return;var vol=0,dev=0;USERS.forEach(function(u){vol+=userUsed(u);dev+=Number(u.activeIps)||0});$('#stVol').textContent=fmtGB(vol);$('#stDev').textContent=String(dev);
+ var tb=$('#topUsers');if(!tb)return;var list=USERS.slice().sort(function(a,b){return userUsed(b)-userUsed(a)}).slice(0,6);$('#topUsersEmpty').style.display=list.length?'none':'block';
+ tb.innerHTML=list.map(function(u){var used=userUsed(u),q=Number(u.quotaBytes)||0,pct=q>0?Math.min(100,Math.round(used/q*100)):0;
+  return '<tr><td><b>'+esc(u.name)+'</b></td><td><div dir="ltr" class="small">'+fmtGB(used)+(q>0?' / '+fmtGB(q):' / ∞')+'</div>'+(q>0?'<div class="bar'+(pct>=90?' d':pct>=70?' w':'')+'"><i style="width:'+pct+'%"></i></div>':'')+'</td><td class="small">'+timeCell(u)+'</td><td class="small" dir="ltr">'+(Number(u.activeIps)||0)+(u.maxIps>0?' / '+u.maxIps:'')+'</td><td>'+statusChip(u)+'</td></tr>'}).join('')}
+/* ---- tools page ---- */
+function tRow(label,val,cls){return '<div><span>'+label+'</span><span class="'+(cls||'')+'" dir="ltr">'+val+'</span></div>'}
+function msCls(ms){return ms<250?'ok':ms<700?'warn':'bad'}
+if($('#tlPingSrv'))$('#tlPingSrv').addEventListener('click',function(){var b=this,out=$('#tlPingOut');b.disabled=true;out.innerHTML=tRow('⏳',tx('در حال تست از سمت سرور…','Testing from the server…'));
+ api('/api/svc-test',{method:'POST',body:{hosts:['www.gstatic.com','www.google.com','www.cloudflare.com']}}).then(function(j){var R=(j&&j.results)||{};var rows=Object.keys(R).map(function(h){var r=R[h]||{};return tRow('🖥 → '+esc(h),r.ok?(r.ms+' ms'):('✗ '+esc(String(r.error||r.status||'').slice(0,40))),r.ok?msCls(r.ms):'bad')});var ex=j&&j.exit||{};if(ex.ip||ex.loc)rows.push(tRow(tx('خروجی پنل','Panel exit'),esc((ex.loc||'?')+' · '+(ex.colo||'')+' · '+(ex.ip||''))));out.innerHTML=rows.join('')||tRow('✗',esc(j&&j.error||'?'),'bad')}).catch(function(e){out.innerHTML=tRow('✗',esc(safeDiag(e&&e.message||e)),'bad')}).then(function(){b.disabled=false})});
+if($('#tlPingMe'))$('#tlPingMe').addEventListener('click',function(){var b=this,out=$('#tlPingOut');b.disabled=true;var res=[],n=0;out.innerHTML=tRow('⏳',tx('در حال اندازه‌گیری از مرورگر تو…','Measuring from your browser…'));
+ function one(){var t0=performance.now();fetch('/api/self?p='+Date.now(),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.text()}).then(function(){res.push(Math.round(performance.now()-t0))},function(){res.push(-1)}).then(function(){if(++n<6)one();else done()})}
+ function done(){b.disabled=false;var ok=res.filter(function(x){return x>=0});if(!ok.length){out.innerHTML=tRow('✗',tx('پنل از این مرورگر جواب نداد','The panel did not answer this browser'),'bad');return}var mn=Math.min.apply(null,ok),avg=Math.round(ok.reduce(function(a,c){return a+c},0)/ok.length),jit=0;for(var i=1;i<ok.length;i++)jit+=Math.abs(ok[i]-ok[i-1]);jit=ok.length>1?Math.round(jit/(ok.length-1)):0;
+  out.innerHTML=tRow(tx('کمترین','Minimum'),mn+' ms',msCls(mn))+tRow(tx('میانگین','Average'),avg+' ms',msCls(avg))+tRow(tx('نوسان (جیتر)','Jitter'),jit+' ms',jit<40?'ok':jit<120?'warn':'bad')+tRow(tx('موفق','Succeeded'),ok.length+' / '+res.length,ok.length===res.length?'ok':'warn')}
+ one()});
+if($('#tlRouteGo'))$('#tlRouteGo').addEventListener('click',function(){var b=this,out=$('#tlRouteOut');b.disabled=true;out.innerHTML=tRow('⏳','…');
+ Promise.all([api('/api/self').catch(function(){return {}}),api('/api/svc-test',{method:'POST',body:{hosts:['www.cloudflare.com']}}).catch(function(){return {}})]).then(function(a){var me=a[0]||{},sv=a[1]||{},ex=sv.exit||{};
+  out.innerHTML=tRow('1️⃣ '+tx('تو','You'),esc((me.ip||'?')+(me.country?' · '+me.country:'')+(me.asn?' · AS'+me.asn:'')+(me.asOrganization?' '+String(me.asOrganization).slice(0,28):'')))+tRow('2️⃣ '+tx('دیتاسنتر کلودفلر','Cloudflare datacenter'),esc((me.colo||'?')+(me.city?' · '+me.city:'')),'ok')+tRow('3️⃣ '+tx('خروجی پنل به اینترنت','Panel exit to the internet'),esc(ex.ip?((ex.loc||'?')+' · '+ex.ip+(ex.colo?' · '+ex.colo:'')):tx('نامعلوم (سرور اجازهٔ تست نداد)','unknown (the server could not test)')),ex.ip?'ok':'warn')+(CFG&&CFG.chain?tRow('⛓ '+tx('زنجیرهٔ خروجی','Exit chain'),esc(CFG.chain.type+' · '+CFG.chain.host)):'')}).then(function(){b.disabled=false})});
+var TL_TLS=[443,8443,2053,2083,2087,2096],TL_HTTP=[80,8080,8880,2052,2082,2086,2095];
+(function(){var pk=$('#tlPortPick');if(!pk)return;function draw(){var http=$('#tlPortHttp').classList.contains('on');pk.innerHTML=TL_TLS.concat(http?TL_HTTP:[]).map(function(p){return '<button type="button" class="on" data-v="'+p+'">'+p+'</button>'}).join('')}draw();
+ $('#tlPortHttp').addEventListener('click',function(){setTimeout(draw,0)});pk.addEventListener('click',function(e){var b=e.target.closest('button');if(b)b.classList.toggle('on')});
+ var hi=$('#tlPortHost');if(hi)hi.placeholder=location.hostname})();
+if($('#tlPortGo'))$('#tlPortGo').addEventListener('click',function(){var out=$('#tlPortOut'),host=($('#tlPortHost').value||'').trim()||location.hostname;host=host.replace(/^https?:[/][/]/,'').split('/')[0];var ports=$$('#tlPortPick button.on').map(function(b){return +b.getAttribute('data-v')});if(!ports.length){toast(tx('حداقل یک پورت انتخاب کن','Pick at least one port'),true);return}
+ var hb=host.indexOf(':')>=0&&host.charAt(0)!=='['?'['+host+']':host;out.innerHTML='';
+ ports.forEach(function(p){var http=TL_HTTP.indexOf(p)>=0,d=document.createElement('div');d.innerHTML='<span class="mono">'+esc(host)+':'+p+(http?' (HTTP)':' (TLS)')+'</span><span class="dim">…</span>';out.appendChild(d);var c=d.lastChild;
+  if(http&&location.protocol==='https:'){c.className='warn';c.textContent=tx('از صفحهٔ HTTPS قابل تست نیست — اسکنر اپ','Not testable from an HTTPS page — use the app scanner');return}
+  var best=1e9,n=0,fail=0;function one(){var t0=performance.now(),ctl=new AbortController(),tm=setTimeout(function(){ctl.abort()},4000);
+   fetch((http?'http://':'https://')+hb+':'+p+'/cdn-cgi/trace?pt='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){best=Math.min(best,Math.round(performance.now()-t0))},function(){var el=Math.round(performance.now()-t0);if(el<3900&&host!==location.hostname)best=Math.min(best,el);else fail++}).then(function(){clearTimeout(tm);if(++n<3&&fail<2)one();else{c.className=best<1e9?msCls(best):'bad';c.textContent=best<1e9?('✅ '+best+' ms'):('✗ '+tx('بسته یا بی‌جواب','closed or silent'))}})}
+  one()})});
+if($('#tlDcGo'))$('#tlDcGo').addEventListener('click',function(){var b=this,out=$('#tlDcOut'),rows=[],colos={};b.disabled=true;out.innerHTML='';var n=0;
+ function one(){var t0=performance.now();fetch('/api/self?dc='+Date.now(),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){var ms=Math.round(performance.now()-t0);colos[j.colo||'?']=1;rows.push(tRow('#'+(n+1)+' · '+esc(j.colo||'?'),esc((j.httpProtocol||'?')+' · '+(j.tlsVersion||'?')+' · '+ms+' ms'),msCls(ms)))},function(){rows.push(tRow('#'+(n+1),'✗','bad'))}).then(function(){out.innerHTML=rows.join('');if(++n<6)one();else{var k=Object.keys(colos);out.innerHTML+=tRow(tx('نتیجه','Result'),k.length<=1?tx('ثابت: ','Stable: ')+esc(k[0]||'?'):tx('متغیر: ','Changing: ')+esc(k.join(' ، ')),k.length<=1?'ok':'warn');b.disabled=false}})}
+ one()});
+if($('#tlDomGo'))$('#tlDomGo').addEventListener('click',function(){var b=this,out=$('#tlDomOut');var list=String($('#tlDomList').value||'').split(/[\s,;]+/).map(function(x){return x.trim().toLowerCase().replace(/^https?:[/][/]/,'').split('/')[0]}).filter(function(x){return /^[a-z0-9.-]+[.][a-z]{2,}$/.test(x)}).slice(0,8);if(!list.length){toast(tx('یک دامنهٔ درست بنویس، مثل google.com','Write a valid domain, e.g. google.com'),true);return}
+ b.disabled=true;out.innerHTML='<div><b>'+esc(tx('دامنه','Domain'))+'</b><b>'+esc(tx('سرور · اینترنت تو','Server · your internet'))+'</b></div>'+list.map(function(d){return '<div data-dm="'+esc(d)+'"><span class="mono">'+esc(d)+'</span><span><span class="sv dim">…</span> · <span class="me dim">…</span></span></div>'}).join('');
+ list.forEach(function(d){var row=out.querySelector('[data-dm="'+d+'"] .me');var t0=performance.now(),ctl=new AbortController(),tm=setTimeout(function(){ctl.abort()},6000);fetch('https://'+d+'/favicon.ico?c='+Date.now(),{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){clearTimeout(tm);row.className='me ok';row.textContent='✅ '+Math.round(performance.now()-t0)+' ms'},function(){clearTimeout(tm);row.className='me bad';row.textContent='✗'})});
+ api('/api/svc-test',{method:'POST',body:{hosts:list}}).then(function(j){var R=(j&&j.results)||{};list.forEach(function(d){var el=out.querySelector('[data-dm="'+d+'"] .sv'),r=R[d];if(!el)return;if(!r){el.className='sv warn';el.textContent='?';return}el.className='sv '+(r.ok?'ok':'bad');el.textContent=r.ok?('✅ '+r.ms+' ms'):'✗'})}).catch(function(){$$('#tlDomOut .sv').forEach(function(el){el.className='sv warn';el.textContent='?'})}).then(function(){b.disabled=false})});
+/* ---- beta199 range scanner (browser, honest: reachability + handshake time from the owner's own line) ---- */
+var CF_V4=['173.245.48.0/20','103.21.244.0/22','103.22.200.0/22','103.31.4.0/22','141.101.64.0/18','108.162.192.0/18','190.93.240.0/20','188.114.96.0/20','197.234.240.0/22','198.41.128.0/17','162.158.0.0/15','104.16.0.0/13','104.24.0.0/14','172.64.0.0/13','131.0.72.0/22'];
+var RS={run:false,res:{},order:[]};
+function ip2n(ip){var p=ip.split('.').map(Number);return ((p[0]<<24)>>>0)+(p[1]<<16)+(p[2]<<8)+p[3]}
+function n2ip(n){return [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.')}
+function rsTargets(){var lines=String($('#rsRanges').value||'').split(/[\s,;]+/).filter(Boolean),want=+$('#rsCount').value||100,rnd=$('#rsRandom').classList.contains('on'),single=[],ranges=[];
+ lines.forEach(function(l){var m=/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(l);if(m&&+m[2]>=8&&+m[2]<=32){var size=Math.pow(2,32-m[2]),base=ip2n(m[1])-(ip2n(m[1])%size);ranges.push({b:base,s:size})}else if(/^[0-9a-f:.]+$/i.test(l.replace(/^\[|\]$/g,'')))single.push(l.replace(/^\[|\]$/g,''))});
+ var out=single.slice(0,want),seen={};out.forEach(function(x){seen[x]=1});var tot=ranges.reduce(function(a,r){return a+r.s},0),guard=0;
+ ranges.forEach(function(r,ri){var share=Math.max(1,Math.round((want-single.length)*r.s/Math.max(1,tot)));for(var k=0;k<share&&out.length<want&&guard<want*20;k++,guard++){var off=rnd?1+Math.floor(Math.random()*Math.max(1,r.s-2)):1+Math.floor(k*(r.s-2)/share);var ip=n2ip(r.b+off);if(seen[ip]){k--;continue}seen[ip]=1;out.push(ip)}});
+ return out.slice(0,want)}
+function rsKey(ip,port){return (ip.indexOf(':')>=0?'['+ip+']':ip)+':'+port}
+function rsRender(){var list=$('#rsList'),keys=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].ok}).sort(function(a,b){return RS.res[a].ms-RS.res[b].ms});
+ list.innerHTML=keys.map(function(k){var r=RS.res[k];return '<div><label class="row" style="gap:8px;margin:0;cursor:pointer"><input type="checkbox" data-rsk="'+esc(k)+'"'+(r.sel?' checked':'')+' style="width:auto"><span class="mono">'+esc(k)+'</span></label><span class="'+msCls(r.ms)+'">'+r.ms+' ms</span></div>'}).join('');
+ $('#rsTools').style.display=keys.length?'flex':'none';rsSel()}
+function rsSel(){var n=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].sel}).length;$('#rsSave').style.display=n?'block':'none';$('#rsSelN').textContent=String(n);var u=$('#rsUser');if(u&&!u.__f){u.__f=1;u.innerHTML=USERS.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')||'<option value="">—</option>'}}
+function rsPicked(){return RS.order.filter(function(k){return RS.res[k]&&RS.res[k].sel})}
+if($('#rsPresetCf'))$('#rsPresetCf').addEventListener('click',function(){$('#rsRanges').value=CF_V4.join(String.fromCharCode(10))});
+if($('#rsClearR'))$('#rsClearR').addEventListener('click',function(){$('#rsRanges').value=''});
+if($('#rsStart'))$('#rsStart').addEventListener('click',function(){var ips=rsTargets();if(!ips.length){toast(tx('اول رنج یا آی‌پی بنویس (یا «رنج‌های Cloudflare» را بزن)','Enter ranges or IPs first (or press «Cloudflare ranges»)'),true);return}
+ var port=+$('#rsPort').value||443,par=+$('#rsPar').value||8,i=0,done=0,ok=0,BS=window.__browserScan=window.__browserScan||{};RS.run=true;$('#rsStart').disabled=true;$('#rsStop').disabled=false;
+ function prog(){$('#rsProg').textContent=done+' '+tx('آزموده','tested')+' · '+tx('سالم','healthy')+' '+ok;$('#rsBar').style.width=Math.round(done/ips.length*100)+'%'}
+ function fin(){RS.run=false;$('#rsStart').disabled=false;$('#rsStop').disabled=true;rsRender();toast('✓ '+ok+' / '+done)}
+ function next(){if(!RS.run||i>=ips.length){if(done>=i&&(!RS.run||i>=ips.length)&&!next.f){next.f=1;fin()}return}var ip=ips[i++],k=rsKey(ip,port),t0=performance.now(),ctl=new AbortController(),to=false,tm=setTimeout(function(){to=true;ctl.abort()},3000);
+  if(RS.order.indexOf(k)<0)RS.order.push(k);
+  fetch('https://'+(ip.indexOf(':')>=0?'['+ip+']':ip)+':'+port+'/',{mode:'no-cors',cache:'no-store',signal:ctl.signal}).then(function(){},function(){}).then(function(){clearTimeout(tm);var ms=Math.round(performance.now()-t0);done++;if(!to){ok++;RS.res[k]={ok:true,ms:ms};BS[k]={ok:true,ms:ms}}else RS.res[k]={ok:false};prog();if(done%8===0)rsRender();next()})}
+ next.f=0;prog();for(var p=0;p<par;p++)next()});
+if($('#rsStop'))$('#rsStop').addEventListener('click',function(){RS.run=false});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-rstop]');if(!b)return;var n=+b.getAttribute('data-rstop'),keys=RS.order.filter(function(k){return RS.res[k]&&RS.res[k].ok}).sort(function(a,c){return RS.res[a].ms-RS.res[c].ms});keys.forEach(function(k,ix){RS.res[k].sel=ix<n});rsRender()});
+document.addEventListener('change',function(e){var c=e.target.closest&&e.target.closest('[data-rsk]');if(!c)return;var r=RS.res[c.getAttribute('data-rsk')];if(r)r.sel=c.checked;rsSel()});
+if($('#rsClearRes'))$('#rsClearRes').addEventListener('click',function(){RS.res={};RS.order=[];rsRender();$('#rsProg').textContent='0';$('#rsBar').style.width='0%'});
+if($('#rsToPanel'))$('#rsToPanel').addEventListener('click',function(){var p=rsPicked();if(!p.length)return;api('/api/ips',{method:'POST',body:{ips:p,source:'scan'}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');toast('✓ '+(j.count!=null?j.count:p.length)+' '+tx('آی‌پی در پنل','IPs in the panel'));return load()}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})});
+if($('#rsToUser'))$('#rsToUser').addEventListener('click',function(){var p=rsPicked(),id=$('#rsUser').value,u=USERS.filter(function(x){return x.id===id})[0];if(!p.length||!u){toast(tx('یک کاربر انتخاب کن','Pick a user'),true);return}var merged=p.concat((u.ips||[]).filter(function(x){return p.indexOf(x)<0})).slice(0,20);
+ api('/api/users/'+encodeURIComponent(id),{method:'PUT',body:{ips:merged}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');toast('✓ '+u.name+' · '+merged.length+' IP');return load()}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})});
+function poolsSave(next,msg){return api('/api/settings',{method:'PUT',body:{ipPools:next}}).then(function(j){if(!j||!j.ok)throw new Error(j&&j.error||'?');CFG.settings.ipPools=j.settings.ipPools||next;poolsList();poolsRender();toast(j.persisted?msg:t('saved_nokv'),!j.persisted)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)})}
+function poolUpsert(name,ips){var P=((CFG.settings.ipPools)||[]).filter(function(x){return x.name!==name});P.unshift({name:name,ips:ips});return P.slice(0,20)}
+if($('#rsToPool'))$('#rsToPool').addEventListener('click',function(){var p=rsPicked(),nm=($('#rsPoolName').value||'').trim();if(!p.length)return;if(!nm){toast(tx('برای استخر یک نام بنویس','Give the pool a name'),true);return}poolsSave(poolUpsert(nm,p.slice(0,100)),'✓ '+nm)});
+if($('#poolAdd'))$('#poolAdd').addEventListener('click',function(){var nm=($('#poolName').value||'').trim(),ips=String($('#poolIps').value||'').split(/[\s,;]+/).filter(Boolean);if(!nm||!ips.length){toast(tx('نام و حداقل یک آی‌پی لازم است','A name and at least one IP are needed'),true);return}poolsSave(poolUpsert(nm,ips.slice(0,100)),'✓ '+nm).then(function(){$('#poolName').value='';$('#poolIps').value=''})});
+function poolsList(){var box=$('#poolList');if(!box||!CFG||!CFG.settings)return;var P=CFG.settings.ipPools||[];box.innerHTML=P.length?P.map(function(p,i){return '<div><div class="hd">🗂 '+esc(p.name)+' <small>'+p.ips.length+' IP</small></div><div class="mono small dim" style="max-height:60px;overflow:hidden" dir="ltr">'+esc(p.ips.slice(0,4).join(' · '))+(p.ips.length>4?' …':'')+'</div><div class="row"><button class="btn sm" type="button" data-copy="'+esc(p.ips.join(String.fromCharCode(10)))+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-pooldel="'+i+'">🗑 '+esc(tx('حذف','Delete'))+'</button></div></div>'}).join(''):'<div class="small dim">'+esc(tx('هنوز استخری نداری. بعد از اسکن، «ذخیره در استخر» را بزن یا از «افزودن استخر با آدرس» بساز.','No pools yet. After a scan press «Save as pool», or use «Add a pool by addresses».'))+'</div>'}
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-pooldel]');if(!b)return;var P=(CFG.settings.ipPools||[]).slice(),i=+b.getAttribute('data-pooldel'),p=P[i];if(!p)return;if(!(await ask(tx('استخر «'+p.name+'» حذف شود؟','Delete pool «'+p.name+'»?'),{ok:tx('حذف','Delete')})))return;P.splice(i,1);poolsSave(P,'✓')});
+/* ---- beta199 settings accordions + sticky save/restore bar ---- */
+(function(){var V=$('#v-settings');if(!V)return;var cards=$$('#v-settings .card.sec').filter(function(c){return c.id!=='setSaveBar'&&c.querySelector(':scope>h2')}),st={};try{st=JSON.parse(localStorage.getItem('catAcc')||'{}')}catch(e){}
+ cards.forEach(function(c,i){var h=c.querySelector(':scope>h2'),key=(h.textContent||'').trim().slice(0,40)||String(i);c.classList.add('acc');if(st[key]!==undefined?st[key]:i>0)c.classList.add('shut');h.setAttribute('role','button');h.setAttribute('tabindex','0');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));
+  function tog(){c.classList.toggle('shut');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));st[key]=c.classList.contains('shut');try{localStorage.setItem('catAcc',JSON.stringify(st))}catch(e){}}
+  h.addEventListener('click',function(e){if(e.target.closest('button,a,input,select,label,.hq'))return;tog()});h.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tog()}})});
+ var bar=document.createElement('div');bar.className='accbar';bar.innerHTML='<button class="btn sm" type="button" id="accOpen">⊞ '+esc(tx('باز کردن همه','Expand all'))+'</button><button class="btn sm" type="button" id="accShut">⊟ '+esc(tx('بستن همه','Collapse all'))+'</button><span class="small mute">'+esc(tx('روی عنوان هر بخش بزن تا باز/بسته شود.','Tap a section title to open/close it.'))+'</span>';
+ var first=cards[0];if(first){var anc=first;while(anc.parentNode&&anc.parentNode!==V)anc=anc.parentNode;V.insertBefore(bar,anc)}
+ function all(shut){cards.forEach(function(c){c.classList.toggle('shut',shut);var h=c.querySelector(':scope>h2');h.setAttribute('aria-expanded',String(!shut))})}
+ $('#accOpen').addEventListener('click',function(){all(false)});$('#accShut').addEventListener('click',function(){all(true)});
+ V.addEventListener('invalid',function(e){var c=e.target.closest&&e.target.closest('.sec.acc');if(c)c.classList.remove('shut')},true);
+ /* open the section of anything other code scrolls to / focuses */
+ V.addEventListener('focusin',function(e){var c=e.target.closest&&e.target.closest('.sec.acc.shut');if(c&&!e.target.matches('h2'))c.classList.remove('shut')});
+ var _siv=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(){var c=this.closest&&this.closest('.sec.acc.shut');if(c)c.classList.remove('shut');return _siv.apply(this,arguments)};
+ window.openSetSection=function(el){var c=el&&el.closest&&el.closest('.sec.acc');if(c)c.classList.remove('shut')};
+ var f=$('#fSettings'),sb=$('#setSaveBar');function dirty(on){sb.classList.toggle('dirty',on);if(on)$('#saveState').textContent=tx('تغییرات ذخیره‌نشده','Unsaved changes')}
+ f.addEventListener('input',function(){dirty(true)});f.addEventListener('change',function(){dirty(true)});f.addEventListener('submit',function(){setTimeout(function(){dirty(false)},0)});
+ $('#btnSetRestore').addEventListener('click',function(){if(!CFG)return;renderCfg();dirty(false);$('#saveState').textContent='';toast(tx('مقدارهای فعلی پنل برگشت','Panel values restored'))});
+})();
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','nodes','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();
