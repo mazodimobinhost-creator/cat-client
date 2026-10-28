@@ -1269,9 +1269,12 @@ function normalizeSettings(raw) {
     // Links copied from Telegram/HTML arrive with &amp; — sanitize at save time
     .map((x, i) => ({ name: String(x.name || 'ext' + (i + 1)).slice(0, 40), url: String(x.url).trim().replace(/&amp;/g, '&') }));
   s.useDefaults = s.useDefaults !== false;
-  s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
+  // beta204: uniq() returns STRINGS — ports stayed '443' after this line, so PLAIN_PORTS.includes(port) was always
+  // false (a pinned «ip:80» opened a TLS wave on :80 for EVERY address), sing-box got "server_port": "443" (refused)
+  // and the settings page drew every port twice. Ports are numbers from here on.
+  s.tlsPorts = uniq((Array.isArray(s.tlsPorts) ? s.tlsPorts : splitCsv(s.tlsPorts)).map(Number).filter((p) => p >= 1 && p <= 65535)).map(Number);
   if (!s.tlsPorts.length) s.tlsPorts = [443];
-  s.plainPorts = uniq((Array.isArray(s.plainPorts) ? s.plainPorts : splitCsv(s.plainPorts)).map(Number).filter((p) => p >= 1 && p <= 65535));
+  s.plainPorts = uniq((Array.isArray(s.plainPorts) ? s.plainPorts : splitCsv(s.plainPorts)).map(Number).filter((p) => p >= 1 && p <= 65535)).map(Number);
   if (!s.plainPorts.length) s.plainPorts = [80];
   s.plainEnabled = s.plainEnabled !== false;
   s.protocols = {[PROTO_VLESS]: !(s.protocols && s.protocols[PROTO_VLESS] === false),[TROJAN_KEY]: !(s.protocols && s.protocols[TROJAN_KEY] === false) };
@@ -5159,8 +5162,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   if (q.limit) settings = Object.assign({}, settings, { entryLimit: Math.min(96, Math.max(1, q.limit)) });
   // Interleave TLS and plain ports (443, 80, 2053, 8080, …) so both kinds
   // survive the entry limit.
-  const tls = settings.tlsPorts.map((p) => ({ port: p, tls: true }));
-  const plain = settings.plainEnabled ? settings.plainPorts.map((p) => ({ port: p, tls: false })) : [];
+  const tls = settings.tlsPorts.map((p) => ({ port: Number(p), tls: true }));
+  const plain = settings.plainEnabled ? settings.plainPorts.map((p) => ({ port: Number(p), tls: false })) : [];
   const ports = [];
   for (let i = 0; i < Math.max(tls.length, plain.length); i++) {
     if (tls[i]) ports.push(tls[i]);
@@ -5168,7 +5171,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   }
   // Scan-pinned addresses (`ip:port`) bring their own verified port; make sure it
   // exists in the port walk even if the panel never enabled it explicitly.
-  for (const p of uniq(addresses.map(pinnedPortOf).filter(Boolean))) if (!ports.some((x) => Number(x.port) === p)) ports.push({ port: Number(p), tls: !PLAIN_PORTS.includes(p) });
+  for (const p of uniq(addresses.map(pinnedPortOf).filter(Boolean)).map(Number)) if (!ports.some((x) => Number(x.port) === p)) ports.push({ port: p, tls: !PLAIN_PORTS.includes(p) });
   const entries = [];
   let vi = 0;
   let ti = 0;
@@ -5344,9 +5347,35 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const b = (pin ? a.slice(0, a.lastIndexOf(':')) : a).replace(/^\[/, '').replace(/\]$/, '');
       return isIpv6(b) ? 'v6' : isIpv4(b) ? 'v4' : '';
     };
-    return { ctx, entries: entries.filter((e) => famOfAddr(String(e.addr)) === q.fam), preferredCc };
+    return { ctx, entries: uniqueEntryNames(entries.filter((e) => famOfAddr(String(e.addr)) === q.fam)), preferredCc };
   }
-  return { ctx, entries, preferredCc };
+  return { ctx, entries: uniqueEntryNames(entries), preferredCc };
+}
+
+/**
+ * beta204: every config name must be unique. 🎯 ProxyIP / 🧦 relay / 🧬 SNI lines used ONE name for the VLESS and
+ * the Trojan twin — sing-box refuses the whole file on a duplicate outbound tag, mihomo on a duplicate proxy name,
+ * and v2rayNG shows two indistinguishable rows. Duplicates get « · VL» / « · TR» (and a counter if still taken);
+ * the share link's #fragment follows.
+ */
+function uniqueEntryNames(entries) {
+  const count = new Map();
+  for (const e of entries) count.set(e.name, (count.get(e.name) || 0) + 1);
+  const used = new Set();
+  for (const e of entries) {
+    let nm = String(e.name || '');
+    if (count.get(e.name) > 1 || used.has(nm)) {
+      const base = nm + ' · ' + (e.proto === 'vless' ? 'VL' : 'TR');
+      nm = base;
+      for (let k = 2; used.has(nm); k += 1) nm = base + ' ' + k;
+    }
+    used.add(nm);
+    if (nm !== e.name) {
+      e.name = nm;
+      if (typeof e.link === 'string') e.link = e.link.replace(/#[^#]*$/, '#' + encodeURIComponent(nm));
+    }
+  }
+  return entries;
 }
 
 /** Apply one bounded, link-local firewall recipe. This never writes panel settings. */
@@ -5560,7 +5589,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
       type: e.proto,
       tag: e.name,
       server: e.addr.replace(/^\[|\]$/g, ''),
-      server_port: e.port,
+      server_port: Number(e.port), // a scan-pinned «ip:2053» carried its port as a string → sing-box refused the file
       transport: singboxWsTransport(e.wsPath || (e.proto === 'vless' ? ctx.paths[PROTO_VLESS + 'Path'] : ctx.paths[TROJAN_KEY + 'Path']), e.hostHeader || ctx.hostHeader || ctx.host),
     };
     if (e.proto === 'vless') out.uuid = ctx.uuid; else out.password = ctx[TROJAN_KEY + 'Pass'];
@@ -5613,7 +5642,7 @@ function buildSingboxConfig(host, env, settings, uuid, user, q) {
         { ip_is_private: true, outbound: 'direct' },
       ].concat(
         settings.blockAds ? [{ rule_set: ['geosite-ads'], action: 'reject' }] : [],
-        settings.blockQuic ? { network: 'udp', port: 443, action: 'reject' } : null,
+        settings.blockQuic ? [{ network: 'udp', port: 443, action: 'reject' }] : [], // was `: null` → a null rule (sing-box: invalid config)
         settings.bypassIran ? [{ domain_suffix: ['.ir'], outbound: 'direct' }, { rule_set: ['geosite-ir', 'geoip-ir'], outbound: 'direct' }] : [],
       ),
       rule_set: [].concat(
@@ -5886,8 +5915,8 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
     return stream;
   };
   const proxyOut = (e, tag) => (e.proto === 'vless'
-    ? { tag, protocol: 'vless', settings: { vnext: [{ address: e.addr, port: e.port, users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: streamFor(e) }
-    : { tag, protocol: 'trojan', settings: { servers: [{ address: e.addr, port: e.port, password: ctx[TROJAN_KEY + 'Pass'], level: 8 }] }, streamSettings: streamFor(e) });
+    ? { tag, protocol: 'vless', settings: { vnext: [{ address: String(e.addr).replace(/^\[|\]$/g, ''), port: Number(e.port), users: [{ id: ctx.uuid, encryption: 'none', level: 8 }] }] }, streamSettings: streamFor(e) }
+    : { tag, protocol: 'trojan', settings: { servers: [{ address: String(e.addr).replace(/^\[|\]$/g, ''), port: Number(e.port), password: ctx[TROJAN_KEY + 'Pass'], level: 8 }] }, streamSettings: streamFor(e) });
   // Shared tail: warp / fragment dialers, then direct + block.
   const tail = () => {
     const outs = [];
@@ -6130,7 +6159,7 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
       sniFront: false,
       sniRotate: false,
       plainEnabled: true,
-      plainPorts: uniq([80, 8080].concat(settings.plainPorts || [])).slice(0, 16),
+      plainPorts: uniq([80, 8080].concat(settings.plainPorts || [])).map(Number).slice(0, 16),
       protocols: Object.assign({}, settings.protocols || {}, { [PROTO_VLESS]: true, [TROJAN_KEY]: true }),
       fragment: Object.assign({}, settings.fragment || { packets: 'tlshello', length: '10-100', interval: '10-20' }, { enabled: true }),
       healthOrder: true,
@@ -7247,7 +7276,7 @@ async function handleApi(request, url, env, ctx) {
     if (settings.useDefaults === false) patch.useDefaults = true;
     if (settings.includeHost === false) patch.includeHost = true;
     if (!settings.plainEnabled) patch.plainEnabled = true;
-    const fallbackPorts = uniq([80, 8080].concat(settings.plainPorts || [])).slice(0, 16);
+    const fallbackPorts = uniq([80, 8080].concat(settings.plainPorts || [])).map(Number).slice(0, 16);
     if (fallbackPorts.join(',') !== (settings.plainPorts || []).join(',')) patch.plainPorts = fallbackPorts;
     const proto = settings.protocols || {};
     if (proto[PROTO_VLESS] === false || proto[TROJAN_KEY] === false) patch.protocols = Object.assign({}, proto, { [PROTO_VLESS]: true, [TROJAN_KEY]: true });
@@ -12153,7 +12182,7 @@ export default {
 };
 
 export const _testing = {
-  dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS,
+  dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS, DEFAULT_PROXY_IPS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,
   buildCustomConfig, singboxWsTransport, buildXrayConfigs, BEST_PING_MAX,

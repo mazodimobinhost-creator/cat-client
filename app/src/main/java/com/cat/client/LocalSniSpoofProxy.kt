@@ -639,6 +639,27 @@ internal object LocalSniSpoofProxy {
         return out
     }
 
+    /**
+     * beta204: a local client can hand the ClientHello over in more than one read (big post-quantum key shares,
+     * slow loopback). Every splitter only re-cuts a COMPLETE first record, so read the missing tail of that record
+     * (at most one TLS record, 16 KiB + 5) before splitting. Anything that is not a TLS handshake is returned as is.
+     */
+    internal fun completeFirstTlsRecord(inp: java.io.InputStream, first: ByteArray): ByteArray {
+        if (first.size < 5 || (first[0].toInt() and 0xFF) != 0x16) return first
+        val declared = ((first[3].toInt() and 0xFF) shl 8) or (first[4].toInt() and 0xFF)
+        val need = 5 + declared
+        if (declared <= 0 || declared > 16_384 + 256 || first.size >= need) return first
+        val out = ByteArrayOutputStream(need)
+        out.write(first)
+        val tmp = ByteArray(4096)
+        while (out.size() < need) {
+            val r = inp.read(tmp, 0, minOf(tmp.size, need - out.size()))
+            if (r <= 0) break
+            out.write(tmp, 0, r)
+        }
+        return out.toByteArray()
+    }
+
     /** Writes [chunks] one by one with a 1 ms pause after each of the first few (shared by the two beta203 splitters). */
     private fun writeChunksPaced(upOut: java.io.OutputStream, chunks: List<ByteArray>) {
         for ((idx, chunk) in chunks.withIndex()) {
@@ -653,8 +674,19 @@ internal object LocalSniSpoofProxy {
      * tiny 3-4 byte valid TLS Handshake records (`0x16 0x03 0x01 ...`) so no single TCP segment or
      * TLS record ever contains more than 4 consecutive characters of the target domain name.
      */
-    fun splitClientHelloMultiChunkAtSni(record: ByteArray): List<ByteArray> {
-        if (record.size < 20 || (record[0].toInt() and 0xFF) != 0x16) return listOf(record)
+    fun splitClientHelloMultiChunkAtSni(input: ByteArray): List<ByteArray> {
+        if (input.size < 20 || (input[0].toInt() and 0xFF) != 0x16) return listOf(input)
+        // beta204: work on exactly ONE complete record. Before, a read that held only part of the ClientHello (or the
+        // ClientHello plus the next record) was re-wrapped as a whole, so the server received records with a wrong
+        // length / a foreign record header inside a handshake record → the handshake died. Incomplete → untouched;
+        // trailing bytes → passed on raw.
+        val declared = ((input[3].toInt() and 0xFF) shl 8) or (input[4].toInt() and 0xFF)
+        if (declared < 15 || 5 + declared > input.size) return listOf(input)
+        if (5 + declared < input.size) {
+            return splitClientHelloMultiChunkAtSni(input.copyOfRange(0, 5 + declared)) +
+                listOf(input.copyOfRange(5 + declared, input.size))
+        }
+        val record = input
         val verMajor = record[1]
         val verMinor = record[2]
         val payload = record.copyOfRange(5, record.size)
@@ -1386,7 +1418,7 @@ internal object LocalSniSpoofProxy {
                                 if (n <= 0) break
                                 if (firstPacket && n > 5 && (buf[0].toInt() and 0xFF) == 0x16) {
                                     firstPacket = false
-                                    val rawRecord = buf.copyOfRange(0, n)
+                                    val rawRecord = completeFirstTlsRecord(inp, buf.copyOfRange(0, n))
                                     when (strategy) {
                                         SpoofStrategy.LOW_TTL_DECOY -> {
                                             sendDecoyClientHelloPulse(cleanHost, remotePort, currentDecoySni)
@@ -3062,7 +3094,7 @@ RESOLVERS = [$resolversList]
                                 if (n <= 0) break
                                 if (firstPacket && n > 5 && (buf[0].toInt() and 0xFF) == 0x16) {
                                     firstPacket = false
-                                    val rawRecord = buf.copyOfRange(0, n)
+                                    val rawRecord = completeFirstTlsRecord(inp, buf.copyOfRange(0, n))
                                     when (strategy) {
                                         SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
                                         SpoofStrategy.MITM_PINNED_CERT_FRONTING -> {
