@@ -7128,7 +7128,7 @@ async function handleRequest(request, env, ctx) {
     const isMaster = token === masterKey;
     const user = isMaster ? null : findUser(await readUsers(env), token);
     if (!isMaster && !user) return html(notFoundPage(), 404);
-    return html(userInfoPage(url.origin, host, env, settings, token, user, request));
+    return html(userInfoPage(url.origin, host, env, settings, token, user, request, user ? await readTraffic(env, user.id) : null));
   }
 
   /* A hidden owner-selected panel path may still be retained for old installs, but
@@ -7432,48 +7432,71 @@ function notFoundPage() {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>404</title><style>${BASE_CSS}body{display:grid;place-items:center;min-height:100vh}</style></head><body><div style="text-align:center"><div class="mute">404</div></div></body></html>`;
 }
 
-function userInfoPage(origin, host, env, settings, token, user, request) {
+function userInfoPage(origin, host, env, settings, token, user, request, traffic) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
   const links = subLinks(origin, token, user);
   const name = user ? user.name : (fa ? 'اشتراک اصلی' : 'Master subscription');
-  const blocked = user ? userBlockedReason(user) : null;
+  const blocked = user ? userBlockedReason(user, traffic) : null;
   const expires = user && user.expiresAt ? new Date(user.expiresAt) : null;
   const daysLeft = expires ? Math.ceil((expires.getTime() - Date.now()) / 86400000) : null;
   const cf = (request && request.cf) || {};
   const edgeInfo = (cf.colo || 'CF') + (cf.clientTcpRtt ? (' · ' + cf.clientTcpRtt + 'ms') : '');
-  const t = fa ? {
-    sub: 'لینک اشتراک (همهٔ کلاینت‌ها)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', xray: 'Xray کامل (v2rayNG / V2Box — با Fragment)', copy: 'کپی', qr: 'QR', open: 'باز کردن در Cat Client',
-    never: 'بدون انقضا', left: 'روز مانده', expired: 'منقضی شده', disabled: 'غیرفعال', active: 'فعال', apps: 'باز کردن در', hint: 'لینک را کپی کن و در کلاینت از بخش «افزودن اشتراک» وارد کن.',
-  } : {
-    sub: 'Subscription link (all clients)', clash: 'Clash / Mihomo', singbox: 'sing-box / Hiddify', xray: 'Full Xray (v2rayNG / V2Box — with fragment)', copy: 'Copy', qr: 'QR', open: 'Open in Cat Client',
-    never: 'never expires', left: 'days left', expired: 'expired', disabled: 'disabled', active: 'active', apps: 'Open in', hint: 'Copy the link and add it as a subscription in your client.',
+  const L = (a, b) => (fa ? a : b);
+  const t = {
+    copy: L('کپی', 'Copy'), qr: 'QR', never: L('بدون انقضا', 'never expires'), left: L('روز مانده', 'days left'),
+    expired: L('منقضی شده', 'expired'), disabled: L('غیرفعال', 'disabled'), quota: L('حجم تمام شد', 'quota used up'), active: L('فعال', 'active'),
+    apps: L('باز کردن مستقیم در برنامه', 'Open directly in an app'), hint: L('ساده‌ترین راه: «لینک اصلی» را کپی کن و در برنامه‌ات از بخش «افزودن اشتراک» وارد کن، یا یکی از دکمه‌های برنامه را بزن.', 'Easiest: copy the «main link» and add it as a subscription in your app, or press one of the app buttons.'),
   };
-  const status = blocked === 'expired' ? ['bad', t.expired] : blocked === 'disabled' ? ['bad', t.disabled] : ['ok', t.active];
-  const linkRow = (label, url) => `<div class="lk"><div class="small mute">${label}</div><div class="row" style="flex-wrap:nowrap"><input class="mono" readonly value="${escapeHtml(url)}"><button class="btn sm" data-copy="${escapeHtml(url)}">${t.copy}</button><button class="btn sm" data-qr="${escapeHtml(url)}">${t.qr}</button></div></div>`;
+  const status = blocked === 'expired' ? ['bad', t.expired] : blocked === 'disabled' ? ['bad', t.disabled] : blocked === 'quota' ? ['bad', t.quota] : ['ok', t.active];
+  const used = traffic ? (Number(traffic.up) || 0) + (Number(traffic.down) || 0) : 0;
+  const q = user && user.quotaBytes > 0 ? user.quotaBytes : 0;
+  const gb = (b) => (b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB');
+  const pct = q ? Math.min(100, Math.round(used / q * 100)) : 0;
+  const protos = user && user.protocols ? Object.keys(user.protocols).filter((k) => user.protocols[k]).map((k) => k.toUpperCase()).join(' · ') : 'VLESS · TROJAN';
+  const initial = escapeHtml((String(name).trim()[0] || 'C').toUpperCase());
+  const stat = (ic, label, val, sub, extra) => `<div class="st"><div class="sl"><span class="si">${ic}</span>${label}</div><div class="sv">${val}</div>${sub ? `<div class="ss">${sub}</div>` : ''}${extra || ''}</div>`;
+  const sub4 = [
+    ['🔗', L('لینک اصلی (Base64)', 'Main link (Base64)'), 'v2rayNG · Hiddify · Streisand · Cat Client', links.sub],
+    ['📦', 'sing-box', 'Hiddify · sing-box · NekoBox', links.singbox],
+    ['🧩', 'Xray JSON', L('v2rayNG / V2Box — با Fragment', 'v2rayNG / V2Box — with fragment'), links.xray],
+    ['🐱', 'Clash Meta', 'Clash Verge · FlClash · Stash', links.clash],
+  ];
+  const linkCard = (r) => `<div class="lc"><div class="lh"><b>${r[0]} ${escapeHtml(r[1])}</b><small>${escapeHtml(r[2])}</small></div><input class="mono" dir="ltr" readonly value="${escapeHtml(r[3])}"><div class="row"><button class="btn p" type="button" data-copy="${escapeHtml(r[3])}">📋 ${t.copy}</button><button class="btn" type="button" data-qr="${escapeHtml(r[3])}">▦ ${t.qr}</button></div></div>`;
   const catLink = 'catclient://add-sub?url=' + encodeURIComponent(links.sub) + '&name=' + encodeURIComponent(title + ' ' + name);
-  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · ${escapeHtml(name)}</title><style>${BASE_CSS}
-.wrap{max-width:640px;margin:0 auto;padding:22px 14px 60px}
-.head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
-.logo{width:52px;height:52px;display:grid;place-items:center;flex:none}
-.lk{padding:12px 14px;border-top:1px solid var(--line)}.lk:first-child{border-top:0}
-.lk input{font-size:12px}
-.exp{padding:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
-.bar{height:8px;border-radius:999px;background:#241d3b;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--fuchsia))}
-.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;padding:14px}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}
+  const subPath = (() => { try { const u = new URL(links.sub); return u.pathname + u.search; } catch (e) { return ''; } })();
+  return `<!doctype html><html lang="${fa ? 'fa' : 'en'}" dir="${fa ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)} · ${escapeHtml(name)}</title><style>
+:root{--bg:#f4f7fb;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f1f5f9;--acc1:#2563eb;--acc2:#0d9488;--ok:#059669;--okbg:#ecfdf5;--bad:#dc2626;--badbg:#fef2f2}
+html.dark{--bg:#0b1220;--card:#111a2e;--text:#e2e8f0;--muted:#94a3b8;--line:#1e293b;--soft:#16213a;--okbg:rgba(5,150,105,.15);--badbg:rgba(220,38,38,.15)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 Vazirmatn,"Segoe UI",Tahoma,system-ui,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:22px 14px 60px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.head{display:flex;align-items:center;gap:14px}.av{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--acc1),var(--acc2));flex:none}
+.nm{font-size:19px;font-weight:800}.mute{color:var(--muted)}.small{font-size:12px}.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.pill{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}.pill.ok{background:var(--okbg);color:var(--ok)}.pill.bad{background:var(--badbg);color:var(--bad)}
+.ib{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--soft);color:var(--text);cursor:pointer;font-size:16px;flex:none}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px}.st{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.sl{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.si{width:28px;height:28px;border-radius:9px;background:var(--soft);display:grid;place-items:center}.sv{font-size:18px;font-weight:800;margin-top:8px}.ss{color:var(--muted);font-size:12px}
+.bar{height:7px;border-radius:999px;background:var(--soft);overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc1),var(--acc2))}
+h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}.lc4{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.lc{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--soft)}.lh{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}.lh small{color:var(--muted);font-size:12px}
+input{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}.btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.p{background:linear-gradient(135deg,var(--acc1),var(--acc2));color:#fff;border-color:transparent}.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.cfg{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;margin-top:8px;background:var(--soft)}.cfg .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.cfg .ix{min-width:26px;height:26px;border-radius:8px;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--acc1)}
+details summary{cursor:pointer;font-weight:700;color:var(--acc1)}
+.modal{position:fixed;inset:0;background:rgba(2,6,23,.65);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}.qrbox{background:#fff;padding:14px;border-radius:16px}.qrbox img{width:min(78vw,320px);height:auto;display:block}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}.toast.show{opacity:1}
 </style></head><body><div class="wrap">
-<div class="head"><div class="logo">${catLogo(2)}</div><div><div class="b" style="font-size:20px">${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)} · ${escapeHtml(edgeInfo)}</div></div><span class="chip ${status[0]}" style="margin-inline-start:auto">${status[1]}</span></div>
-<div class="card exp"><div><div class="small mute">${fa ? 'اعتبار زمانی' : 'Validity'}</div><div class="b">${expires ? (daysLeft > 0 ? daysLeft + ' ' + t.left : t.expired) : t.never}</div>${expires ? `<div class="dim small mono">${expires.toISOString().slice(0, 10)}</div>` : ''}</div><div style="font-size:32px">${expires ? '⏳' : '♾️'}</div></div>
-<div class="card">
-${linkRow(t.sub, links.sub)}
-${linkRow(t.clash, links.clash)}
-${linkRow(t.singbox, links.singbox)}
-${linkRow(t.xray, links.xray)}
-${linkRow('MCI IPv6', links.sub + '?fw=mci-ipv6')}
-${linkRow('Irancell F&F', links.sub + '?fw=irancell-ff')}
+<div class="card head"><div class="av" aria-hidden="true">${initial}</div><div style="min-width:0;flex:1"><div class="nm">${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)} · ${escapeHtml(edgeInfo)}</div></div><span class="pill ${status[0]}">● ${status[1]}</span><button class="ib" type="button" id="dk" aria-label="${L('حالت تیره/روشن', 'Dark/light mode')}" title="${L('حالت تیره/روشن', 'Dark/light mode')}">🌙</button></div>
+<div class="stats">
+${stat('📊', L('مصرف', 'Usage'), q ? gb(used) + ' <span class="mute small">/ ' + gb(q) + '</span>' : (used ? gb(used) : L('نامحدود', 'Unlimited')), q ? pct + '%' : '', q ? `<div class="bar"><i style="width:${pct}%"></i></div>` : '')}
+${stat('⏳', L('اعتبار', 'Validity'), expires ? (daysLeft > 0 ? daysLeft + ' ' + t.left : t.expired) : t.never, expires ? `<span class="mono">${expires.toISOString().slice(0, 10)}</span>` : '♾️')}
+${stat('📱', L('دستگاه هم‌زمان', 'Devices'), user && user.maxIps > 0 ? String(user.maxIps) : L('نامحدود', 'Unlimited'), '')}
+${stat('🛡️', L('پروتکل', 'Protocols'), '<span style="font-size:15px">' + escapeHtml(protos) + '</span>', 'WS · TLS')}
 </div>
-<div class="card" style="margin-top:14px"><div class="small mute" style="padding:12px 14px 0">${t.apps}</div><div class="apps">
+<div class="card"><h2>🔗 ${L('لینک اشتراک — ۴ فرمت', 'Subscription — 4 formats')}</h2><div class="lc4">${sub4.map(linkCard).join('')}</div>
+<details style="margin-top:12px"><summary>📶 ${L('لینک مخصوص اپراتور (اگر لینک اصلی وصل نشد)', 'Carrier-specific link (if the main link fails)')}</summary><div class="lc4" style="margin-top:10px">${linkCard(['🟡', L('همراه اول — IPv6', 'MCI — IPv6'), L('شبکهٔ همراه اول', 'MCI network'), links.sub + '?fw=mci-ipv6'])}${linkCard(['🟠', L('ایرانسل — F&F', 'Irancell — F&F'), L('شبکهٔ ایرانسل', 'Irancell network'), links.sub + '?fw=irancell-ff'])}</div></details></div>
+<div class="card"><h2>📲 ${t.apps}</h2><div class="apps">
 <a class="btn p" href="${escapeHtml(catLink)}">🐱 Cat Client</a>
 <a class="btn p" href="https://testflight.apple.com/join/DRkT6zny" target="_blank" rel="noopener">🍎 CoreForge (iOS)</a>
 <a class="btn" href="v2rayng://install-sub?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">v2rayNG</a>
@@ -7486,15 +7509,27 @@ ${linkRow('Irancell F&F', links.sub + '?fw=irancell-ff')}
 <a class="btn" href="/ios/dns.mobileconfig?mode=clean">📲 iOS DoH Profile</a>
 <a class="btn" href="/ios/dns.mobileconfig?mode=shecan">🇮🇷 iOS Shecan DoH</a>
 </div></div>
-<div class="dim small" style="margin-top:14px;text-align:center">${t.hint}</div>
+<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">🧾 ${L('کانفیگ‌های تکی', 'Individual configs')}</h2><button class="btn" type="button" id="cpAll" disabled>📋 ${L('کپی همه', 'Copy all')}</button></div><div id="cfgs" class="mute small" style="margin-top:8px">${L('در حال بارگذاری…', 'Loading…')}</div></div>
+<div class="mute small" style="text-align:center">${t.hint}</div>
 </div>
 <div class="modal" id="m" onclick="this.classList.remove('show')"><div class="qrbox" id="qr"></div></div>
 <div class="toast" id="toast"></div>
 <script>
+var SUBP=${JSON.stringify(subPath)},ALL=[];
 function toast(m){var t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show')},1800)}
 function copy(v){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(v).then(function(){toast('✓')},function(){fallback(v)})}else fallback(v)}
 function fallback(v){var i=document.createElement('textarea');i.value=v;document.body.appendChild(i);i.select();try{document.execCommand('copy');toast('✓')}catch(e){}document.body.removeChild(i)}
-document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(b){copy(b.getAttribute('data-copy'));return}var q=e.target.closest('[data-qr]');if(q){document.getElementById('qr').innerHTML='<img src="/qr.svg?text='+encodeURIComponent(q.getAttribute('data-qr'))+'">';document.getElementById('m').classList.add('show')}});
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(b){copy(b.getAttribute('data-copy'));return}var q=e.target.closest('[data-qr]');if(q){document.getElementById('qr').innerHTML='<img alt="QR" src="/qr.svg?text='+encodeURIComponent(q.getAttribute('data-qr'))+'">';document.getElementById('m').classList.add('show')}});
+var dk=document.getElementById('dk');function setDk(on){document.documentElement.classList.toggle('dark',on);dk.textContent=on?'☀️':'🌙';try{localStorage.setItem('catStDark',on?'1':'')}catch(e){}}
+try{setDk(localStorage.getItem('catStDark')==='1'||(localStorage.getItem('catStDark')===null&&matchMedia('(prefers-color-scheme: dark)').matches))}catch(e){}
+dk.addEventListener('click',function(){setDk(!document.documentElement.classList.contains('dark'))});
+var box=document.getElementById('cfgs');
+if(SUBP)fetch(SUBP,{cache:'no-store',credentials:'omit'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(txt){var s=txt.trim();if(s.indexOf('://')<0){try{s=decodeURIComponent(escape(atob(s.replace(/\\s+/g,''))))}catch(e){}}
+ ALL=s.split(/\\r?\\n/).map(function(x){return x.trim()}).filter(function(x){return /^[a-z0-9+.-]+:\\/\\//i.test(x)});
+ if(!ALL.length){box.textContent=${JSON.stringify(L('کانفیگی برای نمایش نیست.', 'No configs to show.'))};return}
+ box.className='';box.innerHTML=ALL.map(function(c,i){var h=c.indexOf('#'),n=h>=0?c.slice(h+1):c.split('://')[0];try{n=decodeURIComponent(n)}catch(e){}return '<div class="cfg"><span class="ix">'+(i+1)+'</span><span class="n" dir="auto">'+esc(n)+'</span><button class="btn" type="button" data-qr="'+esc(c)+'" aria-label="QR" title="QR">▦</button><button class="btn" type="button" data-copy="'+esc(c)+'" aria-label="${L('کپی', 'Copy')}" title="${L('کپی', 'Copy')}">📋</button></div>'}).join('');
+ var b=document.getElementById('cpAll');b.disabled=false;b.onclick=function(){copy(ALL.join(String.fromCharCode(10)))}}).catch(function(e){box.textContent=${JSON.stringify(L('بارگذاری کانفیگ‌ها نشد: ', 'Could not load configs: '))}+(e&&e.message||e)});
 </script></body></html>`;
 }
 
