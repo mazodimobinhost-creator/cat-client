@@ -12028,6 +12028,7 @@ export default {
 };
 
 export const _testing = {
+  linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,
   buildCustomConfig, singboxWsTransport, buildXrayConfigs, BEST_PING_MAX,
   cfFrontScript,
