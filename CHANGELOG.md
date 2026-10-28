@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta198] — 2026-10-28 (Panel 6.72.0)
+
+### Added — app
+- **🤖 Bot-Hosting.net: fully automatic free panel.** Paste one API key (`bhk_…`, from bot-hosting.net → Developer); the app creates the deployment (Node 22), writes the launcher files, sets the start command, attaches the free `*.apps.bot-hosting.cloud` domain, starts it, reads the logs and verifies the panel answers — after one confirmation, with every step shown live. The free plan must be renewed by hand every 4 days in their dashboard; the app reminds you (3-day countdown) and opens the right page.
+- **🚂 Railway** in the cloud tab: account token → project + service (`node:22-alpine`, launcher of this exact release tag) + start command + deploy + domain, with update = redeploy. Railway's acceptable-use policy forbids proxies, so a clear confirmation is mandatory before anything is created.
+- **🔺 Delta-Kronecker sources** (free-configs card + finder): one tap adds a tested subscription (all / VLESS / Trojan / SS / VMess / Patterniha build / WARP), WARP for Aether (`aether://`), DNS tunnels (SlipNet `slipnet-enc://`, WhiteDNS `stormdns://`), hourly-tested Tor obfs4 / WebTunnel bridges that go straight into Aether → Tor «own bridges» (or copy for Orbot / Tor Browser), and the GitHub Downloader issue form for the national internet. Only links are used — nothing from those repositories is copied.
+- The Moat bridge dialog can now put the bridges into Aether directly and falls back to the Delta-Kronecker hourly list.
+
+### Added — panel 6.72.0
+- **📍 Exit in a chosen country** (SOCKS5 card): the worker reads that country's public SOCKS5 list (proxifly, by URL), opens a real connection through each candidate and asks ip-api which IP/country the internet sees; only proxies whose REAL exit is in that country are added, on their own listed port, tagged with the country. Owner click only, nothing in the background.
+- **🚪 Port test on my line** (scanner card): each Cloudflare TLS port (443, 8443, 2053, 2083, 2087, 2096) is tried 3× from your browser against the panel itself; ✅ + best ms means configs on that port work on your internet.
+- `/status/<id>` = the user page (same as `/info/<id>`).
+
 ## [1.10.0-beta197] — 2026-10-28 (Panel 6.71.0)
 
 ### Added — app

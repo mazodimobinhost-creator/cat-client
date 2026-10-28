@@ -69,5 +69,8 @@ T.__setSockets(null);
 const html = T.panelPage({}, { lang: 'fa' }, 'hunt.workers.dev', 'MASTER-UUID');
 check('page has the country picker and the 📍 button', html.includes('id="ehCc"') && html.includes('id="ehGo"') && html.includes("'/api/exit-hunt'"));
 check('both languages carry eh_btn/eh_ok/eh_none', (html.match(/eh_btn:/g) || []).length >= 2 && (html.match(/eh_none:/g) || []).length >= 2);
+check('🚪 port tester button + 6 TLS ports on the page', html.includes('id="btnPortTest"') && html.includes('[443,8443,2053,2083,2087,2096]'));
+{ const a = await req('/info/' + ENV.UUID); const b = await req('/status/' + ENV.UUID);
+  check('/status/<uuid> is the same user page as /info/<uuid>', a.status === 200 && b.status === 200 && (await b.text()).length > 500, a.status + '/' + b.status); }
 if (failures) { console.error(failures + ' failed'); process.exit(1); }
 console.log('exit-hunt: all passed');
