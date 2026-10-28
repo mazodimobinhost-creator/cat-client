@@ -13,7 +13,6 @@ Full audit of spoof, panel, subscriptions, Vercel, IP import, IP / SNI / ProxyIP
 - **sing-box refused the whole file.** `server_port` was a string (`"443"`), a `null` rule landed in `route.rules` when «block QUIC» was off, and the 🎯 ProxyIP / 🧦 relay / 🧬 SNI twins had the same tag for VLESS and Trojan (sing-box: duplicate tag; mihomo: duplicate proxy name). All three fixed; twins are now named «… · VL» / «… · TR».
 - **Settings page drew every port button twice** (number vs string comparison) — fixed by the same change.
 - **Xray JSON:** IPv6 addresses (e.g. the MCI IPv6 firewall profile) were written with brackets inside `address`; now bare, port always a number.
-- **Scanner → panel:** the app sends `ip:port#CC` lines; pings and countries were stored under the `#CC` key, so the ping badge and the health ordering never found them. They are now stored under the address itself.
 
 ### Fixed — app
 - **Scanner, SNI scanner, SOCKS5 / HTTP proxy finder, ProxyIP health and ping/jitter tested through the running VPN.** Their sockets were not protected (and `protect()` on a fresh socket silently failed because it has no descriptor yet), so with the tunnel on, results showed the VPN exit's view, not your network's. All probe sockets are now protected first.
