@@ -4,6 +4,25 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta197] — 2026-10-28 (Panel 6.71.0)
+
+### Added — app
+- **⏱ Real ping AND jitter, two ways, per exact `IP:port`** (new engine `PingJitterMeter`):
+  - **🏠 My line**: bare TCP round trips from the phone (a phone cannot send ICMP without root; one TCP handshake is exactly one round trip).
+  - **☁️ Through the worker**: ONE TLS connection with the worker's SNI, then keep-alive requests to `/robots.txt`, each timed from the request to the first response byte — the TLS handshake is left out, so what remains is your line + Cloudflare running your worker. The Cloudflare colo is read from `cf-ray`. Without a known worker it measures Cloudflare's own edge (`/cdn-cgi/trace`) and says «edge», never «worker». A Vercel panel is reported as «cannot ride a Cloudflare IP» instead of failing.
+  - Median, min, p90, loss, and jitter = mean difference between **consecutive** samples (speed-test / RFC 3550 style). The old scanner jitter was «max − min of 3 handshakes» and the sample jitter was «distance from the average», which hid a path that flips on every packet.
+  - Plain-words verdict (excellent → games/video calls … poor → messengers only), and the worker overhead (+ms) per IP.
+- **IP scanner**: after a scan the 12 best verified rows are measured both ways (4 at a time) and every row shows «🏠 line 38ms ±4 · ☁️ worker 61ms ±9 FRA (+23)». Columns: line / worker / jitter / speed are sortable (worker sorts measured rows first). The scanner's own TCP samples are now spaced 25 ms apart and use the same consecutive-jitter rule.
+- **⏱ Precise ping & jitter page** (scanner tools button + the finder): one `IP:port` (prefilled with the ticked or best scanner row, exact port kept; no made-up values), worker domain (prefilled with your panel), 10/20/40 samples, side-by-side cards, verdict, copy; warns when the VPN is on.
+
+### Added — panel 6.71.0 (ideas from BPB and Zeus, implemented independently)
+- **🚀 Best Ping** Xray config: appended last to the Xray subscription when there are ≥2 different exits; every exit as `bp-N` behind a `leastPing` balancer with an observatory probing `generate_204` through the tunnel (interval setting, 10–600 s, default 30). Switch in settings; `?bp=0/1` per link. Exact ports are kept inside it.
+- **sing-box early data**: ws transports carry `max_early_data` (from the path's `ed=`) + `Sec-WebSocket-Protocol`.
+- **🧪 Custom single config** card + `POST /api/custom-config` (owner only): VLESS/Trojan, exact address (`IP:port` port wins, IPv6 bracketed), TLS auto by Cloudflare port family, Host/SNI, random-case SNI, panel or random `/vl/…` path or own path (validated against the data plane), early data, fingerprint, ALPN, fragment, ECH; for the owner or any user; outputs share link + Clash + sing-box + full Xray JSON, with plain warnings (SNI≠Host, TLS on a plain port, ECH vs fragment, Vercel 443…).
+
+### Notes
+- New tests: `scripts/panels/bestping-custom.test.mjs` (47 checks incl. the real UI in jsdom; source + artifacts), `PingJitterMeterTest` (12 JVM tests incl. keep-alive parsing and a real local listener). Paste budgets raised to 680 000 B raw / 202 000 B gzip (measured 666 362 / 199 166).
+
 ## [1.10.0-beta196] — 2026-10-28 (Panel 6.70.0)
 
 ### Added — panel features from the DevCop tutorial (independent implementation; DevCop's code is not public)
