@@ -219,7 +219,7 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
   });
   const { window } = dom;
   const { document } = window;
-  await until(() => document.querySelectorAll('#vipList > div').length === 3);
+  await until(() => document.querySelectorAll('#vipList > div').length === 3, 15000);
   await sleep(50);
 
   ok('the page loads with no JS error', errors.length === 0, errors.join(' | ').slice(0, 200));
@@ -262,6 +262,7 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
   const before = writes.length;
   document.querySelector('#swAutoSwap').click();
   await until(() => writes.slice(before).some((w) => w && typeof w === 'object' && 'proxyAutoSwap' in w));
+  await until(() => /تعویض خودکار|Auto-swap/.test(document.body.textContent) && document.querySelector('#vipList').textContent.includes('10.0.0.2'), 5000);
   await sleep(50);
   const swapWrite = writes.slice(before).find((w) => w && typeof w === 'object' && 'proxyAutoSwap' in w);
   ok('clicking the auto-swap switch saves the new value (false = pinned)',
@@ -276,7 +277,8 @@ console.log('\nOutbound proxies / VIP (panel 6.67.5)\n');
 
   // the build command: real click, real textarea
   document.querySelector('#vipCmdBtn').click();
-  await sleep(60);
+  // beta205: wait for the textarea instead of a fixed 60 ms (flaked on a loaded 2-core CI runner)
+  await until(() => /microsocks/.test(document.querySelector('#vipCmdText').value), 5000);
   const cmd = document.querySelector('#vipCmdText').value;
   ok('the build command opens with your own port/user/password',
     /microsocks -i 0\.0\.0\.0 -p [23]\d{4} -u cat[a-z0-9]{4} -P [a-z0-9]{10}/.test(cmd), cmd.split('\n')[2]);
