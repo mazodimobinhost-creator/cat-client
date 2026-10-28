@@ -100,7 +100,10 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised from 186 000 to 192 000 for 6.69.44: the 🟧 Cloudflare front — the whole front Worker
   // ships inside the panel (owner-only /api/vercel-front.js, ~2.1 KB gzip), plus the CF subscription
   // group, the doctor's front check and the bilingual plain-words setup guide — measured 188 704 B.
-  ok('gzip stays under the 192 KB regression budget', gz < 192_000, gz);
+  // Raised from 192 000 to 196 000 for 6.70.0: the DevCop-parity user features (first-connection
+  // clock, per-user operator profile and exact-port clean IPs, ⚡ quick user, scanner → user, the
+  // installable-app manifest) and their fa/en strings — measured 192 100 B (~3.4 KB gzip).
+  ok('gzip stays under the 196 KB regression budget', gz < 196_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

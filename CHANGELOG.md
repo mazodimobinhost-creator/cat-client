@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta196] — 2026-10-28 (Panel 6.70.0)
+
+### Added — panel features from the DevCop tutorial (independent implementation; DevCop's code is not public)
+- **⏳ Validity from the first connection.** New user switch «start the clock at the first connection»: the user's N days only start when it really connects for the first time (one KV write, once); until then the list shows «⏳ N days — from first connection» and the subscription carries no `expire=`.
+- **⚡ Quick user** (button next to ＋): one tap makes a user with 30 days from the first connection, unlimited data, VLESS + Trojan and — if a test was run — the 5 fastest clean IPs, then opens its links/QR.
+- **Clean IPs per user.** A user can have its own list (max 20, one per line). Entries are kept exactly as tested — `IP:port` keeps its port (e.g. `103.237.102.191:11111`, `184.75.221.82:3118`), nothing is re-ported to 443/80; empty = the panel's IPs. «⚡ 5 fastest from the last test» fills it, and after «Test from browser» a «➕ N fastest for this user» row saves them to any user.
+- **Operator profile per user** (MCI ECH / IPv6 / IPv6+F&F, Irancell F&F / F&F 188.114.98.0): that user's VLESS/Trojan/Xray links get the profile automatically; Clash / sing-box links of the same user stay unchanged (the profile needs Xray), unknown ids fall back to automatic.
+- **📲 Install the panel as an app** (web-app manifest + icon; the button appears when the browser offers installation).
+
+### Notes
+- Default `admin/admin` login and `OPEN_SUB=false` are unchanged; no first-run password screen was added.
+- A random Cloudflare-range scan from the browser was not copied: a browser cannot tell a blocked IP from a live one, so it would be a cosmetic ping. The real per-network test stays the app scanner (VPN off), whose exact `IP:port` results the panel and the per-user lists keep.
+- New test `scripts/panels/devcop-parity.test.mjs` (32 checks, also driven through the real UI in jsdom) runs in CI on the source and on the shipped artifact. Paste budgets raised to 660 000 B raw / 196 000 B gzip (measured 642 301 / 192 100).
+
 ## [1.10.0-beta195] — 2026-10-28 (Panel 6.69.45)
 
 ### Added
