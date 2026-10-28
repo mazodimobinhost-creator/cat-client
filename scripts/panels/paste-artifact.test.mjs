@@ -86,7 +86,7 @@ const source = readFileSync(sourcePath, 'utf8');
   // the Vercel self-updater — measured 823 182 B.
   // Raised 860 000 → 890 000 for 6.76.0 «🔗 link panels»: pairing code + peer API (hello/info/ips/users/sub/bye),
   // the link-exit chain in dialTarget, mirrored users, the combined subscription, 7 owner routes and the bilingual
-  // page with its plain-words guide — measured 854 523 B (release guard stays at 900 000).
+  // page with its plain-words guide — measured 854 849 B (release guard stays at 900 000).
   ok('raw size is in the paste range (300–890 KB)', asset.length >= 300_000 && asset.length <= 890_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
@@ -130,7 +130,7 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 236 000 → 248 000 for 6.74.0 «🌍 exit locations» (see the raw-size note above) — measured
   // 236 914 B (~8 KB gzip over 6.73.0).
   // Raised 248 000 → 262 000 for 6.76.0 «🔗 link panels» (see the raw-size note above) — measured
-  // 254 865 B (~9.5 KB gzip over 6.75.0, most of it the bilingual page + plain-words guide).
+  // 255 007 B (~9.7 KB gzip over 6.75.0, most of it the bilingual page + plain-words guide).
   ok('gzip stays under the 262 KB regression budget', gz < 262_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
