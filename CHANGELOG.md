@@ -4,6 +4,23 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta200] — 2026-10-28 (Panel 6.74.0)
+
+### Added — panel 6.74.0 «🌍 exit locations» (DevCop-style, own code)
+- **The panel finds ProxyIP / SOCKS exits per country by itself.** «Location & exit» page → «🌍 exit-location library»: pick a country (25 choices with flag + Persian name), ProxyIP / SOCKS / both, «🔎 find». Candidates come from the country-tagged ProxyIP feed and the public SOCKS lists and are **really tested from the Worker**: a ProxyIP is kept only when Cloudflare's `/cdn-cgi/trace` fetched *through it* says `loc=<that country>` (exit IP, Cloudflare colo and ms are recorded); a SOCKS exit only when the ip-api echo through it is in that country. A working exit that turns out to be in another country is stored under its **real** country; dead ones are never stored. Every exit keeps exactly the port from its source (no 443 / 1080 guess). At most ~14 socket tests per tap.
+- **Ping all / per-country ping / remove one / «🧹 remove dead»** — re-tests are real; failures are counted and marked ✗.
+- **Per-user exit location**: new «📍 user exit location» box in the user modal → «IPs & location» tab. Chips for every country in the library (healthy count + best ms) plus «🌐 panel default»; choosing a country gives the user the best 4 ProxyIP + 2 SOCKS of that country (sorted by measured ms), «📶 ping all» refreshes them, and a missing country can be found right there. That user's subscription then uses **only** those exits (🎯 / 🧦 configs labelled with the flag and country); every other user keeps the panel default. SOCKS credentials stay on the server (`relay:<id>` reference). The users table shows the flag next to the name.
+- **Quick user**: when there is no clean IP the «IPs & location» tab now shows a red notice with a **«📡 Go to Clean IP»** button that closes the modal and opens the scanner.
+
+### Changed
+- **Less clutter**: the location, SNI/ProxyIP and nodes pages use the same collapsible sections as Settings (first one open, state remembered, a section opens itself when something inside it gets focus or fails validation). The location library stays open.
+
+### API (owner only)
+- `GET /api/locations`, `POST /api/locations/fetch {cc,want,kind}`, `POST /api/locations/ping {cc?}`, `POST /api/locations/remove {addrs[]|cc|dead}`; users accept `exits[]` (≤6, exact ports) and `exitCc`.
+
+### Tests
+- `locations.test.mjs`: owner-only, proven-country filter (trace `loc=` / ip-api), real-country re-filing, exact ports, ping + remove dead, a pinned user's subscription carries only that country's exits while others keep the default, relay reference never leaks the SOCKS address, page controls.
+
 ## [1.10.0-beta199] — 2026-10-28 (Panel 6.73.0)
 
 ### Changed — panel 6.73.0 «Cat Clean» (DevCop-level look, own code, Cat branding)

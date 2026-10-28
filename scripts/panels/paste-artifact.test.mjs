@@ -79,7 +79,10 @@ const source = readFileSync(sourcePath, 'utf8');
   // tab and per-config list, the range scanner + IP pools, bulk user actions, settings accordions
   // and the redesigned /status page, all bilingual — measured 763 882 B (still far below the
   // 1 MB / 3 MB Workers limits and pasteable in the dashboard editor).
-  ok('raw size is in the paste range (300–790 KB)', asset.length >= 300_000 && asset.length <= 790_000, asset.length);
+  // Raised 790 000 → 830 000 for 6.74.0 «🌍 exit locations»: the per-country ProxyIP/SOCKS library
+  // (trace-proven country test, ping all, remove dead, 4 owner routes), the per-user exit picker in
+  // the user modal, the quick-user «go to Clean IP» notice and the shared accordion — measured 790 338 B.
+  ok('raw size is in the paste range (300–830 KB)', asset.length >= 300_000 && asset.length <= 830_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -119,7 +122,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // measured 199 166 B (~7 KB gzip over 6.70.0).
   // Raised 202 000 → 236 000 for 6.73.0 «Cat Clean» (see the raw-size note above) — measured
   // 228 929 B (~30 KB gzip over 6.72.0).
-  ok('gzip stays under the 236 KB regression budget', gz < 236_000, gz);
+  // Raised 236 000 → 248 000 for 6.74.0 «🌍 exit locations» (see the raw-size note above) — measured
+  // 236 914 B (~8 KB gzip over 6.73.0).
+  ok('gzip stays under the 248 KB regression budget', gz < 248_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).
