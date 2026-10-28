@@ -63,21 +63,21 @@ internal object MlmAndNextGenVpnHub {
     val ALL_VPNS_2026_CATALOG: List<VpnEcosystemEntry> = listOf(
         VpnEcosystemEntry(
             id = "fenix_firefox",
-            badge = "🦊 FENIX",
-            titleFa = "۱) فایرفاکس VPN (FENIX در MLM VPN v1.2.40+)",
-            titleEn = "1) Firefox Browser VPN (FENIX in MLM v1.2.40+)",
+            badge = "🦊 Cat Fox",
+            titleFa = "۱) Cat Fox VPN",
+            titleEn = "1) Cat Fox VPN",
             howItWorksFa = "از سرورهای رسمی موزیلا روی شبکهٔ Fastly در ۳۵ کشور استفاده می‌کند. هر اکانت رایگان فایرفاکس ماهی ۵۰ گیگابایت اینترنت پرسرعت می‌دهد و با چند اکانت خودکار سوییچ می‌کند.",
             howItWorksEn = "Uses Mozilla's official Fastly edge servers across 35 countries. Each free Firefox Account provides 50 GB/month with automatic multi-account rotation.",
             statusInIranFa = "🟢 عالی (روی همراه اول، ایرانسل و مخابرات با پروکسی ضد-DPI داخلی باز است)",
             statusInIranEn = "🟢 Excellent (Works on MCI, Irancell & TCI via built-in Anti-DPI TLS Record Split)",
-            actionLabelFa = "🦊 باز کردن فایرفاکس VPN (۵۰ گیگ رایگان)",
-            actionLabelEn = "🦊 Open Firefox VPN (50 GB Free)",
+            actionLabelFa = "🦊 باز کردن Cat Fox VPN (۵۰ گیگ رایگان)",
+            actionLabelEn = "🦊 Open Cat Fox VPN (50 GB Free)",
         ),
         VpnEcosystemEntry(
             id = "outline_ss",
             badge = "🔑 Outline",
-            titleFa = "۲) اوتلاین و شدوساکس (Outline Hub در MLM v1.2.41+)",
-            titleEn = "2) Outline & Shadowsocks Hub (MLM v1.2.41+)",
+            titleFa = "۲) اوتلاین و شدوساکس",
+            titleEn = "2) Outline & Shadowsocks Hub",
             howItWorksFa = "کلیدهای رایگان `ss://` و `ssconf://` را از ۶ مخزن زنده گیت‌هاب (با آینهٔ jsDelivr وقتی گیت‌هاب فیلتر است) می‌گیرد، روی خط شما تست واقعی می‌زند و به سریع‌ترین سرور وصل می‌شود.",
             howItWorksEn = "Fetches live `ss://` & `ssconf://` Outline keys from 6 public repositories (with jsDelivr mirror), tests them on your line, and connects to the fastest.",
             statusInIranFa = "🟢 بسیار خوب برای وب‌گردی، تلگرام، یوتیوب و باز کردن جمنای/ChatGPT بدون تحریم",
@@ -100,8 +100,8 @@ internal object MlmAndNextGenVpnHub {
         VpnEcosystemEntry(
             id = "cf_ipv6_healer",
             badge = "🔄 CF IPv6/F&F",
-            titleFa = "۴) خودترمیمی کلودفلر IPv4 به IPv6 + روش F&F (MLM v1.2.36–v1.2.42 و MahsaNG)",
-            titleEn = "4) Cloudflare IPv4->IPv6 Self-Healer + F&F (MLM v1.2.36–v1.2.42 & MahsaNG)",
+            titleFa = "۴) خودترمیمی کلودفلر IPv4 به IPv6 + روش F&F",
+            titleEn = "4) Cloudflare IPv4->IPv6 Self-Healer + F&F",
             howItWorksFa = "در فیلترینگ جدید، خیلی وقت‌ها IPv4 کلودفلر وصل می‌شود اما صفر بایت دیتا رد می‌کند! این ابزار خودکار کانفیگ شما را روی ۱۱ آی‌پی IPv6 سالم کلودفلر و روش فرگمنت F&F می‌برد.",
             howItWorksEn = "Fixes the new filter where Cloudflare IPv4 connects with 0 bytes transferred by migrating your config onto 11 healthy Cloudflare IPv6 edges + F&F TLS fragmentation.",
             statusInIranFa = "🟢 ضروری برای کسانی که کانفیگ کلودفلر/ورکر دارند و وصل می‌شود ولی صفحه باز نمی‌کند",
@@ -111,33 +111,33 @@ internal object MlmAndNextGenVpnHub {
         ),
         VpnEcosystemEntry(
             id = "aether_oblivion_defyx",
-            badge = "⚡ Aether/Oblivion",
-            titleFa = "۵) موتورهای بدون سرور: Aether، Oblivion و DefyxVPN (MASQUE + WARP + Psiphon)",
-            titleEn = "5) Serverless Engines: Aether, Oblivion & DefyxVPN (MASQUE + WARP + Psiphon)",
+            badge = "⚡ Cat Warp",
+            titleFa = "۵) موتور بدون سرور Cat Warp (MASQUE + WARP + Psiphon)",
+            titleEn = "5) Serverless Engine: Cat Warp (MASQUE + WARP + Psiphon)",
             howItWorksFa = "ترکیب MASQUE روی ۵ پورت (443/1701/8095/500/4500)، WireGuard با ECH و زنجیرهٔ ۲۹ کشور سایفون برای دور زدن هم‌زمان فیلترینگ و تحریم‌های هوش مصنوعی.",
             howItWorksEn = "Combines 5-port MASQUE (443/1701/8095/500/4500), ECH-bootstrapped WireGuard, and 29-country Psiphon chaining.",
             statusInIranFa = "🟢 بهترین گزینهٔ اضطراری وقتی هیچ سرور شخصی یا اکانتی ندارید",
             statusInIranEn = "🟢 Best zero-account emergency option",
-            actionLabelFa = "⚡ اسکن ۵ پورت MASQUE و اتصال فوری Aether",
-            actionLabelEn = "⚡ Scan 5 MASQUE Ports & Connect Aether",
+            actionLabelFa = "⚡ اسکن ۵ پورت MASQUE و اتصال فوری Cat Warp",
+            actionLabelEn = "⚡ Scan 5 MASQUE Ports & Connect Cat Warp",
         ),
         VpnEcosystemEntry(
             id = "slipnet_masterdns_whitedns",
             badge = "📡 SlipNet/WhiteDNS",
-            titleFa = "۶) تانل‌های DNS شرایط نت ملی: SlipNet، MasterDnsVPN، VayDNS، NoizDNS و WhiteDNS",
-            titleEn = "6) Shutdown DNS Tunnels: SlipNet, MasterDnsVPN, VayDNS, NoizDNS & WhiteDNS",
+            titleFa = "۶) تانل‌های DNS شرایط نت ملی: Cat DNS، MasterDnsVPN، VayDNS و NoizDNS",
+            titleEn = "6) Shutdown DNS Tunnels: Cat DNS, MasterDnsVPN, VayDNS & NoizDNS",
             howItWorksFa = "وقتی کل اینترنت بین‌الملل قطع است (نت ملی)، بسته‌ها را داخل درخواست‌های DNS (`CNAME/TXT/AAAA`) از طریق ریزولورهای ۶ امتیازی ایران رد می‌کنند.",
             howItWorksEn = "During total international shutdowns (Net Melli), encapsulates traffic inside DNS queries (`CNAME/TXT/AAAA`) via 6-point verified domestic resolvers.",
             statusInIranFa = "🟡 مخصوص شرایط قطع کامل بین‌الملل و نت ملی (سرعت کمتر اما پایدارترین راه اضطراری)",
             statusInIranEn = "🟡 Built for severe shutdowns / Net Melli",
-            actionLabelFa = "🎯 اسکن ۶ امتیازی SlipNet و ساخت تانل DNS",
-            actionLabelEn = "🎯 Run SlipNet 6-Point Scan & Build DNS Tunnel",
+            actionLabelFa = "🎯 اسکن ۶ امتیازی Cat DNS و ساخت تانل DNS",
+            actionLabelEn = "🎯 Run Cat DNS 6-Point Scan & Build DNS Tunnel",
         ),
         VpnEcosystemEntry(
             id = "iran_bank_shield",
             badge = "🏦 Bank Shield",
-            titleFa = "۷) سپر هوشمند برنامه‌های بانکی و ایرانی (۳ لایه مسیریابی هوشمند MLM v1.2.41)",
-            titleEn = "7) 3-Layer Smart Iran Banking & Domestic App Shield (MLM v1.2.41)",
+            titleFa = "۷) سپر هوشمند برنامه‌های بانکی و ایرانی (۳ لایه مسیریابی هوشمند)",
+            titleEn = "7) 3-Layer Smart Iran Banking & Domestic App Shield",
             howItWorksFa = "همهٔ همراه بانک‌ها، اسنپ، دیوار، بله، روبیکا، بازار، مایکت و برنامه‌های `.ir` گوشی شما را خودکار پیدا می‌کند و بیرون از VPN می‌گذارد تا بانک‌ها هرگز خطای «فیلترشکن روشن است» ندهند.",
             howItWorksEn = "Auto-detects installed Iranian banking, taxi, payment, and `.ir` apps and excludes them from the VPN tunnel so banks never block you.",
             statusInIranFa = "🟢 ضروری برای استفادهٔ هم‌زمان از همراه بانک‌ها و اسنپ بدون خاموش کردن VPN",
@@ -159,10 +159,10 @@ internal object MlmAndNextGenVpnHub {
         ),
         VpnEcosystemEntry(
             id = "mlm_scout_flux",
-            badge = "⭐ MLM v1.2.42",
-            titleFa = "۹) رادار MLM Scout + موتور MLM FLUX + پزشک هوشمند تعمیر کانفیگ‌ها (⭐ پیشنهادی)",
-            titleEn = "9) MLM Scout Radar + MLM FLUX Engine + Smart Config Doctor (⭐ Recommended)",
-            howItWorksFa = "تمام روش‌های اتصال (کانفیگ‌های خودتان، استخر Quick Connect Pool، کلودفلر IPv4/IPv6/F&F، فایرفاکس FENIX، Aether و PaqetNG) را روی خط فعلی شما تست واقعی می‌زند، بهترین را با برچسب «⭐ پیشنهادی» نشان می‌دهد و کانفیگ‌های خراب شما را تعمیر می‌کند.",
+            badge = "⭐ Cat",
+            titleFa = "۹) رادار Cat Scout + موتور Cat FLUX + پزشک هوشمند تعمیر کانفیگ‌ها (⭐ پیشنهادی)",
+            titleEn = "9) Cat Scout Radar + Cat FLUX Engine + Smart Config Doctor (⭐ Recommended)",
+            howItWorksFa = "تمام روش‌های اتصال (کانفیگ‌های خودتان، استخر Quick Connect Pool، کلودفلر IPv4/IPv6/F&F، Cat Fox VPN، Cat Warp و PaqetNG) را روی خط فعلی شما تست واقعی می‌زند، بهترین را با برچسب «⭐ پیشنهادی» نشان می‌دهد و کانفیگ‌های خراب شما را تعمیر می‌کند.",
             howItWorksEn = "Probes all connection methods on your current ISP, highlights the fastest with a '⭐ Recommended' badge, and auto-repairs broken configs.",
             statusInIranFa = "🟢 ساده‌ترین و مطمئن‌ترین راه وصل شدن برای همه بدون نیاز به دانش فنی",
             statusInIranEn = "🟢 Easiest 1-click connection wizard for everyone",
@@ -197,7 +197,7 @@ internal object MlmAndNextGenVpnHub {
         ),
         FeedSource(
             id = "mahsanet_kobabi",
-            name = "Kobabi / Mahsa Free Pool",
+            name = "🐱 Cat Feed · Free Pool",
             githubRawUrl = "https://raw.githubusercontent.com/liketolivefree/kobabi/main/sub_all.txt",
             jsDelivrUrl = "https://cdn.jsdelivr.net/gh/liketolivefree/kobabi@main/sub_all.txt",
         ),
@@ -311,13 +311,13 @@ internal object MlmAndNextGenVpnHub {
         }
         val probed = probeCandidateUris(rawCandidates.take(maxCandidates), timeoutMs = timeoutMs).toMutableList()
         if (probed.isEmpty()) {
-            val fallbackAetherUri = "aether://?protocol=mim&transport=h2&sni=consumer-masque.cloudflareclient.com&scan=balanced&noize=auto&ip=v4&fragment=1&fragment_size=16-32&fragment_delay=2-10&fingerprint=chrome&outer=162.159.198.1%3A443&inner=162.159.198.2%3A443&psiphon=chain&psiphon_mode=auto&region=DE#PattNG-MIM-Psiphon-DE"
+            val fallbackAetherUri = "aether://?protocol=mim&transport=h2&sni=consumer-masque.cloudflareclient.com&scan=balanced&noize=auto&ip=v4&fragment=1&fragment_size=16-32&fragment_delay=2-10&fingerprint=chrome&outer=162.159.198.1%3A443&inner=162.159.198.2%3A443&psiphon=chain&psiphon_mode=auto&region=DE#Cat-MIM-Psiphon-DE"
             probed += VerifiedProxyNode(
                 uri = fallbackAetherUri,
                 host = "162.159.198.1",
                 port = 443,
                 rttMs = 110L,
-                label = "⚡ PattNG-MIM-Psiphon-DE",
+                label = "⚡ Cat-MIM-Psiphon-DE",
                 protocol = "AETHER",
             )
         }
@@ -1090,7 +1090,7 @@ internal object MlmAndNextGenVpnHub {
             val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(country = recCountry, localPort = FirefoxVpnEngine.activeProxyPort())
             candidates += MlmScoutRecommendation(
                 id = "fenix_fastly",
-                titleFa = "🦊 VPN مرورگر فایرفاکس (FENIX · نزدیک‌ترین سرور موزیلا)",
+                titleFa = "🦊 Cat Fox VPN (نزدیک‌ترین سرور)",
                 subtitleFa = "پینگ واقعی سرور موزیلا: ${fenixProbe}ms · با حساب فایرفاکس شما · بدون سرور شخصی",
                 latencyMs = fenixProbe,
                 isRecommended = false,
@@ -1105,7 +1105,7 @@ internal object MlmAndNextGenVpnHub {
             val bestNode = poolVerified.first()
             candidates += MlmScoutRecommendation(
                 id = "quick_connect_pool",
-                titleFa = "⚡ استخر آمادهٔ اتصال سریع (MLM Quick Connect Pool)",
+                titleFa = "⚡ استخر آمادهٔ اتصال سریع (Cat Quick Connect Pool)",
                 subtitleFa = "بهترین سرور: ${bestNode.label} (${bestNode.rttMs}ms) · ${poolVerified.size} سرور آماده",
                 latencyMs = bestNode.rttMs,
                 isRecommended = false,
@@ -1126,7 +1126,7 @@ internal object MlmAndNextGenVpnHub {
         if (warpProbe != null) {
             candidates += MlmScoutRecommendation(
                 id = "aether_serverless",
-                titleFa = "🛡️ موتور بدون سرور Aether (WARP + MASQUE/H2 + ضدتحریم)",
+                titleFa = "🛡️ موتور بدون سرور Cat Warp (WARP + MASQUE/H2 + ضدتحریم)",
                 subtitleFa = "پینگ لبهٔ کلودفلر: ${warpProbe}ms · مناسب همراه اول و ایرانسل بدون نیاز به کانفیگ",
                 latencyMs = warpProbe + 15L,
                 isRecommended = false,

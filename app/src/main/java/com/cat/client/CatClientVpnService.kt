@@ -42,10 +42,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class MihomoCoreBusyException(cause: Throwable? = null) :
-    IOException("Mihomo core is still finishing startup. Please try again.", cause)
+    IOException("Cat core is still finishing startup. Please try again.", cause)
 
 internal class MihomoCoreSetupTimeoutException :
-    IOException("Mihomo core setup did not finish within 60 seconds")
+    IOException("Cat core setup did not finish within 60 seconds")
 
 internal data class ConnectionStartupExclusion(
     val subscriptionId: String = "",
@@ -699,7 +699,7 @@ class CatClientVpnService : VpnService() {
                             ?: activeSelectorRoots,
                     )
                     if (path.isEmpty()) {
-                        throw IOException("Connection is not reachable from the active Mihomo selector")
+                        throw IOException("Connection is not reachable from the active Cat core selector")
                     }
                     rollbackSelections = MihomoControllerProxies.currentSelections(before, path)
                     path.forEach { selection ->
@@ -710,7 +710,7 @@ class CatClientVpnService : VpnService() {
                     val switched = controller.getProxies()
                     val activeName = MihomoControllerProxies.activeProxyName(switched, selectedRoot)
                     if (activeName != profile.tag) {
-                        throw IOException("Mihomo selected ${activeName.orEmpty()} instead of ${profile.tag}")
+                        throw IOException("Cat core selected ${activeName.orEmpty()} instead of ${profile.tag}")
                     }
                     val measuredDelayMs = MihomoRuntimeDefaults.HEALTH_URLS.firstNotNullOfOrNull { url ->
                         MihomoDelayPolicy.acceptedDelayMs(
@@ -727,7 +727,7 @@ class CatClientVpnService : VpnService() {
                     activeSelectorRootName = selectedRoot
                     applyLiveSelectorSnapshot(runtimePaths, controller.getProxies(), publishIfChanged = false)
                     if (activeConnectionFingerprint != profile.fingerprint) {
-                        throw IOException("Mihomo did not keep the requested connection active")
+                        throw IOException("Cat core did not keep the requested connection active")
                     }
                     activeNativeAutomaticStart = false
                     activeQuickSpeedPin = null
@@ -2437,7 +2437,7 @@ class CatClientVpnService : VpnService() {
                 }
             }
         }
-        throw IOException("No $phase top-IP candidate passed Mihomo delay and runtime health check", lastFailure)
+        throw IOException("No $phase top-IP candidate passed Cat core delay and runtime health check", lastFailure)
     }
 
     private suspend fun startMihomoRuntimeAttempt(
@@ -2622,7 +2622,7 @@ class CatClientVpnService : VpnService() {
         val selectedName = bridgeResult.rootName
             ?: MihomoSelectionPolicy.trafficProbeGroup(snapshot.summary)?.name
             ?: MihomoSelectionPolicy.mainSelectorGroup(snapshot.summary)?.name
-            ?: throw IOException("Mihomo traffic selector is unavailable")
+            ?: throw IOException("Cat core traffic selector is unavailable")
         val preferredSelectorRoots = listOf(selectedName)
         suspend fun getStartupProxies(): JSONObject = withContext(Dispatchers.IO) {
             controller.getProxies(RUNTIME_HEALTH_TIMEOUT_MS.toInt())
@@ -2663,7 +2663,7 @@ class CatClientVpnService : VpnService() {
             val verified = MihomoControllerProxies.currentSelections(updated, path)
                 .associate { it.selectorGroup to it.selectedGroup }
             if (path.any { verified[it.selectorGroup] != it.selectedGroup }) {
-                throw IOException("Mihomo selector update was not applied")
+                throw IOException("Cat core selector update was not applied")
             }
             return updated
         }
@@ -2686,7 +2686,7 @@ class CatClientVpnService : VpnService() {
             }
             liveProxies = applyAndVerify(path)
             if (!MihomoControllerProxies.isActiveThrough(liveProxies, selectedName, targetName)) {
-                throw IOException("Mihomo traffic selector did not resolve through the requested connection")
+                throw IOException("Cat core traffic selector did not resolve through the requested connection")
             }
             val explicitDelayMs = explicitProfile
                 ?.takeIf { forcedProxyName == null }
@@ -2705,7 +2705,7 @@ class CatClientVpnService : VpnService() {
             }
             liveProxies = getStartupProxies()
             if (!MihomoControllerProxies.isActiveThrough(liveProxies, selectedName, targetName)) {
-                throw IOException("Mihomo traffic route changed before startup completed")
+                throw IOException("Cat core traffic route changed before startup completed")
             }
             selections = path
         } else {
@@ -2917,7 +2917,7 @@ class CatClientVpnService : VpnService() {
         )
         var delayProbeName = activeProxyName?.takeIf(String::isNotBlank) ?: selectedName
         if (delayProbeName.isBlank()) {
-            throw IOException("No Mihomo proxy selected for delay test")
+            throw IOException("No Cat core proxy selected for delay test")
         }
         var lastDelayFailure: Throwable? = null
         var delayMs = quickSpeedPin?.delayMs?.toLong() ?: if (validateConnectivity) {
@@ -3704,7 +3704,7 @@ class CatClientVpnService : VpnService() {
             "count=${profiles.size} types=${profiles.groupingBy { it.type }.eachCount()}",
         )
         if (profiles.isEmpty()) {
-            throw IOException("Subscription has no supported Mihomo proxies")
+            throw IOException("Subscription has no supported Cat core proxies")
         }
 
         val defaultNetworkHasIpv6 = networkMonitor.hasUsableIpv6DefaultNetwork()
@@ -4222,9 +4222,9 @@ class CatClientVpnService : VpnService() {
                     DiagnosticLogger.warn(this, "fenix.account.missing", "fenix profiles=${fenixMatches.size}")
                     val farsi = runCatching { AppLanguagePreferenceStore(applicationContext).read() == AppLanguage.Persian }.getOrDefault(true)
                     val msg = if (farsi) {
-                        "🦊 Firefox VPN حساب Firefox وارد‌شده ندارد؛ از «MLM VPN ← Firefox VPN» وارد حساب شوید، بعد وصل کنید."
+                        "🦊 Cat Fox VPN حساب Firefox وارد‌شده ندارد؛ از «اتصال اضطراری ← Cat Fox VPN» وارد حساب شوید، بعد وصل کنید."
                     } else {
-                        "🦊 Firefox VPN has no signed-in Firefox account. Sign in under “MLM VPN → Firefox VPN”, then connect."
+                        "🦊 Cat Fox VPN has no signed-in Firefox account. Sign in under “Emergency → Cat Fox VPN”, then connect."
                     }
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         runCatching { android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_LONG).show() }
@@ -4398,8 +4398,8 @@ class CatClientVpnService : VpnService() {
     }
 
     private suspend fun runAetherStartup(eventPrefix: String, selection: AetherSelection) {
-        check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Aether native core is not packaged" }
-        check(coreLifecycle.isIdle()) { "Mihomo must stop before Aether starts" }
+        check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Cat Warp native core is not packaged" }
+        check(coreLifecycle.isIdle()) { "Cat core must stop before Cat Warp starts" }
         val networkKey = AetherPreferenceStore.underlyingNetworkKey(this)
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۱/۴: شناسایی شبکه ($networkKey) و انتخاب سریع‌ترین Endpoint")
         val effectiveEndpoint = selection.freshEndpoint()
@@ -4535,7 +4535,7 @@ class CatClientVpnService : VpnService() {
             DiagnosticLogger.info(this, "aether.engine.log", line)
         }
         if (state != VpnState.Stopping && state != VpnState.Stopped) {
-            throw IOException(result.error ?: "Aether tunnel closed")
+            throw IOException(result.error ?: "Cat Warp tunnel closed")
         }
     }
 
@@ -4718,7 +4718,7 @@ class CatClientVpnService : VpnService() {
         AetherTunPolicy.validatedAddresses(ipv4, ipv6)
         val builder = Builder()
             .setMtu(AETHER_TUN_MTU)
-            .setSession("${getString(R.string.app_name)} · Aether")
+            .setSession("${getString(R.string.app_name)} · Cat Warp")
             .addAddress(ipv4, 32)
             .addAddress(ipv6, 128)
             .addRoute("0.0.0.0", 0)
@@ -4730,7 +4730,7 @@ class CatClientVpnService : VpnService() {
             builder.setBlocking(false)
         }
         applySplitTunnel(builder, splitTunnelPlan)
-        return builder.establish()?.detachFd() ?: throw IOException("Android rejected the Aether VPN tunnel")
+        return builder.establish()?.detachFd() ?: throw IOException("Android rejected the Cat Warp VPN tunnel")
     }
 
     private suspend fun establishTun(splitTunnelPlan: SplitTunnelRuntimePlan): Int {
@@ -4847,7 +4847,7 @@ class CatClientVpnService : VpnService() {
         } == true
         if (!ready) {
             logControllerStartupFailure(controller, paths)
-            throw IOException("Mihomo core actions did not become ready")
+            throw IOException("Cat core actions did not become ready")
         }
         DiagnosticLogger.info(this, "mihomo.controller.wait.ok", "endpoint=${controller.endpoint}")
     }
@@ -4925,7 +4925,7 @@ class CatClientVpnService : VpnService() {
                 "elapsedMs=${SystemClock.elapsedRealtime() - startedAt} timeoutMs=$timeoutMs",
             )
             throw IOException(
-                "Local Mihomo proxy did not pass health check at 127.0.0.1:2080 " +
+                "Local Cat core proxy did not pass health check at 127.0.0.1:2080 " +
                     "within ${timeoutMs}ms",
             )
         }
@@ -5035,7 +5035,7 @@ class CatClientVpnService : VpnService() {
         val tag = selection?.selectedGroup
             ?: MihomoSelectionPolicy.autoGroup(snapshot.summary)?.name
             ?: snapshot.summary.proxies.firstOrNull()?.name
-            ?: "Mihomo"
+            ?: "Cat core"
         return ConnectionProfile(
             tag = tag,
             type = "mihomo-group",

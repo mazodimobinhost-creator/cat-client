@@ -185,7 +185,7 @@ internal object AetherOperations {
         exitLocation: String = "auto",
         masqueTransport: String = "h2",
     ): Result<AetherProvisionResult> = runCatching {
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
         val config = AetherRuntimeConfig(
             aetherMode,
@@ -196,11 +196,11 @@ internal object AetherOperations {
             masqueTransport = masqueTransport,
         )
         val validation = NativeAetherBridge.validate(config.toNativeJson())
-        check(validation.ok) { validation.error ?: "Aether configuration is invalid" }
+        check(validation.ok) { validation.error ?: "Cat Warp configuration is invalid" }
         val identities = withMasqueHttp2ForMim(config) {
             NativeAetherBridge.provision(config.toNativeJson())
         }.getOrThrow()
-        check(identities.isNotEmpty()) { "Aether did not return an identity" }
+        check(identities.isNotEmpty()) { "Cat Warp did not return an identity" }
         AetherProvisionResult(identities.map(::redactedIdentity))
     }
 
@@ -338,7 +338,7 @@ internal object AetherOperations {
         scanMode: String = "balanced",
         noizePreset: String = "auto",
     ): Result<List<AetherEndpoint>> = runCatching {
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         // When scanning for MASQUE-in-MASQUE over HTTP/2, run the gateway scanner on HTTP/2 ("h2")
         // so that native `apply_environment()` sets `AETHER_MASQUE_HTTP2=1` during the scan probes.
         val effectiveMode = when {
@@ -579,8 +579,8 @@ internal object AetherOperations {
         budgetMillis: Long,
         protectSocket: ((Int) -> Boolean)? = null,
     ): AetherRealProbe {
-        if (!NativeAetherBridge.isLoaded) return AetherRealProbe(null, null, "Aether native core is unavailable")
-        val sel = AetherSelection.fromAetherUri(rawUri) ?: return AetherRealProbe(null, null, "not an Aether link")
+        if (!NativeAetherBridge.isLoaded) return AetherRealProbe(null, null, "Cat Warp native core is unavailable")
+        val sel = AetherSelection.fromAetherUri(rawUri) ?: return AetherRealProbe(null, null, "not an Cat Warp link")
         val mode = if (sel.mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else sel.mode
         val udp = mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) ||
             (sel.masqueTransport == "h3" && mode != AetherMode.WireGuardOverMasque)
@@ -641,7 +641,7 @@ internal object AetherOperations {
         exitLocation: String = "auto",
         budgetMillis: Long = 10_000L,
     ): Result<AetherEndpoint> = runCatching {
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         require(isSafePublicPeer(peer)) { "Peer must be a public IP literal with port" }
         val aetherMode = if (mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else mode
         val baseConfig = AetherRuntimeConfig(
@@ -661,18 +661,18 @@ internal object AetherOperations {
     }
 
     fun exportIdentity(identityFile: File): Result<String> = runCatching {
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         require(identityFile.isAbsolute) { "Identity path must be absolute" }
         NativeAetherBridge.exportIdentity(identityFile.absolutePath).getOrThrow()
     }
 
     fun importIdentity(identityFile: File, payload: String): Result<Unit> = runCatching {
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         require(identityFile.isAbsolute) { "Identity path must be absolute" }
         val trimmed = payload.trim()
         require(trimmed.isNotEmpty()) { "Identity payload is empty" }
         val res = NativeAetherBridge.importIdentity(identityFile.absolutePath, trimmed)
-        check(res.ok) { res.error ?: "Failed to import Aether identity" }
+        check(res.ok) { res.error ?: "Failed to import Cat Warp identity" }
     }
 
     fun drainEngineLogs(): List<String> = NativeAetherBridge.drainLog()

@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta207] — 2026-10-28 (Panel 6.77.3)
+
+Only Cat's own names in configs and on screen.
+
+### Changed — app
+- **Config rows** always read «🐱 Cat · Country · Type · …». In-app engine rows (port 1819 / 10829 / 10809) no longer show the imported remark (e.g. a PattNG name) or «Socks5 · 1819», but «🐱 Cat · Germany · Warp MIM-H2 · 🇩🇪», «🐱 Cat · Germany · Fox VPN · 🇩🇪».
+- **Engines and tools renamed:** Aether → **Cat Warp**, Firefox VPN / FENIX → **Cat Fox VPN**, WhiteDNS / SlipNet tools → **Cat DNS**, PattNG guide → **Cat guide**, MLM FLUX / Scout / Pool → **Cat FLUX / Scout / Pool**, community feeds → **🐱 Cat Feed · …**. Every «like MLM VPN», «MLM v1.2.x», MahsaNG, foxyvpn, Oblivion and DefyxVPN mention was removed.
+- **Subscriptions saved by older builds** («⚡ Aether / PattNG Configs», «🦊 Firefox VPN (DE)», «⚡ MLM FLUX (V4)» …) show the new names automatically.
+- A unit test fails the build if one of those names comes back in app code.
+- Still named, because you need them by name: the Firefox **account** you sign in with, apps you import into or must install (v2rayNG, Hiddify, Streisand, Shadowrocket, V2Box, CoreForge, Orbot), link formats (VLESS, WireGuard, Amnezia, `slipnet://`, dnstt …), networks/services (Cloudflare, Vercel, WARP, Psiphon, Tor) and the optional third-party panel catalogue. License credits stay in source comments (GPL/AGPL require them).
+
+### Changed — panel 6.77.3
+- DNS-lab config remarks are `Cat-DNS-…` (were `WhiteDNS-…` / `SlipNet-…`); the Aether tab is «🧬 Cat Warp»; the added feeds are «🐱 Cat Feed · Serverless / Free»; the scanner text no longer mentions other panels.
+
 ## [1.10.0-beta206] — 2026-10-28 (Panel 6.77.2)
 
 Aether (PattNG links) and Firefox VPN profiles that "pinged but never connected".

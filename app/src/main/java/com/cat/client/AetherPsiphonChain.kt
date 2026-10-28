@@ -64,7 +64,7 @@ internal class AetherPsiphonChain(
     )
 
     suspend fun start(region: String = "", onStep: (String) -> Unit = {}): AetherChainOutcome {
-        check(active.compareAndSet(false, true)) { "Aether-Psiphon chain is already active" }
+        check(active.compareAndSet(false, true)) { "Cat-Psiphon chain is already active" }
         return try {
             onStep("WARP")
             aether.start()

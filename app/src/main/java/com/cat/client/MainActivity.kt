@@ -1449,9 +1449,9 @@ class MainActivity : Activity() {
         column.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
-                    "🩺 تعمیر خودکار کانفیگ‌های من + موتور MLM FLUX (IPv4/IPv6)"
+                    "🩺 تعمیر خودکار کانفیگ‌های من + موتور Cat FLUX (IPv4/IPv6)"
                 } else {
-                    "🩺 Smart Config Doctor & MLM FLUX (IPv4/IPv6 Optimizer)"
+                    "🩺 Smart Config Doctor & Cat FLUX (IPv4/IPv6 Optimizer)"
                 }
                 textSize = 12.5f
                 typeface = CatClientBodyBoldTypeface
@@ -2231,15 +2231,15 @@ class MainActivity : Activity() {
                 true
             }
             menu.add(
-                if (isFarsi) "⚙️ پیشرفته: کانفیگ Aether دستی (MASQUE)"
-                else "⚙️ Advanced: manual Aether config (MASQUE)",
+                if (isFarsi) "⚙️ پیشرفته: کانفیگ Cat Warp دستی (MASQUE)"
+                else "⚙️ Advanced: manual Cat Warp config (MASQUE)",
             ).setOnMenuItemClickListener {
                 showAddAetherDialog()
                 true
             }
             menu.add(
-                if (isFarsi) "⚙️ پیشرفته: ساخت خودکار PattNG (MASQUE + سایفون)"
-                else "⚙️ Advanced: build PattNG automatically (MASQUE + Psiphon)",
+                if (isFarsi) "⚙️ پیشرفته: ساخت خودکار Cat (MASQUE + سایفون)"
+                else "⚙️ Advanced: build Cat automatically (MASQUE + Psiphon)",
             ).setOnMenuItemClickListener {
                 runOneTapPattNgMimPsiphonSetup()
                 true
@@ -2253,7 +2253,7 @@ class MainActivity : Activity() {
         activateAetherEngine: Boolean = true,
     ) {
         val uri = selection.toAetherUri()
-        val subName = "⚡ Aether / PattNG Configs"
+        val subName = "⚡ Cat Warp Configs"
         activityScope.launch {
             runCatching {
                 val existing = userSubscriptionManager.list().firstOrNull {
@@ -2339,7 +2339,7 @@ class MainActivity : Activity() {
         aetherPreferenceStore.save(ready)
         aetherPreferenceStore.saveNamedProfile(
             AetherSavedProfile(
-                name = ready.profileName.ifBlank { "Aether" },
+                name = ready.profileName.ifBlank { "Cat Warp" },
                 mode = ready.mode,
                 ipScan = ready.ipScan,
                 endpoint = peer,
@@ -2354,8 +2354,8 @@ class MainActivity : Activity() {
         saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true)
         Toast.makeText(
             this,
-            if (isFarsi) "🚀 کانفیگ Aether «${ready.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
-            else "🚀 Aether '${ready.profileName}' enabled — connecting directly in Cat Client…",
+            if (isFarsi) "🚀 کانفیگ Cat Warp «${ready.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
+            else "🚀 Cat Warp '${ready.profileName}' enabled — connecting directly in Cat Client…",
             Toast.LENGTH_LONG,
         ).show()
         openScreen(SCREEN_HOME)
@@ -2562,9 +2562,9 @@ class MainActivity : Activity() {
         }
         val pasteClipboardBtn = MaterialButton(this).apply {
             text = if (isFarsiSubDialog) {
-                "📋 جای‌گذاری هوشمند از کلیپ‌بورد (SlipNet · DNS · VLESS · JSON · TOML · 28+)"
+                "📋 جای‌گذاری هوشمند از کلیپ‌بورد (DNS · VLESS · JSON · TOML · 28+)"
             } else {
-                "📋 Smart Paste from Clipboard (SlipNet · DNS · VLESS · JSON · TOML · 28+)"
+                "📋 Smart Paste from Clipboard (DNS · VLESS · JSON · TOML · 28+)"
             }
             textSize = 11.5f
             typeface = CatClientBodyBoldTypeface
@@ -3004,7 +3004,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
             )
             addView(
-                modeBtn(if (isFarsi) "➕ روش‌های ۲ و ۳: افزودن Aether (WARP با IPv6 / MASQUE-HTTP/2)" else "➕ Methods 2 & 3: Add Aether (WARP IPv6 / MASQUE-HTTP/2)") {
+                modeBtn(if (isFarsi) "➕ روش‌های ۲ و ۳: افزودن Cat Warp (WARP با IPv6 / MASQUE-HTTP/2)" else "➕ Methods 2 & 3: Add Cat Warp (WARP IPv6 / MASQUE-HTTP/2)") {
                     showAddAetherDialog()
                 },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
@@ -3390,7 +3390,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         runCatching { appTools.onStop() }
-        aetherOperationJob?.cancel(CancellationException("Aether page left foreground"))
+        aetherOperationJob?.cancel(CancellationException("Cat Warp page left foreground"))
         aetherOperationJob = null
         AetherOperations.cancel()
         VpnWidgetProvider.refresh(this)
@@ -5364,7 +5364,7 @@ class MainActivity : Activity() {
             setOnClickListener { action(this) }
         }
         val addAetherButton = MaterialButton(this).apply {
-            text = if (isFarsiAether) "➕ افزودن Aether (WARP با IPv6 / MASQUE-HTTP/2)" else "➕ Add Aether (WARP IPv6 / MASQUE-HTTP/2)"
+            text = if (isFarsiAether) "➕ افزودن Cat Warp (WARP با IPv6 / MASQUE-HTTP/2)" else "➕ Add Cat Warp (WARP IPv6 / MASQUE-HTTP/2)"
             isAllCaps = false
             minHeight = dp(48)
             backgroundTintList = ColorStateList.valueOf(TEAL)
@@ -11963,7 +11963,7 @@ class MainActivity : Activity() {
 
         body.addView(
             TextView(this).apply {
-                text = if (isFarsi) "ضدسانسور و Aether" else "Aether & Anti-Censorship"
+                text = if (isFarsi) "ضدسانسور و Cat Warp" else "Cat Warp & Anti-Censorship"
                 textSize = 28f
                 typeface = CatClientDisplayTypeface
                 setTextColor(TEXT_PRIMARY)
@@ -11975,9 +11975,9 @@ class MainActivity : Activity() {
         body.addView(
             advancedSectionDetail(
                 if (isFarsi) {
-                    "بخش اختصاصی اتصال اضطراری و ضدسانسور بدون نیاز به سرور شخصی — فایرفاکس VPN (۵۰ گیگ رایگان)، وارپ/گول، سایفون ۲۹ کشور، تور/dnstt، تعمیر خودکار کانفیگ‌ها، متدهای WhiteDNS، مرکز ساکس۵ و ابزارهای آیفون."
+                    "بخش اختصاصی اتصال اضطراری و ضدسانسور بدون نیاز به سرور شخصی — Cat Fox VPN (۵۰ گیگ رایگان)، وارپ/گول، سایفون ۲۹ کشور، تور/dnstt، تعمیر خودکار کانفیگ‌ها، متدهای Cat DNS، مرکز ساکس۵ و ابزارهای آیفون."
                 } else {
-                    "Dedicated server-less & emergency connection hub — Firefox VPN (50 GB/mo free), WARP/Gool, 29-country Psiphon, Tor/dnstt, 1-click config repair, WhiteDNS methods, SOCKS5 Live Hub & iOS tools."
+                    "Dedicated server-less & emergency connection hub — Cat Fox VPN (50 GB/mo free), WARP/Gool, 29-country Psiphon, Tor/dnstt, 1-click config repair, Cat DNS methods, SOCKS5 Live Hub & iOS tools."
                 },
             ),
             LinearLayout.LayoutParams(-1, -2).apply {
@@ -12205,7 +12205,7 @@ class MainActivity : Activity() {
             }
             statusSummaryText.text = if (isFarsi) {
                 buildString {
-                    append("🧭 مکان آی‌پی خروجی Aether: $exitLocSummary\n")
+                    append("🧭 مکان آی‌پی خروجی Cat Warp: $exitLocSummary\n")
                     append("🌀 سایفون: ")
                     append(if (psiphonActive) "فعال (WARP → Psiphon) ✅" else "آماده (حالت فعلی: ${modeLabelOf(aetherSel.mode)})")
                     append(" · کشور: $psiphonRegion\n")
@@ -12218,7 +12218,7 @@ class MainActivity : Activity() {
                 }
             } else {
                 buildString {
-                    append("🧭 Aether Exit IP: $exitLocSummary\n")
+                    append("🧭 Cat Warp Exit IP: $exitLocSummary\n")
                     append("🌀 Psiphon: ")
                     append(if (psiphonActive) "Active (WARP → Psiphon) ✅" else "Ready (Current: ${modeLabelOf(aetherSel.mode)})")
                     append(" · Region: $psiphonRegion\n")
@@ -12263,7 +12263,7 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "🚀 اتصال مستقیم Aether" else "🚀 Connect Aether Now",
+                    label = if (isFarsi) "🚀 اتصال مستقیم Cat Warp" else "🚀 Connect Cat Warp Now",
                     accent = true,
                 ) {
                     val cur = aetherPreferenceStore.read()
@@ -12312,7 +12312,7 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "➕ افزودن و تنظیم Aether" else "➕ Build & Configure Aether",
+                    label = if (isFarsi) "➕ افزودن و تنظیم Cat Warp" else "➕ Build & Configure Cat Warp",
                     accent = false,
                 ) {
                     showAddAetherDialog {
@@ -12579,7 +12579,7 @@ class MainActivity : Activity() {
                     cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Cat Warp URI:\n$uri",
                         Toast.LENGTH_LONG,
                     ).show()
                 },
@@ -12596,8 +12596,8 @@ class MainActivity : Activity() {
                     renderAdvancedControls()
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "🔄 حالت مستقیم Aether خاموش شد — دکمه اتصال اکنون به کانفیگ‌های ساب/پنل شما وصل می‌شود"
-                        else "🔄 Direct Aether disabled — main Connect button now uses your Subscription configs",
+                        if (isFarsi) "🔄 حالت مستقیم Cat Warp خاموش شد — دکمه اتصال اکنون به کانفیگ‌های ساب/پنل شما وصل می‌شود"
+                        else "🔄 Direct Cat Warp disabled — main Connect button now uses your Subscription configs",
                         Toast.LENGTH_LONG,
                     ).show()
                     if (currentVpnServiceState == VpnState.Started) {
@@ -12636,8 +12636,8 @@ class MainActivity : Activity() {
             )
             addView(
                 smallActionBtn(
-                    label = if (isFarsi) "📡 تانل DNS (WhiteDNS · MasterDNS · SlipNet)"
-                    else "📡 DNS Tunnels (WhiteDNS · MasterDNS · SlipNet)",
+                    label = if (isFarsi) "📡 تانل DNS (Cat DNS · MasterDNS)"
+                    else "📡 DNS Tunnels (Cat DNS · MasterDNS)",
                     accent = false,
                 ) {
                     showWhiteDnsResolverMethodsDialog()
@@ -12679,8 +12679,8 @@ class MainActivity : Activity() {
         }
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧭 انتخاب مکان آی‌پی خروجی Aether (ایران 🇮🇷 یا خارج 🌍)"
-                else "🧭 Select Aether Exit IP Location (Iran 🇮🇷 or Foreign 🌍)",
+                if (isFarsi) "🧭 انتخاب مکان آی‌پی خروجی Cat Warp (ایران 🇮🇷 یا خارج 🌍)"
+                else "🧭 Select Cat Warp Exit IP Location (Iran 🇮🇷 or Foreign 🌍)",
             )
             .setSingleChoiceItems(options, activeIdx) { dialog, idx ->
                 dialog.dismiss()
@@ -12748,16 +12748,16 @@ class MainActivity : Activity() {
                         renderDnsPrivacySelection()
                     }
                     val toastMsg = when (idx) {
-                        0 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🇮🇷 ایران (تک‌لایه سریع)» قرار گرفت"
-                        else "✅ Aether exit IP set to 🇮🇷 Iran (Single-Hop Fast)"
+                        0 -> if (isFarsi) "✅ آی‌پی خروجی Cat Warp روی «🇮🇷 ایران (تک‌لایه سریع)» قرار گرفت"
+                        else "✅ Cat Warp exit IP set to 🇮🇷 Iran (Single-Hop Fast)"
                         1 -> if (isFarsi) "✅ آی‌پی ایران + DNS تحریم‌شکن ($pairedDnsLabel) همزمان فعال شدند"
                         else "✅ Iran IP + Sanction-Bypass DNS ($pairedDnsLabel) enabled together"
-                        2 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج (دو لایه کلودفلر Gool)» قرار گرفت"
-                        else "✅ Aether exit IP set to 🌍 Foreign (Cloudflare Double-Hop Gool)"
-                        3 -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → سایفون)» قرار گرفت"
-                        else "✅ Aether exit IP set to 🌍 Foreign (WARP → Psiphon)"
-                        else -> if (isFarsi) "✅ آی‌پی خروجی Aether روی «🌍 خارج تضمینی (WARP → تور)» قرار گرفت"
-                        else "✅ Aether exit IP set to 🌍 Foreign (WARP → Tor)"
+                        2 -> if (isFarsi) "✅ آی‌پی خروجی Cat Warp روی «🌍 خارج (دو لایه کلودفلر Gool)» قرار گرفت"
+                        else "✅ Cat Warp exit IP set to 🌍 Foreign (Cloudflare Double-Hop Gool)"
+                        3 -> if (isFarsi) "✅ آی‌پی خروجی Cat Warp روی «🌍 خارج تضمینی (WARP → سایفون)» قرار گرفت"
+                        else "✅ Cat Warp exit IP set to 🌍 Foreign (WARP → Psiphon)"
+                        else -> if (isFarsi) "✅ آی‌پی خروجی Cat Warp روی «🌍 خارج تضمینی (WARP → تور)» قرار گرفت"
+                        else "✅ Cat Warp exit IP set to 🌍 Foreign (WARP → Tor)"
                     }
                     Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_LONG).show()
                     onUpdated?.invoke()
@@ -12862,11 +12862,11 @@ class MainActivity : Activity() {
                 setStroke(dp(1), withAlpha(TEAL, 95))
             }
             text = if (isFarsi) {
-                "🔑 گام ۲-۲ آموزش PattNG (Get new WARP keys):\n" +
+                "🔑 گام ۲-۲ راهنمای Cat (Get new WARP keys):\n" +
                     "• طبق آموزش، نیازی به تغییر گزینه‌های پایین نیست؛ کافی است مستقیماً دکمهٔ سبز «🔑 Get new WARP keys» را بزنید و منتظر بمانید تا هر دو جفت کلید WARP (لایه اول و لایه دوم برای MASQUE in MASQUE) دریافت و ذخیره شوند.\n" +
                     "• اگر روی اینترنت فعلی دریافت کلید با آی‌پی پیش‌فرض مسدود بود، این بخش به‌صورت خودکار چندین آی‌پی تمیز لبهٔ کلودفلر را با Fragment تست می‌کند."
             } else {
-                "🔑 Step 2-2 of PattNG Guide (Get new WARP keys):\n" +
+                "🔑 Step 2-2 of Cat Guide (Get new WARP keys):\n" +
                     "• No need to change the options below — simply tap '🔑 Get new WARP keys' and wait for both WARP keypairs (Outer & Inner hops for MASQUE in MASQUE) to be enrolled and saved."
             }
         }
@@ -13205,8 +13205,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)"
-                else "⚡ 1-Tap PattNG Setup (MASQUE in MASQUE + HTTP/2 + Psiphon)",
+                if (isFarsi) "⚡ ساخت ۱-کلیکی راهنمای Cat (MASQUE in MASQUE + HTTP/2 + Psiphon)"
+                else "⚡ 1-Tap Cat Setup (MASQUE in MASQUE + HTTP/2 + Psiphon)",
             )
             .setSingleChoiceItems(labels, activeIdx) { dlg, idx ->
                 dlg.dismiss()
@@ -13235,7 +13235,7 @@ class MainActivity : Activity() {
                     addView(progressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(10) })
                 }
                 val waitDlg = MaterialAlertDialogBuilder(this)
-                    .setTitle(if (isFarsi) "⚡ اجرای خودکار مراحل آموزش PattNG" else "⚡ Running PattNG Guide Steps")
+                    .setTitle(if (isFarsi) "⚡ اجرای خودکار مراحل راهنمای Cat" else "⚡ Running Cat Guide Steps")
                     .setView(box)
                     .setCancelable(false)
                     .create()
@@ -13283,9 +13283,9 @@ class MainActivity : Activity() {
 
                     progressBar.progress = 95
                     progressText.text = if (isFarsi) {
-                        "✅ گام ۳/۳: ذخیره کانفیگ «PattNG-MIM-H2-$regTag» و اتصال…"
+                        "✅ گام ۳/۳: ذخیره کانفیگ «Cat-MIM-H2-$regTag» و اتصال…"
                     } else {
-                        "✅ Step 3/3: Saving 'PattNG-MIM-H2-$regTag' & connecting…"
+                        "✅ Step 3/3: Saving 'Cat-MIM-H2-$regTag' & connecting…"
                     }
 
                     val now = System.currentTimeMillis()
@@ -13305,7 +13305,7 @@ class MainActivity : Activity() {
                         endpointScannedAt = now,
                         psiphonRegion = pickedRegion,
                         ipScan = "v4",
-                        profileName = "PattNG-MIM-H2-$regTag",
+                        profileName = "Cat-MIM-H2-$regTag",
                         chainTarget = "psiphon",
                         exitLocation = "foreign",
                         masqueTransport = "h2",
@@ -13414,7 +13414,7 @@ class MainActivity : Activity() {
                 setStroke(dp(1), withAlpha(TEAL, 80))
             }
             text = if (isFarsi) {
-                "📌 آموزش گام‌به‌گام ساخت کانفیگ Aether (MASQUE in MASQUE + Psiphon):\n" +
+                "📌 آموزش گام‌به‌گام ساخت کانفیگ Cat Warp (MASQUE in MASQUE + Psiphon):\n" +
                     "• ۲-۱ و ۲-۲) ابتدا روی دکمهٔ «🔑 Get new WARP keys» بزنید و در صفحهٔ بازشده دوباره «Get new WARP keys» را بزنید تا کلیدها دریافت شوند.\n" +
                     "• ۲-۳) در کادر Remarks یک نام دلخواه وارد کنید.\n" +
                     "• ۲-۴ و ۲-۵) گزینهٔ Protocol را روی «MASQUE in MASQUE» قرار دهید.\n" +
@@ -13422,7 +13422,7 @@ class MainActivity : Activity() {
                     "• ۲-۸ تا ۲-۱۱) بخش Psiphon را روی «WARP > Psiphon» بگذارید و از Exit country کشور خروجی را انتخاب کنید.\n" +
                     "• ۲-۱۲ و ۲-۱۳) روی «🔍 Scan for an endpoint» بزنید تا اسکن تمام شود، سپس ذخیره (✅) و متصل شوید!"
             } else {
-                "📌 Step-by-step PattNG Guide (MASQUE in MASQUE + Psiphon):\n" +
+                "📌 Step-by-step Cat Guide (MASQUE in MASQUE + Psiphon):\n" +
                     "• 2-1 & 2-2) Tap '🔑 Get new WARP keys' → tap 'Get new WARP keys' and wait for enrollment.\n" +
                     "• 2-3) Enter a name in Remarks.\n" +
                     "• 2-4 & 2-5) Set Protocol to 'MASQUE in MASQUE'.\n" +
@@ -13433,7 +13433,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         val guideToggleBtn = MaterialButton(this).apply {
-            text = if (isFarsi) "📖 راهنمای گام‌به‌گام آموزش PattNG (MASQUE in MASQUE + Psiphon) و فایروال‌ها ▾" else "📖 Step-by-Step PattNG Guide (MASQUE in MASQUE + Psiphon) ▾"
+            text = if (isFarsi) "📖 راهنمای گام‌به‌گام راهنمای Cat (MASQUE in MASQUE + Psiphon) و فایروال‌ها ▾" else "📖 Step-by-Step Cat Guide (MASQUE in MASQUE + Psiphon) ▾"
             isAllCaps = false
             textSize = 11.5f
             typeface = CatClientBodyBoldTypeface
@@ -13460,10 +13460,10 @@ class MainActivity : Activity() {
             typeface = CatClientBodyBoldTypeface
             setTextColor(TEXT_PRIMARY)
             setHintTextColor(TEXT_SECONDARY)
-            hint = if (isFarsi) "۲-۳) Remarks / نام دلخواه کانفیگ (مثلاً: PattNG-MIM-Psiphon)" else "2-3) Remarks / Config Name (e.g. PattNG-MIM-Psiphon)"
+            hint = if (isFarsi) "۲-۳) Remarks / نام دلخواه کانفیگ (مثلاً: Cat-MIM-Psiphon)" else "2-3) Remarks / Config Name (e.g. Cat-MIM-Psiphon)"
             setText(current.profileName.ifBlank {
                 when (chosenMode) {
-                    AetherMode.MasqueInMasque -> "PattNG-MIM-Psiphon"
+                    AetherMode.MasqueInMasque -> "Cat-MIM-Psiphon"
                     AetherMode.WarpInWarp -> "WARP-in-WARP"
                     AetherMode.WireGuard -> if (chosenIpScan == "v6") "WARP-IPv6" else "WARP-All"
                     else -> "MASQUE-H2"
@@ -13558,8 +13558,8 @@ class MainActivity : Activity() {
             val profName = nameInput.text?.toString()?.trim().orEmpty().ifBlank {
                 when (finalMode) {
                     AetherMode.MasqueInMasque ->
-                        if (chosenChain == "psiphon") "PattNG-MIM-Psiphon-${chosenRegion.ifBlank { "Auto" }}" else "PattNG-MIM-H2"
-                    AetherMode.WarpInWarp -> "Aether-WARP-in-WARP"
+                        if (chosenChain == "psiphon") "Cat-MIM-Psiphon-${chosenRegion.ifBlank { "Auto" }}" else "Cat-MIM-H2"
+                    AetherMode.WarpInWarp -> "Cat-WARP-in-WARP"
                     AetherMode.WireGuard -> "WARP-${chosenIpScan.uppercase(Locale.US)}"
                     else -> "MASQUE-H2"
                 }
@@ -13719,8 +13719,8 @@ class MainActivity : Activity() {
 
         // 1-Tap PattNG Tutorial Auto-Builder button at very top
         val oneTapPattNgBtn = chipBtn(
-            if (isFarsi) "⚡ اجرای ۱-کلیکی کل آموزش PattNG (Get WARP keys + MASQUE in MASQUE + HTTP/2 + Psiphon + Scan)"
-            else "⚡ 1-Tap Full PattNG Guide (Get WARP keys + MASQUE in MASQUE + HTTP/2 + Psiphon + Scan)",
+            if (isFarsi) "⚡ اجرای ۱-کلیکی کل راهنمای Cat (Get WARP keys + MASQUE in MASQUE + HTTP/2 + Psiphon + Scan)"
+            else "⚡ 1-Tap Full Cat Guide (Get WARP keys + MASQUE in MASQUE + HTTP/2 + Psiphon + Scan)",
             accent = true,
         ) {
             runOneTapPattNgMimPsiphonSetup(chosenRegion.ifBlank { "DE" }) { ready ->
@@ -13766,14 +13766,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
-                chipBtn(if (isFarsi) "⭐ آموزش PattNG: MIM+H2+Psiphon" else "⭐ PattNG: MIM+H2+Psiphon", accent = true) {
+                chipBtn(if (isFarsi) "⭐ راهنمای Cat: MIM+H2+Psiphon" else "⭐ Cat: MIM+H2+Psiphon", accent = true) {
                     chosenMode = AetherMode.MasqueInMasque
                     chosenTransport = "h2"
                     chosenIpScan = "v4"
                     chosenChain = "psiphon"
                     chosenExitLocation = "foreign"
                     if (chosenRegion.isBlank()) chosenRegion = "DE"
-                    nameInput.setText("PattNG-MIM-Psiphon-${chosenRegion}")
+                    nameInput.setText("Cat-MIM-Psiphon-${chosenRegion}")
                     updateStateLabel("mim")
                 },
                 LinearLayout.LayoutParams(0, -2, 1.25f),
@@ -13815,7 +13815,7 @@ class MainActivity : Activity() {
                     )
                     val modeTitles = if (isFarsi) {
                         arrayOf(
-                            "⭐ MASQUE in MASQUE (mim) — پیشنهادی آموزش PattNG · دو لایه MASQUE ضدسانسور",
+                            "⭐ MASQUE in MASQUE (mim) — پیشنهادی راهنمای Cat · دو لایه MASQUE ضدسانسور",
                             "MASQUE (masque) — تک‌لایه روی پورت 443",
                             "WireGuard over MASQUE (wg-over-masque) — دو لایه ترکیبی",
                             "WARP in WARP (gool) — دو لایه WireGuard",
@@ -13823,7 +13823,7 @@ class MainActivity : Activity() {
                         )
                     } else {
                         arrayOf(
-                            "⭐ MASQUE in MASQUE (mim) — Recommended PattNG Guide · Double-Hop MASQUE",
+                            "⭐ MASQUE in MASQUE (mim) — Recommended Cat Guide · Double-Hop MASQUE",
                             "MASQUE (masque) — Single-Hop over Port 443",
                             "WireGuard over MASQUE (wg-over-masque)",
                             "WARP in WARP (gool) — Double-Hop WireGuard",
@@ -13855,12 +13855,12 @@ class MainActivity : Activity() {
                     val transports = listOf("h2", "h3")
                     val transportTitles = if (isFarsi) {
                         arrayOf(
-                            "⭐ HTTP/2 (پیشنهادی آموزش PattNG — عبور از مسدودسازی QUIC/UDP روی TLS/TCP)",
+                            "⭐ HTTP/2 (پیشنهادی راهنمای Cat — عبور از مسدودسازی QUIC/UDP روی TLS/TCP)",
                             "HTTP/3 (QUIC / UDP)",
                         )
                     } else {
                         arrayOf(
-                            "⭐ HTTP/2 (Recommended PattNG Guide — TCP/TLS framing)",
+                            "⭐ HTTP/2 (Recommended Cat Guide — TCP/TLS framing)",
                             "HTTP/3 (QUIC / UDP)",
                         )
                     }
@@ -13890,7 +13890,7 @@ class MainActivity : Activity() {
                     val chains = listOf("psiphon", "psiphon-reverse", "auto-psiphon", "none", "tor", "tor-reverse")
                     val chainTitles = if (isFarsi) {
                         arrayOf(
-                            "⭐ WARP > Psiphon (پیشنهادی آموزش PattNG — خروجی سایفون روی MASQUE in MASQUE)",
+                            "⭐ WARP > Psiphon (پیشنهادی راهنمای Cat — خروجی سایفون روی MASQUE in MASQUE)",
                             "🔄 Psiphon > WARP (زنجیره معکوس — آی‌پی تمیز کلودفلر در خروجی بدون کپچای گوگل)",
                             "🤖 زنجیره هوشمند (اول مستقیم؛ فقط در صورت تحریم: WARP > Psiphon)",
                             "Off (بدون سایفون — اتصال مستقیم WARP / MASQUE)",
@@ -13899,7 +13899,7 @@ class MainActivity : Activity() {
                         )
                     } else {
                         arrayOf(
-                            "⭐ WARP > Psiphon (Recommended PattNG Guide — chains Psiphon over WARP/MIM)",
+                            "⭐ WARP > Psiphon (Recommended Cat Guide — chains Psiphon over WARP/MIM)",
                             "🔄 Psiphon > WARP (Reverse Chain — clean Cloudflare exit IP, fewer captchas)",
                             "🤖 Smart Conditional Chain (WARP > Psiphon only if sanctioned)",
                             "Off (Direct WARP / MASQUE)",
@@ -13915,7 +13915,7 @@ class MainActivity : Activity() {
                                 chosenExitLocation = "foreign"
                             }
                             if ((chosenChain.startsWith("psiphon") || chosenChain == "auto-psiphon") && !nameInput.text.toString().contains("Psiphon", ignoreCase = true)) {
-                                nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "PattNG-MIM" }}-Psiphon")
+                                nameInput.setText("${nameInput.text.toString().trim().ifEmpty { "Cat-MIM" }}-Psiphon")
                             }
                             updateStateLabel(if (chosenMode == AetherMode.MasqueInMasque) "mim" else "psiphon")
                         }
@@ -13948,7 +13948,7 @@ class MainActivity : Activity() {
                             chosenExitLocation = "foreign"
                             val tag = chosenRegion.ifBlank { "Auto" }
                             val base = nameInput.text.toString().trim().substringBefore("-Psiphon").ifEmpty {
-                                if (chosenMode == AetherMode.MasqueInMasque) "PattNG-MIM" else "WARP"
+                                if (chosenMode == AetherMode.MasqueInMasque) "Cat-MIM" else "WARP"
                             }
                             nameInput.setText("$base-Psiphon-$tag")
                             updateStateLabel(if (chosenMode == AetherMode.MasqueInMasque) "mim" else "region")
@@ -13982,7 +13982,7 @@ class MainActivity : Activity() {
                         }
                         chosenExitLocation = "foreign"
                         val base = nameInput.text.toString().trim().substringBefore("-Psiphon").ifEmpty {
-                            if (chosenMode == AetherMode.MasqueInMasque) "PattNG-MIM" else "WARP"
+                            if (chosenMode == AetherMode.MasqueInMasque) "Cat-MIM" else "WARP"
                         }
                         nameInput.setText("$base-Psiphon-$code")
                         val switched = aetherPreferenceStore.switchPsiphonCountryQuick(code)
@@ -14262,8 +14262,8 @@ class MainActivity : Activity() {
         advancedContainer.addView(torBridgeBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         val advancedToggleBtn = chipBtn(
-            if (isFarsi) "⚙️ تنظیمات پیشرفتهٔ PattNG 2.3.13-P69 (Scan / Noize / Psiphon CDN / Tor / TLS) ▾"
-            else "⚙️ PattNG 2.3.13-P69 Advanced (Scan / Noize / Psiphon CDN / Tor / TLS) ▾",
+            if (isFarsi) "⚙️ تنظیمات پیشرفتهٔ Cat (Scan / Noize / Psiphon CDN / Tor / TLS) ▾"
+            else "⚙️ Cat Advanced (Scan / Noize / Psiphon CDN / Tor / TLS) ▾",
         ) {
             val show = advancedContainer.visibility != View.VISIBLE
             advancedContainer.visibility = if (show) View.VISIBLE else View.GONE
@@ -14472,7 +14472,7 @@ class MainActivity : Activity() {
                     cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                        if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Cat Warp URI:\n$uri",
                         Toast.LENGTH_LONG,
                     ).show()
                 },
@@ -14502,7 +14502,7 @@ class MainActivity : Activity() {
                 textSize = 11.5f
                 typeface = CatClientBodyBoldTypeface
                 setTextColor(TEXT_SECONDARY)
-                text = if (isFarsi) "پروفایل‌های ذخیره‌شده Aether:" else "Saved Aether profiles:"
+                text = if (isFarsi) "پروفایل‌های ذخیره‌شده Cat Warp:" else "Saved Cat Warp profiles:"
             }
             root.addView(savedTitle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             savedProfiles.take(3).forEach { prof ->
@@ -14595,8 +14595,8 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(root) }
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "➕ Add Aether config manually (MASQUE in MASQUE / WARP)"
-                else "➕ Add Aether config manually (MASQUE in MASQUE / WARP)",
+                if (isFarsi) "➕ Add Cat Warp config manually (MASQUE in MASQUE / WARP)"
+                else "➕ Add Cat Warp config manually (MASQUE in MASQUE / WARP)",
             )
             .setView(scroll)
             .setNegativeButton(android.R.string.cancel, null)
@@ -14613,8 +14613,8 @@ class MainActivity : Activity() {
                 val saved = persistDraftSelection(copyLinkToClipboard = false)
                 Toast.makeText(
                     this,
-                    if (isFarsi) "🚀 کانفیگ Aether «${saved.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
-                    else "🚀 Aether '${saved.profileName}' enabled — connecting directly in Cat Client…",
+                    if (isFarsi) "🚀 کانفیگ Cat Warp «${saved.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
+                    else "🚀 Cat Warp '${saved.profileName}' enabled — connecting directly in Cat Client…",
                     Toast.LENGTH_LONG,
                 ).show()
                 openScreen(SCREEN_HOME)
@@ -14961,7 +14961,7 @@ class MainActivity : Activity() {
                         cm.setPrimaryClip(ClipData.newPlainText("aether-uri", uri))
                         Toast.makeText(
                             this@MainActivity,
-                            if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Aether URI:\n$uri",
+                            if (isFarsi) "✅ لینک کانفیگ کپی شد:\n$uri" else "✅ Copied Cat Warp URI:\n$uri",
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -15059,7 +15059,7 @@ class MainActivity : Activity() {
         val items = if (isFarsi) {
             arrayOf(
                 "📖 ۰) راهنمای خیلی ساده به زبان خودمانی (اینو بزنی این میشه، اونو بزنی این میشه!)",
-                "🦊 ۱) فایرفاکس VPN (FENIX · مشابه MLM VPN — ۵۰ گیگ رایگان ماهانه + ۳۵ کشور Fastly)",
+                "🦊 ۱) Cat Fox VPN (۵۰ گیگ رایگان ماهانه + ۳۵ کشور Fastly)",
                 "🪄 ۲) تعمیر خودکار کانفیگ واقعی من و اتصال فوری (۵ روش اسپوف کلادفلر + برش SNI)",
                 "🧦 ۳) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
                 "🧭 ۴) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
@@ -15069,9 +15069,9 @@ class MainActivity : Activity() {
                 "🪶 ۸) ساخت ورکر سبک کلودفلر (Cat Client Lite Worker — سریع و بدون مصرف KV)",
                 "🔌 ۹) تنظیمات پایداری: وصل دوباره در قطعی، وصل بعد از ری‌استارت و قطع‌کن اضطراری (Kill Switch)",
                 "⚡ ۱۰) تشخیص خودکار MTU، رکورد حامل و بهترین ریزولور (Auto-MTU & Carrier Finder)",
-                "📡 ۱۱) آزمایشگاه متدهای اتصال DNS و ریزولور WhiteDNS (۵۲ سرور + ۶ پریست ایران + ۹ موتور)",
+                "📡 ۱۱) آزمایشگاه متدهای اتصال DNS و ریزولور Cat DNS (۵۲ سرور + ۶ پریست ایران + ۹ موتور)",
                 "🌐 ۱۲) اسکن ۶ پورت TLS کلودفلر + بهترین SNI روی خط من (443/2053/2083/2087/2096/8443)",
-                "🔍 ۱۳) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل WhiteDNS",
+                "🔍 ۱۳) اسکن سریع DNS ایران + ساخت پل اضطراری dnstt و تانل Cat DNS",
                 "🧅 ۱۴) دریافت خودکار پل‌های جدید Tor از سرور رسمی (Moat)",
                 "💾 ۱۵) کپی پشتیبان کلید کلودفلر (جلوگیری از سوختن کلید در نصب مجدد)",
                 "📥 ۱۶) بازیابی کلید کلودفلر از کلیپ‌بورد",
@@ -15080,12 +15080,12 @@ class MainActivity : Activity() {
                 "🛡️ ۱۹) ۹ پریست ضد فیلترینگ (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
                 "🍎 ۲۰) مرکز جامع اتصال آیفون و iPad (CoreForge / Streisand / پروفایل iOS / هات‌اسپات)",
                 "🧪 ۲۱) آزمایشگاه نت ملی ۲۰۲۶ (وایت‌لیست غیرکلادفلر + ۵ روش اسپوف کلادفلر + پروکسی Fake ClientHello + Fact-A + S3 Bypass)",
-                "🎯 ۲۲) اسکن ۶ امتیازی SlipNet (0..6 Score + Prism) و جنریتور MasterDnsVPN / VayDNS / NoizDNS / dnst://",
+                "🎯 ۲۲) اسکن ۶ امتیازی Cat DNS (0..6 Score + Prism) و جنریتور MasterDnsVPN / VayDNS / NoizDNS / dnst://",
             )
         } else {
             arrayOf(
                 "📖 0) Plain-Language Step-by-Step Guide (What Every Button Does!)",
-                "🦊 1) Firefox Browser VPN (FENIX · 50 GB/mo Free + 35 Fastly Countries)",
+                "🦊 1) Cat Fox VPN (50 GB/mo Free + 35 Fastly Countries)",
                 "🪄 2) 1-Click Auto-Repair My Real Config & Connect Immediately",
                 "🧦 3) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
                 "🧭 4) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
@@ -15095,9 +15095,9 @@ class MainActivity : Activity() {
                 "🪶 8) Cat Client Lite Worker Generator (Fast, Zero-KV Quota Cloudflare Worker)",
                 "🔌 9) Resilience & Kill Switch Settings (Reconnect on Drop / Boot Connect / Kill Switch)",
                 "⚡ 10) Auto-MTU & Carrier Record Finder (QName Probe + Best Resolver & Preset)",
-                "📡 11) WhiteDNS & Resolver Connection Lab (52 Servers + 6 Iran Presets + 9 Engines)",
+                "📡 11) Cat DNS & Resolver Connection Lab (52 Servers + 6 Iran Presets + 9 Engines)",
                 "🌐 12) Scan 6 Cloudflare TLS Ports + Best SNI on My Line (443/2053/2083/2087/2096/8443)",
-                "🔍 13) Quick Iran DNS Scan + Build Emergency dnstt & WhiteDNS Tunnel",
+                "🔍 13) Quick Iran DNS Scan + Build Emergency dnstt & Cat DNS Tunnel",
                 "🧅 14) Fetch Fresh Official Tor Bridges Automatically (Moat API)",
                 "💾 15) Backup Cloudflare Identity Key to Clipboard",
                 "📥 16) Restore Cloudflare Identity Key from Clipboard",
@@ -15106,14 +15106,14 @@ class MainActivity : Activity() {
                 "🛡️ 19) 9 Anti-Filtering Presets (Max-Stealth 45ms / Double-Fragment / Starlink / F&F)",
                 "🍎 20) iPhone & iPad (iOS) Connection Hub (CoreForge / Streisand / .mobileconfig / Hotspot)",
                 "🧪 21) Net Melli 2026 Bypass Lab (Non-CF Whitelist + 5 CF Spoof Methods + Local Fake ClientHello Proxy + Fact-A Oracle + S3 Bypass)",
-                "🎯 22) SlipNet 6-Point Score Scanner (0..6 + Prism) & MasterDnsVPN / VayDNS / NoizDNS / dnst:// Generator",
+                "🎯 22) Cat DNS 6-Point Score Scanner (0..6 + Prism) & MasterDnsVPN / VayDNS / NoizDNS / dnst:// Generator",
             )
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧰 ابزارهای هوشمند WhiteDNS، فایرفاکس VPN، ساکس۵ و Aether"
-                else "🧰 WhiteDNS, Firefox VPN, SOCKS5 & Aether Smart Tools",
+                if (isFarsi) "🧰 ابزارهای هوشمند Cat DNS، Cat Fox VPN، ساکس۵ و Cat Warp"
+                else "🧰 Cat DNS, Cat Fox VPN, SOCKS5 & Cat Warp Smart Tools",
             )
             .setItems(items) { _, which ->
                 when (which) {
@@ -15489,7 +15489,7 @@ class MainActivity : Activity() {
                 .setNegativeButton(android.R.string.ok, null)
                 .setPositiveButton(
                     if (isFarsi) "📡 باز کردن آزمایشگاه تانل DNS (ضد نت ملی)"
-                    else "📡 Open WhiteDNS Tunnel Lab",
+                    else "📡 Open Cat DNS Tunnel Lab",
                 ) { _, _ ->
                     showWhiteDnsResolverMethodsDialog()
                 }
@@ -15604,8 +15604,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🍎 مرکز جامع اتصال آیفون و iPad (اکوسیستم WhiteDNS و iOS)"
-                else "🍎 iPhone & iPad (iOS) Connection Hub (WhiteDNS & iOS Suite)",
+                if (isFarsi) "🍎 مرکز جامع اتصال آیفون و iPad (iOS)"
+                else "🍎 iPhone & iPad (iOS) Connection Hub (iOS)",
             )
             .setItems(options) { _, which ->
                 if (which in 1..4 && !hasRealPanel) {
@@ -15676,7 +15676,7 @@ class MainActivity : Activity() {
                     }
                     2 -> {
                         val allLinks = buildString {
-                            appendLine("=== CoreForge (Official WhiteDNS iOS) ===")
+                            appendLine("=== CoreForge (iOS) ===")
                             appendLine(bundle.coreForgeTestFlightUrl)
                             appendLine()
                             appendLine("=== Streisand (1-Click Import) ===")
@@ -15751,12 +15751,12 @@ class MainActivity : Activity() {
                             .setItems(profileModes) { _, modeIdx ->
                                 val xml = when (modeIdx) {
                                     1 -> WhiteDnsSmartScanner.buildAppleIosMobileConfigProfile(
-                                        profileName = "CatClient & WhiteDNS iOS (Shecan Anti-Sanction)",
+                                        profileName = "CatClient iOS (Shecan Anti-Sanction)",
                                         dohUrl = "https://free.shecan.ir/dns-query",
                                         bootstrapIps = listOf("178.22.122.100", "185.51.200.2"),
                                     )
                                     2 -> WhiteDnsSmartScanner.buildAppleIosMobileConfigProfile(
-                                        profileName = "CatClient & WhiteDNS iOS (Electro Gaming)",
+                                        profileName = "CatClient iOS (Electro Gaming)",
                                         dohUrl = "https://dns.electrotm.org/dns-query",
                                         bootstrapIps = listOf("78.157.42.100", "78.157.42.101"),
                                     )
@@ -15941,13 +15941,13 @@ class MainActivity : Activity() {
                 appendLine("# 3) StormDNS / Multi-Resolver ARQ")
                 appendLine(bundle.stormDnsUri)
                 appendLine()
-                appendLine("# 4) Lantern Soar (IR Profile · Packets-not-Segments)")
+                appendLine("# 4) Soar (IR Profile · Packets-not-Segments)")
                 appendLine(bundle.soarUri)
                 appendLine()
-                appendLine("# 5) SlipNet VayDNS (2B ClientID + 9 Carrier Records)")
+                appendLine("# 5) Cat DNS VayDNS (2B ClientID + 9 Carrier Records)")
                 appendLine(bundle.vayDnsUri)
                 appendLine()
-                appendLine("# 6) SlipNet NoizDNS (Anti-DPI Base36 + Query Padding)")
+                appendLine("# 6) Cat DNS NoizDNS (Anti-DPI Base36 + Query Padding)")
                 appendLine(bundle.noizDnsUri)
                 appendLine()
                 appendLine("# 7) Slipstream (QUIC-over-DNS · BBR)")
@@ -15957,7 +15957,7 @@ class MainActivity : Activity() {
                 appendLine(bundle.dnstHumanUri)
                 appendLine(bundle.dnstBase64Uri)
                 appendLine()
-                appendLine("# 9) SlipNet Profile (slipnet:// + SSH Chain)")
+                appendLine("# 9) Cat DNS Profile (slipnet:// + SSH Chain)")
                 appendLine(bundle.slipNetUri)
                 appendLine()
                 appendLine("# 10) dnstt Bridge (${selectedTransport.uppercase(Locale.US)})")
@@ -16068,7 +16068,7 @@ class MainActivity : Activity() {
                     val transports = listOf("auto", "udp", "tcp", "dot", "doh", "doq", "doh3")
                     val labels = if (isFarsi) {
                         arrayOf(
-                            "Auto (UDP + TCP همزمان — پیشنهادی WhiteDNS)",
+                            "Auto (UDP + TCP همزمان — پیشنهادی Cat DNS)",
                             "UDP :53 (کمترین پینگ — استاندارد)",
                             "TCP :53 (RFC 1035 — مخصوص زمان مسدودی UDP)",
                             "DoT :853 (DNS-over-TLS رمزنگاری‌شده)",
@@ -16125,7 +16125,7 @@ class MainActivity : Activity() {
                     val presets = WhiteDnsSmartScanner.IRAN_AUTO_TUNE_PRESETS
                     val labels = presets.map { if (isFarsi) it.titleFa else it.titleEn }.toTypedArray()
                     MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle(if (isFarsi) "انتخاب پریست خودکار WhiteDNS برای ایران" else "Select WhiteDNS Iran Auto-Tune Preset")
+                        .setTitle(if (isFarsi) "انتخاب پریست خودکار Cat DNS برای ایران" else "Select Cat DNS Iran Auto-Tune Preset")
                         .setItems(labels) { _, idx ->
                             selectedPreset = presets[idx]
                             selectedTransport = selectedPreset.transport
@@ -16144,7 +16144,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
-                actionBtn(if (isFarsi) "🎯 اسکن ۶ امتیازی SlipNet (0..6)" else "🎯 SlipNet 0..6 Score Scan") {
+                actionBtn(if (isFarsi) "🎯 اسکن ۶ امتیازی Cat DNS (0..6)" else "🎯 Cat DNS 0..6 Score Scan") {
                     runSlipNetSixPointScoreDialog()
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
@@ -16175,8 +16175,8 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(root) }
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "📡 متدهای اتصال بر پایه DNS و ریزولور (WhiteDNS)"
-                else "📡 WhiteDNS & Resolver Connection Methods",
+                if (isFarsi) "📡 متدهای اتصال بر پایه DNS و ریزولور (Cat DNS)"
+                else "📡 Cat DNS & Resolver Connection Methods",
             )
             .setView(scroll)
             .setNegativeButton(android.R.string.cancel, null)
@@ -16252,7 +16252,7 @@ class MainActivity : Activity() {
                     }
                 }
                 val content = uris.joinToString("\n")
-                val title = "🧬 تانل WhiteDNS (اتصال مستقیم)"
+                val title = "🧬 تانل Cat DNS (اتصال مستقیم)"
                 val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
                 val saved = withContext(Dispatchers.IO) {
                     if (existing != null) {
@@ -16300,8 +16300,8 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         Toast.makeText(
             this,
-            if (isFarsi) "⏳ در حال اجرای اسکن ۶ امتیازی SlipNet (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…"
-            else "⏳ Running SlipNet 6-point resolver compatibility scan (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…",
+            if (isFarsi) "⏳ در حال اجرای اسکن ۶ امتیازی Cat DNS (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…"
+            else "⏳ Running Cat DNS 6-point resolver compatibility scan (NS, TXT, RND, DPI, EDNS0, NXDOMAIN + UDP/TCP)…",
             Toast.LENGTH_SHORT,
         ).show()
         activityScope.launch {
@@ -16319,10 +16319,10 @@ class MainActivity : Activity() {
             }
             val msg = buildString {
                 if (isFarsi) {
-                    appendLine("🎯 گزارش ۶ شاخص سازگاری تانل SlipNet / MasterDNS / WhiteDNS:")
+                    appendLine("🎯 گزارش ۶ شاخص سازگاری تانل Cat DNS / MasterDNS / Cat DNS:")
                     appendLine("────────────────────────")
                 } else {
-                    appendLine("🎯 SlipNet / MasterDNS 6-Point Resolver Compatibility Report:")
+                    appendLine("🎯 Cat DNS / MasterDNS 6-Point Resolver Compatibility Report:")
                     appendLine("────────────────────────")
                 }
                 cards.forEachIndexed { i, c ->
@@ -16336,8 +16336,8 @@ class MainActivity : Activity() {
             val best = cards.first()
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
-                    if (isFarsi) "🎯 نتیجه اسکن ۶ امتیازی SlipNet (بهترین: ${best.resolverIp} — ${best.score}/6)"
-                    else "🎯 SlipNet 6-Point Scan (Best: ${best.resolverIp} — ${best.score}/6)",
+                    if (isFarsi) "🎯 نتیجه اسکن ۶ امتیازی Cat DNS (بهترین: ${best.resolverIp} — ${best.score}/6)"
+                    else "🎯 Cat DNS 6-Point Scan (Best: ${best.resolverIp} — ${best.score}/6)",
                 )
                 .setMessage(msg.trim())
                 .setNegativeButton(android.R.string.cancel, null)
@@ -16411,7 +16411,7 @@ class MainActivity : Activity() {
                 resolverIp = defaultResolverIp,
                 tunnelType = "noizdns",
                 recordType = selectedVayRecord.wireName,
-                remark = "SlipNet-NoizDNS-SSH",
+                remark = "Cat-DNS-NoizDNS-SSH",
             )
             val masterUri = "masterdns://$defaultResolverIp:53/?domain=$dom&balancer=${selectedBalancer.code}&dup=$duplication&encryption=5&comp=1#MasterDNS-B${selectedBalancer.code}-Dup$duplication"
             preview.text = buildString {
@@ -16504,7 +16504,7 @@ class MainActivity : Activity() {
                     .map { it.trim() }
                     .filter { it.isNotEmpty() && !it.startsWith("#") }
                     .joinToString("\n")
-                val title = "🧬 MasterDNS + SlipNet + dnst://"
+                val title = "🧬 MasterDNS + Cat DNS + dnst://"
                 activityScope.launch {
                     val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
                     val saved = withContext(Dispatchers.IO) {
@@ -16519,8 +16519,8 @@ class MainActivity : Activity() {
                     onSubscriptionSelected()
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ کانفیگ‌های MasterDNS، dnst:// و SlipNet به اشتراک شما اضافه و انتخاب شد"
-                        else "✅ Added MasterDNS, dnst:// & SlipNet configs to your subscriptions",
+                        if (isFarsi) "✅ کانفیگ‌های MasterDNS، dnst:// و Cat DNS به اشتراک شما اضافه و انتخاب شد"
+                        else "✅ Added MasterDNS, dnst:// & Cat DNS configs to your subscriptions",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -16554,7 +16554,7 @@ class MainActivity : Activity() {
             TextView(this).apply {
                 text = if (isFarsi) {
                     "🟢 ۱) کانفیگ نداری و می‌خوای رایگان و سریع وصل بشی؟\n" +
-                        "   👈 دکمه «🦊 اتصال فوری با فایرفاکس VPN» یا «🚀 اتصال مستقیم Aether» رو بزن؛ خودش سرور سالم پیدا می‌کنه و کل گوشی رو وصل می‌کنه.\n\n" +
+                        "   👈 دکمه «🦊 اتصال فوری با Cat Fox VPN» یا «🚀 اتصال مستقیم Cat Warp» رو بزن؛ خودش سرور سالم پیدا می‌کنه و کل گوشی رو وصل می‌کنه.\n\n" +
                         "🟡 ۲) کانفیگ یا اشتراک داری ولی روی همراه اول / ایرانسل کار نمی‌کنه؟\n" +
                         "   👈 دکمه «🪄 تعمیر خودکار کانفیگ من و اتصال فوری» رو بزن؛ کانفیگ واقعی خودت رو برمی‌داره، قفل اپراتور رو با ۵ روش اسپوف دور می‌زنه و وصلش می‌کنه.\n\n" +
                         "🟠 ۳) وصل هستی ولی جمینی (Gemini)، چت‌جی‌پی‌تی یا یوتیوب باز نمیشه؟\n" +
@@ -16567,11 +16567,11 @@ class MainActivity : Activity() {
                         "   👈 در «⚡ ۱۵) ترکیب موازی» دکمه «📤 اشتراک با QR / لینک» رو بزن؛ گوشی دوم فقط QR رو اسکن می‌کنه یا لینک catfusion:// رو در «➕ افزودن سابسکریپشن» می‌چسبونه."
                 } else {
                     "🟢 1) No config and want free 1-tap VPN?\n" +
-                        "   👉 Tap '🦊 Connect Firefox VPN Now' or '🚀 Connect Aether Now' — connects the whole phone automatically.\n\n" +
+                        "   👉 Tap '🦊 Connect Cat Fox VPN Now' or '🚀 Connect Cat Warp Now' — connects the whole phone automatically.\n\n" +
                         "🟡 2) Have a subscription/config that stopped working on MCI / Irancell?\n" +
                         "   👉 Tap '🪄 1-Click Repair My Config & Connect' — grabs your real config, applies anti-DPI spoofing, and connects.\n\n" +
                         "🟠 3) Connected, but Gemini, ChatGPT, or YouTube won't open?\n" +
-                        "   👉 Tap '✨ Gemini Unblock Tester' or pick '🇺🇸 United States' in Firefox VPN / Psiphon.\n\n" +
+                        "   👉 Tap '✨ Gemini Unblock Tester' or pick '🇺🇸 United States' in Cat Fox VPN / Psiphon.\n\n" +
                         "🔴 4) Complete Net Melli (International internet & Cloudflare blocked)?\n" +
                         "   👉 Tap '🧪 Net Melli Whitelist Lab' or '📡 DNS & Resolver Methods' to tunnel over whitelisted routes.\n\n" +
                         "🔵 5) Not sure which protocol is open on your line?\n" +
@@ -16632,9 +16632,9 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
-                    "⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)"
+                    "⚡ ساخت ۱-کلیکی راهنمای Cat (MASQUE in MASQUE + HTTP/2 + Psiphon)"
                 } else {
-                    "⚡ 1-Tap PattNG Setup (MASQUE in MASQUE + HTTP/2 + Psiphon)"
+                    "⚡ 1-Tap Cat Setup (MASQUE in MASQUE + HTTP/2 + Psiphon)"
                 }
                 isAllCaps = false
                 textSize = 12.5f
@@ -16652,9 +16652,9 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
-                    "➕ تنظیم دستی Aether / PattNG (کلید WARP · ۲-هاپ · سوییچ کشور سایفون)"
+                    "➕ تنظیم دستی Cat Warp (کلید WARP · ۲-هاپ · سوییچ کشور سایفون)"
                 } else {
-                    "➕ Add Aether Config Manually (WARP Keys · 2-Hop · Country Switcher)"
+                    "➕ Add Cat Warp Config Manually (WARP Keys · 2-Hop · Country Switcher)"
                 }
                 isAllCaps = false
                 textSize = 12.5f
@@ -16674,9 +16674,9 @@ class MainActivity : Activity() {
         card.addView(
             MaterialButton(this).apply {
                 text = if (isFarsi) {
-                    "🩺 پزشک هوشمند تعمیر کانفیگ‌های من + موتور MLM FLUX (IPv4/IPv6)"
+                    "🩺 پزشک هوشمند تعمیر کانفیگ‌های من + موتور Cat FLUX (IPv4/IPv6)"
                 } else {
-                    "🩺 Smart Config Doctor + MLM FLUX (IPv4/IPv6 Optimizer)"
+                    "🩺 Smart Config Doctor + Cat FLUX (IPv4/IPv6 Optimizer)"
                 }
                 isAllCaps = false
                 textSize = 12.5f
@@ -16779,8 +16779,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🌐 مرکز جامع VPNهای ۲۰۲۶ و قابلیت‌های جدید MLM (هر کدوم رو بزنی همون اجرا میشه)"
-                else "🌐 2026 Multi-VPN Hub & MLM Capabilities (Tap Any Engine to Launch)",
+                if (isFarsi) "🌐 مرکز جامع VPNهای ۲۰۲۶ و قابلیت‌های جدید Cat (هر کدوم رو بزنی همون اجرا میشه)"
+                else "🌐 2026 Multi-VPN Hub & Cat Capabilities (Tap Any Engine to Launch)",
             )
             .setItems(items) { _, which ->
                 when (which) {
@@ -16819,8 +16819,8 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         Toast.makeText(
             this,
-            if (isFarsi) "🔍 رادار MLM Scout در حال تست تمام مسیرهای اتصال روی اینترنت فعلی شما..."
-            else "🔍 MLM Scout probing all connection methods on your current ISP...",
+            if (isFarsi) "🔍 رادار Cat Scout در حال تست تمام مسیرهای اتصال روی اینترنت فعلی شما..."
+            else "🔍 Cat Scout probing all connection methods on your current ISP...",
             Toast.LENGTH_SHORT,
         ).show()
 
@@ -16865,7 +16865,7 @@ class MainActivity : Activity() {
                         }
                         "fenix" -> {
                             withContext(Dispatchers.IO) { FirefoxVpnEngine.startLocalBridge(this@MainActivity) }
-                            val subTitle = "⭐ پیشنهادی · 🦊 Firefox VPN (FENIX)"
+                            val subTitle = "⭐ پیشنهادی · 🦊 Cat Fox VPN"
                             val saved = withContext(Dispatchers.IO) {
                                 val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
                                 if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
@@ -16893,7 +16893,7 @@ class MainActivity : Activity() {
                             val subTitle = if (rec.category == "user_config") {
                                 "⭐ کانفیگ‌های تعمیرشده و بهینهٔ من"
                             } else {
-                                "⭐ پیشنهادی · استخر اتصال سریع (MLM Pool)"
+                                "⭐ پیشنهادی · استخر اتصال سریع (Cat Pool)"
                             }
                             val saved = withContext(Dispatchers.IO) {
                                 val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
@@ -17141,23 +17141,23 @@ class MainActivity : Activity() {
         val options = if (isFarsi) {
             arrayOf(
                 "🩺 ۱) تعمیر خودکار، حذف تکراری‌ها و علامت‌گذاری «⭐ پیشنهادی» روی اشتراک فعلی",
-                "⚡ ۲) موتور MLM FLUX: بهینه‌سازی کانفیگ‌ها برای همراه اول (IPv6 تمیز کلودفلر)",
-                "🔥 ۳) موتور MLM FLUX: بهینه‌سازی کانفیگ‌ها برای ایرانسل (IPv4 + روش ضد فیلتر F&F)",
-                "🌐 ۴) موتور MLM FLUX: حالت ترکیبی دوگانه (IPv4 F&F + IPv6 همزمان — ⭐ پیشنهادی)",
+                "⚡ ۲) موتور Cat FLUX: بهینه‌سازی کانفیگ‌ها برای همراه اول (IPv6 تمیز کلودفلر)",
+                "🔥 ۳) موتور Cat FLUX: بهینه‌سازی کانفیگ‌ها برای ایرانسل (IPv4 + روش ضد فیلتر F&F)",
+                "🌐 ۴) موتور Cat FLUX: حالت ترکیبی دوگانه (IPv4 F&F + IPv6 همزمان — ⭐ پیشنهادی)",
             )
         } else {
             arrayOf(
                 "🩺 1) Smart Config Doctor: Deduplicate, Auto-Heal & Mark '⭐ Recommended'",
-                "⚡ 2) MLM FLUX: Optimize for MCI (Clean Cloudflare IPv6)",
-                "🔥 3) MLM FLUX: Optimize for Irancell (IPv4 + F&F Fragmentation)",
-                "🌐 4) MLM FLUX: Dual-Stack Both (IPv4 F&F + IPv6 — ⭐ Recommended)",
+                "⚡ 2) Cat FLUX: Optimize for MCI (Clean Cloudflare IPv6)",
+                "🔥 3) Cat FLUX: Optimize for Irancell (IPv4 + F&F Fragmentation)",
+                "🌐 4) Cat FLUX: Dual-Stack Both (IPv4 F&F + IPv6 — ⭐ Recommended)",
             )
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🩺 پزشک هوشمند تعمیر کانفیگ‌ها و موتور MLM FLUX (v1.2.42)"
-                else "🩺 Smart Config Doctor & MLM FLUX Engine (v1.2.42)",
+                if (isFarsi) "🩺 پزشک هوشمند تعمیر کانفیگ‌ها و موتور Cat FLUX"
+                else "🩺 Smart Config Doctor & Cat FLUX Engine",
             )
             .setItems(options) { _, which ->
                 activityScope.launch {
@@ -17218,7 +17218,7 @@ class MainActivity : Activity() {
                             MlmAndNextGenVpnHub.applyMlmFluxOptimization(currentLinks, family, "AUTO")
                         }
                         if (fluxLinks.isNotEmpty()) {
-                            val title = "⚡ MLM FLUX (${family.id.uppercase(Locale.US)})"
+                            val title = "⚡ Cat FLUX (${family.id.uppercase(Locale.US)})"
                             val payload = fluxLinks.joinToString("\n")
                             val saved = withContext(Dispatchers.IO) {
                                 val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
@@ -17229,8 +17229,8 @@ class MainActivity : Activity() {
                             onSubscriptionSelected()
                             Toast.makeText(
                                 this@MainActivity,
-                                if (isFarsi) "✅ ${fluxLinks.size} کانفیگ با موتور MLM FLUX (${family.labelFa}) ساخته و انتخاب شد"
-                                else "✅ Built & selected ${fluxLinks.size} MLM FLUX configs",
+                                if (isFarsi) "✅ ${fluxLinks.size} کانفیگ با موتور Cat FLUX (${family.labelFa}) ساخته و انتخاب شد"
+                                else "✅ Built & selected ${fluxLinks.size} Cat FLUX configs",
                                 Toast.LENGTH_LONG,
                             ).show()
                         }
@@ -17271,13 +17271,13 @@ class MainActivity : Activity() {
         }
         var dialog: AlertDialog? = null
         note(
-            if (isFarsi) "فهرست‌های عمومی Delta-Kronecker که مرتب دوباره تست می‌شوند. برنامه فقط لینکشان را روی گوشی شما می‌خواند (چیزی کپی نمی‌شود). هر دکمه را بزنید همان کار را می‌کند؛ اگر github روی اینترنت شما باز نیست اول یک کانفیگ را وصل کنید."
-            else "Delta-Kronecker's public lists, re-tested regularly. The app only reads their links on your phone (nothing is copied). Each button does exactly what it says; if github is closed on your line, connect a config first.",
+            if (isFarsi) "فهرست‌های عمومی Cat Feed که مرتب دوباره تست می‌شوند. برنامه فقط لینکشان را روی گوشی شما می‌خواند (چیزی کپی نمی‌شود). هر دکمه را بزنید همان کار را می‌کند؛ اگر github روی اینترنت شما باز نیست اول یک کانفیگ را وصل کنید."
+            else "Cat Feed's public lists, re-tested regularly. The app only reads their links on your phone (nothing is copied). Each button does exactly what it says; if github is closed on your line, connect a config first.",
             13f, TEXT_PRIMARY, 0,
         )
         val sections = listOf(
             DeltaKroneckerFeeds.Kind.SUBSCRIPTION to if (isFarsi) "📥 اشتراک کانفیگ (اضافه می‌شود به فهرست سرورها)" else "📥 Config subscriptions (added to the server list)",
-            DeltaKroneckerFeeds.Kind.AETHER to if (isFarsi) "🛡 Aether" else "🛡 Aether",
+            DeltaKroneckerFeeds.Kind.AETHER to if (isFarsi) "🛡 Cat Warp" else "🛡 Cat Warp",
             DeltaKroneckerFeeds.Kind.DNS_TUNNEL to if (isFarsi) "🧵 تونل DNS (وقتی تقریباً همه‌چیز بسته است)" else "🧵 DNS tunnels (when almost everything is blocked)",
             DeltaKroneckerFeeds.Kind.TOR_BRIDGES to if (isFarsi) "🧅 پل‌های Tor" else "🧅 Tor bridges",
             DeltaKroneckerFeeds.Kind.LINK to if (isFarsi) "🧰 ابزار" else "🧰 Tools",
@@ -17300,7 +17300,7 @@ class MainActivity : Activity() {
             }
         }
         val built = MaterialAlertDialogBuilder(this)
-            .setTitle(if (isFarsi) "🔺 منابع Delta-Kronecker" else "🔺 Delta-Kronecker sources")
+            .setTitle(if (isFarsi) "🔺 منابع Cat Feed" else "🔺 Cat Feed sources")
             .setView(ScrollView(this).apply { addView(box) })
             .setNeutralButton("GitHub") { _, _ -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DeltaKroneckerFeeds.GITHUB))) } }
             .setPositiveButton(if (isFarsi) "بستن" else "Close", null)
@@ -17347,7 +17347,7 @@ class MainActivity : Activity() {
                     .setTitle(if (isFarsi) "❌ پلی گرفته نشد" else "❌ No bridges received")
                     .setMessage(
                         if (isFarsi) "فهرست از GitHub نیامد (احتمالاً raw.githubusercontent.com روی خط شما بسته است). یک کانفیگ را وصل کنید و دوباره بزنید، یا «🧅 پل از Moat» را در بخش Aether امتحان کنید."
-                        else "The list did not arrive from GitHub (raw.githubusercontent.com is probably blocked on your line). Connect a config and try again, or try «🧅 Moat bridges» in the Aether section.",
+                        else "The list did not arrive from GitHub (raw.githubusercontent.com is probably blocked on your line). Connect a config and try again, or try «🧅 Moat bridges» in the Cat Warp section.",
                     )
                     .setPositiveButton(android.R.string.ok, null)
                     .create()
@@ -17358,16 +17358,16 @@ class MainActivity : Activity() {
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle((if (isFarsi) "🧅 " + lines.size + " پل سالم" else "🧅 " + lines.size + " working bridges"))
                 .setMessage(
-                    (if (isFarsi) "«✅ استفاده در Aether» این پل‌ها را در Aether ← Tor به‌عنوان «پل‌های خودم» می‌گذارد؛ دفعهٔ بعد که Tor (یا زنجیرهٔ warp → tor) را وصل کنید با همین‌ها وصل می‌شود.\n\n"
-                    else "«✅ Use in Aether» puts these bridges in Aether → Tor as «my own bridges»; the next time you connect Tor (or the warp → tor chain) it uses them.\n\n") + joined,
+                    (if (isFarsi) "«✅ استفاده در Cat Warp» این پل‌ها را در Cat Warp ← Tor به‌عنوان «پل‌های خودم» می‌گذارد؛ دفعهٔ بعد که Tor (یا زنجیرهٔ warp → tor) را وصل کنید با همین‌ها وصل می‌شود.\n\n"
+                    else "«✅ Use in Cat Warp» puts these bridges in Cat Warp → Tor as «my own bridges»; the next time you connect Tor (or the warp → tor chain) it uses them.\n\n") + joined,
                 )
-                .setPositiveButton(if (isFarsi) "✅ استفاده در Aether" else "✅ Use in Aether") { _, _ ->
+                .setPositiveButton(if (isFarsi) "✅ استفاده در Cat Warp" else "✅ Use in Cat Warp") { _, _ ->
                     val cur = aetherPreferenceStore.read()
                     aetherPreferenceStore.save(cur.copy(torBridgesMode = "own", torCustomBridges = joined))
                     renderAdvancedControls()
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "✅ در Aether ← Tor ذخیره شد (پل‌های خودم)" else "✅ Saved in Aether → Tor (own bridges)",
+                        if (isFarsi) "✅ در Cat Warp ← Tor ذخیره شد (پل‌های خودم)" else "✅ Saved in Cat Warp → Tor (own bridges)",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -17577,7 +17577,7 @@ class MainActivity : Activity() {
             "کلیدی که با vpn:// شروع می‌شود یا فایل ‎.conf را می‌خواند و وصل می‌شود.",
             "Reads a vpn:// key or a .conf file and connects.",
             "امنزیا آمنزیا امنیزیا amnezia awg wireguard وایرگارد conf vpn://") { showAmneziaSectionDialog() },
-        FinderEntry("🦊 فایرفاکس VPN (۵۰ گیگ رایگان)", "🦊 Firefox VPN (50 GB free)",
+        FinderEntry("🦊 Cat Fox VPN (۵۰ گیگ رایگان)", "🦊 Cat Fox VPN (50 GB free)",
             "با حساب فایرفاکس، ماهی ۵۰ گیگ رایگان از سرورهای موزیلا. ورود به حساب لازم است.",
             "50 GB/month free on Mozilla servers with a Firefox account (sign-in needed).",
             "فایرفاکس موزیلا fenix firefox mozilla رایگان free") { showFirefoxVpnFenixHubDialog() },
@@ -17629,9 +17629,9 @@ class MainActivity : Activity() {
             "پنل روی هاست‌های Node. Bot-Hosting.net رایگان و کاملاً خودکار است: یک کلید بچسبانید، بقیه را برنامه انجام می‌دهد.",
             "Panel on Node hosts. Bot-Hosting.net is free and fully automatic: paste one key, the app does the rest.",
             "کاتابامپ نود هاست بات هاستینگ ریلوی katabump lucity shiprr node host bot-hosting bothosting railway") { openScreen(SCREEN_CLOUD) },
-        FinderEntry("🔺 منابع Delta-Kronecker", "🔺 Delta-Kronecker sources",
-            "کانفیگ‌های تست‌شده (VLESS/Trojan/SS/VMess/وارپ)، وارپ برای Aether، تونل DNS، پل‌های Tor ساعتی و دانلود فایل از راه GitHub.",
-            "Tested configs (VLESS/Trojan/SS/VMess/WARP), WARP for Aether, DNS tunnels, hourly Tor bridges and file download through GitHub.",
+        FinderEntry("🔺 منابع Cat Feed", "🔺 Cat Feed sources",
+            "کانفیگ‌های تست‌شده (VLESS/Trojan/SS/VMess/وارپ)، وارپ برای Cat Warp، تونل DNS، پل‌های Tor ساعتی و دانلود فایل از راه GitHub.",
+            "Tested configs (VLESS/Trojan/SS/VMess/WARP), WARP for Cat Warp, DNS tunnels, hourly Tor bridges and file download through GitHub.",
             "دلتا کرونکر delta kronecker رایگان free tor bridge پل تور وارپ warp slipnet دانلود downloader") { showDeltaKroneckerHubDialog() },
         FinderEntry("⚡ تست سرعت", "⚡ Speed test", "سرعت دانلود و آپلود را از داخل تونل اندازه می‌گیرد.",
             "Measures download/upload speed through the tunnel.", "سرعت اسپید speed test") { showSpeedTestPage() },
@@ -17666,7 +17666,7 @@ class MainActivity : Activity() {
             "کیل سوییچ پایدار kill switch resilience") { showConnectionResilienceAndKillSwitchDialog() },
         FinderEntry("📦 patth / paqet", "📦 patth / paqet", "موتورهای patth و paqet برای کانفیگ‌های همین نوع.",
             "patth and paqet engines for those configs.", "پت پکت patth paqet") { showPaqetPatthEngineDialog() },
-        FinderEntry("🧵 تونل DNS (SlipNet / dnstt)", "🧵 DNS tunnels (SlipNet / dnstt)", "وقتی تقریباً همه‌چیز بسته است، از طریق DNS.",
+        FinderEntry("🧵 تونل DNS (Cat DNS / dnstt)", "🧵 DNS tunnels (Cat DNS / dnstt)", "وقتی تقریباً همه‌چیز بسته است، از طریق DNS.",
             "When almost everything is blocked, over DNS.", "دی ان اس اسلیپ نت slipnet dnstt dns tunnel") { showWhiteDnsResolverMethodsDialog() },
         FinderEntry("🔗 دو سرور پشت سر هم (زنجیره)", "🔗 Two servers in a row (chain)", "ترافیک اول از یک سرور، بعد از سرور دوم می‌گذرد.",
             "Traffic goes through one server, then a second.", "زنجیره چین chain") { openConnectionChainSettingsFromHome() },
@@ -18279,8 +18279,8 @@ class MainActivity : Activity() {
                     )
                 } else {
                     appendLine(
-                        if (isFarsi) "💡 اشتراک شخصی یافت نشد؛ با زدن دکمهٔ زیر، موتور Aether روی بهترین پورت باز MASQUE (`${diagnosis.bestMasqueEndpoint}`) متصل می‌شود."
-                        else "💡 No personal subscription found; tapping Connect will attach Aether to the best open MASQUE port (`${diagnosis.bestMasqueEndpoint}`).",
+                        if (isFarsi) "💡 اشتراک شخصی یافت نشد؛ با زدن دکمهٔ زیر، موتور Cat Warp روی بهترین پورت باز MASQUE (`${diagnosis.bestMasqueEndpoint}`) متصل می‌شود."
+                        else "💡 No personal subscription found; tapping Connect will attach Cat Warp to the best open MASQUE port (`${diagnosis.bestMasqueEndpoint}`).",
                     )
                 }
             }
@@ -18849,8 +18849,8 @@ class MainActivity : Activity() {
         // Feature 14: Universal Omni-Config Translator & Runner (SlipNet v1..v28 + Raw JSON/TOML + 28 Protocols)
         container.addView(
             makeActionButton(
-                label = if (isFarsi) "🧬 ۱۴) مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (SlipNet v1..v28 · تانل DNS · JSON · TOML · ۲۸ پروتکل)"
-                else "🧬 14) Universal Omni-Config Hub (SlipNet v1..v28 · DNS · Raw JSON/TOML · 28+ Protocols)",
+                label = if (isFarsi) "🧬 ۱۴) مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (Cat DNS v1..v28 · تانل DNS · JSON · TOML · ۲۸ پروتکل)"
+                else "🧬 14) Universal Omni-Config Hub (Cat DNS v1..v28 · DNS · Raw JSON/TOML · 28+ Protocols)",
                 filled = true,
             ) {
                 showUniversalOmniConfigHubDialog()
@@ -18895,8 +18895,8 @@ class MainActivity : Activity() {
         // Feature 18: Toolbox (file import · backup · app lock · auto-refresh · engine status · WhiteDNS toolkit)
         container.addView(
             makeActionButton(
-                label = if (isFarsi) "🧰 ۱۸) جعبه‌ابزار: فایل کانفیگ، پشتیبان، قفل برنامه، رفرش خودکار، اسکنرهای WhiteDNS (ASN · SNI · پروکسی · DNS · کانفیگ‌ساز)"
-                else "🧰 18) Toolbox: config file, backup, app lock, auto-refresh, WhiteDNS scanners (ASN · SNI · proxy · DNS · Config Maker)",
+                label = if (isFarsi) "🧰 ۱۸) جعبه‌ابزار: فایل کانفیگ، پشتیبان، قفل برنامه، رفرش خودکار، اسکنرهای Cat DNS (ASN · SNI · پروکسی · DNS · کانفیگ‌ساز)"
+                else "🧰 18) Toolbox: config file, backup, app lock, auto-refresh, Cat DNS scanners (ASN · SNI · proxy · DNS · Config Maker)",
             ) {
                 appTools.showToolsHub()
             },
@@ -18927,8 +18927,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (SlipNet · تجمیع سرعت · کلون سفید · اسکنر)"
-                else "🚀 2026 Exclusive Power Features Hub (SlipNet · Speed Fusion · TLS Cloner · Scanner)",
+                if (isFarsi) "🚀 مرکز قابلیت‌ها و متدهای انحصاری ۲۰۲۶ (Cat DNS · تجمیع سرعت · کلون سفید · اسکنر)"
+                else "🚀 2026 Exclusive Power Features Hub (Cat DNS · Speed Fusion · TLS Cloner · Scanner)",
             )
             .setView(rootScroll)
             .setPositiveButton(android.R.string.ok, null)
@@ -18969,15 +18969,15 @@ class MainActivity : Activity() {
             }
             text = if (isFarsi) {
                 "🧬 مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (پشتیبانی از ۲۸+ فرمت):\n" +
-                    "• تمام لینک‌های SlipNet (نسخه‌های v1 تا v28 پایپ‌دار، JSON و رمزنگاری‌شده slipnet-enc://)\n" +
+                    "• تمام لینک‌های Cat DNS (نسخه‌های v1 تا v28 پایپ‌دار، JSON و رمزنگاری‌شده slipnet-enc://)\n" +
                     "• تانل‌های DNS (dnst://, dnstt, VayDNS, NoizDNS, Slipstream, CottenMax, StormDNS, MasterDNS, QQ-Tunnel)\n" +
-                    "• پروتکل‌های TUIC v5, SSR, SSH, NaiveProxy, Snell, Mieru, PaqetNG, Firefox VPN, WARP, Psiphon\n" +
+                    "• پروتکل‌های TUIC v5, SSR, SSH, NaiveProxy, Snell, Mieru, PaqetNG, Cat Fox VPN, WARP, Psiphon\n" +
                     "• فایل‌های JSON خام Xray / Sing-box و فایل‌های TOML خام CottenMax / MasterDNS"
             } else {
                 "🧬 Universal Omni-Config Translator & Runner (28+ Formats):\n" +
-                    "• Official SlipNet v1..v28 pipe-delimited, JSON & slipnet-enc:// profiles\n" +
+                    "• Official Cat DNS v1..v28 pipe-delimited, JSON & slipnet-enc:// profiles\n" +
                     "• All DNS Tunnels (dnst://, dnstt, VayDNS, NoizDNS, Slipstream, CottenMax, StormDNS, QQ-Tunnel)\n" +
-                    "• TUIC v5, SSR, SSH, Naive, Snell, Mieru, PaqetNG, Firefox VPN, WARP, Psiphon\n" +
+                    "• TUIC v5, SSR, SSH, Naive, Snell, Mieru, PaqetNG, Cat Fox VPN, WARP, Psiphon\n" +
                     "• Raw Xray / Sing-box JSON files & CottenMax / MasterDNS TOML configs"
             }
         }
@@ -19154,7 +19154,7 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🧬 مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (SlipNet + 28 پروتکل)"
+                if (isFarsi) "🧬 مترجم و اجرای همه‌کارهٔ کانفیگ‌ها (Cat DNS + 28 پروتکل)"
                 else "🧬 Universal Omni-Config Translator & Runner",
             )
             .setView(scroll)
@@ -19456,7 +19456,7 @@ class MainActivity : Activity() {
                     )
                 }
                 appendLine()
-                append(if (isFarsi) "⚪ = بدون اتصال کامل قابل‌سنجش نیست (WireGuard/WARP، Paqet، Firefox VPN، Aether) — رنگ سبز الکی نشان داده نمی‌شود." else "⚪ = cannot be verified without a full connection — no fake greens.")
+                append(if (isFarsi) "⚪ = بدون اتصال کامل قابل‌سنجش نیست (WireGuard/WARP، Paqet، Cat Fox VPN، Cat Warp) — رنگ سبز الکی نشان داده نمی‌شود." else "⚪ = cannot be verified without a full connection — no fake greens.")
             }
             val green = report.greenConfigs
             val builder = MaterialAlertDialogBuilder(this@MainActivity)
@@ -19606,7 +19606,7 @@ class MainActivity : Activity() {
             arrayOf(
                 "⚡ ۱) پروفایل Serverless-v52-fragA (مخصوص همراه اول و مخابرات: tlshello 6,98,1 + پکت 114,1 maxSplit=11)",
                 "⚡ ۲) پروفایل Serverless-v52-fragB (مخصوص ایرانسل و رایتل: tlshello 0,104,1 + پکت 114,1 maxSplit=11)",
-                "📋 ۳) کپی کانفیگ کامل JSON متد Serverless-v52 برای استفاده در v2rayNG / PattNG",
+                "📋 ۳) کپی کانفیگ کامل JSON متد Serverless-v52 برای استفاده در v2rayNG",
             )
         } else {
             arrayOf(
@@ -19767,7 +19767,7 @@ class MainActivity : Activity() {
             if (report.sortedAliveLinks.isEmpty()) {
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "ℹ️ اتصال مستقیم به گیت‌هاب محدود است؛ در حال اتصال با استخر داخلی و Aether…"
+                    if (isFarsi) "ℹ️ اتصال مستقیم به گیت‌هاب محدود است؛ در حال اتصال با استخر داخلی و Cat Warp…"
                     else "ℹ️ GitHub direct fetch restricted; connecting via built-in pool…",
                     Toast.LENGTH_SHORT,
                 ).show()
@@ -20657,9 +20657,9 @@ class MainActivity : Activity() {
             👋 سلام! اگر با اصطلاحات فنی (مثل SNI، فرگمنت، وارپ، ساکس یا DNS) آشنا نیستی، اصلاً نگران نباش. اینجا به زبان خیلی ساده بهت می‌گیم هر دکمه دقیقاً چکار می‌کنه:
 
             ────────────────────────
-            🦊 ۱) کارت «فایرفاکس VPN (FENIX — ۵۰ گیگ رایگان)»
+            🦊 ۱) کارت «Cat Fox VPN (۵۰ گیگ رایگان)»
             • این چیه؟ مرورگر معروف فایرفاکس یک VPN داخلی روی سرورهای شرکت Fastly داره که برخلاف کلادفلر تو ایران فیلتر نیست و به هر ایمیل رایگان ماهی ۵۰ گیگ حجم مجانی میده!
-            • «🦊 اتصال فوری با فایرفاکس VPN» رو بزنی چی میشه؟
+            • «🦊 اتصال فوری با Cat Fox VPN» رو بزنی چی میشه؟
               👈 سریع‌ترین سرور فایرفاکس رو انتخاب می‌کنه، قفل فیلترینگ رو می‌شکنه و کل اینترنت گوشیت رو وصل می‌کنه.
             • «👤 افزودن حساب ۵۰ گیگ» رو بزنی چی میشه؟
               👈 می‌تونی ایمیل و رمز حساب فایرفاکست رو بزنی (حتی می‌تونی ۲ یا ۳ تا اکانت رایگان اضافه کنی تا بشه ۱۵۰ گیگ در ماه و وقتی یکی تموم شد خودش بره رو بعدی!).
@@ -20671,10 +20671,10 @@ class MainActivity : Activity() {
               👈 برنامه خودش می‌گرده کانفیگ واقعی تو رو پیدا می‌کنه (نه کانفیگ فرضی!)، آی‌پی‌های باز رو تست می‌کنه، بستهٔ اول اینترنت رو تکهتکه (برش SNI) می‌کنه تا فایروال مخابرات نفهمه کجا داری میری، و بلافاصله وصلت می‌کنه!
 
             ────────────────────────
-            🚀 ۳) دکمه «اتصال مستقیم Aether» و «⚡ ساخت ۱-کلیکی آموزش PattNG (MASQUE in MASQUE + HTTP/2 + Psiphon)»
-            • کی بزنم؟ وقتی هیچ کانفیگ و اکانتی نداری و می‌خوای با روش جدید PattNG (دو لایه MASQUE تو در تو روی HTTP/2 + خروج از سایفون آلمان/هلند/آمریکا) وصل بشی که روی شدیدترین فایروال‌های همراه اول و ایرانسل کار می‌کنه.
-            • «⚡ ساخت ۱-کلیکی آموزش PattNG» رو بزنی چی میشه؟
-              👈 تمام مراحل آموزش PattNG رو خودش اتوماتیک برات انجام میده: ۱) دو جفت کلید جدید WARP می‌گیره (و ۳ تا کلید زاپاس هم توی استخر ذخیره می‌کنه)، ۲) پروتکل رو روی MASQUE in MASQUE و ترنسپورت رو روی HTTP/2 می‌ذاره، ۳) خروجی رو روی WARP > Psiphon (یا زنجیره معکوس Psiphon > WARP برای نداشتن کپچای گوگل) می‌ذاره، ۴) هر دو اندپوینت Outer و Inner رو اسکن می‌کنه و ۵) کانفیگ رو تو لیست اصلی ذخیره و وصل می‌کنه!
+            🚀 ۳) دکمه «اتصال مستقیم Cat Warp» و «⚡ ساخت ۱-کلیکی راهنمای Cat (MASQUE in MASQUE + HTTP/2 + Psiphon)»
+            • کی بزنم؟ وقتی هیچ کانفیگ و اکانتی نداری و می‌خوای با روش جدید Cat (دو لایه MASQUE تو در تو روی HTTP/2 + خروج از سایفون آلمان/هلند/آمریکا) وصل بشی که روی شدیدترین فایروال‌های همراه اول و ایرانسل کار می‌کنه.
+            • «⚡ ساخت ۱-کلیکی راهنمای Cat» رو بزنی چی میشه؟
+              👈 تمام مراحل راهنمای Cat رو خودش اتوماتیک برات انجام میده: ۱) دو جفت کلید جدید WARP می‌گیره (و ۳ تا کلید زاپاس هم توی استخر ذخیره می‌کنه)، ۲) پروتکل رو روی MASQUE in MASQUE و ترنسپورت رو روی HTTP/2 می‌ذاره، ۳) خروجی رو روی WARP > Psiphon (یا زنجیره معکوس Psiphon > WARP برای نداشتن کپچای گوگل) می‌ذاره، ۴) هر دو اندپوینت Outer و Inner رو اسکن می‌کنه و ۵) کانفیگ رو تو لیست اصلی ذخیره و وصل می‌کنه!
             • «🌍 دکمه‌های پرچم آلمان/هلند/آمریکا/فنلاند/انگلیس» رو بزنی چی میشه؟
               👈 بدون نیاز به اسکن دوباره یا گرفتن کلید جدید، در جا کشور سایفونت رو عوض می‌کنه!
 
@@ -20693,7 +20693,7 @@ class MainActivity : Activity() {
               ۳. ۵ روش اسپوف کلادفلر (مخصوص دور زدن قفل همراه اول و ایرانسل روی کانفیگ خودت).
 
             ────────────────────────
-            📡 ۶) دکمه «متدهای DNS و ریزولور (WhiteDNS)»
+            📡 ۶) دکمه «متدهای DNS و ریزولور (Cat DNS)»
             • کی بزنم؟ وقتی همهٔ پورت‌ها بسته شده و فقط پورت DNS کار می‌کنه.
             • «🚀 اتصال مستقیم تانل DNS» رو بزنی چی میشه؟
               👈 ۵۲ سرور DNS ایران و جهان رو بررسی می‌کنه و ترافیک رو از داخل بسته‌های DNS رد می‌کنه.
@@ -20724,22 +20724,22 @@ class MainActivity : Activity() {
               👈 یک رمز عددی (و اثر انگشت/رمز گوشی) می‌ذاری که هر کی گوشیت دستش بود نتونه کانفیگ‌هات رو ببینه.
             • «⏰ رفرش خودکار» چیه؟
               👈 هر ۶ ساعت اشتراک‌هات رو آپدیت می‌کنه و اگه حجمت داره تموم میشه یا ۳ روز به انقضا مونده، نوتیفیکیشن میده.
-            • اسکنرهای WhiteDNS (ASN، SNI، پروکسی HTTP/SOCKS5، سرعت و پکت‌لاس، ریزالور DNS، کانفیگ‌ساز):
+            • اسکنرهای Cat DNS (ASN، SNI، پروکسی HTTP/SOCKS5، سرعت و پکت‌لاس، ریزالور DNS، کانفیگ‌ساز):
               👈 مثلاً «کانفیگ‌ساز» رو بزنی: کانفیگ خودت رو می‌دی + آی‌پی‌های تمیزی که اسکنر پیدا کرده، و برات همون کانفیگ رو با آی‌پی‌های تمیز (با همان پورت) می‌سازه.
             • «🩺 وضعیت موتورها» چیه؟
-              👈 صادقانه میگه کدوم نوع کانفیگ واقعاً روی گوشیت کار می‌کنه: تانل DNS فقط با لینک واقعی slipnet:// (موتور SlipNet)، فایرفاکس فقط با حساب، paqet فقط با سرور واسط؛ دیگه هیچ‌کدوم بی‌صدا «مستقیم» وصل نمیشن.
+              👈 صادقانه میگه کدوم نوع کانفیگ واقعاً روی گوشیت کار می‌کنه: تانل DNS فقط با لینک واقعی slipnet:// (موتور Cat DNS)، فایرفاکس فقط با حساب، paqet فقط با سرور واسط؛ دیگه هیچ‌کدوم بی‌صدا «مستقیم» وصل نمیشن.
             """.trimIndent()
         } else {
             """
             👋 Welcome! You don't need any technical knowledge to use these tools. Here is what each button does in plain language:
 
-            1) 🦊 Firefox VPN (FENIX — 50 GB/mo Free):
+            1) 🦊 Cat Fox VPN (50 GB/mo Free):
                Uses Mozilla's official Fastly edge servers (which aren't blocked like Cloudflare) to connect your whole phone. You can add multiple free Firefox accounts (50 GB each) with automatic failover.
 
             2) 🪄 1-Click Repair My Config & Connect:
                Automatically takes your existing subscription/config, wraps it in our local Anti-DPI SNI Splitter + 5 Cloudflare Spoof methods, and connects immediately.
 
-            3) 🚀 Connect Aether Now / 🤖 Auto-Scan & Build:
+            3) 🚀 Connect Cat Warp Now / 🤖 Auto-Scan & Build:
                Free serverless Cloudflare WARP/MASQUE + 29-country Psiphon chain. Asks whether you want an Iran IP or Foreign Country IP, scans your ISP, and connects.
 
             4) 🧪 Net Melli Whitelist Lab:
@@ -20749,7 +20749,7 @@ class MainActivity : Activity() {
                Scans 52 DNS resolvers and connects via 9 DNS tunnel engines when standard ports are blocked.
 
             6) 🧰 18) Toolbox (2026 hub and the "+ Add server" sheet):
-               Import a WireGuard .conf / Clash YAML / sing-box JSON / text file, back up and restore all subscriptions, lock the app with a PIN or fingerprint, auto-refresh subscriptions every 6 h with expiry / data-cap alerts, the WhiteDNS scanners (ASN export, SNI, HTTP/SOCKS5 proxy, speed & loss, DNS resolver, Config Maker) and an honest engine-status page that says which config types really work on this phone.
+               Import a WireGuard .conf / Clash YAML / sing-box JSON / text file, back up and restore all subscriptions, lock the app with a PIN or fingerprint, auto-refresh subscriptions every 6 h with expiry / data-cap alerts, the Cat DNS scanners (ASN export, SNI, HTTP/SOCKS5 proxy, speed & loss, DNS resolver, Config Maker) and an honest engine-status page that says which config types really work on this phone.
             """.trimIndent()
         }
 
@@ -20772,7 +20772,7 @@ class MainActivity : Activity() {
             .setNeutralButton(if (isFarsi) "🪄 تعمیر کانفیگ من و اتصال" else "🪄 Repair My Config") { _, _ ->
                 runOneClickRepairMyRealConfigAndConnect()
             }
-            .setPositiveButton(if (isFarsi) "🦊 اتصال فوری فایرفاکس VPN" else "🦊 Connect Firefox VPN") { _, _ ->
+            .setPositiveButton(if (isFarsi) "🦊 اتصال فوری Cat Fox VPN" else "🦊 Connect Cat Fox VPN") { _, _ ->
                 connectFirefoxVpnDirectly()
             }
             .create()
@@ -20790,9 +20790,9 @@ class MainActivity : Activity() {
         card.addView(
             TextView(this).apply {
                 text = if (isFarsi) {
-                    "🦊 فایرفاکس VPN (FENIX · مشابه MLM VPN — ۵۰ گیگ رایگان در ماه)"
+                    "🦊 Cat Fox VPN (۵۰ گیگ رایگان در ماه)"
                 } else {
-                    "🦊 Firefox Browser VPN (FENIX · 50 GB/mo Free on Fastly)"
+                    "🦊 Cat Fox VPN (50 GB/mo Free on Fastly)"
                 }
                 textSize = 15.5f
                 typeface = CatClientBodyBoldTypeface
@@ -20901,7 +20901,7 @@ class MainActivity : Activity() {
         // Primary 1-Click Connect Button
         card.addView(
             fenixBtn(
-                label = if (isFarsi) "🦊 اتصال فوری با فایرفاکس VPN (روشن کردن کل گوشی)" else "🦊 Connect Firefox VPN Now (Full Device)",
+                label = if (isFarsi) "🦊 اتصال فوری با Cat Fox VPN (روشن کردن کل گوشی)" else "🦊 Connect Cat Fox VPN Now (Full Device)",
                 accent = true,
             ) {
                 connectFirefoxVpnDirectly { refreshFenixSummary() }
@@ -20931,7 +20931,7 @@ class MainActivity : Activity() {
         // Secondary Row: Full FENIX Hub & Ping Scanner
         card.addView(
             fenixBtn(
-                label = if (isFarsi) "⚙️ پنل کامل فایرفاکس VPN، تست پینگ ۳۵ کشور و اسکن Fastly" else "⚙️ Full Firefox VPN Hub, 35-Country Ping & Fastly Scan",
+                label = if (isFarsi) "⚙️ پنل کامل Cat Fox VPN، تست پینگ ۳۵ کشور و اسکن Fastly" else "⚙️ Full Cat Fox VPN Hub, 35-Country Ping & Fastly Scan",
                 accent = false,
             ) {
                 showFirefoxVpnFenixHubDialog { refreshFenixSummary() }
@@ -20961,8 +20961,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🌍 انتخاب کشور خروجی فایرفاکس VPN (۳۵ کشور روی شبکه Fastly)"
-                else "🌍 Select Firefox VPN Country (35 Fastly Locations)",
+                if (isFarsi) "🌍 انتخاب کشور خروجی Cat Fox VPN (۳۵ کشور روی شبکه Fastly)"
+                else "🌍 Select Cat Fox VPN Country (35 Fastly Locations)",
             )
             .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
                 dlg.dismiss()
@@ -20971,8 +20971,8 @@ class MainActivity : Activity() {
                 onChanged()
                 Toast.makeText(
                     this,
-                    if (isFarsi) "✅ کشور فایرفاکس VPN روی «${labels[idx].substringBefore(" ·")}» تنظیم شد"
-                    else "✅ Firefox VPN country set to '${labels[idx].substringBefore(" ·")}'",
+                    if (isFarsi) "✅ کشور Cat Fox VPN روی «${labels[idx].substringBefore(" ·")}» تنظیم شد"
+                    else "✅ Cat Fox VPN country set to '${labels[idx].substringBefore(" ·")}'",
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -21011,17 +21011,17 @@ class MainActivity : Activity() {
 
         val options = if (isFarsi) {
             arrayOf(
-                "🌐 ۱) ورود آسان با صفحه رسمی موزیلا / گوگل داخل برنامه (پیشنهادی ⭐ · مشابه MLM VPN)",
+                "🌐 ۱) ورود آسان با صفحه رسمی موزیلا / گوگل داخل برنامه (پیشنهادی ⭐)",
                 "📧 ۲) ورود مستقیم با ایمیل و رمز عبور فایرفاکس (با حل خودکار چالش Fastly + کد ۲ مرحله‌ای)",
-                "🔑 ۳) افزودن سریع با توکن / SessionToken / JSON (از مرورگر، foxyvpn یا MLM VPN)",
+                "🔑 ۳) افزودن سریع با توکن / SessionToken / JSON (از مرورگر فایرفاکس)",
                 "🔄 ۴) بروزرسانی حجم ۵۰ گیگابایت و تمدید توکن همه حساب‌ها",
                 "🗑️ ۵) حذف یکی از حساب‌های ذخیره‌شده",
             )
         } else {
             arrayOf(
-                "🌐 1) Easy Sign-In via In-App Mozilla Page / Google (Recommended ⭐ · Like MLM VPN)",
+                "🌐 1) Easy Sign-In via In-App Mozilla Page / Google (Recommended ⭐)",
                 "📧 2) Direct Sign-In with Firefox Email & Password (Fastly Auto-Solver + 2FA)",
-                "🔑 3) Quick Import via Token / SessionToken / JSON (from Firefox, foxyvpn, or MLM VPN)",
+                "🔑 3) Quick Import via Token / SessionToken / JSON (from Firefox)",
                 "🔄 4) Refresh 50 GB Quota & Renew ProxyPass for All Accounts",
                 "🗑️ 5) Remove a Saved Account",
             )
@@ -21038,7 +21038,7 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(
                 if (isFarsi) "👤 مدیریت حساب‌های ۵۰ گیگ فایرفاکس (پشتیبانی از چند اکانت)"
-                else "👤 Firefox VPN 50 GB Accounts (Multi-Account Pool)",
+                else "👤 Cat Fox VPN 50 GB Accounts (Multi-Account Pool)",
             )
             .setCustomTitle(
                 LinearLayout(this).apply {
@@ -21046,7 +21046,7 @@ class MainActivity : Activity() {
                     setPadding(dp(20), dp(16), dp(20), dp(4))
                     addView(
                         TextView(this@MainActivity).apply {
-                            text = if (isFarsi) "👤 حساب‌های ۵۰ گیگ فایرفاکس VPN" else "👤 Firefox VPN 50 GB Accounts"
+                            text = if (isFarsi) "👤 حساب‌های ۵۰ گیگ Cat Fox VPN" else "👤 Cat Fox VPN 50 GB Accounts"
                             textSize = 16f
                             typeface = CatClientBodyBoldTypeface
                             setTextColor(TEAL)
@@ -21646,7 +21646,7 @@ class MainActivity : Activity() {
                 else "🔑 Quick Add Account via Token or JSON",
             )
             .setMessage(
-                if (isFarsi) "اگر توکن حساب فایرفاکس را از مرورگر فایرفاکس، MLM VPN یا ابزار foxyvpn کپی کرده‌اید، اینجا قرار دهید تا بلافاصله ۵۰ گیگابایت فعال شود:"
+                if (isFarsi) "اگر توکن حساب فایرفاکس را از مرورگر فایرفاکس کپی کرده‌اید، اینجا قرار دهید تا بلافاصله ۵۰ گیگابایت فعال شود:"
                 else "Paste your Firefox OAuth token, ProxyPass JWT (eyJ...), or account JSON:",
             )
             .setView(box)
@@ -21689,16 +21689,16 @@ class MainActivity : Activity() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val options = if (isFarsi) {
             arrayOf(
-                "🦊 ۱) اتصال فوری با فایرفاکس VPN (روشن کردن تانل کل گوشی همین الان)",
+                "🦊 ۱) اتصال فوری با Cat Fox VPN (روشن کردن تانل کل گوشی همین الان)",
                 "🌍 ۲) انتخاب کشور از بین ۳۵ کشور شبکه Fastly موزیلا",
                 "⚡ ۳) تست پینگ زنده همه کشورها و انتخاب خودکار سریع‌ترین کشور روی خط من",
                 "👤 ۴) مدیریت حساب‌های ۵۰ گیگابایتی فایرفاکس (افزودن چند اکانت + چرخش خودکار)",
                 "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
-                "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ فایرفاکس VPN)",
+                "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ Cat Fox VPN)",
             )
         } else {
             arrayOf(
-                "🦊 1) Connect Firefox VPN Immediately (Full-Device Tunnel Now)",
+                "🦊 1) Connect Cat Fox VPN Immediately (Full-Device Tunnel Now)",
                 "🌍 2) Select Exit Country from 35 Mozilla Fastly Locations",
                 "⚡ 3) Live Ping All Countries & Auto-Select Fastest on My ISP",
                 "👤 4) Manage 50 GB/mo Firefox Accounts (Multi-Account Auto-Failover)",
@@ -21709,8 +21709,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🦊 مرکز کامل فایرفاکس VPN (FENIX · مشابه MLM VPN)"
-                else "🦊 Firefox Browser VPN Hub (FENIX · 50 GB/mo Free)",
+                if (isFarsi) "🦊 مرکز کامل Cat Fox VPN"
+                else "🦊 Cat Fox VPN Hub (50 GB/mo Free)",
             )
             .setItems(options) { _, which ->
                 when (which) {
@@ -21730,10 +21730,10 @@ class MainActivity : Activity() {
                             val best = pings.firstOrNull { it.reachable } ?: pings.firstOrNull()
                             val report = buildString {
                                 if (isFarsi) {
-                                    appendLine("⚡ نتیجه تست پینگ واقعی کشورهای فایرفاکس VPN روی خط شما:")
+                                    appendLine("⚡ نتیجه تست پینگ واقعی کشورهای Cat Fox VPN روی خط شما:")
                                     appendLine("────────────────────────")
                                 } else {
-                                    appendLine("⚡ Live Firefox VPN Country Ping Results:")
+                                    appendLine("⚡ Live Cat Fox VPN Country Ping Results:")
                                     appendLine("────────────────────────")
                                 }
                                 pings.forEachIndexed { idx, p ->
@@ -21804,11 +21804,11 @@ class MainActivity : Activity() {
                         Toast.makeText(
                             this,
                             if (isFarsi) {
-                                if (next) "🛡️ برش بسته TLS در مرز SNI برای فایرفاکس VPN روشن شد ✅"
-                                else "⚪ برش بسته TLS فایرفاکس VPN خاموش شد"
+                                if (next) "🛡️ برش بسته TLS در مرز SNI برای Cat Fox VPN روشن شد ✅"
+                                else "⚪ برش بسته TLS Cat Fox VPN خاموش شد"
                             } else {
-                                if (next) "🛡️ Firefox VPN TLS SNI Split enabled ✅"
-                                else "⚪ Firefox VPN TLS SNI Split disabled"
+                                if (next) "🛡️ Cat Fox VPN TLS SNI Split enabled ✅"
+                                else "⚪ Cat Fox VPN TLS SNI Split disabled"
                             },
                             Toast.LENGTH_SHORT,
                         ).show()
@@ -21838,9 +21838,9 @@ class MainActivity : Activity() {
                 )
                 .setMessage(
                     if (isFarsi) {
-                        "برای اتصال به سرورهای Fastly فایرفاکس VPN، نیاز به یک حساب رایگان فایرفاکس دارید (هر حساب ماهانه ۵۰ گیگابایت اینترنت رایگان می‌دهد).\n\nروش ورود را انتخاب کنید تا بلافاصله پس از ورود متصل شوید:"
+                        "برای اتصال به سرورهای Fastly Cat Fox VPN، نیاز به یک حساب رایگان فایرفاکس دارید (هر حساب ماهانه ۵۰ گیگابایت اینترنت رایگان می‌دهد).\n\nروش ورود را انتخاب کنید تا بلافاصله پس از ورود متصل شوید:"
                     } else {
-                        "Firefox VPN requires a free Firefox Account (each account provides 50 GB/month on Fastly).\n\nChoose how to sign in and connect immediately:"
+                        "Cat Fox VPN requires a free Firefox Account (each account provides 50 GB/month on Fastly).\n\nChoose how to sign in and connect immediately:"
                     },
                 )
                 .setPositiveButton(
@@ -21871,8 +21871,8 @@ class MainActivity : Activity() {
 
         Toast.makeText(
             this,
-            if (isFarsi) "🦊 در حال آماده‌سازی تانل فایرفاکس VPN روی شبکه Fastly و اتصال کل گوشی…"
-            else "🦊 Preparing Firefox VPN (FENIX) over Fastly Edge & connecting…",
+            if (isFarsi) "🦊 در حال آماده‌سازی تانل Cat Fox VPN روی شبکه Fastly و اتصال کل گوشی…"
+            else "🦊 Preparing Cat Fox VPN over Fastly Edge & connecting…",
             Toast.LENGTH_SHORT,
         ).show()
 
@@ -21925,9 +21925,9 @@ class MainActivity : Activity() {
                     tlsFragment = FirefoxVpnEngine.isTlsFragmentEnabled(this@MainActivity),
                 )
 
-                val subTitle = "🦊 فایرفاکس VPN (FENIX · ${chosenCountry.flag} ${chosenCountry.code})"
+                val subTitle = "🦊 Cat Fox VPN (${chosenCountry.flag} ${chosenCountry.code})"
                 val existing = userSubscriptionManager.list().firstOrNull {
-                    it.name.startsWith("🦊 فایرفاکس VPN")
+                    it.name.startsWith("🦊 Cat Fox VPN")
                 }
                 val saved = withContext(Dispatchers.IO) {
                     if (existing != null) {
@@ -21952,8 +21952,8 @@ class MainActivity : Activity() {
                 val countryName = if (isFarsi) chosenCountry.nameFa else chosenCountry.nameEn
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "🦊 فایرفاکس VPN روی کشور «${chosenCountry.flag} $countryName» فعال شد — در حال اتصال…"
-                    else "🦊 Firefox VPN active on '${chosenCountry.flag} $countryName' — connecting…",
+                    if (isFarsi) "🦊 Cat Fox VPN روی کشور «${chosenCountry.flag} $countryName» فعال شد — در حال اتصال…"
+                    else "🦊 Cat Fox VPN active on '${chosenCountry.flag} $countryName' — connecting…",
                     Toast.LENGTH_LONG,
                 ).show()
 
@@ -21966,8 +21966,8 @@ class MainActivity : Activity() {
             }.onFailure { err ->
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "خطا در اتصال فایرفاکس VPN: ${err.message}"
-                    else "Firefox VPN connection error: ${err.message}",
+                    if (isFarsi) "خطا در اتصال Cat Fox VPN: ${err.message}"
+                    else "Cat Fox VPN connection error: ${err.message}",
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -22095,8 +22095,8 @@ class MainActivity : Activity() {
                 renderAdvancedControls()
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، موتور بدون سرور Aether با SNI سفید «$bestSni» فعال شد — در حال اتصال…"
-                    else "💡 No personal config found; activated serverless Aether with clean SNI '$bestSni' — connecting…",
+                    if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، موتور بدون سرور Cat Warp با SNI سفید «$bestSni» فعال شد — در حال اتصال…"
+                    else "💡 No personal config found; activated serverless Cat Warp with clean SNI '$bestSni' — connecting…",
                     Toast.LENGTH_LONG,
                 ).show()
                 openScreen(SCREEN_HOME)
@@ -22403,8 +22403,8 @@ class MainActivity : Activity() {
                         if (isFarsi) "$rttBadge✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
                         else "$rttBadge✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
                     } else {
-                        if (isFarsi) "$rttBadge💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Aether با SNI اسپوف‌شده (${m.sampleSni}) اعمال می‌شود:\n\n"
-                        else "$rttBadge💡 Applied to serverless Aether engine with spoofed SNI (${m.sampleSni}):\n\n"
+                        if (isFarsi) "$rttBadge💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Cat Warp با SNI اسپوف‌شده (${m.sampleSni}) اعمال می‌شود:\n\n"
+                        else "$rttBadge💡 Applied to serverless Cat Warp engine with spoofed SNI (${m.sampleSni}):\n\n"
                     }
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle(if (isFarsi) m.titleFa else m.titleEn)
@@ -22586,14 +22586,14 @@ class MainActivity : Activity() {
                     } else {
                         Toast.makeText(
                             this@MainActivity,
-                            if (isFarsi) "ابتدا یک سابسکریپشن اضافه کنید یا از دکمه اعمال روی Aether استفاده کنید"
-                            else "Add a subscription first or tap Apply to Aether",
+                            if (isFarsi) "ابتدا یک سابسکریپشن اضافه کنید یا از دکمه اعمال روی Cat Warp استفاده کنید"
+                            else "Add a subscription first or tap Apply to Cat Warp",
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
                 }
                 .setPositiveButton(
-                    if (isFarsi) "🚀 اعمال تنظیم بهینه روی Aether" else "🚀 Apply Optimal Aether Config",
+                    if (isFarsi) "🚀 اعمال تنظیم بهینه روی Cat Warp" else "🚀 Apply Optimal Cat Warp Config",
                 ) { _, _ ->
                     val cur = aetherPreferenceStore.read()
                     val updated = cur.copy(
@@ -22651,8 +22651,8 @@ class MainActivity : Activity() {
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
-                    if (isFarsi) "⚡ نتیجه تشخیص خودکار MTU و رکورد حامل WhiteDNS"
-                    else "⚡ WhiteDNS Auto-MTU & Carrier Detection Result",
+                    if (isFarsi) "⚡ نتیجه تشخیص خودکار MTU و رکورد حامل Cat DNS"
+                    else "⚡ Cat DNS Auto-MTU & Carrier Detection Result",
                 )
                 .setMessage(msg)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -22712,8 +22712,8 @@ class MainActivity : Activity() {
             if (hits.isEmpty()) {
                 Toast.makeText(
                     this@MainActivity,
-                    if (isFarsi) "⚠️ روی این خط هیچ‌کدام از ۶ پورت TLS مستقیم پاسخ نداد؛ از «🤖 اسکن خودکار Aether (WARP/MASQUE)» استفاده کنید."
-                    else "⚠️ No direct TLS port responded; use Aether Auto-Scan (WARP/MASQUE).",
+                    if (isFarsi) "⚠️ روی این خط هیچ‌کدام از ۶ پورت TLS مستقیم پاسخ نداد؛ از «🤖 اسکن خودکار Cat Warp (WARP/MASQUE)» استفاده کنید."
+                    else "⚠️ No direct TLS port responded; use Cat Warp Auto-Scan (WARP/MASQUE).",
                     Toast.LENGTH_LONG,
                 ).show()
                 return@launch
@@ -22822,8 +22822,8 @@ class MainActivity : Activity() {
             }
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(
-                    if (isFarsi) "📡 نتیجه اسکن DNS ایران، رکوردها و تانل WhiteDNS"
-                    else "📡 Iran DNS, Carrier Records & WhiteDNS Tunnel Results",
+                    if (isFarsi) "📡 نتیجه اسکن DNS ایران، رکوردها و تانل Cat DNS"
+                    else "📡 Iran DNS, Carrier Records & Cat DNS Tunnel Results",
                 )
                 .setMessage(msg)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -22873,7 +22873,7 @@ class MainActivity : Activity() {
                 .apply {
                     val usable = DeltaKroneckerFeeds.parseBridgeLines(text, 10)
                     if (usable.isNotEmpty()) {
-                        setPositiveButton(if (isFarsi) "✅ استفاده در Aether" else "✅ Use in Aether") { _, _ ->
+                        setPositiveButton(if (isFarsi) "✅ استفاده در Cat Warp" else "✅ Use in Cat Warp") { _, _ ->
                             aetherPreferenceStore.save(
                                 aetherPreferenceStore.read().copy(torBridgesMode = "own", torCustomBridges = usable.joinToString("\n")),
                             )
@@ -22883,7 +22883,7 @@ class MainActivity : Activity() {
                         setPositiveButton(android.R.string.ok, null)
                     }
                 }
-                .setNeutralButton(if (isFarsi) "🔺 پل‌های ساعتی Delta-Kronecker" else "🔺 Hourly Delta-Kronecker bridges") { _, _ ->
+                .setNeutralButton(if (isFarsi) "🔺 پل‌های ساعتی Cat Feed" else "🔺 Hourly Cat Feed bridges") { _, _ ->
                     DeltaKroneckerFeeds.byKind(DeltaKroneckerFeeds.Kind.TOR_BRIDGES).firstOrNull()?.let { fetchDeltaKroneckerTorBridges(it) }
                 }
                 .create()
@@ -22960,8 +22960,8 @@ class MainActivity : Activity() {
                 onFailure = { err ->
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "⚠️ متن داخل کلیپ‌بورد یک کلید معتبر Aether نیست: ${err.message}"
-                        else "⚠️ Invalid Aether identity backup in clipboard: ${err.message}",
+                        if (isFarsi) "⚠️ متن داخل کلیپ‌بورد یک کلید معتبر Cat Warp نیست: ${err.message}"
+                        else "⚠️ Invalid Cat Warp identity backup in clipboard: ${err.message}",
                         Toast.LENGTH_LONG,
                     ).show()
                 },
@@ -22978,9 +22978,9 @@ class MainActivity : Activity() {
                 "• مقادیر echConfigList، cipherSuites و finalMask پاک شوند.\n" +
                 "• فینگرپرینت روی chrome و آدرس روی یک IPv6 مانند 2a06:98c1:3101::6812:202f قرار گیرد.\n\n" +
                 "۲) WARP با IPv6:\n" +
-                "• از قسمت افزودن Aether پروتکل را روی WireGuard و نوع آی‌پی را روی IPv6 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
+                "• از قسمت افزودن Cat Warp پروتکل را روی WireGuard و نوع آی‌پی را روی IPv6 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
                 "۳) MASQUE/H2:\n" +
-                "• از قسمت افزودن Aether پروتکل را روی MASQUE-HTTP/2 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
+                "• از قسمت افزودن Cat Warp پروتکل را روی MASQUE-HTTP/2 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
                 "───────────────\n" +
                 "🟧 راه‌های اتصال به کلودفلر بر روی فایروال ایرانسل:\n\n" +
                 "۱) CDN/WORKER با متد F&F (رفع محدودیت آپلود):\n" +
@@ -22999,11 +22999,11 @@ class MainActivity : Activity() {
         } else {
             "🟦 MCI Firewall Methods:\n" +
                 "1) CDN/Worker with IPv6 (unfiltered domain or *.workers.dev; *.pages.dev is blocked): clear echConfigList, cipherSuites & finalMask; fingerprint=chrome; IPv6 e.g. 2a06:98c1:3101::6812:202f.\n" +
-                "2) WARP with IPv6: Add Aether → WireGuard → IPv6 → Scan → Name & Save.\n" +
-                "3) MASQUE/H2: Add Aether → MASQUE-HTTP/2 → Scan → Name & Save.\n\n" +
+                "2) WARP with IPv6: Add Cat Warp → WireGuard → IPv6 → Scan → Name & Save.\n" +
+                "3) MASQUE/H2: Add Cat Warp → MASQUE-HTTP/2 → Scan → Name & Save.\n\n" +
                 "🟧 Irancell Firewall Methods:\n" +
                 "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP).\n" +
-                "2) WARP: Add Aether → WireGuard → Any IP → Scan → Save.\n" +
+                "2) WARP: Add Cat Warp → WireGuard → Any IP → Scan → Save.\n" +
                 "3) MASQUE/H2: Same as MCI.\n\n" +
                 "🔓 3) Sanction Bypass (warp -> psiphon/tor):\n" +
                 "• If geo-sanctions persist even with wireguard-over-masque-HTTP/2, chain Psiphon or Tor (warp -> psiphon/tor).\n" +
@@ -23014,7 +23014,7 @@ class MainActivity : Activity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(if (isFarsi) "🛡 راهنمای اتصال روی فایروال همراه اول و ایرانسل" else "🛡 MCI & Irancell Firewall Connection Guide")
             .setMessage(msg)
-            .setNeutralButton(if (isFarsi) "➕ افزودن Aether" else "➕ Add Aether") { _, _ ->
+            .setNeutralButton(if (isFarsi) "➕ افزودن Cat Warp" else "➕ Add Cat Warp") { _, _ ->
                 showAddAetherDialog()
             }
             .setPositiveButton(android.R.string.ok, null)

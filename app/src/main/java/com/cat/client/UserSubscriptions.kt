@@ -652,7 +652,7 @@ object MihomoLinkConfigBuilder {
     }
 
     fun addDefaultGroups(yaml: String, proxyNames: List<String>): String {
-        require(proxyNames.isNotEmpty()) { "سابسکریپشن Mihomo پروکسی ندارد" }
+        require(proxyNames.isNotEmpty()) { "سابسکریپشن Cat core پروکسی ندارد" }
         return yaml.trimEnd() + "\n" + defaultGroups(proxyNames)
     }
 

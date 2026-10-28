@@ -113,8 +113,8 @@ object FreeConfigs {
         }
         return FreeSource(
             id = "freevlessnode",
-            nameEn = "FreeVlessNode (daily)",
-            nameFa = "FreeVlessNode (روزانه)",
+            nameEn = "🐱 Cat Feed · Daily",
+            nameFa = "🐱 Cat Feed · روزانه",
             urls = urls,
             limit = 400,
         )
@@ -123,12 +123,13 @@ object FreeConfigs {
     /** Sources that were reachable at the time of writing (verified against the GitHub API). */
     fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = buildList {
         add(freevlessnodeSource(baseUrl))
-        for (community in CommunitySourceRegistry.sources.mapNotNull(CommunitySourceRegistry::validate)) {
+        for ((n, community) in CommunitySourceRegistry.sources.mapNotNull(CommunitySourceRegistry::validate).withIndex()) {
             add(
                 FreeSource(
                     id = community.id,
-                    nameEn = "${community.label} (${community.license})",
-                    nameFa = "${community.label} (${community.license})",
+                    // Only Cat names on screen; the source and its license stay recorded in CommunitySourceRegistry.
+                    nameEn = "🐱 Cat Feed · Community ${n + 1}",
+                    nameFa = "🐱 Cat Feed · جامعه ${n + 1}",
                     urls = listOf(community.url),
                     limit = 250,
                 ),
@@ -136,43 +137,43 @@ object FreeConfigs {
         }
         add(
             githubSource(
-                "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
+                "morpheusadam", "🐱 Cat Feed · Measured", "🐱 Cat Feed · تست‌شده",
                 "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
             ),
         )
         add(
             githubSource(
-                "morpheusadam-iran", "Morpheus Iran bundle", "مورفیوس (ویژهٔ ایران)",
+                "morpheusadam-iran", "🐱 Cat Feed · Iran", "🐱 Cat Feed · ویژهٔ ایران",
                 "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
             ),
         )
         add(
             githubSource(
-                "radikal", "0xRadikal VLESS", "رادیکال VLESS",
+                "radikal", "🐱 Cat Feed · VLESS", "🐱 Cat Feed · VLESS",
                 "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
             ),
         )
         add(
             githubSource(
-                "epodonios", "Epodonios collector", "اپودونیوس",
+                "epodonios", "🐱 Cat Feed · Collector", "🐱 Cat Feed · مجموعه",
                 "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
             ),
         )
         add(
             githubSource(
-                "aliilapro", "ALIILAPRO v2rayNG", "علی‌ال‌آپرو",
+                "aliilapro", "🐱 Cat Feed · Mixed", "🐱 Cat Feed · ترکیبی",
                 "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
             ),
         )
         add(
             githubSource(
-                "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
+                "mahdibland", "🐱 Cat Feed · Shadowsocks", "🐱 Cat Feed · شدوساکس",
                 "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
             ),
         )
         add(
             githubSource(
-                "aras-free-warp", "Aras free WARP", "آراس (وارپ رایگان)",
+                "aras-free-warp", "🐱 Cat Feed · WARP", "🐱 Cat Feed · وارپ رایگان",
                 "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
             ),
         )

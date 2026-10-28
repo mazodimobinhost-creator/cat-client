@@ -390,8 +390,8 @@ object CloudflareWorker {
         ),
         Panel(
             id = "mlm-gateway",
-            displayName = "MLM VPN Gateway",
-            displayNameFa = "گیت‌وی MLM VPN",
+            displayName = "Cat Gateway",
+            displayNameFa = "گیت‌وی Cat",
             scope = PanelScope.SERVER,
             description = "Lightweight FastAPI VLESS gateway with one-click deploy to your own cloud (Docker/ghcr): " +
                 "XHTTP relay, per-link speed limits, live stats and a Telegram bot.",

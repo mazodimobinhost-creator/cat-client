@@ -35,8 +35,8 @@ internal class AetherProxyCarrier(
     private var ready = CompletableDeferred<Unit>()
 
     suspend fun start(timeoutMs: Long = 300_000) {
-        check(active.compareAndSet(false, true)) { "Aether proxy carrier is already active" }
-        check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+        check(active.compareAndSet(false, true)) { "Cat Warp proxy carrier is already active" }
+        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
         ready = CompletableDeferred()
         val requestedMode = when (carrierMode) {
             AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
@@ -69,7 +69,7 @@ internal class AetherProxyCarrier(
         }
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)
-        check(validation.ok) { validation.error ?: "Invalid Aether proxy configuration" }
+        check(validation.ok) { validation.error ?: "Invalid Cat Warp proxy configuration" }
         val forceMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
         NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd ->
             if (forceMimH2) AetherOperations.enforceMasqueHttp2EnvNow(true)
@@ -111,7 +111,7 @@ internal class AetherProxyCarrier(
                 })
             }
             if (!result.ok && !ready.isCompleted) {
-                ready.completeExceptionally(IOException(result.error ?: "Aether proxy stopped"))
+                ready.completeExceptionally(IOException(result.error ?: "Cat Warp proxy stopped"))
             }
             active.set(false)
         }

@@ -63,7 +63,7 @@ class SubscriptionStore(private val context: Context) {
                     add(
                         UserSubscription(
                             id = id,
-                            name = name,
+                            name = CatBranding.rebrandName(name),
                             input = input,
                             format = UserSubscriptionFormat.fromWireName(item.optString("format")),
                             connectionCount = item.optInt("connectionCount", 0).coerceAtLeast(0),

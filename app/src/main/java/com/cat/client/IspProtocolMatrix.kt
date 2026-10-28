@@ -132,9 +132,9 @@ object IspProtocolMatrix {
         TCP("TCP ساده (SS · SOCKS · HTTP · Snell · WS بدون TLS)", "Plain TCP (SS · SOCKS · HTTP · Snell · plain WS)"),
         SSH("SSH", "SSH"),
         QUIC("QUIC / UDP (Hysteria2 · TUIC · Juicity)", "QUIC / UDP (Hysteria2 · TUIC · Juicity)"),
-        DNS_TUNNEL("تانل DNS (SlipNet · DNSTT · NoizDNS · CottenMax)", "DNS tunnel (SlipNet · DNSTT · NoizDNS · CottenMax)"),
+        DNS_TUNNEL("تانل DNS (DNSTT · NoizDNS · CottenMax)", "DNS tunnel (DNSTT · NoizDNS · CottenMax)"),
         WIREGUARD("WireGuard / WARP", "WireGuard / WARP"),
-        OTHER("سایر (Paqet · Firefox VPN · Aether)", "Other (Paqet · Firefox VPN · Aether)"),
+        OTHER("سایر (Paqet · Cat Fox VPN · Cat Warp)", "Other (Paqet · Cat Fox VPN · Cat Warp)"),
     }
 
     data class BaselineRow(

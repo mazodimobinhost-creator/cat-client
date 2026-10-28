@@ -635,7 +635,7 @@ object SubConvConverter {
                 AetherSelection(
                     mode = AetherMode.MasqueInMasque,
                     chainTarget = "tor",
-                    profileName = remark.ifBlank { "Aether + Tor Bridge" },
+                    profileName = remark.ifBlank { "Cat Warp + Tor Bridge" },
                 )
             }
             "gool" -> {
@@ -942,12 +942,12 @@ object SubConvConverter {
             val srv = proxyObj.optString("server", "127.0.0.1")
             val prt = proxyObj.optInt("port", 0)
             val formatLabel = when (scheme) {
-                "slipnet", "slipnet-enc", "slipnet-bundle-enc" -> "SlipNet (v1..v28)"
+                "slipnet", "slipnet-enc", "slipnet-bundle-enc" -> "Cat DNS (v1..v28)"
                 "dnst", "dnstt", "vaydns", "noizdns", "slipstream" -> "DNS Tunnel ($scheme)"
                 "cottendns", "stormdns", "masterdns", "soar", "qstunnel", "qqtunnel" -> "Multi-DNS ($scheme)"
                 "paqet", "paqetng", "patth", "patthng" -> "Paqet / PaqetNG"
-                "fenix", "firefoxvpn" -> "Firefox VPN (FENIX)"
-                "aether", "masque", "warp", "psiphon", "tor", "gool" -> "Aether / WARP / Psiphon"
+                "fenix", "firefoxvpn" -> "Cat Fox VPN"
+                "aether", "masque", "warp", "psiphon", "tor", "gool" -> "Cat Warp / WARP / Psiphon"
                 else -> scheme.uppercase()
             }
             counts[formatLabel] = (counts[formatLabel] ?: 0) + 1
@@ -1016,14 +1016,14 @@ object SubConvConverter {
         val sel = AetherSelection.fromAetherUri(line) ?: throw ParseError()
         val defaultLabel = when (sel.mode) {
             AetherMode.MasqueInMasque ->
-                if (sel.chainTarget == "psiphon") "PattNG MIM + Psiphon (${sel.psiphonRegion.ifBlank { "Auto" }})"
-                else "PattNG MASQUE in MASQUE"
-            AetherMode.WarpInWarp -> "Aether WARP in WARP"
-            AetherMode.WireGuardOverMasque -> "Aether WG over MASQUE"
-            AetherMode.WireGuard -> "Aether WARP"
-            else -> "Aether MASQUE H2"
+                if (sel.chainTarget == "psiphon") "Cat MIM + Psiphon (${sel.psiphonRegion.ifBlank { "Auto" }})"
+                else "Cat MASQUE in MASQUE"
+            AetherMode.WarpInWarp -> "Cat Warp in WARP"
+            AetherMode.WireGuardOverMasque -> "Cat Warp WG over MASQUE"
+            AetherMode.WireGuard -> "Cat Warp"
+            else -> "Cat Warp MASQUE H2"
         }
-        val label = sel.profileName.takeIf { it.isNotBlank() && it != "Aether" } ?: defaultLabel
+        val label = sel.profileName.takeIf { it.isNotBlank() && it != "Cat Warp" } ?: defaultLabel
         return JSONObject()
             .put("name", names.register(label))
             .put("type", "socks5")
@@ -1041,7 +1041,7 @@ object SubConvConverter {
         val query = parseQuery(uri.rawQuery)
         val rawPort = uri.port.takeIf { it in 1..65535 } ?: FirefoxVpnEngine.activeProxyPort()
         val countryCode = query["country"].orEmpty().uppercase().ifBlank { "DE" }
-        val defaultName = "🦊 Firefox VPN ($countryCode)"
+        val defaultName = "🦊 Cat Fox VPN ($countryCode)"
         return JSONObject()
             .put("name", names.register(name(uri).ifBlank { defaultName }))
             .put("type", "socks5")

@@ -391,8 +391,8 @@ internal object WhiteDnsSmartScanner {
             id = "iran-fast-low-mtu",
             titleFa = "⚡ همراه اول و ایرانسل — سریع کم‌MTU (iran-fast-low-mtu)",
             titleEn = "⚡ MCI & Irancell — Fast Low-MTU (iran-fast-low-mtu)",
-            descriptionFa = "بهترین پریست WhiteDNS برای اینترنت موبایل ایران با نوسان بالا؛ MTU آپلود ۲۰ تا ۳۲۵ بایت و دانلود ۱۰۰ تا ۱۲۷۰ بایت.",
-            descriptionEn = "Best WhiteDNS preset for high-jitter Iranian mobile lines (up=20..325B, down=100..1270B, dup=5, workers=10).",
+            descriptionFa = "بهترین پریست Cat DNS برای اینترنت موبایل ایران با نوسان بالا؛ MTU آپلود ۲۰ تا ۳۲۵ بایت و دانلود ۱۰۰ تا ۱۲۷۰ بایت.",
+            descriptionEn = "Best Cat DNS preset for high-jitter Iranian mobile lines (up=20..325B, down=100..1270B, dup=5, workers=10).",
             mtuUpRange = "20-325",
             mtuDownRange = "100-1270",
             duplication = 5,
@@ -555,7 +555,7 @@ internal object WhiteDnsSmartScanner {
             append("&mtu_down=").append(preset.mtuDownRange)
             append("&dup=").append(preset.duplication)
             append("&workers=").append(preset.workers)
-            append("#WhiteDNS-Storm-").append(preset.id)
+            append("#Cat-DNS-Storm-").append(preset.id)
         }
         val cottenMaxUri = buildString {
             append("cottendns://")
@@ -570,7 +570,7 @@ internal object WhiteDnsSmartScanner {
             append("&fec=").append(preset.fecShards)
             append("&timing_mask=").append(preset.timingMask)
             append("&qname_loss_guard=1")
-            append("#WhiteDNS-CottenMax-").append(preset.id)
+            append("#Cat-DNS-CottenMax-").append(preset.id)
         }
         val soarUri = buildString {
             append("soar://")
@@ -579,7 +579,7 @@ internal object WhiteDnsSmartScanner {
             append("&transport=").append(cleanTransport)
             append("&delivery=").append(recordMode.wireMode)
             append("&preset=").append(preset.id)
-            append("#WhiteDNS-Soar-IR")
+            append("#Cat-DNS-Soar-IR")
         }
         val masterDnsUri = buildString {
             append("masterdns://")
@@ -604,7 +604,7 @@ internal object WhiteDnsSmartScanner {
             append("&pubkey=").append(pubKeyHex)
             append("&record-type=").append(vayRec)
             append("&clientid-size=2&max-qname-len=101&keepalive=2s&idle-timeout=10s")
-            append("#SlipNet-VayDNS-").append(vayRec.uppercase())
+            append("#Cat-DNS-VayDNS-").append(vayRec.uppercase())
         }
         val noizDnsUri = buildString {
             append("noizdns://")
@@ -612,14 +612,14 @@ internal object WhiteDnsSmartScanner {
             append(":53/?domain=").append(tunnelDomain)
             append("&pubkey=").append(pubKeyHex)
             append("&encoding=base36&max-query-size=60&query-padding=20&stealth=1")
-            append("#SlipNet-NoizDNS-Stealth")
+            append("#Cat-DNS-NoizDNS-Stealth")
         }
         val slipstreamUri = buildString {
             append("slipstream://")
             append(cleanIp)
             append(":53/?domain=").append(tunnelDomain)
             append("&cc=bbr&mtu=900&alpn=h3")
-            append("#SlipNet-Slipstream-QUIC")
+            append("#Cat-DNS-Slipstream-QUIC")
         }
         val dnstHuman = buildDnstStandardUri(
             domain = tunnelDomain,
@@ -649,7 +649,7 @@ internal object WhiteDnsSmartScanner {
             maxQuerySize = 60,
             queryPadding = 20,
             sshChain = true,
-            remark = "SlipNet-NoizDNS-SSH",
+            remark = "Cat-DNS-NoizDNS-SSH",
         )
         return WhiteDnsTunnelBundle(
             resolverIp = cleanIp,
@@ -1100,11 +1100,11 @@ internal object WhiteDnsSmartScanner {
             appendLine("• پورت‌های TLS باز روی کلودفلر: ${if (openPorts.isEmpty()) "فقط با متد F&F / تانل" else openPorts.joinToString(", ")}")
             when (type) {
                 RegionalFirewallType.MCI_IPV6 ->
-                    append("پیشنهاد: ۱) ورکر با IPv6 (2a06:98c1:3101::6812:202f و fingerprint=chrome) ۲) در Aether: WARP با IPv6 یا MASQUE-HTTP/2.")
+                    append("پیشنهاد: ۱) ورکر با IPv6 (2a06:98c1:3101::6812:202f و fingerprint=chrome) ۲) در Cat Warp: WARP با IPv6 یا MASQUE-HTTP/2.")
                 RegionalFirewallType.IRANCELL_FF ->
-                    append("پیشنهاد: ۱) ورکر با متد F&F (188.114.98.0، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe) جهت رفع محدودیت آپلود ۲) در Aether: WARP (هر نوع IP) یا MASQUE-HTTP/2.")
+                    append("پیشنهاد: ۱) ورکر با متد F&F (188.114.98.0، finalMask=tlshello-0-len، cipherSuites=semi-python، fingerprint=unsafe) جهت رفع محدودیت آپلود ۲) در Cat Warp: WARP (هر نوع IP) یا MASQUE-HTTP/2.")
                 RegionalFirewallType.FIXED_MULTI_PORT ->
-                    append("پیشنهاد: ۱) اسکن ۶ پورت TLS کلودفلر (443, 2053, 8443) ۲) در Aether: Gool H2 (WireGuard-over-MASQUE) یا زنجیره WARP -> Psiphon.")
+                    append("پیشنهاد: ۱) اسکن ۶ پورت TLS کلودفلر (443, 2053, 8443) ۲) در Cat Warp: Gool H2 (WireGuard-over-MASQUE) یا زنجیره WARP -> Psiphon.")
             }
         }
         val detailEn = buildString {
@@ -1145,7 +1145,7 @@ internal object WhiteDnsSmartScanner {
         VAY_DNS("VayDNS (2B ClientID · 9 رکورد)", "VayDNS (2B ClientID · 9 Records)"),
         NOIZ_DNS("NoizDNS (ضد DPI · Base36 + Padding)", "NoizDNS (Anti-DPI · Base36 + Padding)"),
         SLIPSTREAM_QUIC("Slipstream (QUIC-over-DNS)", "Slipstream (QUIC-over-DNS)"),
-        SLIPNET_BUNDLE("SlipNet (زنجیره DNS + SSH)", "SlipNet (DNS + SSH Chain)"),
+        SLIPNET_BUNDLE("Cat DNS (زنجیره DNS + SSH)", "Cat DNS (DNS + SSH Chain)"),
         DNST_STANDARD("استاندارد dnst:// (چندموتوره)", "dnst:// Standard (Multi-Transport)"),
         QS_HYBRID_TUNNEL("QS-Tunnel (آپلود DNS + دانلود IP Spoof)", "QS-Tunnel (DNS Upload + IP Spoof)"),
         QQ_BIDIR_TUNNEL("QQ-Tunnel (دوطرفه Query-to-Query)", "QQ-Tunnel (Bidirectional Query-to-Query)"),
@@ -1195,7 +1195,7 @@ internal object WhiteDnsSmartScanner {
         val fields = decoded.split('|')
         if (fields.size < 11) return null
         val tType = fields[1].trim().lowercase()
-        val name = fields.getOrNull(2)?.trim()?.ifBlank { "SlipNet-$tType" } ?: "SlipNet"
+        val name = fields.getOrNull(2)?.trim()?.ifBlank { "Cat-DNS-$tType" } ?: "Cat DNS"
         val encRemark = runCatching { java.net.URLEncoder.encode(name, "UTF-8") }.getOrDefault(name)
         return when (tType) {
             "vless" -> {
@@ -1322,7 +1322,7 @@ internal object WhiteDnsSmartScanner {
                     val verRaw = fields.firstOrNull()?.trim()?.removePrefix("v")?.removePrefix("V") ?: ""
                     if (fields.size >= 11 && verRaw.toIntOrNull() != null) {
                         val tType = fields.getOrNull(1)?.trim()?.lowercase().orEmpty()
-                        val profName = fields.getOrNull(2)?.trim()?.ifBlank { "SlipNet-$tType" } ?: "SlipNet"
+                        val profName = fields.getOrNull(2)?.trim()?.ifBlank { "Cat-DNS-$tType" } ?: "Cat DNS"
                         val dom = fields.getOrNull(3)?.trim()?.ifBlank { "t.example.com" } ?: "t.example.com"
                         // In v17+, position 36 is `resolversHidden` ("1") and position 37 is `hiddenResolvers`
                         val resolversHidden = fields.getOrNull(36)?.trim() == "1"
@@ -1372,7 +1372,7 @@ internal object WhiteDnsSmartScanner {
                             recordMode = recMode,
                             presetId = "iran-compact-fixed",
                             mtu = effectiveMtu,
-                            remark = "$profName [SlipNet v$verRaw]",
+                            remark = "$profName [Cat DNS v$verRaw]",
                             scriptUrl = dohUrl,
                             backendType = if (sshEnabled) "ssh" else "socks",
                         )
@@ -1386,7 +1386,7 @@ internal object WhiteDnsSmartScanner {
                         val resIp = obj.optString("resolver", "178.22.122.100").substringBefore(':').trim().ifBlank { "178.22.122.100" }
                         val pub = obj.optString("pubkey", "").trim()
                         val tType = obj.optString("tunnelType", "noizdns").lowercase()
-                        val name = obj.optString("name", "SlipNet-${tType.uppercase()}").trim()
+                        val name = obj.optString("name", "Cat-DNS-${tType.uppercase()}").trim()
                         val eng = when {
                             tType.contains("vaydns") -> WhiteDnsTunnelEngine.VAY_DNS
                             tType.contains("slipstream") -> WhiteDnsTunnelEngine.SLIPSTREAM_QUIC
@@ -2400,8 +2400,8 @@ internal object WhiteDnsSmartScanner {
         ),
         AntiFilterPreset(
             id = "pattng-classic",
-            titleFa = "۸) PattNG کلاسیک (F&F + IPv6 ترکیبی)",
-            titleEn = "8) PattNG Classic (Hybrid F&F + IPv6)",
+            titleFa = "۸) Cat کلاسیک (F&F + IPv6 ترکیبی)",
+            titleEn = "8) Cat Classic (Hybrid F&F + IPv6)",
             fingerprint = "unsafe",
             cipherSuites = "semi-python",
             finalMask = "tlshello-0-len",
@@ -2608,7 +2608,7 @@ internal object WhiteDnsSmartScanner {
         }
         val summaryEn = when (state) {
             NetworkIsolationState.NET_MELLI_SHUTDOWN ->
-                "🚨 Status: Net Melli (International Shutdown Detected)!\nDomestic servers respond (${fastestDomesticMs ?: 0}ms) while all international edges are unreachable. Switch to WhiteDNS Tunnel (CottenMax / StormDNS)."
+                "🚨 Status: Net Melli (International Shutdown Detected)!\nDomestic servers respond (${fastestDomesticMs ?: 0}ms) while all international edges are unreachable. Switch to Cat DNS Tunnel (CottenMax / StormDNS)."
             NetworkIsolationState.GLOBAL_OPEN ->
                 "✅ Status: International link is OPEN (domestic ${fastestDomesticMs ?: "-"}ms, intl ${fastestIntlMs ?: "-"}ms)."
             NetworkIsolationState.INTERNATIONAL_FILTERED_OR_THROTTLED ->
@@ -2828,7 +2828,7 @@ internal object WhiteDnsSmartScanner {
                             <string>$finalDoh</string>
                         </dict>
                         <key>PayloadDescription</key>
-                        <string>Encrypted DNS (DoH) profile generated by Cat Client &amp; WhiteDNS</string>
+                        <string>Encrypted DNS (DoH) profile generated by Cat Client</string>
                         <key>PayloadDisplayName</key>
                         <string>$finalTitle</string>
                         <key>PayloadIdentifier</key>
@@ -3175,7 +3175,7 @@ internal object WhiteDnsSmartScanner {
         maxQuerySize: Int = 60,
         queryPadding: Int = 20,
         sshChain: Boolean = true,
-        remark: String = "SlipNet-NoizDNS",
+        remark: String = "Cat-DNS-NoizDNS",
     ): String {
         val json = org.json.JSONObject()
             .put("name", remark)

@@ -124,16 +124,16 @@ data class AetherSelection(
         val curRegion = psiphonRegion.ifBlank { "DE" }
         return when {
             lastClicked == "mim" || mode == AetherMode.MasqueInMasque -> AetherSmartHint(
-                titleFa = "💡 آموزش رسمی PattNG: متد MASQUE in MASQUE + خروجی Psiphon",
-                bodyFa = "• طبق آموزش استاندارد PattNG:\n" +
+                titleFa = "💡 آموزش رسمی Cat: متد MASQUE in MASQUE + خروجی Psiphon",
+                bodyFa = "• طبق آموزش استاندارد Cat:\n" +
                     "  ۱) ابتدا یک بار «🔑 Get new WARP keys» را بزنید تا هر دو کلید MASQUE ثبت شوند.\n" +
                     "  ۲) پروتکل (Protocol): روی «MASQUE in MASQUE» قرار دارد.\n" +
                     "  ۳) ترنسپورت (Transport): روی «HTTP/2» قرار گیرد.\n" +
                     "  ۴) بخش Psiphon: روی «WARP > Psiphon» و کشور (Exit country) روی کشور دلخواه (${curRegion}).\n" +
                     "  ۵) در پایان «🔍 Scan for an endpoint» را بزنید و ذخیره (✅) کنید.",
                 actionLabelFa = "✨ اعمال کامل تنظیمات آموزش (MASQUE in MASQUE + HTTP/2 + WARP > Psiphon)",
-                titleEn = "💡 PattNG Guide: MASQUE in MASQUE + HTTP/2 + WARP > Psiphon",
-                bodyEn = "• Recommended PattNG setup:\n" +
+                titleEn = "💡 Cat Guide: MASQUE in MASQUE + HTTP/2 + WARP > Psiphon",
+                bodyEn = "• Recommended Cat setup:\n" +
                     "  1) Tap '🔑 Get new WARP keys' once.\n" +
                     "  2) Protocol = MASQUE in MASQUE · Transport = HTTP/2.\n" +
                     "  3) Psiphon = WARP > Psiphon · Exit country = $curRegion.\n" +
@@ -398,11 +398,11 @@ data class AetherSelection(
         }
         val labelBase = profileName.trim().ifEmpty {
             when (proto) {
-                "mim" -> if (chainTarget.startsWith("psiphon")) "PattNG-MIM-Psiphon" else "Aether-MIM-H2"
-                "gool" -> "Aether-Gool"
-                "wg-over-masque" -> "Aether-WG-MASQUE"
-                "wg" -> "Aether-WARP"
-                else -> "Aether-MASQUE-H2"
+                "mim" -> if (chainTarget.startsWith("psiphon")) "Cat-MIM-Psiphon" else "Cat-MIM-H2"
+                "gool" -> "Cat-Gool"
+                "wg-over-masque" -> "Cat-WG-MASQUE"
+                "wg" -> "Cat-WARP"
+                else -> "Cat-MASQUE-H2"
             }
         }
         val hash = java.net.URLEncoder.encode(labelBase, "UTF-8").replace("+", "%20")
@@ -565,7 +565,7 @@ data class AetherSelection(
                 endpointScannedAt = if (peer != null) nowMs else 0L,
                 psiphonRegion = region,
                 ipScan = ipScan,
-                profileName = name.ifEmpty { "Aether" },
+                profileName = name.ifEmpty { "Cat Warp" },
                 chainTarget = chainTarget,
                 exitLocation = exitLocation,
                 masqueTransport = transportParam,
@@ -860,7 +860,7 @@ class AetherPreferenceStore(context: Context) {
         }
         val tag = cleanRegion.ifBlank { "Auto" }
         val baseName = cur.profileName.substringBefore("-Psiphon").ifBlank {
-            if (cur.mode == AetherMode.MasqueInMasque) "PattNG-MIM" else "WARP"
+            if (cur.mode == AetherMode.MasqueInMasque) "Cat-MIM" else "WARP"
         }
         val updated = cur.copy(
             enabled = true,

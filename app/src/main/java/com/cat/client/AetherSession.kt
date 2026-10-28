@@ -18,11 +18,11 @@ internal class AetherSession(
     private val active = AtomicBoolean(false)
 
     fun run(config: AetherRuntimeConfig): NativeResult {
-        if (!active.compareAndSet(false, true)) return NativeResult(false, "Aether session is already active")
+        if (!active.compareAndSet(false, true)) return NativeResult(false, "Cat Warp session is already active")
         var handedOff = false
         var tunFd = -1
         return try {
-            check(NativeAetherBridge.isLoaded) { "Aether native core is unavailable" }
+            check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
             val forceMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
             NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd ->
                 if (forceMimH2) AetherOperations.enforceMasqueHttp2EnvNow(true)
@@ -30,7 +30,7 @@ internal class AetherSession(
             })
             val primaryJson = config.toNativeJson()
             val validation = NativeAetherBridge.validate(primaryJson)
-            if (!validation.ok) throw IOException(validation.error ?: "Aether configuration is invalid")
+            if (!validation.ok) throw IOException(validation.error ?: "Cat Warp configuration is invalid")
             var effectiveConfig = config
             var effectiveJson = primaryJson
             val prepared = AetherOperations.withMasqueHttp2ForMim(config) {
@@ -63,13 +63,13 @@ internal class AetherSession(
             }.getOrThrow()
             val (ipv4, ipv6) = AetherTunPolicy.validatedAddresses(prepared.ipv4, prepared.ipv6)
             tunFd = establishTun(ipv4, ipv6)
-            check(tunFd >= 0) { "Could not establish Aether TUN" }
+            check(tunFd >= 0) { "Could not establish Cat Warp TUN" }
             handedOff = true
             AetherOperations.withMasqueHttp2ForMim(effectiveConfig) {
                 NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady))
             }
         } catch (error: Throwable) {
-            NativeResult(false, error.message ?: "Aether session failed")
+            NativeResult(false, error.message ?: "Cat Warp session failed")
         } finally {
             // nativeRun owns and closes a handed-off descriptor. Before handoff,
             // the establish callback remains responsible for closing failures.

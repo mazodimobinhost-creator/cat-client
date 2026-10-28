@@ -67,8 +67,8 @@ internal object SlipNetCliEngine {
     /** Human explanation for tunnel types that cannot be run for real. */
     fun unsupportedReason(parsed: WhiteDnsSmartScanner.WhiteDnsParsedTunnelUri): Pair<String, String> = when {
         parsed.scheme == "slipnet-enc" || parsed.scheme == "slipnet-bundle-enc" ->
-            "کانفیگ رمزگذاری‌شدهٔ SlipNet فقط با کلید خصوصی خود اپ SlipNet باز می‌شود؛ نسخهٔ معمولی slipnet:// را از سازنده بگیرید." to
-                "Encrypted SlipNet configs can only be opened with SlipNet's private key; ask for a plain slipnet:// export."
+            "این کانفیگ DNS رمزگذاری‌شده و با کلید خصوصی سازنده‌اش قفل است؛ نسخهٔ معمولی slipnet:// را از سازنده بگیرید." to
+                "This DNS config is encrypted and locked to its maker's private key; ask for a plain slipnet:// export."
         parsed.engine == WhiteDnsSmartScanner.WhiteDnsTunnelEngine.SLIPSTREAM_QUIC ->
             "Slipstream (QUIC روی DNS) کلاینت اندرویدی متن‌باز قابل اجرا ندارد." to
                 "Slipstream (QUIC-over-DNS) has no runnable open-source Android client."

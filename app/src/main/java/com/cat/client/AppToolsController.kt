@@ -400,7 +400,7 @@ class AppToolsController(
         item(t("🔒 قفل برنامه (PIN / اثر انگشت)", "🔒 App lock (PIN / fingerprint)"), t("برای باز کردن برنامه رمز یا اثر انگشت بخواهد.", "Require a PIN or fingerprint to open the app.")) { showAppLockSettings() }
         item(t("🔄 رفرش خودکار اشتراک‌ها و هشدار حجم/انقضا", "🔄 Auto-refresh subscriptions & quota alerts"), t("هر ۶ ساعت اشتراک‌های لینک‌دار به‌روز می‌شوند و اگر حجم رو به اتمام یا تاریخ نزدیک باشد نوتیفیکیشن می‌آید.", "Every 6 h URL subscriptions refresh; you get a notification when quota or expiry is close.")) { showAutoRefreshSettings() }
         item(t("🧬 وضعیت موتورهای واقعی تانل", "🧬 Real tunnel engine status"), t("نشان می‌دهد کدام نوع کانفیگ واقعاً موتور دارد (DNS، WARP و …) و کدام قبلاً فقط وانمود می‌کرد.", "Shows which config types have a real engine (DNS, WARP, …) and which only pretended before.")) { showEngineStatus() }
-        section(t("🛰️ جعبه‌ابزار اسکنر (به سبک WhiteDNS)", "🛰️ Scanner toolkit (WhiteDNS style)"))
+        section(t("🛰️ جعبه‌ابزار اسکنر ", "🛰️ Scanner toolkit "))
         item(t("🌐 خروجی ASN → رنج آی‌پی", "🌐 ASN export → IP ranges"), t("رنج‌های آی‌پی هر اپراتور/شرکت (مخابرات، همراه اول، ایرانسل، آروان، کلادفلر و …) را از RIPE می‌گیرد؛ کپی کن یا مستقیم به اسکنر بفرست.", "Fetches the IP ranges of an operator/company from RIPE; copy them or send them to the scanner.")) { showAsnExport() }
         item(t("🧩 کانفیگ‌ساز (آی‌پی تمیز → کانفیگ)", "🧩 Config Maker (clean IP → configs)"), t("کانفیگ‌هایت را بده و آی‌پی‌های تمیز را؛ برای هر آی‌پی کانفیگ جدید با همان SNI ساخته می‌شود. «IP:پورت» دقیقاً با همان پورت.", "Give configs + clean IPs; a new config is built per IP keeping SNI. IP:port keeps exactly that port.")) { showConfigMaker() }
         item(t("🔌 اسکن پروکسی HTTP باز (۳ مرحله)", "🔌 Open HTTP proxy scan (3 waves)"), t("اتصال TCP ← دست‌دادن CONNECT ← درخواست واقعی؛ فقط پروکسی‌های واقعاً کارا می‌مانند.", "TCP → CONNECT handshake → real request; only really working proxies remain.")) { showProxyScan(WhiteDnsToolkit.ProxyKind.HTTP) }
@@ -459,21 +459,21 @@ class AppToolsController(
         val warp = WarpRegistration.cached(activity)
         val text = t(
             "✅ پروتکل‌های عادی (VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard با کلید واقعی، AnyTLS، SOCKS/HTTP): روی هستهٔ mihomo واقعاً تونل می‌زنند.\n\n" +
-                (if (dnsEngine) "✅ تانل DNS واقعی (dnstt، NoizDNS، VayDNS و slipnet://): موتور SlipNet داخل برنامه نصب است و واقعاً از روی DNS تونل می‌زند.\n\n"
-                else "⚠️ تانل DNS: موتور SlipNet در این نسخه بسته‌بندی نشده؛ کانفیگ‌های DNS «در دسترس نیست» نشان داده می‌شوند (دیگر وانمود به اتصال نمی‌کنند).\n\n") +
+                (if (dnsEngine) "✅ تانل DNS واقعی (dnstt، NoizDNS، VayDNS و slipnet://): موتور Cat DNS داخل برنامه نصب است و واقعاً از روی DNS تونل می‌زند.\n\n"
+                else "⚠️ تانل DNS: موتور Cat DNS در این نسخه بسته‌بندی نشده؛ کانفیگ‌های DNS «در دسترس نیست» نشان داده می‌شوند (دیگر وانمود به اتصال نمی‌کنند).\n\n") +
                 (if (warp != null) "✅ WARP / AWG خودکار: حساب واقعی WARP ثبت شده (${warp.ipv4}${warp.ipv6?.let { " · IPv6" } ?: ""}).\n\n"
                 else "ℹ️ WARP / AWG خودکار: اولین اتصال، یک حساب واقعی WARP از کلادفلر ثبت می‌کند (قبلاً کلید جعلی بود و هیچ‌وقت وصل نمی‌شد).\n\n") +
                 "❌ بدون موتور واقعی (قبلاً بی‌صدا مستقیم وصل می‌شدند و فقط ظاهر اتصال داشتند): CottenDNS، StormDNS، MasterDNS، Soar، Slipstream، QS/QQ/Spoof Tunnel، S3 Bypass، رلهٔ GAS، Phantun بدون روت. این‌ها حالا صادقانه «در دسترس نیست» می‌شوند.\n\n" +
                 "⚠️ Paqet / paqetNG: پروتکل واقعی paqet بستهٔ خام می‌سازد و روی گوشی روت لازم دارد؛ فقط اگر سرور ورودی SOCKS5 داشته باشد (entry_socks=1) کار می‌کند.\n\n" +
-                "⚠️ فایرفاکس VPN (FENIX): فقط با ورود به حساب فایرفاکس واقعاً تونل می‌زند؛ بدون حساب، دیگر مستقیم وصل نمی‌شود.",
+                "⚠️ Cat Fox VPN: فقط با ورود به حساب فایرفاکس واقعاً تونل می‌زند؛ بدون حساب، دیگر مستقیم وصل نمی‌شود.",
             "✅ Regular protocols (VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard with a real key, AnyTLS, SOCKS/HTTP) really tunnel on the mihomo core.\n\n" +
-                (if (dnsEngine) "✅ Real DNS tunnel (dnstt, NoizDNS, VayDNS, slipnet://): the SlipNet engine is installed and really tunnels over DNS.\n\n"
-                else "⚠️ DNS tunnel: the SlipNet engine is not packaged in this build; DNS configs show as unavailable (no more fake connections).\n\n") +
+                (if (dnsEngine) "✅ Real DNS tunnel (dnstt, NoizDNS, VayDNS, slipnet://): the Cat DNS engine is installed and really tunnels over DNS.\n\n"
+                else "⚠️ DNS tunnel: the Cat DNS engine is not packaged in this build; DNS configs show as unavailable (no more fake connections).\n\n") +
                 (if (warp != null) "✅ WARP / AWG auto: a real WARP account is registered.\n\n"
                 else "ℹ️ WARP / AWG auto: the first connect registers a real WARP account (previously a fake key that could never connect).\n\n") +
                 "❌ No real engine (previously connected directly in silence): CottenDNS, StormDNS, MasterDNS, Soar, Slipstream, QS/QQ/Spoof tunnels, S3 bypass, GAS relay, Phantun without root.\n\n" +
                 "⚠️ Paqet / paqetNG: real paqet needs root on the phone; works only when the server exposes a SOCKS5 entry (entry_socks=1).\n\n" +
-                "⚠️ Firefox VPN (FENIX): tunnels only when signed in to a Firefox account.",
+                "⚠️ Cat Fox VPN: tunnels only when signed in to a Firefox account.",
         )
         val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("🧬 وضعیت موتورهای واقعی", "🧬 Real engine status"))

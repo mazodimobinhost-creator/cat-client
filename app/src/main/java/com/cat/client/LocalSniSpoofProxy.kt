@@ -57,8 +57,8 @@ internal object LocalSniSpoofProxy {
         ),
         FINALMASK_HEADER_CUSTOM(
             id = "finalmask-custom",
-            titleFa = "۴) ماسک هدر سفارشی و فرگمنت tlshello 6,98,1 (Mihomo #2604 / FinalMask)",
-            titleEn = "4) FinalMask Custom Header & tlshello 6,98,1 Fragment (Mihomo #2604)",
+            titleFa = "۴) ماسک هدر سفارشی و فرگمنت tlshello 6,98,1 (FinalMask)",
+            titleEn = "4) FinalMask Custom Header & tlshello 6,98,1 Fragment",
             descriptionFa = "شکستن هدر اولیه TLS در بازه 6 تا 98 بایت با فاصله زمانی 1ms مخصوص دور زدن فایروال ایرانسل و همراه اول.",
             descriptionEn = "Splits initial TLS handshake header across 6-98 byte windows with 1ms delay for Irancell/MCI DPI.",
         ),
@@ -427,9 +427,9 @@ internal object LocalSniSpoofProxy {
             index = 4,
             id = "cf-6ports-masque-sni",
             titleFa = "روش ۴ کلادفلر: ۶ پورت TLS جایگزین (2053/2083/2087/2096/8443) + اسپوف MASQUE SNI",
-            titleEn = "CF Method 4: 6 Alternative TLS Ports + Aether MASQUE SNI Spoofing (#147)",
-            summaryFa = "استفاده از پورت‌های غیر ۴۴۳ کلادفلر با حفظ دقیق پورت تاییدشده + تغییر SNI هندشیک MASQUE به www.cloudflare.com در Aether.",
-            summaryEn = "Uses verified non-443 Cloudflare TLS ports + overrides MASQUE handshake SNI to www.cloudflare.com in Aether.",
+            titleEn = "CF Method 4: 6 Alternative TLS Ports + Cat Warp MASQUE SNI Spoofing (#147)",
+            summaryFa = "استفاده از پورت‌های غیر ۴۴۳ کلادفلر با حفظ دقیق پورت تاییدشده + تغییر SNI هندشیک MASQUE به www.cloudflare.com در Cat Warp.",
+            summaryEn = "Uses verified non-443 Cloudflare TLS ports + overrides MASQUE handshake SNI to www.cloudflare.com in Cat Warp.",
             sampleEndpoint = "104.16.132.229:2053",
             sampleSni = "www.cloudflare.com",
             queryParams = "security=tls&sni=www.cloudflare.com&fp=chrome&alpn=h2%2Chttp%2F1.1",
@@ -2835,12 +2835,12 @@ internal object LocalSniSpoofProxy {
     }
 
     val LIVE_7_FREE_CONFIG_GITHUB_SOURCES: List<Pair<String, String>> = listOf(
-        "Patterniha Free-Configs (تست‌شده ساعتی)" to "https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt",
-        "0xRadikal Verified V2Ray" to "https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt",
-        "Yebekhe PSG Mix" to "https://raw.githubusercontent.com/itsyebekhe/PSG/main/subscriptions/xray/mix",
-        "MahsaNet MTN/MCI Sub" to "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
-        "WhiteDNS Sub Base64" to "https://raw.githubusercontent.com/iampedii/whitedns-sub/refs/heads/main/base64.txt",
-        "Delta-Kronecker All Configs" to "https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/all_configs.txt",
+        "🐱 Cat Feed 1 · تست‌شده ساعتی" to "https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt",
+        "🐱 Cat Feed 2 · Verified" to "https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt",
+        "🐱 Cat Feed 3 · Mix" to "https://raw.githubusercontent.com/itsyebekhe/PSG/main/subscriptions/xray/mix",
+        "🐱 Cat Feed 4 · MTN/MCI" to "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
+        "🐱 Cat Feed 5 · Base64" to "https://raw.githubusercontent.com/iampedii/whitedns-sub/refs/heads/main/base64.txt",
+        "🐱 Cat Feed 6 · All" to "https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/all_configs.txt",
     )
 
     /**

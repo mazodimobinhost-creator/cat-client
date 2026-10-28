@@ -2135,7 +2135,7 @@ internal object FirefoxVpnEngine {
             // Honest failure: without a signed-in Firefox Account there is no Mozilla proxy pass, so
             // there is no tunnel. Earlier builds silently dialled the target directly here, which
             // looked connected but never changed the IP or opened blocked sites.
-            throw IOException("Firefox VPN needs a signed-in Firefox Account (no ProxyPass)")
+            throw IOException("Cat Fox VPN needs a signed-in Firefox Account (no ProxyPass)")
         }
 
         // Candidate Fastly MASQUE nodes, all on the real port (2499): the last node that worked, an optional
@@ -2222,7 +2222,7 @@ internal object FirefoxVpnEngine {
             }
         }
         // No direct fallback: if every Fastly edge failed, the tunnel is down and mihomo must know.
-        throw (lastError ?: IOException("All Firefox VPN (Fastly) edges failed"))
+        throw (lastError ?: IOException("All Cat Fox VPN (Fastly) edges failed"))
     }
 
     /**
@@ -2395,7 +2395,7 @@ internal object FirefoxVpnEngine {
         tlsFragment: Boolean = true,
     ): String {
         val remark = buildString {
-            append("🦊 فایرفاکس VPN · ")
+            append("🦊 Cat Fox VPN · ")
             append(country.flag).append(' ').append(country.nameFa.substringBefore(" ("))
             if (accountEmail.isNotBlank()) {
                 append(" · ").append(accountEmail.substringBefore('@'))

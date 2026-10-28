@@ -616,11 +616,11 @@ internal object MihomoGeoDataInstaller {
                 }
                 listOfNotNull(existing, target.takeIf { it != existing && it.exists() }).forEach { stale ->
                     if (!stale.delete()) {
-                        throw IOException("Unable to replace Mihomo geodata file ${stale.name}")
+                        throw IOException("Unable to replace Cat core geodata file ${stale.name}")
                     }
                 }
                 if (!temporary.renameTo(target)) {
-                    throw IOException("Unable to install Mihomo geodata file $fileName")
+                    throw IOException("Unable to install Cat core geodata file $fileName")
                 }
                 fileName
             } finally {
@@ -2143,7 +2143,7 @@ class MihomoControllerClient(
     fun getProxies(timeoutMs: Int = CORE_ACTION_TIMEOUT_MS): JSONObject {
         return invokeAction("getProxies", timeoutMs = timeoutMs)
             .optJSONObject("data")
-            ?: throw IOException("Mihomo core getProxies returned no data")
+            ?: throw IOException("Cat core getProxies returned no data")
     }
 
     fun activeProxyName(selectedName: String?): String? {
@@ -2159,7 +2159,7 @@ class MihomoControllerClient(
                 .toString(),
         ).optString("data")
         if (message.isNotBlank()) {
-            throw IOException("Mihomo core changeProxy failed: $message")
+            throw IOException("Cat core changeProxy failed: $message")
         }
     }
 
@@ -2203,12 +2203,12 @@ class MihomoControllerClient(
             latch.countDown()
         }
         if (!latch.await(timeoutMs.toLong(), TimeUnit.MILLISECONDS)) {
-            throw IOException("Mihomo core action $method timed out")
+            throw IOException("Cat core action $method timed out")
         }
         val root = runCatching { JSONObject(response.orEmpty()) }
-            .getOrElse { error -> throw IOException("Mihomo core action $method returned invalid JSON", error) }
+            .getOrElse { error -> throw IOException("Cat core action $method returned invalid JSON", error) }
         if (root.optInt("code", -1) != 0) {
-            throw IOException("Mihomo core action $method failed: ${root.opt("data")}")
+            throw IOException("Cat core action $method failed: ${root.opt("data")}")
         }
         return root
     }

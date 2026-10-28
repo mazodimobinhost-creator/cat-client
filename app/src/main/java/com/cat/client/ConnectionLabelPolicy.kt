@@ -21,24 +21,26 @@ object ConnectionLabelPolicy {
         if (raw.startsWith("🐱 Cat ·") && !addressPattern.containsMatchIn(raw)) return raw
         if (raw.startsWith("Cat ·") && !addressPattern.containsMatchIn(raw)) return "🐱 $raw"
 
-        // beta206: in-app engines (Aether, Firefox VPN, paqet, DNS tunnels) appear to mihomo as a loopback SOCKS
-        // entry. Showing «Cloudflare edge · Socks5 · 1819» hid which engine the row really is, so it looked like a
-        // broken SOCKS proxy. Keep the profile's own name and say which engine carries it.
+        // beta206: in-app engines appear to mihomo as a loopback SOCKS entry. They are shown in Cat's own format
+        // («🐱 Cat · Germany · Warp MIM-H2 · 🇩🇪»): no «Socks5 · 1819», and no third-party app or remark names.
         val host = server.trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
         val localType = type.lowercase(Locale.US) in setOf("socks5", "socks", "http")
         if (localType && (host == "127.0.0.1" || host == "localhost" || host == "::1")) {
             val engine = when (port) {
-                1819 -> "Aether"
-                10829 -> "Firefox VPN"
-                10809 -> "Paqet"
+                1819 -> "Warp"
+                10829 -> "Fox VPN"
+                10809 -> "KCP"
                 else -> "Local"
             }
-            val name = raw.replace(numberedPrefix, "").trim().ifBlank { engine }
-            val already = name.contains(engine, ignoreCase = true) ||
-                (engine == "Aether" && Regex("(?i)warp|masque|pattng|patt").containsMatchIn(name)) ||
-                (engine == "Firefox VPN" && Regex("(?i)firefox|fenix|🦊").containsMatchIn(name))
-            val label = if (already) name else "$name · $engine"
-            return if (label.startsWith("🐱")) label else "🐱 $label"
+            val variant = if (port == 1819) {
+                val tokens = raw.split(Regex("[^A-Za-z0-9]+")).map { it.uppercase(Locale.US) }.toSet()
+                listOf("MIM", "WIW", "WG", "GOOL", "H2", "H3", "V6", "PSIPHON", "TOR").filter { it in tokens }
+                    .joinToString("-") { if (it == "PSIPHON") "Psiphon" else if (it == "TOR") "Tor" else if (it == "GOOL") "Gool" else it }
+            } else ""
+            val country = ConnectionLocationPolicy.countryFromText(Locale.ENGLISH, raw, "")
+            val place = country?.country ?: "Auto"
+            val kind = if (variant.isBlank()) engine else "$engine $variant"
+            return "🐱 Cat · $place · $kind · ${country?.flag ?: "🌐"}"
         }
 
         val country = ConnectionLocationPolicy.countryFromText(Locale.ENGLISH, raw, server)
