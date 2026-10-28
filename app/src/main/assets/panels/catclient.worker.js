@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.76.0';
+const CAT_PANEL_VERSION = '6.77.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1242,6 +1242,11 @@ function normalizeSettings(raw) {
   s.proxyRepoAuto = s.proxyRepoAuto !== false; // default ON — repo ProxyIPs become separate 🎯 configs
   s.proxyRepos = sanitizeProxyRepos(s.proxyRepos);
   s.subRotate = ['off', 'fetch', 'daily'].includes(s.subRotate) ? s.subRotate : 'fetch';
+  // ⏱️ 6.77.0 timed IP rotation (Zeus-style «every N minutes»): OFF until the owner ticks the box. While on, every
+  // sub refresh inside the same N-minute window gets the same arrangement; the next window brings the next set.
+  s.rotTimed = s.rotTimed === true;
+  s.dnsFilter = DNS_FILTER_IDS.includes(String(s.dnsFilter || '')) ? String(s.dnsFilter) : '';
+  s.rotMinutes = Math.min(1440, Math.max(5, Math.round(Number(s.rotMinutes) || 30)));
   // Subscription token: 32 hex chars, or '' meaning «use the master UUID».
   s.subToken = /^[0-9a-f]{32}$/.test(String(s.subToken || '').trim().toLowerCase()) ? String(s.subToken).trim().toLowerCase() : '';
   s.healthOrder = s.healthOrder === true;
@@ -1393,6 +1398,8 @@ function normalizeUser(raw) {
     firstUseDays: Math.max(0, Math.min(3650, Math.floor(Number(u.firstUseDays) || 0))),
     // Per-user operator profile (a FIREWALL_BYPASS_PRESETS id) for this user's Xray links.
     fw: Object.prototype.hasOwnProperty.call(FIREWALL_BYPASS_PRESETS, String(u.fw || '')) ? String(u.fw) : '',
+    // 🛡️ 6.77.0 per-user DNS filter: '' = panel default, 'none' = off for this user, or a DNS_FILTERS id.
+    dnsFilter: ['none'].concat(DNS_FILTER_IDS).includes(String(u.dnsFilter || '')) ? String(u.dnsFilter) : '',
     // Per-user clean addresses, kept exactly as tested (IP or IP:port, never re-ported).
     ips: uniq((Array.isArray(u.ips) ? u.ips : []).map((a) => cleanAddrEntry(a)).filter(Boolean)).slice(0, 20),
     // 🌍 Exit location (6.74.0): this user's ProxyIP / SOCKS exits (each on its own port) + the country label.
@@ -2363,13 +2370,37 @@ function dohUpstream(env) {
   return /^https:\/\//.test(value) ? value : 'https://cloudflare-dns.com/dns-query';
 }
 
-async function resolveDnsOverDoh(query, env) {
-  const answer = await fetch(dohUpstream(env), {
-    method: 'POST',
-    headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' },
-    body: query,
-  });
-  return new Uint8Array(await answer.arrayBuffer());
+/** 🛡️ 6.77.0 DNS filter (Zeus-style «DoH blocker», own code): public filtering resolvers, chosen per user or panel-wide.
+ * Only DNS that the client sends THROUGH the tunnel (VLESS UDP :53 — v2rayNG / Hiddify / Streisand default) is filtered. */
+const DNS_FILTERS = {
+  ads: 'https://dns.adguard-dns.com/dns-query',        // ads + trackers
+  adult: 'https://family.cloudflare-dns.com/dns-query', // adult content + malware
+  family: 'https://family.adguard-dns.com/dns-query',  // ads + trackers + adult content + safe search
+};
+const DNS_FILTER_IDS = Object.keys(DNS_FILTERS);
+/** user.dnsFilter: '' = follow the panel, 'none' = never filter this user, otherwise a DNS_FILTERS id. */
+function dnsFilterFor(settings, user) {
+  const u = user && user.dnsFilter;
+  if (u === 'none') return '';
+  if (u && DNS_FILTERS[u]) return u;
+  return settings && DNS_FILTERS[settings.dnsFilter] ? settings.dnsFilter : '';
+}
+
+async function resolveDnsOverDoh(query, env, filter) {
+  const ask = async (upstream) => {
+    const answer = await fetch(upstream, {
+      method: 'POST',
+      headers: { 'content-type': 'application/dns-message', accept: 'application/dns-message' },
+      body: query,
+    });
+    if (!answer.ok) throw new Error('doh ' + answer.status);
+    return new Uint8Array(await answer.arrayBuffer());
+  };
+  if (filter && DNS_FILTERS[filter]) {
+    // A filtering resolver that is down must not take the user's whole internet with it.
+    try { return await ask(DNS_FILTERS[filter]); } catch (e) { /* fall back to the normal resolver */ }
+  }
+  return ask(dohUpstream(env));
 }
 
 function splitHostPort(value, fallbackPort) {
@@ -3792,12 +3823,14 @@ async function handleTunnelConnection(ws, env, options = {}) {
   let isDns = false;
   let meteredUser = null;
   let viaLink = false;
+  let dnsUser = null;
 
   const vless = parseVlessHeader(bytes);
   if (vless) {
     const auth = await tunnelAuth(env, vless.uuid, masterUuid);
     if (!auth.ok) { log('vless rejected (' + auth.error + ')'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
     viaLink = !!auth.link;
+    dnsUser = auth.user || null;
     if (auth.user && !(await admitLimitedUser(env, auth.user, options.clientIp, ws, log))) return;
     meteredUser = auth.user && auth.user.quotaBytes > 0 ? auth.user : null;
     markSeen(env, auth.user ? auth.user.id : masterUuid);
@@ -3838,7 +3871,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
         const query = buffer.slice(2, 2 + len);
         buffer = buffer.slice(2 + len);
         try {
-          const answer = await resolveDnsOverDoh(query, env);
+          const answer = await resolveDnsOverDoh(query, env, dnsFilterFor(settings, dnsUser));
           const frame = new Uint8Array(2 + answer.byteLength);
           frame[0] = answer.byteLength >> 8;
           frame[1] = answer.byteLength & 255;
@@ -5039,12 +5072,14 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // is untouched, so the first configs stay TLS :443 either way.
   const ROT_VALUES = ['off', 'fetch', 'daily'];
   // ?survive=1 forces rotation for this render (an explicit ?rotate= still wins).
-  const rot = ROT_VALUES.includes(String(q.rotate)) ? String(q.rotate) : (q.survive ? 'fetch' : (ROT_VALUES.includes(settings.subRotate) ? settings.subRotate : 'off'));
+  const rot = ROT_VALUES.includes(String(q.rotate)) ? String(q.rotate) : (q.survive ? 'fetch' : (settings.rotTimed === true ? 'timed' : (ROT_VALUES.includes(settings.subRotate) ? settings.subRotate : 'off')));
   // mulberry32 — the old C-stdlib LCG was badly biased at small moduli: index 0
   // was picked <1% of the time, silently FREEZING the first config despite
   // subRotate=fetch (fresh set promise broken for small IP lists).
   const shuffleArr = (arr, seed) => { let t = seed >>> 0; const rand = () => { t = (t + 0x6d2b79f5) >>> 0; let x = t; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; for (let ri = arr.length - 1; ri > 0; ri--) { const rj = Math.floor(rand() * (ri + 1)); const tt = arr[ri]; arr[ri] = arr[rj]; arr[rj] = tt; } return arr; };
-  const rseed0 = rot === 'fetch' ? Math.floor(Math.random() * 2147483647) : (Number(new Date().toISOString().slice(0, 10).replace(/-/g, '')) % 2147483646) + 1;
+  const rseed0 = rot === 'fetch' ? Math.floor(Math.random() * 2147483647)
+    : rot === 'timed' ? (Math.floor(Date.now() / (Math.min(1440, Math.max(5, Number(settings.rotMinutes) || 30)) * 60000)) % 2147483646) + 1
+      : (Number(new Date().toISOString().slice(0, 10).replace(/-/g, '')) % 2147483646) + 1;
   // Owner-pinned «fixed IPs» (settings.pinnedIps) always lead the sub and are
   // never shuffled — rotation applies to the REST of the list only.
   const pinKeys = (settings.pinnedIps || []).map((p) => String(p).trim().toLowerCase()).filter(Boolean);
@@ -6070,6 +6105,8 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
   const title = panelTitle(env, settings) + (user ? ' · ' + user.name : '');
   const traffic = user && user.quotaBytes > 0 ? await readTraffic(env, user.id).catch(() => null) : null;
   const headers = subscriptionHeaders(user, title, url && url.origin ? url.origin + '/info/' + uuid : '', traffic);
+  // ⏱️ timed rotation on → ask clients that honour it to refresh at least that often (header unit = hours).
+  if (settings.rotTimed === true) headers['profile-update-interval'] = String(Math.max(1, Math.ceil((Number(settings.rotMinutes) || 30) / 60)));
   let q = subQuery(url);
   // Per-user profile/addresses. The preset only rides on Xray-compatible outputs (Clash /
   // sing-box would drop finalmask/ciphers, see below), so a user's Clash link keeps working.
@@ -7280,6 +7317,7 @@ async function handleApi(request, url, env, ctx) {
         maxIps: body.maxIps,
         firstUseDays: body.firstUseDays,
         fw: body.fw,
+        dnsFilter: body.dnsFilter,
         ips: body.ips,
         exits: body.exits,
         exitCc: body.exitCc,
@@ -7323,6 +7361,7 @@ async function handleApi(request, url, env, ctx) {
         if (body.protocols) next.protocols = body.protocols;
         if (body.firstUseDays !== undefined) next.firstUseDays = body.firstUseDays;
         if (body.fw !== undefined) next.fw = body.fw;
+        if (body.dnsFilter !== undefined) next.dnsFilter = body.dnsFilter;
         if (Array.isArray(body.ips)) next.ips = body.ips;
         if (Array.isArray(body.exits)) next.exits = body.exits;
         if (body.exitCc !== undefined) next.exitCc = body.exitCc;
@@ -9918,6 +9957,14 @@ ${vDoctor}
   <div><label data-i="s_rot"></label>
    <div class="pick" id="subRotatePick"><button type="button" data-v="off" data-i="s_rot_off"></button><button type="button" data-v="fetch" data-i="s_rot_fetch"></button><button type="button" data-v="daily" data-i="s_rot_daily"></button></div>
    <div class="small dim" style="margin-top:6px" data-i="s_rot_hint"></div>
+   <div style="margin-top:12px"><label for="setDnsf">🛡️ ${tr2('فیلتر DNS پیش‌فرض همهٔ کاربرها', 'Default DNS filter for every user')}</label>
+    <select id="setDnsf"><option value="">${tr2('خاموش (DNS عادی)', 'Off (normal DNS)')}</option><option value="ads">🚫 ${tr2('تبلیغات و ردیاب‌ها', 'Ads & trackers')}</option><option value="adult">🔞 ${tr2('محتوای بزرگسال + بدافزار', 'Adult content + malware')}</option><option value="family">👨‍👩‍👧 ${tr2('خانواده (تبلیغ + بزرگسال + جستجوی امن)', 'Family (ads + adult + safe search)')}</option></select>
+    <div class="small dim" style="margin-top:6px">${tr2('برای هر کاربر جدا هم می‌شود عوضش کرد: کاربران ← ویرایش ← تب اتصال.', 'Each user can override it: Users → edit → Connection tab.')}</div></div>
+   <div class="note small" id="rotTimedBox" style="margin-top:10px">
+    <label class="row" style="gap:8px;align-items:center;cursor:pointer;margin:0;flex-wrap:wrap"><input type="checkbox" id="rotTimed" style="width:auto;min-width:22px;min-height:22px"> <b>⏱️ ${tr2('چرخش خودکار آی‌پی هر چند دقیقه', 'Automatic IP rotation every few minutes')}</b> <span class="mute">${tr2('(پیش‌فرض خاموش)', '(off by default)')}</span></label>
+    <div class="row" style="gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"><span>${tr2('هر', 'Every')}</span><input id="rotMinutes" type="number" min="5" max="1440" step="5" value="30" dir="ltr" inputmode="numeric" style="max-width:100px" aria-label="${tr2('دقیقه', 'minutes')}"><span>${tr2('دقیقه یک دستهٔ تازه آی‌پی', 'minutes a fresh set of IPs')}</span></div>
+    <div style="margin-top:8px">✅ <b>${tr2('برای فعال شدن حتماً تیک بالا را بزنید و بعد «ذخیره» را بزنید.', 'To switch it on you MUST tick the box above and then press «Save».')}</b> ${tr2('اینو بزنی: هر N دقیقه آی‌پی‌های داخل ساب (از لیست خودت و پیش‌فرض‌ها، با همان پورت‌های تست‌شده) جابه‌جا می‌شوند؛ اگر یکی فیلتر شد، با آپدیت بعدی ساب دستهٔ دیگری می‌گیری. تا وقتی تیک خورده، از گزینهٔ بالا (ثابت / هر آپدیت / روزانه) مهم‌تر است. نکته: کانفیگ‌ها فقط وقتی عوض می‌شوند که برنامه ساب را آپدیت کند — در v2rayNG / Hiddify «به‌روزرسانی خودکار ساب» را هم روشن کنید.', 'Press it: every N minutes the IPs in the sub (your own list and the defaults, each on its tested port) are reshuffled; if one gets filtered, the next sub refresh brings another set. While ticked it overrides the choice above (stable / every refresh / daily). Note: configs only change when the app refreshes the sub — turn on «auto-update subscription» in v2rayNG / Hiddify too.')}</div>
+   </div>
   </div>
   <div class="row small" style="margin-top:10px"><span class="sw" id="swHealth"></span><span data-i="s_health"></span></div>
   <div class="small dim" style="margin-top:4px" data-i="s_health_hint"></div>
@@ -10175,6 +10222,9 @@ ${vDoctor}
   <div class="upane" data-up="conn">
   <label data-i="u_fw"></label>
   <select name="fw" id="uFw"></select>
+  <label for="uDnsf" style="margin-top:14px">🛡️ ${tr2('فیلتر DNS این کاربر (مسدود کردن تبلیغ / محتوای بزرگسال)', 'This user’s DNS filter (block ads / adult content)')}</label>
+  <select name="dnsf" id="uDnsf"><option value="">${tr2('پیش‌فرض پنل', 'Panel default')}</option><option value="none">${tr2('خاموش برای این کاربر', 'Off for this user')}</option><option value="ads">🚫 ${tr2('تبلیغات و ردیاب‌ها (AdGuard DNS)', 'Ads & trackers (AdGuard DNS)')}</option><option value="adult">🔞 ${tr2('محتوای بزرگسال + بدافزار (Cloudflare Family)', 'Adult content + malware (Cloudflare Family)')}</option><option value="family">👨‍👩‍👧 ${tr2('خانواده: تبلیغات + بزرگسال + جستجوی امن (AdGuard Family)', 'Family: ads + adult + safe search (AdGuard Family)')}</option></select>
+  <div class="note i small" style="margin-top:8px;line-height:1.9">${tr2('اینو بزنی: سایت‌های تبلیغاتی / بزرگسال برای <b>همین کاربر</b> باز نمی‌شوند، چون آدرسشان را DNS فیلترکننده جواب نمی‌دهد. فقط وقتی کار می‌کند که برنامهٔ کاربر DNS را از داخل همین کانفیگ بفرستد (حالت پیش‌فرض v2rayNG، Hiddify و Streisand). اگر کاربر در برنامه‌اش DoH جدا گذاشته باشد، این فیلتر دور زده می‌شود. اگر سرویس فیلتر قطع باشد، اینترنت کاربر قطع نمی‌شود و DNS عادی جواب می‌دهد.', 'Press it: ad / adult sites stop opening for <b>this user</b> because the filtering DNS won’t resolve them. Works only when the user’s app sends DNS through this config (default in v2rayNG, Hiddify and Streisand). If the user set their own DoH in the app, the filter is bypassed. If the filter service is down the user’s internet keeps working with the normal DNS.')}</div>
   <div class="note i small" style="margin-top:10px;line-height:1.9">${tr2('«پیش‌فرض پنل» یعنی همان تنظیمات صفحهٔ تنظیمات. اگر این کاربر روی <b>همراه اول</b> یا <b>ایرانسل</b> است و کانفیگ‌ها وصل نمی‌شوند، پروفایل همان اپراتور را انتخاب کن؛ فقط لینک‌های <b>همین کاربر</b> عوض می‌شود (اثرانگشت، ALPN، فرگمنت و آی‌پی مخصوص آن فایروال).', '«Panel default» means the Settings page values. If this user is on <b>MCI</b> or <b>Irancell</b> and configs do not connect, pick that operator’s profile; only <b>this user’s</b> links change (fingerprint, ALPN, fragment and the IP for that firewall).')}</div>
   <div class="tres" id="uConnSum"></div>
   <div class="row" style="margin-top:10px"><button class="btn sm" type="button" data-goto="settings#fSettings" data-close>⚙️ ${tr2('تنظیمات اتصال کل پنل', 'Panel-wide connection settings')}</button></div>
@@ -10884,7 +10934,7 @@ function renderStats(){var active=USERS.filter(function(u){return statusOf(u)===
  var kv=$('#chipKv');kv.textContent=(CFG.kv?'🟢 ':'🔴 ')+t(CFG.kv?'kv_on':'kv_off');kv.className='chip '+(CFG.kv?'ok':'bad');
  var ps=$('#chipPass');var k=CFG.open?'pass_open':CFG.passwordSource==='panel'?'pass_set':CFG.passwordSource==='env'?'pass_env':'pass_uuid';ps.textContent=t(k);ps.className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');
  $('#chipHost').textContent=CFG.host;$('#passState').textContent=t(k);$('#passState').className='chip '+(k==='pass_set'||k==='pass_env'?'ok':'warn');}
-function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.echList.value=s.echList||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){show('spoof');sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');f.elements.ghRepo.value=s.ghRepo||'';f.elements.ghRef.value=s.ghRef||'';f.elements.ghPat.value=s.ghPat||'';f.elements.ghWorkflow.value=s.ghWorkflow||'deploy-worker.yml';var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(s.subRotate||'fetch'))});renderRotBtn();renderWarp();renderExt();
+function renderCfg(){var s=CFG.settings,f=$('#fSettings');f.elements.panelPath.value=s.panelPath||'';f.elements.ptitle.value=s.title||'';f.elements.plang.value=s.lang;f.elements.sni.value=s.sni||'';f.elements.echList.value=s.echList||'';f.elements.fingerprint.value=s.fingerprint;f.elements.entryLimit.value=s.entryLimit;var sf=$('#fSpoof');sf.elements.extraSnis.value=(s.extraSnis||[]).join('\\n');sf.elements.proxyIps.value=(s.proxyIps||[]).join('\\n');if(window.__pendingProxyIps){var cur=sf.elements.proxyIps.value.split(/[\\s,]+/).filter(Boolean),add=window.__pendingProxyIps;window.__pendingProxyIps=null;sf.elements.proxyIps.value=add.concat(cur.filter(function(x){return add.indexOf(x)<0})).slice(0,32).join('\\n');setTimeout(function(){show('spoof');sf.elements.proxyIps.scrollIntoView({behavior:'smooth',block:'center'});toast(t('proxyip_import'))},200)}f.elements.chain.value=s.chain||'';f.elements.tgToken.value=s.tgToken||'';f.elements.tgAdmins.value=(s.tgAdmins||[]).join(', ');f.elements.ghRepo.value=s.ghRepo||'';f.elements.ghRef.value=s.ghRef||'';f.elements.ghPat.value=s.ghPat||'';f.elements.ghWorkflow.value=s.ghWorkflow||'deploy-worker.yml';var tg=$('#tgState');tg.textContent=CFG.telegram&&CFG.telegram.configured?t('tg_ok'):t('tg_off');tg.className='chip '+(CFG.telegram&&CFG.telegram.configured?'ok':'');var srp=$('#subRotatePick');if(srp)$$('#subRotatePick button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===(s.subRotate||'fetch'))});if($('#rotTimed')){$('#rotTimed').checked=s.rotTimed===true;$('#rotMinutes').value=s.rotMinutes||30}if($('#setDnsf'))$('#setDnsf').value=s.dnsFilter||'';renderRotBtn();renderWarp();renderExt();
 if(srp&&!srp.__w){srp.__w=1;srp.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;$$('#subRotatePick button').forEach(function(x){x.classList.remove('on')});b.classList.add('on')})}
 $('#swIran').classList.toggle('on',s.bypassIran!==false);$('#swAds').classList.toggle('on',!!s.blockAds);$('#swQuic').classList.toggle('on',!!s.blockQuic);$('#swBestPing').classList.toggle('on',s.bestPing!==false);$('#swDom2ip').classList.toggle('on',s.domToIp!==false);$('#swSniRot').classList.toggle('on',s.sniFront===true);$('#swFm').classList.toggle('on',s.fmLinks!==false);$('#sniPoolCsv').value=(s.sniPool||[]).join(',');$('#swFrag').classList.toggle('on',!!(s.fragment&&s.fragment.enabled));f.elements.fragPackets.value=(s.fragment||{}).packets||'tlshello';f.elements.fragLength.value=(s.fragment||{}).length||'';f.elements.fragInterval.value=(s.fragment||{}).interval||'';f.elements.alpn.value=s.alpn||'http/1.1';f.elements.cipherSuites.value=s.cipherSuites||'';f.elements.chainMode.value=s.chainMode||'all';$('#swStrict').classList.toggle('on',!!s.chainStrict);var cs=$('#chainState');cs.textContent=CFG.chain?(CFG.chain.type+' · '+CFG.chain.host):t('chain_off');cs.className='chip '+(CFG.chain?'ok':'');
  f.elements.pv.checked=s.protocols.vless;f.elements.pt.checked=s.protocols.trojan;syncProto('#pVless','#pTrojan');
@@ -10914,7 +10964,7 @@ $('#btnSetExport').addEventListener('click',function(){if(!CFG||!CFG.settings){t
 $('#btnSetImport').addEventListener('click',function(){toast(t('set_import_choose'));$('#setImportFile').click()});
 $('#setImportFile').addEventListener('change',function(){var f=this.files&&this.files[0];this.value='';if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(String(r.result));var st=j&&j.settings?j.settings:j;if(!st||typeof st!=='object'||Array.isArray(st))throw 0;delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;delete st.password;api('/api/settings',{method:'PUT',body:st}).then(function(x){if(!x.ok)throw 0;toast(t('saved'));return load()}).catch(function(){toast('error',true)})}catch(e){toast(t('set_import_bad'),true)}};r.readAsText(f)});
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,echList:f.elements.echList.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),rotTimed:!!($('#rotTimed')&&$('#rotTimed').checked),rotMinutes:Number($('#rotMinutes')&&$('#rotMinutes').value)||30,dnsFilter:$('#setDnsf')?$('#setDnsf').value:'',protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
@@ -10987,7 +11037,7 @@ function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textConten
  f.elements.pv.checked=u?u.protocols.vless:true;f.elements.pt.checked=u?u.protocols.trojan:true;syncProto('#uVless','#uTrojan');
  var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;f.elements.quota.value=u&&u.quotaBytes?+(u.quotaBytes/1073741824).toFixed(2):0;f.elements.maxips.value=u?(u.maxIps||0):0;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
  var pend=!!(u&&u.firstUseDays>0&&!u.expiresAt);$('#swFirst').classList.toggle('on',u?pend:true);if(pend)f.elements.days.value=u.firstUseDays;
- $('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
+ if($('#uDnsf'))$('#uDnsf').value=(u&&u.dnsFilter)||'';$('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
  f.elements.uips.value=u&&u.ips?u.ips.join('\\n'):'';uIpNoticeSync();
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
  var dl=$('#dLinks');dl.__u=u||null;dl.__loaded=0;dl.innerHTML=u?richLinks(u.links,u.name,u):'';
@@ -11029,7 +11079,7 @@ $('#btnInstall').addEventListener('click',function(){if(!PWA)return;PWA.prompt()
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
  var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0,quotaGB:Math.max(0,Number(f.elements.quota.value)||0),maxIps:Math.max(0,Math.min(50,Math.floor(Number(f.elements.maxips.value)||0)))};
  if($('#swFirst').classList.contains('on')){body.firstUseDays=body.days;body.days=0}else body.firstUseDays=0;
- body.fw=f.elements.fw.value;body.ips=f.elements.uips.value.split(/[\\s,]+/).filter(Boolean).slice(0,20);body.exits=UL.exits.slice(0,6);body.exitCc=UL.cc||'';
+ body.fw=f.elements.fw.value;if(f.elements.dnsf)body.dnsFilter=f.elements.dnsf.value;body.ips=f.elements.uips.value.split(/[\\s,]+/).filter(Boolean).slice(0,20);body.exits=UL.exits.slice(0,6);body.exitCc=UL.cc||'';
  var p=editing?api('/api/users/'+editing.id,{method:'PUT',body:body}):api('/api/users',{method:'POST',body:body});
  p.then(function(j){if(!j||!j.ok){var why=j&&(j.error||j.message)||'request rejected';if(j&&j.error&&j.message)why=j.error+': '+j.message;if(j&&j._httpStatus)why='HTTP '+j._httpStatus+' · '+why;if(j&&j._contentType)why+=' · '+j._contentType;if(j&&j._cfRay)why+=' · CF-Ray '+j._cfRay;toast(t('b_user_save_error').replace('%1',safeDiag(why)),true);return}toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);closeDrawer();return load().catch(function(e){toast(t('b_user_saved_refresh_error').replace('%1',safeDiag(e&&e.message||e)),true)})}).catch(function(e){toast(t('b_user_save_error').replace('%1',safeDiag(e&&e.message||e)),true)})});
 
@@ -12103,6 +12153,7 @@ export default {
 };
 
 export const _testing = {
+  dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,
   buildCustomConfig, singboxWsTransport, buildXrayConfigs, BEST_PING_MAX,

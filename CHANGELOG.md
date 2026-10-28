@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta203] — 2026-10-28 (Panel 6.77.0)
+
+### Added — panel 6.77.0
+- **⏱️ Automatic IP rotation every N minutes — OFF by default, switched on only by a tick.** Settings → connection: tick «Automatic IP rotation every few minutes», pick 5–1440 minutes, press Save. The page says in plain words that the box must be ticked to turn it on. While ticked, every sub refresh inside the same N-minute window gets the same arrangement and the next window brings another one (own IP list and defaults are reshuffled inside their blocks, so your own IPs stay ahead of the defaults); scan-pinned `IP:port` entries keep exactly their tested port. The sub also sends `profile-update-interval` = ⌈N/60⌉ hours so clients that honour it refresh often enough; the hint reminds users to switch on auto-update in v2rayNG / Hiddify. Unticked, nothing changes (stable / every refresh / daily as before).
+- **🛡️ DNS filter (block ads / adult content) — panel-wide default + per user.** Off · ads & trackers (AdGuard DNS) · adult + malware (Cloudflare Family) · family = ads + adult + safe search (AdGuard Family). Per user (Users → edit → Connection): panel default / off for this user / one of the filters. It filters DNS that the client sends through the tunnel (UDP 53 — the default in v2rayNG, Hiddify, Streisand); the UI says that an app with its own DoH bypasses it. A filtering resolver that is down falls back to the normal resolver, so the user’s internet keeps working. New test `scripts/panels/rotation-dnsfilter.test.mjs`.
+
+### Added — app
+- **Delta-Kronecker hub: «Proton WireGuard» feed** (public shared `wireguard://` configs, added as a subscription). The description warns that MCI / Irancell block plain WireGuard on most networks, so these are mainly for other ISPs / Wi-Fi.
+- **Local SNI-spoof proxy: two new byte-safe methods (DeltaSpoof-style, own code).** «6) many tiny TLS records» re-frames the ClientHello into random 16–48-byte TLS records; «7) cut on the SNI, 2 bytes per TCP packet» sends the hostname in 2-byte TCP segments with a small pause. Both keep the handshake bytes identical (tested: reassembly == original). DeltaSpoof’s `mixed_case_sni`, `tls_padding` and `ccs_prefix` were **deliberately not added** to the in-path proxy: rewriting ClientHello bytes in the middle breaks the TLS transcript (the Finished check fails) and a CCS before ClientHello makes servers abort; random-case SNI already exists at config level in the panel builder.
+
 ## [1.10.0-beta202] — 2026-10-28 (Panel 6.76.0)
 
 ### Added — panel 6.76.0 «🔗 link panels» (Cloudflare ↔ Vercel ↔ Railway / Node)
