@@ -119,7 +119,7 @@ data class AetherRuntimeConfig(
                 tls.applyTo(this)
                 // Aether 2.4 refuses the WHOLE config when one of these is not a DNS name (an IP, a URL, a
                 // typo), which turned a harmless optional field into «خطای اتصال». Only real names are sent.
-                safeTlsName(masqueSni)?.let {
+                effectiveMasqueSni(masqueSni)?.let {
                     put("masqueSni", it)
                     put("masque_sni", it)
                 }
@@ -143,6 +143,16 @@ data class AetherRuntimeConfig(
 
     companion object {
         private val DNS_NAME = Regex("^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z][A-Za-z0-9-]{0,62}$")
+
+        /**
+         * beta209: Cat's editor used to pre-fill `consumer-masque.cloudflareclient.com` — the official WARP SNI, which
+         * Iranian DPI filters. The core's own default (`www.cloudflare.com`, also what other Warp apps send) is used
+         * instead; that legacy pre-fill is treated as «not set».
+         */
+        const val LEGACY_PREFILLED_MASQUE_SNI = "consumer-masque.cloudflareclient.com"
+
+        fun effectiveMasqueSni(raw: String): String? =
+            safeTlsName(raw)?.takeUnless { it.equals(LEGACY_PREFILLED_MASQUE_SNI, ignoreCase = true) }
 
         /** A host name the native core takes for masqueSni/apiHost/apiSni, or null (IP, URL, blank, junk). */
         fun safeTlsName(raw: String): String? {

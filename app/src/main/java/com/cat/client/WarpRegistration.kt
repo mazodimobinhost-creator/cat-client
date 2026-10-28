@@ -77,12 +77,48 @@ object WarpRegistration {
     }
 
     /** Returns the cached account or registers a new one. Blocking network call. */
-    fun ensureAccount(context: Context): Account? {
-        cached(context)?.let { return it }
-        val account = register() ?: return null
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_JSON, account.toJson().toString()).apply()
-        return account
+    fun ensureAccount(context: Context): Account? = ensureAccountDetailed(context).account
+
+    /** Where the key in use came from, for the plain-language status the user asked for. */
+    enum class Source { Cached, CatWarpCore, DirectApi, CatWarpCoreNew, None }
+
+    data class Outcome(val account: Account?, val source: Source, val log: List<String>)
+
+    /**
+     * beta209: the old flow only tried one plain HTTPS request to `api.cloudflareclient.com`, which Iranian networks
+     * usually block — so every built-in WARP / AmneziaWG row kept the placeholder key and could never connect.
+     * Order now:
+     *  1. the key this app already registered;
+     *  2. the WireGuard key the Cat Warp core already holds (`aether-store.toml`, only while Cloudflare still has it
+     *     as a WireGuard key — a MASQUE enrolment destroys it);
+     *  3. a plain request to the WARP API;
+     *  4. a registration through the Cat Warp core itself (fragmented, browser-fingerprinted TLS, several API hosts),
+     *     then step 2 again.
+     */
+    fun ensureAccountDetailed(context: Context, allowCoreRegistration: Boolean = true): Outcome {
+        val log = mutableListOf<String>()
+        cached(context)?.let { return Outcome(it, Source.Cached, listOf("cached key")) }
+        val identity = java.io.File(context.filesDir, "aether.toml")
+        AetherIdentityStore.wireGuardAccount(identity)?.let {
+            return Outcome(it, Source.CatWarpCore, listOf("Cat Warp core WireGuard key ${it.accountId.take(8)}…"))
+        }
+        val direct = runCatching { register() }.getOrNull()
+        if (direct != null) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_JSON, direct.toJson().toString()).apply()
+            return Outcome(direct, Source.DirectApi, listOf("registered via WARP API"))
+        }
+        log += "WARP API unreachable on this line"
+        if (allowCoreRegistration) {
+            val provisioned = runCatching {
+                AetherOperations.provision(AetherMode.WireGuard, identity, ipScan = "both", exitLocation = "iran")
+            }.getOrElse { Result.failure(it) }
+            provisioned.exceptionOrNull()?.let { log += "Cat Warp core: ${it.message.orEmpty().take(160)}" }
+            AetherIdentityStore.wireGuardAccount(identity)?.let {
+                return Outcome(it, Source.CatWarpCoreNew, log + "Cat Warp core registered WireGuard key ${it.accountId.take(8)}…")
+            }
+        }
+        return Outcome(null, Source.None, log)
     }
 
     fun register(random: SecureRandom = SecureRandom()): Account? {

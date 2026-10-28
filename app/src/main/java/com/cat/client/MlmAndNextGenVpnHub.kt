@@ -311,7 +311,7 @@ internal object MlmAndNextGenVpnHub {
         }
         val probed = probeCandidateUris(rawCandidates.take(maxCandidates), timeoutMs = timeoutMs).toMutableList()
         if (probed.isEmpty()) {
-            val fallbackAetherUri = "aether://?protocol=mim&transport=h2&sni=consumer-masque.cloudflareclient.com&scan=balanced&noize=auto&ip=v4&fragment=1&fragment_size=16-32&fragment_delay=2-10&fingerprint=chrome&outer=162.159.198.1%3A443&inner=162.159.198.2%3A443&psiphon=chain&psiphon_mode=auto&region=DE#Cat-MIM-Psiphon-DE"
+            val fallbackAetherUri = "aether://?protocol=mim&transport=h2&scan=balanced&noize=auto&ip=v4&fragment=1&fragment_size=16-32&fragment_delay=2-10&fingerprint=chrome&outer=162.159.198.1%3A443&inner=162.159.198.2%3A443&psiphon=chain&psiphon_mode=auto&region=DE#Cat-MIM-Psiphon-DE"
             probed += VerifiedProxyNode(
                 uri = fallbackAetherUri,
                 host = "162.159.198.1",

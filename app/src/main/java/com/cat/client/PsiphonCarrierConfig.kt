@@ -213,8 +213,23 @@ internal object PsiphonCarrierConfig {
         }
     }
 
-    fun render(context: Context, upstreamPort: Int, region: String = ""): String =
-        render(File(context.noBackupFilesDir, "psiphon"), BuildConfig.VERSION_CODE, upstreamPort, region)
+    fun render(context: Context, upstreamPort: Int, region: String = ""): String {
+        val root = File(context.noBackupFilesDir, "psiphon")
+        ensureDataDirectories(root)
+        return render(root, BuildConfig.VERSION_CODE, upstreamPort, region)
+    }
+
+    /**
+     * beta209: psiphon-tunnel-core's `Config.Commit` creates its folders with a plain `os.Mkdir` (not MkdirAll), so on a
+     * fresh install it failed with «failed to create datastore directory … mkdir: no such file or directory» and the
+     * Warp → Psiphon chain never started. Create the whole tree ourselves first.
+     */
+    internal fun ensureDataDirectories(root: File): Boolean {
+        val dataDir = File(root, "ca.psiphon.PsiphonTunnel.tunnel-core")
+        val dirs = listOf(root, dataDir, File(dataDir, "datastore"), File(dataDir, "osl"))
+        dirs.forEach { runCatching { it.mkdirs() } }
+        return dirs.all { it.isDirectory }
+    }
 
     internal val CHAINED_TCP_TUNNEL_PROTOCOLS: List<String> = listOf(
         "SSH",

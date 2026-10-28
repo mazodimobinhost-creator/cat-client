@@ -336,7 +336,7 @@ data class AetherSelection(
             val effFp = fingerprint.takeIf { it in VALID_FINGERPRINTS }
                 ?: "chrome"
             params += "fingerprint=$effFp"
-            val cleanMasqueSni = masqueSni.trim()
+            val cleanMasqueSni = AetherRuntimeConfig.effectiveMasqueSni(masqueSni).orEmpty()
             if (cleanMasqueSni.isNotEmpty()) {
                 params += "masque_sni=${java.net.URLEncoder.encode(cleanMasqueSni, "UTF-8")}"
             }

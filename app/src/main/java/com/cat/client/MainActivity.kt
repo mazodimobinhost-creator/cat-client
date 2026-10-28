@@ -1930,7 +1930,7 @@ class MainActivity : Activity() {
                             userSubscriptionManager.select(item.id)
                             onSubscriptionSelected()
                         },
-                        R.string.subscription_action_edit to { showEditSubscriptionDialog(item) },
+                        R.string.subscription_action_edit to { editSubscriptionOrAetherConfig(item) },
                         R.string.subscription_action_refresh to { refreshSubscription(item) },
                         R.string.subscription_action_optimize to { optimizeUserSubscription(item) },
                     ) + shareActions + listOf(
@@ -13363,6 +13363,520 @@ class MainActivity : Activity() {
      *   2-13) Save to main config list & connect
      * - Plus MCI / Irancell firewall presets and 1-tap Auto Wizard.
      */
+    // =====================================================================================================
+    // beta209: per-config Cat Warp editor: fields, our WARP keys, «Scan for an endpoint», the equivalent
+    // command line and a log box with Copy. Opened from «ویرایش» on any subscription holding aether:// links.
+    // =====================================================================================================
+
+    private fun subscriptionAetherLines(item: UserSubscription): List<Pair<Int, String>> =
+        item.input.lines().mapIndexedNotNull { index, raw ->
+            val line = raw.trim()
+            if (line.startsWith("aether://", ignoreCase = true) || line.startsWith("masque://", ignoreCase = true)) {
+                index to line
+            } else {
+                null
+            }
+        }
+
+    private fun aetherLineTitle(line: String): String {
+        val name = AetherSelection.fromAetherUri(line)?.profileName?.takeIf(String::isNotBlank)
+            ?: android.net.Uri.decode(line.substringAfter('#', "Cat Warp"))
+        return CatBranding.rebrandName(name)
+    }
+
+    private fun editSubscriptionOrAetherConfig(item: UserSubscription) {
+        val lines = subscriptionAetherLines(item)
+        if (lines.isEmpty()) {
+            showEditSubscriptionDialog(item)
+            return
+        }
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val labels = lines.map { (_, line) -> "⚡ " + aetherLineTitle(line) } +
+            (if (isFarsi) "📝 ویرایش متن کامل سابسکریپشن (برای حرفه‌ای‌ها)" else "📝 Edit the whole subscription text (advanced)")
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "✏️ کدام کانفیگ را ویرایش کنم؟" else "✏️ Which config do you want to edit?")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which >= lines.size) {
+                    showEditSubscriptionDialog(item)
+                } else {
+                    showAetherConfigEditor(item, lines[which].first, lines[which].second)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun showAetherConfigEditor(item: UserSubscription, lineIndex: Int, originalLine: String) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val original = AetherSelection.fromAetherUri(originalLine)
+        if (original == null) {
+            Toast.makeText(this, t("این لینک Cat Warp خراب است؛ متن کامل را ویرایش کنید.", "This Cat Warp link is broken; edit the full text."), Toast.LENGTH_LONG).show()
+            showEditSubscriptionDialog(item)
+            return
+        }
+        var draft = original.copy(profileName = CatBranding.rebrandName(original.profileName))
+        val identityFile = java.io.File(filesDir, "aether.toml")
+        val logLines = mutableListOf<String>()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        fun label(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        fun field(value: String, hintText: String, ltr: Boolean = true) = EditText(this).apply {
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            hint = hintText
+            setText(value)
+            if (ltr) {
+                textDirection = View.TEXT_DIRECTION_LTR
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+            }
+        }
+        fun button(text: String, accent: Boolean = false, onClick: (MaterialButton) -> Unit) = MaterialButton(this).apply {
+            this.text = text
+            isAllCaps = false
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            minHeight = dp(48)
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(12)
+            if (accent) {
+                backgroundTintList = ColorStateList.valueOf(TEAL)
+                setTextColor(palette.onAccent)
+            } else {
+                backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 220))
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 140))
+                setTextColor(TEXT_PRIMARY)
+            }
+            setOnClickListener { onClick(this) }
+        }
+        fun monoBox() = TextView(this).apply {
+            textSize = 12.5f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+            setTextColor(TEXT_PRIMARY)
+            setTextIsSelectable(true)
+            textDirection = View.TEXT_DIRECTION_LTR
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(withAlpha(SURFACE, 235))
+                setStroke(dp(1), withAlpha(OUTLINE, 160))
+            }
+        }
+
+        root.addView(
+            TextView(this).apply {
+                text = t(
+                    "فقط چیزهایی که لازم است: پروتکل، نوع اتصال و نسخهٔ IP. بعد «🔍 اسکن اندپوینت» را بزنید تا روی همین خط یک IP سالم پیدا شود، و «ذخیره».",
+                    "Only what matters: protocol, transport and IP version. Then tap «🔍 Scan for an endpoint» to find a working IP on this line, and Save.",
+                )
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(0f, 1.15f)
+            },
+        )
+
+        root.addView(label(t("نام (Remarks)", "Remarks")))
+        val nameInput = field(draft.profileName, "Cat-MIM-H2-DE", ltr = false)
+        root.addView(nameInput)
+
+        val protocols = listOf(
+            AetherMode.MasqueHttp2 to t("MASQUE (یک هاپ — خروجی معمولاً ایران)", "MASQUE (one hop)"),
+            AetherMode.MasqueInMasque to t("MASQUE in MASQUE (دو هاپ — خروجی خارج)", "MASQUE in MASQUE (two hops)"),
+            AetherMode.WireGuard to t("WireGuard (یک هاپ)", "WireGuard (one hop)"),
+            AetherMode.WarpInWarp to t("WARP in WARP (دو هاپ WireGuard)", "WARP in WARP (two WireGuard hops)"),
+            AetherMode.WireGuardOverMasque to t("WireGuard over MASQUE", "WireGuard over MASQUE"),
+        )
+        fun protocolName(mode: AetherMode) = protocols.firstOrNull { it.first == mode }?.second ?: mode.wireName
+        fun isMasque(mode: AetherMode) = mode in setOf(AetherMode.MasqueHttp2, AetherMode.MasqueInMasque, AetherMode.WireGuardOverMasque)
+        fun isTwoHop(mode: AetherMode) = mode in setOf(AetherMode.MasqueInMasque, AetherMode.WarpInWarp)
+
+        val commandBox = monoBox()
+        val logBox = monoBox().apply { minLines = 4 }
+        val outerInput = field(draft.endpoint.orEmpty(), t("خالی = موقع اتصال خودش اسکن می‌کند", "empty = scans by itself on connect"))
+        val innerInput = field(draft.innerEndpoint.orEmpty(), t("خالی = خودکار", "empty = automatic"))
+        val innerLabel = label(t("اندپوینت هاپ داخلی (Inner)", "Inner hop endpoint"))
+        lateinit var protocolBtn: MaterialButton
+        lateinit var transportBtn: MaterialButton
+        lateinit var ipBtn: MaterialButton
+        lateinit var psiphonBtn: MaterialButton
+
+        fun readInputs() {
+            draft = draft.copy(
+                profileName = nameInput.text?.toString()?.trim().orEmpty().ifBlank { draft.profileName },
+                endpoint = outerInput.text?.toString()?.trim()?.takeIf(String::isNotBlank),
+                innerEndpoint = innerInput.text?.toString()?.trim()?.takeIf(String::isNotBlank),
+            )
+        }
+        fun renderLog() {
+            logBox.text = logLines.takeLast(60).joinToString("\n").ifBlank { t("(هنوز چیزی نیست)", "(nothing yet)") }
+        }
+        fun refresh() {
+            protocolBtn.text = "▾  " + protocolName(draft.mode)
+            transportBtn.text = "▾  " + if (draft.masqueTransport == "h3") {
+                t("HTTP/3 (QUIC — در ایران اغلب بسته)", "HTTP/3 (QUIC)")
+            } else {
+                t("HTTP/2 (TCP — توصیه‌شده)", "HTTP/2 (TCP — recommended)")
+            }
+            transportBtn.visibility = if (isMasque(draft.mode)) View.VISIBLE else View.GONE
+            ipBtn.text = "▾  " + when (draft.ipScan) {
+                "v4" -> "IPv4"
+                "v6" -> "IPv6"
+                else -> t("IPv4 و IPv6 (هر دو)", "IPv4 + IPv6")
+            }
+            val chained = draft.chainTarget.startsWith("psiphon") || draft.chainTarget == "auto-psiphon"
+            psiphonBtn.text = "▾  " + if (chained) {
+                t("WARP ← Psiphon · کشور: ", "WARP → Psiphon · country: ") + draft.psiphonRegion.ifBlank { t("خودکار", "auto") }
+            } else {
+                t("خاموش (فقط WARP)", "Off (WARP only)")
+            }
+            val two = isTwoHop(draft.mode)
+            innerLabel.visibility = if (two) View.VISIBLE else View.GONE
+            innerInput.visibility = if (two) View.VISIBLE else View.GONE
+            commandBox.text = AetherCommandPreview.build(draft, 1819)
+        }
+        fun choose(title: String, options: List<String>, onPick: (Int) -> Unit) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setItems(options.toTypedArray()) { _, which ->
+                    onPick(which)
+                    refresh()
+                }
+                .create()
+                .showCatClientDialog()
+        }
+
+        root.addView(label(t("پروتکل", "Protocol")))
+        protocolBtn = button("") {
+            readInputs()
+            choose(t("پروتکل", "Protocol"), protocols.map { it.second }) { which ->
+                val mode = protocols[which].first
+                draft = draft.copy(
+                    mode = mode,
+                    exitLocation = if (isTwoHop(mode) || mode == AetherMode.WireGuardOverMasque) "foreign" else "iran",
+                )
+            }
+        }
+        root.addView(protocolBtn)
+        root.addView(label(t("نوع اتصال (Transport)", "Transport")))
+        transportBtn = button("") {
+            readInputs()
+            choose(t("نوع اتصال", "Transport"), listOf(t("HTTP/2 (TCP — توصیه‌شده)", "HTTP/2 (TCP — recommended)"), "HTTP/3 (QUIC)")) { which ->
+                draft = draft.copy(masqueTransport = if (which == 1) "h3" else "h2")
+            }
+        }
+        root.addView(transportBtn)
+        root.addView(label(t("نسخهٔ IP", "IP version")))
+        ipBtn = button("") {
+            readInputs()
+            choose(t("نسخهٔ IP", "IP version"), listOf("IPv4", "IPv6", t("هر دو", "Both"))) { which ->
+                draft = draft.copy(ipScan = listOf("v4", "v6", "both")[which])
+            }
+        }
+        root.addView(ipBtn)
+        root.addView(label(t("سایفون بعد از WARP (برای دور زدن تحریم؛ کندتر)", "Psiphon after WARP (sanctions; slower)")))
+        psiphonBtn = button("") {
+            readInputs()
+            val countries = listOf("DE", "NL", "GB", "FR", "US", "CA", "SE", "FI", "AT", "CH", "SG", "JP")
+            val labels = listOf(t("خاموش (فقط WARP)", "Off (WARP only)"), t("روشن · کشور خودکار", "On · any country")) +
+                countries.map { t("روشن · ", "On · ") + it }
+            choose(t("سایفون", "Psiphon"), labels) { which ->
+                draft = when (which) {
+                    0 -> draft.copy(chainTarget = "none")
+                    1 -> draft.copy(chainTarget = "psiphon", psiphonRegion = "")
+                    else -> draft.copy(chainTarget = "psiphon", psiphonRegion = countries[which - 2])
+                }
+            }
+        }
+        root.addView(psiphonBtn)
+
+        root.addView(label(t("اندپوینت (Outer)", "Endpoint (Outer)")))
+        root.addView(outerInput)
+        root.addView(innerLabel)
+        root.addView(innerInput)
+        val watcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) {
+                readInputs()
+                commandBox.text = AetherCommandPreview.build(draft, 1819)
+            }
+        }
+        outerInput.addTextChangedListener(watcher)
+        innerInput.addTextChangedListener(watcher)
+
+        fun keyLines(): List<String> {
+            val devices = AetherIdentityStore.read(identityFile)
+            return if (devices.isEmpty()) {
+                listOf(t("🔑 هنوز کلید WARP ندارید — «اسکن اندپوینت» یا «کلیدهای WARP» خودش می‌سازد (رایگان، لازم نیست از جایی بیاورید).", "🔑 No WARP key yet — Scan or «WARP keys» creates one for free."))
+            } else {
+                AetherIdentityStore.describe(devices, isFarsi)
+            }
+        }
+
+        val scanBtn = button(t("🔍 اسکن اندپوینت (Scan for an endpoint)", "🔍 Scan for an endpoint"), accent = true) { btn ->
+            readInputs()
+            if (currentVpnServiceState != VpnState.Stopped) {
+                Toast.makeText(this, t("اول قطع کنید؛ اسکن باید روی خط خودِ شما (بدون VPN) انجام شود.", "Disconnect first; the scan must run on your own line (no VPN)."), Toast.LENGTH_LONG).show()
+                return@button
+            }
+            if (!AetherRuntimeCapabilities.detect().nativeCoreLoaded) {
+                Toast.makeText(this, t("هستهٔ Cat Warp در این نسخه بارگذاری نشد.", "The Cat Warp core is not loaded in this build."), Toast.LENGTH_LONG).show()
+                return@button
+            }
+            btn.isEnabled = false
+            val sel = draft
+            logLines += t("⏳ آماده‌سازی کلید WARP برای ${protocolName(sel.mode)}…", "⏳ Preparing the WARP key for ${protocolName(sel.mode)}…")
+            renderLog()
+            activityScope.launch {
+                val provision = withContext(Dispatchers.IO) {
+                    AetherOperations.provision(sel.mode, identityFile, null, sel.ipScan, sel.effectiveExitLocation(), sel.masqueTransport)
+                }
+                provision.exceptionOrNull()?.let { logLines += t("⚠️ کلید: ", "⚠️ Key: ") + it.message.orEmpty().take(200) }
+                logLines += keyLines()
+                logLines += t("📡 اسکن روی همین خط (ممکن است ۱ تا ۳ دقیقه طول بکشد)…", "📡 Scanning this line (may take 1–3 minutes)…")
+                renderLog()
+                val found = withContext(Dispatchers.IO) {
+                    AetherOperations.scan(sel.mode, identityFile, sel.ipScan, sel.masqueTransport, sel.scanMode, sel.noizePreset)
+                }
+                withContext(Dispatchers.IO) { AetherOperations.drainEngineLogs() }.takeLast(12).forEach { logLines += it }
+                val list = found.getOrDefault(emptyList())
+                val why = found.exceptionOrNull()?.message?.let { " ($it)" }.orEmpty()
+                if (list.isEmpty()) {
+                    logLines += t(
+                        "❌ هیچ اندپوینتی روی این خط جواب نداد$why. پیشنهاد: نسخهٔ IP را عوض کنید (IPv6 برای همراه اول) یا MASQUE با HTTP/2 را امتحان کنید.",
+                        "❌ No endpoint answered on this line$why. Try another IP version or MASQUE over HTTP/2.",
+                    )
+                } else {
+                    val outer = list.first()
+                    val inner = if (isTwoHop(sel.mode)) {
+                        list.firstOrNull { it.peer.substringBeforeLast(':') != outer.peer.substringBeforeLast(':') }
+                    } else {
+                        null
+                    }
+                    list.take(5).forEach { logLines += "✅ ${it.peer} · ${it.rttMillis} ms" }
+                    outerInput.setText(outer.peer)
+                    if (isTwoHop(sel.mode)) innerInput.setText(inner?.peer.orEmpty())
+                    val innerText = inner?.peer ?: t("خودکار", "auto")
+                    logLines += if (isTwoHop(sel.mode)) {
+                        t("👉 Outer: ${outer.peer} · Inner: $innerText — حالا «ذخیره» را بزنید.", "👉 Outer: ${outer.peer} · Inner: $innerText — now tap Save.")
+                    } else {
+                        t("👉 اندپوینت انتخاب شد: ${outer.peer} — حالا «ذخیره» را بزنید.", "👉 Endpoint picked: ${outer.peer} — now tap Save.")
+                    }
+                    runCatching {
+                        aetherPreferenceStore.rememberEndpointForNetwork(
+                            AetherPreferenceStore.underlyingNetworkKey(this@MainActivity),
+                            sel.mode,
+                            sel.ipScan,
+                            outer.peer,
+                            outer.rttMillis,
+                        )
+                    }
+                }
+                renderLog()
+                btn.isEnabled = true
+            }
+        }
+        root.addView(scanBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        root.addView(
+            button(t("🔑 کلیدهای WARP ما (کجاست؟ چطور بسازم؟)", "🔑 Our WARP keys (where? how?)")) { showWarpKeysStatusDialog() },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+
+        root.addView(label(t("فرمان معادل (فقط برای مقایسه)", "Equivalent command (for comparison)")))
+        root.addView(commandBox)
+        val logHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        logHeader.addView(label(t("گزارش (Log)", "Log")), LinearLayout.LayoutParams(0, -2, 1f))
+        logHeader.addView(
+            button(t("📋 کپی", "📋 Copy")) {
+                val clip = commandBox.text.toString() + "\n\n" + logLines.joinToString("\n")
+                getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Cat Warp log", clip))
+                Toast.makeText(this, t("کپی شد", "Copied"), Toast.LENGTH_SHORT).show()
+            }.apply {
+                contentDescription = t("کپی گزارش", "Copy log")
+                tooltipText = contentDescription
+            },
+            LinearLayout.LayoutParams(-2, -2),
+        )
+        root.addView(logHeader)
+        root.addView(logBox)
+        logLines += keyLines()
+        refresh()
+        renderLog()
+
+        val scroll = ScrollView(this).apply { addView(root) }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(t("✏️ ویرایش Cat Warp", "✏️ Edit Cat Warp"))
+            .setView(scroll)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(t("ذخیره و اتصال", "Save & connect")) { _, _ ->
+                readInputs()
+                saveEditedAetherLine(item, lineIndex, originalLine, draft, connect = true)
+            }
+            .setPositiveButton(t("ذخیره", "Save")) { _, _ ->
+                readInputs()
+                saveEditedAetherLine(item, lineIndex, originalLine, draft, connect = false)
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun saveEditedAetherLine(
+        item: UserSubscription,
+        lineIndex: Int,
+        originalLine: String,
+        edited: AetherSelection,
+        connect: Boolean,
+    ) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val before = AetherSelection.fromAetherUri(originalLine)
+        val selection = if (edited.endpoint != null && edited.endpoint != before?.endpoint) {
+            edited.copy(endpointScannedAt = System.currentTimeMillis())
+        } else {
+            edited
+        }
+        val newLine = selection.toAetherUri()
+        activityScope.launch {
+            runCatching {
+                val fresh = withContext(Dispatchers.IO) { userSubscriptionManager.list().firstOrNull { it.id == item.id } } ?: item
+                val lines = fresh.input.lines().toMutableList()
+                val at = if (lineIndex in lines.indices && lines[lineIndex].trim() == originalLine) {
+                    lineIndex
+                } else {
+                    lines.indexOfFirst { it.trim() == originalLine }
+                }
+                if (at >= 0) lines[at] = newLine else lines.add(0, newLine)
+                val saved = withContext(Dispatchers.IO) {
+                    userSubscriptionManager.update(fresh.id, fresh.name, lines.joinToString("\n"))
+                }
+                val active = aetherPreferenceStore.read()
+                if (connect || (before != null && active.profileName == before.profileName)) {
+                    aetherPreferenceStore.save(selection.copy(enabled = connect || active.enabled))
+                }
+                if (connect) {
+                    userSubscriptionManager.select(saved.id)
+                    connectionSelectionPreferenceStore.saveSelectedProfile(saved.id, null, userPick = true)
+                }
+                renderSubscriptions()
+                renderConnectionSelection()
+                Toast.makeText(this@MainActivity, if (isFarsi) "✅ ذخیره شد" else "✅ Saved", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this@MainActivity, it.message ?: "Error", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** «کلید WARP ما کجاست؟» — every key the app holds, in plain words, plus a button that makes one. */
+    private fun showWarpKeysStatusDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val identityFile = java.io.File(filesDir, "aether.toml")
+        val devices = AetherIdentityStore.read(identityFile)
+        val wgRows = WarpRegistration.cached(this)
+        val coreWg = AetherIdentityStore.wireGuardAccount(identityFile)
+        val body = buildString {
+            append(
+                t(
+                    "کلید WARP یعنی یک حساب رایگان Cloudflare WARP روی همین گوشی. برنامه خودش می‌سازدش؛ لازم نیست از جایی بخرید یا بیاورید.\n\n",
+                    "A WARP key is a free Cloudflare WARP account on this phone. The app creates it itself; you never need to buy or find one.\n\n",
+                ),
+            )
+            append(t("⚡ کلیدهای Cat Warp (MASQUE / WireGuard):\n", "⚡ Cat Warp keys (MASQUE / WireGuard):\n"))
+            if (devices.isEmpty()) {
+                append(t("— هنوز ندارید. در ویرایش کانفیگ «🔍 اسکن اندپوینت» را بزنید یا دکمهٔ پایین را.\n", "— none yet. Tap Scan in the editor, or the button below.\n"))
+            } else {
+                AetherIdentityStore.describe(devices, isFarsi).forEach { append("• ").append(it).append('\n') }
+            }
+            append(t("\n🛡️ کلید ردیف‌های WARP / AmneziaWG داخلی (awg://auto):\n", "\n🛡️ Key for the built-in WARP / AmneziaWG rows (awg://auto):\n"))
+            val v6 = wgRows?.ipv6?.let { " · IPv6 $it" }.orEmpty()
+            append(
+                when {
+                    wgRows != null -> t("✅ دارد (IPv4 ${wgRows.ipv4}$v6)\n", "✅ ready (IPv4 ${wgRows.ipv4}$v6)\n")
+                    coreWg != null -> t(
+                        "✅ از کلید WireGuard هستهٔ Cat Warp استفاده می‌شود (device ${coreWg.accountId.take(8)}…)\n",
+                        "✅ uses the Cat Warp core WireGuard key (device ${coreWg.accountId.take(8)}…)\n",
+                    )
+                    else -> t("❌ هنوز ساخته نشده — دکمهٔ «ساخت کلید» را بزنید.\n", "❌ not created yet — tap «Create key».\n")
+                },
+            )
+            append(
+                t(
+                    "\nℹ️ کلید درست یعنی «اجازهٔ ورود»؛ ولی همراه اول و ایرانسل WireGuard معمولی را اغلب می‌بندند. اگر با کلید درست هم وصل نشد، Cat Warp با MASQUE روی HTTP/2 را امتحان کنید.",
+                    "\nℹ️ A valid key is only the permission to enter; many Iranian lines block plain WireGuard anyway. If it still fails, try Cat Warp MASQUE over HTTP/2.",
+                ),
+            )
+        }
+        val makeLabel = if (wgRows == null && coreWg == null) t("🔑 ساخت کلید", "🔑 Create key") else t("🔄 کلید تازه", "🔄 Fresh key")
+        MaterialAlertDialogBuilder(this)
+            .setTitle(t("🔑 کلیدهای WARP ما", "🔑 Our WARP keys"))
+            .setMessage(body)
+            .setPositiveButton(t("بستن", "Close"), null)
+            .setNeutralButton(makeLabel) { _, _ ->
+                if (currentVpnServiceState != VpnState.Stopped) {
+                    Toast.makeText(this, t("اول قطع کنید، بعد کلید بسازید.", "Disconnect first, then create the key."), Toast.LENGTH_LONG).show()
+                } else {
+                    if (wgRows != null) WarpRegistration.forget(this)
+                    Toast.makeText(this, t("⏳ در حال ساخت کلید WARP… (تا ۱ دقیقه)", "⏳ Creating a WARP key… (up to a minute)"), Toast.LENGTH_LONG).show()
+                    activityScope.launch {
+                        val outcome = withContext(Dispatchers.IO) { WarpRegistration.ensureAccountDetailed(this@MainActivity) }
+                        val msg = if (outcome.source == WarpRegistration.Source.None) {
+                            t("❌ ساخت کلید روی این خط نشد: ", "❌ Could not create a key on this line: ") + outcome.log.joinToString(" · ")
+                        } else {
+                            t("✅ کلید WARP آماده است.", "✅ WARP key ready.")
+                        }
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                        showWarpKeysStatusDialog()
+                    }
+                }
+            }
+            .create()
+            .showCatClientDialog()
+    }
+
+    /** Shown once on the test page when every WireGuard / AmneziaWG row failed: what that means and what to do. */
+    private fun showWireGuardRowsFailedHelp() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val body = t(
+            "همهٔ ردیف‌های WireGuard / AmneziaWG ناموفق شدند. به زبان ساده:\n\n" +
+                "1️⃣ ردیف‌های «Cloudflare edge · WireGuard» همان WARP رایگان هستند و کلیدشان را برنامه خودش می‌سازد. «🔑 کلیدهای WARP» را بزنید و ببینید کلید ✅ دارد یا نه.\n\n" +
+                "2️⃣ اگر کلید ✅ است و باز ناموفق است، اپراتور شما WireGuard را بسته (روی همراه اول و ایرانسل زیاد پیش می‌آید). این تقصیر کانفیگ نیست.\n\n" +
+                "3️⃣ راهی که معمولاً جواب می‌دهد: Cat Warp با MASQUE روی HTTP/2 (دکمهٔ «⚡ ساخت Cat Warp» همین پایین).\n\n" +
+                "4️⃣ کانفیگ Amnezia شخصی (vpn://) را فقط کسی که سرور Amnezia دارد می‌سازد: یا خودتان با برنامهٔ AmneziaVPN روی یک سرور مجازی (VPS) نصب کنید، یا از کسی که سرور دارد بگیرید. بعد ➕ ← «کلید Amnezia».",
+            "Every WireGuard / AmneziaWG row failed. In plain words:\n\n" +
+                "1️⃣ The «Cloudflare edge · WireGuard» rows are free WARP; the app creates their key itself. Tap «🔑 WARP keys» to see whether the key is ✅.\n\n" +
+                "2️⃣ If the key is ✅ and it still fails, your carrier blocks WireGuard (common in Iran). The config is not broken.\n\n" +
+                "3️⃣ What usually works: Cat Warp with MASQUE over HTTP/2 (the «⚡ Build Cat Warp» button below).\n\n" +
+                "4️⃣ A personal Amnezia config (vpn://) is made by whoever runs an Amnezia server: install one yourself with the AmneziaVPN app on a VPS, or get one from someone who runs a server. Then ➕ → Amnezia key.",
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(t("❓ چرا WireGuard وصل نشد؟", "❓ Why did WireGuard fail?"))
+            .setMessage(body)
+            .setPositiveButton(t("🔑 کلیدهای WARP", "🔑 WARP keys")) { _, _ -> showWarpKeysStatusDialog() }
+            .setNeutralButton(t("⚡ ساخت Cat Warp", "⚡ Build Cat Warp")) { _, _ -> showAddAetherDialog() }
+            .setNegativeButton(t("بستن", "Close"), null)
+            .create()
+            .showCatClientDialog()
+    }
+
     private fun showAddAetherDialog(onSaved: (() -> Unit)? = null) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val current = aetherPreferenceStore.read()
@@ -13383,7 +13897,7 @@ class MainActivity : Activity() {
         var chosenFragment = current.fragmentEnabled
         var chosenFragmentSize = current.fragmentSize.ifBlank { "16-32" }
         var chosenFragmentDelay = current.fragmentDelay.ifBlank { "2-10" }
-        var chosenMasqueSni = current.masqueSni.ifBlank { "consumer-masque.cloudflareclient.com" }
+        var chosenMasqueSni = AetherRuntimeConfig.effectiveMasqueSni(current.masqueSni).orEmpty()
         var chosenEch = current.echEnabled
         var chosenEchDns = current.echDns.ifBlank { "https://1.1.1.1/dns-query" }
         var chosenEchDomain = current.echDomain.ifBlank { "cloudflare-ech.com" }
@@ -14201,13 +14715,13 @@ class MainActivity : Activity() {
             typeface = CatClientDataTypeface
             setTextColor(TEXT_PRIMARY)
             setHintTextColor(TEXT_SECONDARY)
-            hint = if (isFarsi) "MASQUE SNI (پیش‌فرض: consumer-masque.cloudflareclient.com)" else "MASQUE SNI"
+            hint = if (isFarsi) "MASQUE SNI (خالی = پیش‌فرض www.cloudflare.com)" else "MASQUE SNI"
             setText(chosenMasqueSni)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(s: Editable?) {
-                    chosenMasqueSni = s?.toString()?.trim().orEmpty().ifBlank { "consumer-masque.cloudflareclient.com" }
+                    chosenMasqueSni = s?.toString()?.trim().orEmpty()
                     uriPreviewBox.text = currentDraftSelection().toAetherUri()
                 }
             })
@@ -14352,6 +14866,12 @@ class MainActivity : Activity() {
                             if (isFarsi) "✅ اسکن کامل شد! Outer: ${twoHop.outerPeer} · Inner: ${twoHop.innerPeer} (${twoHop.rttMillis}ms)"
                             else "✅ Scan complete! Outer: ${twoHop.outerPeer} · Inner: ${twoHop.innerPeer} (${twoHop.rttMillis}ms)",
                         )
+                    } else {
+                        setScanProgress(
+                            100,
+                            if (isFarsi) "❌ هیچ اندپوینتی روی این خط جواب نداد. نسخهٔ IP را عوض کنید (IPv6 برای همراه اول) یا Transport را HTTP/2 بگذارید."
+                            else "❌ No endpoint answered on this line. Change the IP version or use HTTP/2.",
+                        )
                     }
                 } else {
                     setScanProgress(60, if (isFarsi) "📡 در حال اسکن اندپوینت (${chosenIpScan.uppercase(Locale.US)})…" else "📡 Scanning endpoints (${chosenIpScan.uppercase(Locale.US)})…")
@@ -14389,20 +14909,20 @@ class MainActivity : Activity() {
                             else "✅ Traffic-verified: ${confirmed.peer} (${confirmed.rttMillis}ms · carrier pool: $poolSize endpoints)",
                         )
                     } else {
+                        // beta209: no made-up endpoint. A remembered one that worked on this same line is offered;
+                        // otherwise the field stays empty and the core scans by itself when you connect.
                         val remembered = aetherPreferenceStore.recallEndpointForNetwork(netKey, chosenMode, chosenIpScan)
-                        val fallbackPeer = remembered ?: when {
-                            chosenIpScan == "v6" && chosenMode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
-                            chosenIpScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
-                            chosenMode == AetherMode.WireGuard -> "162.159.192.1:2408"
-                            else -> "162.159.198.1:443"
-                        }
-                        scannedEndpoint = fallbackPeer
-                        outerEndpointInput.setText(fallbackPeer)
+                        scannedEndpoint = remembered
+                        outerEndpointInput.setText(remembered.orEmpty())
                         updateStateLabel()
                         setScanProgress(
                             100,
-                            if (isFarsi) "ℹ️ اندپوینت $fallbackPeer انتخاب شد — ذخیره کنید"
-                            else "ℹ️ Selected endpoint $fallbackPeer — ready to save",
+                            when {
+                                remembered != null && isFarsi -> "ℹ️ اسکن چیزی پیدا نکرد؛ اندپوینتی که قبلاً روی همین خط کار کرده ($remembered) گذاشته شد."
+                                remembered != null -> "ℹ️ Nothing found now; the endpoint that worked on this line before ($remembered) was filled in."
+                                isFarsi -> "❌ هیچ اندپوینتی روی این خط جواب نداد. نسخهٔ IP یا پروتکل را عوض کنید؛ اگر خالی ذخیره کنید، موقع اتصال خود هسته اسکن می‌کند."
+                                else -> "❌ No endpoint answered on this line. Change the IP version or protocol; saved empty, the core scans by itself on connect."
+                            },
                         )
                     }
                 }
@@ -14526,7 +15046,7 @@ class MainActivity : Activity() {
                         chosenFragment = prof.fragmentEnabled
                         chosenFragmentSize = prof.fragmentSize.ifBlank { "16-32" }
                         chosenFragmentDelay = prof.fragmentDelay.ifBlank { "2-10" }
-                        chosenMasqueSni = prof.masqueSni.ifBlank { "consumer-masque.cloudflareclient.com" }
+                        chosenMasqueSni = AetherRuntimeConfig.effectiveMasqueSni(prof.masqueSni).orEmpty()
                         chosenEch = prof.echEnabled
                         chosenEchDns = prof.echDns.ifBlank { "https://1.1.1.1/dns-query" }
                         chosenEchDomain = prof.echDomain.ifBlank { "cloudflare-ech.com" }
@@ -17871,6 +18391,7 @@ class MainActivity : Activity() {
         action(t("📂 باز کردن فایل ‎.vpn یا ‎.conf", "📂 Open a .vpn or .conf file")) { appTools.openImportFilePicker() }
         action(t("📋 کانفیگ‌های Amnezia من (وصل شدن / حذف)", "📋 My Amnezia configs (connect / delete)")) { showMyAmneziaConfigsDialog() }
         action(t("🛡️ سرور رایگان AmneziaWG (روی WARP) + تبدیل پروتون/وایرگارد", "🛡️ Free AmneziaWG (over WARP) + convert Proton/WireGuard")) { showAmneziaAndProtonWgHubDialog() }
+        action(t("🔑 کلید WARP ردیف‌های رایگان (کجاست؟ ساختن)", "🔑 WARP key of the free rows (where? create)")) { showWarpKeysStatusDialog() }
         action(t("❓ کلید Amnezia را از کجا بیاورم؟ چه چیزهایی کار می‌کند؟", "❓ Where do I get a key? What works?")) { showAmneziaHelpDialog() }
         val scroll = ScrollView(this).apply { addView(box) }
         val built = MaterialAlertDialogBuilder(this)
@@ -27965,6 +28486,21 @@ class MainActivity : Activity() {
 
         lateinit var pageDelayTestListener: (Intent) -> Unit
         var lastDelayResultsRefreshAtMs: Long? = null
+        var wireGuardHelpShown = false
+        fun explainIfEveryWireGuardRowFailed() {
+            if (wireGuardHelpShown) return
+            val wgProfiles = selectorProfiles.filter { it.type.lowercase(Locale.US) in setOf("wireguard", "awg", "amneziawg") }
+            if (wgProfiles.isEmpty()) return
+            val records = runCatching {
+                subscriptionStore.readConnectionDelayRecords(subscriptionId = selectedSubscriptionId, profiles = wgProfiles)
+            }.getOrDefault(emptyList())
+            val byFingerprint = records.associateBy(ConnectionDelayRecord::fingerprint)
+            val allFailed = wgProfiles.all { byFingerprint[it.fingerprint]?.status == ConnectionDelayStatus.Failure }
+            if (allFailed) {
+                wireGuardHelpShown = true
+                showWireGuardRowsFailedHelp()
+            }
+        }
         var delayResultsRefreshScheduled = false
 
         fun reloadDelayResults() {
@@ -28088,6 +28624,7 @@ class MainActivity : Activity() {
                     testingFingerprints.clear()
                     reloadFinalDelayResults()
                     updateTestControls()
+                    explainIfEveryWireGuardRowFailed()
                 }
 
                 Actions.DELAY_TEST_FAILED -> {

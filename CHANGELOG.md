@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta209] — 2026-10-29 (Panel 6.77.3)
+
+Cat Warp editor with «Scan for an endpoint», our WARP keys made visible, working WARP WireGuard keys, and the Psiphon chain fixed.
+
+### Fixed — app
+- **Warp → Psiphon never started on a fresh install** («failed to create datastore directory … mkdir: no such file or directory»). psiphon-tunnel-core creates its folders with a plain `mkdir`; the app now creates the whole data tree first.
+- **Cat Warp configs built in the app used a filtered SNI.** The editor pre-filled `consumer-masque.cloudflareclient.com` (the official WARP SNI, filtered by Iranian DPI). It now leaves the field empty, so the core's default `www.cloudflare.com` is used — the same as other Warp apps. Saved configs carrying the old pre-fill are treated as «not set».
+- **Built-in WARP / AmneziaWG rows («Cloudflare edge · WireGuard») always failed.** Their key came only from one plain request to the WARP API, which is usually blocked, so the placeholder key stayed. Now the key is taken from: the key already saved → the Cat Warp core's WireGuard key (only while Cloudflare still holds it as a WireGuard key) → the WARP API → a registration through the Cat Warp core (fragmented, fingerprinted TLS).
+- **A failed endpoint scan no longer fills in a made-up IP and says «ready to save».** It says nothing answered, offers an endpoint that worked on the same line before, or leaves the field empty so the core scans on connect. The two-hop scan also reports when nothing was found instead of stopping at 60 %.
+
+### Added — app
+- **Cat Warp editor per config.** «ویرایش» on a subscription that holds `aether://` links asks which config to edit and opens a simple editor: name, protocol, transport, IP version, Psiphon + country, Outer/Inner endpoint, **«🔍 اسکن اندپوینت»** on the current line, the equivalent `aether …` command, and a log box with Copy. Save, or Save & connect. The full-text editor is still there as the last option.
+- **«🔑 کلیدهای WARP ما».** Shows every WARP key the app holds the way other Warp apps do («Outer hop key: device 64c41a30…, IPv4 …, IPv6 …»), says in plain words that the app creates it for free, and has a «create / fresh key» button. Reachable from the editor, the Amnezia section and the help below.
+- **«چرا WireGuard وصل نشد؟»** When every WireGuard / AmneziaWG row fails on the test page, a short plain-language explanation opens once: key status, carrier blocking, what usually works (Cat Warp MASQUE over HTTP/2), and where a personal Amnezia config really comes from.
+
 ## [1.10.0-beta208] — 2026-10-28 (Panel 6.77.3)
 
 Cat Warp «MIM-H2» profiles now really run over HTTP/2.
