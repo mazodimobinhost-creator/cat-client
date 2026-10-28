@@ -1337,6 +1337,10 @@
     <string name="cloud_lucity_desc">Builds from GitHub. «⚡ Build automatically» makes a private GitHub repository with the panel; you pick it on Lucity (3 taps, shown step by step), then «✍️ Add my panel». TLS configs on 443.</string>
     <string name="cloud_shiprr_title">🟪 Shiprr — 5 EUR free credit</string>
     <string name="cloud_shiprr_desc">Builds from GitHub, address name.shiprr.dev. Same as Lucity: «⚡ Build automatically» → pick the repository on Shiprr → «✍️ Add my panel». The app checks for real whether WebSocket passes.</string>
+    <string name="cloud_bothosting_title">🤖 Bot-Hosting.net — free, fully automatic</string>
+    <string name="cloud_bothosting_desc">Free 256 MB host with an official API. Paste one key (bhk_…) and the app creates the deployment, writes the files, turns on the free HTTPS domain, starts it and tests it for real. Renew with one click every 4 days (the app reminds you).</string>
+    <string name="cloud_railway_title">🚂 Railway — automatic (paid after trial)</string>
+    <string name="cloud_railway_desc">Paste your Railway account token: the app creates the project, the service (node:22-alpine), the *.up.railway.app domain and deploys, then tests it. Not free after the trial credit, and Railway\'s rules count proxies as abuse — read the warning first.</string>
     <string name="cloud_node_auto">⚡ Install automatically</string>
     <string name="cloud_node_auto_git">⚡ Build automatically (GitHub)</string>
     <string name="cloud_node_zip">📦 Save the files (zip) to upload by hand</string>

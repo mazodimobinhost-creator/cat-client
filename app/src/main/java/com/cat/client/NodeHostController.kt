@@ -159,7 +159,7 @@ class NodeHostController(
         val out = LinkedHashMap<String, ByteArray>()
         for (f in NodeHostPanel.LAUNCHER_FILES) out[f] = activity.assets.open("node-panel/$f").use { it.readBytes() }
         // KataBump keeps a disk; Lucity / Shiprr containers start empty after every deploy.
-        out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = kind != NodeHostPanel.KATABUMP).toByteArray()
+        out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = kind != NodeHostPanel.KATABUMP && kind != NodeHostPanel.BOTHOSTING).toByteArray()
         return out
     }
 
@@ -250,6 +250,34 @@ class NodeHostController(
                     "5) Copy the address at the top of the server page (like 1.2.3.4:25565) → «✍️ Add my panel».\n\n" +
                     "🔁 Renewal: KataBump wants a renewal every 4 days or deletes the server. Renewal has a captcha, so the app cannot press it for you; it shows a countdown and reminds you a day before. Tap «🔁 Renew» → the renew page opens → Renew → come back, «✅ I renewed».\n\n" +
                     "🔒 Better: an IP:port config has no TLS. With a domain behind Cloudflare you also get TLS configs («🌐 Domain + TLS» under «📋 My panels»).",
+            )
+            NodeHostPanel.BOTHOSTING -> t(
+                "Bot-Hosting.net یک هاست رایگان (۲۵۶ مگ، بدون کارت بانکی) با API رسمی است؛ پنل Cat روی آن بالا می‌آید و با دامنهٔ HTTPS رایگان کانفیگ TLS می‌دهد.\n\n" +
+                    "🟢 نصب (همه‌اش خودکار):\n" +
+                    "1) «⚡ نصب خودکار» ← «👤 ثبت‌نام / ورود» (Discord یا GitHub).\n" +
+                    "2) «🔑 صفحهٔ کلید» ← Create key با تیک‌های گفته‌شده ← کلید bhk_ را کپی ← «📋 چسباندن» ← ادامه ← تیک «خواندم» ← نصب.\n" +
+                    "3) برنامه دیپلوی را می‌سازد، فایل‌ها را می‌گذارد، دامنه را فعال و روشن می‌کند، بعد خودش تست واقعی می‌گیرد و «➕ اضافه کردن کانفیگ‌ها» را نشان می‌دهد.\n\n" +
+                    "🔁 تمدید: پلن رایگان هر ۴ روز یک کلیک Renew در داشبورد می‌خواهد؛ برنامه یادآوری می‌فرستد. «🔁 تمدید» صفحه‌اش را باز می‌کند.\n" +
+                    "🔄 به‌روزرسانی: در «📋 پنل‌های من» ← «🔁 به‌روزرسانی» همان دیپلوی را دوباره نصب می‌کند (UUID عوض نمی‌شود).\n\n" +
+                    "اگر bot-hosting.net روی اینترنت شما باز نمی‌شود، اول یک کانفیگ را وصل کنید.",
+                "Bot-Hosting.net is a free host (256 MB, no card) with an official API; the Cat panel runs on it and gives TLS configs on a free HTTPS domain.\n\n" +
+                    "🟢 Install (all automatic):\n" +
+                    "1) «⚡ Install automatically» → «👤 Sign up / log in» (Discord or GitHub).\n" +
+                    "2) «🔑 Key page» → Create key with the listed ticks → copy the bhk_ key → «📋 Paste» → Continue → tick «I read this» → Install.\n" +
+                    "3) The app creates the deployment, writes the files, activates the domain and starts it, then really tests it and shows «➕ Add configs».\n\n" +
+                    "🔁 Renew: the free plan needs one Renew click on the dashboard every 4 days; the app sends a reminder. «🔁 Renew» opens the page.\n" +
+                    "🔄 Update: «📋 My panels» → «🔁 Update» reinstalls the same deployment (the UUID stays).\n\n" +
+                    "If bot-hosting.net does not open on your line, connect a config first.",
+            )
+            NodeHostPanel.RAILWAY -> t(
+                "Railway یک سکوی ابری است؛ برنامه با توکن شما پروژه + سرویس (ایمیج node:22-alpine) + دامنهٔ *.up.railway.app می‌سازد و پنل Cat را بالا می‌آورد.\n\n" +
+                    "⚠️ دو نکتهٔ مهم: ۱) Railway رایگان نیست (بعد از اعتبار آزمایشی پلن پولی لازم است). ۲) قوانین Railway اجرای پروکسی را سوءاستفاده می‌داند و ممکن است سرویس را ببندد. برای رایگان و بی‌دردسر، Bot-Hosting.net بهتر است.\n\n" +
+                    "🟢 نصب: «⚡ نصب خودکار» ← «👤 ورود به Railway» ← «🔑 صفحهٔ توکن» ← Create token (بدون انتخاب Project) ← کپی ← «📋 چسباندن» ← ادامه ← تیک ← نصب. برنامه تا وقتی Deploy سبز شود صبر می‌کند و تست واقعی (پنل، اشتراک، WebSocket 101) می‌گیرد.\n\n" +
+                    "🔄 «🔁 به‌روزرسانی» همان سرویس را دوباره Deploy می‌کند. Railway دیسک دائمی ندارد: UUID اصلی ثابت است (در متغیرهاست) ولی کاربرانی که در پنل می‌سازید با هر Deploy پاک می‌شوند، مگر Upstash (KV_REST_API_URL/TOKEN) را در Variables بگذارید.",
+                "Railway is a cloud platform; with your token the app creates a project + service (node:22-alpine image) + a *.up.railway.app domain and brings up the Cat panel.\n\n" +
+                    "⚠️ Two things: 1) Railway is not free (after the trial credit a paid plan is needed). 2) Railway's rules count running proxies as abuse and may close the service. For free and simple, Bot-Hosting.net is better.\n\n" +
+                    "🟢 Install: «⚡ Install automatically» → «👤 Log in to Railway» → «🔑 Token page» → Create token (no project) → copy → «📋 Paste» → Continue → tick → Install. The app waits until the deploy is green and runs a real test (panel, subscription, WebSocket 101).\n\n" +
+                    "🔄 «🔁 Update» deploys the same service again. Railway has no permanent disk: the main UUID is fixed (it is in the variables) but users you create in the panel vanish on each deploy unless you add Upstash (KV_REST_API_URL/TOKEN) to Variables.",
             )
             NodeHostPanel.LUCITY -> t(
                 "Lucity یک هاست اروپایی است که برنامه را از یک مخزن GitHub می‌سازد. ۱۴ روز (۵ یورو اعتبار) رایگان، بعد پولی. کانفیگ‌ها TLS روی 443 هستند.\n\n" +
@@ -503,6 +531,7 @@ class NodeHostController(
     )
 
     fun showStart(kind: String, startAt: Int = 0) {
+        if (NodeHostPanel.isApiHost(kind)) { autoInstall(kind); return }
         val steps = if (kind == NodeHostPanel.KATABUMP) kataBumpSteps() else githubSteps(kind)
         wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps, startAt)
     }
@@ -537,6 +566,299 @@ class NodeHostController(
             tick.setOnCheckedChangeListener { _, checked -> ok.isEnabled = checked }
         }
         showDialog(dialog)
+    }
+
+    // ------------------------------------------------------------------------------------
+    // 🤖 Bot-Hosting.net / 🚂 Railway — the whole install through the host's own API
+    // ------------------------------------------------------------------------------------
+
+    private fun apiExplain(kind: String, e: Throwable): String {
+        if (e !is ApiHostException) return explain(e)
+        val msg = e.message.orEmpty()
+        val why = if (kind == NodeHostPanel.BOTHOSTING) ApiHostPlan.explainBotHosting(e.code, msg) else ApiHostPlan.explainRailway(msg)
+        val plain = when (why) {
+            "key" -> t("کلید پذیرفته نشد (۴۰۱). یک کلید تازه بسازید و کامل (با bhk_) بچسبانید.", "The key was refused (401). Create a new key and paste all of it (with bhk_).")
+            "scope" -> t("کلید دسترسی کافی ندارد. کلید تازه با این تیک‌ها بسازید: ", "The key lacks a permission. Create a new key with these ticks: ") + ApiHostPlan.BOTHOSTING_SCOPES.joinToString(", ")
+            "slot" -> t(
+                "جای خالی ندارید: پلن رایگان فقط ۱ دیپلوی دارد. یا دیپلوی قبلی را در bot-hosting.net پاک کنید، یا نامش را cat-panel بگذارید تا برنامه همان را به‌روز کند.",
+                "No free slot: the free plan has 1 deployment. Delete the old one on bot-hosting.net, or rename it to cat-panel so the app updates it.",
+            )
+            "rate" -> t("درخواست زیاد شد (۴۲۹). یک دقیقه صبر کنید و دوباره بزنید.", "Too many requests (429). Wait a minute and try again.")
+            "token" -> t(
+                "توکن Railway پذیرفته نشد. در railway.com/account/tokens یک توکن حساب (Account / بدون انتخاب Project) بسازید و کامل بچسبانید.",
+                "Railway refused the token. On railway.com/account/tokens create an ACCOUNT token (no project selected) and paste all of it.",
+            )
+            "plan" -> t(
+                "حساب Railway اجازهٔ ساخت نمی‌دهد (دورهٔ آزمایشی تمام شده، حساب تأیید نشده یا سقف پلن). در داشبورد Railway وضعیت پلن را ببینید.",
+                "The Railway account may not create this (trial over, account not verified or plan limit). Check the plan on the Railway dashboard.",
+            )
+            "workspace" -> t("Railway فضای کاری (Workspace) خواست و پیدا نشد. یک بار وارد railway.com شوید و یک پروژهٔ خالی بسازید، بعد دوباره بزنید.", "Railway asked for a workspace and none was found. Log in to railway.com once and create an empty project, then try again.")
+            else -> t("پاسخ سرویس: ", "Service answer: ") + msg.take(200)
+        }
+        return plain + (if (why != null) "\n(" + msg.take(160) + ")" else "")
+    }
+
+    private fun askBotHostingKey() {
+        val box = column()
+        box.addView(label(t(
+            "Bot-Hosting.net هاست رایگان است (۲۵۶ مگ رم، بدون کارت؛ هر ۴ روز یک «تمدید» با یک کلیک). برنامه با «کلید API» خود شما همه‌چیز را می‌سازد؛ کلید فقط روی همین گوشی می‌ماند.\n\n" +
+                "1) «👤 ثبت‌نام / ورود» ← با Discord یا GitHub وارد شوید.\n" +
+                "2) «🔑 صفحهٔ کلید» ← Create key ← یک نام ← این تیک‌ها:\n   " + ApiHostPlan.BOTHOSTING_SCOPES.joinToString(" · ") + "\n" +
+                "3) کلیدی که با bhk_ شروع می‌شود را کپی کنید (فقط یک بار نشان داده می‌شود) ← برگردید ← «📋 چسباندن» ← ادامه.",
+            "Bot-Hosting.net is a free host (256 MB RAM, no card; a one-click «renew» every 4 days). The app builds everything with your own «API key»; the key stays on this phone only.\n\n" +
+                "1) «👤 Sign up / log in» → with Discord or GitHub.\n" +
+                "2) «🔑 Key page» → Create key → any name → these ticks:\n   " + ApiHostPlan.BOTHOSTING_SCOPES.joinToString(" · ") + "\n" +
+                "3) Copy the key that starts with bhk_ (shown once) → come back → «📋 Paste» → Continue.",
+        ), 13f, palette.textPrimary, 2))
+        val field = input("bhk_…", store.botHostingKey, password = true)
+        box.addView(field, lp(8))
+        box.addView(button(t("👤 ثبت‌نام / ورود", "👤 Sign up / log in")) { open(ApiHostPlan.BOTHOSTING_LOGIN) }, lp(8))
+        box.addView(button(t("🔑 صفحهٔ کلید", "🔑 Key page")) { open(ApiHostPlan.BOTHOSTING_KEYS) }, lp(6))
+        box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("⚡ نصب خودکار روی Bot-Hosting.net", "⚡ Automatic install on Bot-Hosting.net"))
+                .setView(scroll(box))
+                .setPositiveButton(t("ادامه", "Continue")) { _, _ ->
+                    val key = field.text.toString().trim()
+                    if (!ApiHostPlan.isBotHostingKey(key)) {
+                        toast(t("کلید باید با bhk_ شروع شود — کامل بچسبانید", "The key must start with bhk_ — paste all of it"))
+                    } else {
+                        store.botHostingKey = key
+                        confirmApiInstall(NodeHostPanel.BOTHOSTING) { installBotHosting(key) }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    /** Every installer step is listed and needs a tick before anything is created (user rule). */
+    private fun confirmApiInstall(kind: String, next: () -> Unit) {
+        val box = column()
+        val railway = kind == NodeHostPanel.RAILWAY
+        box.addView(label(if (railway) t(
+            "این کارها با توکن شما روی Railway انجام می‌شود:\n" +
+                "• یک پروژهٔ تازه به نام cat-panel\n• یک سرویس از ایمیج رسمی node:22-alpine\n• متغیرهای UUID و TROJAN_PASS (هویت پنل شما) و PORT=8080\n" +
+                "• دستور شروع: لانچر همین نسخه از GitHub دانلود و اجرا می‌شود (پنل را با SHA-256 چک می‌کند)\n• یک دامنهٔ *.up.railway.app و یک Deploy\n• بعد برنامه از همین گوشی پنل، اشتراک و WebSocket را واقعاً تست می‌کند.\n\n" +
+                "⚠️ قوانین Railway (Acceptable Use) «اجرای پروکسی یا سرویس ناشناس‌سازی» را سوءاستفاده می‌داند؛ ممکن است سرویس یا حساب را ببندند. Railway رایگان نیست: بعد از اعتبار آزمایشی، پلن پولی لازم است. ریسک با خود شماست.",
+            "With your token the app does this on Railway:\n" +
+                "• a new project named cat-panel\n• one service from the official node:22-alpine image\n• variables UUID and TROJAN_PASS (your panel identity) and PORT=8080\n" +
+                "• start command: downloads THIS release's launcher from GitHub and runs it (it checks the panel's SHA-256)\n• a *.up.railway.app domain and one Deploy\n• then the app really tests the panel, the subscription and the WebSocket from this phone.\n\n" +
+                "⚠️ Railway's Acceptable Use Policy lists «operating proxies or anonymization services» as abuse; they may close the service or the account. Railway is not free: after the trial credit a paid plan is needed. The risk is yours.",
+        ) else t(
+            "این کارها با کلید شما روی Bot-Hosting.net انجام می‌شود:\n" +
+                "• اگر دیپلویی به نام cat-panel دارید همان به‌روز می‌شود، وگرنه یک دیپلوی Node.js 22 ساخته می‌شود (پلن رایگان: ۱ دیپلوی)\n" +
+                "• ۴ فایل گذاشته می‌شود: index.js، package.json، README.md و cat-config.json (هویت پنل شما)\n• دستور شروع: npm install && node index.js\n• دامنهٔ رایگان HTTPS (*.apps.bot-hosting.cloud) فعال و دیپلوی روشن می‌شود\n• بعد برنامه از همین گوشی پنل، اشتراک و WebSocket را واقعاً تست می‌کند.\n\n" +
+                "قوانین Bot-Hosting (بند ۵) پروکسی را ممنوع نکرده، ولی فروش/اجارهٔ سرویس به دیگران (Reselling) ممنوع است — فقط استفادهٔ شخصی. پلن رایگان هر ۴ روز تمدید می‌خواهد؛ برنامه یادآوری می‌گذارد.",
+            "With your key the app does this on Bot-Hosting.net:\n" +
+                "• a deployment named cat-panel is updated if you have one, otherwise a Node.js 22 deployment is created (free plan: 1 deployment)\n" +
+                "• 4 files are written: index.js, package.json, README.md and cat-config.json (your panel identity)\n• start command: npm install && node index.js\n• the free HTTPS domain (*.apps.bot-hosting.cloud) is activated and the deployment started\n• then the app really tests the panel, the subscription and the WebSocket from this phone.\n\n" +
+                "Bot-Hosting's rules (section 5) do not forbid proxies, but reselling the service to others is forbidden — personal use only. The free plan needs a renewal every 4 days; the app sets a reminder.",
+        ), 13f, palette.textPrimary, 2))
+        val tick = CheckBox(activity).apply {
+            text = t("خواندم؛ نصب کن", "I read this; install")
+            setTextColor(palette.textPrimary)
+        }
+        box.addView(tick, lp(10))
+        box.addView(button(t("📜 خواندن قوانین", "📜 Read the rules")) { open(if (railway) ApiHostPlan.RAILWAY_RULES else ApiHostPlan.BOTHOSTING_RULES) }, lp(6))
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("پیش از نصب", "Before installing"))
+            .setView(scroll(box))
+            .setPositiveButton(t("نصب", "Install")) { _, _ -> next() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            val ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            ok.isEnabled = false
+            tick.setOnCheckedChangeListener { _, checked -> ok.isEnabled = checked }
+        }
+        showDialog(dialog)
+    }
+
+    private fun installBotHosting(key: String) {
+        val kind = NodeHostPanel.BOTHOSTING
+        runSteps<Outcome>("⚡ Bot-Hosting.net", { step ->
+            val (uuid, pass) = identity(kind)
+            step(t("1/6 خواندن دیپلوی‌های شما…", "1/6 Reading your deployments…"))
+            val list = try { ApiHostClient.bhList(key) } catch (e: Exception) { throw IllegalStateException(apiExplain(kind, e)) }
+            var dep = list.firstOrNull { it.name.equals(ApiHostPlan.DEPLOY_NAME, true) }
+            if (dep == null) {
+                step(t("2/6 ساخت دیپلوی Node.js 22 به نام cat-panel…", "2/6 Creating a Node.js 22 deployment named cat-panel…"))
+                dep = try { ApiHostClient.bhCreate(key, ApiHostPlan.DEPLOY_NAME) } catch (e: Exception) { throw IllegalStateException(apiExplain(kind, e)) }
+            } else {
+                step("2/6 " + t("دیپلوی موجود به‌روز می‌شود: ", "updating the existing deployment: ") + dep.name)
+            }
+            val id = dep.id
+            step(t("3/6 گذاشتن فایل‌ها…", "3/6 Writing the files…"))
+            val texts = files(kind).mapValues { String(it.value, Charsets.UTF_8) }
+            try { ApiHostClient.bhWriteMany(key, id, texts) } catch (e: Exception) { throw IllegalStateException(apiExplain(kind, e)) }
+            texts.keys.forEach { step("   ✓ $it") }
+            step(t("4/6 دستور شروع…", "4/6 Start command…"))
+            runCatching { ApiHostClient.bhStartup(key, id, ApiHostPlan.BOTHOSTING_START) }
+                .onSuccess { step("   ✓ " + ApiHostPlan.BOTHOSTING_START) }
+                .onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
+            step(t("5/6 دامنهٔ HTTPS رایگان…", "5/6 Free HTTPS domain…"))
+            val url = runCatching { ApiHostClient.bhDomains(key, id) }
+                .onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
+                .getOrNull()
+            url?.let { step("   ✓ $it") }
+            step(t("6/6 روشن کردن (بار اول npm install چند دقیقه طول می‌کشد)…", "6/6 Starting (the first npm install takes a few minutes)…"))
+            runCatching { ApiHostClient.bhPower(key, id, "restart", 45) }
+                .recoverCatching { ApiHostClient.bhPower(key, id, "start", 45) }
+                .onSuccess { (state, logs) ->
+                    step("   state: " + state.ifBlank { "?" })
+                    logs.takeLast(4).forEach { step("   │ " + it.take(140)) }
+                }
+                .onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
+            val fresh = runCatching { ApiHostClient.bhGet(key, id) }.getOrNull()
+            val httpsBase = url ?: fresh?.url
+            val directBase = fresh?.let { d -> d.nodeHost?.let { h -> d.port?.let { p -> NodeHostPanel.normalizeAddress("$h:$p") } } }
+            val first = httpsBase ?: directBase
+            if (first == null) {
+                Outcome(null, emptyList(), false, t(
+                    "دیپلوی ساخته و روشن شد ولی Bot-Hosting آدرس عمومی نداد. در bot-hosting.net ← دیپلوی cat-panel ← Domains ← Activate را بزنید، آدرس را کپی کنید و «✍️ پنلم را اضافه کن».",
+                    "The deployment was created and started but Bot-Hosting gave no public address. On bot-hosting.net → cat-panel → Domains → Activate, copy the address and tap «✍️ Add my panel».",
+                ))
+            } else {
+                step(t("تست پنل از همین گوشی (تا ۳ دقیقه)…", "Testing the panel from this phone (up to 3 min)…"))
+                var base = first
+                var check = verify(kind, first, uuid, step, 180)
+                if (!check.ok && directBase != null && directBase != first) {
+                    step(t("امتحان آدرس مستقیم سرور: ", "Trying the server's direct address: ") + directBase)
+                    val direct = verify(kind, directBase, uuid, step, 30)
+                    if (direct.ok || (!check.answered && direct.answered)) { base = directBase; check = direct }
+                }
+                val now = System.currentTimeMillis()
+                val saved = SavedNodeHost("bothosting-$id", kind, dep.name + " · Bot-Hosting", base, uuid, id, now, now, pass)
+                store.save(saved)
+                Outcome(saved, check.links, check.ok, check.headline)
+            }
+        }) { outcome, lines -> showOutcome(outcome, lines) }
+    }
+
+    private fun askRailwayToken() {
+        val box = column()
+        box.addView(label(t(
+            "برنامه با «توکن» حساب Railway شما پروژه و سرویس را می‌سازد؛ توکن فقط روی همین گوشی می‌ماند.\n\n" +
+                "1) «👤 ورود به Railway» ← با GitHub یا ایمیل وارد شوید (حساب باید تأییدشده و دارای اعتبار/پلن باشد).\n" +
+                "2) «🔑 صفحهٔ توکن» ← Create token ← یک نام ← Workspace/Team را روی حساب خودتان بگذارید (Project انتخاب نکنید) ← Create.\n" +
+                "3) توکن را کپی کنید ← برگردید ← «📋 چسباندن» ← ادامه.",
+            "The app creates the project and service with your Railway account «token»; the token stays on this phone only.\n\n" +
+                "1) «👤 Log in to Railway» → with GitHub or email (the account must be verified and have credit/a plan).\n" +
+                "2) «🔑 Token page» → Create token → any name → leave the workspace on your own account (do not pick a project) → Create.\n" +
+                "3) Copy the token → come back → «📋 Paste» → Continue.",
+        ), 13f, palette.textPrimary, 2))
+        val field = input(t("توکن Railway", "Railway token"), store.railwayToken, password = true)
+        box.addView(field, lp(8))
+        box.addView(button(t("👤 ورود به Railway", "👤 Log in to Railway")) { open(ApiHostPlan.RAILWAY_LOGIN) }, lp(8))
+        box.addView(button(t("🔑 صفحهٔ توکن", "🔑 Token page")) { open(ApiHostPlan.RAILWAY_TOKENS) }, lp(6))
+        box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(t("🚂 نصب خودکار روی Railway", "🚂 Automatic install on Railway"))
+                .setView(scroll(box))
+                .setPositiveButton(t("ادامه", "Continue")) { _, _ ->
+                    val token = field.text.toString().trim()
+                    if (!ApiHostPlan.looksLikeRailwayToken(token)) {
+                        toast(t("توکن را کامل بچسبانید", "Paste the whole token"))
+                    } else {
+                        store.railwayToken = token
+                        confirmApiInstall(NodeHostPanel.RAILWAY) { installRailway(token) }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
+
+    private fun installRailway(token: String) {
+        val kind = NodeHostPanel.RAILWAY
+        val tag = NodeHostPanel.releaseTag(BuildConfig.VERSION_NAME)
+        runSteps<Outcome>("🚂 Railway", { step ->
+            val (uuid, pass) = identity(kind)
+            fun <T> api(block: () -> T): T = try { block() } catch (e: Exception) { throw IllegalStateException(apiExplain(kind, e)) }
+            step(t("1/7 بررسی توکن…", "1/7 Checking the token…"))
+            val who = api { ApiHostClient.rwWhoAmI(token) }
+            step("   ✓ " + who.ifBlank { "Railway" })
+            step(t("2/7 ساخت پروژهٔ cat-panel…", "2/7 Creating the cat-panel project…"))
+            val (projectId, envId) = api { ApiHostClient.rwCreateProject(token, ApiHostPlan.DEPLOY_NAME) }
+            step("   ✓ project " + projectId.take(8) + "…")
+            step(t("3/7 سرویس از ایمیج ", "3/7 Service from image ") + ApiHostPlan.RAILWAY_IMAGE + "…")
+            val serviceId = api { ApiHostClient.rwCreateService(token, projectId, ApiHostPlan.DEPLOY_NAME, ApiHostPlan.RAILWAY_IMAGE) }
+            step(t("4/7 متغیرها (UUID، TROJAN_PASS، PORT)…", "4/7 Variables (UUID, TROJAN_PASS, PORT)…"))
+            api {
+                ApiHostClient.rwUpsertVariables(token, projectId, envId, serviceId, linkedMapOf(
+                    "UUID" to uuid,
+                    "TROJAN_PASS" to pass,
+                    "PORT" to ApiHostPlan.RAILWAY_PORT.toString(),
+                    "CAT_PANEL_TAG" to tag,
+                ))
+            }
+            step(t("5/7 دستور شروع (لانچر ", "5/7 Start command (launcher ") + tag + ")…")
+            api { ApiHostClient.rwSetStartCommand(token, serviceId, envId, ApiHostPlan.railwayStartCommand(tag)) }
+            step(t("6/7 دامنه…", "6/7 Domain…"))
+            val domain = api { ApiHostClient.rwCreateDomain(token, serviceId, envId, ApiHostPlan.RAILWAY_PORT) }
+            val base = ApiHostPlan.httpsBase(domain) ?: throw IllegalStateException("domain: $domain")
+            step("   ✓ $base")
+            step(t("7/7 Deploy…", "7/7 Deploy…"))
+            runCatching { ApiHostClient.rwDeploy(token, serviceId, envId) }.onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
+            var status = ""
+            for (i in 0 until 24) {
+                delay(10_000)
+                status = ApiHostClient.rwStatus(token, serviceId, envId).ifBlank { status }
+                if (i % 3 == 2 || status == "SUCCESS" || status == "FAILED" || status == "CRASHED") step("   … " + status.ifBlank { "?" } + " (" + ((i + 1) * 10) + "s)")
+                if (status == "SUCCESS" || status == "FAILED" || status == "CRASHED") break
+            }
+            val ref = ApiHostPlan.railwayRef(projectId, serviceId, envId)
+            val now = System.currentTimeMillis()
+            val saved = SavedNodeHost("railway-$serviceId", kind, "cat-panel · Railway", base, uuid, ref, now, now, pass)
+            store.save(saved)
+            if (status == "FAILED" || status == "CRASHED") {
+                Outcome(saved, emptyList(), false, t(
+                    "Deploy روی Railway شکست خورد (" + status + "). در railway.com ← پروژهٔ cat-panel ← Deployments ← View logs علت را ببینید (معمولاً اعتبار/پلن تمام شده).",
+                    "The Railway deploy failed (" + status + "). On railway.com → cat-panel project → Deployments → View logs (usually the credit/plan ran out).",
+                ))
+            } else {
+                step(t("تست پنل از همین گوشی (تا ۳ دقیقه)…", "Testing the panel from this phone (up to 3 min)…"))
+                val check = verify(kind, base, uuid, step, 180)
+                Outcome(saved, check.links, check.ok, check.headline)
+            }
+        }) { outcome, lines -> showOutcome(outcome, lines) }
+    }
+
+    /** «🔁 Update» on an API host: Bot-Hosting rewrites the files and restarts; Railway redeploys the same service. */
+    private fun updateApiHost(item: SavedNodeHost) {
+        if (item.kind == NodeHostPanel.BOTHOSTING) {
+            val key = store.botHostingKey
+            if (!ApiHostPlan.isBotHostingKey(key)) { askBotHostingKey(); return }
+            confirmApiInstall(NodeHostPanel.BOTHOSTING) { installBotHosting(key) }
+            return
+        }
+        val token = store.railwayToken
+        val ref = ApiHostPlan.parseRailwayRef(item.serverId)
+        if (token.isBlank() || ref == null) { askRailwayToken(); return }
+        message2(
+            t("🔁 به‌روزرسانی روی Railway", "🔁 Update on Railway"),
+            t(
+                "همان سرویس دوباره Deploy می‌شود؛ لانچر هنگام شروع جدیدترین نسخهٔ پنل را می‌گیرد (UUID و کانفیگ‌ها عوض نمی‌شوند).",
+                "The same service is deployed again; at start the launcher fetches the newest panel (the UUID and configs stay the same).",
+            ),
+            t("Deploy کن", "Deploy"),
+        ) {
+            runSteps<Outcome>("🚂 Railway", { step ->
+                val tag = NodeHostPanel.releaseTag(BuildConfig.VERSION_NAME)
+                runCatching {
+                    ApiHostClient.rwUpsertVariables(token, ref.first, ref.third, ref.second, mapOf("CAT_PANEL_TAG" to tag))
+                    ApiHostClient.rwSetStartCommand(token, ref.second, ref.third, ApiHostPlan.railwayStartCommand(tag))
+                }.onFailure { step("   ⚠️ " + apiExplain(NodeHostPanel.RAILWAY, it)) }
+                step("Deploy…")
+                try { ApiHostClient.rwDeploy(token, ref.second, ref.third) } catch (e: Exception) { throw IllegalStateException(apiExplain(NodeHostPanel.RAILWAY, e)) }
+                delay(45_000)
+                val check = verify(item.kind, item.base, item.uuid, step, 150)
+                Outcome(item, check.links, check.ok, check.headline)
+            }) { outcome, lines -> showOutcome(outcome, lines) }
+        }
     }
 
     // ------------------------------------------------------------------------------------
@@ -596,6 +918,10 @@ class NodeHostController(
     }
 
     private fun nextStepsAfterZip(kind: String): String = when (kind) {
+        NodeHostPanel.BOTHOSTING -> t(
+            "حالا: bot-hosting.net ← دیپلوی Node.js ← Files ← Upload ← همین zip ← Unarchive ← Settings ← Startup: فایل اصلی index.js ← Domains ← Activate ← Start ← آدرس را کپی کنید ← «✍️ پنلم را اضافه کن». راه سریع‌تر: «⚡ نصب خودکار».",
+            "Now: bot-hosting.net → a Node.js deployment → Files → Upload → this zip → Unarchive → Settings → Startup: entry file index.js → Domains → Activate → Start → copy the address → «✍️ Add my panel». Faster: «⚡ Install automatically».",
+        )
         NodeHostPanel.KATABUMP -> t(
             "حالا: control.katabump.com ← سرورتان ← Files ← Upload ← همین zip ← سه‌نقطهٔ کنار zip ← Unarchive ← Startup: فایل اصلی index.js و Node 20+ ← Console ← Start ← آدرس آی‌پی:پورت بالای صفحه را کپی کنید ← «✍️ پنلم را اضافه کن».",
             "Now: control.katabump.com → your server → Files → Upload → this zip → three dots next to it → Unarchive → Startup: main file index.js and Node 20+ → Console → Start → copy the IP:port at the top → «✍️ Add my panel».",
@@ -609,6 +935,8 @@ class NodeHostController(
     private fun siteFor(kind: String): String = when (kind) {
         NodeHostPanel.KATABUMP -> NodeHostPanel.KATABUMP_CONTROL
         NodeHostPanel.LUCITY -> NodeHostPanel.LUCITY_LOGIN
+        NodeHostPanel.BOTHOSTING -> ApiHostPlan.BOTHOSTING_DASHBOARD
+        NodeHostPanel.RAILWAY -> ApiHostPlan.RAILWAY_DASHBOARD
         else -> NodeHostPanel.SHIPRR_SIGNUP
     }
 
@@ -629,7 +957,12 @@ class NodeHostController(
     // ------------------------------------------------------------------------------------
 
     fun autoInstall(kind: String) {
-        if (kind == NodeHostPanel.KATABUMP) confirmKataBumpRules { askPteroKey() } else askGithubToken(kind)
+        when (kind) {
+            NodeHostPanel.KATABUMP -> confirmKataBumpRules { askPteroKey() }
+            NodeHostPanel.BOTHOSTING -> askBotHostingKey()
+            NodeHostPanel.RAILWAY -> askRailwayToken()
+            else -> askGithubToken(kind)
+        }
     }
 
     private fun askPteroKey() {
@@ -985,7 +1318,7 @@ class NodeHostController(
             box.addView(button(t("📋 کپی لینک اشتراک (برای برنامه‌های دیگر)", "📋 Copy the subscription link (for other apps)")) {
                 copy(NodeHostPanel.subUrl(saved.base, saved.uuid))
             }, lp(6))
-            if (saved.kind == NodeHostPanel.KATABUMP) {
+            if (saved.kind == NodeHostPanel.KATABUMP || saved.kind == NodeHostPanel.BOTHOSTING) {
                 remindLater(saved)
                 box.addView(label(t(
                     "🔔 یادآوری تمدید برای ۳ روز دیگر تنظیم شد (KataBump بعد از ۴ روز بدون تمدید پاک می‌کند). اگر امروز تمدید نکرده‌اید، همین حالا «🔁 تمدید» را بزنید.",
@@ -1301,11 +1634,31 @@ class NodeHostController(
     // ------------------------------------------------------------------------------------
 
     fun renew(kind: String) {
-        if (kind != NodeHostPanel.KATABUMP) {
+        if (kind == NodeHostPanel.RAILWAY) {
+            val items = store.list().filter { it.kind == kind }
+            when {
+                items.isEmpty() -> autoInstall(kind)
+                items.size == 1 -> updateApiHost(items.first())
+                else -> pick(items) { updateApiHost(it) }
+            }
+            return
+        }
+        if (kind != NodeHostPanel.KATABUMP && kind != NodeHostPanel.BOTHOSTING) {
             redeploy(kind)
             return
         }
         val items = store.list().filter { it.kind == kind }
+        if (kind == NodeHostPanel.BOTHOSTING && items.isEmpty()) {
+            message2(
+                t("🔁 تمدید Bot-Hosting", "🔁 Renew Bot-Hosting"),
+                t(
+                    "هنوز پنلی از Bot-Hosting اینجا ثبت نشده. داشبورد را باز کنید ← دیپلوی ← Renew (پلن رایگان هر ۴ روز).",
+                    "No Bot-Hosting panel is registered here yet. Open the dashboard → the deployment → Renew (free plan: every 4 days).",
+                ),
+                t("باز کردن داشبورد", "Open the dashboard"),
+            ) { open(ApiHostPlan.BOTHOSTING_DASHBOARD) }
+            return
+        }
         when {
             items.isEmpty() -> message2(
                 t("🔁 تمدید KataBump", "🔁 Renew KataBump"),
@@ -1322,11 +1675,13 @@ class NodeHostController(
 
     private fun countdown(item: SavedNodeHost): String {
         val left = NodeHostPanel.daysLeft(item.renewedAt, System.currentTimeMillis())
+        // KataBump opens Renew in the last 2 days; Bot-Hosting 3 days before the due date.
+        val window = if (item.kind == NodeHostPanel.BOTHOSTING) 3.0 else 2.0
         return when {
             left == null -> t("⏳ زمان تمدید معلوم نیست", "⏳ Renewal time unknown")
-            left <= 0 -> t("⛔ مهلت گذشته — فوراً تمدید کنید (KataBump یک روز بعد پاک می‌کند)", "⛔ Overdue — renew now (KataBump deletes one day later)")
-            left > 2.0 -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز مانده — هنوز زود است؛ دکمهٔ Renew از ", " days left — too early; Renew opens in ") +
-                String.format(java.util.Locale.US, "%.1f", left - 2.0) + t(" روز دیگر فعال می‌شود", " days")
+            left <= 0 -> t("⛔ مهلت گذشته — فوراً تمدید کنید", "⛔ Overdue — renew now")
+            left > window -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز مانده — هنوز زود است؛ دکمهٔ Renew از ", " days left — too early; Renew opens in ") +
+                String.format(java.util.Locale.US, "%.1f", left - window) + t(" روز دیگر فعال می‌شود", " days")
             else -> t("⏳ ", "⏳ ") + String.format(java.util.Locale.US, "%.1f", left) + t(" روز تا تمدید", " days until renewal")
         }
     }
@@ -1334,13 +1689,20 @@ class NodeHostController(
     private fun showRenew(item: SavedNodeHost) {
         val box = column()
         box.addView(label(item.name + "\n" + countdown(item), 14f, palette.textPrimary, 2))
-        box.addView(label(t(
+        if (item.kind == NodeHostPanel.BOTHOSTING) box.addView(label(t(
+            "Bot-Hosting پلن رایگان را هر ۴ روز تمدید می‌خواهد (دکمهٔ Renew از ۳ روز مانده به موعد فعال است) و API آن تمدید ندارد، پس کار شما ۱۰ ثانیه است:\n" +
+                "1) «🔁 باز کردن صفحهٔ تمدید» ← دیپلوی cat-panel ← Renew.\n2) برگردید ← «✅ تمدید کردم». برنامه ۳ روز بعد دوباره یادآوری می‌کند.\n\nاگر فراموش شود دیپلوی معلق می‌شود و ۳ روز بعد پاک می‌شود (۳۰ روز از Backups قابل برگشت است).",
+            "Bot-Hosting's free plan needs a renewal every 4 days (the Renew button unlocks 3 days before the due date) and its API has no renew call, so it takes you 10 seconds:\n" +
+                "1) «🔁 Open the renew page» → the cat-panel deployment → Renew.\n2) Come back → «✅ I renewed». The app reminds you again in 3 days.\n\nIf forgotten, the deployment is suspended, then deleted 3 days later (restorable from Backups for 30 days).",
+        ), top = 10)) else box.addView(label(t(
             "تمدید KataBump کپچا دارد («من ربات نیستم»)، پس هیچ برنامه‌ای نمی‌تواند بی‌خطر به‌جای شما بزند. کار شما ۲۰ ثانیه است:\n" +
                 "1) «🔁 باز کردن صفحهٔ تمدید» ← وارد شوید ← سرورتان ← نوار «Renewal required» ← Renew now ← کپچا ← تأیید.\n2) برگردید ← «✅ تمدید کردم». برنامه ۳ روز بعد دوباره یادآوری می‌کند.\n\nتمدید فقط در ۲ روز آخر ممکن است؛ زودتر دکمه‌اش نمی‌آید. اگر فراموش شود، سرور یک روز معلق و بعد پاک می‌شود.",
             "KataBump's renewal has a captcha («I am not a robot»), so no app can safely press it for you. It takes you 20 seconds:\n" +
                 "1) «🔁 Open the renew page» → log in → your server → the «Renewal required» banner → Renew now → captcha → confirm.\n2) Come back → «✅ I renewed». The app reminds you again in 3 days.\n\nRenewal is only possible in the last 2 days; earlier the button does not show. If forgotten, the server is suspended for a day, then deleted.",
         ), top = 10))
-        box.addView(button(t("🔁 باز کردن صفحهٔ تمدید", "🔁 Open the renew page"), filled = true) { open(NodeHostPanel.KATABUMP_DASHBOARD) }, lp(10))
+        box.addView(button(t("🔁 باز کردن صفحهٔ تمدید", "🔁 Open the renew page"), filled = true) {
+            open(if (item.kind == NodeHostPanel.BOTHOSTING) ApiHostPlan.BOTHOSTING_DASHBOARD else NodeHostPanel.KATABUMP_DASHBOARD)
+        }, lp(10))
         box.addView(button(t("✅ تمدید کردم", "✅ I renewed")) {
             store.markRenewed(item.id, System.currentTimeMillis())
             store.list().firstOrNull { it.id == item.id }?.let { remindLater(it) }
@@ -1429,7 +1791,7 @@ class NodeHostController(
             .append(item.name).append('\n')
             .append(item.base).append('\n')
             .append("UUID: ").append(item.uuid)
-        if (item.kind == NodeHostPanel.KATABUMP) info.append('\n').append(countdown(item))
+        if (item.kind == NodeHostPanel.KATABUMP || item.kind == NodeHostPanel.BOTHOSTING) info.append('\n').append(countdown(item))
         box.addView(label(info.toString(), 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
         box.addView(button(t("➕ گرفتن و اضافه کردن کانفیگ‌ها", "➕ Get and add the configs"), filled = true) {
             addChecked(item.kind, item.base, item.uuid)
@@ -1440,6 +1802,9 @@ class NodeHostController(
         if (item.kind == NodeHostPanel.KATABUMP) {
             box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(item) }, lp(6))
             box.addView(button(t("🌐 دامنه + TLS (Cloudflare)", "🌐 Domain + TLS (Cloudflare)")) { showDomainTls(item) }, lp(6))
+        } else if (NodeHostPanel.isApiHost(item.kind)) {
+            if (item.kind == NodeHostPanel.BOTHOSTING) box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(item) }, lp(6))
+            box.addView(button(t("🔁 به‌روزرسانی (نصب دوباره با API)", "🔁 Update (reinstall through the API)")) { updateApiHost(item) }, lp(6))
         } else {
             box.addView(button(t("🔁 به‌روزرسانی", "🔁 Update")) { redeploy(item.kind) }, lp(6))
         }

@@ -19,7 +19,7 @@ class NodeHostTest {
             NodeHostPanel.zipUrl("1.10.0-beta191"),
         )
         assertEquals("v1.10.0-beta191", NodeHostPanel.releaseTag("v1.10.0-beta191"))
-        assertEquals(listOf("katabump", "lucity", "shiprr"), NodeHostPanel.HOSTS.map { it.id })
+        assertEquals(listOf("katabump", "lucity", "shiprr", "bothosting", "railway"), NodeHostPanel.HOSTS.map { it.id })
         assertTrue(NodeHostPanel.HOSTS.first().free)
         assertTrue(NodeHostPanel.HOSTS.all { it.url.startsWith("https://") })
         // «🧭 from zero» opens exactly these pages: sign-up, control-panel login, API keys.

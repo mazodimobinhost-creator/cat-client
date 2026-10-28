@@ -1336,6 +1336,10 @@
     <string name="cloud_lucity_desc">از GitHub می‌سازد. «⚡ ساخت خودکار» یک مخزن خصوصی GitHub با پنل می‌سازد؛ شما در Lucity انتخابش می‌کنید (۳ قدم، قدم‌به‌قدم نشان داده می‌شود) و بعد «✍️ پنلم را اضافه کن». کانفیگ TLS روی 443.</string>
     <string name="cloud_shiprr_title">🟪 Shiprr — ۵ یورو اعتبار رایگان</string>
     <string name="cloud_shiprr_desc">از GitHub می‌سازد، آدرس name.shiprr.dev. مثل Lucity: «⚡ ساخت خودکار» ← انتخاب مخزن در Shiprr ← «✍️ پنلم را اضافه کن». برنامه واقعاً تست می‌کند WebSocket رد می‌شود یا نه.</string>
+    <string name="cloud_bothosting_title">🤖 Bot-Hosting.net — رایگان، کاملاً خودکار</string>
+    <string name="cloud_bothosting_desc">هاست رایگان ۲۵۶ مگ با API رسمی. یک کلید (bhk_…) بچسبانید؛ برنامه دیپلوی را می‌سازد، فایل‌ها را می‌گذارد، دامنهٔ HTTPS رایگان را روشن می‌کند، اجرا و واقعاً تست می‌کند. هر ۴ روز یک کلیک تمدید (برنامه یادآوری می‌کند).</string>
+    <string name="cloud_railway_title">🚂 Railway — خودکار (بعد از دورهٔ آزمایشی پولی)</string>
+    <string name="cloud_railway_desc">توکن حساب Railway را بچسبانید: برنامه پروژه، سرویس (node:22-alpine)، دامنهٔ *.up.railway.app و Deploy را می‌سازد و تست می‌کند. بعد از اعتبار آزمایشی رایگان نیست و قوانین Railway پروکسی را سوءاستفاده می‌داند — اول هشدار را بخوانید.</string>
     <string name="cloud_node_auto">⚡ نصب خودکار</string>
     <string name="cloud_node_auto_git">⚡ ساخت خودکار (GitHub)</string>
     <string name="cloud_node_zip">📦 ذخیرهٔ فایل‌ها (zip) برای آپلود دستی</string>

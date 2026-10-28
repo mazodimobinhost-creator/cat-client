@@ -200,10 +200,10 @@ package org.json
 class JSONObject(s: String = "{}") {
     fun optJSONArray(k: String): JSONArray? = null; fun optJSONObject(k: String): JSONObject? = null
     fun optString(k: String): String = ""; fun optString(k: String, d: String): String = d
-    fun optLong(k: String): Long = 0; fun optInt(k: String): Int = 0; fun optBoolean(k: String): Boolean = false; fun optBoolean(k: String, d: Boolean): Boolean = d
+    fun optLong(k: String): Long = 0; fun optInt(k: String): Int = 0; fun optInt(k: String, d: Int): Int = d; fun optBoolean(k: String): Boolean = false; fun optBoolean(k: String, d: Boolean): Boolean = d
     fun put(k: String, v: Any?): JSONObject = this
     fun keys(): Iterator<String> = TODO() }
-class JSONArray(s: String = "[]") { fun length(): Int = 0; fun optJSONObject(i: Int): JSONObject? = null; fun put(v: Any?): JSONArray = this }
+class JSONArray(s: String = "[]") { fun length(): Int = 0; fun optJSONObject(i: Int): JSONObject? = null; fun put(v: Any?): JSONArray = this; fun optString(i: Int): String = "" }
 EOF
 cat > "$T/s/R.kt" <<'EOF'
 @file:Suppress("unused", "UNUSED_PARAMETER", "PackageDirectoryMismatch")
@@ -243,7 +243,7 @@ object Color { const val TRANSPARENT = 0 }
 EOF
 SRC=$R/app/src/main/java/com/cat/client
 echo "== type-check (stubs) =="
-"$KC" "$T"/s/*.kt "$SRC/NodeHost.kt" "$SRC/NodeHostController.kt" -d "$T/out" > "$T/log" 2>&1
+"$KC" "$T"/s/*.kt "$SRC/NodeHost.kt" "$SRC/NodeHostController.kt" "$SRC/ApiHostDeploy.kt" -d "$T/out" > "$T/log" 2>&1
 grep -E 'error:' "$T/log" | grep -v "$T/s/" > "$T/errs" || true
 if [ -s "$T/errs" ]; then cat "$T/errs"; echo "TYPE-CHECK FAILED"; exit 1; fi
 echo "type-check OK (only errors outside the stubs count)"

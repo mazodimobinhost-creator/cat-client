@@ -7285,13 +7285,16 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
         )
-        val git = kind != NodeHostPanel.KATABUMP
-        val buttons = listOf<Pair<Int, () -> Unit>>(
-            Pair(R.string.cloud_node_start, { nodeHosts.showStart(kind) }),
+        val git = kind == NodeHostPanel.LUCITY || kind == NodeHostPanel.SHIPRR
+        // Bot-Hosting / Railway are driven end-to-end by their API: «⚡» IS the from-zero path (no 🧭 wizard, and
+        // Railway has no files to upload, so no 📦 zip there).
+        val api = NodeHostPanel.isApiHost(kind)
+        val buttons = listOfNotNull<Pair<Int, () -> Unit>>(
+            if (api) null else Pair(R.string.cloud_node_start, { nodeHosts.showStart(kind) }),
             Pair(if (git) R.string.cloud_node_auto_git else R.string.cloud_node_auto, { nodeHosts.autoInstall(kind) }),
-            Pair(R.string.cloud_node_zip, { nodeHosts.saveFiles(kind) }),
+            if (kind == NodeHostPanel.RAILWAY) null else Pair(R.string.cloud_node_zip, { nodeHosts.saveFiles(kind) }),
             Pair(R.string.cloud_node_register, { nodeHosts.registerManual(kind) }),
-            Pair(if (git) R.string.cloud_node_redeploy else R.string.cloud_node_renew, { nodeHosts.renew(kind) }),
+            Pair(if (git || kind == NodeHostPanel.RAILWAY) R.string.cloud_node_redeploy else R.string.cloud_node_renew, { nodeHosts.renew(kind) }),
             Pair(R.string.cloud_node_mine, { nodeHosts.showMine(kind) }),
             Pair(R.string.cloud_node_guide, { nodeHosts.showGuide(kind) }),
         )
@@ -11165,6 +11168,8 @@ class MainActivity : Activity() {
             Triple(NodeHostPanel.KATABUMP, R.string.cloud_katabump_title, R.string.cloud_katabump_desc),
             Triple(NodeHostPanel.LUCITY, R.string.cloud_lucity_title, R.string.cloud_lucity_desc),
             Triple(NodeHostPanel.SHIPRR, R.string.cloud_shiprr_title, R.string.cloud_shiprr_desc),
+            Triple(NodeHostPanel.BOTHOSTING, R.string.cloud_bothosting_title, R.string.cloud_bothosting_desc),
+            Triple(NodeHostPanel.RAILWAY, R.string.cloud_railway_title, R.string.cloud_railway_desc),
         )) {
             body.addView(nodeHostCard(kind, titleRes, descRes), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }

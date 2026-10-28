@@ -51,6 +51,11 @@ object NodeHostPanel {
     const val KATABUMP = "katabump"
     const val LUCITY = "lucity"
     const val SHIPRR = "shiprr"
+    const val BOTHOSTING = "bothosting"
+    const val RAILWAY = "railway"
+
+    /** Hosts the app drives end-to-end through their own REST/GraphQL API (no GitHub repo, no zip). */
+    fun isApiHost(kind: String): Boolean = kind == BOTHOSTING || kind == RAILWAY
 
     const val KATABUMP_SITE = "https://katabump.com"
     const val KATABUMP_CONTROL = "https://control.katabump.com"
@@ -79,6 +84,8 @@ object NodeHostPanel {
         Host(KATABUMP, "KataBump", KATABUMP_SITE, free = true),
         Host(LUCITY, "Lucity", "https://lucity.cloud", free = false),
         Host(SHIPRR, "Shiprr", "https://shiprr.app", free = false),
+        Host(BOTHOSTING, "Bot-Hosting.net", "https://bot-hosting.net", free = true),
+        Host(RAILWAY, "Railway", "https://railway.com", free = false),
     )
 
     fun hostName(kind: String): String = HOSTS.firstOrNull { it.id == kind }?.name ?: kind
@@ -293,6 +300,14 @@ internal class NodeHostStore(context: Context) {
     var pteroKey: String
         get() = prefs.getString("ptero_key", "").orEmpty()
         set(value) { prefs.edit().putString("ptero_key", value.trim()).apply() }
+
+    var botHostingKey: String
+        get() = prefs.getString("bothosting_key", "").orEmpty()
+        set(value) { prefs.edit().putString("bothosting_key", value.trim()).apply() }
+
+    var railwayToken: String
+        get() = prefs.getString("railway_token", "").orEmpty()
+        set(value) { prefs.edit().putString("railway_token", value.trim()).apply() }
 
     var githubToken: String
         get() = prefs.getString("github_token", "").orEmpty()
