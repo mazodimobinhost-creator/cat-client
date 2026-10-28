@@ -9423,6 +9423,7 @@ ${vDoctor}
   <div class="row" style="margin-top:10px"><button class="btn sm" type="button" data-goto="settings#fSettings" data-close>⚙️ ${tr2('تنظیمات اتصال کل پنل', 'Panel-wide connection settings')}</button></div>
   </div>
   <div class="upane" data-up="ip">
+  <div class="note e" id="uIpNotice" style="display:none;margin-bottom:12px;line-height:1.9">⚠️ <b>${tr2('توجه: آیپی تمیز قرار دهید', 'Note: add clean IPs')}</b> — ${tr2('این کاربر فعلاً فقط آدرس‌های پیش‌فرض را دارد که روی خیلی از اینترنت‌ها فیلترند. با VPN خاموش در «آیپی تمیز» اسکن کن و بهترین‌ها را با «ذخیره در کاربر» این‌جا بیاور.', 'This user only has the default addresses, which are filtered on many lines. Turn your VPN off, scan in «Clean IP» and bring the best ones here with «Save to user».')}<div class="row" style="margin-top:8px"><button class="btn sm pri" type="button" id="uIpGoScan" data-goto="scan" data-close>📡 ${tr2('ورود به بخش آیپی تمیز', 'Go to Clean IP')}</button></div></div>
   <label data-i="u_ips"></label>
   <textarea name="uips" rows="4" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
   <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button><select id="uPoolPick" style="width:auto;flex:1;min-width:160px"></select><button class="btn sm" type="button" id="uPoolUse">📥 ${tr2('از استخر', 'From pool')}</button></div>
@@ -10183,7 +10184,7 @@ function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textConten
  var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;f.elements.quota.value=u&&u.quotaBytes?+(u.quotaBytes/1073741824).toFixed(2):0;f.elements.maxips.value=u?(u.maxIps||0):0;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
  var pend=!!(u&&u.firstUseDays>0&&!u.expiresAt);$('#swFirst').classList.toggle('on',u?pend:true);if(pend)f.elements.days.value=u.firstUseDays;
  $('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
- f.elements.uips.value=u&&u.ips?u.ips.join('\\n'):'';
+ f.elements.uips.value=u&&u.ips?u.ips.join('\\n'):'';uIpNoticeSync();
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
  var dl=$('#dLinks');dl.__u=u||null;dl.__loaded=0;dl.innerHTML=u?richLinks(u.links,u.name,u):'';
  var pn=$('#drawer .pn');pn.classList.toggle('nolinks',!u);setUTab('base');poolsRender();connSummary();
@@ -10194,7 +10195,7 @@ function setUTab(k){var pn=$('#drawer .pn');if(!pn)return;pn.setAttribute('data-
 $$('#uTabs button').forEach(function(b){b.addEventListener('click',function(){setUTab(b.getAttribute('data-ut'))})});
 $('#fUser').addEventListener('invalid',function(e){var p=e.target.closest&&e.target.closest('.upane');if(p)setUTab(p.getAttribute('data-up'))},true);
 function poolsRender(){var sel=$('#uPoolPick');if(!sel)return;var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[];sel.innerHTML=P.length?P.map(function(p,i){return '<option value="'+i+'">'+esc(p.name)+' ('+p.ips.length+')</option>'}).join(''):'<option value="">'+esc(tx('هنوز استخری نساخته‌ای','No pools yet'))+'</option>'}
-if($('#uPoolUse'))$('#uPoolUse').addEventListener('click',function(){var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[],p=P[+$('#uPoolPick').value];if(!p){toast(tx('اول در «آیپی تمیز» یک استخر بساز','Create a pool in «Clean IP» first'),true);return}$('#fUser').elements.uips.value=p.ips.slice(0,20).join(String.fromCharCode(10));toast('✓ '+p.name)});
+if($('#uPoolUse'))$('#uPoolUse').addEventListener('click',function(){var P=(CFG&&CFG.settings&&CFG.settings.ipPools)||[],p=P[+$('#uPoolPick').value];if(!p){toast(tx('اول در «آیپی تمیز» یک استخر بساز','Create a pool in «Clean IP» first'),true);return}$('#fUser').elements.uips.value=p.ips.slice(0,20).join(String.fromCharCode(10));uIpNoticeSync();toast('✓ '+p.name)});
 function connSummary(){var box=$('#uConnSum');if(!box||!CFG||!CFG.settings)return;var s=CFG.settings,fr=s.fragment||{};box.innerHTML=tRow('TLS',(s.tlsPorts||[]).join(' · ')||'—')+tRow('Fingerprint',esc(s.fingerprint||'chrome'))+tRow('ALPN',esc(s.alpn||'http/1.1'))+tRow(tx('فرگمنت','Fragment'),fr.enabled?esc((fr.packets||'tlshello')+' · '+(fr.length||'')+' · '+(fr.interval||'')):tx('خاموش','off'))+tRow('ECH',s.echList?tx('روشن','on'):tx('خاموش','off'))}
 function linkCard(title,sub,url,qrl){return '<div><div class="hd">'+title+' <small>'+sub+'</small></div><input class="mono" readonly value="'+esc(url)+'"><div class="row"><button class="btn sm p" type="button" data-copy="'+esc(url)+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-qr="'+esc(url)+'" data-qrl="'+esc(qrl)+'">▦ QR</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tx('باز کردن','Open'))+'</a></div></div>'}
 function richLinks(L,name,u){return '<div class="lnk4">'+linkCard('🔗 '+esc(tx('ساب اصلی','Subscription')),'Base64 · v2rayNG / Hiddify / Streisand',L.sub,name)+linkCard('📦 sing-box','Hiddify / sing-box / NekoBox',L.singbox,name)+(L.xray?linkCard('🧩 Xray JSON','v2rayNG (JSON) / Xray',L.xray,name):'')+linkCard('🐱 Clash Meta','Clash Verge / FlClash / Stash',L.clash,name)+'</div>'
@@ -10211,7 +10212,9 @@ $('#btnAdd').addEventListener('click',function(){openDrawer(null)});
 $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname.value=randName()});
 /* fastest addresses of the last in-browser test, exactly as listed (IP or IP:port) */
 function fastIps(n){var BS=window.__browserScan||{};return Object.keys(BS).filter(function(k){return BS[k].ok&&BS[k].ms>0}).sort(function(a,b){return BS[a].ms-BS[b].ms}).slice(0,n||5)}
-$('#btnUserIpsFast').addEventListener('click',function(){var best=fastIps(5);if(!best.length){toast(t('u_ips_none'),true);return}$('#fUser').elements.uips.value=best.join('\\n')});
+function uIpNoticeSync(){var n=$('#uIpNotice'),f=$('#fUser');if(!n||!f)return;var own=f.elements.uips.value.trim(),pan=((CFG&&CFG.settings&&CFG.settings.ips)||[]).length;n.style.display=(!own&&!pan)?'':'none'}
+$('#fUser').elements.uips.addEventListener('input',uIpNoticeSync);
+$('#btnUserIpsFast').addEventListener('click',function(){var best=fastIps(5);if(!best.length){toast(t('u_ips_none'),true);return}$('#fUser').elements.uips.value=best.join('\\n');uIpNoticeSync()});
 $('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;var qips=fastIps(5);
  api('/api/users',{method:'POST',body:{name:randName(),days:0,firstUseDays:30,ips:qips,protocols:{vless:true,trojan:true}}}).then(function(j){if(!j||!j.ok){toast(t('b_user_save_error').replace('%1',safeDiag(j&&(j.error||j.message)||'?')),true);return}
   toast(t('u_quick_ok'));return load().then(function(){openDrawer(USERS.filter(function(x){return x.id===j.user.id})[0]||null);
