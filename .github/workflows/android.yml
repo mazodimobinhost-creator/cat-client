@@ -837,7 +837,9 @@ jobs:
           cp dist-panel/catpanel.min.js catclient.worker.js
           cp app/src/main/assets/panels/catclient.wizard.js .
           node --check catclient.worker.js
-          test "$(wc -c < catclient.worker.js)" -lt 800000
+          # Guards against shipping the ~1.9 MB obfuscated build here; kept in step with the paste budget in
+          # scripts/panels/paste-artifact.test.mjs (6.75.0: 823 182 B — beta201 failed only on the old 800 000 line).
+          test "$(wc -c < catclient.worker.js)" -lt 900000
           cp deploy-bot/worker.js cat-deploy-bot.worker.js
           # 6.69.45 Cat Panel on any Node host: the launcher zip (index.js + package.json + README) fetches
           # catclient.worker.js + cat-panel-adapter.mjs from this release and checks them against

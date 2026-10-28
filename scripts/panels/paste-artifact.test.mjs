@@ -82,7 +82,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 790 000 → 830 000 for 6.74.0 «🌍 exit locations»: the per-country ProxyIP/SOCKS library
   // (trace-proven country test, ping all, remove dead, 4 owner routes), the per-user exit picker in
   // the user modal, the quick-user «go to Clean IP» notice and the shared accordion — measured 790 338 B.
-  ok('raw size is in the paste range (300–830 KB)', asset.length >= 300_000 && asset.length <= 830_000, asset.length);
+  // Raised 830 000 → 860 000 for 6.75.0: the inbounds report + detail dialog, page tabs, the 3-step builder and
+  // the Vercel self-updater — measured 823 182 B.
+  ok('raw size is in the paste range (300–860 KB)', asset.length >= 300_000 && asset.length <= 860_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
