@@ -1458,11 +1458,12 @@ class CatClientVpnService : VpnService() {
                 ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
             } else null
         }
+        val vpnProtector: (Int) -> Boolean = { fd -> protect(fd) }
         val probe = AetherOperations.realAetherHandshake(
             rawShare,
             File(filesDir, "aether.toml"),
             timeoutMs.toLong().coerceIn(5_000L, 30_000L),
-            protectSocket = if (state == VpnState.Started) { fd -> protect(fd) } else null,
+            protectSocket = vpnProtector.takeIf { state == VpnState.Started },
         )
         if (probe.rttMs == null) {
             DiagnosticLogger.warn(this, "connection.delay.aether", "profile=${profile.tag} peer=${probe.peer} error=${probe.error}")
