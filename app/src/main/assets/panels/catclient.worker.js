@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.75.0';
+const CAT_PANEL_VERSION = '6.76.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -8435,6 +8435,7 @@ const UI_ICONS = {
   tools: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
   build: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5"/>',
   spoof: '<path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   inbounds: '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   backup: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
@@ -9008,6 +9009,7 @@ ${CLEAN_CSS}
    <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
    <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
    <button data-view="loc"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">📍</span><span class="mtx"><b>${tr2('لوکیشن و خروجی', 'Locations & exits')}</b><small>${tr2('کشور خروجی، SOCKS و پل‌ها', 'Exit country, SOCKS and bridges')}</small></span></button>
+   <button data-view="link"><span class="mi" style="background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(168,85,247,.42))">🔗</span><span class="mtx"><b>${tr2('اتصال پنل‌ها', 'Link panels')}</b><small>${tr2('کلادفلر ↔ ورسل ↔ ریلوی', 'Cloudflare ↔ Vercel ↔ Railway')}</small></span></button>
    <button data-view="tools"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">🧰</span><span class="mtx"><b>${tr2('ابزارها', 'Tools')}</b><small>${tr2('پینگ، مسیر، پورت و دامنه', 'Ping, route, port and domain')}</small></span></button>
    <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
    <button data-view="backup"><span class="mi" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><span class="mtx"><b data-i="n_backup"></b><small data-i="d_backup"></small></span></button>
@@ -9025,6 +9027,7 @@ ${CLEAN_CSS}
   <button type="button" data-view="scan">${uiIcon('scan')}<span class="lbl">${tr2('آیپی تمیز', 'Clean IP')}</span></button>
   <button type="button" data-view="loc">${uiIcon('loc')}<span class="lbl">${tr2('لوکیشن و خروجی', 'Locations & exits')}</span></button>
   <button type="button" data-view="inbounds">${uiIcon('inbounds')}<span class="lbl" data-i="n_inbounds"></span></button>
+  <button type="button" data-view="link">${uiIcon('link')}<span class="lbl">${tr2('اتصال پنل‌ها', 'Link panels')}</span></button>
   <button type="button" data-view="build">${uiIcon('build')}<span class="lbl" data-i="n_build"></span></button>
   <button type="button" data-view="tools">${uiIcon('tools')}<span class="lbl">${tr2('ابزارها', 'Tools')}</span></button>
   <div class="sbg">${tr2('پیشرفته', 'Advanced')}</div>
@@ -10023,6 +10026,42 @@ ${vDoctor}
 </section>
 
 <!-- ================= BACKUP ================= -->
+<!-- ================= 🔗 LINK PANELS (6.76.0) ================= -->
+<section class="view" id="v-link" data-sec="loc">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(168,85,247,.42))">🔗</span><div><h1>${tr2('اتصال پنل‌ها', 'Link panels')}</h1><p>${tr2('پنل کلادفلر، ورسل و ریلوی (یا هر هاست Node) را به هم وصل کن تا از خروجی، کانفیگ و آی‌پی همدیگر استفاده کنند.', 'Link your Cloudflare, Vercel and Railway (any Node host) panels so they can use each other’s exit, configs and IPs.')}</p></div></div>
+ <div class="card sec" id="lkPair">
+  <h2><span class="ic">🎟️</span><span>${tr2('۱) وصل کردن دو پنل', '1) Link two panels')}</span></h2>
+  <p class="nsub">${tr2('در پنل اول «ساخت کد» را بزن و کد را کپی کن. در پنل دوم کد را بچسبان و «وصل کن» را بزن. همین — هر دو پنل همدیگر را می‌شناسند.', 'In the first panel press «Make code» and copy it. In the second panel paste it and press «Link». That’s all — both panels now know each other.')}</p>
+  <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn p" type="button" id="lkMake">🎟️ ${tr2('ساخت کد اتصال (در این پنل)', 'Make a link code (on this panel)')}</button></div>
+  <div id="lkOutBox" style="display:none;margin-top:10px">
+   <textarea id="lkOut" readonly rows="3" style="width:100%;direction:ltr;font-family:monospace;font-size:12px" aria-label="${tr2('کد اتصال', 'Link code')}"></textarea>
+   <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap"><button class="btn" type="button" id="lkCopy">📋 ${tr2('کپی کد', 'Copy code')}</button><span class="small mute" id="lkExp"></span></div>
+   <div class="note w small" style="margin-top:8px">🔐 ${tr2('این کد مثل رمز است: فقط یک‌بار و تا ۳۰ دقیقه کار می‌کند. آن را جایی عمومی نگذار.', 'This code is like a password: it works once and only for 30 minutes. Don’t post it anywhere public.')}</div>
+  </div>
+  <div style="margin-top:14px">
+   <label class="small" for="lkCode">${tr2('کدی که در پنل دیگر ساختی را اینجا بچسبان:', 'Paste the code you made on the other panel:')}</label>
+   <textarea id="lkCode" rows="2" placeholder="CATLINK1-…" style="width:100%;direction:ltr;font-family:monospace;font-size:12px;margin-top:4px"></textarea>
+   <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap"><button class="btn p" type="button" id="lkJoin">🔗 ${tr2('وصل کن', 'Link')}</button><span class="small" id="lkMsg"></span></div>
+  </div>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">🧩</span><span>${tr2('۲) پنل‌های وصل‌شده', '2) Linked panels')}</span></h2>
+  <div id="lkSelf" class="small mute"></div>
+  <div id="lkList" style="margin-top:10px"><div class="small mute">…</div></div>
+ </div>
+ <div class="card sec">
+  <h2><span class="ic">💡</span><span>${tr2('کدام دکمه چه می‌کند؟ (به زبان ساده)', 'What does each button do? (plain words)')}</span></h2>
+  <ul class="small" style="line-height:1.9;padding-inline-start:18px;margin:6px 0">
+   <li>🩺 <b>${tr2('بررسی واقعی', 'Real check')}</b> — ${tr2('اینو بزنی: پنل واقعاً از داخل پنل دیگر به اینترنت وصل می‌شود و آی‌پی و کشور خروجی را نشان می‌دهد. اگر ❌ شد، خروجی را روشن نکن.', 'Press it: the panel really connects to the internet THROUGH the other panel and shows the exit IP and country. If it says ❌, don’t switch the exit on.')}</li>
+   <li>🚪 <b>${tr2('خروجی از این پنل → فقط سایت‌های کلادفلر', 'Exit via this panel → Cloudflare sites only')}</b> — ${tr2('اینو بزنی: سایت‌هایی که پشت کلادفلرند (که ورکر مستقیم بازشان نمی‌کند) به‌جای ProxyIP از پنل دیگر باز می‌شوند. بهترین ترکیب: پنل کلادفلر + خروجی از ورسل.', 'Press it: Cloudflare-hosted sites (which a Worker can’t open directly) open through the other panel instead of a ProxyIP. Best combo: Cloudflare panel + exit via Vercel.')}</li>
+   <li>🌍 <b>${tr2('خروجی از این پنل → همهٔ ترافیک', 'Exit via this panel → all traffic')}</b> — ${tr2('اینو بزنی: همهٔ سایت‌ها با آی‌پی پنل دیگر باز می‌شوند (مثلاً آی‌پی آمریکای ورسل یا آی‌پی ثابت ریلوی برای Gemini و ChatGPT). کمی کندتر است چون دو پرش دارد.', 'Press it: every site opens with the other panel’s IP (e.g. Vercel’s US IP or Railway’s fixed IP for Gemini and ChatGPT). A bit slower — two hops.')}</li>
+   <li>➕ <b>${tr2('کانفیگ‌های این پنل به ساب کاربرانم', 'Add this panel’s configs to my users’ subs')}</b> — ${tr2('اینو بزنی: هر کاربر تو با همان لینک ساب، کانفیگ‌های پنل دیگر را هم می‌گیرد (با 🔗 در اسم). اگر یکی فیلتر شد، دیگری کار می‌کند. کاربر غیرفعال یا منقضی در پنل دیگر هم کار نمی‌کند.', 'Press it: every user gets the other panel’s configs in the same sub link (named with 🔗). If one gets filtered the other still works. A disabled or expired user stops working there too.')}</li>
+   <li>📥 <b>${tr2('گرفتن ProxyIP / آی‌پی تمیز', 'Import ProxyIPs / clean IPs')}</b> — ${tr2('اینو بزنی: ProxyIPها و آی‌پی‌های تست‌شدهٔ پنل دیگر دقیقاً با همان پورت به این پنل اضافه می‌شوند. SOCKS و رمزها هیچ‌وقت منتقل نمی‌شوند.', 'Press it: the other panel’s tested ProxyIPs / clean IPs are added here with exactly the same ports. SOCKS relays and passwords are never copied.')}</li>
+   <li>⚠️ ${tr2('دو پنل کلادفلر نمی‌توانند از همدیگر خارج شوند (کلادفلر اجازه نمی‌دهد)، ولی اضافه شدن کانفیگ به ساب بینشان کار می‌کند.', 'Two Cloudflare panels cannot exit through each other (Cloudflare forbids it), but sharing configs in the sub works between them.')}</li>
+  </ul>
+ </div>
+</section>
+
 <section class="view" id="v-backup" data-sec="set">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(249,115,22,.20),rgba(249,115,22,.42))">💾</span><div><h1 data-i="n_backup"></h1><p data-i="d_backup"></p></div></div>
  <div class="card sec">
@@ -10261,7 +10300,7 @@ function show(v){var ptk='';if(typeof PT_AL!=='undefined'&&PT_AL[v]){ptk=PT_AL[v
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds()}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -10752,6 +10791,35 @@ var IB=null,IBSEL=null;
 var IBK={own:['🧹','آی‌پی تمیز خودت','your clean IP'],def:['📦','آی‌پی پیش‌فرض','built-in IP'],repo:['🔄','منبع خودکار','auto source'],host:['🌐','دامنهٔ پنل','panel domain'],other:['➕','آدرس دیگر','other address'],px:['🎯','ProxyIP','ProxyIP'],socks:['🧦','SOCKS','SOCKS'],sni:['🧬','SNI اضافه','extra SNI'],front:['🟧','جلوی کلودفلر','CF front']};
 function ibKindLbl(k){var d=IBK[k]||['•',k,k];return d[0]+' '+tx(d[1],d[2])}
 function renderInbounds(){if(!$('#ibGrid'))return;return api('/api/inbounds').then(function(j){if(!j||!j.ok){$('#ibGrid').innerHTML='<div class="note w">'+esc((j&&j.error)||'?')+'</div>';return}IB=j;ibDraw()}).catch(function(e){$('#ibGrid').innerHTML='<div class="note w">'+esc(safeDiag(e&&e.message||e))+'</div>'})}
+var LKD=null;function LK(a,b){return lang==='en'?b:a}
+function lkPlat(i){var p=(i&&i.platform)||'cf';return p==='vercel'?'▲ Vercel':(p==='node'?(i.edge==='cf'?'🚂 Node (Cloudflare)':'🚂 Railway / Node'):'☁️ Cloudflare')}
+function lkAgo(t){if(!t)return '—';var s=Math.round((Date.now()-t)/1000);if(s<90)return s+LK(' ثانیه پیش',' s ago');var m=Math.round(s/60);if(m<90)return m+LK(' دقیقه پیش',' min ago');return Math.round(m/60)+LK(' ساعت پیش',' h ago')}
+function lkLoad(){if(!$('#lkList'))return Promise.resolve();return api('/api/links').then(function(j){if(!j||!j.ok){$('#lkList').innerHTML='<div class="note w">'+esc((j&&j.error)||'?')+'</div>';return}LKD=j;lkDraw()}).catch(function(e){$('#lkList').innerHTML='<div class="note w">'+esc(safeDiag(e&&e.message||e))+'</div>'})}
+function lkRes(id,h){var e=document.querySelector('[data-lkres="'+id+'"]');if(e)e.innerHTML=h}
+function lkDraw(){var j=LKD,s=j.self||{};$('#lkSelf').innerHTML=LK('این پنل: ','This panel: ')+'<b>'+esc(lkPlat(s))+'</b> · <span style="direction:ltr;display:inline-block">'+esc(s.host||'')+'</span>'+(s.data===false?' · <span style="color:var(--red)">'+LK('دیتاپلین خاموش است — پنل دیگر نمی‌تواند از این پنل خارج شود','data plane is off — the other panel cannot exit through this one')+'</span>':'')+(j.exit?' · 🚪 '+LK('خروجی فعلی: ','current exit: ')+'<b>'+esc(j.exit.name||j.exit.host)+'</b> ('+(j.exit.mode==='all'?LK('همهٔ ترافیک','all traffic'):LK('فقط سایت‌های کلادفلر','Cloudflare sites only'))+')':'');
+ if(!j.peers.length){$('#lkList').innerHTML='<div class="note">'+LK('هنوز پنلی وصل نشده. از کارت بالا شروع کن.','No linked panel yet. Start with the card above.')+'</div>';return}
+ $('#lkList').innerHTML=j.peers.map(function(p){var id=esc(p.id);
+  var st=p.lastErr?'<span style="color:var(--red)">❌ '+esc(p.lastErr)+'</span>':(p.lastOk?'✅ '+LK('آخرین پاسخ ','last answer ')+lkAgo(p.lastOk)+(p.lastMs?' · '+p.lastMs+'ms':''):'');
+  var ex=['','cf','all'].map(function(m){var lbl=m===''?LK('خاموش','Off'):(m==='cf'?LK('فقط سایت‌های کلادفلر','Cloudflare sites only'):LK('همهٔ ترافیک','All traffic'));return '<button type="button" data-lk="exit" data-id="'+id+'" data-m="'+m+'" class="'+(p.exit===m?'on':'')+'"'+(!p.exitCapable&&m?' disabled':'')+'>'+lbl+'</button>'}).join('');
+  return '<div class="card" style="margin:0 0 10px;padding:12px" data-peer="'+id+'">'
+   +'<div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>🔗 '+esc(p.name)+'</b> <span class="small mute">'+esc(lkPlat(p.info))+(p.info&&p.info.v?' · v'+esc(p.info.v):'')+'</span><div class="small mute" style="direction:ltr;text-align:start">'+esc(p.host)+'</div></div><div class="small">'+st+'</div></div>'
+   +'<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" type="button" data-lk="check" data-id="'+id+'">🩺 '+LK('بررسی واقعی','Real check')+'</button><span class="small" data-lkres="'+id+'"></span></div>'
+   +'<div class="ibrow" style="margin-top:10px"><span class="iblbl">🚪 '+LK('خروجی از این پنل','Exit via this panel')+'</span><div class="pick">'+ex+'</div></div>'
+   +(!p.exitCapable?'<div class="small mute">'+LK('دو پنل کلادفلر نمی‌توانند از همدیگر خارج شوند — اضافه کردن به ساب کار می‌کند.','Two Cloudflare panels cannot exit through each other — adding to the sub works.')+'</div>':'')
+   +'<label class="row small" style="gap:8px;margin-top:10px;align-items:center;cursor:pointer"><input type="checkbox" data-lk="sub" data-id="'+id+'"'+(p.sub?' checked':'')+'> ➕ '+LK('کانفیگ‌های این پنل به ساب کاربرانم اضافه شود','Add this panel’s configs to my users’ subs')+(p.sub?' <span class="mute">('+p.mirrored+' '+LK('کاربر','users')+')</span>':'')+'</label>'
+   +'<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">'+(p.sub?'<button class="btn sm" type="button" data-lk="sync" data-id="'+id+'">🔄 '+LK('همگام‌سازی کاربران','Sync users')+'</button>':'')+'<button class="btn sm" type="button" data-lk="px" data-id="'+id+'">📥 '+LK('گرفتن ProxyIP','Import ProxyIPs')+'</button><button class="btn sm" type="button" data-lk="ips" data-id="'+id+'">📥 '+LK('گرفتن آی‌پی تمیز','Import clean IPs')+'</button><button class="btn sm" type="button" data-lk="rm" data-id="'+id+'" style="color:var(--red)">🗑️ '+LK('قطع اتصال','Unlink')+'</button></div>'
+   +'</div>'}).join('')}
+if($('#lkList')){$('#lkList').addEventListener('click',function(ev){var b=ev.target.closest('[data-lk]');if(!b||b.tagName==='INPUT')return;var k=b.getAttribute('data-lk'),id=b.getAttribute('data-id');
+ if(k==='check'){b.disabled=true;lkRes(id,'⏳ '+LK('در حال تست واقعی…','Testing for real…'));api('/api/links/check',{method:'POST',body:{id:id}}).then(function(j){var h=j.api?'✅ API '+j.ms+'ms':'❌ API '+esc(j.error||'');if(j.tunnel){if(j.tunnel.skipped)h+=' · '+LK('خروجی: ممکن نیست (کلادفلر ↔ کلادفلر)','exit: not possible (CF ↔ CF)');else if(j.tunnel.ok&&j.tunnel.exitIp)h+=' · ✅ '+LK('خروجی','exit')+' <span style="direction:ltr;display:inline-block">'+esc(j.tunnel.exitIp)+'</span> '+esc(j.tunnel.cc||'')+' · '+j.tunnel.ms+'ms';else h+=' · ❌ '+LK('تونل','tunnel')+': '+esc(j.tunnel.error||j.tunnel.status||'?')}return lkLoad().then(function(){lkRes(id,h)})}).catch(function(e){lkRes(id,'❌ '+esc(safeDiag(e&&e.message||e)))}).then(function(){b.disabled=false});return}
+ if(k==='exit'){var m=b.getAttribute('data-m');api('/api/links/set',{method:'POST',body:{id:id,exit:m}}).then(function(j){if(!j.ok){toast(j.error==='cf-to-cf'?LK('دو پنل کلادفلر نمی‌توانند از همدیگر خارج شوند','Two Cloudflare panels cannot exit through each other'):(j.error||'?'));return}toast('✓');lkLoad()});return}
+ if(k==='sync'){b.disabled=true;api('/api/links/sync',{method:'POST',body:{id:id}}).then(function(j){var r=(j.sync||[])[0]||{};lkRes(id,r.ok?'✅ '+r.n+LK(' کاربر همگام شد',' users synced'):'❌ '+esc(r.error||j.error||'?'))}).then(function(){b.disabled=false});return}
+ if(k==='px'||k==='ips'){b.disabled=true;api('/api/links/import',{method:'POST',body:{id:id,what:k}}).then(function(j){if(!j.ok){lkRes(id,'❌ '+esc(j.error||'?'));return}if(k==='ips'&&!j.sameEdge){lkRes(id,LK('آی‌پی تمیز فقط بین دو پنلِ پشت کلادفلر معنی دارد — چیزی اضافه نشد.','Clean IPs only make sense between two Cloudflare-fronted panels — nothing added.'));return}lkRes(id,'✅ '+(k==='px'?j.px+' ProxyIP':j.ips+LK(' آی‌پی',' IPs'))+LK(' اضافه شد (با همان پورت)',' added (same ports)'))}).then(function(){b.disabled=false});return}
+ if(k==='rm'){if(!confirm(LK('اتصال با این پنل قطع شود؟ در پنل دیگر هم قطع می‌شود.','Unlink this panel? It is removed on the other side too.')))return;api('/api/links/remove',{method:'POST',body:{id:id}}).then(function(){toast('✓');lkLoad()});return}
+});
+$('#lkList').addEventListener('change',function(ev){var c=ev.target;if(!c||c.getAttribute('data-lk')!=='sub')return;var id=c.getAttribute('data-id');api('/api/links/set',{method:'POST',body:{id:id,sub:c.checked}}).then(function(j){if(!j.ok){toast(j.error||'?');c.checked=!c.checked;return}var r=(j.sync||[])[0];toast(r&&!r.ok?'⚠️ '+(r.error||''):'✓');lkLoad()})})}
+if($('#lkMake'))$('#lkMake').addEventListener('click',function(){var b=this;b.disabled=true;api('/api/links/code',{method:'POST'}).then(function(j){if(!j.ok){toast(j.error||'?');return}$('#lkOutBox').style.display='block';$('#lkOut').value=j.code;$('#lkExp').textContent=LK('معتبر تا ','valid until ')+new Date(j.exp).toLocaleTimeString()}).then(function(){b.disabled=false})});
+if($('#lkCopy'))$('#lkCopy').addEventListener('click',function(){var v=$('#lkOut').value;if(v){copy(v);try{$('#lkOut').select()}catch(e){}}});
+if($('#lkJoin'))$('#lkJoin').addEventListener('click',function(){var b=this,v=$('#lkCode').value.trim(),msg=$('#lkMsg');if(!v){msg.textContent=LK('اول کد را بچسبان','Paste the code first');return}b.disabled=true;msg.textContent='⏳';api('/api/links/join',{method:'POST',body:{code:v}}).then(function(j){if(!j.ok){msg.textContent='❌ '+(j.error||'?');return}msg.textContent='✅ '+LK('وصل شد به ','Linked to ')+j.peer.host+' — '+LK('حالا «بررسی واقعی» را بزن','now press «Real check»');$('#lkCode').value='';lkLoad()}).catch(function(e){msg.textContent='❌ '+safeDiag(e&&e.message||e)}).then(function(){b.disabled=false})});
 function ibPicks(){var j=IB;IBSEL={vless:!!j.protocols.vless,tj:!!j.protocols['tr'+'ojan'],tls:(j.tlsPorts||[]).map(Number),plain:j.plainEnabled?(j.plainPorts||[]).map(Number):[]}}
 function ibDrawPicks(){var j=IB,S=IBSEL;$$('#ibProto button').forEach(function(b){b.classList.toggle('on',!!S[b.getAttribute('data-v')]);b.disabled=!!j.locked});
  function chips(all,cur,kind){var list=all.slice();cur.forEach(function(p){if(list.indexOf(p)<0)list.push(p)});return list.map(function(p){return '<button type="button" data-ibport="'+kind+':'+p+'" class="'+(cur.indexOf(p)>=0?'on':'')+'"'+(j.locked?' disabled':'')+'>'+p+'</button>'}).join('')}

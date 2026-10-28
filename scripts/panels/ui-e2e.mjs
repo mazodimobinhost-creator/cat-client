@@ -150,7 +150,7 @@ check('لینکِ ساب ساخته می‌شود و از همین هاست بی
 // فعال‌شدن = «view on» روی همان بخش + «on» روی دکمه (تابعِ show در پنل).
 // روی صفحهٔ موبایل منو بسته است، پس اول باید باز شود — دقیقاً کاری که کاربر می‌کند.
 // 6.75.0: «nodes» و «spoof» دیگر صفحهٔ جدا نیستند — تبِ «آیپی تمیز» و «لوکیشن» شدند (فقط به‌عنوان میان‌بر data-view می‌مانند).
-const ALL_VIEWS = ['dash', 'clients', 'inbounds', 'scan', 'build', 'loc', 'tools', 'settings', 'backup', 'about'];
+const ALL_VIEWS = ['dash', 'clients', 'inbounds', 'link', 'scan', 'build', 'loc', 'tools', 'settings', 'backup', 'about'];
 const ALIAS_VIEWS = ['nodes', 'spoof'];
 const navNames = await page.$$eval('[data-view]', (els) => [...new Set(els.map((e) => e.getAttribute('data-view')))]);
 say(`# دکمه‌های ناوبری در DOM: ${navNames.join(', ')}`);

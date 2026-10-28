@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta202] — 2026-10-28 (Panel 6.76.0)
+
+### Added — panel 6.76.0 «🔗 link panels» (Cloudflare ↔ Vercel ↔ Railway / Node)
+- **New page «🔗 Link panels».** Press «🎟️ make a link code» on one panel, paste the code on the other panel, press «🔗 link» — done. The code is single-use, valid 30 minutes, carries only the panel address + a random secret; a panel cannot link to itself; at most 8 links. Both sides store one shared secret and a **separate link UUID** each, so either side can revoke («🗑️ unlink» removes the link on both panels).
+- **Exit through the linked panel (real VLESS-WS chain).** Per link: *Off* / *Cloudflare sites only* / *All traffic*. «Cloudflare sites only» on a Cloudflare panel linked to Vercel/Railway opens Cloudflare-hosted sites through the other panel instead of a ProxyIP; «All traffic» gives every site the other panel’s IP (Vercel US / Railway fixed IP — e.g. for Gemini). A failed hop falls back to the normal route. Traffic that arrived over a link never leaves over a link again (no A→B→A loop). Cloudflare → Cloudflare exit is refused with an explanation (Workers cannot open sockets to Cloudflare addresses).
+- **«🩺 Real check»**: the peer API answers with the shared secret (ms shown) **and** a tunnel through the peer reaches ip-api.com and reports the real exit IP + country. Nothing is assumed.
+- **Combined subscription.** «➕ add this panel’s configs to my users’ subs»: every user’s sub link also carries the other panel’s configs (tagged 🔗, built by the other panel for its own host/ports, same user UUID). Users are mirrored there with only id + enabled + expiry (pushed on toggle, on «🔄 sync users», after every user change, and leased on each sub fetch for 45 days); a disabled or expired user stops working there too. Pinned/limited links (`?limit`, `?addr`) and Clash/sing-box/Xray-JSON outputs stay as they were.
+- **Import from the linked panel**: «📥 ProxyIPs» / «📥 clean IPs» copy the other panel’s tested entries with **exactly** their ports (e.g. `103.237.102.191:11111`); SOCKS relays and credentials are never shared. Clean IPs move only between two Cloudflare-fronted panels.
+- Peer endpoints (`/api/link/*`) need the shared secret (401 otherwise); owner endpoints (`/api/links*`) need the panel session. New test `scripts/panels/mesh.test.mjs` pairs a real Cloudflare and a real Vercel panel instance end-to-end.
+
 ## [1.10.0-beta201] — 2026-10-28 (Panel 6.75.0)
 
 ### Added — panel 6.75.0 «useful inbounds, tidy pages, Vercel self-update»
