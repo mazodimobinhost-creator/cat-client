@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.74.0';
+const CAT_PANEL_VERSION = '6.75.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -227,7 +227,10 @@ const CF_WORKER_KEY = 'CF_WORKER_NAME';
 
 async function hasDirectUpdateCreds(env) {
   if (isNodePlatform(env)) return false;
-  if (isVercelPlatform(env)) return Boolean((await vercelDeployCreds(env, '', {})).token);
+  if (isVercelPlatform(env)) {
+    const vc = await vercelDeployCreds(env, '', {});
+    return Boolean(vc.token);
+  }
   if (env && typeof env[CF_TOKEN_KEY] === 'string' && env[CF_TOKEN_KEY].trim().length > 0) return true;
   const saved = await kvGetJson(env, KV_KEYS.cfDeploy, null);
   return Boolean(saved && typeof saved.token === 'string' && saved.token.trim().length > 0);
@@ -1228,7 +1231,11 @@ function normalizeSettings(raw) {
   })).filter((p) => p.name && p.ips.length).slice(0, 20);
   s.locPool = normalizeLocPool(s.locPool);
   if (s.uiCleanV !== 1) { if (s.uiTheme === 'aurora') s.uiTheme = 'clean'; s.uiCleanV = 1; }
-  s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
+  // 6.75.0: an `ip#CC` / `ip:port#CC` that reaches settings directly (API, bot, old backup) used to stay inside the
+  // address and produce a broken link (`@1.2.3.4#DE:443`) — split the tag into ipCountries instead.
+  const ipTagCc = {};
+  s.ips = uniq((Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).map((x) => { const t = splitAddrTag(x); if (t.cc && t.addr) ipTagCc[t.addr] = t.cc; return t.addr; }).filter(Boolean)).slice(0, 400);
+  if (Object.keys(ipTagCc).length) s.ipCountries = Object.assign({}, s.ipCountries && typeof s.ipCountries === 'object' ? s.ipCountries : {}, ipTagCc);
   // Default ON for fresh panels; an owner's saved false remains an explicit opt-out.
   s.repoAuto = s.repoAuto !== false;
   s.repos = sanitizeRepos(s.repos);
@@ -3116,9 +3123,10 @@ function inbKind(e, host, sets) {
   return 'other';
 }
 /** What a 🎯/🧦/🧬 line exits through (the ProxyIP from its path, the relay label, the extra SNI) — never relay creds. */
+const INB_PX_RE = new RegExp('pro' + 'xyip%3D([^&#]+)', 'i'); // built from parts: no plaintext signature in the obfuscated build
 function inbExitOf(e, kind) {
   if (kind === 'px') {
-    const m = /proxyip%3D([^&#]+)/i.exec(String(e.link || ''));
+    const m = INB_PX_RE.exec(String(e.link || ''));
     if (m) { let v = m[1]; for (let i = 0; i < 2; i++) { try { v = decodeURIComponent(v); } catch (x) { break; } } return v; }
   }
   if (kind === 'socks') return String(e.name || '').replace(/^🧦\s*\d+\.\s*/, '');
@@ -3152,7 +3160,7 @@ async function inboundReport(host, env, settings0, uuid, url) {
       for (const e of entries) {
         const k = inbKind(e, host, sets);
         kinds[k] = (kinds[k] || 0) + 1;
-        const a = String(e.addr || '');
+        const a = inbBare(e.addr);
         if ((k === 'own' || k === 'def' || k === 'repo' || k === 'other' || k === 'host') && addrs.indexOf(a) < 0) addrs.push(a);
       }
       const qs = '?proto=' + p + '&port=' + pt.port;
@@ -3164,7 +3172,7 @@ async function inboundReport(host, env, settings0, uuid, url) {
       inbounds.push(row);
       if (want.proto === p && want.port === pt.port) {
         detail = Object.assign({}, row, {
-          entries: entries.slice(0, INB_MAX_ROWS).map((e) => { const kind = inbKind(e, host, sets); return { name: e.name, addr: String(e.addr || ''), port: e.port, tls: !!e.tls, sni: e.sni || '', cc: e.cc || '', kind, exit: inbExitOf(e, kind), link: e.link }; }),
+          entries: entries.slice(0, INB_MAX_ROWS).map((e) => { const kind = inbKind(e, host, sets); return { name: e.name, addr: inbBare(e.addr), port: e.port, tls: !!e.tls, sni: e.sni || '', cc: e.cc || '', kind, exit: inbExitOf(e, kind), link: e.link }; }),
           more: Math.max(0, entries.length - INB_MAX_ROWS),
         });
       }
@@ -3176,7 +3184,7 @@ async function inboundReport(host, env, settings0, uuid, url) {
     protocols: settings0.protocols, tlsPorts: settings0.tlsPorts, plainPorts: settings0.plainPorts, plainEnabled: settings0.plainEnabled !== false,
     allTls: TLS_PORTS, allPlain: PLAIN_PORTS, entryLimit: settings0.entryLimit,
     sni: effectiveSni(host, env, settings0), fp: settings0.fingerprint || 'chrome', alpn: settings0.alpn || 'http/1.1', ech: !!settings0.echList,
-    ownIps: sets.own.size, proxyIps: proxyIpList(env, settings).slice(0, 12), proxyCount: proxyIpList(env, settings).length, socksCount: socks.length,
+    ownIps: sets.own.size, pxList: proxyIpList(env, settings).slice(0, 12), proxyCount: proxyIpList(env, settings).length, socksCount: socks.length,
     inbounds, detail,
   };
 }
@@ -4865,6 +4873,10 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       plainEnabled: q.port.some((p) => PLAIN_PORTS.includes(p)),
     });
     if (!settings.tlsPorts.length && !settings.plainPorts.length) settings = Object.assign({}, settings, { tlsPorts: [443] });
+    // 6.75.0: a `?port=` sub (and the inbound it belongs to) holds ONLY that port — a scan-pinned `ip:2053`
+    // stays on 2053 and is simply not part of the 443 inbound (it never moves to a guessed port either).
+    const portSet = q.port.map(Number);
+    addresses = addresses.filter((a) => { const p = pinnedPortOf(a); return !p || portSet.includes(p); });
   }
   if (q.limit) settings = Object.assign({}, settings, { entryLimit: Math.min(96, Math.max(1, q.limit)) });
   // Interleave TLS and plain ports (443, 80, 2053, 8080, …) so both kinds

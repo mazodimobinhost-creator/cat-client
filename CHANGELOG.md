@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta201] — 2026-10-28 (Panel 6.75.0)
+
+### Added — panel 6.75.0 «useful inbounds, tidy pages, Vercel self-update»
+- **Inbounds page is now useful.** One card per protocol × port (VLESS/Trojan × every enabled TLS / plain port) with its config count, entry addresses and exits. «🔍 What’s inside» opens a detail dialog with the real connection settings (protocol, port, TLS, WebSocket path, SNI, Host, fingerprint, ALPN, ECH), the entry addresses grouped by kind (own clean IPs, default IPs, free feeds, panel domain), the exits (ProxyIP with its own port, SOCKS relays, extra SNI), a sub link for that single inbound in 5 formats + QR, and every config with copy / QR. Protocols and ports are switched on/off and saved right there. New owner-only `GET /api/inbounds` builds this from the same code the subscription uses.
+- **Vercel panels update themselves** — «⚡ direct update» no longer asks for a Cloudflare token there. The panel makes a fresh production deployment of its own project (same layout the app deploys: adapter + patched panel + `vercel.json` + `package.json`); project env (UUID, TROJAN_PASS, Blob storage) is untouched, so users and settings survive. The token comes from `CAT_VERCEL_TOKEN`, which the app now stores (encrypted env, with `CAT_VERCEL_PROJECT` / `CAT_VERCEL_TEAM`) when it builds or updates a panel; older panels ask once for a **Vercel** token and keep it. The page waits for `/api/version` to report the new version, then reloads. Node-host panels point to the app's update instead of asking for any token.
+- **Tidy pages (DevCop-style, own code).** Busy pages are split into tabs instead of one endless scroll: *Clean IP* (scanner · panel IPs · pools · auto sources · app scan & country), *Locations & exits* (countries · ProxyIP & SNI · SOCKS & VIP · exit tests · advanced), *Config builder* (custom sub · single config · Aether · client fragment), *Tools* (tests · survival pack · DNS/WhiteDNS). The separate «Nodes» and «ProxyIP & SNI» pages became tabs of Clean IP / Locations (old links and buttons still land on the right tab); the sidebar is shorter. The config builder is three numbered steps (your operator → what goes into the sub → build & copy) with firewall/ECH options folded into an optional section.
+
+### Fixed
+- An `ip#CC` / `ip:port#CC` that reached the settings directly (API, bot, old backup) stayed inside the address and produced a broken link (`@1.2.3.4#DE:443`); the tag now goes to the country map and the link is clean.
+- A `?port=` subscription could still carry a scan-pinned address from another port; it now holds only the asked port (the pinned address stays on its own verified port, never moved).
+- The single-config card and the country-filter card shared i18n keys, so one showed the other's title.
+- Dead duplicate branch in the page switcher (Locations data now loads with the page).
+
 ## [1.10.0-beta200] — 2026-10-28 (Panel 6.74.0)
 
 ### Added — panel 6.74.0 «🌍 exit locations» (DevCop-style, own code)

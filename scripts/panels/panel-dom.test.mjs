@@ -181,7 +181,7 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 12 labeled items (beta199: + locations, tools)', document.querySelectorAll('#menu .mlist > button').length === 12 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 10 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab)', document.querySelectorAll('#menu .mlist > button').length === 10 && document.querySelector('#menu .mtx b').textContent.length > 2);
 document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
@@ -204,6 +204,21 @@ check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').
 // 6.48.0: service-proof card (BPB parity) in the nodes view
 document.querySelector('[data-view="nodes"]').click();
 check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
+
+// 6.75.0 page tabs: busy pages are split into tabs; old «nodes»/«spoof» links land on the right tab
+{
+  const live = (sel) => { const el = document.querySelector(sel); const c = el && el.closest('.card,.ncard'); return !!c && !c.classList.contains('pt-off'); };
+  check('scan page has a tab bar (scanner / panel IPs / pools / sources / app)', document.querySelectorAll('#v-scan .ptabs [data-pt^="scan:"]').length === 5);
+  check('«nodes» link opens Clean IP → panel IPs tab', document.getElementById('v-scan').classList.contains('on') && live('#ipList') && !live('#rsCard'));
+  document.querySelector('[data-pt="scan:scan"]').click();
+  check('tab click switches cards', live('#rsCard') && !live('#ipList'));
+  check('loc page tabs exist and spoof cards moved into it', document.querySelectorAll('#v-loc .ptabs [data-pt^="loc:"]').length === 5 && document.getElementById('v-loc').contains(document.getElementById('fSpoof')));
+  check('tools page holds the survival pack + DNS lab as tabs', document.getElementById('v-tools').contains(document.getElementById('survCard')) && document.getElementById('v-tools').contains(document.getElementById('wdnsCard')));
+  check('builder: numbered steps + optional firewall section', document.querySelectorAll('#v-build .bstep').length === 3 && !!document.querySelector('#v-build details.bmore #bFw'));
+  check('sidebar has no separate nodes/spoof pages', !document.querySelector('#sideNav [data-view="nodes"]') && !document.querySelector('#sideNav [data-view="spoof"]'));
+}
+// keep the old flow: the service-proof card is reachable (it lives in Locations → Exit tests now)
+document.querySelector('[data-view="nodes"]').click();
 
 // 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
 check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
