@@ -29971,7 +29971,10 @@ class MainActivity : Activity() {
                 return if (ok != null && ok in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
             }
             var samples = (1..3).mapNotNull { sample(true) }
-            if (samples.isEmpty() && started) samples = (1..3).mapNotNull { sample(false) }
+            // beta204: the direct fallback is only a TUNNEL ping when this app's own traffic really rides the VPN.
+            // With a child-process engine (Psiphon/Tor/…) the app excludes itself, so a «direct» sample measured the
+            // phone's bare network and showed a fake, healthy-looking number for a dead config.
+            if (samples.isEmpty() && started && appTrafficRidesVpn()) samples = (1..3).mapNotNull { sample(false) }
             val best = samples.minOrNull()
             livePingMs = best
             withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -29985,6 +29988,13 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    /** True when this app's default network is the VPN (Android answers per UID, so an excluded app sees the bare network). */
+    private fun appTrafficRidesVpn(): Boolean = runCatching {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return@runCatching false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return@runCatching false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+    }.getOrDefault(false)
 
     /** Manual "sync with the site" — forces a fresh family-forced probe so
      * the dashboard can be compared against whatismyipaddress right away. */

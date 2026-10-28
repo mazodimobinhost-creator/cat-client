@@ -1380,8 +1380,8 @@ class CatClientVpnService : VpnService() {
                         .firstOrNull { it.startsWith("country=", ignoreCase = true) }
                         ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US).orEmpty()
                     val node = FirefoxVpnEngine.getAvailableCountries(applicationContext)
-                        .let { list -> list.firstOrNull { it.code == code } ?: list.first() }
-                    runCatching {
+                        .let { list -> list.firstOrNull { it.code == code } ?: list.firstOrNull() }
+                    if (node == null) null else runCatching {
                         val t0 = System.nanoTime()
                         java.net.Socket().use { s ->
                             protectOutboundSocket(s)

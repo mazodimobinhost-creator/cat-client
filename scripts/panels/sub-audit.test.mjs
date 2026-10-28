@@ -290,6 +290,21 @@ for (const platform of [{ label: 'cf', env: {} }, { label: 'vercel', env: { CAT_
   }
 }
 
+// ---- the app's push paths (scanner → POST /api/ips, ProxyIP page → PUT /api/settings) ----
+{
+  const P = await makePanel({});
+  const lines = ['1.2.3.4:2053#DE', '[2606:4700::1]:8443#NL'];
+  const r = await (await P.call('/api/ips', { method: 'POST', headers: P.auth, body: { ips: lines, source: 'scanner', pingMs: { [lines[0]]: 120, [lines[1]]: 90 }, countries: { [lines[0]]: 'DE' }, neighborIps: [lines[1]] } })).json();
+  check('app push: IPs stored with exactly their ports', JSON.stringify((r.ips || []).slice(0, 2)) === JSON.stringify(['1.2.3.4:2053', '[2606:4700::1]:8443']), JSON.stringify(r.ips));
+  const st = (await (await P.call('/api/settings', { headers: P.auth })).json()).settings;
+  check('app push: scanner pings land on the stored address (badge + health order)', st.ipSources['1.2.3.4:2053'] && st.ipSources['1.2.3.4:2053'].ms === 120 && st.ipSources['[2606:4700::1]:8443'].src === 'neighbor', JSON.stringify(st.ipSources));
+  check('app push: no «#CC» junk keys in the maps', !Object.keys(st.ipSources).concat(Object.keys(st.ipCountries)).some((k) => k.includes('#')), JSON.stringify(st.ipCountries));
+  check('app push: countries keyed by the stored address', st.ipCountries['1.2.3.4:2053'] === 'DE' && st.ipCountries['[2606:4700::1]:8443'] === 'NL');
+  const px = (await (await P.call('/api/settings', { method: 'PUT', headers: P.auth, body: { proxyIps: PROXY_IPS.concat([SOCKS, '5.5.5.5']), proxyCountries: { [PROXY_IPS[0]]: 'SG' } } })).json()).settings;
+  check('ProxyIP page: both ProxyIPs kept with their exact ports, SOCKS kept, port-less entry not guessed', JSON.stringify(px.proxyIps) === JSON.stringify(PROXY_IPS.concat([SOCKS])), JSON.stringify(px.proxyIps));
+  check('settings page port buttons get numbers (no duplicate «443» buttons)', st.tlsPorts.every((p) => typeof p === 'number') && st.plainPorts.every((p) => typeof p === 'number'), JSON.stringify(st.tlsPorts));
+}
+
 console.log(passes + ' checks passed, ' + failures + ' failed');
 if (failures) process.exit(1);
 console.log('sub-audit: all checks passed');

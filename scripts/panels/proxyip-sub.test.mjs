@@ -184,7 +184,7 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
   await E.call('/api/ips', 'POST', { ips: ['104.16.88.20'], source: 'manual' });
   await E.call('/api/settings', 'PUT', { proxyIps: MY_PX.concat(['socks5://u:p@192.0.2.9:1080']) });
   const pinOf = (wsPath) => { const q = String(wsPath).split('?')[1] || ''; const m = /(?:^|&)proxyip=([^&]*)/.exec(q); return m ? dec(m[1]) : null; };
-  const pxName = (n) => { const m = /^🎯 \d+\. (.+)$/.exec(n); return m ? m[1] : null; };
+  const pxName = (n) => { const m = /^🎯 \d+\. (.+?)(?: · (?:VL|TR))?$/.exec(n); return m ? m[1] : null; }; // beta204: twins carry « · VL» / « · TR» (unique names)
   const checkFormat = (label, entries) => {
     const px = entries.filter((e) => e.name.includes('🎯'));
     check(label + ': 6 🎯 entries (3 ProxyIPs × 2 protocols)', px.length === 6, px.length);
@@ -216,7 +216,7 @@ for (const [label, q] of [['?limit=1', '?limit=1'], ['?limit=2', '?limit=2'], ['
   // The relay ADDRESS must not appear in the name either — the subscription is shared
   // around and the name is the last place the proxy host used to travel.
   check('app-scanner line: the sub gets its 🧦 SOCKS configs (VLESS+Trojan), named without the relay address',
-    n.length === 2 && n.every((x) => /^🧦 \d+\. Relay$/.test(x)) && n.every((x) => !/\d+\.\d+\.\d+\.\d+:\d+/.test(x)),
+    n.length === 2 && n.every((x) => /^🧦 \d+\. Relay(?: · (?:VL|TR))?$/.test(x)) && new Set(n).size === 2 && n.every((x) => !/\d+\.\d+\.\d+\.\d+:\d+/.test(x)),
     JSON.stringify(n));
     check('app-scanner line: … and NO stray 🎯 relay for the same IP', !n.some((x) => x.includes('🎯')), JSON.stringify(n)); }
   { const P = await panel('F2'); const r = await put(P, ['socks5://83.147.217.103:1080#SOCKS5', '83.147.217.103']); // what the OLD form stored (split on spaces)

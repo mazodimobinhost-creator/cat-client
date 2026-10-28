@@ -6319,7 +6319,9 @@ async function addCleanIpEntries(env, settings, rawInput, opts) {
     }
   }
   if (opts.countries && typeof opts.countries === 'object') {
-    Object.assign(tags, normalizeCountryMap(opts.countries, 500));
+    // keys arrive as the app's «ip:port#CC» panel lines; the country map is keyed by the stored «ip:port»
+    const cm = normalizeCountryMap(opts.countries, 500);
+    for (const k of Object.keys(cm)) tags[String(k).split('#')[0].trim()] = cm[k];
   }
   const next = opts.replace ? incoming : uniq(incoming.concat(settings.ips || []));
   const src = String(opts.source || '').slice(0, 24);
@@ -6328,7 +6330,10 @@ async function addCleanIpEntries(env, settings, rawInput, opts) {
   const neighborSet = new Set((neighborRaw || []).map((v) => String(v).split('#')[0].trim()).filter(Boolean));
   const srcMap = Object.assign({}, settings.ipSources || {});
   for (const k of Object.keys(pings).slice(0, 400)) {
-    if (pings[k] != null) srcMap[k] = { src: neighborSet.has(String(k).split('#')[0]) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
+    // beta204: the app keys pings by its panel line «ip:port#CC», the list stores «ip:port» — the «#CC» key never
+    // matched, so scanner pings (badges + health ordering) were silently lost. Key by the bare address.
+    const key = String(k).split('#')[0].trim();
+    if (key && pings[k] != null) srcMap[key] = { src: neighborSet.has(key) ? 'neighbor' : (src || 'import'), ms: Number(pings[k]) || 0, at: Date.now() };
   }
   if (src === 'manual' || src === 'bot') {
     for (const e of incoming.slice(0, 400)) if (!srcMap[e]) srcMap[e] = { src, ms: 0, at: Date.now() };

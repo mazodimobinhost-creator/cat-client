@@ -747,7 +747,7 @@ let user;
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
     // beta94: the relay carries its default port, and its country tag moved with it.
-    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name === '🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.replace(/ · (VL|TR)$/, '') === '🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
     { // spoofing is opt-in: the rotation pool (and the ' · <sni>' remark suffix) only exist while sniFront is on
       const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
       const pxf = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, {}).entries.filter((e) => e.name.includes('🎯'));
@@ -768,7 +768,7 @@ let user;
     }), pxs[0] && pxs[0].link);
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
-    check('en locale → English country label', een.some((e) => e.name === '🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
+    check('en locale → English country label', een.some((e) => e.name.replace(/ · (VL|TR)$/, '') === '🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
@@ -869,7 +869,7 @@ let user;
     const outDef = T.buildConfigEntries('panelx.workers.dev', ENV, stDef, 'u1', null, {});
     const snisDef = new Set(outDef.entries.filter((e) => e.tls).map((e) => e.sni));
     check('default: every TLS config carries sni == worker host (no rotation)', snisDef.size === 1 && snisDef.has('panelx.workers.dev'), [...snisDef].join(','));
-    check('default: no SNI suffix in the remarks', !outDef.entries.filter((e) => e.tls).some((e) => / · /.test(e.name)), outDef.entries[0] && outDef.entries[0].name);
+    check('default: no SNI suffix in the remarks', !outDef.entries.filter((e) => e.tls).some((e) => / · /.test(e.name.replace(/ · (VL|TR)$/, ''))), outDef.entries[0] && outDef.entries[0].name);
     check('default: sni= in every TLS link equals host=', outDef.entries.filter((e) => e.tls).every((e) => { const sni = decodeURIComponent((e.link.match(/[?&]sni=([^&#]*)/) || [])[1] || ''); const host = decodeURIComponent((e.link.match(/[?&]host=([^&#]*)/) || [])[1] || ''); return sni && sni === host; }));
     const st = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, sniFront: true });
     const out = T.buildConfigEntries('panelx.workers.dev', ENV, st, 'u1', null, {});
